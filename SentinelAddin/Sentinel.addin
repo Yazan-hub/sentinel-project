@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Sentinel BIM Coordinator</Name>
+    <Assembly>Sentinel\Sentinel.dll</Assembly>
+    <AddInId>7A1E6C0D-4B2F-4E8A-9C3D-5F0A2B1D9E77</AddInId>
+    <FullClassName>Sentinel.App</FullClassName>
+    <VendorId>BDS</VendorId>
+    <VendorDescription>Badran Design Studio — Sentinel</VendorDescription>
+  </AddIn>
+</RevitAddIns>

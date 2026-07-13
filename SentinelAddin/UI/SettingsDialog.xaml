@@ -1,0 +1,61 @@
+<Window x:Class="Sentinel.UI.SettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sentinel — Project Setup"
+        Width="560" SizeToContent="Height" WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize" Background="#F4F6F9">
+    <StackPanel>
+        <Border Background="#1E3A5F" Padding="20,14">
+            <StackPanel>
+                <TextBlock Text="Project Setup" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock Text="Standards sources — supports local servers, network drives and ACC Desktop Connector paths"
+                           Foreground="#9DB4CE" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Margin="20,16">
+            <TextBlock Text="Master ruleset path (ruleset.json)" FontSize="11" Foreground="#667"/>
+            <DockPanel Margin="0,4,0,12">
+                <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
+                        Margin="6,0,0,0" Click="OnBrowseRuleset"/>
+                <TextBox x:Name="RulesetPathBox" Height="28" FontSize="12" Padding="6,4"
+                         VerticalContentAlignment="Center"/>
+            </DockPanel>
+
+            <TextBlock Text="Revit template path (.rte)" FontSize="11" Foreground="#667"/>
+            <DockPanel Margin="0,4,0,12">
+                <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
+                        Margin="6,0,0,0" Click="OnBrowseTemplate"/>
+                <TextBox x:Name="TemplatePathBox" Height="28" FontSize="12" Padding="6,4"
+                         VerticalContentAlignment="Center"/>
+            </DockPanel>
+
+            <TextBlock Text="Project code (optional — tightens the CDE file-name check, e.g. BDS20268)"
+                       FontSize="11" Foreground="#667"/>
+            <TextBox x:Name="ProjectCodeBox" Height="28" FontSize="12" Padding="6,4"
+                     Margin="0,4,0,16" VerticalContentAlignment="Center" Width="200"
+                     HorizontalAlignment="Left"/>
+
+            <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1"
+                    CornerRadius="6" Padding="12" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Save scope" FontSize="11" Foreground="#667" Margin="0,0,0,6"/>
+                    <RadioButton x:Name="ScopeProject" GroupName="Scope" IsChecked="True"
+                                 Content="Current project (Extensible Storage — syncs with central, whole team)"
+                                 FontSize="12" Margin="0,0,0,4"/>
+                    <RadioButton x:Name="ScopeMachine" GroupName="Scope"
+                                 Content="This machine only (%AppData%\Sentinel\config.json — fallback default)"
+                                 FontSize="12"/>
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="StatusText" FontSize="11" Foreground="#2E7D4F" Margin="0,0,0,8"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel" Width="80" Height="30" Margin="0,0,8,0" Click="OnCancel"/>
+                <Button Content="Save" Width="90" Height="30"
+                        Background="#1E3A5F" Foreground="White" BorderThickness="0" Click="OnSave"/>
+            </StackPanel>
+        </StackPanel>
+    </StackPanel>
+</Window>

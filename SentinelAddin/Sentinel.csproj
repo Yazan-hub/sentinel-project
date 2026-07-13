@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ============================================================
+       Multi-version build: Revit 2021–2027 from one codebase.
+       Select with:  dotnet build -p:RevitVersion=2023
+       Or build all: powershell ./build.ps1
+       ============================================================ -->
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
+
+    <!-- 2021–2024 -> .NET Framework 4.8 · 2025–2026 -> .NET 8 · 2027 -> .NET 10 -->
+    <TargetFramework Condition="$(RevitVersion) &lt;= 2024">net48</TargetFramework>
+    <TargetFramework Condition="$(RevitVersion) == 2025 Or $(RevitVersion) == 2026">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="$(RevitVersion) &gt;= 2027">net10.0-windows</TargetFramework>
+
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Sentinel</AssemblyName>
+    <RootNamespace>Sentinel</RootNamespace>
+    <ImplicitUsings Condition="'$(TargetFramework)' == 'net8.0-windows' Or '$(TargetFramework)' == 'net10.0-windows'">enable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\$(RevitVersion)\</OutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- Version defines for conditional API code, e.g. #if REVIT2024_OR_GREATER -->
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+    <DefineConstants Condition="$(RevitVersion) &gt;= 2022">$(DefineConstants);REVIT2022_OR_GREATER</DefineConstants>
+    <DefineConstants Condition="$(RevitVersion) &gt;= 2023">$(DefineConstants);REVIT2023_OR_GREATER</DefineConstants>
+    <DefineConstants Condition="$(RevitVersion) &gt;= 2024">$(DefineConstants);REVIT2024_OR_GREATER</DefineConstants>
+    <DefineConstants Condition="$(RevitVersion) &gt;= 2025">$(DefineConstants);REVIT2025_OR_GREATER</DefineConstants>
+    <DefineConstants Condition="$(RevitVersion) &gt;= 2026">$(DefineConstants);REVIT2026_OR_GREATER</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Revit API stubs matched to the target year; runtime excluded so we
+         always bind to the DLLs of the installed Revit. -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" ExcludeAssets="runtime" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitVersion).*" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Text.Json" Version="8.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shipped ruleset + ribbon icons: copied to output, deployed with the DLL -->
+    <Content Include="Resources\ruleset.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Resources\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <!-- ImplicitUsings is net8-only; give net48 the same usings -->
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+  </ItemGroup>
+
+  <!-- Deploy to the matching Revit Addins folder after build -->
+  <Target Name="DeployAddin" AfterTargets="Build" Condition="'$(DeployToRevit)' == 'true'">
+    <ItemGroup>
+      <AddinFiles Include="$(TargetDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(AddinFiles)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\Sentinel\%(RecursiveDir)" ContinueOnError="WarnAndContinue" />
+    <Copy SourceFiles="Sentinel.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)" ContinueOnError="WarnAndContinue" />
+  </Target>
+</Project>

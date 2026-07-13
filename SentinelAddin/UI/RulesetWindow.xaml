@@ -1,0 +1,118 @@
+<Window x:Class="Sentinel.UI.RulesetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sentinel — Effective Ruleset"
+        Width="760" Height="640" WindowStartupLocation="CenterScreen"
+        Background="#F4F6F9">
+    <Window.Resources>
+        <Style x:Key="Badge" TargetType="Border">
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="BorderBrush" Value="#E3E8EF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Background="#1E3A5F" Padding="20,16">
+            <StackPanel>
+                <TextBlock Text="{Binding Header}" Foreground="White"
+                           FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding SubHeader}" Foreground="#9DB4CE"
+                           FontSize="12" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Legend -->
+        <Border DockPanel.Dock="Top" Background="White" Padding="20,10"
+                BorderBrush="#E3E8EF" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Enforcement modes:" FontSize="11" Foreground="#667"
+                           VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <Border Style="{StaticResource Badge}" Background="#E8F0FA" Margin="0,0,6,0">
+                    <TextBlock Text="MONITOR" FontSize="10" FontWeight="Bold" Foreground="#3478C8"/>
+                </Border>
+                <Border Style="{StaticResource Badge}" Background="#FFF6DC" Margin="0,0,6,0">
+                    <TextBlock Text="WARN" FontSize="10" FontWeight="Bold" Foreground="#B07D10"/>
+                </Border>
+                <Border Style="{StaticResource Badge}" Background="#FDEBD8" Margin="0,0,6,0">
+                    <TextBlock Text="REQUEST" FontSize="10" FontWeight="Bold" Foreground="#C2611A"/>
+                </Border>
+                <Border Style="{StaticResource Badge}" Background="#FBE3E3">
+                    <TextBlock Text="BLOCK" FontSize="10" FontWeight="Bold" Foreground="#B3352F"/>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- Rule cards -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,14">
+            <ItemsControl ItemsSource="{Binding Rules}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Style="{StaticResource Card}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Row 0: id + target + mode badge + docref -->
+                                <DockPanel Grid.Row="0">
+                                    <Border Style="{StaticResource Badge}"
+                                            Background="{Binding ModeBackground}" DockPanel.Dock="Right">
+                                        <TextBlock Text="{Binding Mode}" FontSize="10" FontWeight="Bold"
+                                                   Foreground="{Binding ModeForeground}"/>
+                                    </Border>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Id}" FontSize="15" FontWeight="Bold"
+                                                   Foreground="#1E3A5F"/>
+                                        <Border Background="#EEF2F7" CornerRadius="4"
+                                                Padding="6,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Target}" FontSize="10"
+                                                       Foreground="#556" FontWeight="SemiBold"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding DocRef}" FontSize="11" Foreground="#889"
+                                                   Margin="12,0,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <!-- Row 1: pattern tokens -->
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0"
+                                            Visibility="{Binding PatternVisibility}">
+                                    <TextBlock Text="Pattern:" FontSize="11" Foreground="#667"
+                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding Pattern}" FontFamily="Consolas" FontSize="12"
+                                               Foreground="#2D5A8E" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <!-- Row 2: messages -->
+                                <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                                    <TextBlock Text="{Binding MessageEn}" FontSize="12"
+                                               Foreground="#333" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding MessageAr}" FontSize="12" Foreground="#667"
+                                               TextWrapping="Wrap" FlowDirection="RightToLeft"
+                                               Visibility="{Binding ArVisibility}" Margin="0,2,0,0"/>
+                                </StackPanel>
+
+                                <!-- Row 3: extra info (whitelist count / scope) -->
+                                <TextBlock Grid.Row="3" Text="{Binding ExtraInfo}" FontSize="11"
+                                           Foreground="#889" Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Visibility="{Binding ExtraVisibility}"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

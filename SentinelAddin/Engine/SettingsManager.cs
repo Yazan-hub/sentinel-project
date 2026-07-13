@@ -1,0 +1,110 @@
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.ExtensibleStorage;
+
+namespace Sentinel.Engine;
+
+/// <summary>
+/// Dual-layer configuration (commercial flexibility: not every office runs ACC).
+///   Layer 1 — Extensible Storage in the active Document (project-level truth;
+///             travels with the central file to every team member).
+///   Layer 2 — %AppData%\Sentinel\config.json (machine-level default; works
+///             for offices on plain file servers or ACC Desktop Connector).
+/// Resolution order: document ES first, JSON fallback second.
+/// </summary>
+public sealed class SentinelSettings
+{
+    [JsonPropertyName("master_ruleset_path")] public string MasterRulesetPath { get; set; } = string.Empty;
+    [JsonPropertyName("revit_template_path")] public string RevitTemplatePath { get; set; } = string.Empty;
+    [JsonPropertyName("project_code")] public string ProjectCode { get; set; } = string.Empty; // optional, tightens CDE-01
+
+    [JsonIgnore] public bool IsEmpty =>
+        string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath);
+}
+
+public static class SettingsManager
+{
+    private static readonly Guid SchemaGuid = new("A3F81C2D-6E4B-4D9A-B7C0-2E5F8A1D3B66");
+    private const string FieldName = "ConfigJson";
+    private const string StorageName = "Sentinel.Config";
+
+    private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
+
+    public static string ConfigJsonPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Sentinel", "config.json");
+
+    // ---------------- Extensible Storage (project level) ----------------
+    private static Schema GetSchema()
+    {
+        var existing = Schema.Lookup(SchemaGuid);
+        if (existing is not null) return existing;
+        var b = new SchemaBuilder(SchemaGuid);
+        b.SetSchemaName("SentinelConfig");
+        b.SetReadAccessLevel(AccessLevel.Public);
+        b.SetWriteAccessLevel(AccessLevel.Public);
+        b.AddSimpleField(FieldName, typeof(string));
+        return b.Finish();
+    }
+
+    private static DataStorage? FindStorage(Document doc) =>
+        new FilteredElementCollector(doc).OfClass(typeof(DataStorage))
+            .Cast<DataStorage>().FirstOrDefault(ds => ds.Name == StorageName);
+
+    /// <summary>Read project-level settings from the document. Null when absent.</summary>
+    public static SentinelSettings? LoadFromDocument(Document doc)
+    {
+        try
+        {
+            var ds = FindStorage(doc);
+            if (ds is null) return null;
+            var entity = ds.GetEntity(GetSchema());
+            if (!entity.IsValid()) return null;
+            var json = entity.Get<string>(FieldName);
+            if (string.IsNullOrEmpty(json)) return null;
+            var s = JsonSerializer.Deserialize<SentinelSettings>(json);
+            return s is { IsEmpty: false } ? s : null;
+        }
+        catch (Exception) { return null; }  // corrupt ES payload: fall through to JSON
+    }
+
+    /// <summary>Write project-level settings. CALLER must hold an open transaction
+    /// (route through App.Events — see SettingsDialog).</summary>
+    public static void SaveToDocument(Document doc, SentinelSettings settings)
+    {
+        var ds = FindStorage(doc) ?? DataStorage.Create(doc);
+        if (ds.Name != StorageName) ds.Name = StorageName;
+        var entity = new Entity(GetSchema());
+        entity.Set(FieldName, JsonSerializer.Serialize(settings, JsonOpts));
+        ds.SetEntity(entity);
+    }
+
+    // ---------------- Local JSON (machine level) ----------------
+    public static SentinelSettings? LoadFromMachine()
+    {
+        try
+        {
+            if (!File.Exists(ConfigJsonPath)) return null;
+            var s = JsonSerializer.Deserialize<SentinelSettings>(File.ReadAllText(ConfigJsonPath));
+            return s is { IsEmpty: false } ? s : null;
+        }
+        catch (Exception) { return null; }
+    }
+
+    public static void SaveToMachine(SentinelSettings settings)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(ConfigJsonPath)!);
+        File.WriteAllText(ConfigJsonPath, JsonSerializer.Serialize(settings, JsonOpts));
+    }
+
+    // ---------------- Resolution ----------------
+    /// <summary>Effective settings: document ES first, machine JSON fallback,
+    /// empty settings when neither exists (engine then uses built-in chain).</summary>
+    public static SentinelSettings Resolve(Document? doc)
+    {
+        if (doc is not null && LoadFromDocument(doc) is SentinelSettings project) return project;
+        return LoadFromMachine() ?? new SentinelSettings();
+    }
+}

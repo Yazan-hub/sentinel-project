@@ -1,0 +1,20 @@
+﻿# Node / web app
+node_modules/
+dist/
+build/
+.next/
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Secrets — never commit real config
+.env
+*.env
+config/appsettings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
