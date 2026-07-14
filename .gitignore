@@ -14,6 +14,9 @@ obj/
 .env
 *.env
 config/appsettings.local.json
+# npm auth tokens — the thatopen CLI regenerates .npmrc from the platform token
+.npmrc
+**/.npmrc
 
 # OS
 .DS_Store
