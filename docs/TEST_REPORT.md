@@ -53,7 +53,17 @@ All three re-verified: full 2021–2027 rebuild after the fixes is clean, 0 warn
   confidence-clamped ≤ 0.85 and **unticked by default** for human review).
 - **Browser-org activation is manual.** A copied scheme lands in the target; Revit has no API to make it the
   current organization — the report tells the user to activate it via right-click.
-- **Deferred (not bugs):** naming-rule extraction (prose → token `Rule`) and ISO 19650 gap analysis.
+- **~~Deferred~~ Done (2026-07-16):** naming-rule extraction (prose → token `Rule`) and ISO 19650 gap
+  analysis are both now implemented — see §6.
+  - **Naming-rule extraction** (`a33945a`): `Ingest Docs` now pulls naming conventions from standards
+    documents as ordered token rules (target + separator + example), confidence-clamped ≤ 0.85 and
+    unticked-by-default in review; on build they map to `Engine.Rule` (Warn) and merge into the effective
+    ruleset, so the scanner's token→regex path enforces them immediately.
+  - **ISO 19650 gap analysis** (`7dbbf3c`): `IsoGapAnalyzer` grades a standards pack against ISO 19650-2
+    fundamentals (container naming, suitability/status, revision, Uniclass, originator, worksets) as
+    Present / Partial / Missing with a weighted score, surfaced via the **ISO 19650 ✓** button in the
+    review window. Parameters are only ever Partial on a name match (a pack can't prove the field carries
+    ISO codes) — honest by design.
 
 ---
 
@@ -102,3 +112,25 @@ I can't click Revit's ribbon or drive the browser, so please spot-check these wh
    (fields + comments + history). Create an issue (select an element first) → it appears in Revit's BCF window.
 
 If any step misbehaves, tell me what you saw and I'll fix it.
+
+---
+
+## 6. Addendum (2026-07-16) — deferred items closed + bridge hardening
+
+The two §3 deferred items are now implemented, plus a bridge fix and a Copilot addition. Each was
+verified to the strongest level available without a live Revit + dashboard token.
+
+| Change | Commit | Verification |
+|---|---|---|
+| **Naming-rule extraction** (prose → token `Rule`) | `a33945a` | Revit 2021–2027 target build clean (0/0); logic checked against the engine's existing token→regex path |
+| **ISO 19650 gap analysis** (`IsoGapAnalyzer`) | `7dbbf3c` | Pure analyzer linked into a **Revit-free test harness** — weak pack 1/6 (25%), strong pack 67%, all assertions pass; add-in build clean |
+| **Bridge: offline dry-run + re-sweep** | `d3462a3` | Ran `watch-outbox --dry-run --once` with **no credentials** (detects `.ifc`, ignores `.txt`); watch mode picks up a file dropped after startup |
+| **Copilot: embodied-carbon (6D) answers** | `ba9fa8f` | `vite build` clean (123 modules) |
+
+**New GUI surfaces to spot-check** (extends §5):
+- **Ingest Docs** review window now shows a **Naming Rules** group (amber ◐, unticked) alongside worksets/params.
+- The review window has an **ISO 19650 ✓** button → grades the full extracted standard (Present/Partial/Missing + %).
+- **Copilot** answers *"What's the embodied carbon?"* / *"carbon of walls"* with cited figures + Isolate.
+
+**Still runtime-untested (unchanged from §5):** anything needing live Revit UI, a real dashboard token,
+or Ollama. The ISO analyzer is the exception — being Revit-free, it was executed and asserted directly.
