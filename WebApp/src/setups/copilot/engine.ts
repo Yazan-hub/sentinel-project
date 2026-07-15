@@ -7,7 +7,7 @@
 // docs/platform-vision.md: "LLM proposes, the deterministic engine disposes."
 
 import type {
-  ElementFacts, ScanReport, Scorecard, Ruleset, Violation, BoQ,
+  ElementFacts, ScanReport, Scorecard, Ruleset, Violation, BoQ, CarbonReport,
 } from "../../sentinel-core";
 
 export interface CopilotIssue {
@@ -22,6 +22,7 @@ export interface Grounding {
   report: ScanReport | null;
   scorecard: Scorecard | null;
   boq: BoQ | null;
+  carbon: CarbonReport | null;
   issues: CopilotIssue[];
   ruleset: Ruleset;
   hasModel: boolean;
@@ -38,6 +39,10 @@ export interface Answer {
 }
 
 const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
+// tonnes above 1 t for readability, kg below.
+const kgco2 = (kg: number) => kg >= 1000
+  ? `${(kg / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 })} tCO₂e`
+  : `${Math.round(kg).toLocaleString("en-US")} kgCO₂e`;
 
 const CATS = [
   { kw: "wall", ifc: "WALL" }, { kw: "door", ifc: "DOOR" }, { kw: "window", ifc: "WINDOW" },
@@ -99,6 +104,33 @@ const costM: Matcher = (q, g) => {
   return {
     text: `Estimated cost ${money(b.total, b.currency)} across ${b.lines.length} line(s). Top: ${top.join("; ")}.${gaps}`,
     sources: ["5D take-off"],
+  };
+};
+
+const carbonM: Matcher = (q, g) => {
+  if (!/\b(carbon|co2|co₂|embodied|emission|emissions|footprint|sustainab|kgco)\b/.test(q)) return null;
+  if (!g.carbon) return needModel("embodied carbon");
+  const c = g.carbon;
+  const cat = catIn(q);
+  if (cat) {
+    const line = c.lines.find((l) => l.code.toUpperCase().includes(cat.ifc));
+    if (!line) return { text: `No embodied carbon for ${cat.kw}s — no matching factor.`, sources: [`6D · ${c.source}`] };
+    return {
+      text: `${line.description}: ${kgco2(line.kg)} (${line.qty.toLocaleString("en-US", { maximumFractionDigits: 1 })} ${line.unit} × ${line.factor} kgCO₂e/${line.unit}, ${line.count} element(s)). Factors are indicative — replace with project EPDs.`,
+      sources: [`6D · ${c.source}`], elements: line.model_map, count: line.count,
+    };
+  }
+  const top = c.lines.slice(0, 3).map((l) => `${l.description} ${kgco2(l.kg)}`);
+  const intensity = c.gfa > 0
+    ? ` ≈ ${Math.round(c.total_kg / c.gfa).toLocaleString("en-US")} kgCO₂e/m² over ${Math.round(c.gfa).toLocaleString("en-US")} m² GFA.`
+    : "";
+  const gaps = [c.no_factor ? `${c.no_factor} had no factor` : "", c.missing_qto ? `${c.missing_qto} lacked a dimension` : ""]
+    .filter(Boolean).join(", ");
+  return {
+    text: `Embodied carbon ≈ ${kgco2(c.total_kg)} across ${c.lines.length} material line(s).${intensity} `
+      + `Hotspots: ${top.join("; ")}.` + (gaps ? ` Gaps: ${gaps}.` : "")
+      + ` Factors are indicative (${c.source}) — swap in project EPD data.`,
+    sources: [`6D take-off · ${c.source}`],
   };
 };
 
@@ -180,7 +212,8 @@ const healthM: Matcher = (q, g) => {
   };
 };
 
-const MATCHERS: Matcher[] = [helpM, costByCatM, costM, countM, issuesM, ruleM, failM, healthM];
+// carbonM precedes the cost matchers so "how much carbon do walls have" isn't claimed by costByCatM.
+const MATCHERS: Matcher[] = [helpM, carbonM, costByCatM, costM, countM, issuesM, ruleM, failM, healthM];
 
 /** The one public entry: deterministic, grounded, cited. */
 export function answer(qRaw: string, g: Grounding): Answer {
@@ -199,6 +232,7 @@ function capabilities(): Answer {
       "• \"What's the model health?\"\n" +
       "• \"How many walls fail naming?\"  (then Isolate)\n" +
       "• \"How much do the doors cost?\"\n" +
+      "• \"What's the embodied carbon?\"  (6D)\n" +
       "• \"How many windows are there?\"\n" +
       "• \"Show me the open clashes.\"\n" +
       "• \"What's the total cost?\"",
@@ -216,6 +250,7 @@ export function summarize(g: Grounding): string {
     parts.push("Violations by rule: " + [...byRule.entries()].map(([r, n]) => `${r}=${n}`).join(", ") + ".");
   }
   if (g.boq) parts.push(`Cost ${money(g.boq.total, g.boq.currency)}; lines: ` + g.boq.lines.map((l) => `${l.description}=${money(l.amount, g.boq!.currency)}`).join(", ") + ".");
+  if (g.carbon) parts.push(`Embodied carbon ${kgco2(g.carbon.total_kg)}` + (g.carbon.gfa > 0 ? ` (${Math.round(g.carbon.total_kg / g.carbon.gfa)} kgCO₂e/m²)` : "") + "; hotspots: " + g.carbon.lines.slice(0, 4).map((l) => `${l.description}=${kgco2(l.kg)}`).join(", ") + ".");
   const open = g.issues.filter((t) => t.topic_status !== "Closed");
   parts.push(`Open issues: ${open.length}` + (open.length ? " — " + open.slice(0, 6).map((t) => `"${t.title}"[${t.topic_status}${t.assigned_to ? "→" + t.assigned_to : ""}]`).join(", ") : "") + ".");
   return parts.join("\n");

@@ -2,7 +2,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
-import { scan, buildScorecard, buildBoQ, defaultRates } from "../sentinel-core";
+import { scan, buildScorecard, buildBoQ, defaultRates, buildCarbon, defaultFactors } from "../sentinel-core";
 import { activeRuleset, paramNamesOf } from "./active-ruleset";
 import { getAppManager } from "../app";
 import { answer, summarize, type Grounding, type Answer, type CopilotIssue } from "./copilot/engine";
@@ -79,16 +79,21 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   const buildGrounding = async (): Promise<Grounding> => {
     const hasModel = fragments.list.size > 0;
     const ruleset = await activeRuleset(base); // installed standards pack, else bundled
-    let facts: Grounding["facts"] = [], report: Grounding["report"] = null, scorecard: Grounding["scorecard"] = null, boq: Grounding["boq"] = null;
+    let facts: Grounding["facts"] = [], report: Grounding["report"] = null, scorecard: Grounding["scorecard"] = null, boq: Grounding["boq"] = null, carbon: Grounding["carbon"] = null;
     if (hasModel) {
       facts = await extractFacts(fragments, { parameterNames: paramNamesOf(ruleset) });
       report = scan(facts, ruleset, { doc_title: "project", now: new Date().toISOString() });
       scorecard = buildScorecard(report);
-      try { boq = buildBoQ(await quantityTakeoff(fragments), defaultRates); } catch { boq = null; }
+      // One quantity take-off feeds both 5D cost and 6D carbon.
+      try {
+        const quantities = await quantityTakeoff(fragments);
+        boq = buildBoQ(quantities, defaultRates);
+        carbon = buildCarbon(quantities, defaultFactors);
+      } catch { boq = null; carbon = null; }
     }
     let issues: CopilotIssue[] = [];
     try { issues = await (await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
-    return { facts, report, scorecard, boq, issues, ruleset, hasModel };
+    return { facts, report, scorecard, boq, carbon, issues, ruleset, hasModel };
   };
 
   const ensureGrounding = async (): Promise<Grounding> => {
