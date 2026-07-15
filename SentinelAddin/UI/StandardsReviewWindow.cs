@@ -55,11 +55,13 @@ public sealed class StandardsReviewWindow : Window
 
         var build = Btn("Build ticked items ▶", () => Emit(BuildRequested));
         var save = Btn("Save pack", () => Emit(SaveRequested));
+        var iso = Btn("ISO 19650 ✓", RunIsoCheck);
         var close = Btn("Close", Close);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
         buttons.Children.Add(build);
         buttons.Children.Add(save);
+        buttons.Children.Add(iso);
         buttons.Children.Add(close);
 
         var header = new TextBlock
@@ -188,6 +190,23 @@ public sealed class StandardsReviewWindow : Window
     }
 
     public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
+
+    /// <summary>Grade the WHOLE proposed standard against ISO 19650 fundamentals and show the gaps
+    /// (analysis runs on _source — the full extracted pack — not just the ticked subset).</summary>
+    private void RunIsoCheck() => Dispatcher.Invoke(() =>
+    {
+        var rep = IsoGapAnalyzer.Analyze(_source);
+        var sb = new StringBuilder();
+        sb.Append("ISO 19650 gap analysis — ").Append(rep.Present).Append('/').Append(rep.Total)
+          .Append(" fundamentals present (").Append(rep.Score.ToString("0")).AppendLine("%)");
+        foreach (var c in rep.Checks)
+            sb.Append("  ").Append(c.Mark).Append(' ').Append(c.Title.PadRight(30))
+              .Append("  ").Append(c.Detail).Append("   [").Append(c.Clause).AppendLine("]");
+
+        _report.Text = sb.ToString();
+        _report.Visibility = Visibility.Visible;
+        SetStatus($"ISO 19650: {rep.Present}/{rep.Total} fundamentals present, {rep.Score:0}%.");
+    });
 
     /// <summary>Render the per-item build outcome (called from the ExternalEvent thread).</summary>
     public void ShowReport(BuildReport r) => Dispatcher.Invoke(() =>
