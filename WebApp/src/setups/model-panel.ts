@@ -1,0 +1,572 @@
+import * as THREE from "three";
+import * as OBC from "@thatopen/components";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import { getAppManager } from "../app";
+
+/**
+ * Sentinel 3D Modeling studio — in-browser authoring + editing + markup on top of the That Open world.
+ *
+ * The platform viewer is view-first; this panel adds the three things a modeller needs on top of it,
+ * all against the SAME OBC world (world.scene.three / world.camera / world.renderer):
+ *   1. AUTHOR   — draw walls (2 clicks), place columns (1 click), draw slabs (2-corner). Parametric
+ *                 boxes into a "Sentinel Model" group; dimensions come from the panel's inputs.
+ *   2. EDIT     — select an authored element and move/rotate/scale it with a three TransformControls
+ *                 gizmo (camera controls auto-disable while dragging), or delete it.
+ *   3. MEASURE  — 2-click length readout, and place text NOTES (a pin + a listed note) anywhere on the
+ *      + MARKUP   model. (Precise snapped Length/Area/Angle + clipping already live in the viewer toolbar;
+ *                 this is the lightweight, self-contained complement.)
+ *
+ * Rendering note: the platform runs a DEFERRED pipeline that hides plain lines (see measurement-tool.ts).
+ * So the measure segment is a thin CYLINDER mesh, not a Line — meshes render like normal geometry and
+ * stay visible. Authored elements + notes persist to localStorage per project, so a sketch survives reload.
+ *
+ * Browser-interaction only (canvas picking, gizmo) — verified by build; drive it in the live app to test.
+ */
+
+type Kind = "wall" | "column" | "slab";
+type Mode = "select" | Kind | "note" | "measure";
+
+interface Authored {
+  id: string;
+  kind: Kind;
+  mesh: THREE.Mesh;
+  params: Record<string, number>;
+}
+interface Note {
+  id: string;
+  text: string;
+  pos: [number, number, number];
+  pin: THREE.Mesh;
+}
+interface MeasureItem {
+  id: string;
+  dist: number;
+  objs: THREE.Object3D[];
+}
+
+const ACCENT = 0x6528d7;
+const KIND_COLOR: Record<Kind, number> = { wall: 0xb4bac6, column: 0x8a94a6, slab: 0x9aa3b2 };
+
+export function modelPanel(components: OBC.Components): HTMLElement {
+  const projectId = () => getAppManager().client?.context?.projectId ?? "default";
+  const storeKey = () => `sentinel:model:${projectId()}`;
+
+  // ── world handles (resolved lazily; the world exists by the time a tab is opened) ──
+  const getWorld = () =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [...components.get(OBC.Worlds).list.values()][0] as any | undefined;
+  const scene = (): THREE.Scene | undefined => getWorld()?.scene?.three;
+  const camera = (): THREE.Camera | undefined =>
+    getWorld()?.camera?.three ?? getWorld()?.camera?.threePersp;
+  const canvas = (): HTMLCanvasElement | undefined =>
+    getWorld()?.renderer?.three?.domElement;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const controls = (): any => getWorld()?.camera?.controls;
+  const render = () => getWorld()?.renderer?.update?.();
+
+  // ── state ──
+  const group = new THREE.Group();
+  group.name = "Sentinel Model";
+  const authored: Authored[] = [];
+  const notes: Note[] = [];
+  const measures: MeasureItem[] = [];
+  let mode: Mode = "select";
+  let selected: Authored | null = null;
+  let pending: THREE.Vector3 | null = null; // first click of a 2-click tool
+  let gizmo: TransformControls | null = null;
+  let seq = 0;
+  let wired = false;
+  const uid = (p: string) => `${p}${++seq}`;
+
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  // ── dimension inputs (metres) ──
+  const dims = { height: 3, thickness: 0.2, colW: 0.4, colD: 0.4, slab: 0.3 };
+
+  // ── DOM ──
+  const root = document.createElement("div");
+  root.style.cssText =
+    "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
+  const btn =
+    "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.4rem .55rem;font:600 12px system-ui;cursor:pointer";
+  root.innerHTML =
+    '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
+    '<span style="font-weight:600">▲ Model</span>' +
+    '<span style="color:#9ca3af;font-size:11px">author · edit · markup</span>' +
+    '<span style="flex:1"></span>' +
+    `<button id="md-clear" style="${btn}" title="Remove everything Sentinel authored">Clear</button>` +
+    "</div>" +
+    '<div id="md-body" style="flex:1;overflow:auto;padding:.6rem;display:flex;flex-direction:column;gap:.75rem"></div>' +
+    '<div id="md-status" style="padding:.45rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">Ready.</div>';
+  const body = root.querySelector("#md-body") as HTMLElement;
+  const statusEl = root.querySelector("#md-status") as HTMLElement;
+  const status = (t: string) => (statusEl.textContent = t);
+
+  const section = (title: string): HTMLElement => {
+    const s = document.createElement("div");
+    s.innerHTML = `<div style="font-weight:600;color:#c9cfda;margin-bottom:.4rem">${title}</div>`;
+    const inner = document.createElement("div");
+    inner.style.cssText = "display:flex;flex-wrap:wrap;gap:.35rem;align-items:center";
+    s.appendChild(inner);
+    body.appendChild(s);
+    return inner;
+  };
+  const tool = (label: string, m: Mode, host: HTMLElement) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.dataset.mode = m;
+    b.style.cssText = btn;
+    b.addEventListener("click", () => setMode(mode === m ? "select" : m));
+    host.appendChild(b);
+    return b;
+  };
+  const numField = (label: string, key: keyof typeof dims, host: HTMLElement) => {
+    const w = document.createElement("label");
+    w.style.cssText = "display:inline-flex;align-items:center;gap:.25rem;color:#9ca3af;font-size:11px";
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.step = "0.05";
+    inp.min = "0.05";
+    inp.value = String(dims[key]);
+    inp.style.cssText =
+      "width:3.4rem;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .3rem;font:12px system-ui";
+    inp.addEventListener("change", () => {
+      const v = parseFloat(inp.value);
+      if (v > 0) dims[key] = v;
+    });
+    w.append(`${label} `, inp, "m");
+    host.appendChild(w);
+  };
+
+  // Create
+  const createRow = section("Create");
+  tool("Wall", "wall", createRow);
+  tool("Column", "column", createRow);
+  tool("Slab", "slab", createRow);
+  const dimRow = section("Dimensions");
+  numField("Height", "height", dimRow);
+  numField("Wall thk", "thickness", dimRow);
+  numField("Col W", "colW", dimRow);
+  numField("Col D", "colD", dimRow);
+  numField("Slab thk", "slab", dimRow);
+
+  // Edit
+  const editRow = section("Edit");
+  const moveBtn = mkGizmoBtn("Move", "translate", editRow);
+  const rotBtn = mkGizmoBtn("Rotate", "rotate", editRow);
+  const scaleBtn = mkGizmoBtn("Scale", "scale", editRow);
+  const delBtn = document.createElement("button");
+  delBtn.textContent = "Delete";
+  delBtn.style.cssText = btn + ";color:#f9a8a8";
+  delBtn.addEventListener("click", deleteSelected);
+  editRow.appendChild(delBtn);
+
+  // Measure & markup
+  const measureRow = section("Measure & markup");
+  tool("Measure length", "measure", measureRow);
+  tool("Add note", "note", measureRow);
+  const notesList = document.createElement("div");
+  notesList.style.cssText = "display:flex;flex-direction:column;gap:.25rem;width:100%;margin-top:.35rem";
+  measureRow.appendChild(notesList);
+
+  function mkGizmoBtn(label: string, gmode: "translate" | "rotate" | "scale", host: HTMLElement) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.dataset.gmode = gmode;
+    b.style.cssText = btn;
+    b.addEventListener("click", () => {
+      if (!selected) { status("Select an authored element first."); return; }
+      ensureGizmo();
+      if (gizmo) { gizmo.setMode(gmode); gizmo.attach(selected.mesh); }
+      refreshButtons();
+      render();
+    });
+    host.appendChild(b);
+    return b;
+  }
+
+  // ── mode + button highlighting ──
+  function setMode(next: Mode) {
+    mode = next;
+    pending = null;
+    if (next !== "select") deselect();
+    const c = canvas();
+    if (c) c.style.cursor = next === "select" ? "" : "crosshair";
+    status(
+      next === "select" ? "Select mode — click an authored element to edit it." :
+      next === "wall" ? "Wall: click start, then end." :
+      next === "column" ? "Column: click to place." :
+      next === "slab" ? "Slab: click two opposite corners." :
+      next === "note" ? "Note: click a point to pin a note." :
+      "Measure: click two points.",
+    );
+    refreshButtons();
+  }
+  function refreshButtons() {
+    root.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((b) => {
+      const on = b.dataset.mode === mode;
+      b.style.background = on ? "#2a1e4d" : "#1f1f27";
+      b.style.borderColor = on ? "#6528d7" : "#2c2c34";
+    });
+    // TransformControls exposes `.mode` as a property (mirrors reality-capture-viewer's usage).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gmode = gizmo && selected ? (gizmo as any).mode : "";
+    root.querySelectorAll<HTMLButtonElement>("button[data-gmode]").forEach((b) => {
+      const on = !!selected && b.dataset.gmode === gmode;
+      b.style.opacity = selected ? "1" : "0.5";
+      b.style.borderColor = on ? "#6528d7" : "#2c2c34";
+    });
+    delBtn.style.opacity = selected ? "1" : "0.5";
+  }
+
+  // ── ensure scene wiring once (group in scene, gizmo, canvas listeners) ──
+  function ensure(): boolean {
+    const s = scene();
+    const c = canvas();
+    if (!s || !c) return false;
+    if (wired) return true;
+    if (!group.parent) s.add(group);
+    c.addEventListener("pointerdown", onDown);
+    c.addEventListener("pointerup", onUp);
+    window.addEventListener("keydown", onKey);
+    wired = true;
+    loadFromStore();
+    return true;
+  }
+  function ensureGizmo() {
+    if (gizmo || !ensure()) return;
+    const cam = camera();
+    const c = canvas();
+    if (!cam || !c) return;
+    gizmo = new TransformControls(cam, c);
+    // three r169+: the control itself isn't an Object3D — add its helper to the scene.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const helper = (gizmo as any).getHelper ? (gizmo as any).getHelper() : gizmo;
+    helper.userData.sentinelHelper = true;
+    scene()?.add(helper);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    gizmo.addEventListener("dragging-changed", (e: any) => {
+      const ctl = controls();
+      if (ctl) ctl.enabled = !e.value;
+      if (!e.value) { syncSelectedParams(); saveToStore(); }
+    });
+    gizmo.addEventListener("change", () => render());
+  }
+
+  // ── pointer: distinguish click from orbit-drag ──
+  let downX = 0, downY = 0, downT = 0;
+  function onDown(e: PointerEvent) { downX = e.clientX; downY = e.clientY; downT = performance.now(); }
+  function onUp(e: PointerEvent) {
+    const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+    if (moved > 5 || performance.now() - downT > 600) return; // a drag / long-press → let the viewer have it
+    onClick(e);
+  }
+
+  function toNdc(e: PointerEvent) {
+    const c = canvas()!;
+    const r = c.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  }
+  /** Point under the cursor: nearest real surface, else the ground plane. */
+  function pickPoint(e: PointerEvent): THREE.Vector3 | null {
+    const cam = camera();
+    if (!cam) return null;
+    toNdc(e);
+    raycaster.setFromCamera(ndc, cam);
+    const s = scene();
+    if (s) {
+      const hits = raycaster.intersectObjects(s.children, true);
+      const hit = hits.find((h) => !isHelper(h.object));
+      if (hit) return hit.point.clone();
+    }
+    const p = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(groundPlane, p) ? p.clone() : null;
+  }
+  function pickAuthored(e: PointerEvent): Authored | null {
+    const cam = camera();
+    if (!cam) return null;
+    toNdc(e);
+    raycaster.setFromCamera(ndc, cam);
+    const hits = raycaster.intersectObjects(group.children, false);
+    if (!hits.length) return null;
+    return authored.find((a) => a.mesh === hits[0].object) ?? null;
+  }
+  function isHelper(o: THREE.Object3D): boolean {
+    let n: THREE.Object3D | null = o;
+    while (n) { if (n.userData?.sentinelHelper) return true; n = n.parent; }
+    return false;
+  }
+
+  function onClick(e: PointerEvent) {
+    if (!ensure()) return;
+    if (mode === "select") {
+      const a = pickAuthored(e);
+      if (a) select(a); else deselect();
+      return;
+    }
+    const p = pickPoint(e);
+    if (!p) { status("Couldn't hit a surface — try again."); return; }
+
+    if (mode === "column") { addColumn(p); return; }
+    if (mode === "note") { addNote(p); return; }
+
+    // two-click tools (wall / slab / measure)
+    if (!pending) {
+      pending = p;
+      status(mode === "measure" ? "Measure: click the second point." : "Now click the end point.");
+      return;
+    }
+    const a0 = pending; pending = null;
+    if (mode === "wall") addWall(a0, p);
+    else if (mode === "slab") addSlab(a0, p);
+    else if (mode === "measure") addMeasure(a0, p);
+  }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.code === "Escape") { pending = null; setMode("select"); }
+    else if ((e.code === "Delete" || e.code === "Backspace") && selected) deleteSelected();
+  }
+
+  // ── authoring ──
+  function mat(kind: Kind) {
+    return new THREE.MeshStandardMaterial({ color: KIND_COLOR[kind], roughness: 0.9, metalness: 0 });
+  }
+  function place(kind: Kind, geo: THREE.BufferGeometry, pos: THREE.Vector3, rotY = 0, params: Record<string, number> = {}) {
+    const mesh = new THREE.Mesh(geo, mat(kind));
+    mesh.position.copy(pos);
+    mesh.rotation.y = rotY;
+    mesh.userData.sentinel = true;
+    group.add(mesh);
+    const rec: Authored = { id: uid(kind), kind, mesh, params };
+    authored.push(rec);
+    select(rec);
+    saveToStore();
+    render();
+    status(`Added ${kind}. ${authored.length} element(s).`);
+  }
+  function addWall(a: THREE.Vector3, b: THREE.Vector3) {
+    const len = a.distanceTo(b);
+    if (len < 1e-3) return;
+    const geo = new THREE.BoxGeometry(len, dims.height, dims.thickness);
+    const mid = a.clone().add(b).multiplyScalar(0.5).setY(dims.height / 2);
+    const rotY = Math.atan2(-(b.z - a.z), b.x - a.x);
+    place("wall", geo, mid, rotY, { length: len, height: dims.height, thickness: dims.thickness });
+  }
+  function addColumn(p: THREE.Vector3) {
+    const geo = new THREE.BoxGeometry(dims.colW, dims.height, dims.colD);
+    place("column", geo, p.clone().setY(dims.height / 2), 0, { width: dims.colW, depth: dims.colD, height: dims.height });
+  }
+  function addSlab(a: THREE.Vector3, b: THREE.Vector3) {
+    const dx = Math.abs(b.x - a.x), dz = Math.abs(b.z - a.z);
+    if (dx < 1e-3 || dz < 1e-3) return;
+    const geo = new THREE.BoxGeometry(dx, dims.slab, dz);
+    const pos = new THREE.Vector3((a.x + b.x) / 2, dims.slab / 2, (a.z + b.z) / 2);
+    place("slab", geo, pos, 0, { dx, dz, thickness: dims.slab });
+  }
+
+  // ── selection + gizmo ──
+  function select(a: Authored) {
+    deselect();
+    selected = a;
+    const m = a.mesh.material as THREE.MeshStandardMaterial;
+    m.emissive.setHex(ACCENT);
+    m.emissiveIntensity = 0.35;
+    ensureGizmo();
+    if (gizmo) { gizmo.attach(a.mesh); }
+    refreshButtons();
+    render();
+  }
+  function deselect() {
+    if (selected) {
+      const m = selected.mesh.material as THREE.MeshStandardMaterial;
+      m.emissive.setHex(0x000000);
+    }
+    selected = null;
+    gizmo?.detach();
+    refreshButtons();
+    render();
+  }
+  function deleteSelected() {
+    if (!selected) return;
+    const a = selected;
+    deselect();
+    group.remove(a.mesh);
+    a.mesh.geometry.dispose();
+    (a.mesh.material as THREE.Material).dispose();
+    const i = authored.indexOf(a);
+    if (i >= 0) authored.splice(i, 1);
+    saveToStore();
+    render();
+    status(`Deleted. ${authored.length} element(s).`);
+  }
+  function syncSelectedParams() {
+    if (!selected) return;
+    const p = selected.mesh.position;
+    selected.params = { ...selected.params, x: p.x, y: p.y, z: p.z, rotY: selected.mesh.rotation.y };
+  }
+
+  // ── measure (cylinder mesh, visible in the deferred pipeline) ──
+  function addMeasure(a: THREE.Vector3, b: THREE.Vector3) {
+    const dist = a.distanceTo(b);
+    const objs: THREE.Object3D[] = [];
+    const mkDot = (p: THREE.Vector3) => {
+      const d = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), new THREE.MeshBasicMaterial({ color: ACCENT }));
+      d.position.copy(p);
+      d.userData.sentinelHelper = true;
+      group.add(d); objs.push(d);
+    };
+    mkDot(a); mkDot(b);
+    const cyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.015, dist, 8),
+      new THREE.MeshBasicMaterial({ color: ACCENT }),
+    );
+    cyl.position.copy(a.clone().add(b).multiplyScalar(0.5));
+    cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    cyl.userData.sentinelHelper = true;
+    group.add(cyl); objs.push(cyl);
+    measures.push({ id: uid("meas"), dist, objs });
+    render();
+    renderNotesList();
+    status(`Distance: ${dist.toFixed(2)} m`);
+  }
+
+  // ── markup notes ──
+  function addNote(p: THREE.Vector3) {
+    const text = window.prompt("Note text:")?.trim();
+    if (!text) return;
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+    pin.position.copy(p);
+    pin.userData.sentinelHelper = true;
+    group.add(pin);
+    notes.push({ id: uid("note"), text, pos: [p.x, p.y, p.z], pin });
+    saveToStore();
+    render();
+    renderNotesList();
+    status(`Note added (${notes.length}).`);
+  }
+  function focusOn(pos: [number, number, number]) {
+    const ctl = controls();
+    if (!ctl?.setLookAt) return;
+    const [x, y, z] = pos;
+    ctl.setLookAt(x + 6, y + 5, z + 6, x, y, z, true);
+  }
+  function renderNotesList() {
+    notesList.innerHTML = "";
+    for (const m of measures) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;font-size:11px;color:#c9cfda";
+      row.innerHTML = `<span style="color:#a78bfa">↔</span> ${m.dist.toFixed(2)} m`;
+      notesList.appendChild(row);
+    }
+    for (const n of notes) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;font-size:11px;color:#e5e7eb";
+      const focus = document.createElement("button");
+      focus.textContent = "◎";
+      focus.title = "Focus camera";
+      focus.style.cssText = "border:0;background:transparent;color:#a78bfa;cursor:pointer;font-size:13px";
+      focus.addEventListener("click", () => focusOn(n.pos));
+      const del = document.createElement("button");
+      del.textContent = "✕";
+      del.style.cssText = "border:0;background:transparent;color:#f87171;cursor:pointer;margin-left:auto";
+      del.addEventListener("click", () => removeNote(n));
+      const label = document.createElement("span");
+      label.textContent = `📌 ${n.text}`;
+      row.append(focus, label, del);
+      notesList.appendChild(row);
+    }
+  }
+  function removeNote(n: Note) {
+    group.remove(n.pin);
+    n.pin.geometry.dispose();
+    (n.pin.material as THREE.Material).dispose();
+    const i = notes.indexOf(n);
+    if (i >= 0) notes.splice(i, 1);
+    saveToStore();
+    render();
+    renderNotesList();
+  }
+
+  // ── persistence (authored + notes; measures are transient) ──
+  function saveToStore() {
+    try {
+      const data = {
+        authored: authored.map((a) => ({
+          kind: a.kind,
+          params: a.params,
+          pos: a.mesh.position.toArray(),
+          rotY: a.mesh.rotation.y,
+          scale: a.mesh.scale.toArray(),
+        })),
+        notes: notes.map((n) => ({ text: n.text, pos: n.pos })),
+      };
+      localStorage.setItem(storeKey(), JSON.stringify(data));
+    } catch { /* storage disabled / quota — non-fatal */ }
+  }
+  function loadFromStore() {
+    let data: {
+      authored?: { kind: Kind; params: Record<string, number>; pos: number[]; rotY: number; scale?: number[] }[];
+      notes?: { text: string; pos: [number, number, number] }[];
+    };
+    try {
+      const raw = localStorage.getItem(storeKey());
+      if (!raw) return;
+      data = JSON.parse(raw);
+    } catch { return; }
+
+    for (const a of data.authored ?? []) {
+      const geo = geoFor(a.kind, a.params);
+      if (!geo) continue;
+      const mesh = new THREE.Mesh(geo, mat(a.kind));
+      mesh.position.fromArray(a.pos);
+      mesh.rotation.y = a.rotY;
+      if (a.scale) mesh.scale.fromArray(a.scale);
+      mesh.userData.sentinel = true;
+      group.add(mesh);
+      authored.push({ id: uid(a.kind), kind: a.kind, mesh, params: a.params });
+    }
+    for (const n of data.notes ?? []) {
+      const pin = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+      pin.position.fromArray(n.pos);
+      pin.userData.sentinelHelper = true;
+      group.add(pin);
+      notes.push({ id: uid("note"), text: n.text, pos: n.pos, pin });
+    }
+    if (authored.length || notes.length) {
+      renderNotesList();
+      render();
+      status(`Restored ${authored.length} element(s), ${notes.length} note(s).`);
+    }
+  }
+  function geoFor(kind: Kind, p: Record<string, number>): THREE.BufferGeometry | null {
+    if (kind === "wall") return new THREE.BoxGeometry(p.length ?? 1, p.height ?? 3, p.thickness ?? 0.2);
+    if (kind === "column") return new THREE.BoxGeometry(p.width ?? 0.4, p.height ?? 3, p.depth ?? 0.4);
+    if (kind === "slab") return new THREE.BoxGeometry(p.dx ?? 2, p.thickness ?? 0.3, p.dz ?? 2);
+    return null;
+  }
+
+  // ── clear everything ──
+  (root.querySelector("#md-clear") as HTMLButtonElement).addEventListener("click", () => {
+    if (!authored.length && !notes.length && !measures.length) return;
+    if (!window.confirm("Remove everything Sentinel authored in this project?")) return;
+    deselect();
+    for (const a of [...authored]) { group.remove(a.mesh); a.mesh.geometry.dispose(); (a.mesh.material as THREE.Material).dispose(); }
+    for (const n of [...notes]) { group.remove(n.pin); n.pin.geometry.dispose(); (n.pin.material as THREE.Material).dispose(); }
+    for (const m of measures) for (const o of m.objs) { group.remove(o); (o as THREE.Mesh).geometry?.dispose?.(); ((o as THREE.Mesh).material as THREE.Material)?.dispose?.(); }
+    authored.length = 0; notes.length = 0; measures.length = 0;
+    saveToStore();
+    renderNotesList();
+    render();
+    status("Cleared.");
+  });
+
+  // Wire on first paint (world already exists when the tab opens). Retry a few frames if not.
+  let tries = 0;
+  const tick = () => { if (ensure() || tries++ > 120) { refreshButtons(); return; } requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+
+  return root;
+}

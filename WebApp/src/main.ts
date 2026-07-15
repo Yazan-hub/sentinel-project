@@ -10,6 +10,7 @@ import { PlatformClient, UIManager } from "@thatopen/services";
 import { setAppContext } from "./app";
 import { SERVICE_URL } from "./config";
 import { qaPanel } from "./setups/qa-panel";
+import { modelPanel } from "./setups/model-panel";
 import { packsPanel } from "./setups/packs-panel";
 import { costPanel } from "./setups/cost-panel";
 import { projectShell } from "./setups/project-shell";
@@ -144,6 +145,9 @@ async function main() {
     },
   };
 
+  // In-browser 3D Modeling studio — author walls/columns/slabs, transform-edit, measure + markup,
+  // all on the shared OBC world. Built once so its authored geometry survives layout switches.
+  const modelEl = modelPanel(components);
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
   const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });
@@ -189,6 +193,7 @@ async function main() {
     // One panel instance reused across re-renders (like viewerEl) so its scan
     // state survives layout switches.
     project: () => BUI.html`${projectEl}`,
+    model: () => BUI.html`${modelEl}`,
     copilot: () => BUI.html`${copilotEl}`,
     guide: () => BUI.html`${guideEl}`,
     qa: () => BUI.html`${qaEl}`,
@@ -230,6 +235,10 @@ async function main() {
     Explorer: {
       icon: "mdi:file-tree",
       template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
+    },
+    Model: {
+      icon: "mdi:pencil-ruler",
+      template: `"model viewer" 1fr / 24rem 1fr`,
     },
     Assets: {
       icon: "mdi:folder-multiple-outline",
