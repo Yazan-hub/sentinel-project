@@ -26,7 +26,9 @@ const OUTBOX = process.env.SENTINEL_OUTBOX
 const SENT = join(OUTBOX, "sent");
 const UPLOAD_EXTS = new Set([".ifc"]);
 
-const cfg = getConfig();                 // throws with a clear message if unconfigured
+// --dry-run only detects + reports, so it must not need credentials — resolve config lazily so the
+// outbox path can be validated offline (getConfig throws when THATOPEN_API_KEY/PROJECT_ID is missing).
+const cfg = DRY ? null : getConfig();
 const client = DRY ? null : createClient(cfg);
 await mkdir(OUTBOX, { recursive: true });
 if (!DRY) await mkdir(SENT, { recursive: true });
@@ -83,11 +85,18 @@ async function handle(name) {
   }
 }
 
-// Initial sweep of anything already sitting in the outbox.
-for (const f of await readdir(OUTBOX)) {
-  const s = await stat(join(OUTBOX, f)).catch(() => null);
-  if (s?.isFile()) await handle(f);
+/** Scan the whole outbox once, handing every file to handle() (which skips non-.ifc + in-flight). */
+async function sweep() {
+  let entries;
+  try { entries = await readdir(OUTBOX); } catch { return; } // outbox removed mid-run — nothing to do
+  for (const f of entries) {
+    const s = await stat(join(OUTBOX, f)).catch(() => null);
+    if (s?.isFile()) await handle(f);
+  }
 }
+
+// Initial sweep of anything already sitting in the outbox.
+await sweep();
 
 if (ONCE) {
   console.log(`[${ts()}] --once sweep complete.`);
@@ -96,3 +105,9 @@ if (ONCE) {
 
 console.log(`[${ts()}] watching ${OUTBOX}${DRY ? " (dry-run)" : ""} … Ctrl+C to stop.`);
 watch(OUTBOX, (_event, filename) => { handle(filename); });
+
+// Safety net: fs.watch can silently miss events on some filesystems (network shares, WSL), and a file
+// whose upload FAILED stays in the outbox with no event to retrigger it. A periodic re-sweep recovers
+// both — handle()'s in-flight guard keeps it from colliding with a live watch event for the same file.
+const RESWEEP_MS = Number(process.env.SENTINEL_RESWEEP_MS) || 15000;
+setInterval(() => { sweep().catch((e) => console.error(`  ❌ re-sweep: ${e?.message || e}`)); }, RESWEEP_MS).unref?.();
