@@ -8,7 +8,20 @@ import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
 import { setAppContext } from "./app";
+import { SERVICE_URL } from "./config";
 import { qaPanel } from "./setups/qa-panel";
+import { packsPanel } from "./setups/packs-panel";
+import { costPanel } from "./setups/cost-panel";
+import { projectShell } from "./setups/project-shell";
+import { copilotPanel } from "./setups/copilot-panel";
+import { guidePanel } from "./setups/guide-panel";
+import { timelinePanel } from "./setups/timeline-panel";
+import { carbonPanel } from "./setups/carbon-panel";
+import { cobiePanel } from "./setups/cobie-panel";
+import { ownerPanel } from "./setups/owner-panel";
+import { tenderPanel } from "./setups/tender-panel";
+import { rfiPanel } from "./setups/rfi-panel";
+import { issuePanel } from "./setups/issue-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -133,7 +146,31 @@ async function main() {
 
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
-  const qaEl = qaPanel(components);
+  const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });
+  // Standards-pack marketplace — browse/install/fork/publish; install → QA + gates enforce it (Phase 4).
+  const packsEl = packsPanel(components, { baseUrl: SERVICE_URL });
+  // 5D Cost panel — model-driven quantity take-off → live BoQ + change tracking (Phase 1/2).
+  const costEl = costPanel(components, { baseUrl: SERVICE_URL });
+  // 4D Sequence panel — schedule ↔ elements + construction-sequence simulation (Phase 2).
+  const timelineEl = timelinePanel(components);
+  // 6D Carbon panel — model-driven embodied-carbon estimate (Phase 3).
+  const carbonEl = carbonPanel(components, { baseUrl: SERVICE_URL });
+  // 7D Handover panel — asset register + COBie export + handover readiness (Phase 3).
+  const cobieEl = cobiePanel(components, { baseUrl: SERVICE_URL });
+  // Owner / FM portal — read-only stakeholder view; the golden thread (Phase 3).
+  const ownerEl = ownerPanel(components, { baseUrl: SERVICE_URL });
+  // Tender module — BoQ-driven tendering + bid comparison; front of the lifecycle (Phase 4).
+  const tenderEl = tenderPanel(components, { baseUrl: SERVICE_URL });
+  // RFIs / approvals — coordination objects beside BCF issues (Phase 2).
+  const rfiEl = rfiPanel(components, { baseUrl: SERVICE_URL });
+  // Project Shell — the Lifecycle Command Center: aggregates health + issues + 5D cost + stage gates.
+  const projectEl = projectShell(components, { baseUrl: SERVICE_URL });
+  // Grounded Copilot — cited answers over the project's live data; optional local LLM for free-form.
+  const copilotEl = copilotPanel(components, { baseUrl: SERVICE_URL });
+  // Guide — interactive in-app teaching interface (what Sentinel is + every feature + how to use it).
+  const guideEl = guidePanel(components);
+  // Issue Management panel — docked as an "Issues" sidebar tab (create + list + details in one panel).
+  const issuesEl = issuePanel(components, { bcfBaseUrl: SERVICE_URL });
 
   // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
@@ -151,11 +188,45 @@ async function main() {
     // Sentinel QA/QC (Phase 2): runs sentinel-core over the loaded fragments.
     // One panel instance reused across re-renders (like viewerEl) so its scan
     // state survives layout switches.
+    project: () => BUI.html`${projectEl}`,
+    copilot: () => BUI.html`${copilotEl}`,
+    guide: () => BUI.html`${guideEl}`,
     qa: () => BUI.html`${qaEl}`,
+    packs: () => BUI.html`${packsEl}`,
+    cost: () => BUI.html`${costEl}`,
+    timeline: () => BUI.html`${timelineEl}`,
+    carbon: () => BUI.html`${carbonEl}`,
+    cobie: () => BUI.html`${cobieEl}`,
+    owner: () => BUI.html`${ownerEl}`,
+    tender: () => BUI.html`${tenderEl}`,
+    rfis: () => BUI.html`${rfiEl}`,
+    issues: () => BUI.html`${issuesEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
+  // Sidebar ordered top→bottom as the PROJECT LIFECYCLE, so the activity bar reads like the
+  // stages: overview tools first, then Tender → Design → Construction → Coordination → Handover →
+  // Operate, then Settings. (The activity bar is a flat icon list, so order carries the structure.)
   app.layouts = {
+    // ── Overview / cross-cutting ──
+    Project: {
+      icon: "mdi:view-dashboard-outline",
+      template: `"project viewer" 1fr / 26rem 1fr`,
+    },
+    Guide: {
+      icon: "mdi:book-open-page-variant-outline",
+      template: `"guide viewer" 1fr / 32rem 1fr`,
+    },
+    Copilot: {
+      icon: "mdi:robot-outline",
+      template: `"copilot viewer" 1fr / 24rem 1fr`,
+    },
+    // ── Tender ──
+    Tender: {
+      icon: "mdi:gavel",
+      template: `"tender viewer" 1fr / 24rem 1fr`,
+    },
+    // ── Design (the model + governance + dimensions) ──
     Explorer: {
       icon: "mdi:file-tree",
       template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
@@ -168,16 +239,52 @@ async function main() {
       icon: "mdi:table",
       template: `"dataTable viewer" 1fr / 22rem 1fr`,
     },
+    Standards: {
+      icon: "mdi:store-outline",
+      template: `"packs viewer" 1fr / 24rem 1fr`,
+    },
     QA: {
       icon: "mdi:clipboard-check-outline",
       template: `"qa viewer" 1fr / 24rem 1fr`,
+    },
+    Cost: {
+      icon: "mdi:cash-multiple",
+      template: `"cost viewer" 1fr / 24rem 1fr`,
+    },
+    "6D": {
+      icon: "mdi:leaf",
+      template: `"carbon viewer" 1fr / 24rem 1fr`,
+    },
+    // ── Construction ──
+    "4D": {
+      icon: "mdi:timeline-clock-outline",
+      template: `"timeline viewer" 1fr / 24rem 1fr`,
+    },
+    // ── Coordination ──
+    Issues: {
+      icon: "mdi:flag-outline",
+      template: `"issues viewer" 1fr / 24rem 1fr`,
+    },
+    RFIs: {
+      icon: "mdi:comment-question-outline",
+      template: `"rfis viewer" 1fr / 24rem 1fr`,
+    },
+    // ── Handover ──
+    "7D": {
+      icon: "mdi:clipboard-list-outline",
+      template: `"cobie viewer" 1fr / 24rem 1fr`,
+    },
+    // ── Operate ──
+    Owner: {
+      icon: "mdi:account-key-outline",
+      template: `"owner viewer" 1fr / 24rem 1fr`,
     },
     Settings: {
       icon: "mdi:cog",
       template: `"settings viewer" 1fr / 22rem 1fr`,
     },
   };
-  app.layout = "Explorer";
+  app.layout = "Project";
   app.sidebar = true;
 
   // ── Viewer toolbar — now a built-in slotted INTO <top-viewer> (it consumes the

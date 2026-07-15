@@ -1,0 +1,15 @@
+{
+  "currency": "SAR",
+  "rules": [
+    { "match": "IFCWALL", "measure": "area", "unit": "m²", "rate": 320 },
+    { "match": "IFCWALLSTANDARDCASE", "measure": "area", "unit": "m²", "rate": 320 },
+    { "match": "IFCSLAB", "measure": "volume", "unit": "m³", "rate": 1450 },
+    { "match": "IFCROOF", "measure": "area", "unit": "m²", "rate": 480 },
+    { "match": "IFCBEAM", "measure": "volume", "unit": "m³", "rate": 1900 },
+    { "match": "IFCCOLUMN", "measure": "volume", "unit": "m³", "rate": 1900 },
+    { "match": "IFCDOOR", "measure": "count", "unit": "no", "rate": 1200 },
+    { "match": "IFCWINDOW", "measure": "count", "unit": "no", "rate": 900 },
+    { "match": "IFCCOVERING", "measure": "area", "unit": "m²", "rate": 140 },
+    { "match": "IFCSTAIR", "measure": "count", "unit": "no", "rate": 8500 }
+  ]
+}

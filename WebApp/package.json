@@ -1,12 +1,16 @@
 {
   "name": "Sentinel",
-  "version": "1.0.0",
+  "version": "1.0.18",
   "private": true,
   "scripts": {
     "dev": "thatopen serve",
     "build": "vite build",
     "login": "thatopen login --local",
-    "publish": "thatopen publish"
+    "publish": "thatopen publish",
+    "bridge:upload": "node bridge/upload-ifc.mjs",
+    "bridge:watch": "node bridge/watch-outbox.mjs",
+    "bcf:serve": "node bridge/bcf-service.mjs",
+    "start": "node bridge/bcf-service.mjs"
   },
   "dependencies": {
     "@lit/context": "^1.1.6",

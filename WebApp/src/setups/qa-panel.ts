@@ -8,6 +8,7 @@ import {
   type Scorecard,
 } from "../sentinel-core";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
+import { activeRuleset, paramNamesOf } from "./active-ruleset";
 import type { ScanReport, Violation } from "../sentinel-core";
 
 /**
@@ -36,16 +37,6 @@ interface PanelState {
   domainFilter: string | null;
 }
 
-// Parameter names the ruleset needs the adapter to flatten (so param rules can read
-// pset values). Derived once from the bundled ruleset.
-const PARAMETER_NAMES = [
-  ...new Set(
-    bdsRuleset.rules
-      .filter((r) => r.target === "parameter" && r.parameter_name)
-      .map((r) => r.parameter_name as string),
-  ),
-];
-
 // Targets that don't survive IFC export → reported as authoring-side only.
 const AUTHORING_ONLY_TARGETS = new Set(["workset", "view", "sheet"]);
 
@@ -62,7 +53,8 @@ const modeColor = (mode: string): string =>
     monitor: "#64748b",
   })[mode] ?? "#64748b";
 
-export const qaPanel = (components: OBC.Components) => {
+export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } = {}) => {
+  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
@@ -75,11 +67,13 @@ export const qaPanel = (components: OBC.Components) => {
     }
     update({ status: "scanning" });
     try {
+      // Use the standards pack installed for this project (marketplace), else the bundled BDS ruleset.
+      const ruleset = await activeRuleset(base);
       const facts = await extractFacts(fragments, {
-        parameterNames: PARAMETER_NAMES,
+        parameterNames: paramNamesOf(ruleset),
       });
       const title = [...fragments.list.values()][0]?.modelId ?? "model";
-      const report = scan(facts, bdsRuleset, {
+      const report = scan(facts, ruleset, {
         doc_title: title,
         now: new Date().toISOString(),
       });
