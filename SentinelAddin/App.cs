@@ -187,6 +187,9 @@ public sealed class App : IExternalApplication
         AddButton(qa, asm, "Sentinel_Roi", "ROI\nDashboard",
             "Sentinel.Commands.RoiDashboardCommand", "panel",
             "Man-hours and monetary value saved by Sentinel's automated interventions.");
+        AddButton(qa, asm, "Sentinel_GhostBuilder", "Ghost\nBuilder",
+            "Sentinel.Commands.GhostBuilderCommand", "setup",
+            "Build LOD 200 Revit geometry from a 2D DWG import: local LLM maps CAD layers to BDS families, then places walls and instances.");
 
         var wf = app.CreateRibbonPanel(tab, "Workflow");
         AddButton(wf, asm, "Sentinel_Requests", "Change\nRequests",
@@ -195,9 +198,24 @@ public sealed class App : IExternalApplication
         AddButton(wf, asm, "Sentinel_Setup", "Project\nSetup",
             "Sentinel.Commands.ProjectSetupCommand", "setup",
             "Configure standards sources: master ruleset + template paths, saved to the project or this machine.");
+        AddButton(wf, asm, "Sentinel_BuildOfficeSystem", "Build Office\nSystem",
+            "Sentinel.Commands.BuildOfficeSystemCommand", "setup",
+            "Extract worksets + shared parameters from the active 'golden' model, review them with confidence + provenance, then build them into this model and enforce them in the ruleset (Standards Engine).");
+        AddButton(wf, asm, "Sentinel_LoadOfficeSystem", "Apply\nStandard",
+            "Sentinel.Commands.LoadOfficeSystemCommand", "setup",
+            "Load a saved standards pack (from Build Office System → Save pack) and build it into the active model — the golden→blank round-trip.");
+        AddButton(wf, asm, "Sentinel_IngestDocs", "Ingest\nDocs",
+            "Sentinel.Commands.IngestDocumentsCommand", "setup",
+            "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack (cited by file + page). Requires Ollama running locally.");
         AddButton(wf, asm, "Sentinel_ReviewFlag", "Review\nFlag",
             "Sentinel.Commands.SetupWorkflowCommand", "requests",
             "One-time: creates the ZZZ_ReviewStatus flag parameter (coordinator only).");
+        AddButton(wf, asm, "Sentinel_Publish", "Publish to\nPlatform",
+            "Sentinel.Commands.PublishToPlatformCommand", "panel",
+            "Export the active view to IFC into the Sentinel outbox; the Bridge uploads it to That Open Platform.");
+        AddButton(wf, asm, "Sentinel_BcfIssues", "BCF\nIssues",
+            "Sentinel.Commands.BcfIssuesCommand", "requests",
+            "Review coordination issues raised by non-Revit users on the web; double-click to zoom to the element + camera.");
     }
 
     private static void AddButton(RibbonPanel panel, string asm, string name,
