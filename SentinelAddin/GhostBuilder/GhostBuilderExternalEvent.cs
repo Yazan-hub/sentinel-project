@@ -1,75 +1,65 @@
+#nullable disable
+// ponytail: nullable off for the ported GhostBuilder module; annotate + remove when hardening.
 using System;
-using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-namespace BadranDesignStudio.Sentinel
+namespace Sentinel.GhostBuilder
 {
     /// <summary>
-    /// Revit-thread-safe entry point for the Ghost Builder. Execute() is invoked by Revit
-    /// ON THE API THREAD, so it is legal to open transactions and touch the document here.
-    /// The async orchestrator is driven synchronously via GetAwaiter().GetResult() — safe
-    /// because we are already on the API thread and only briefly block it.
+    /// PHASE 3 handoff. Places the already-computed geometry on the Revit API thread.
     ///
-    /// Usage (modeless add-in):
-    ///   _handler = new GhostBuilderExternalEvent(mapper);
-    ///   _event   = ExternalEvent.Create(_handler);
-    ///   ...
-    ///   _handler.SetRequest(uiDoc.Document, pickedCadLink);
-    ///   _event.Raise();   // Revit calls Execute() on the API thread when ready
+    /// The LLM mapping happens on a background thread in the command; when it finishes, the command
+    /// stages the result here and Raise()s. Revit then calls Execute() ON THE API THREAD — the only
+    /// place Wall.Create / family placement is legal. Revit API writes must NEVER run from Task.Run,
+    /// which is why placement is funneled through this ExternalEvent rather than done inline.
     /// </summary>
-    public sealed class GhostBuilderExternalEvent : IExternalEventHandler
+    public sealed class GhostBuilderPlacementEvent : IExternalEventHandler
     {
-        private readonly LocalGhostBuilder _mapper;
         private readonly double _minConfidence;
 
-        // Per-raise request payload. Set immediately before Raise().
-        private Document _doc;
-        private ImportInstance _cadLink;
+        // Per-raise payload, staged on the UI/background thread just before Raise().
+        private GhostBuilderOrchestrator _orchestrator;
+        private GhostBuilderOrchestrator.Inputs _inputs;
+        private MappingResult _mapping;
 
-        /// <summary>Fired on the API thread after each run. Report is null when an error is passed.</summary>
+        /// <summary>Fired on the API thread after placement. Report null when an error is passed.</summary>
         public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
-        public GhostBuilderExternalEvent(LocalGhostBuilder mapper, double minConfidence = 0.5)
-        {
-            _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
-            _minConfidence = minConfidence;
-        }
+        public GhostBuilderPlacementEvent(double minConfidence = 0.5) => _minConfidence = minConfidence;
 
-        /// <summary>Stage the inputs for the next Raise(). Call on the UI thread just before Raise().</summary>
-        public void SetRequest(Document doc, ImportInstance cadLink)
+        /// <summary>Stage the pre-computed inputs + mapping for the next Raise().</summary>
+        public void SetRequest(GhostBuilderOrchestrator orchestrator,
+                               GhostBuilderOrchestrator.Inputs inputs, MappingResult mapping)
         {
-            _doc = doc;
-            _cadLink = cadLink;
+            _orchestrator = orchestrator;
+            _inputs = inputs;
+            _mapping = mapping;
         }
 
         public void Execute(UIApplication app)
         {
-            // Snapshot + clear the request so a stale payload can't be reused accidentally.
-            Document doc = _doc;
-            ImportInstance cadLink = _cadLink;
-            _doc = null;
-            _cadLink = null;
+            // Snapshot + clear so a stale payload can't be reused.
+            var orchestrator = _orchestrator;
+            var inputs = _inputs;
+            var mapping = _mapping;
+            _orchestrator = null; _inputs = null; _mapping = null;
 
             try
             {
-                if (doc == null || cadLink == null)
+                if (orchestrator == null)
                     throw new InvalidOperationException("No request staged. Call SetRequest() before Raise().");
 
-                var orchestrator = new GhostBuilderOrchestrator(doc, _mapper, _minConfidence);
-
-                // We ARE on the API thread; block on the async pass. The transaction inside
-                // RunAsync opens only after the LLM await completes, all on this thread.
-                var report = orchestrator.RunAsync(cadLink).GetAwaiter().GetResult();
-
+                // We ARE on the API thread here — the transaction + geometry writes are legal.
+                var report = orchestrator.Place(inputs, mapping);
                 Completed?.Invoke(report, null);
             }
             catch (Exception ex)
             {
-                // Never let an exception escape Execute() — Revit would treat it as a fatal add-in fault.
+                // Never let an exception escape Execute() — Revit treats it as a fatal add-in fault.
                 Completed?.Invoke(null, ex);
             }
         }
 
-        public string GetName() => "BDS Ghost Builder";
+        public string GetName() => "BDS Ghost Builder - Placement";
     }
 }

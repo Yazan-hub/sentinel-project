@@ -20,6 +20,10 @@ public sealed class SentinelSettings
     [JsonPropertyName("revit_template_path")] public string RevitTemplatePath { get; set; } = string.Empty;
     [JsonPropertyName("project_code")] public string ProjectCode { get; set; } = string.Empty; // optional, tightens CDE-01
 
+    // Ghost Builder: DWG -> LOD 200 auto-modeler. Both optional; empty disables preload / uses no schema.
+    [JsonPropertyName("ghost_family_library_dir")] public string GhostFamilyLibraryDir { get; set; } = string.Empty; // .rfa library root; empty -> skip preload
+    [JsonPropertyName("ghost_mapping_schema_path")] public string GhostMappingSchemaPath { get; set; } = string.Empty; // JSON schema file echoed into the LLM prompt
+
     [JsonIgnore] public bool IsEmpty =>
         string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath);
 }

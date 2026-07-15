@@ -1,0 +1,240 @@
+#nullable disable
+// ponytail: nullable off to match the ported GhostBuilder module; annotate when hardening.
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Sentinel.GhostBuilder
+{
+    /// <summary>
+    /// The seam every layer-name-to-family mapper implements. LocalGhostBuilder is the LLM-backed
+    /// implementation; LayerMapper is a caching decorator over it. The orchestrator depends on this
+    /// interface so the two compose without either knowing about the other.
+    /// </summary>
+    public interface ILayerMapper
+    {
+        Task<MappingResult> MapLayersAsync(IEnumerable<string> cadLayers, CancellationToken ct = default);
+    }
+
+    /// <summary>
+    /// Resilience layer for "dirty" external DWGs whose layer names are unpredictable and
+    /// non-standardised. It resolves each layer in three tiers, cheapest first:
+    ///
+    ///   1. PERSISTENT CACHE  — a JSON dictionary (%AppData%\Sentinel\dwg_mappings.json) of layers
+    ///      resolved on a previous run. A DWG from the same source re-uses these for free.
+    ///   2. BASE DICTIONARY   — built-in keyword heuristics (A-WALL/PARTITION -> Walls, etc.) that
+    ///      cover standard AIA-style names without any model call.
+    ///   3. LOCAL LLM         — ONLY the layers neither tier recognised are handed to the wrapped
+    ///      ILayerMapper (LocalGhostBuilder -> Ollama). Whatever it returns is written back to the
+    ///      cache, so each novel layer costs the model exactly once.
+    ///
+    /// Pure data + network + file I/O — no Revit API — so it stays safe to await off the API thread,
+    /// exactly like the LocalGhostBuilder it wraps.
+    /// </summary>
+    public sealed class LayerMapper : ILayerMapper, IDisposable
+    {
+        private readonly ILayerMapper _llm;                       // tier 3: unknown layers only
+        private readonly string _cachePath;                      // tier 1 backing file
+        private readonly Dictionary<string, LayerMapping> _cache; // normalised layer -> mapping
+        private bool _dirty;
+
+        public LayerMapper(ILayerMapper llmFallback, string cachePath = null)
+        {
+            _llm = llmFallback ?? throw new ArgumentNullException(nameof(llmFallback));
+            _cachePath = cachePath ?? DefaultCachePath();
+            _cache = LoadCache(_cachePath);
+
+            // Self-heal: purge any previously-cached system/annotation layers (e.g. a stale
+            // DEFPOINTS -> Walls written before the ignore-list existed) so the next save drops them.
+            var stale = _cache.Keys.Where(ShouldIgnore).ToList();
+            foreach (string k in stale) _cache.Remove(k);
+            if (stale.Count > 0) _dirty = true;
+        }
+
+        public static string DefaultCachePath() => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Sentinel", "dwg_mappings.json");
+
+        public async Task<MappingResult> MapLayersAsync(
+            IEnumerable<string> cadLayers, CancellationToken ct = default)
+        {
+            // Dedupe while preserving first-seen order; blank layer names are meaningless.
+            var layers = (cadLayers ?? Enumerable.Empty<string>())
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var resolved = new List<LayerMapping>();
+            var unknown = new List<string>();
+
+            foreach (string layer in layers)
+            {
+                // Tier 0: AutoCAD system / annotation layers are never model geometry — drop them
+                // before any cache/dictionary/LLM work so they can't become walls, furniture, or
+                // IFC noise, and never cost a model call.
+                if (ShouldIgnore(layer)) continue;
+
+                string key = Normalize(layer);
+
+                // Tier 1: previously resolved (by this or an earlier DWG from the same source).
+                if (_cache.TryGetValue(key, out LayerMapping cached))
+                {
+                    resolved.Add(WithLayer(cached, layer));
+                    continue;
+                }
+
+                // Tier 2: built-in keyword heuristics.
+                LayerMapping baseHit = MatchBase(layer);
+                if (baseHit != null)
+                {
+                    _cache[key] = baseHit;
+                    _dirty = true;
+                    resolved.Add(WithLayer(baseHit, layer));
+                    continue;
+                }
+
+                // Tier 3 candidate: hand to the LLM below.
+                unknown.Add(layer);
+            }
+
+            // One model round-trip for everything neither tier recognised.
+            if (unknown.Count > 0)
+            {
+                MappingResult llmResult = await _llm.MapLayersAsync(unknown, ct).ConfigureAwait(false);
+                foreach (LayerMapping m in llmResult?.Mappings ?? Enumerable.Empty<LayerMapping>())
+                {
+                    if (m == null || string.IsNullOrWhiteSpace(m.CadLayer)) continue;
+                    _cache[Normalize(m.CadLayer)] = m;   // learn it for next time
+                    _dirty = true;
+                    resolved.Add(m);
+                }
+            }
+
+            if (_dirty) SaveCache();
+            return new MappingResult { Mappings = resolved };
+        }
+
+        // ---- ignore-list (tier 0) ----
+
+        // Non-model layers that must never yield geometry — dropped before any cache/dictionary/LLM
+        // work so they can't become walls/floors/furniture or bloat the IFC, and never cost a model
+        // call. Matched case-insensitively: exact for the bare system layers, substring for the tokens.
+        private static readonly string[] IgnoreExact = { "DEFPOINTS", "0" };
+        private static readonly string[] IgnoreTokens =
+        {
+            // Documentation / annotation — never model geometry.
+            "ANNO", "TEXT", "DIM", "NOTE", "TAG", "LEADER", "SYMBOL", "LEGEND",
+            "TITLE", "REVCLOUD", "MATCHLINE", "GRID", "VIEWPORT", "VPORT", "WIPEOUT", "NPLT",
+            // Fills & area-calc boundaries (not slabs).
+            "HATCH",
+            // "AREA" = area/space-boundary layers (BD-AREA etc.): calc annotation, not model slabs.
+            // Remove this token if a project genuinely draws floor slabs on an *AREA* layer.
+            "AREA",
+        };
+
+        private static bool ShouldIgnore(string layer)
+        {
+            if (string.IsNullOrWhiteSpace(layer)) return true;
+            string u = layer.Trim().ToUpperInvariant();
+            if (IgnoreExact.Contains(u)) return true;
+            foreach (string token in IgnoreTokens)
+                if (u.Contains(token)) return true;
+            return false;
+        }
+
+        // ---- base keyword dictionary (tier 2) ----
+
+        // Ordered longest/most-specific first; the first token a layer name contains wins. These are
+        // hints, not law: the cache and the LLM refine anything they don't cover. bdsFamily is a
+        // generic default so mapped walls still provision a type downstream (GhostWallTypeProvisioner).
+        private static readonly (string Token, string Category, string Family)[] BaseRules =
+        {
+            ("PARTITION", "Walls",     "Generic Wall"),
+            ("WALL",      "Walls",     "Generic Wall"),
+            ("DOOR",      "Doors",     "Generic Door"),
+            ("WINDOW",    "Windows",   "Generic Window"),
+            ("GLAZ",      "Windows",   "Generic Window"),
+            ("GLASS",     "Windows",   "Generic Window"),
+            ("SLAB",      "Floors",    "Generic Floor"),
+            ("FLOOR",     "Floors",    "Generic Floor"),
+            ("FLOR",      "Floors",    "Generic Floor"),
+            ("CEILING",   "Ceilings",  "Generic Ceiling"),
+            ("CEIL",      "Ceilings",  "Generic Ceiling"),
+            ("CLNG",      "Ceilings",  "Generic Ceiling"),
+            ("RCP",       "Ceilings",  "Generic Ceiling"),
+            ("COLUMN",    "Columns",   "Generic Column"),
+            ("COL",       "Columns",   "Generic Column"),
+            ("FURN",      "Furniture", "Generic Furniture"),
+            ("CASEWORK",  "Furniture", "Generic Furniture"),
+            ("EQUIP",     "Furniture", "Generic Furniture"),
+        };
+
+        private static LayerMapping MatchBase(string layer)
+        {
+            string upper = layer.ToUpperInvariant();
+            foreach (var rule in BaseRules)
+            {
+                if (upper.Contains(rule.Token))
+                    return new LayerMapping
+                    {
+                        CadLayer = layer,
+                        Category = rule.Category,
+                        BdsFamily = rule.Family,
+                        Confidence = 0.75, // heuristic — above the 0.5 placement floor, below LLM certainty
+                    };
+            }
+            return null;
+        }
+
+        // ---- cache persistence (tier 1) ----
+
+        private static string Normalize(string layer) => layer.Trim().ToUpperInvariant();
+
+        private static Dictionary<string, LayerMapping> LoadCache(string path)
+        {
+            var dict = new Dictionary<string, LayerMapping>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var loaded = JsonSerializer.Deserialize<Dictionary<string, LayerMapping>>(
+                        File.ReadAllText(path));
+                    if (loaded != null)
+                        foreach (var kv in loaded)
+                            if (kv.Value != null) dict[kv.Key] = kv.Value;
+                }
+            }
+            catch (Exception) { /* corrupt/unreadable cache -> start empty, it will be rebuilt */ }
+            return dict;
+        }
+
+        private void SaveCache()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_cachePath));
+                File.WriteAllText(_cachePath,
+                    JsonSerializer.Serialize(_cache, new JsonSerializerOptions { WriteIndented = true }));
+                _dirty = false;
+            }
+            catch (Exception) { /* best-effort: a read-only cache dir must not fail the mapping run */ }
+        }
+
+        // A returned mapping must carry the DWG's ACTUAL layer string (case included) so the
+        // placement engine's by-layer join lines up; the cached copy stays untouched.
+        private static LayerMapping WithLayer(LayerMapping src, string layer) => new LayerMapping
+        {
+            CadLayer = layer,
+            Category = src.Category,
+            BdsFamily = src.BdsFamily,
+            BdsFamilyType = src.BdsFamilyType,
+            Confidence = src.Confidence,
+        };
+
+        public void Dispose() => (_llm as IDisposable)?.Dispose();
+    }
+}

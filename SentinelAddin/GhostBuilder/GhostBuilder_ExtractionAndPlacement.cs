@@ -1,10 +1,12 @@
+#nullable disable
+// ponytail: nullable off for the ported GhostBuilder module; annotate + remove when hardening.
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 
-namespace BadranDesignStudio.Sentinel
+namespace Sentinel.GhostBuilder
 {
     // ---------------------------------------------------------------------
     // 1. EXTRACTION
@@ -83,21 +85,51 @@ namespace BadranDesignStudio.Sentinel
                 switch (o)
                 {
                     case Line line:
-                        results.Add(MakeCurveEl(layer, line));
+                        AddCurveEl(results, layer, line);
                         break;
 
                     case Arc arc:
-                        results.Add(MakeCurveEl(layer, arc));
+                        // A full circle from CAD arrives as an UNBOUND Arc (no endpoints).
+                        // AddCurveEl skips it — a closed circle can't drive a single wall run.
+                        AddCurveEl(results, layer, arc);
                         break;
 
                     case PolyLine poly:
-                        // Split into straight segments; each becomes its own wall run.
                         IList<XYZ> pts = poly.GetCoordinates();
+                        double tol = _doc.Application.ShortCurveTolerance;
+
+                        // A closed CAD polyline (room / slab / ceiling outline) comes back with its
+                        // first vertex repeated as the last coordinate (or coincident endpoints).
+                        // Turn it into ONE loop-bearing element instead of shredding it into runs:
+                        // ElementPlacementFactory maps LocationLoop to Floor/Ceiling.Create, and its
+                        // wall path also walks the loop edges, so a closed outline on a wall layer
+                        // still becomes perimeter walls — no regression.
+                        bool closed = pts.Count >= 4 && pts[0].DistanceTo(pts[pts.Count - 1]) < tol;
+                        if (closed)
+                        {
+                            IList<Curve> loop = BuildClosedBoundLoop(pts, tol);
+                            if (loop.Count >= 3) // need at least a triangle to bound a slab
+                            {
+                                results.Add(new GhostElement
+                                {
+                                    CadLayer = layer,
+                                    LocationLoop = loop,
+                                    BaseElevation = pts[0].Z,
+                                    // Height driver in case this layer maps to Walls, not Floors.
+                                    TopElevation = pts[0].Z + WallDefaultHeightFt
+                                });
+                                break;
+                            }
+                            // Too few usable edges to form a loop -> fall through to segment runs.
+                        }
+
+                        // Open polyline (or a closed one we couldn't loop): split into straight
+                        // segments; each becomes its own wall run.
                         for (int i = 0; i < pts.Count - 1; i++)
                         {
-                            if (pts[i].DistanceTo(pts[i + 1]) < _doc.Application.ShortCurveTolerance)
+                            if (pts[i].DistanceTo(pts[i + 1]) < tol)
                                 continue; // skip degenerate segment
-                            results.Add(MakeCurveEl(layer, Line.CreateBound(pts[i], pts[i + 1])));
+                            AddCurveEl(results, layer, Line.CreateBound(pts[i], pts[i + 1]));
                         }
                         break;
 
@@ -150,13 +182,52 @@ namespace BadranDesignStudio.Sentinel
             return results;
         }
 
-        private GhostElement MakeCurveEl(string layer, Curve c) => new GhostElement
+        /// <summary>
+        /// Build a wall-run element from a curve, but ONLY if the curve is bound. Unbound curves
+        /// (full circles, ellipses) have no endpoints; calling GetEndPoint on them throws
+        /// ArgumentException "The input curve is not bound". Those are skipped — a closed loop can't
+        /// map to one LOD 200 wall run. Callers that need closed-loop handling would tessellate first.
+        /// </summary>
+        private void AddCurveEl(List<GhostElement> results, string layer, Curve c)
         {
-            CadLayer = layer,
-            LocationCurve = c,
-            BaseElevation = c.GetEndPoint(0).Z,
-            TopElevation = c.GetEndPoint(0).Z + WallDefaultHeightFt
-        };
+            if (c == null || !c.IsBound) return; // gate BEFORE GetEndPoint — this is the fix
+
+            double z = c.GetEndPoint(0).Z;
+            results.Add(new GhostElement
+            {
+                CadLayer = layer,
+                LocationCurve = c,
+                BaseElevation = z,
+                TopElevation = z + WallDefaultHeightFt
+            });
+        }
+
+        /// <summary>
+        /// Build an ordered, closed list of bound line segments from a closed polyline's vertices.
+        /// Degenerate (coincident-vertex) segments are dropped, and if the CAD source didn't repeat
+        /// its first vertex the loop is closed explicitly, so the result is safe to hand to
+        /// CurveLoop.Create. Returns fewer than 3 curves when the polyline can't bound an area.
+        /// </summary>
+        private static IList<Curve> BuildClosedBoundLoop(IList<XYZ> pts, double tol)
+        {
+            var curves = new List<Curve>();
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                if (pts[i].DistanceTo(pts[i + 1]) < tol) continue; // drop duplicate/degenerate vertex
+                curves.Add(Line.CreateBound(pts[i], pts[i + 1]));
+            }
+
+            // Close the ring if the last edge doesn't already land back on the start point.
+            if (curves.Count >= 2)
+            {
+                XYZ start = curves[0].GetEndPoint(0);
+                XYZ end = curves[curves.Count - 1].GetEndPoint(1);
+                if (start.DistanceTo(end) >= tol)
+                    curves.Add(Line.CreateBound(end, start));
+            }
+
+            return curves;
+        }
 
         // LOD 200 default wall height when the 2D CAD carries no Z info (10 ft).
         // ponytail: hard-coded; lift to per-category config when projects vary floor-to-floor.
@@ -174,10 +245,15 @@ namespace BadranDesignStudio.Sentinel
     public sealed class GhostElement
     {
         public string CadLayer { get; set; }
-        public Curve LocationCurve { get; set; }   // walls: the run
-        public XYZ LocationPoint { get; set; }      // point families: insertion
+        public Curve LocationCurve { get; set; }        // walls: the run
+        public XYZ LocationPoint { get; set; }           // point families: insertion
+        public IList<Curve> LocationLoop { get; set; }   // floors/ceilings: closed boundary
         public double BaseElevation { get; set; }
-        public double TopElevation { get; set; }    // walls: height driver
+        public double TopElevation { get; set; }         // walls: height driver
+        // NOTE: LocationLoop is the seam for floor/ceiling placement. GhostCadExtractor populates it
+        // for CLOSED polylines (open polylines still split into per-segment wall runs via
+        // LocationCurve). ElementPlacementFactory maps LocationLoop to Floor/Ceiling.Create, and its
+        // wall path walks the loop edges so a closed outline on a wall layer still yields walls.
     }
 
     /// <summary>
@@ -194,6 +270,8 @@ namespace BadranDesignStudio.Sentinel
         // Caches of what actually exists in the model (the anti-hallucination truth set).
         private readonly Dictionary<string, WallType> _wallTypes;
         private readonly Dictionary<string, FamilySymbol> _symbols;
+        private readonly Dictionary<string, FloorType> _floorTypes;
+        private readonly Dictionary<string, ElementType> _ceilingTypes;
         private readonly Level _defaultLevel;
 
         public GhostPlacementEngine(Document doc, double minConfidence = 0.5)
@@ -209,6 +287,18 @@ namespace BadranDesignStudio.Sentinel
             _symbols = new FilteredElementCollector(doc)
                 .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
                 .GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First(),
+                         StringComparer.OrdinalIgnoreCase);
+
+            _floorTypes = new FilteredElementCollector(doc)
+                .OfClass(typeof(FloorType)).Cast<FloorType>()
+                .GroupBy(f => f.Name).ToDictionary(g => g.Key, g => g.First(),
+                         StringComparer.OrdinalIgnoreCase);
+
+            // Ceiling types are ElementType (CeilingType exists 2022+; ElementType is the stable base).
+            _ceilingTypes = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Ceilings).WhereElementIsElementType()
+                .Cast<ElementType>()
+                .GroupBy(ct => ct.Name).ToDictionary(g => g.Key, g => g.First(),
                          StringComparer.OrdinalIgnoreCase);
 
             _defaultLevel = new FilteredElementCollector(doc)
@@ -240,6 +330,10 @@ namespace BadranDesignStudio.Sentinel
                 .GroupBy(m => m.CadLayer, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
+            // All creation logic lives in the factory; the engine just iterates and tallies.
+            var factory = new ElementPlacementFactory(
+                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes);
+
             foreach (GhostElement el in elements)
             {
                 if (!byLayer.TryGetValue(el.CadLayer, out LayerMapping map))
@@ -247,67 +341,40 @@ namespace BadranDesignStudio.Sentinel
 
                 if (map.Confidence < _minConfidence) { report.SkippedLowConfidence++; continue; }
 
-                switch (map.Category)
+                ElementPlacementFactory.Outcome outcome;
+                string warning;
+                try
                 {
-                    case "Walls":
-                        if (!TryPlaceWall(el, map, report)) { /* counted inside */ }
-                        break;
+                    outcome = factory.Place(el, map, out warning);
+                }
+                catch (Autodesk.Revit.Exceptions.ArgumentException ex)
+                {
+                    // One malformed CAD element (too-short, non-planar or self-intersecting curve)
+                    // must NOT abort the whole build and roll back everything already placed. Skip
+                    // it, record why, and keep going — resilience is the whole point for dirty DWGs.
+                    report.SkippedNoGeometry++;
+                    report.Warnings.Add($"Skipped layer '{el.CadLayer}': {ex.Message}");
+                    continue;
+                }
+                catch (Autodesk.Revit.Exceptions.InvalidOperationException ex)
+                {
+                    report.SkippedNoGeometry++;
+                    report.Warnings.Add($"Skipped layer '{el.CadLayer}': {ex.Message}");
+                    continue;
+                }
 
-                    case "Doors":
-                    case "Windows":
-                    case "Columns":
-                    case "Furniture":
-                        if (!TryPlaceFamilyInstance(el, map, report)) { /* counted inside */ }
-                        break;
+                if (warning != null) report.Warnings.Add(warning);
 
-                    default:
-                        report.Warnings.Add($"Category '{map.Category}' (layer '{el.CadLayer}') not handled at LOD 200; skipped.");
-                        break;
+                switch (outcome)
+                {
+                    case ElementPlacementFactory.Outcome.Placed:             report.Placed++; break;
+                    case ElementPlacementFactory.Outcome.SkippedNoGeometry:  report.SkippedNoGeometry++; break;
+                    case ElementPlacementFactory.Outcome.SkippedUnknownType: report.SkippedUnknownFamily++; break;
+                    // SkippedUnsupported: counted only via its warning, not a hard bucket.
                 }
             }
 
             return report;
-        }
-
-        private bool TryPlaceWall(GhostElement el, LayerMapping map, PlacementReport r)
-        {
-            if (el.LocationCurve == null) { r.SkippedNoGeometry++; return false; }
-
-            // bdsFamily / bdsFamilyType names a wall type -> must exist in the doc.
-            string wanted = map.BdsFamilyType ?? map.BdsFamily;
-            if (wanted == null || !_wallTypes.TryGetValue(wanted, out WallType wt))
-            {
-                r.SkippedUnknownFamily++;
-                r.Warnings.Add($"WallType '{wanted}' not found (layer '{el.CadLayer}'); skipped.");
-                return false;
-            }
-
-            double height = Math.Max(el.TopElevation - el.BaseElevation, _doc.Application.ShortCurveTolerance * 10);
-
-            Wall.Create(_doc, el.LocationCurve, wt.Id, _defaultLevel.Id,
-                        height, el.BaseElevation, flip: false, structural: false);
-            r.Placed++;
-            return true;
-        }
-
-        private bool TryPlaceFamilyInstance(GhostElement el, LayerMapping map, PlacementReport r)
-        {
-            if (el.LocationPoint == null) { r.SkippedNoGeometry++; return false; }
-
-            string wanted = map.BdsFamilyType ?? map.BdsFamily;
-            if (wanted == null || !_symbols.TryGetValue(wanted, out FamilySymbol sym))
-            {
-                r.SkippedUnknownFamily++;
-                r.Warnings.Add($"FamilySymbol '{wanted}' not found (layer '{el.CadLayer}'); skipped.");
-                return false;
-            }
-
-            if (!sym.IsActive) sym.Activate();   // inactive symbols throw on NewFamilyInstance
-
-            _doc.Create.NewFamilyInstance(el.LocationPoint, sym, _defaultLevel,
-                                          StructuralType.NonStructural);
-            r.Placed++;
-            return true;
         }
     }
 }

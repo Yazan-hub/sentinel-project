@@ -1,24 +1,35 @@
+#nullable disable
+// ponytail: nullable off for the ported GhostBuilder module; annotate + remove when hardening.
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 
-namespace BadranDesignStudio.Sentinel
+namespace Sentinel.GhostBuilder
 {
     /// <summary>
-    /// Runs the full Ghost Builder pass: DWG -> layers -> LLM mapping -> geometry -> placed 3D.
-    /// The LLM call is awaited BEFORE any transaction opens, because a Revit Transaction must
-    /// live entirely on the main thread and must never span an await.
+    /// Ghost Builder pass, split by threading affinity so the UI never freezes:
+    ///
+    ///   • ExtractInputs(cadLink)  — Revit API READS. API thread only. Fast.
+    ///   • MapAsync(inputs, ct)    — LLM HTTP call. Pure network, no Revit API — safe on a
+    ///                               background thread (Task.Run) and cancellable.
+    ///   • Place(inputs, mapping)  — Revit API WRITES (Wall.Create, family placement) inside one
+    ///                               transaction. API thread ONLY — must run via ExternalEvent.
+    ///
+    /// The old RunAsync did all three on one thread; blocking on it pinned the UI for the whole
+    /// LLM round-trip. Callers now drive the three phases across the right threads themselves.
     /// </summary>
     public sealed class GhostBuilderOrchestrator
     {
         private readonly Document _doc;
         private readonly GhostCadExtractor _extractor;
-        private readonly LocalGhostBuilder _mapper;
+        private readonly ILayerMapper _mapper;
         private readonly double _minConfidence;
         private readonly string _familyLibraryDir;   // null -> skip preload
 
-        public GhostBuilderOrchestrator(Document doc, LocalGhostBuilder mapper,
+        public GhostBuilderOrchestrator(Document doc, ILayerMapper mapper,
                                         double minConfidence = 0.5, string familyLibraryDir = null)
         {
             _doc = doc;
@@ -28,27 +39,59 @@ namespace BadranDesignStudio.Sentinel
             _extractor = new GhostCadExtractor(doc);
         }
 
-        public async Task<GhostPlacementEngine.PlacementReport> RunAsync(ImportInstance cadLink)
+        /// <summary>Extracted CAD layers + placeable elements. Plain data — no Revit API, so it
+        /// can be carried onto a background thread and back safely.</summary>
+        public sealed class Inputs
+        {
+            public List<string> Layers { get; set; }
+            public List<GhostElement> Elements { get; set; }
+        }
+
+        /// <summary>PHASE 1 — Revit API reads. Call on the API thread.</summary>
+        public Inputs ExtractInputs(ImportInstance cadLink)
         {
             if (cadLink == null) throw new ArgumentNullException(nameof(cadLink));
+            return new Inputs
+            {
+                Layers   = _extractor.ExtractCadLayers(cadLink).ToList(),
+                Elements = _extractor.ExtractGhostElements(cadLink).ToList(),
+            };
+        }
 
-            // 1. Layers -> LLM mapping (async I/O, NO transaction open here).
-            var layers = _extractor.ExtractCadLayers(cadLink).ToList();
-            if (layers.Count == 0)
+        /// <summary>PHASE 2 — LLM mapping. Pure network; safe on a background thread. Cancellable.</summary>
+        public Task<MappingResult> MapAsync(Inputs inputs, CancellationToken ct = default)
+        {
+            if (inputs?.Layers == null || inputs.Layers.Count == 0)
+                return Task.FromResult<MappingResult>(null); // nothing to map
+            return _mapper.MapLayersAsync(inputs.Layers, ct);
+        }
+
+        /// <summary>
+        /// PHASE 3 — geometry creation inside one transaction. Revit API writes: API thread ONLY,
+        /// must be invoked from an IExternalEventHandler.Execute. Never from Task.Run.
+        /// </summary>
+        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping)
+        {
+            if (inputs?.Layers == null || inputs.Layers.Count == 0)
                 return new GhostPlacementEngine.PlacementReport
                 { Warnings = { "No CAD layers found in import; nothing to build." } };
 
-            MappingResult mapping = await _mapper.MapLayersAsync(layers);
             if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
                 return new GhostPlacementEngine.PlacementReport
                 { Warnings = { "LLM returned no mappings; nothing to build." } };
 
-            // 2. Geometry (sync, still no transaction — reads only).
-            var elements = _extractor.ExtractGhostElements(cadLink).ToList();
+            var elements = inputs.Elements;
 
-            // 3. Placement inside a single transaction on the main thread.
             using var t = new Transaction(_doc, "Ghost Builder - LOD 200");
             t.Start();
+
+            // Auto-resolve the creation failures a bulk dirty-CAD build raises at commit
+            // ("Can't make Wall", "Can't keep elements joined") so the user isn't blocked behind
+            // dozens of modal "cannot be ignored" dialogs — and a stray Cancel can't nuke the build.
+            FailureHandlingOptions fho = t.GetFailureHandlingOptions();
+            fho.SetFailuresPreprocessor(new GhostFailureHandler());
+            fho.SetClearAfterRollback(true);
+            t.SetFailureHandlingOptions(fho);
             GhostPlacementEngine.PlacementReport report;
             try
             {

@@ -1,10 +1,12 @@
+#nullable disable
+// ponytail: nullable off for the ported GhostBuilder module; annotate + remove when hardening.
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
 
-namespace BadranDesignStudio.Sentinel
+namespace Sentinel.GhostBuilder
 {
     /// <summary>
     /// Loads BDS .rfa families from a library folder into the project so that families the

@@ -1,9 +1,11 @@
+#nullable disable
+// ponytail: nullable off for the ported GhostBuilder module; annotate + remove when hardening.
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 
-namespace BadranDesignStudio.Sentinel
+namespace Sentinel.GhostBuilder
 {
     /// <summary>
     /// Wall types are SYSTEM families — they cannot be loaded from .rfa like component families.
