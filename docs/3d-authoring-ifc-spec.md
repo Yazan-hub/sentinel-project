@@ -3,7 +3,13 @@
 > Follow-up to the in-browser **Model** panel (`WebApp/src/setups/model-panel.ts`, commit `bc451d5`),
 > which authors **display meshes**. This scopes turning those into **real IFC/BIM elements**: typed,
 > GUID'd, storey-contained, property- and quantity-bearing, exportable to `.ifc`, and loadable back as a
-> first-class fragments model that the QA / 5D / 6D / tree / properties pipeline reads. Status: **not built.**
+> first-class fragments model that the QA / 5D / 6D / tree / properties pipeline reads.
+>
+> **Status: Phase A spike PASSED (2026-07-16).** A hand-written IFC4 wall (5×0.2×3 m, with
+> `Qto_WallBaseQuantities` + `Pset_WallCommon` + spatial skeleton) verified two ways: web-ifc's reader
+> parsed it (1 wall, 1 quantity set, tessellated a real mesh — 204 vertex floats), and the bridge's
+> `IfcImporter` converted it to fragments (1897 bytes). The IFC-validity risk is retired; the direct
+> IFC-SPF path (not the web-ifc writer) is the chosen approach. Sample: `sentinel-authored-wall.ifc`.
 
 ## 1. Goal & non-goals
 
@@ -76,7 +82,7 @@ each element in the nearest one; expose a level picker in the panel.
 
 | Phase | Deliverable | Est. | Risk |
 |---|---|---|---|
-| **A. IFC writer core** | Spatial skeleton + **one** element (wall) end-to-end: geometry + Qto + Pset + GUID → `SaveModel` → download `.ifc` that opens in Revit/Solibri | 1–1.5 d | **High** — valid IFC is fiddly |
+| **A. IFC writer core** ✅ | Spatial skeleton + **one** element (wall) end-to-end: geometry + Qto + Pset + GUID → `.ifc`. **Spike done** — parses in web-ifc + converts to fragments. Remaining: confirm it opens in Revit. | ~done | ~~High~~ retired |
 | **B. All 3 types + reload** | Column + slab with correct per-type Qto so 5D/6D read them; load baked IFC back as fragments in-app | ~1 d | Med |
 | **C. Upload + versioning** | `.ifc` → bridge/Files API; re-bake replaces prior version; single-storey placement | 0.5–1 d | Low |
 | **D. (optional) polish** | Per-element name/type/Pset editing UI, multi-storey, IFC→editable re-import | open | — |
