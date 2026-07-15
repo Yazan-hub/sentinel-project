@@ -12,12 +12,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const WASM_DIR = resolve(here, "../node_modules/web-ifc") + "/";
 
 /**
- * Convert an IFC file to fragments bytes. Returns a Uint8Array (.frag) — much smaller than the IFC,
- * so the viewer loads it instantly. Large files (100 MB+) take longer and use more memory but work.
+ * Convert IFC BYTES to fragments bytes. Returns a Uint8Array (.frag) — much smaller than the IFC, so
+ * the viewer loads it instantly. Shared by the file + one-shot (bridge upload) paths.
  */
-export async function ifcToFrag(ifcPath) {
+export async function ifcBytesToFrag(bytes) {
   const importer = new IfcImporter();
   importer.wasm = { absolute: true, path: WASM_DIR };
-  const bytes = new Uint8Array(await readFile(ifcPath));
-  return importer.process({ bytes }); // Uint8Array of .frag
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return importer.process({ bytes: u8 }); // Uint8Array of .frag
+}
+
+/** Convert an IFC file (by path) to fragments bytes. */
+export async function ifcToFrag(ifcPath) {
+  return ifcBytesToFrag(new Uint8Array(await readFile(ifcPath)));
 }

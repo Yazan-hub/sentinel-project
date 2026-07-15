@@ -84,7 +84,7 @@ each element in the nearest one; expose a level picker in the panel.
 |---|---|---|---|
 | **A. IFC writer core** ✅ | Spatial skeleton + **one** element (wall) end-to-end: geometry + Qto + Pset + GUID → `.ifc`. **Spike done** — parses in web-ifc + converts to fragments. Remaining: confirm it opens in Revit. | ~done | ~~High~~ retired |
 | **B. All 3 types + bake** ✅ | `sentinel-core/ifc-writer.ts` (walls/columns/slabs, three→IFC coords, per-type Qto) + **Bake to IFC** button. **Done** — verified: wall+column+slab parse in web-ifc (3 meshes, 3 Qto) + convert to fragments. Reload = Assets panel (existing IFC importer). | ~done | Low |
-| **C. Upload + versioning** | `.ifc` → bridge/Files API; re-bake replaces prior version; single-storey placement | 0.5–1 d | Low |
+| **C. Upload + versioning** ✅ | Bridge `POST /ifc` (browser → bridge → platform; token stays server-side; IFC→frag then upload) + **Bake & Upload** button with a per-project version counter. **Done** — verified: route + CORS + real upload (returned a live item id) + local frag conversion (2843 bytes). | ~done | Low |
 | **D. (optional) polish** | Per-element name/type/Pset editing UI, multi-storey, IFC→editable re-import | open | — |
 
 **MVP (A–C) ≈ 3–4 days** for a schedulable, exportable authoring flow. D is open-ended.

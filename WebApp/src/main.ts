@@ -147,7 +147,7 @@ async function main() {
 
   // In-browser 3D Modeling studio — author walls/columns/slabs, transform-edit, measure + markup,
   // all on the shared OBC world. Built once so its authored geometry survives layout switches.
-  const modelEl = modelPanel(components);
+  const modelEl = modelPanel(components, { baseUrl: SERVICE_URL });
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
   const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });

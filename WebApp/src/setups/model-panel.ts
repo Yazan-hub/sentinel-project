@@ -48,9 +48,11 @@ interface MeasureItem {
 const ACCENT = 0x6528d7;
 const KIND_COLOR: Record<Kind, number> = { wall: 0xb4bac6, column: 0x8a94a6, slab: 0x9aa3b2 };
 
-export function modelPanel(components: OBC.Components): HTMLElement {
+export function modelPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
   const projectId = () => getAppManager().client?.context?.projectId ?? "default";
   const storeKey = () => `sentinel:model:${projectId()}`;
+  const verKey = () => `sentinel:model:ver:${projectId()}`;
 
   // ── world handles (resolved lazily; the world exists by the time a tab is opened) ──
   const getWorld = () =>
@@ -179,10 +181,15 @@ export function modelPanel(components: OBC.Components): HTMLElement {
   bakeBtn.style.cssText = btn + ";background:#22303a;border-color:#2f6d8a;color:#bfe3f2";
   bakeBtn.addEventListener("click", bakeToIfc);
   bakeRow.appendChild(bakeBtn);
+  const uploadBtn = document.createElement("button");
+  uploadBtn.textContent = "Bake & Upload ☁";
+  uploadBtn.style.cssText = btn + ";background:#2a1e4d;border-color:#6528d7;color:#c4b5fd";
+  uploadBtn.addEventListener("click", bakeUpload);
+  bakeRow.appendChild(uploadBtn);
   const bakeHint = document.createElement("div");
   bakeHint.style.cssText = "font-size:11px;color:#9ca3af;margin-top:.35rem;width:100%";
   bakeHint.textContent =
-    "Baked IFC is real BIM — typed, GUID'd, with Qto quantities. Re-import it via the Assets panel and cost / carbon / QA read it.";
+    "Baked IFC is real BIM — typed, GUID'd, with Qto quantities (cost / carbon / QA read it). Download to import via Assets, or upload straight to the platform via the bridge.";
   bakeRow.appendChild(bakeHint);
 
   function mkGizmoBtn(label: string, gmode: "translate" | "rotate" | "scale", host: HTMLElement) {
@@ -595,6 +602,39 @@ export function modelPanel(components: OBC.Components): HTMLElement {
       status(`Baked ${authored.length} element(s) → IFC downloaded. Load it via Assets to see it as a real model.`);
     } catch (e) {
       status(`Bake failed: ${(e as Error)?.message ?? String(e)}`);
+    }
+  }
+  function nextVersion(): number {
+    let n = 1;
+    try { n = (parseInt(localStorage.getItem(verKey()) || "0", 10) || 0) + 1; localStorage.setItem(verKey(), String(n)); } catch { /* storage off */ }
+    return n;
+  }
+  async function bakeUpload() {
+    if (!ensure()) { status("Viewer not ready yet."); return; }
+    if (!authored.length) { status("Author some elements first, then upload."); return; }
+    const n = nextVersion();
+    uploadBtn.disabled = true;
+    status(`Baking + uploading ${authored.length} element(s) to the platform (v${n})…`);
+    try {
+      const ifc = buildIfc(bakeDescriptors(), { projectName: `Sentinel ${projectId()}`, timestamp: Math.floor(Date.now() / 1000) });
+      const url =
+        `${base}/ifc?name=${encodeURIComponent("sentinel-model.ifc")}` +
+        `&version=v${n}&projectId=${encodeURIComponent(projectId())}`;
+      const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-step" }, body: ifc });
+      const j = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        status(
+          resp.status === 503
+            ? `Bridge reachable but not configured: ${j.message}. Set THATOPEN_API_KEY + THATOPEN_PROJECT_ID in config/.env and restart start.ps1.`
+            : `Upload failed (${resp.status}): ${j.message || "see the bridge console"}.`,
+        );
+        return;
+      }
+      status(`Uploaded to platform ✓ item ${j.itemId ?? "?"} (v${n}, ${j.format}, ${j.bytes ?? "?"} bytes). Open the model list to view it.`);
+    } catch (e) {
+      status(`Upload failed: ${(e as Error)?.message ?? String(e)}. Is the bridge running? Start it with start.ps1 (or npm run bcf:serve).`);
+    } finally {
+      uploadBtn.disabled = false;
     }
   }
 

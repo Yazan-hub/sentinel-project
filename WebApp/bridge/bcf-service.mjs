@@ -86,6 +86,9 @@ const send = (res, code, body) => {
 const readBody = (req) => new Promise((resolve) => {
   let s = ""; req.on("data", (c) => (s += c)); req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); } });
 });
+const readRaw = (req) => new Promise((resolve, reject) => {
+  const chunks = []; req.on("data", (c) => chunks.push(c)); req.on("end", () => resolve(Buffer.concat(chunks))); req.on("error", reject);
+});
 
 createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204);
@@ -232,6 +235,39 @@ createServer(async (req, res) => {
         t.modified_date = now; persistTender(); return send(res, 200, t);
       }
       return send(res, 405, { message: "Method not allowed" });
+    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+  }
+
+  // ── IFC upload → That Open Platform (Phase C: browser bakes → bridge uploads; token stays server-side) ──
+  //   POST /ifc?name=<x.ifc>&version=<vN>&projectId=<id>   body = raw .ifc bytes
+  // The browser can't hold THATOPEN_API_KEY, so it POSTs the baked IFC here; the bridge converts it to
+  // fragments and uploads via the same @thatopen/services client the outbox watcher uses.
+  if (url.pathname === "/ifc" && req.method === "POST") {
+    try {
+      const bytes = await readRaw(req);
+      if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
+      const name = url.searchParams.get("name") || "sentinel-model.ifc";
+      const versionTag = url.searchParams.get("version") || "v1";
+
+      // Lazy-load the upload deps so the BCF service still boots if they're absent.
+      const { getConfig, createClient, uploadBytes } = await import("./thatopen-client.mjs");
+      let cfg;
+      try { cfg = getConfig(); }
+      catch (e) { return send(res, 503, { message: String(e?.message || e) }); } // not configured → clear message
+      const projectId = url.searchParams.get("projectId") || cfg.projectId;
+      const client = createClient(cfg);
+
+      // Convert IFC → fragments locally and upload the viewable .frag; fall back to the raw .ifc.
+      try {
+        const { ifcBytesToFrag } = await import("./ifc-to-frag.mjs");
+        const frag = await ifcBytesToFrag(new Uint8Array(bytes));
+        const fragName = name.replace(/\.ifc$/i, ".frag");
+        const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
+        return send(res, 200, { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size });
+      } catch (convErr) {
+        const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
+        return send(res, 200, { ok: true, format: "ifc", name, itemId: result?.item?._id, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` });
+      }
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
   }
 
