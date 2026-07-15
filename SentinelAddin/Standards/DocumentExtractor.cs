@@ -52,15 +52,24 @@ public sealed class DocumentExtractor : IDisposable
       ""binding"":{""type"":""string"",""enum"":[""instance"",""type""]},
       ""categories"":{""type"":""array"",""items"":{""type"":""string""}},
       ""confidence"":{""type"":""number""},""page"":{""type"":""integer""}},
-      ""required"":[""name""]}}
+      ""required"":[""name""]}},
+    ""naming_rules"":{""type"":""array"",""items"":{""type"":""object"",""properties"":{
+      ""target"":{""type"":""string"",""enum"":[""View"",""Sheet"",""Family"",""Level"",""Grid"",""Workset"",""Parameter""]},
+      ""tokens"":{""type"":""array"",""items"":{""type"":""string""}},
+      ""separator"":{""type"":""string""},
+      ""categories"":{""type"":""array"",""items"":{""type"":""string""}},
+      ""example"":{""type"":""string""},
+      ""confidence"":{""type"":""number""},""page"":{""type"":""integer""}},
+      ""required"":[""target"",""tokens""]}}
   },
-  ""required"":[""worksets"",""shared_parameters""]
+  ""required"":[""worksets"",""shared_parameters"",""naming_rules""]
 }";
 
     public async Task<StandardsPack> ExtractAsync(IReadOnlyList<string> files, CancellationToken ct = default)
     {
         var worksets = new Dictionary<string, WorksetSpec>(StringComparer.OrdinalIgnoreCase);
         var parameters = new Dictionary<string, SharedParamSpec>(StringComparer.OrdinalIgnoreCase);
+        var namingRules = new Dictionary<string, NamingRuleSpec>(StringComparer.OrdinalIgnoreCase);
         string? firstError = null;
         bool anySuccess = false;
 
@@ -79,6 +88,8 @@ public sealed class DocumentExtractor : IDisposable
                     MergeWorkset(worksets, w, tag, startPage);
                 foreach (var p in dto.SharedParameters)
                     MergeParameter(parameters, p, tag, startPage);
+                foreach (var nr in dto.NamingRules)
+                    MergeNamingRule(namingRules, nr, tag, startPage);
             }
         }
 
@@ -95,6 +106,16 @@ public sealed class DocumentExtractor : IDisposable
         };
         pack.Provision.Worksets.AddRange(worksets.Values.OrderBy(w => w.Name, StringComparer.OrdinalIgnoreCase));
         pack.Provision.SharedParameters.AddRange(parameters.Values.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
+
+        // Assign stable ids (NM-01, NM-02…) so re-runs replace rather than duplicate the same rule in the ruleset.
+        int nmIdx = 1;
+        foreach (var nr in namingRules.Values
+                     .OrderByDescending(x => x.Confidence)
+                     .ThenBy(x => x.Target, StringComparer.OrdinalIgnoreCase))
+        {
+            nr.Id = $"NM-{nmIdx++:00}";
+            pack.Provision.NamingRules.Add(nr);
+        }
         return pack;
     }
 
@@ -102,10 +123,13 @@ public sealed class DocumentExtractor : IDisposable
     private async Task<ExtractDto> QueryAsync(string chunkText, CancellationToken ct)
     {
         string prompt =
-            "You are extracting a BIM office standard from a document. From the TEXT below, extract two things:\n" +
+            "You are extracting a BIM office standard from a document. From the TEXT below, extract three things:\n" +
             "1. Revit WORKSET names (e.g. ARC_Walls, XX_STR Model).\n" +
             "2. Required SHARED PARAMETERS — with data type, whether they bind to instance or type, and the " +
             "Revit categories they apply to (e.g. Walls, Doors, Views).\n" +
+            "3. NAMING CONVENTIONS for Views, Sheets, Families, Levels or Grids. Express each as an ordered " +
+            "list of TOKENS (e.g. [\"DISCIPLINE\",\"LEVEL\",\"TYPE\"]) plus the single SEPARATOR between them " +
+            "(e.g. \"_\"), one 'example' string, and 'target' (View/Sheet/Family/Level/Grid). Never write a regex.\n" +
             "Only include items the text actually specifies — do not invent. Prefer ISO 19650 naming. " +
             "Set 'confidence' 0..1 by how explicit the text is, and 'page' to the [page N] marker each item came from. " +
             "Return ONLY JSON matching the schema.\n\nTEXT:\n" + chunkText;
@@ -153,6 +177,28 @@ public sealed class DocumentExtractor : IDisposable
         };
     }
 
+    private static void MergeNamingRule(Dictionary<string, NamingRuleSpec> sink, NrDto n, string tag, int startPage)
+    {
+        var tokens = (n.Tokens ?? new List<string>())
+            .Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
+        if (tokens.Count == 0) return;                                   // a rule with no tokens can't be enforced
+        string target = string.IsNullOrWhiteSpace(n.Target) ? "View" : n.Target.Trim();
+        string sep = string.IsNullOrEmpty(n.Separator) ? "_" : n.Separator;
+        string key = target + "|" + string.Join(sep, tokens);           // dedupe identical patterns per target
+        double conf = Clamp(n.Confidence);
+        if (sink.TryGetValue(key, out var existing) && existing.Confidence >= conf) return;
+        sink[key] = new NamingRuleSpec
+        {
+            Target = target,
+            Tokens = tokens,
+            Separator = sep,
+            Categories = (n.Categories ?? new List<string>()).Where(c => !string.IsNullOrWhiteSpace(c)).ToList(),
+            Example = string.IsNullOrWhiteSpace(n.Example) ? null : n.Example.Trim(),
+            Confidence = conf,
+            Provenance = new Provenance { Source = tag, Locator = "p." + (n.Page > 0 ? n.Page : startPage) },
+        };
+    }
+
     // A model that omits confidence -> treat as a soft 0.6; everything stays below the golden-model tier.
     private static double Clamp(double c) => Math.Min(c <= 0 ? 0.6 : c, MaxDocConfidence);
 
@@ -196,6 +242,7 @@ public sealed class DocumentExtractor : IDisposable
     {
         [JsonPropertyName("worksets")] public List<WsDto> Worksets { get; set; } = new();
         [JsonPropertyName("shared_parameters")] public List<SpDto> SharedParameters { get; set; } = new();
+        [JsonPropertyName("naming_rules")] public List<NrDto> NamingRules { get; set; } = new();
     }
     private sealed class WsDto
     {
@@ -209,6 +256,16 @@ public sealed class DocumentExtractor : IDisposable
         [JsonPropertyName("type")] public string Type { get; set; } = "Text";
         [JsonPropertyName("binding")] public string Binding { get; set; } = "instance";
         [JsonPropertyName("categories")] public List<string>? Categories { get; set; }
+        [JsonPropertyName("confidence")] public double Confidence { get; set; }
+        [JsonPropertyName("page")] public int Page { get; set; }
+    }
+    private sealed class NrDto
+    {
+        [JsonPropertyName("target")] public string Target { get; set; } = "View";
+        [JsonPropertyName("tokens")] public List<string>? Tokens { get; set; }
+        [JsonPropertyName("separator")] public string Separator { get; set; } = "_";
+        [JsonPropertyName("categories")] public List<string>? Categories { get; set; }
+        [JsonPropertyName("example")] public string Example { get; set; } = string.Empty;
         [JsonPropertyName("confidence")] public double Confidence { get; set; }
         [JsonPropertyName("page")] public int Page { get; set; }
     }

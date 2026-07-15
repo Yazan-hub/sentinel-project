@@ -103,6 +103,10 @@ public sealed class StandardsReviewWindow : Window
             pack.Provision.SharedParameters,
             p => $"{p.Name}   [{p.Type}·{p.Binding}]",
             p => p.Confidence, p => p.Provenance);
+        AddGroup($"Naming Rules ({pack.Provision.NamingRules.Count})",
+            pack.Provision.NamingRules,
+            n => $"[{n.Target}] {n.Pattern}" + (string.IsNullOrEmpty(n.Example) ? "" : $"   e.g. {n.Example}"),
+            n => n.Confidence, n => n.Provenance);
         AddGroup($"View Templates ({pack.Provision.ViewTemplates.Count})",
             pack.Provision.ViewTemplates,
             v => $"{v.Name}   [{v.ViewType}]",
@@ -113,9 +117,10 @@ public sealed class StandardsReviewWindow : Window
             o => o.Confidence, o => o.Provenance);
 
         int total = pack.Provision.Worksets.Count + pack.Provision.SharedParameters.Count
+                    + pack.Provision.NamingRules.Count
                     + pack.Provision.ViewTemplates.Count + pack.Provision.BrowserOrganization.Count;
         SetStatus(total == 0
-            ? $"'{sourceLabel}' has no worksets or shared parameters."
+            ? $"'{sourceLabel}' has nothing to review."
             : $"{total} item(s) from '{sourceLabel}'. Tick items, then Build into '{buildTarget}'.");
     });
 
@@ -169,11 +174,13 @@ public sealed class StandardsReviewWindow : Window
             {
                 case WorksetSpec w: pack.Provision.Worksets.Add(w); break;
                 case SharedParamSpec p: pack.Provision.SharedParameters.Add(p); break;
+                case NamingRuleSpec nr: pack.Provision.NamingRules.Add(nr); break;
                 case ViewTemplateSpec v: pack.Provision.ViewTemplates.Add(v); break;
                 case BrowserOrgSpec o: pack.Provision.BrowserOrganization.Add(o); break;
             }
         }
         int n = pack.Provision.Worksets.Count + pack.Provision.SharedParameters.Count
+                + pack.Provision.NamingRules.Count
                 + pack.Provision.ViewTemplates.Count + pack.Provision.BrowserOrganization.Count;
         if (n == 0) { SetStatus("Nothing ticked — tick at least one item first."); return; }
         SetStatus($"Working on {n} ticked item(s)…");

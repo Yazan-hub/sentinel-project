@@ -124,8 +124,9 @@ public sealed class IngestDocumentsCommand : IExternalCommand
             try
             {
                 var pack = await extractor.ExtractAsync(files).ConfigureAwait(false);
-                int n = pack.Provision.Worksets.Count + pack.Provision.SharedParameters.Count;
-                if (n == 0) { window.SetStatus("No worksets or shared parameters were found in the document(s)."); return; }
+                int n = pack.Provision.Worksets.Count + pack.Provision.SharedParameters.Count
+                        + pack.Provision.NamingRules.Count;
+                if (n == 0) { window.SetStatus("No worksets, shared parameters or naming rules were found in the document(s)."); return; }
                 window.Load(pack, label, target);
             }
             catch (Exception ex) { window.SetStatus(ex.Message); }

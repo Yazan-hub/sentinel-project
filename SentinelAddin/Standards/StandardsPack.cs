@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Sentinel.Engine;
 
 namespace Sentinel.Standards;
 
@@ -41,6 +43,11 @@ public sealed class ProvisionSet
     // Serializable items — fully round-trip through a saved pack (built from JSON alone).
     [JsonPropertyName("worksets")] public List<WorksetSpec> Worksets { get; set; } = new();
     [JsonPropertyName("shared_parameters")] public List<SharedParamSpec> SharedParameters { get; set; } = new();
+
+    // Naming conventions extracted as ordered token rules (e.g. View = DISCIPLINE_LEVEL_TYPE). Fully
+    // round-trip through a saved pack; unlike worksets/params these are NOT created in the model — on
+    // build they merge into the effective ruleset so the scanner enforces them.
+    [JsonPropertyName("naming_rules")] public List<NamingRuleSpec> NamingRules { get; set; } = new();
 
     // Transfer items — the Revit API can't author these from JSON; they're cross-document COPIED from
     // the golden model, so building them requires that model to be open at build time.
@@ -86,6 +93,43 @@ public sealed class SharedParamSpec
     [JsonPropertyName("guid")] public string? Guid { get; set; }                     // preserved for stable re-provisioning
     [JsonPropertyName("confidence")] public double Confidence { get; set; } = 1.0;
     [JsonPropertyName("provenance")] public Provenance Provenance { get; set; } = new();
+}
+
+/// <summary>
+/// A naming convention extracted as an ordered token rule (Decision 9: authored rules carry TOKENS, not raw
+/// regex — the engine compiles tokens→regex, falling back to a generic alphanumeric segment for tokens with
+/// no <c>token_defs</c>, so a prose-extracted rule enforces STRUCTURE: segment count + separator + charset).
+/// Maps to <see cref="Rule"/>. Doc-derived rules always enforce in Warn (never Block).
+/// </summary>
+public sealed class NamingRuleSpec
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;              // "NM-01"
+    [JsonPropertyName("target")] public string Target { get; set; } = "View";             // View|Sheet|Family|Level|Grid|Workset
+    [JsonPropertyName("tokens")] public List<string> Tokens { get; set; } = new();         // ["DISCIPLINE","LEVEL","TYPE"]
+    [JsonPropertyName("separator")] public string Separator { get; set; } = "_";
+    [JsonPropertyName("categories")] public List<string> Categories { get; set; } = new(); // Family scope, when Target=Family
+    [JsonPropertyName("example")] public string? Example { get; set; }                     // "ARC_L03_EXT" — reviewer sanity check
+    [JsonPropertyName("message_en")] public string MessageEn { get; set; } = string.Empty;
+    [JsonPropertyName("confidence")] public double Confidence { get; set; } = 1.0;
+    [JsonPropertyName("provenance")] public Provenance Provenance { get; set; } = new();
+
+    /// <summary>Human-readable pattern ("DISCIPLINE_LEVEL_TYPE") — shown in review + default message.</summary>
+    [JsonIgnore] public string Pattern => string.Join(Separator, Tokens);
+
+    /// <summary>Project to the engine's authored rule for enforcement.</summary>
+    public Rule ToRule() => new()
+    {
+        Id = string.IsNullOrWhiteSpace(Id) ? "NM-DOC" : Id,
+        Target = Enum.TryParse<RuleTarget>(Target, ignoreCase: true, out var t) ? t : RuleTarget.View,
+        Mode = EnforcementMode.Warn,
+        Tokens = Tokens.ToList(),
+        Separator = string.IsNullOrEmpty(Separator) ? "_" : Separator,
+        Categories = Categories.ToList(),
+        MessageEn = string.IsNullOrWhiteSpace(MessageEn)
+            ? $"'{{name}}' does not match the naming pattern {Pattern}."
+            : MessageEn,
+        DocRef = Provenance?.ToString(),
+    };
 }
 
 /// <summary>A view template — metadata for review; built by cross-document copy (matched by name).</summary>

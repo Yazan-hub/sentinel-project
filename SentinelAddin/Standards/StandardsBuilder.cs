@@ -31,7 +31,7 @@ public static class StandardsBuilder
         BuildSharedParameters(doc, app, pack, report);
         BuildViewTemplates(uiapp, doc, pack, report);
         BuildBrowserOrganization(uiapp, doc, pack, report);
-        PersistWorksetRule(doc, pack, report);
+        PersistRuleUpdates(doc, pack, report);
 
         return report;
     }
@@ -296,31 +296,50 @@ public static class StandardsBuilder
             => DuplicateTypeAction.UseDestinationTypes;
     }
 
-    // ---------------- Enforcement loop: worksets -> WS rule -> reload scanner ----------------
-    private static void PersistWorksetRule(Document doc, StandardsPack pack, BuildReport r)
+    // ---------------- Enforcement loop: worksets + naming rules -> ruleset -> reload scanner ----------------
+    private static void PersistRuleUpdates(Document doc, StandardsPack pack, BuildReport r)
     {
-        if (pack.Provision.Worksets.Count == 0) return;
+        bool hasWorksets = pack.Provision.Worksets.Count > 0;
+        bool hasNaming = pack.Provision.NamingRules.Count > 0;
+        if (!hasWorksets && !hasNaming) return;
 
         try
         {
             var rs = RulesetStore.LoadEffective(doc);
-            var built = pack.Provision.Worksets.Select(w => w.Name).Distinct().ToList();
 
-            var wsRule = rs.Rules.FirstOrDefault(x => x.Target == RuleTarget.Workset);
-            if (wsRule is null)
+            if (hasWorksets)
             {
-                wsRule = new Rule
+                var built = pack.Provision.Worksets.Select(w => w.Name).Distinct().ToList();
+
+                var wsRule = rs.Rules.FirstOrDefault(x => x.Target == RuleTarget.Workset);
+                if (wsRule is null)
                 {
-                    Id = "WS-01",
-                    Target = RuleTarget.Workset,
-                    Mode = EnforcementMode.Warn,
-                    MessageEn = "Workset '{name}' is not in the office standard.",
-                    DocRef = pack.PackKey,
-                };
-                rs.Rules.Add(wsRule);
+                    wsRule = new Rule
+                    {
+                        Id = "WS-01",
+                        Target = RuleTarget.Workset,
+                        Mode = EnforcementMode.Warn,
+                        MessageEn = "Workset '{name}' is not in the office standard.",
+                        DocRef = pack.PackKey,
+                    };
+                    rs.Rules.Add(wsRule);
+                }
+                // Union so an existing house standard isn't clobbered — the built worksets are added.
+                wsRule.Whitelist = wsRule.Whitelist.Union(built, StringComparer.Ordinal).Distinct().ToList();
+                r.Created.Add($"Ruleset: WS-01 now enforces {built.Count} workset(s)");
             }
-            // Union so an existing house standard isn't clobbered — the built worksets are added.
-            wsRule.Whitelist = wsRule.Whitelist.Union(built, StringComparer.Ordinal).Distinct().ToList();
+
+            if (hasNaming)
+            {
+                foreach (var spec in pack.Provision.NamingRules)
+                {
+                    Rule rule = spec.ToRule();
+                    // Replace an existing rule with the same id (idempotent re-runs), else append.
+                    int idx = rs.Rules.FindIndex(x => string.Equals(x.Id, rule.Id, StringComparison.Ordinal));
+                    if (idx >= 0) rs.Rules[idx] = rule; else rs.Rules.Add(rule);
+                    r.Created.Add($"Ruleset: naming rule {rule.Id} [{rule.Target}] {string.Join(rule.Separator, rule.Tokens)}");
+                }
+            }
 
             // Same wire format RulesetStore reads (snake_case enums), written to the user cache.
             var opts = new JsonSerializerOptions
@@ -336,7 +355,7 @@ public static class StandardsBuilder
             var report = App.Engine?.ScanFull(doc);
             if (report is not null) App.PanelVm?.PublishReport(report);
 
-            r.Created.Add($"Ruleset: WS-01 now enforces {built.Count} workset(s) → scanner reloaded");
+            r.Created.Add("Ruleset: scanner reloaded");
         }
         catch (Exception ex) { r.Failed.Add($"Ruleset persist: {ex.Message}"); }
     }
