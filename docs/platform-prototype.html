@@ -1,0 +1,583 @@
+<title>Sentinel Platform — Lifecycle Command Center</title>
+<style>
+  :root {
+    /* light (cool, blue-biased neutrals — chosen, not default grey) */
+    --bg: #e9edf3; --surface: #ffffff; --surface-2: #f2f6fc; --raise: #ffffff;
+    --line: rgba(28,48,86,.13); --line-2: rgba(28,48,86,.22);
+    --text: #0d1524; --dim: #46536a; --faint: #808da2;
+    --accent: #1f6fe5; --accent-ink: #0b57c9; --accent-soft: rgba(31,111,229,.10);
+    --good: #1f9d4d; --warn: #b47818; --crit: #d43a2f;
+    --grid: rgba(31,111,229,.07); --shadow: 0 1px 2px rgba(20,40,80,.06), 0 8px 30px rgba(20,40,80,.06);
+    /* 2D→7D ordered spectrum (encodes the dimension; gold=cost, green=eco carry meaning) */
+    --d2: #5457e6; --d3: #1f8fef; --d4: #12b6c9; --d5: #d69417; --d6: #22a35c; --d7: #8b52ea;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+    --w: 1140px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #070a11; --surface: #0d131f; --surface-2: #111a29; --raise: #131c2c;
+      --line: rgba(120,150,200,.15); --line-2: rgba(120,150,200,.28);
+      --text: #e9eef7; --dim: #9aa7bd; --faint: #5d6b83;
+      --accent: #4aa2ff; --accent-ink: #6fb6ff; --accent-soft: rgba(74,162,255,.13);
+      --good: #3fb950; --warn: #d6a13a; --crit: #f0564a;
+      --grid: rgba(74,162,255,.06); --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.35);
+      --d2: #7d80f5; --d3: #4aa2ff; --d4: #35cfe0; --d5: #e6ad3f; --d6: #43c078; --d7: #a877f2;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #e9edf3; --surface: #ffffff; --surface-2: #f2f6fc; --raise: #ffffff;
+    --line: rgba(28,48,86,.13); --line-2: rgba(28,48,86,.22);
+    --text: #0d1524; --dim: #46536a; --faint: #808da2;
+    --accent: #1f6fe5; --accent-ink: #0b57c9; --accent-soft: rgba(31,111,229,.10);
+    --good: #1f9d4d; --warn: #b47818; --crit: #d43a2f;
+    --grid: rgba(31,111,229,.07); --shadow: 0 1px 2px rgba(20,40,80,.06), 0 8px 30px rgba(20,40,80,.06);
+    --d2: #5457e6; --d3: #1f8fef; --d4: #12b6c9; --d5: #d69417; --d6: #22a35c; --d7: #8b52ea;
+  }
+  :root[data-theme="dark"] {
+    --bg: #070a11; --surface: #0d131f; --surface-2: #111a29; --raise: #131c2c;
+    --line: rgba(120,150,200,.15); --line-2: rgba(120,150,200,.28);
+    --text: #e9eef7; --dim: #9aa7bd; --faint: #5d6b83;
+    --accent: #4aa2ff; --accent-ink: #6fb6ff; --accent-soft: rgba(74,162,255,.13);
+    --good: #3fb950; --warn: #d6a13a; --crit: #f0564a;
+    --grid: rgba(74,162,255,.06); --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.35);
+    --d2: #7d80f5; --d3: #4aa2ff; --d4: #35cfe0; --d5: #e6ad3f; --d6: #43c078; --d7: #a877f2;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans);
+    line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  h1, h2, h3 { text-wrap: balance; margin: 0; letter-spacing: -.02em; font-weight: 780; }
+  p { margin: 0; }
+  a { color: inherit; }
+  .mono { font-family: var(--mono); }
+  .ey { font-family: var(--mono); text-transform: uppercase; letter-spacing: .16em; font-size: .68rem;
+    color: var(--accent-ink); font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  .wrap { max-width: var(--w); margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2.4rem); }
+  section { padding: clamp(3.2rem, 8vw, 6rem) 0; border-top: 1px solid var(--line); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  /* ── top bar ── */
+  .bar { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
+  .bar .wrap { display: flex; align-items: center; gap: 1.2rem; height: 56px; }
+  .brand { display: flex; align-items: center; gap: .55rem; font-weight: 800; letter-spacing: -.02em; }
+  .glyph { width: 22px; height: 22px; flex: none; }
+  .navlinks { display: flex; gap: 1.3rem; margin-left: auto; }
+  .navlinks a { font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--dim); text-decoration: none; padding: .2rem 0; border-bottom: 1.5px solid transparent; }
+  .navlinks a:hover { color: var(--text); border-color: var(--accent); }
+  @media (max-width: 720px) { .navlinks { display: none; } }
+
+  /* ── hero ── */
+  .hero { position: relative; overflow: hidden; border-top: 0; }
+  .hero::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 34px 34px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 34px 34px;
+    mask-image: radial-gradient(120% 90% at 70% 8%, #000 0%, transparent 72%); }
+  .hero .wrap { position: relative; }
+  .kicker { display: inline-flex; align-items: center; gap: .5rem; padding: .3rem .7rem;
+    border: 1px solid var(--line-2); border-radius: 100px; font-family: var(--mono); font-size: .68rem;
+    text-transform: uppercase; letter-spacing: .14em; color: var(--dim); }
+  .kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+  h1.title { font-size: clamp(2.3rem, 6vw, 4rem); line-height: 1.02; margin: 1.4rem 0 0;
+    font-weight: 820; letter-spacing: -.035em; max-width: 15ch; }
+  h1.title em { font-style: normal; color: var(--accent); }
+  .lede { margin-top: 1.2rem; font-size: clamp(1.02rem, 2.2vw, 1.28rem); color: var(--dim); max-width: 56ch; }
+
+  /* lifecycle spine */
+  .spine { margin-top: 2.6rem; position: relative; }
+  .spine .rail { position: absolute; left: 0; right: 0; top: 15px; height: 2px; background: var(--line-2); }
+  .spine .rail .flow { position: absolute; top: 0; left: 0; height: 100%; width: 120px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: run 4.5s linear infinite; }
+  @keyframes run { from { transform: translateX(-140px); } to { transform: translateX(min(1140px, 92vw)); } }
+  .stops { display: grid; grid-template-columns: repeat(6, 1fr); gap: .4rem; position: relative; }
+  .stop { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: inherit; }
+  .stop .pin { width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line-2);
+    background: var(--surface); display: grid; place-items: center; font-family: var(--mono);
+    font-size: .8rem; font-weight: 700; color: var(--dim); transition: .2s; }
+  .stop:hover .pin, .stop[aria-current="true"] .pin { border-color: var(--accent); color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft); }
+  .stop .lab { display: block; margin-top: .55rem; font-family: var(--mono); font-size: .66rem;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+  .stop:hover .lab, .stop[aria-current="true"] .lab { color: var(--text); }
+  @media (max-width: 640px) { .stops { grid-template-columns: repeat(3, 1fr); row-gap: 1.1rem; }
+    .spine .rail { display: none; } }
+
+  /* stat strip */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 3rem;
+    background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .stat { background: var(--surface); padding: 1.2rem 1.3rem; }
+  .stat .v { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem); font-weight: 720;
+    letter-spacing: -.02em; color: var(--text); }
+  .stat .k { margin-top: .3rem; font-size: .82rem; color: var(--dim); }
+  @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
+
+  /* section heads */
+  .head { max-width: 62ch; }
+  .head h2 { font-size: clamp(1.6rem, 3.6vw, 2.4rem); margin-top: .7rem; letter-spacing: -.03em; }
+  .head p { margin-top: .9rem; color: var(--dim); font-size: 1.05rem; }
+
+  /* problem cards */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 2.4rem;
+    background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  @media (max-width: 860px) { .grid3 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid3 { grid-template-columns: 1fr; } }
+  .cell { background: var(--surface); padding: 1.5rem; }
+  .cell .tag { font-family: var(--mono); font-size: .66rem; letter-spacing: .1em; color: var(--crit);
+    text-transform: uppercase; }
+  .cell h3 { font-size: 1.06rem; margin-top: .5rem; letter-spacing: -.01em; }
+  .cell p { margin-top: .5rem; color: var(--dim); font-size: .92rem; }
+
+  /* dimensions */
+  .dimwrap { display: grid; grid-template-columns: 300px 1fr; gap: 1.6rem; margin-top: 2.4rem; align-items: start; }
+  @media (max-width: 780px) { .dimwrap { grid-template-columns: 1fr; } }
+  .dimlist { display: flex; flex-direction: column; gap: .5rem; }
+  .dim { display: flex; align-items: center; gap: .8rem; padding: .75rem .85rem; border-radius: 11px;
+    border: 1px solid var(--line); background: var(--surface); cursor: pointer; text-align: left;
+    color: inherit; transition: .16s; width: 100%; }
+  .dim:hover { border-color: var(--line-2); }
+  .dim[aria-current="true"] { border-color: color-mix(in srgb, var(--dc) 55%, var(--line));
+    background: color-mix(in srgb, var(--dc) 9%, var(--surface)); }
+  .dim .badge { font-family: var(--mono); font-weight: 800; font-size: .82rem; width: 34px; height: 30px;
+    border-radius: 7px; display: grid; place-items: center; color: #fff; background: var(--dc); flex: none; }
+  .dim .dt { font-weight: 650; font-size: .95rem; }
+  .dim .ds { font-family: var(--mono); font-size: .62rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); margin-top: .1rem; }
+  .dimpanel { border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
+    padding: 1.8rem; min-height: 260px; position: relative; overflow: hidden; }
+  .dimpanel::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: var(--dc); }
+  .dimpanel .pd { font-family: var(--mono); font-size: 3.2rem; font-weight: 800; color: var(--dc);
+    letter-spacing: -.04em; line-height: 1; }
+  .dimpanel h3 { font-size: 1.4rem; margin-top: .3rem; }
+  .dimpanel .dpg { color: var(--dim); margin-top: .8rem; max-width: 60ch; }
+  .dimpanel .row { margin-top: 1.2rem; display: flex; gap: 1.4rem; flex-wrap: wrap; }
+  .dimpanel .row div .l { font-family: var(--mono); font-size: .6rem; text-transform: uppercase;
+    letter-spacing: .1em; color: var(--faint); }
+  .dimpanel .row div .m { margin-top: .2rem; font-size: .92rem; color: var(--text); }
+  .pill { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .64rem;
+    text-transform: uppercase; letter-spacing: .08em; padding: .22rem .55rem; border-radius: 100px;
+    border: 1px solid currentColor; }
+  .pill.live { color: var(--good); } .pill.soon { color: var(--warn); } .pill.road { color: var(--faint); }
+
+  /* command center */
+  .cc { border: 1px solid var(--line-2); border-radius: 18px; background: var(--surface-2);
+    margin-top: 2.4rem; overflow: hidden; box-shadow: var(--shadow); }
+  .cc .cchead { display: flex; align-items: center; gap: .8rem; padding: 1rem 1.3rem;
+    border-bottom: 1px solid var(--line); background: var(--surface); flex-wrap: wrap; }
+  .cc .cchead .live { display: inline-flex; align-items: center; gap: .45rem; font-family: var(--mono);
+    font-size: .66rem; text-transform: uppercase; letter-spacing: .1em; color: var(--good); }
+  .cc .cchead .live .b { width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 0 var(--good); animation: beat 2.4s ease-out infinite; }
+  @keyframes beat { 0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 55%,transparent);} 70%{box-shadow:0 0 0 7px transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
+  .cc .proj { font-weight: 750; letter-spacing: -.01em; }
+  .cc .proj small { color: var(--faint); font-weight: 500; margin-left: .5rem; font-family: var(--mono); font-size: .74rem; }
+  .cc .stagepick { margin-left: auto; font-family: var(--mono); font-size: .68rem; color: var(--dim); }
+  .ccbody { display: grid; grid-template-columns: 210px 1fr; gap: 0; }
+  @media (max-width: 800px) { .ccbody { grid-template-columns: 1fr; } }
+  /* stage rail */
+  .rail2 { border-right: 1px solid var(--line); padding: 1rem; display: flex; flex-direction: column; gap: .25rem; }
+  @media (max-width: 800px) { .rail2 { border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row;
+    overflow-x: auto; } }
+  .srow { display: flex; align-items: center; gap: .7rem; padding: .6rem .65rem; border-radius: 10px;
+    cursor: pointer; border: 1px solid transparent; background: none; color: inherit; text-align: left; width: 100%; white-space: nowrap; }
+  .srow:hover { background: var(--surface); }
+  .srow[aria-current="true"] { background: var(--surface); border-color: var(--line-2); }
+  .srow .idx { font-family: var(--mono); font-size: .64rem; color: var(--faint); width: 14px; }
+  .srow .nm { font-size: .86rem; font-weight: 600; }
+  .srow .gate { margin-left: auto; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .g-pass { background: var(--good); } .g-active { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .g-pend { background: var(--warn); } .g-lock { background: var(--line-2); }
+  /* dashboard */
+  .dash { padding: 1.3rem; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; }
+  @media (max-width: 900px) { .kpis { grid-template-columns: 1fr 1fr; } }
+  .kpi { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: .95rem 1rem; position: relative; }
+  .kpi .l { font-family: var(--mono); font-size: .6rem; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
+  .kpi .v { font-family: var(--mono); font-size: 1.7rem; font-weight: 750; letter-spacing: -.02em; margin-top: .35rem; }
+  .kpi .s { font-size: .74rem; color: var(--dim); margin-top: .15rem; }
+  .kpi .spark { position: absolute; right: .8rem; top: .85rem; display: flex; gap: 2px; align-items: flex-end; height: 22px; }
+  .kpi .spark i { width: 3px; background: var(--accent); border-radius: 2px; opacity: .75; }
+  .meter { height: 5px; border-radius: 3px; background: var(--line); margin-top: .6rem; overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 3px; transition: width .5s ease; }
+  .lower { display: grid; grid-template-columns: 1.3fr 1fr; gap: .8rem; margin-top: .8rem; }
+  @media (max-width: 900px) { .lower { grid-template-columns: 1fr; } }
+  .panel { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 1rem 1.1rem; }
+  .panel .ph { display: flex; align-items: center; justify-content: space-between; margin-bottom: .7rem; }
+  .panel .ph .t { font-weight: 700; font-size: .9rem; letter-spacing: -.01em; }
+  .panel .ph .c { font-family: var(--mono); font-size: .68rem; color: var(--faint); }
+  .iss { display: flex; align-items: flex-start; gap: .6rem; padding: .5rem 0; border-top: 1px solid var(--line); }
+  .iss:first-of-type { border-top: 0; }
+  .iss .sev { width: 8px; height: 8px; border-radius: 50%; margin-top: .45rem; flex: none; }
+  .sv-crit { background: var(--crit); } .sv-warn { background: var(--warn); } .sv-info { background: var(--accent); }
+  .iss .it { font-size: .86rem; font-weight: 550; }
+  .iss .im { font-family: var(--mono); font-size: .66rem; color: var(--faint); margin-top: .1rem; }
+  .gatebox { display: flex; flex-direction: column; gap: .55rem; }
+  .gaterow { display: flex; align-items: center; gap: .55rem; font-size: .82rem; }
+  .gaterow .ck { width: 16px; height: 16px; border-radius: 5px; display: grid; place-items: center; flex: none;
+    font-size: .7rem; font-family: var(--mono); color: #fff; }
+  .ck.ok { background: var(--good); } .ck.no { background: var(--warn); } .ck.na { background: var(--line-2); color: var(--faint); }
+  .gaterow .gm { color: var(--dim); }
+  .verdict { margin-top: .9rem; padding: .7rem .8rem; border-radius: 9px; font-family: var(--mono);
+    font-size: .74rem; letter-spacing: .02em; border: 1px dashed currentColor; }
+  .verdict.ok { color: var(--good); } .verdict.hold { color: var(--warn); }
+
+  /* mapping */
+  .map { margin-top: 2.2rem; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .mrow { display: grid; grid-template-columns: 1.2fr 1.8fr 90px; gap: 0; border-top: 1px solid var(--line);
+    align-items: center; }
+  .mrow:first-child { border-top: 0; }
+  .mrow > div { padding: .8rem 1.1rem; }
+  .mrow .layer { font-weight: 650; font-size: .92rem; }
+  .mrow .feat { color: var(--dim); font-size: .86rem; font-family: var(--mono); }
+  .mrow .st { text-align: right; }
+  .chip { font-family: var(--mono); font-size: .62rem; padding: .2rem .5rem; border-radius: 100px; letter-spacing: .06em; }
+  .chip.done { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+  .chip.next { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  @media (max-width: 620px) { .mrow { grid-template-columns: 1fr 70px; } .mrow .feat { display: none; } }
+
+  /* roadmap */
+  .phases { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; margin-top: 2.2rem;
+    background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  @media (max-width: 900px) { .phases { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 520px) { .phases { grid-template-columns: 1fr; } }
+  .phase { background: var(--surface); padding: 1.3rem; position: relative; }
+  .phase .pn { font-family: var(--mono); font-size: .66rem; letter-spacing: .1em; color: var(--accent-ink); text-transform: uppercase; }
+  .phase h3 { font-size: 1rem; margin-top: .5rem; letter-spacing: -.01em; }
+  .phase ul { margin: .7rem 0 0; padding-left: 1.05rem; color: var(--dim); font-size: .82rem; }
+  .phase li { margin: .28rem 0; }
+  .phase.now { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .phase.now::after { content: "SHIPPED"; position: absolute; top: 1.3rem; right: 1.1rem; font-family: var(--mono);
+    font-size: .58rem; letter-spacing: .1em; color: var(--good); }
+
+  footer { border-top: 1px solid var(--line); padding: 2.4rem 0; color: var(--faint); font-size: .82rem; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: center; }
+  footer .mono { color: var(--dim); }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .spine .rail .flow, .cc .cchead .live .b { animation: none; }
+    * { scroll-behavior: auto !important; }
+  }
+  html { scroll-behavior: smooth; }
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <span class="brand">
+      <svg class="glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2 3 7v10l9 5 9-5V7z" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M12 7v10M7.5 9.5v5M16.5 9.5v5" stroke="var(--accent)" stroke-width="1.3" stroke-linecap="round" opacity=".65"/>
+      </svg>
+      Sentinel<span style="color:var(--faint);font-weight:500"> Platform</span>
+    </span>
+    <nav class="navlinks">
+      <a href="#problem">Problem</a>
+      <a href="#model">The model</a>
+      <a href="#center">Command center</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="kicker"><span class="dot"></span> Concept prototype · v0.1</span>
+    <h1 class="title">One project.<br>One source of <em>truth.</em></h1>
+    <p class="lede">From tendering to handover, a construction project is authored dozens of times because the
+      tools don't share data and the standards never get enforced. The Sentinel Platform makes the project a
+      single, governed, living dataset — <span class="mono" style="color:var(--text)">2D→7D</span>, open, and
+      connectable to the tools you already run.</p>
+
+    <div class="spine" aria-label="Project lifecycle">
+      <div class="rail"><div class="flow"></div></div>
+      <div class="stops" id="heroStops"></div>
+    </div>
+
+    <div class="stats reveal">
+      <div class="stat"><div class="v">$15.8B</div><div class="k">Lost each year to poor interoperability in U.S. capital facilities — the seams between tools. <span class="mono" style="font-size:.7rem;color:var(--faint)">NIST GCR 04-867</span></div></div>
+      <div class="stat"><div class="v">~1%/yr</div><div class="k">Construction productivity growth over two decades, vs ~2.8% for the whole economy. <span class="mono" style="font-size:.7rem;color:var(--faint)">McKinsey, 2017</span></div></div>
+      <div class="stat"><div class="v">80%</div><div class="k">Of an asset's lifetime cost is operations — exactly where BIM value evaporates into a pile of PDFs today.</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="problem">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="ey">Where the money leaks</span>
+      <h2>The project breaks at every handoff</h2>
+      <p>Not because the software lacks features — because there is no shared source of truth and no enforced
+        standard binding the stages together. Six structural bottlenecks:</p>
+    </div>
+    <div class="grid3 reveal" id="probGrid"></div>
+  </div>
+</section>
+
+<section id="model">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="ey">The core idea</span>
+      <h2>Every dimension is a <span style="color:var(--accent)">view</span> of one model</h2>
+      <p>Not seven tools — one governed dataset, seen seven ways. Select a dimension to see what it means and
+        whether Sentinel delivers it today.</p>
+    </div>
+    <div class="dimwrap reveal">
+      <div class="dimlist" id="dimList" role="tablist" aria-label="Dimensions 2D to 7D"></div>
+      <div class="dimpanel" id="dimPanel" style="--dc: var(--d4)"></div>
+    </div>
+  </div>
+</section>
+
+<section id="center">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="ey">First version · operable</span>
+      <h2>The Lifecycle Command Center</h2>
+      <p>One project, living in one place, A→Z. Pick a stage on the rail — the gate, the health, the issues and
+        the dimensions all update. Every number here is the kind Sentinel already computes.</p>
+    </div>
+
+    <div class="cc reveal">
+      <div class="cchead">
+        <span class="live"><span class="b"></span> Live</span>
+        <span class="proj">Snowdon Tower <small>32 floors · mixed-use · IFC4</small></span>
+        <span class="stagepick">stage → <b id="stageName" style="color:var(--text)"></b></span>
+      </div>
+      <div class="ccbody">
+        <div class="rail2" id="stageRail" role="tablist" aria-label="Lifecycle stages"></div>
+        <div class="dash">
+          <div class="kpis" id="kpis"></div>
+          <div class="lower">
+            <div class="panel">
+              <div class="ph"><span class="t">Coordination issues</span><span class="c" id="issCount"></span></div>
+              <div id="issList"></div>
+            </div>
+            <div class="panel">
+              <div class="ph"><span class="t">Stage gate</span><span class="c">standards-as-code</span></div>
+              <div class="gatebox" id="gateBox"></div>
+              <div class="verdict" id="verdict"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="seeded">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="ey">Not a green field</span>
+      <h2>Sentinel already seeds the spine</h2>
+      <p>The governance, coordination and 3D layers ship today. The platform is the project shell that unifies
+        them — plus the missing dimensions and stages.</p>
+    </div>
+    <div class="map reveal" id="mapTable"></div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="ey">Sentinel → Platform</span>
+      <h2>The road to a delivery operating system</h2>
+      <p>Each phase stands on the last. Phase 0 is shipped and load-tested in Revit today.</p>
+    </div>
+    <div class="phases reveal" id="phases"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="mono">Sentinel Platform — concept prototype · Badran Design Studio</span>
+    <span>Data-centric · standards-as-code · open &amp; connectable</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (s, r) => (r || document).querySelector(s);
+  const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+
+  const STAGES = [
+    { id: "tender", nm: "Tender", idx: "01", gate: "pass" },
+    { id: "design", nm: "Design", idx: "02", gate: "pass" },
+    { id: "coord",  nm: "Coordination", idx: "03", gate: "active" },
+    { id: "constr", nm: "Construction", idx: "04", gate: "pend" },
+    { id: "hand",   nm: "Handover", idx: "05", gate: "lock" },
+    { id: "oper",   nm: "Operate", idx: "06", gate: "lock" },
+  ];
+
+  // Per-stage state for the command center (illustrative but internally consistent).
+  const STATE = {
+    tender: { health: 100, comp: 96, issues: [{s:"info",t:"Scope query — basement extent",m:"BID-004 · unassigned"}],
+      cost: "SAR 412M", costS: "budget set", sched: "18 mo", schedS: "programme", dims: "2D · 5D",
+      gate: [["ok","Standards pack selected (KSA-ISO19650)"],["ok","BoQ template linked"],["na","Model — not started"]], verdict:["ok","GATE PASS — tender issued"] },
+    design: { health: 91, comp: 88, issues: [{s:"warn",t:"Grid mismatch ARC↔STR level 12",m:"DS-021 · to STR"},{s:"info",t:"Door type not in standard",m:"DS-018 · to ARC"}],
+      cost: "SAR 405M", costS: "-1.7% vs budget", sched: "17.5 mo", schedS: "on track", dims: "2D · 3D · 5D",
+      gate: [["ok","Naming + worksets conform (WS-01)"],["ok","Shared params bound"],["no","3 views missing status param"]], verdict:["hold","GATE HOLD — 3 authoring fixes"] },
+    coord: { health: 84, comp: 79, issues: [{s:"crit",t:"MEP duct clashes structure L2",m:"CO-114 · hard · to MEP"},{s:"crit",t:"Beam through stair core",m:"CO-131 · hard · to STR"},{s:"warn",t:"Fire rating missing — 6 walls",m:"CO-097 · to ARC"},{s:"info",t:"Clash view camera request",m:"CO-140 · web"}],
+      cost: "SAR 409M", costS: "+1.0% (VE pending)", sched: "17.5 mo", schedS: "2 wk float", dims: "2D · 3D · 4D · 5D",
+      gate: [["ok","Federated model current"],["no","2 hard clashes open"],["no","Fire-rating rule failing (6)"]], verdict:["hold","GATE HOLD — clear hard clashes"] },
+    constr: { health: 88, comp: 83, issues: [{s:"warn",t:"RFI — rebar congestion pilecap P12",m:"RFI-052 · to STR"},{s:"info",t:"As-built deviation logged L3",m:"CN-210 · field"}],
+      cost: "SAR 418M", costS: "+2.2% (VOs)", sched: "wk 34 / 76", schedS: "4D linked", dims: "3D · 4D · 5D",
+      gate: [["ok","Construction sequence linked (4D)"],["ok","Progress ↔ elements"],["no","3 open RFIs on critical path"]], verdict:["hold","GATE HOLD — resolve critical RFIs"] },
+    hand: { health: 94, comp: 90, issues: [{s:"warn",t:"COBie — 41 assets missing serials",m:"HO-012 · to MEP"},{s:"info",t:"O&M manuals link check",m:"HO-019 · FM"}],
+      cost: "SAR 421M", costS: "final account", sched: "wk 74 / 76", schedS: "PC imminent", dims: "3D · 6D · 7D",
+      gate: [["ok","As-built model certified"],["ok","IFC delivery gate PASS"],["no","COBie 92% complete"]], verdict:["hold","GATE HOLD — complete asset data"] },
+    oper: { health: 97, comp: 98, issues: [{s:"info",t:"PPM schedule imported to FM",m:"OP-003 · FM"}],
+      cost: "SAR 421M", costS: "capex closed", sched: "in service", schedS: "golden thread", dims: "3D · 6D · 7D",
+      gate: [["ok","Asset register handed to FM"],["ok","Golden thread maintained"],["ok","Whole-life carbon baselined"]], verdict:["ok","GATE PASS — asset in operation"] },
+  };
+
+  const DIMS = [
+    { d:"2D", c:"--d2", t:"Drawings", s:"live · linked", g:"Sheets, plans and details generated from and drift-checked against the model — never a divergent parallel deliverable.", del:"Sheets in the viewer; deviation flags", st:["live","Live"] },
+    { d:"3D", c:"--d3", t:"Federated model", s:"live", g:"The single geometric + semantic source of truth, viewable by everyone — zero-license, in the browser.", del:"That Open web viewer + Revit", st:["live","Live"] },
+    { d:"4D", c:"--d4", t:"Time & sequence", s:"roadmap · P2", g:"Schedule tasks bound to element sets, so the programme is a view of the model, not a disconnected P6 file.", del:"P6 / MSP import → element links", st:["soon","Phase 2"] },
+    { d:"5D", c:"--d5", t:"Cost & quantities", s:"quick win · P1", g:"Quantities pulled straight from the model into a live BoQ and cost plan that can't drift from design.", del:"Model take-off → running cost plan", st:["soon","Phase 1"] },
+    { d:"6D", c:"--d6", t:"Sustainability", s:"roadmap · P3", g:"Carbon and energy attributes carried on elements for whole-life analysis, not a one-off consultant report.", del:"Embodied carbon on the element graph", st:["road","Phase 3"] },
+    { d:"7D", c:"--d7", t:"Facility & O&M", s:"roadmap · P3", g:"The asset register and COBie handover — the maintained golden thread the FM team actually uses.", del:"Asset record + COBie + FM portal", st:["road","Phase 3"] },
+  ];
+
+  const PROBLEMS = [
+    { tag:"B1 · root cause", h:"Tool fragmentation", p:"15–30 tools per project, none sharing a data model. Every boundary is a lossy file export; data is re-keyed and dies at each gate." },
+    { tag:"B2 · Sentinel's opening", h:"Standards live in dead PDFs", p:"EIRs and BEPs nobody executes. No “compile error” for a non-conforming model until a coordinator finds it weeks late." },
+    { tag:"B3", h:"The dimensions are islands", p:"2D drifts from 3D; 4D/5D are separate universes; 6D/7D are aspirational. The golden thread snaps at handover." },
+    { tag:"B4", h:"Access & licence lock-in", p:"The people who most need to flag a problem — clients, contractors, FM — can't even open the model without a paid seat." },
+    { tag:"B5", h:"Rework & productivity", p:"Construction is among the least-digitised sectors; a double-digit share of contract value is rework — mostly information failure, not physical." },
+    { tag:"B6", h:"AI is bolted on", p:"Chatbots that hallucinate parameters. None are grounded in the real model + enforced standards, and none can act safely." },
+  ];
+
+  const MAP = [
+    ["Data spine — element facts","sentinel-core ElementFacts adapter",1],
+    ["Governance — standards-as-code","Standards Engine + rule packs",1],
+    ["Governance — delivery gate","IFC Delivery Gate (EIR-as-code)",1],
+    ["Governance — QA","Scanner + Health Scorecard",1],
+    ["Coordination — issues","Zero-license BCF portal + history",1],
+    ["Coordination — clashes","Clash Manager + BCF export",1],
+    ["3D + access","That Open web viewer",1],
+    ["Design acceleration","GhostBuilder (2D DWG → LOD 200)",1],
+    ["AI copilot","Grounded + agentic (designed)",0],
+    ["4D / 5D / 6D / 7D dimensions","Time · cost · carbon · FM",0],
+    ["Tender stage","BoQ-driven tendering",0],
+  ];
+
+  const PHASES = [
+    { pn:"Phase 0", now:1, h:"Authoring foundation", li:["Standards Engine","QA + scorecard","GhostBuilder","IFC delivery gate","BCF portal · viewer"] },
+    { pn:"Phase 1", now:0, h:"Project shell + spine", li:["Multi-project home","Persistent facts DB","Grounded Copilot v1","5D quick-win quantities"] },
+    { pn:"Phase 2", now:0, h:"Time, cost & gates", li:["4D schedule links","Full 5D cost","Stage gates everywhere","RFIs · approvals"] },
+    { pn:"Phase 3", now:0, h:"Handover & golden thread", li:["6D carbon","7D COBie handover","Asset register","Owner / FM portal"] },
+    { pn:"Phase 4", now:0, h:"Funnel + ecosystem", li:["Tender module","Connector marketplace","Standards-pack marketplace","Open-core SaaS"] },
+  ];
+
+  let current = "coord";
+
+  // ── hero stops ──
+  const hs = $("#heroStops");
+  STAGES.forEach(s => {
+    const b = el("button", "stop"); b.type = "button";
+    b.innerHTML = `<span class="pin">${s.idx}</span><span class="lab">${s.nm}</span>`;
+    b.addEventListener("click", () => { setStage(s.id); document.getElementById("center").scrollIntoView(); });
+    hs.appendChild(b);
+  });
+
+  // ── problems ──
+  const pg = $("#probGrid");
+  PROBLEMS.forEach(p => pg.appendChild(el("div","cell",`<div class="tag">${p.tag}</div><h3>${p.h}</h3><p>${p.p}</p>`)));
+
+  // ── dimensions ──
+  const dl = $("#dimList");
+  DIMS.forEach((d, i) => {
+    const b = el("button","dim"); b.type="button"; b.setAttribute("role","tab"); b.style.setProperty("--dc", `var(${d.c})`);
+    b.innerHTML = `<span class="badge">${d.d}</span><span><span class="dt">${d.t}</span><span class="ds">${d.s}</span></span>`;
+    b.addEventListener("click", () => setDim(i));
+    dl.appendChild(b);
+  });
+  function setDim(i) {
+    const d = DIMS[i];
+    [...dl.children].forEach((c, j) => c.setAttribute("aria-current", j === i ? "true" : "false"));
+    const p = $("#dimPanel"); p.style.setProperty("--dc", `var(${d.c})`);
+    p.innerHTML =
+      `<div class="pd">${d.d}</div><h3>${d.t}</h3><p class="dpg">${d.g}</p>
+       <div class="row">
+         <div><div class="l">Platform view</div><div class="m">${d.del}</div></div>
+         <div><div class="l">Status</div><div class="m"><span class="pill ${d.st[0]}">${d.st[1]}</span></div></div>
+       </div>`;
+  }
+  setDim(1); // default 3D
+
+  // ── command center ──
+  const rail = $("#stageRail");
+  STAGES.forEach(s => {
+    const b = el("button","srow"); b.type="button"; b.dataset.id = s.id;
+    const gcls = s.gate === "pass" ? "g-pass" : s.gate === "active" ? "g-active" : s.gate === "pend" ? "g-pend" : "g-lock";
+    b.innerHTML = `<span class="idx">${s.idx}</span><span class="nm">${s.nm}</span><span class="gate ${gcls}"></span>`;
+    b.addEventListener("click", () => setStage(s.id));
+    rail.appendChild(b);
+  });
+
+  function spark(seed) {
+    let h = ""; let v = 40;
+    for (let i = 0; i < 9; i++) { v += ((seed * (i + 3)) % 11) - 5; v = Math.max(18, Math.min(100, v));
+      h += `<i style="height:${v}%"></i>`; }
+    return h;
+  }
+  function healthColor(v) { return v >= 90 ? "var(--good)" : v >= 80 ? "var(--warn)" : "var(--crit)"; }
+
+  function setStage(id) {
+    current = id;
+    const st = STATE[id], meta = STAGES.find(s => s.id === id);
+    $("#stageName").textContent = meta.nm;
+    [...rail.children].forEach(c => c.setAttribute("aria-current", c.dataset.id === id ? "true" : "false"));
+    [...hs.children].forEach((c, j) => c.setAttribute("aria-current", STAGES[j].id === id ? "true" : "false"));
+
+    const crit = st.issues.filter(i => i.s === "crit").length;
+    $("#kpis").innerHTML = `
+      <div class="kpi"><div class="l">Model health</div><div class="v" style="color:${healthColor(st.health)}">${st.health}<span style="font-size:.9rem;color:var(--faint)">%</span></div>
+        <div class="meter"><i style="width:${st.health}%;background:${healthColor(st.health)}"></i></div><div class="s">weighted QA scorecard</div></div>
+      <div class="kpi"><div class="l">Std compliance</div><div class="v" style="color:${healthColor(st.comp)}">${st.comp}<span style="font-size:.9rem;color:var(--faint)">%</span></div>
+        <div class="meter"><i style="width:${st.comp}%;background:${healthColor(st.comp)}"></i></div><div class="s">standards-as-code</div></div>
+      <div class="kpi"><div class="spark">${spark(st.health)}</div><div class="l">Cost · 5D</div><div class="v">${st.cost}</div><div class="s">${st.costS}</div></div>
+      <div class="kpi"><div class="l">Schedule · 4D</div><div class="v" style="font-size:1.25rem">${st.sched}</div><div class="s">${st.schedS}</div>
+        <div class="s" style="margin-top:.5rem;color:var(--accent)">dims ${st.dims}</div></div>`;
+
+    $("#issCount").textContent = `${st.issues.length} open${crit ? " · " + crit + " hard" : ""}`;
+    $("#issList").innerHTML = st.issues.map(i =>
+      `<div class="iss"><span class="sev sv-${i.s}"></span><span><span class="it">${i.t}</span><span class="im">${i.m}</span></span></div>`).join("");
+
+    $("#gateBox").innerHTML = st.gate.map(g => {
+      const cls = g[0] === "ok" ? "ok" : g[0] === "no" ? "no" : "na";
+      const mk = g[0] === "ok" ? "✓" : g[0] === "no" ? "!" : "–";
+      return `<div class="gaterow"><span class="ck ${cls}">${mk}</span><span class="gm">${g[1]}</span></div>`;
+    }).join("");
+    const v = $("#verdict"); v.className = "verdict " + st.verdict[0]; v.textContent = st.verdict[1];
+  }
+
+  // ── mapping ──
+  const mt = $("#mapTable");
+  MAP.forEach(m => {
+    const chip = m[2] ? `<span class="chip done">SHIPPED</span>` : `<span class="chip next">ROADMAP</span>`;
+    mt.appendChild(el("div","mrow",`<div class="layer">${m[0]}</div><div class="feat">${m[1]}</div><div class="st">${chip}</div>`));
+  });
+
+  // ── phases ──
+  const ph = $("#phases");
+  PHASES.forEach(p => {
+    const d = el("div", "phase" + (p.now ? " now" : ""));
+    d.innerHTML = `<div class="pn">${p.pn}</div><h3>${p.h}</h3><ul>${p.li.map(x => `<li>${x}</li>`).join("")}</ul>`;
+    ph.appendChild(d);
+  });
+
+  setStage("coord");
+
+  // reveal on scroll
+  const io = new IntersectionObserver((es) => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: .12 });
+  document.querySelectorAll(".reveal").forEach(n => io.observe(n));
+})();
+</script>
