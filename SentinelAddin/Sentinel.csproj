@@ -7,6 +7,11 @@
   <PropertyGroup>
     <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
 
+    <!-- Deploy to the live Revit Addins folder after a build. On by default so a plain
+         `dotnet build -p:RevitVersion=2024` installs straight to that version's folder.
+         Pass -p:DeployToRevit=false for CI / package-only builds. -->
+    <DeployToRevit Condition="'$(DeployToRevit)' == ''">true</DeployToRevit>
+
     <!-- 2021–2024 -> .NET Framework 4.8 · 2025–2026 -> .NET 8 · 2027 -> .NET 10 -->
     <TargetFramework Condition="$(RevitVersion) &lt;= 2024">net48</TargetFramework>
     <TargetFramework Condition="$(RevitVersion) == 2025 Or $(RevitVersion) == 2026">net8.0-windows</TargetFramework>
@@ -37,7 +42,11 @@
          always bind to the DLLs of the installed Revit. -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" ExcludeAssets="runtime" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitVersion).*" ExcludeAssets="runtime" />
-    <PackageReference Include="System.Text.Json" Version="8.0.*" />
+    <!-- net48 needs the OOB package for System.Text.Json (+ JsonNamingPolicy.SnakeCaseLower, 8.0);
+         net8/net10 ship it in-box, so referencing it there is redundant (NU1510). -->
+    <PackageReference Include="System.Text.Json" Version="8.0.*" Condition="'$(TargetFramework)' == 'net48'" />
+    <!-- Tier-2 document ingestion: pure-managed MIT PDF text extractor (netstandard2.0 → net48 + net8). -->
+    <PackageReference Include="PdfPig" Version="0.1.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,12 +65,28 @@
     <Using Include="System.Linq" />
   </ItemGroup>
 
-  <!-- Deploy to the matching Revit Addins folder after build -->
-  <Target Name="DeployAddin" AfterTargets="Build" Condition="'$(DeployToRevit)' == 'true'">
+  <!-- Deploy to the matching Revit Addins folder after build. The destination is resolved
+       dynamically from $(RevitVersion), so `-p:RevitVersion=2024` installs to the 2024 folder
+       and `-p:RevitVersion=2026` to the 2026 folder — for both the binaries and the manifest.
+       Guarded on the Addins root existing so CI / machines without Revit don't get stray folders. -->
+  <Target Name="DeployAddin" AfterTargets="Build"
+          Condition="'$(DeployToRevit)' != 'false' And Exists('$(AppData)\Autodesk\Revit\Addins')">
+    <!-- Running-Revit guard: a live Revit locks the deployed add-in DLLs. Without this, the Copy
+         below fails, gets swallowed, and leaves a STALE install while the build still reports
+         success. Detect Revit.exe and FAIL LOUDLY instead — close Revit, or build compile-only with
+         -p:DeployToRevit=false. -->
+    <Exec Command="tasklist /FI &quot;IMAGENAME eq Revit.exe&quot; /NH"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_RevitTasklist" />
+    </Exec>
+    <Error Condition="'$(_RevitTasklist)' != '' And $(_RevitTasklist.Contains('Revit.exe'))"
+           Text="Revit is running and locks the Sentinel add-in files — deploying now would silently leave a STALE install. Close Revit and rebuild, or build with -p:DeployToRevit=false to compile only." />
+
     <ItemGroup>
       <AddinFiles Include="$(TargetDir)**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(AddinFiles)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\Sentinel\%(RecursiveDir)" ContinueOnError="WarnAndContinue" />
-    <Copy SourceFiles="Sentinel.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)" ContinueOnError="WarnAndContinue" />
+    <!-- No ContinueOnError: a copy that fails must break the build, not leave stale bits behind. -->
+    <Copy SourceFiles="@(AddinFiles)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\Sentinel\%(RecursiveDir)" />
+    <Copy SourceFiles="Sentinel.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)" />
   </Target>
 </Project>
