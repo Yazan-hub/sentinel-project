@@ -2,6 +2,7 @@ import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { getAppManager } from "../app";
+import { buildIfc, type BakeElement } from "../sentinel-core/ifc-writer";
 
 /**
  * Sentinel 3D Modeling studio — in-browser authoring + editing + markup on top of the That Open world.
@@ -170,6 +171,19 @@ export function modelPanel(components: OBC.Components): HTMLElement {
   const notesList = document.createElement("div");
   notesList.style.cssText = "display:flex;flex-direction:column;gap:.25rem;width:100%;margin-top:.35rem";
   measureRow.appendChild(notesList);
+
+  // Export to BIM — bake the authored meshes into a real IFC4 file (typed + GUID'd + Qto quantities).
+  const bakeRow = section("Export to BIM");
+  const bakeBtn = document.createElement("button");
+  bakeBtn.textContent = "Bake to IFC ⬇";
+  bakeBtn.style.cssText = btn + ";background:#22303a;border-color:#2f6d8a;color:#bfe3f2";
+  bakeBtn.addEventListener("click", bakeToIfc);
+  bakeRow.appendChild(bakeBtn);
+  const bakeHint = document.createElement("div");
+  bakeHint.style.cssText = "font-size:11px;color:#9ca3af;margin-top:.35rem;width:100%";
+  bakeHint.textContent =
+    "Baked IFC is real BIM — typed, GUID'd, with Qto quantities. Re-import it via the Assets panel and cost / carbon / QA read it.";
+  bakeRow.appendChild(bakeHint);
 
   function mkGizmoBtn(label: string, gmode: "translate" | "rotate" | "scale", host: HTMLElement) {
     const b = document.createElement("button");
@@ -546,6 +560,42 @@ export function modelPanel(components: OBC.Components): HTMLElement {
     if (kind === "column") return new THREE.BoxGeometry(p.width ?? 0.4, p.height ?? 3, p.depth ?? 0.4);
     if (kind === "slab") return new THREE.BoxGeometry(p.dx ?? 2, p.thickness ?? 0.3, p.dz ?? 2);
     return null;
+  }
+
+  // ── bake authored meshes → real IFC4 (via sentinel-core/ifc-writer) and download ──
+  function bakeDescriptors(): BakeElement[] {
+    return authored.map((a) => {
+      // Effective box dims = geometry params × gizmo scale (captures any resize the user did).
+      const p = (a.mesh.geometry as THREE.BoxGeometry).parameters ?? { width: 1, height: 1, depth: 1 };
+      const sc = a.mesh.scale;
+      return {
+        kind: a.kind,
+        size: { x: (p.width ?? 1) * sc.x, y: (p.height ?? 1) * sc.y, z: (p.depth ?? 1) * sc.z },
+        position: [a.mesh.position.x, a.mesh.position.y, a.mesh.position.z],
+        rotationY: a.mesh.rotation.y,
+        typeName: `Sentinel ${a.kind}`,
+      };
+    });
+  }
+  function bakeToIfc() {
+    if (!ensure()) { status("Viewer not ready yet."); return; }
+    if (!authored.length) { status("Author some elements first, then bake."); return; }
+    try {
+      const ts = Math.floor(Date.now() / 1000);
+      const ifc = buildIfc(bakeDescriptors(), { projectName: `Sentinel ${projectId()}`, timestamp: ts });
+      const blob = new Blob([ifc], { type: "application/x-step" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `sentinel-model-${ts}.ifc`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      status(`Baked ${authored.length} element(s) → IFC downloaded. Load it via Assets to see it as a real model.`);
+    } catch (e) {
+      status(`Bake failed: ${(e as Error)?.message ?? String(e)}`);
+    }
   }
 
   // ── clear everything ──
