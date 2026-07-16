@@ -26,6 +26,7 @@ import { issuePanel } from "./setups/issue-panel";
 import { cdePanel } from "./setups/cde-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
+import { visibilityPanel } from "./setups/visibility-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -184,6 +185,8 @@ async function main() {
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
   const browserEl = projectBrowserPanel(components);
+  // Visibility / Graphics (Revit VG) — per-category hide/isolate/ghost/colour.
+  const visEl = visibilityPanel(components);
 
   // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
@@ -218,6 +221,7 @@ async function main() {
     cde: () => BUI.html`${cdeEl}`,
     props: () => BUI.html`${propsEl}`,
     browser: () => BUI.html`${browserEl}`,
+    visibility: () => BUI.html`${visEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
@@ -259,6 +263,10 @@ async function main() {
     Props: {
       icon: "mdi:information-outline",
       template: `"props viewer" 1fr / 24rem 1fr`,
+    },
+    Visibility: {
+      icon: "mdi:eye-settings-outline",
+      template: `"visibility viewer" 1fr / 24rem 1fr`,
     },
     Assets: {
       icon: "mdi:folder-multiple-outline",
