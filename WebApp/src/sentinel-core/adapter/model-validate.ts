@@ -13,7 +13,7 @@ export interface ModelValidation {
   compliant: number;
   failing: number;
   failuresByRequirement: Record<string, number>;
-  results: { localId: number; result: ElementResult }[]; // in-scope elements only (drives B2 colouring)
+  results: { localId: number; guid?: string; result: ElementResult }[]; // in-scope elements only (drives B2 colour + B3 BCF)
 }
 
 export async function validateModels(
@@ -28,7 +28,7 @@ export async function validateModels(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await model.getItemsData(ids, PROPERTY_DATA_CONFIG as any);
-    const results: { localId: number; result: ElementResult }[] = [];
+    const results: { localId: number; guid?: string; result: ElementResult }[] = [];
     const failuresByRequirement: Record<string, number> = {};
     let compliant = 0, failing = 0, total = 0;
 
@@ -44,7 +44,7 @@ export async function validateModels(
           failuresByRequirement[key] = (failuresByRequirement[key] ?? 0) + 1;
         }
       }
-      results.push({ localId: ids[i], result: r });
+      results.push({ localId: ids[i], guid: el.identity.GlobalId, result: r });
     }
     out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results });
   }

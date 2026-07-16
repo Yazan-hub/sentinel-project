@@ -187,7 +187,7 @@ async function main() {
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
   const browserEl = projectBrowserPanel(components);
   // Visibility / Graphics (Revit VG) — per-category hide/isolate/ghost/colour.
-  const visEl = visibilityPanel(components);
+  const visEl = visibilityPanel(components, { baseUrl: SERVICE_URL });
   // Saved named views (Revit) — save/restore camera + zoom-fit.
   const viewsEl = viewsPanel(components);
 

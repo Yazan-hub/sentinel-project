@@ -287,6 +287,7 @@ createServer(async (req, res) => {
         if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
       }
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
+      if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
       if (p2 === "transmittals") {
         if (req.method === "GET") return send(res, 200, await cde.listTransmittals(p1));
         if (req.method === "POST") return send(res, 201, await cde.createTransmittal(p1, await readBody(req)));

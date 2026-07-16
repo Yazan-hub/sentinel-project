@@ -78,6 +78,24 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
   return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor, old_value: oldv, new_value: newv } });
 }
 
+/** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). */
+export async function recordAudit(key, b) {
+  const proj = await ensureProject(key);
+  return (await sb(`audit_log`, {
+    method: "POST",
+    body: {
+      project_id: proj.id,
+      entity_type: b.entity_type || "event",
+      entity_id: b.entity_id ?? null,
+      action: b.action || "recorded",
+      actor: b.actor ?? null,
+      old_value: b.old_value ?? null,
+      new_value: b.new_value ?? null,
+    },
+    prefer: "return=representation",
+  }))[0];
+}
+
 export async function listTransmittals(key) {
   const proj = await ensureProject(key);
   return sb(`transmittals?project_id=eq.${proj.id}&select=*&order=issued_at.desc`);

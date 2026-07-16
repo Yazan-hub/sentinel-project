@@ -6,6 +6,7 @@ import { buildProjectTree, type TreeCategory } from "../sentinel-core/adapter/pr
 import { DEMO_IDS, type IdsSpec } from "../sentinel-core/ids";
 import { parseIds } from "../sentinel-core/ids-parse";
 import { validateModels, type ModelValidation } from "../sentinel-core/adapter/model-validate";
+import { getAppManager } from "../app";
 
 /**
  * Sentinel Visibility / Graphics (Phase 3 — Revit "VG" overrides). Per-category show/hide, isolate,
@@ -14,7 +15,9 @@ import { validateModels, type ModelValidation } from "../sentinel-core/adapter/m
  * OBF.Highlighter style per category (best-effort — guarded, since it depends on the OBF style shape).
  * Plain-DOM, iframe-safe. Docked as the "Visibility" tab.
  */
-export function visibilityPanel(components: OBC.Components): HTMLElement {
+export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const pid = () => getAppManager().client?.context?.projectId ?? "default";
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
@@ -189,12 +192,60 @@ export function visibilityPanel(components: OBC.Components): HTMLElement {
     const pct = total ? Math.round((compliant / total) * 100) : 100;
     let html = `<div style="font-weight:600;margin-bottom:.4rem">IDS “${esc(idsSpec.title)}” — <span style="color:#22c55e">${compliant}</span>/${total} (${pct}%) · <span style="color:#ef4444">${failing} failing</span></div>`;
     if (!rows.length) html += '<div style="color:#22c55e;font-size:12px">All in-scope elements compliant ✓</div>';
-    else html += '<div style="color:#9ca3af;font-size:11px;margin-bottom:.3rem">Click a requirement to isolate its failing elements:</div>';
+    else {
+      html += `<button id="vg-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5;margin-bottom:.45rem" title="Create a BCF issue per requirement + an immutable CDE audit record">⚑ Raise ${rows.length} BCF issue(s) + record in CDE</button>`;
+      html += '<div style="color:#9ca3af;font-size:11px;margin-bottom:.3rem">Click a requirement to isolate its failing elements:</div>';
+    }
     host.innerHTML = html + rows.map(([req, n], i) =>
       `<div class="vg-req" data-i="${i}" style="display:flex;gap:.5rem;padding:.3rem .4rem;border:1px solid #3a1f1f;background:#241a1a;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer;font-size:12px">` +
       `<span style="color:#f87171">✗</span><span style="flex:1;color:#e5e7eb">${esc(req)}</span><span style="color:#f87171;font-weight:600">${n}</span></div>`,
     ).join("");
+    (host.querySelector("#vg-raise") as HTMLButtonElement | null)?.addEventListener("click", raiseValidationIssues);
     host.querySelectorAll<HTMLElement>(".vg-req").forEach((r) => r.addEventListener("click", () => isolateRequirement(rows[Number(r.dataset.i)][0])));
+  }
+
+  // B3 — golden thread: one BCF topic per failing requirement (with the failing elements as a viewpoint
+  // selection) + an immutable, hash-chained CDE audit record. Issues flow to the Issues tab + Revit
+  // (BcfSyncManager); the audit is the provable "who/what/when" record.
+  function groupFailures(res: ModelValidation[]): Record<string, { count: number; guids: string[] }> {
+    const out: Record<string, { count: number; guids: string[] }> = {};
+    for (const m of res) for (const { guid, result } of m.results) for (const f of result.failures) {
+      const key = `${f.specification} — ${f.requirement}`;
+      (out[key] ??= { count: 0, guids: [] });
+      out[key].count++;
+      if (guid) out[key].guids.push(guid);
+    }
+    return out;
+  }
+  async function raiseValidationIssues() {
+    if (!lastRes.length) { status("Run IDS first."); return; }
+    const reqs = Object.entries(groupFailures(lastRes));
+    if (!reqs.length) { status("Nothing to raise — all compliant."); return; }
+    status(`Raising ${reqs.length} issue(s) + recording…`);
+    const post = (path: string, body: unknown) =>
+      fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let raised = 0;
+    for (const [req, info] of reqs) {
+      try {
+        const topic = await (await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
+          title: `IDS: ${req} (${info.count} failing)`,
+          topic_type: "Issue", priority: "High", creation_author: "IDS",
+          description: `IDS “${idsSpec.title}” — ${info.count} element(s) fail: ${req}.` +
+            (info.guids.length ? ` Sample GUIDs: ${info.guids.slice(0, 10).join(", ")}` : ""),
+        })).json().catch(() => ({}));
+        if ((topic as { guid?: string })?.guid && info.guids.length) {
+          await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${(topic as { guid: string }).guid}/viewpoints`, {
+            components: { selection: info.guids.slice(0, 500).map((g) => ({ ifc_guid: g })) },
+          }).catch(() => {});
+        }
+        await post(`/cde/${encodeURIComponent(pid())}/audit`, {
+          entity_type: "ids_validation", actor: "IDS", action: `Issue raised: ${req}`,
+          new_value: { spec: idsSpec.title, requirement: req, failing: info.count, bcf_guid: (topic as { guid?: string })?.guid ?? null },
+        }).catch(() => {});
+        raised++;
+      } catch { /* keep going */ }
+    }
+    status(`Raised ${raised}/${reqs.length} BCF issue(s) → Issues tab + Revit; recorded in the CDE audit (hash-chained). ${raised < reqs.length ? "(Some failed — is the bridge running with SUPABASE creds?)" : ""}`);
   }
 
   async function isolateRequirement(req: string) {
