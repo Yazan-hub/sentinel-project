@@ -702,10 +702,22 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   }
   (root.querySelector("#md-fit") as HTMLButtonElement).addEventListener("click", frameAuthored);
 
-  // ── clear everything ──
-  (root.querySelector("#md-clear") as HTMLButtonElement).addEventListener("click", () => {
-    if (!authored.length && !notes.length && !measures.length) return;
-    if (!window.confirm("Remove everything Sentinel authored in this project?")) return;
+  // ── clear everything (two-click confirm — window.confirm is blocked in the platform iframe) ──
+  const clearBtn = root.querySelector("#md-clear") as HTMLButtonElement;
+  let clearArmed = false;
+  clearBtn.addEventListener("click", () => {
+    if (!authored.length && !notes.length && !measures.length) { status("Nothing to clear."); return; }
+    if (!clearArmed) {
+      clearArmed = true;
+      clearBtn.textContent = "Clear? ✓";
+      clearBtn.style.borderColor = "#ef4444";
+      status("Click “Clear? ✓” again to remove everything.");
+      window.setTimeout(() => { clearArmed = false; clearBtn.textContent = "Clear"; clearBtn.style.borderColor = "#2c2c34"; }, 3000);
+      return;
+    }
+    clearArmed = false;
+    clearBtn.textContent = "Clear";
+    clearBtn.style.borderColor = "#2c2c34";
     deselect();
     for (const a of [...authored]) { group.remove(a.mesh); a.mesh.geometry.dispose(); (a.mesh.material as THREE.Material).dispose(); }
     for (const n of [...notes]) { group.remove(n.pin); n.pin.geometry.dispose(); (n.pin.material as THREE.Material).dispose(); }
