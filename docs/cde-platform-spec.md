@@ -56,7 +56,7 @@ plugin (token stays server-side) but reads/writes Supabase instead of JSON.
 | Phase | Thread | Deliverable | Depends on |
 |---|---|---|---|
 | **C1** | CDE core | ✅ **Schema live** on Supabase `autqqtwhxqrfjaztablm` (`WebApp/db/migrations/0001_cde_core_c1.sql`) — projects/parties/memberships/containers/versions/transmittals/audit_log, RLS locked to service key. Verified end-to-end (container → wip/shared versions + suitability → transmittal → audit). **Remaining:** migrate BCF/RFI/tender/project JSON → Postgres; point the bridge at Supabase. | Supabase (done) |
-| **C2** | CDE core | Container **state machine** + suitability codes + revision control + **append-only audit log**; state-gated RLS | C1 |
+| **C2** | CDE core | ✅ **Live & verified** (`0002_cde_state_machine_c2.sql`) — `cde_transition()` enforces WIP→Shared→Published→Archived (+reject-to-WIP); published versions **immutable**; audit log **append-only + hash-chained (tamper-evident)**. Proven: valid flow + intact chain; illegal skip, published-edit, and audit-tamper all rejected. | C1 |
 | **C3** | CDE UI | Web panels: **container/state board** (Kanban WIP→Shared→Published→Archived), **transmittal** builder + register, **audit-trail** viewer, **roles/parties** admin | C2 |
 | **C4** | Auth/parties | Supabase Auth (magic-link/SSO), org/role model, **unlimited external viewers** (the pricing wedge) | C1 |
 | **D1** | **4D module** | Browser timeline/Gantt driving **Highlighter/Hider** over fragments; author `IfcTask`/`IfcWorkSchedule`; scrub playback | viewer (have) |
