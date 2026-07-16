@@ -86,6 +86,19 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   const ndc = new THREE.Vector2();
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
+  // The world runs a DEFERRED pen renderer whose single-pass capture hides plain (non-emitter) meshes.
+  // To make our geometry visible we must register its materials into the postproduction overlay set —
+  // the same mechanism the grid / clip sections / measurement lines use (see measurement-tool.ts).
+  const myMaterials = new Set<THREE.Material>();
+  function registerForRender(m: THREE.Material) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isolated = (getWorld()?.renderer as any)?.postproduction?.basePass?.isolatedMaterials;
+      if (Array.isArray(isolated) && !isolated.includes(m)) isolated.push(m);
+    } catch { /* postproduction not ready yet */ }
+  }
+  function track<T extends THREE.Material>(m: T): T { myMaterials.add(m); registerForRender(m); return m; }
+
   // ── dimension inputs (metres) ──
   const dims = { height: 3, thickness: 0.2, colW: 0.4, colD: 0.4, slab: 0.3 };
 
@@ -255,8 +268,13 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     c.addEventListener("pointerdown", onDown);
     c.addEventListener("pointerup", onUp);
     window.addEventListener("keydown", onKey);
+    // Re-register our materials every frame — postproduction may not be ready at wire time, and the
+    // overlay set can be rebuilt. Cheap + idempotent (mirrors measurement-tool's onBeforeUpdate hook).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (getWorld()?.renderer as any)?.onBeforeUpdate?.add?.(() => { for (const m of myMaterials) registerForRender(m); });
     wired = true;
     loadFromStore();
+    render();
     return true;
   }
   function ensureGizmo() {
@@ -360,7 +378,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   // MeshStandardMaterial renders near-black (invisible). MeshBasic shows its flat colour and still
   // gets the pen edge outlines for depth. Double-sided so thin slabs/walls read from any angle.
   function mat(kind: Kind) {
-    return new THREE.MeshBasicMaterial({ color: KIND_COLOR[kind], side: THREE.DoubleSide });
+    return track(new THREE.MeshBasicMaterial({ color: KIND_COLOR[kind], side: THREE.DoubleSide }));
   }
   function place(kind: Kind, geo: THREE.BufferGeometry, pos: THREE.Vector3, rotY = 0, params: Record<string, number> = {}) {
     const mesh = new THREE.Mesh(geo, mat(kind));
@@ -381,7 +399,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   function setPending(p: THREE.Vector3) {
     clearPendingMarker();
     pending = p;
-    pendingMarker = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+    pendingMarker = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), track(new THREE.MeshBasicMaterial({ color: 0x22c55e })));
     pendingMarker.position.copy(p);
     pendingMarker.userData.sentinelHelper = true;
     group.add(pendingMarker);
@@ -459,7 +477,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     const dist = a.distanceTo(b);
     const objs: THREE.Object3D[] = [];
     const mkDot = (p: THREE.Vector3) => {
-      const d = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), new THREE.MeshBasicMaterial({ color: ACCENT }));
+      const d = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), track(new THREE.MeshBasicMaterial({ color: ACCENT })));
       d.position.copy(p);
       d.userData.sentinelHelper = true;
       group.add(d); objs.push(d);
@@ -467,7 +485,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     mkDot(a); mkDot(b);
     const cyl = new THREE.Mesh(
       new THREE.CylinderGeometry(0.015, 0.015, dist, 8),
-      new THREE.MeshBasicMaterial({ color: ACCENT }),
+      track(new THREE.MeshBasicMaterial({ color: ACCENT })),
     );
     cyl.position.copy(a.clone().add(b).multiplyScalar(0.5));
     cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
@@ -483,7 +501,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   function addNote(p: THREE.Vector3) {
     const text = window.prompt("Note text:")?.trim();
     if (!text) return;
-    const pin = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), track(new THREE.MeshBasicMaterial({ color: 0xffb020 })));
     pin.position.copy(p);
     pin.userData.sentinelHelper = true;
     group.add(pin);
@@ -575,7 +593,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
       authored.push({ id: uid(a.kind), kind: a.kind, mesh, params: a.params });
     }
     for (const n of data.notes ?? []) {
-      const pin = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), new THREE.MeshBasicMaterial({ color: 0xffb020 }));
+      const pin = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), track(new THREE.MeshBasicMaterial({ color: 0xffb020 })));
       pin.position.fromArray(n.pos);
       pin.userData.sentinelHelper = true;
       group.add(pin);
