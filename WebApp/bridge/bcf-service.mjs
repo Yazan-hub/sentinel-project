@@ -271,6 +271,37 @@ createServer(async (req, res) => {
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
   }
 
+  // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──
+  //   GET/POST /cde/:key/containers · GET /cde/:key/audit · GET/POST /cde/:key/transmittals
+  //   POST /cde/containers/:cid/versions · POST /cde/versions/:vid/transition  { state, actor, note }
+  if (url.pathname.startsWith("/cde/")) {
+    const cde = await import("./cde-store.mjs");
+    if (!cde.cdeConfigured()) {
+      return send(res, 503, { message: "CDE not configured — set SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env, then restart the service." });
+    }
+    try {
+      const seg = url.pathname.split("/").filter(Boolean); // ['cde', p1, p2, p3]
+      const p1 = seg[1], p2 = seg[2], p3 = seg[3];
+      if (p2 === "containers" && !p3) {
+        if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
+        if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
+      }
+      if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
+      if (p2 === "transmittals") {
+        if (req.method === "GET") return send(res, 200, await cde.listTransmittals(p1));
+        if (req.method === "POST") return send(res, 201, await cde.createTransmittal(p1, await readBody(req)));
+      }
+      if (p1 === "containers" && p3 === "versions" && req.method === "POST") {
+        return send(res, 201, await cde.addVersion(p2, await readBody(req)));
+      }
+      if (p1 === "versions" && p3 === "transition" && req.method === "POST") {
+        const body = await readBody(req);
+        return send(res, 200, await cde.transition(p2, body.state, body.actor, body.note));
+      }
+      return send(res, 404, { message: "CDE route not found" });
+    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+  }
+
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]
   const m = url.pathname.match(/^\/bcf\/3\.0\/projects\/([^/]+)\/topics(?:\/([^/]+))?(?:\/(comments|viewpoints))?$/);
   if (!m) return send(res, 404, { message: "Not found" });

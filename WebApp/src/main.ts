@@ -23,6 +23,7 @@ import { ownerPanel } from "./setups/owner-panel";
 import { tenderPanel } from "./setups/tender-panel";
 import { rfiPanel } from "./setups/rfi-panel";
 import { issuePanel } from "./setups/issue-panel";
+import { cdePanel } from "./setups/cde-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -175,6 +176,8 @@ async function main() {
   const guideEl = guidePanel(components);
   // Issue Management panel — docked as an "Issues" sidebar tab (create + list + details in one panel).
   const issuesEl = issuePanel(components, { bcfBaseUrl: SERVICE_URL });
+  // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
+  const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
 
   // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
@@ -206,6 +209,7 @@ async function main() {
     tender: () => BUI.html`${tenderEl}`,
     rfis: () => BUI.html`${rfiEl}`,
     issues: () => BUI.html`${issuesEl}`,
+    cde: () => BUI.html`${cdeEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
@@ -270,6 +274,10 @@ async function main() {
       template: `"timeline viewer" 1fr / 24rem 1fr`,
     },
     // ── Coordination ──
+    CDE: {
+      icon: "mdi:file-document-multiple-outline",
+      template: `"cde viewer" 1fr / 40rem 1fr`,
+    },
     Issues: {
       icon: "mdi:flag-outline",
       template: `"issues viewer" 1fr / 24rem 1fr`,
