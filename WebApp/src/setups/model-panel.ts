@@ -352,8 +352,11 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   }
 
   // ── authoring ──
+  // Unlit material: the world runs a deferred "pen" renderer with no THREE lights, so a
+  // MeshStandardMaterial renders near-black (invisible). MeshBasic shows its flat colour and still
+  // gets the pen edge outlines for depth. Double-sided so thin slabs/walls read from any angle.
   function mat(kind: Kind) {
-    return new THREE.MeshStandardMaterial({ color: KIND_COLOR[kind], roughness: 0.9, metalness: 0 });
+    return new THREE.MeshBasicMaterial({ color: KIND_COLOR[kind], side: THREE.DoubleSide });
   }
   function place(kind: Kind, geo: THREE.BufferGeometry, pos: THREE.Vector3, rotY = 0, params: Record<string, number> = {}) {
     const mesh = new THREE.Mesh(geo, mat(kind));
@@ -392,9 +395,8 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   function select(a: Authored) {
     deselect();
     selected = a;
-    const m = a.mesh.material as THREE.MeshStandardMaterial;
-    m.emissive.setHex(ACCENT);
-    m.emissiveIntensity = 0.35;
+    // Highlight via colour swap (MeshBasic has no emissive); restored on deselect.
+    (a.mesh.material as THREE.MeshBasicMaterial).color.setHex(ACCENT);
     ensureGizmo();
     if (gizmo) { gizmo.attach(a.mesh); }
     refreshButtons();
@@ -402,8 +404,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   }
   function deselect() {
     if (selected) {
-      const m = selected.mesh.material as THREE.MeshStandardMaterial;
-      m.emissive.setHex(0x000000);
+      (selected.mesh.material as THREE.MeshBasicMaterial).color.setHex(KIND_COLOR[selected.kind]);
     }
     selected = null;
     gizmo?.detach();
