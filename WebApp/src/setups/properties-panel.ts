@@ -118,16 +118,22 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
   selectEvents?.onHighlight?.add((map: Record<string, Set<number>>) => onSelect(map));
   selectEvents?.onClear?.add(() => { current = null; empty(); });
 
-  // Isolate / show-all
+  // Isolate / show-all. Mirrors hider.ts: isolate(sel) / set(true), then refresh the view
+  // (visibility changes only render after fragments.core.update).
+  const refresh = async () => { try { await fragments.core.update(true); } catch { /* */ } };
   el("pp-iso").addEventListener("click", async () => {
     if (!current) { status("Select an element first."); return; }
     try {
       const m: OBC.ModelIdMap = { [current.modelId]: new Set([current.localId]) };
-      await hider.set(true);
       await hider.isolate(m);
+      await refresh();
+      status("Isolated — press “Show all” to restore.");
     } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
   });
-  el("pp-show").addEventListener("click", async () => { try { await hider.set(false); status("Showing all."); } catch { /* */ } });
+  el("pp-show").addEventListener("click", async () => {
+    try { await hider.set(true); await refresh(); status("Showing all."); }
+    catch (e) { status("Show all failed: " + ((e as Error)?.message ?? String(e))); }
+  });
 
   empty();
   return root;
