@@ -25,6 +25,7 @@ import { rfiPanel } from "./setups/rfi-panel";
 import { issuePanel } from "./setups/issue-panel";
 import { cdePanel } from "./setups/cde-panel";
 import { propertiesPanel } from "./setups/properties-panel";
+import { projectBrowserPanel } from "./setups/project-browser-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -181,6 +182,8 @@ async function main() {
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
+  // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
+  const browserEl = projectBrowserPanel(components);
 
   // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
@@ -214,6 +217,7 @@ async function main() {
     issues: () => BUI.html`${issuesEl}`,
     cde: () => BUI.html`${cdeEl}`,
     props: () => BUI.html`${propsEl}`,
+    browser: () => BUI.html`${browserEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
@@ -247,6 +251,10 @@ async function main() {
     Model: {
       icon: "mdi:pencil-ruler",
       template: `"model viewer" 1fr / 24rem 1fr`,
+    },
+    Browser: {
+      icon: "mdi:file-tree-outline",
+      template: `"browser viewer" 1fr / 24rem 1fr`,
     },
     Props: {
       icon: "mdi:information-outline",
