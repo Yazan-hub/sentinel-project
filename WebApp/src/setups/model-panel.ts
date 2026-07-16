@@ -76,6 +76,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   let mode: Mode = "select";
   let selected: Authored | null = null;
   let pending: THREE.Vector3 | null = null; // first click of a 2-click tool
+  let pendingMarker: THREE.Mesh | null = null; // visible dot at the first click
   let gizmo: TransformControls | null = null;
   let seq = 0;
   let wired = false;
@@ -212,6 +213,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
   function setMode(next: Mode) {
     mode = next;
     pending = null;
+    clearPendingMarker();
     if (next !== "select") deselect();
     const c = canvas();
     if (c) c.style.cursor = next === "select" ? "" : "crosshair";
@@ -336,11 +338,12 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
 
     // two-click tools (wall / slab / measure)
     if (!pending) {
-      pending = p;
-      status(mode === "measure" ? "Measure: click the second point." : "Now click the end point.");
+      setPending(p);
+      status(mode === "measure" ? "Point 1 set (green dot) — click the second point."
+                                : `Start set (green dot) — click the ${mode}'s end point.`);
       return;
     }
-    const a0 = pending; pending = null;
+    const a0 = pending; pending = null; clearPendingMarker();
     if (mode === "wall") addWall(a0, p);
     else if (mode === "slab") addSlab(a0, p);
     else if (mode === "measure") addMeasure(a0, p);
@@ -366,10 +369,29 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     group.add(mesh);
     const rec: Authored = { id: uid(kind), kind, mesh, params };
     authored.push(rec);
-    select(rec);
     saveToStore();
     render();
-    status(`Added ${kind}. ${authored.length} element(s).`);
+    // Don't auto-select (that popped the gizmo up on every create). Stay in the tool to keep placing;
+    // use the Select tool to grab an element and edit it.
+    status(`✓ ${kind} added (${authored.length} total). Keep placing, or switch to Select to edit.`);
+  }
+
+  function setPending(p: THREE.Vector3) {
+    clearPendingMarker();
+    pending = p;
+    pendingMarker = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+    pendingMarker.position.copy(p);
+    pendingMarker.userData.sentinelHelper = true;
+    group.add(pendingMarker);
+    render();
+  }
+  function clearPendingMarker() {
+    if (pendingMarker) {
+      group.remove(pendingMarker);
+      pendingMarker.geometry.dispose();
+      (pendingMarker.material as THREE.Material).dispose();
+      pendingMarker = null;
+    }
   }
   function addWall(a: THREE.Vector3, b: THREE.Vector3) {
     const len = a.distanceTo(b);
