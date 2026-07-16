@@ -100,6 +100,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     '<span style="font-weight:600">▲ Model</span>' +
     '<span style="color:#9ca3af;font-size:11px">author · edit · markup</span>' +
     '<span style="flex:1"></span>' +
+    `<button id="md-fit" style="${btn}" title="Frame the camera on your elements">Fit ⤢</button>` +
     `<button id="md-clear" style="${btn}" title="Remove everything Sentinel authored">Clear</button>` +
     "</div>" +
     '<div id="md-body" style="flex:1;overflow:auto;padding:.6rem;display:flex;flex-direction:column;gap:.75rem"></div>' +
@@ -373,7 +374,8 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     render();
     // Don't auto-select (that popped the gizmo up on every create). Stay in the tool to keep placing;
     // use the Select tool to grab an element and edit it.
-    status(`✓ ${kind} added (${authored.length} total). Keep placing, or switch to Select to edit.`);
+    if (authored.length === 1) frameAuthored(); // frame the first element so it's immediately visible
+    status(`✓ ${kind} added (${authored.length} total). Keep placing, or press "Fit ⤢" to frame them.`);
   }
 
   function setPending(p: THREE.Vector3) {
@@ -660,6 +662,27 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
       uploadBtn.disabled = false;
     }
   }
+
+  // Frame the camera on everything authored (camera-controls fitToBox; falls back to setLookAt).
+  function frameAuthored() {
+    if (!ensure() || !authored.length) { status("Nothing to frame yet — place an element first."); return; }
+    const box = new THREE.Box3();
+    for (const a of authored) box.expandByObject(a.mesh);
+    if (box.isEmpty()) return;
+    const ctl = controls();
+    try {
+      if (ctl?.fitToBox) {
+        ctl.fitToBox(box, true, { paddingLeft: 1, paddingRight: 1, paddingTop: 1, paddingBottom: 1 });
+      } else if (ctl?.setLookAt) {
+        const c = box.getCenter(new THREE.Vector3());
+        const s = box.getSize(new THREE.Vector3()).length() || 5;
+        ctl.setLookAt(c.x + s, c.y + s * 0.8, c.z + s, c.x, c.y, c.z, true);
+      }
+      render();
+      status(`Framed ${authored.length} element(s).`);
+    } catch (e) { status(`Fit failed: ${(e as Error).message}`); }
+  }
+  (root.querySelector("#md-fit") as HTMLButtonElement).addEventListener("click", frameAuthored);
 
   // ── clear everything ──
   (root.querySelector("#md-clear") as HTMLButtonElement).addEventListener("click", () => {
