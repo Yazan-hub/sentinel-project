@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
+import * as FRAGS from "@thatopen/fragments";
 import { buildProjectTree, type TreeCategory } from "../sentinel-core/adapter/project-tree";
 import { DEMO_IDS, type IdsSpec } from "../sentinel-core/ids";
 import { parseIds } from "../sentinel-core/ids-parse";
-import { validateModels } from "../sentinel-core/adapter/model-validate";
+import { validateModels, type ModelValidation } from "../sentinel-core/adapter/model-validate";
 
 /**
  * Sentinel Visibility / Graphics (Phase 3 — Revit "VG" overrides). Per-category show/hide, isolate,
@@ -33,6 +34,7 @@ export function visibilityPanel(components: OBC.Components): HTMLElement {
     `<button id="vg-showall" style="${btn}" title="Show everything, clear ghosts/colours">Show all</button>` +
     `<button id="vg-refresh" style="${btn}" title="Rebuild category list">↻</button>` +
     "</div>" +
+    '<div id="vg-ids-results" style="display:none;border-bottom:1px solid #2a2a30;max-height:16rem;overflow:auto;padding:.5rem .6rem"></div>' +
     '<div id="vg-list" style="flex:1;overflow:auto;padding:.35rem"></div>' +
     '<div id="vg-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
@@ -121,8 +123,9 @@ export function visibilityPanel(components: OBC.Components): HTMLElement {
       (highlighter as any).clear?.();
       await refreshView();
     } catch { /* */ }
+    el("vg-ids-results").style.display = "none";
     renderList();
-    status("All visible · ghosts + colours cleared.");
+    status("All visible · ghosts + IDS colours cleared.");
   }
 
   async function refresh() {
@@ -138,23 +141,74 @@ export function visibilityPanel(components: OBC.Components): HTMLElement {
 
   // ── B1: IDS validation (logic only — logs to console; colour-coding is B2) ──
   let idsSpec: IdsSpec = DEMO_IDS;
+  let lastRes: ModelValidation[] = [];
+
   async function runIds() {
     if (fragments.list.size === 0) { status("Load a model first."); return; }
     status(`Running IDS “${idsSpec.title}”…`);
     try {
-      const res = await validateModels(fragments, idsSpec);
+      lastRes = await validateModels(fragments, idsSpec);
       // eslint-disable-next-line no-console
-      console.log("[Sentinel] IDS validation", { spec: idsSpec.title, models: res });
-      const total = res.reduce((a, m) => a + m.total, 0);
-      const failing = res.reduce((a, m) => a + m.failing, 0);
-      const compliant = res.reduce((a, m) => a + m.compliant, 0);
-      const byReq: Record<string, number> = {};
-      for (const m of res) for (const [k, v] of Object.entries(m.failuresByRequirement)) byReq[k] = (byReq[k] ?? 0) + v;
-      const top = Object.entries(byReq).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k} ×${n}`).join(" · ");
+      console.log("[Sentinel] IDS validation", { spec: idsSpec.title, models: lastRes });
+      const total = lastRes.reduce((a, m) => a + m.total, 0);
+      const failing = lastRes.reduce((a, m) => a + m.failing, 0);
+      const compliant = lastRes.reduce((a, m) => a + m.compliant, 0);
+      await colourResults(lastRes);
+      renderIdsResults(compliant, total, failing);
       status(total === 0
         ? `IDS “${idsSpec.title}”: no in-scope elements in the loaded model(s).`
-        : `IDS “${idsSpec.title}”: ${compliant}/${total} compliant, ${failing} failing.${top ? " Top: " + top : ""} — full breakdown in the console.`);
+        : `IDS “${idsSpec.title}”: ${compliant}/${total} compliant (green), ${failing} failing (red). Click a requirement above to isolate.`);
     } catch (e) { status("IDS failed: " + ((e as Error)?.message ?? String(e))); }
+  }
+
+  // B2 — colour compliant green / failing red via Highlighter styles (FRAGS.MaterialDefinition).
+  async function colourResults(res: ModelValidation[]) {
+    const passMap: OBC.ModelIdMap = {}, failMap: OBC.ModelIdMap = {};
+    for (const m of res) for (const { localId, result } of m.results) {
+      const target = result.pass ? passMap : failMap;
+      (target[m.modelId] ??= new Set<number>()).add(localId);
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const hl = highlighter as any;
+      hl.clear?.();
+      hl.styles?.set?.("ids_pass", { color: new THREE.Color(0x22c55e), renderedFaces: FRAGS.RenderedFaces.TWO, opacity: 1, transparent: false });
+      hl.styles?.set?.("ids_fail", { color: new THREE.Color(0xef4444), renderedFaces: FRAGS.RenderedFaces.TWO, opacity: 1, transparent: false });
+      if (Object.keys(passMap).length) await hl.highlightByID("ids_pass", passMap, false, false);
+      if (Object.keys(failMap).length) await hl.highlightByID("ids_fail", failMap, false, false);
+      await refreshView();
+    } catch (e) { status("Colour override not supported in this build: " + ((e as Error)?.message ?? String(e))); }
+  }
+
+  function renderIdsResults(compliant: number, total: number, failing: number) {
+    const host = el("vg-ids-results");
+    host.style.display = "block";
+    const byReq: Record<string, number> = {};
+    for (const m of lastRes) for (const [k, v] of Object.entries(m.failuresByRequirement)) byReq[k] = (byReq[k] ?? 0) + v;
+    const rows = Object.entries(byReq).sort((a, b) => b[1] - a[1]);
+    const pct = total ? Math.round((compliant / total) * 100) : 100;
+    let html = `<div style="font-weight:600;margin-bottom:.4rem">IDS “${esc(idsSpec.title)}” — <span style="color:#22c55e">${compliant}</span>/${total} (${pct}%) · <span style="color:#ef4444">${failing} failing</span></div>`;
+    if (!rows.length) html += '<div style="color:#22c55e;font-size:12px">All in-scope elements compliant ✓</div>';
+    else html += '<div style="color:#9ca3af;font-size:11px;margin-bottom:.3rem">Click a requirement to isolate its failing elements:</div>';
+    host.innerHTML = html + rows.map(([req, n], i) =>
+      `<div class="vg-req" data-i="${i}" style="display:flex;gap:.5rem;padding:.3rem .4rem;border:1px solid #3a1f1f;background:#241a1a;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer;font-size:12px">` +
+      `<span style="color:#f87171">✗</span><span style="flex:1;color:#e5e7eb">${esc(req)}</span><span style="color:#f87171;font-weight:600">${n}</span></div>`,
+    ).join("");
+    host.querySelectorAll<HTMLElement>(".vg-req").forEach((r) => r.addEventListener("click", () => isolateRequirement(rows[Number(r.dataset.i)][0])));
+  }
+
+  async function isolateRequirement(req: string) {
+    const map: OBC.ModelIdMap = {};
+    for (const m of lastRes) for (const { localId, result } of m.results)
+      if (result.failures.some((f) => `${f.specification} — ${f.requirement}` === req)) (map[m.modelId] ??= new Set<number>()).add(localId);
+    try {
+      await hider.isolate(map);
+      await refreshView();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (highlighter as any).highlightByID?.("select", map, true, true);
+      const n = Object.values(map).reduce((a, s) => a + s.size, 0);
+      status(`Isolated ${n} element(s) failing “${req}”. Show all to restore.`);
+    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
   }
   el("vg-ids").addEventListener("click", runIds);
   el("vg-idsfile").addEventListener("change", async (e) => {
