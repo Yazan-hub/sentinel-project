@@ -2,7 +2,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { elementLevels } from "../sentinel-core/adapter/fragments-levels";
-import { defaultSequence, levelSequence, csvToSchedule, scheduleRange, type Schedule } from "../sentinel-core";
+import { defaultSequence, levelSequence, csvToSchedule, scheduleRange, buildBoQ, buildCarbon, defaultRates, defaultFactors, type Schedule } from "../sentinel-core";
 
 /**
  * 4D Sequence panel — Phase 2 slice A (docs/phase2-spec.md). Makes the programme a VIEW of the model:
@@ -28,6 +28,12 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
   let playing = false;
   let timer: number | undefined;
   let mode: "trade" | "level" = "trade";
+  // 4D×5D×6D fusion: per-element cost + embodied carbon, summed over built-to-date elements as the scrubber moves.
+  let perElCost = new Map<string, number>();
+  let perElCarbon = new Map<string, number>();
+  let boqTotal = 0, carbonTotal = 0, currency = "";
+  const money = (n: number) => `${currency || "$"} ${Math.round(n).toLocaleString("en-US")}`;
+  const co2 = (kg: number) => kg >= 1000 ? `${(kg / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 })} tCO₂e` : `${Math.round(kg).toLocaleString("en-US")} kgCO₂e`;
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .6rem;font:600 12px system-ui;cursor:pointer";
   const root = document.createElement("div");
@@ -63,12 +69,30 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
   // ── build the category → elements index from the model, then per-task maps ────
   const indexModel = async (): Promise<boolean> => {
     if (fragments.list.size === 0) { msg("Load a model first.", "#eab308"); return false; }
+    const quantities = await quantityTakeoff(fragments);
     const cat: Record<string, Record<string, number[]>> = {};
-    for (const e of await quantityTakeoff(fragments)) {
+    for (const e of quantities) {
       const c = (e.category || "").toUpperCase();
       ((cat[c] ??= {})[e.model_id] ??= []).push(e.local_id);
     }
     (indexModel as any)._cat = cat;
+
+    // Per-element 5D cost + 6D carbon (line total ÷ element count), so the timeline can accrue them by date.
+    perElCost = new Map(); perElCarbon = new Map();
+    try {
+      const boq = buildBoQ(quantities, defaultRates); currency = boq.currency; boqTotal = boq.total;
+      for (const line of boq.lines) {
+        const per = line.count ? line.amount / line.count : 0;
+        for (const [mid, ids] of Object.entries(line.model_map)) for (const id of ids) perElCost.set(`${mid}:${id}`, per);
+      }
+    } catch { boqTotal = 0; }
+    try {
+      const carbon = buildCarbon(quantities, defaultFactors); carbonTotal = carbon.total_kg;
+      for (const line of carbon.lines) {
+        const per = line.count ? line.kg / line.count : 0;
+        for (const [mid, ids] of Object.entries(line.model_map)) for (const id of ids) perElCarbon.set(`${mid}:${id}`, per);
+      }
+    } catch { carbonTotal = 0; }
     return true;
   };
 
@@ -150,7 +174,19 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
       if (s <= D && D < f) { merge(active, m); act++; }
       else if (f <= D) done++; else todo++;
     }
-    el("tl-prog").textContent = `${done} trade(s) complete · ${act} active · ${todo} to start`;
+    // 5D + 6D accrued over everything built (started) by this date.
+    let cost = 0, kg = 0;
+    for (const [mid, set] of Object.entries(visible)) for (const id of set) {
+      cost += perElCost.get(`${mid}:${id}`) ?? 0;
+      kg += perElCarbon.get(`${mid}:${id}`) ?? 0;
+    }
+    const pct = boqTotal ? Math.round((cost / boqTotal) * 100) : 0;
+    el("tl-prog").innerHTML =
+      `${done} trade(s) complete · ${act} active · ${todo} to start` +
+      (boqTotal || carbonTotal
+        ? `<br><span style="color:#22c55e">▲ ${money(cost)}</span>${boqTotal ? ` of ${money(boqTotal)} (${pct}%)` : ""}` +
+          ` · <span style="color:#84cc16">${co2(kg)}</span>${carbonTotal ? ` of ${co2(carbonTotal)}` : ""} built to date`
+        : "");
     renderGantt(D);
     try {
       if (Object.keys(visible).length) await hider.isolate(visible as OBC.ModelIdMap);
