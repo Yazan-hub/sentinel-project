@@ -38,22 +38,28 @@ const val = (o: any): string | undefined => {
   return undefined;
 };
 
+/** getItemsData options that pull attributes + Pset/Qto sets (shared by single + bulk paths). */
+export const PROPERTY_DATA_CONFIG = {
+  attributesDefault: true,
+  relations: {
+    IsDefinedBy: { attributes: true, relations: false },
+    IsTypedBy: { attributes: true, relations: false },
+  },
+  relationsDefault: { attributes: false, relations: false },
+} as const;
+
 /** Extract a single element's identity + all property/quantity sets from a fragments model. */
 export async function extractElementProperties(
   model: FRAGS.FragmentsModel,
   localId: number,
 ): Promise<ElementProperties> {
-  const results = await model.getItemsData([localId], {
-    attributesDefault: true,
-    relations: {
-      IsDefinedBy: { attributes: true, relations: false },
-      IsTypedBy: { attributes: true, relations: false },
-    },
-    relationsDefault: { attributes: false, relations: false },
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = results?.[0] as any;
+  const results = await model.getItemsData([localId], PROPERTY_DATA_CONFIG);
+  return parseElementProperties(results?.[0], model.modelId, localId);
+}
 
+/** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseElementProperties(data: any, modelId: string, localId: number): ElementProperties {
   const identity = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -99,5 +105,5 @@ export async function extractElementProperties(
 
   psets.sort((a, b) => a.name.localeCompare(b.name));
   quantities.sort((a, b) => a.name.localeCompare(b.name));
-  return { modelId: model.modelId, localId, identity, psets, quantities };
+  return { modelId, localId, identity, psets, quantities };
 }
