@@ -225,5 +225,10 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
 
   setMode("list");
   fetchAll();
+  // Auto-refresh when this tab becomes visible, so issues raised elsewhere (e.g. IDS → BCF) show up.
+  let lastLoad = Date.now();
+  new IntersectionObserver((es) => {
+    if (es.some((e) => e.isIntersecting) && Date.now() - lastLoad > 1500) { lastLoad = Date.now(); void fetchAll(); }
+  }, { threshold: 0.01 }).observe(root);
   return root;
 }

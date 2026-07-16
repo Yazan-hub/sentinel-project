@@ -161,5 +161,10 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   el("cde-refresh").addEventListener("click", load);
   void load();
+  // Auto-refresh when this tab becomes visible, so containers/audit changed elsewhere show up.
+  let lastLoad = Date.now();
+  new IntersectionObserver((es) => {
+    if (es.some((e) => e.isIntersecting) && Date.now() - lastLoad > 1500) { lastLoad = Date.now(); void load(); }
+  }, { threshold: 0.01 }).observe(root);
   return root;
 }
