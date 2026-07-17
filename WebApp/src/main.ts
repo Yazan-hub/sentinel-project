@@ -237,7 +237,7 @@ async function main() {
   // Floor Plans — 2D plan view per IFC storey (OBC.Views), generated from the 3D model.
   const plansEl = plansPanel(components);
   // Revit Sheets — PNGs the plugin renders (sheets aren't in the IFC), served by the Bridge.
-  const sheetsEl = sheetsPanel({ baseUrl: SERVICE_URL });
+  const sheetsEl = sheetsPanel(components, { baseUrl: SERVICE_URL });
   // Saved named views (Revit) — save/restore camera + zoom-fit.
   const viewsEl = viewsPanel(components);
 

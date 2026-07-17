@@ -56,7 +56,8 @@ public static class SheetExporter
                     "{\"id\":" + JsonStr(sheet.Id.ToString()) +
                     ",\"number\":" + JsonStr(sheet.SheetNumber) +
                     ",\"name\":" + JsonStr(sheet.Name) +
-                    ",\"file\":" + JsonStr(file) + "}");
+                    ",\"file\":" + JsonStr(file) +
+                    ",\"viewports\":" + ViewportsJson(doc, sheet) + "}");
             }
 
             string manifest =
@@ -116,6 +117,51 @@ public static class SheetExporter
             try { Directory.Delete(tmp, true); } catch { /* best-effort */ }
         }
     }
+
+    /// <summary>
+    /// Per-viewport metadata for the web "click a drawing → isolate its level in 3D" link. Each viewport
+    /// carries its view name/type, the associated level (for plan views, via GenLevel — the coordinate-free
+    /// key the web matches against IfcBuildingStorey names), and its rectangle on the sheet as fractions
+    /// [0..1] of the titleblock extent (so the web can overlay a hotspot regardless of image scale).
+    /// </summary>
+    private static string ViewportsJson(Document doc, ViewSheet sheet)
+    {
+        // Titleblock bbox = the sheet rectangle, in sheet coordinates — the basis for the 0..1 fractions.
+        var tb = new FilteredElementCollector(doc, sheet.Id)
+            .OfCategory(BuiltInCategory.OST_TitleBlocks).WhereElementIsNotElementType().FirstElement();
+        var tbb = tb?.get_BoundingBox(sheet);
+        if (tbb is null) return "[]"; // no titleblock → can't place hotspots; sheet still shows as an image
+
+        double w = tbb.Max.X - tbb.Min.X, h = tbb.Max.Y - tbb.Min.Y;
+        if (w <= 1e-9 || h <= 1e-9) return "[]";
+
+        var items = new List<string>();
+        foreach (var vpId in sheet.GetAllViewports())
+        {
+            if (doc.GetElement(vpId) is not Viewport vp) continue;
+            if (doc.GetElement(vp.ViewId) is not View view) continue;
+
+            var ol = vp.GetBoxOutline();
+            XYZ mn = ol.MinimumPoint, mx = ol.MaximumPoint;
+            double fx = Clamp01((mn.X - tbb.Min.X) / w);
+            double fw = Clamp01((mx.X - mn.X) / w);
+            double fy = Clamp01((tbb.Max.Y - mx.Y) / h); // invert Y: sheet is bottom-up, images are top-down
+            double fh = Clamp01((mx.Y - mn.Y) / h);
+
+            string level = view is ViewPlan vpl && vpl.GenLevel is { } lv ? lv.Name : "";
+
+            items.Add(
+                "{\"view\":" + JsonStr(view.Name) +
+                ",\"type\":" + JsonStr(view.ViewType.ToString()) +
+                ",\"level\":" + JsonStr(level) +
+                ",\"fx\":" + Num(fx) + ",\"fy\":" + Num(fy) +
+                ",\"fw\":" + Num(fw) + ",\"fh\":" + Num(fh) + "}");
+        }
+        return "[" + string.Join(",", items) + "]";
+    }
+
+    private static double Clamp01(double v) => v < 0 ? 0 : v > 1 ? 1 : v;
+    private static string Num(double v) => v.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string JsonStr(string? s)
     {

@@ -1,14 +1,23 @@
+import * as OBC from "@thatopen/components";
+import * as OBF from "@thatopen/components-front";
+import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
+
 /**
  * Sentinel Sheets viewer. Revit sheets (titleblock + viewports + annotations) never survive IFC export, so
  * the Revit plugin renders each ViewSheet to a PNG and the Bridge serves them at GET /sheets. This panel
- * lists the sheets and opens the selected one in a full-screen zoom/pan lightbox (sheets need width, so the
- * image uses the whole app area rather than the narrow side panel). Plain-DOM, iframe-safe.
+ * lists the sheets and opens the selected one in a full-screen zoom/pan lightbox. Each viewport is a hotspot:
+ * click a plan viewport → the 3D model isolates that level (matched by IfcBuildingStorey name — coordinate-
+ * free, so it survives Revit↔IFC base-point offsets). Plain-DOM, iframe-safe.
  */
-interface SheetItem { id: string; number: string; name: string; file: string; url: string; }
+interface Viewport { view: string; type: string; level: string; fx: number; fy: number; fw: number; fh: number; }
+interface SheetItem { id: string; number: string; name: string; file: string; url: string; viewports?: Viewport[]; }
 interface SheetSet { set: string; title: string; exportedAt: string | null; count: number; sheets: SheetItem[]; }
 
-export function sheetsPanel(opts: { baseUrl?: string } = {}): HTMLElement {
+export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const fragments = components.get(OBC.FragmentsManager);
+  const hider = components.get(OBC.Hider);
+  const highlighter = components.get(OBF.Highlighter);
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   const root = document.createElement("div");
@@ -69,7 +78,7 @@ export function sheetsPanel(opts: { baseUrl?: string } = {}): HTMLElement {
       renderSets(); renderList();
       const total = sets.reduce((a, s) => a + s.count, 0);
       status(sets.length
-        ? `${total} sheet(s) across ${sets.length} model(s). Click a sheet to open it full-screen.`
+        ? `${total} sheet(s) across ${sets.length} model(s). Click a sheet, then click a plan on it to isolate that level in 3D.`
         : "No sheets published. Use Revit → Sentinel → Publish Sheets.");
     } catch (e) {
       sets = []; renderList();
@@ -77,7 +86,28 @@ export function sheetsPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     }
   }
 
-  // ── Full-screen zoom/pan lightbox ──
+  // Click a plan viewport → isolate its level in the 3D model (name match against IfcBuildingStorey).
+  async function isolateLevel(level: string, closeLb: () => void) {
+    if (!level) { status("This viewport isn't a plan tied to a level — nothing to isolate."); return; }
+    if (fragments.list.size === 0) { status("Load the 3D model first, then click the plan again."); return; }
+    status(`Isolating level “${level}” in the 3D model…`);
+    try {
+      const res = await isolateStoreyByName(fragments, level);
+      if (!res.matched || res.count === 0) {
+        const hint = res.storeys.length ? ` Levels in the model: ${[...new Set(res.storeys)].slice(0, 8).join(", ")}.` : "";
+        status(`No level matching “${level}” found in the 3D model.${hint}`);
+        return;
+      }
+      closeLb();
+      await hider.set(true);
+      await hider.isolate(res.map);
+      await fragments.core.update(true);
+      await highlighter.highlightByID("select", res.map, true, true); // zooms to the isolated level
+      status(`Isolated level “${res.matched}” — ${res.count} element(s). Show all in Visibility to restore.`);
+    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+  }
+
+  // ── Full-screen zoom/pan lightbox with clickable viewport hotspots ──
   let lb: HTMLElement | null = null;
   function openLightbox(i: number) {
     const set = sets[active];
@@ -89,27 +119,53 @@ export function sheetsPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     lb.style.cssText = "position:fixed;inset:0;z-index:99999;background:rgba(8,8,10,.94);display:flex;flex-direction:column;font:13px system-ui;color:#eee";
     lb.innerHTML =
       '<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem .8rem;border-bottom:1px solid #2a2a30;background:#111">' +
-      '<span id="lb-cap" style="font-weight:600"></span><span style="flex:1"></span>' +
+      '<span id="lb-cap" style="font-weight:600"></span>' +
+      '<span id="lb-hint" style="color:#9ca3af;font-size:11px"></span><span style="flex:1"></span>' +
       '<button id="lb-prev" style="' + btn + '">◀ Prev</button>' +
       '<button id="lb-next" style="' + btn + '">Next ▶</button>' +
       '<button id="lb-fit" style="' + btn + '">Fit</button>' +
       '<button id="lb-close" style="' + btn + ';background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5">✕ Close</button>' +
       "</div>" +
       '<div id="lb-stage" style="flex:1;overflow:hidden;position:relative;cursor:grab;display:flex;align-items:center;justify-content:center">' +
-      '<img id="lb-img" draggable="false" style="max-width:none;user-select:none;transform-origin:center center;box-shadow:0 0 40px rgba(0,0,0,.6);background:#fff"/>' +
-      "</div>";
+      '<div id="lb-canvas" style="position:relative;transform-origin:center center">' +
+      '<img id="lb-img" draggable="false" style="display:block;max-width:none;user-select:none;box-shadow:0 0 40px rgba(0,0,0,.6);background:#fff"/>' +
+      "</div></div>";
     document.body.appendChild(lb);
     const q = (id: string) => lb!.querySelector("#" + id) as HTMLElement;
     const img = q("lb-img") as HTMLImageElement;
+    const canvas = q("lb-canvas");
     const stage = q("lb-stage");
 
-    const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+    const apply = () => { canvas.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
     const fit = () => { scale = 1; tx = 0; ty = 0; apply(); };
+
+    function drawHotspots() {
+      canvas.querySelectorAll(".lb-hot").forEach((n) => n.remove());
+      const s = set.sheets[idx];
+      const vps = s.viewports ?? [];
+      q("lb-hint").textContent = vps.some((v) => v.level) ? "Click a plan to isolate its level in 3D" : "";
+      for (const v of vps) {
+        const hot = document.createElement("div");
+        hot.className = "lb-hot";
+        const planned = !!v.level;
+        hot.style.cssText =
+          `position:absolute;left:${v.fx * 100}%;top:${v.fy * 100}%;width:${v.fw * 100}%;height:${v.fh * 100}%;` +
+          `box-sizing:border-box;border:2px solid ${planned ? "rgba(139,92,246,.0)" : "rgba(120,120,130,0)"};` +
+          `cursor:${planned ? "pointer" : "default"};transition:background .1s,border-color .1s`;
+        hot.title = v.level ? `${v.view} · isolate level “${v.level}” in 3D` : `${v.view} (${v.type})`;
+        hot.addEventListener("mouseenter", () => { hot.style.background = planned ? "rgba(139,92,246,.18)" : "rgba(120,120,130,.1)"; hot.style.borderColor = planned ? "rgba(139,92,246,.9)" : "rgba(120,120,130,.5)"; });
+        hot.addEventListener("mouseleave", () => { hot.style.background = "transparent"; hot.style.borderColor = "transparent"; });
+        hot.addEventListener("mousedown", (e) => e.stopPropagation()); // don't start a pan when clicking a hotspot
+        hot.addEventListener("click", (e) => { e.stopPropagation(); void isolateLevel(v.level, close); });
+        canvas.appendChild(hot);
+      }
+    }
+
     const load = () => {
       const s = set.sheets[idx];
-      (q("lb-cap")).textContent = `${s.number} — ${s.name}  (${idx + 1}/${set.sheets.length})`;
+      q("lb-cap").textContent = `${s.number} — ${s.name}  (${idx + 1}/${set.sheets.length})`;
+      img.onload = () => { drawHotspots(); fit(); };
       img.src = `${base}${s.url}`;
-      fit();
     };
     load();
 
