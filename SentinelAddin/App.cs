@@ -223,6 +223,9 @@ public sealed class App : IExternalApplication
         AddButton(wf, asm, "Sentinel_AutoPublish", "Auto\nPublish",
             "Sentinel.Commands.ToggleAutoPublishCommand", "panel",
             "Toggle push-on-save: when ON, every save/sync re-exports the model and the Bridge uploads it, so the web viewer stays in sync. Throttled; turn off for very large models.");
+        AddButton(wf, asm, "Sentinel_PublishSheets", "Publish\nSheets",
+            "Sentinel.Commands.PublishSheetsCommand", "panel",
+            "Render all Revit sheets to PNG (sheets never survive IFC export). The Bridge serves them to the web app's BIM Tools → Sheets tab, so you can view Revit sheets on the web.");
         AddButton(wf, asm, "Sentinel_BcfIssues", "BCF\nIssues",
             "Sentinel.Commands.BcfIssuesCommand", "requests",
             "Review coordination issues raised by non-Revit users on the web; double-click to zoom to the element + camera.");

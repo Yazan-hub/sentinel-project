@@ -29,6 +29,7 @@ import { projectBrowserPanel } from "./setups/project-browser-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
 import { clashPanel } from "./setups/clash-panel";
 import { plansPanel } from "./setups/plans-panel";
+import { sheetsPanel } from "./setups/sheets-panel";
 import { viewsPanel } from "./setups/views-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
@@ -235,6 +236,8 @@ async function main() {
   const clashEl = clashPanel(components, { baseUrl: SERVICE_URL });
   // Floor Plans — 2D plan view per IFC storey (OBC.Views), generated from the 3D model.
   const plansEl = plansPanel(components);
+  // Revit Sheets — PNGs the plugin renders (sheets aren't in the IFC), served by the Bridge.
+  const sheetsEl = sheetsPanel({ baseUrl: SERVICE_URL });
   // Saved named views (Revit) — save/restore camera + zoom-fit.
   const viewsEl = viewsPanel(components);
 
@@ -249,6 +252,7 @@ async function main() {
     { label: "Properties", el: propsEl },
     { label: "Visibility", el: visEl },
     { label: "Plans", el: plansEl },
+    { label: "Sheets", el: sheetsEl },
     { label: "Views", el: viewsEl },
     { label: "Model", el: modelEl },
   ]);

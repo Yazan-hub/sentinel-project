@@ -13,12 +13,17 @@
 //   POST   /bcf/3.0/projects/:pid/topics/:guid/viewpoints     add viewpoint { perspective_camera, components, ... }
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
+import { join, dirname, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.BCF_PORT) || 4100;
+
+// Sheet PNGs the Revit plugin renders (sheets never survive IFC export). One sub-folder per model, each with
+// a manifest.json + <number>.png files. Served read-only to the web app's BIM Tools → Sheets tab.
+const SHEETS_ROOT = process.env.SENTINEL_SHEETS
+  || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "sheets");
 const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Bearer <TOKEN>"
 const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
@@ -121,6 +126,47 @@ createServer(async (req, res) => {
     const ka = setInterval(() => { try { res.write(": ka\n\n"); } catch { /* */ } }, 25000);
     req.on("close", () => { clearInterval(ka); set.delete(res); });
     return; // keep the stream open — do NOT call send()
+  }
+
+  // ── Revit sheets (rendered PNGs the plugin pushes): GET /sheets  +  GET /sheets/img/:set/:file ──
+  // GET /sheets → all sheet sets with their manifests (each sheet carries a ready-to-use image url).
+  if (url.pathname === "/sheets" && req.method === "GET") {
+    const sets = [];
+    try {
+      for (const set of readdirSync(SHEETS_ROOT)) {
+        const dir = join(SHEETS_ROOT, set);
+        let st; try { st = statSync(dir); } catch { continue; }
+        if (!st.isDirectory()) continue;
+        const mf = join(dir, "manifest.json");
+        if (!existsSync(mf)) continue;
+        try {
+          const m = JSON.parse(readFileSync(mf, "utf8"));
+          const sheets = (m.sheets || []).map((s) => ({ ...s, url: `/sheets/img/${encodeURIComponent(set)}/${encodeURIComponent(s.file)}` }));
+          sets.push({ set, title: m.title ?? set, exportedAt: m.exportedAt ?? null, count: sheets.length, sheets });
+        } catch { /* skip a malformed manifest */ }
+      }
+    } catch { /* SHEETS_ROOT doesn't exist yet — no sheets published */ }
+    sets.sort((a, b) => String(b.exportedAt).localeCompare(String(a.exportedAt)));
+    return send(res, 200, { root: SHEETS_ROOT, sets });
+  }
+  // GET /sheets/img/:set/:file → serve one PNG (path-traversal-guarded via basename()).
+  const simg = url.pathname.match(/^\/sheets\/img\/([^/]+)\/([^/]+)$/);
+  if (simg && req.method === "GET") {
+    const set = basename(decodeURIComponent(simg[1]));
+    const file = basename(decodeURIComponent(simg[2]));
+    if (extname(file).toLowerCase() !== ".png") return send(res, 404, { message: "Not found" });
+    const path = join(SHEETS_ROOT, set, file);
+    try {
+      const buf = readFileSync(path);
+      res.writeHead(200, {
+        "Content-Type": "image/png",
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(buf);
+    } catch {
+      return send(res, 404, { message: "Sheet image not found" });
+    }
   }
 
   // ── Sentinel project store: /projects[/:pid[/gate/:stage]] ──
