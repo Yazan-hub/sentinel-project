@@ -28,6 +28,7 @@ import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
 import { clashPanel } from "./setups/clash-panel";
+import { plansPanel } from "./setups/plans-panel";
 import { viewsPanel } from "./setups/views-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
@@ -191,6 +192,8 @@ async function main() {
   const visEl = visibilityPanel(components, { baseUrl: SERVICE_URL });
   // Clash — headless, dedup.d AABB clash across loaded models -> BCF + CDE audit.
   const clashEl = clashPanel(components, { baseUrl: SERVICE_URL });
+  // Floor Plans — 2D plan view per IFC storey (OBC.Views), generated from the 3D model.
+  const plansEl = plansPanel(components);
   // Saved named views (Revit) — save/restore camera + zoom-fit.
   const viewsEl = viewsPanel(components);
 
@@ -229,6 +232,7 @@ async function main() {
     browser: () => BUI.html`${browserEl}`,
     visibility: () => BUI.html`${visEl}`,
     clash: () => BUI.html`${clashEl}`,
+    plans: () => BUI.html`${plansEl}`,
     views: () => BUI.html`${viewsEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
@@ -267,6 +271,10 @@ async function main() {
     Browser: {
       icon: "mdi:file-tree-outline",
       template: `"browser viewer" 1fr / 24rem 1fr`,
+    },
+    Plans: {
+      icon: "mdi:floor-plan",
+      template: `"plans viewer" 1fr / 22rem 1fr`,
     },
     Props: {
       icon: "mdi:information-outline",
