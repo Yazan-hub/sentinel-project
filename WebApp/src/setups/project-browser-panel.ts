@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { buildProjectTree, type TreeCategory, type TreeInstance } from "../sentinel-core/adapter/project-tree";
+import { detectDrawings } from "../sentinel-core/adapter/drawings-detect";
 
 /**
  * Sentinel Project Browser (Phase 4 — Revit-influenced). A Category → Type → Instance tree of every
@@ -22,6 +23,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
     '<span style="font-weight:600">☰ Browser</span><span style="color:#9ca3af;font-size:11px">categories</span>' +
     '<span style="flex:1"></span>' +
+    `<button id="pb-2d" style="${btn}" title="Scan for 2D drawings / sheets / annotations in the model">⌕ 2D</button>` +
     `<button id="pb-refresh" style="${btn}" title="Rebuild from loaded models">↻</button>` +
     "</div>" +
     `<div style="padding:.45rem .6rem;border-bottom:1px solid #2a2a30"><input id="pb-filter" placeholder="Filter…" style="width:100%;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.3rem .5rem;font:12px system-ui"/></div>` +
@@ -141,7 +143,30 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
   (fragments as any).core?.onModelLoaded?.add?.(() => void refresh());
   void refresh();
 
-  // expose hider for a future "isolate category" (P3); referenced to avoid unused in strict builds
-  void hider;
+  // Scan for 2D drawings / sheets / annotations. Reports what's present (console + status) and isolates any
+  // 2D/annotation content so it can be viewed. Most Revit→IFC exports carry none — this makes that explicit.
+  async function scan2d() {
+    if (fragments.list.size === 0) { status("Load a model first."); return; }
+    status("Scanning for 2D drawings / sheets…");
+    try {
+      const scan = await detectDrawings(fragments);
+      // eslint-disable-next-line no-console
+      console.log("[Sentinel] 2D/drawing scan", scan);
+      if (!scan.byCategory.length) {
+        status("No drawings, sheets or annotations in this model — it's a 3D-only IFC. Use the Plans tab for 2D floor plans.");
+        return;
+      }
+      const summary = scan.byCategory.map((r) => `${r.label} ${r.count}`).join(" · ");
+      if (scan.has2d) {
+        const map: OBC.ModelIdMap = {};
+        for (const [mid, set] of Object.entries(scan.drawingMap)) map[mid] = new Set(set);
+        try { await hider.set(true); await hider.isolate(map); await fragments.core.update(true); await highlighter.highlightByID("select", map, true, true); } catch { /* */ }
+        status(`Found & isolated 2D content — ${summary}. (Show all in Visibility to restore.)`);
+      } else {
+        status(`Found ${summary} — but no viewable 2D drawing geometry (grids/layers/refs only). Use Plans for floor plans.`);
+      }
+    } catch (e) { status("2D scan failed: " + ((e as Error)?.message ?? String(e))); }
+  }
+  (root.querySelector("#pb-2d") as HTMLButtonElement).addEventListener("click", scan2d);
   return root;
 }
