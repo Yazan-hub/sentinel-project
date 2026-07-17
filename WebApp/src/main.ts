@@ -42,6 +42,47 @@ import { viewsPanel } from "./setups/views-panel";
 //   Phase 3 — the viewer-overlay tools (fps/HUD/gizmo/bottom toolbar/measure +
 //             clip handles) that mount over the canvas.          [next]
 // The pre-A2 rich main is preserved at `main.rich.ts.bak`.
+
+/**
+ * Wrap several existing panel elements into ONE panel with an internal tab bar, so related tools share a
+ * single sidebar icon (keeps the activity bar short — nothing hidden below the fold). Each child keeps its
+ * own state (reused by reference); only the active child is shown. Plain-DOM, iframe-safe.
+ */
+function tabbed(tabs: { label: string; el: HTMLElement }[]): HTMLElement {
+  const root = document.createElement("div");
+  root.style.cssText = "display:flex;flex-direction:column;height:100%;overflow:hidden;background:#16161a;border-radius:.5rem";
+  const bar = document.createElement("div");
+  bar.style.cssText = "display:flex;flex-wrap:wrap;gap:.25rem;padding:.4rem .45rem;border-bottom:1px solid #2a2a30;flex:0 0 auto";
+  const body = document.createElement("div");
+  body.style.cssText = "flex:1;min-height:0;display:flex";
+  const btns: HTMLButtonElement[] = [];
+  const show = (i: number) => {
+    tabs.forEach((t, j) => {
+      const on = j === i;
+      t.el.style.display = on ? "flex" : "none";
+      if (on) { t.el.style.flex = "1"; t.el.style.minHeight = "0"; }
+    });
+    btns.forEach((b, j) => {
+      const on = j === i;
+      b.style.background = on ? "#6528d7" : "#1f1f27";
+      b.style.color = on ? "#fff" : "#c9cfda";
+      b.style.borderColor = on ? "#6528d7" : "#2c2c34";
+    });
+  };
+  tabs.forEach((t, i) => {
+    const b = document.createElement("button");
+    b.textContent = t.label;
+    b.style.cssText = "border:1px solid #2c2c34;border-radius:.3rem;padding:.28rem .55rem;font:600 11px system-ui;cursor:pointer";
+    b.addEventListener("click", () => show(i));
+    btns.push(b);
+    bar.appendChild(b);
+    body.appendChild(t.el);
+  });
+  root.append(bar, body);
+  show(0);
+  return root;
+}
+
 async function main() {
   const client = PlatformClient.fromPlatformContext();
 
@@ -201,6 +242,31 @@ async function main() {
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
   // are now built-ins that self-wire from top-app's componentsContext/clientContext
   // — no `components` plumbing in the app.
+  // Consolidate related panels into grouped tabs (internal sub-tabs) so the activity bar stays compact
+  // and nothing is hidden below the fold. Each child panel keeps its own state (reused by reference).
+  const bimToolsEl = tabbed([
+    { label: "Browser", el: browserEl },
+    { label: "Properties", el: propsEl },
+    { label: "Visibility", el: visEl },
+    { label: "Plans", el: plansEl },
+    { label: "Views", el: viewsEl },
+    { label: "Model", el: modelEl },
+  ]);
+  const coordEl = tabbed([
+    { label: "Issues", el: issuesEl },
+    { label: "RFIs", el: rfiEl },
+    { label: "Clash", el: clashEl },
+    { label: "CDE", el: cdeEl },
+  ]);
+  const lifecycleEl = tabbed([
+    { label: "Cost 5D", el: costEl },
+    { label: "Carbon 6D", el: carbonEl },
+    { label: "4D Sequence", el: timelineEl },
+    { label: "COBie 7D", el: cobieEl },
+    { label: "Tender", el: tenderEl },
+    { label: "Owner", el: ownerEl },
+  ]);
+
   app.elements = {
     viewer: () => BUI.html`${viewerEl}`,
     tree: () => BUI.html`<top-model-tree></top-model-tree>`,
@@ -210,30 +276,15 @@ async function main() {
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
     objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
-    // Sentinel QA/QC (Phase 2): runs sentinel-core over the loaded fragments.
-    // One panel instance reused across re-renders (like viewerEl) so its scan
-    // state survives layout switches.
     project: () => BUI.html`${projectEl}`,
-    model: () => BUI.html`${modelEl}`,
     copilot: () => BUI.html`${copilotEl}`,
     guide: () => BUI.html`${guideEl}`,
     qa: () => BUI.html`${qaEl}`,
     packs: () => BUI.html`${packsEl}`,
-    cost: () => BUI.html`${costEl}`,
-    timeline: () => BUI.html`${timelineEl}`,
-    carbon: () => BUI.html`${carbonEl}`,
-    cobie: () => BUI.html`${cobieEl}`,
-    owner: () => BUI.html`${ownerEl}`,
-    tender: () => BUI.html`${tenderEl}`,
-    rfis: () => BUI.html`${rfiEl}`,
-    issues: () => BUI.html`${issuesEl}`,
-    cde: () => BUI.html`${cdeEl}`,
-    props: () => BUI.html`${propsEl}`,
-    browser: () => BUI.html`${browserEl}`,
-    visibility: () => BUI.html`${visEl}`,
-    clash: () => BUI.html`${clashEl}`,
-    plans: () => BUI.html`${plansEl}`,
-    views: () => BUI.html`${viewsEl}`,
+    // Consolidated groups (each hosts internal sub-tabs).
+    bimtools: () => BUI.html`${bimToolsEl}`,
+    coordination: () => BUI.html`${coordEl}`,
+    lifecycle: () => BUI.html`${lifecycleEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
@@ -254,43 +305,23 @@ async function main() {
       icon: "mdi:robot-outline",
       template: `"copilot viewer" 1fr / 24rem 1fr`,
     },
-    // ── Tender ──
-    Tender: {
-      icon: "mdi:gavel",
-      template: `"tender viewer" 1fr / 24rem 1fr`,
+    // ── Consolidated groups (each hosts internal sub-tabs, so the activity bar stays short) ──
+    "BIM Tools": {
+      icon: "mdi:toolbox-outline",
+      template: `"bimtools viewer" 1fr / 26rem 1fr`,
     },
-    // ── Design (the model + governance + dimensions) ──
+    Coordination: {
+      icon: "mdi:account-group-outline",
+      template: `"coordination viewer" 1fr / 40rem 1fr`,
+    },
+    Lifecycle: {
+      icon: "mdi:chart-timeline-variant",
+      template: `"lifecycle viewer" 1fr / 26rem 1fr`,
+    },
+    // ── Platform built-ins + governance ──
     Explorer: {
       icon: "mdi:file-tree",
       template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
-    },
-    Model: {
-      icon: "mdi:pencil-ruler",
-      template: `"model viewer" 1fr / 24rem 1fr`,
-    },
-    Browser: {
-      icon: "mdi:file-tree-outline",
-      template: `"browser viewer" 1fr / 24rem 1fr`,
-    },
-    Plans: {
-      icon: "mdi:floor-plan",
-      template: `"plans viewer" 1fr / 22rem 1fr`,
-    },
-    Props: {
-      icon: "mdi:information-outline",
-      template: `"props viewer" 1fr / 24rem 1fr`,
-    },
-    Visibility: {
-      icon: "mdi:eye-settings-outline",
-      template: `"visibility viewer" 1fr / 24rem 1fr`,
-    },
-    Clash: {
-      icon: "mdi:vector-intersection",
-      template: `"clash viewer" 1fr / 24rem 1fr`,
-    },
-    Views: {
-      icon: "mdi:camera-outline",
-      template: `"views viewer" 1fr / 22rem 1fr`,
     },
     Assets: {
       icon: "mdi:folder-multiple-outline",
@@ -307,42 +338,6 @@ async function main() {
     QA: {
       icon: "mdi:clipboard-check-outline",
       template: `"qa viewer" 1fr / 24rem 1fr`,
-    },
-    Cost: {
-      icon: "mdi:cash-multiple",
-      template: `"cost viewer" 1fr / 24rem 1fr`,
-    },
-    "6D": {
-      icon: "mdi:leaf",
-      template: `"carbon viewer" 1fr / 24rem 1fr`,
-    },
-    // ── Construction ──
-    "4D": {
-      icon: "mdi:timeline-clock-outline",
-      template: `"timeline viewer" 1fr / 24rem 1fr`,
-    },
-    // ── Coordination ──
-    CDE: {
-      icon: "mdi:file-document-multiple-outline",
-      template: `"cde viewer" 1fr / 40rem 1fr`,
-    },
-    Issues: {
-      icon: "mdi:flag-outline",
-      template: `"issues viewer" 1fr / 24rem 1fr`,
-    },
-    RFIs: {
-      icon: "mdi:comment-question-outline",
-      template: `"rfis viewer" 1fr / 24rem 1fr`,
-    },
-    // ── Handover ──
-    "7D": {
-      icon: "mdi:clipboard-list-outline",
-      template: `"cobie viewer" 1fr / 24rem 1fr`,
-    },
-    // ── Operate ──
-    Owner: {
-      icon: "mdi:account-key-outline",
-      template: `"owner viewer" 1fr / 24rem 1fr`,
     },
     Settings: {
       icon: "mdi:cog",
