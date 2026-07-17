@@ -221,11 +221,25 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     if (!lastRes.length) { status("Run IDS first."); return; }
     const reqs = Object.entries(groupFailures(lastRes));
     if (!reqs.length) { status("Nothing to raise — all compliant."); return; }
-    status(`Raising ${reqs.length} issue(s) + recording…`);
     const post = (path: string, body: unknown) =>
       fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    // Dedup: skip requirements that already have an OPEN IDS topic (no duplicates on re-raise).
+    status("Checking existing issues…");
+    let existing: unknown = [];
+    try { existing = await (await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
+    const openReqs = new Set(
+      (Array.isArray(existing) ? existing : [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((t: any) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((t: any) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, "")),
+    );
+    const todo = reqs.filter(([req]) => !openReqs.has(req));
+    const skipped = reqs.length - todo.length;
+    if (!todo.length) { status(`All ${reqs.length} requirement(s) already have open BCF issues — nothing new to raise.`); return; }
+    status(`Raising ${todo.length} new issue(s)${skipped ? ` (${skipped} already tracked)` : ""}…`);
     let raised = 0;
-    for (const [req, info] of reqs) {
+    for (const [req, info] of todo) {
       try {
         const topic = await (await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
           title: `IDS: ${req} (${info.count} failing)`,
@@ -245,7 +259,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
         raised++;
       } catch { /* keep going */ }
     }
-    status(`Raised ${raised}/${reqs.length} BCF issue(s) → Issues tab + Revit; recorded in the CDE audit (hash-chained). ${raised < reqs.length ? "(Some failed — is the bridge running with SUPABASE creds?)" : ""}`);
+    status(`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in the CDE audit (hash-chained).`);
   }
 
   async function isolateRequirement(req: string) {
