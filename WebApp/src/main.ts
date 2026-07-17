@@ -27,6 +27,7 @@ import { cdePanel } from "./setups/cde-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
+import { clashPanel } from "./setups/clash-panel";
 import { viewsPanel } from "./setups/views-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
@@ -188,6 +189,8 @@ async function main() {
   const browserEl = projectBrowserPanel(components);
   // Visibility / Graphics (Revit VG) — per-category hide/isolate/ghost/colour.
   const visEl = visibilityPanel(components, { baseUrl: SERVICE_URL });
+  // Clash — headless, dedup.d AABB clash across loaded models -> BCF + CDE audit.
+  const clashEl = clashPanel(components, { baseUrl: SERVICE_URL });
   // Saved named views (Revit) — save/restore camera + zoom-fit.
   const viewsEl = viewsPanel(components);
 
@@ -225,6 +228,7 @@ async function main() {
     props: () => BUI.html`${propsEl}`,
     browser: () => BUI.html`${browserEl}`,
     visibility: () => BUI.html`${visEl}`,
+    clash: () => BUI.html`${clashEl}`,
     views: () => BUI.html`${viewsEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
@@ -271,6 +275,10 @@ async function main() {
     Visibility: {
       icon: "mdi:eye-settings-outline",
       template: `"visibility viewer" 1fr / 24rem 1fr`,
+    },
+    Clash: {
+      icon: "mdi:vector-intersection",
+      template: `"clash viewer" 1fr / 24rem 1fr`,
     },
     Views: {
       icon: "mdi:camera-outline",
