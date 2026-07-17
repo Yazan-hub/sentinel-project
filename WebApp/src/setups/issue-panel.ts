@@ -230,5 +230,11 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   new IntersectionObserver((es) => {
     if (es.some((e) => e.isIntersecting) && Date.now() - lastLoad > 1500) { lastLoad = Date.now(); void fetchAll(); }
   }, { threshold: 0.01 }).observe(root);
+  // Live BCF loop (SSE): the bridge pushes every topic change (from the web OR the Revit plugin) —
+  // refetch instantly so an issue raised in Revit appears here in seconds, and vice-versa.
+  try {
+    const src = new EventSource(`${base}/events?project=${encodeURIComponent(projectId())}`);
+    src.onmessage = () => { if (Date.now() - lastLoad > 400) { lastLoad = Date.now(); void fetchAll(); } };
+  } catch { /* EventSource unsupported → falls back to visibility auto-refresh */ }
   return root;
 }

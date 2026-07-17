@@ -90,11 +90,38 @@ const readRaw = (req) => new Promise((resolve, reject) => {
   const chunks = []; req.on("data", (c) => chunks.push(c)); req.on("end", () => resolve(Buffer.concat(chunks))); req.on("error", reject);
 });
 
+// ── SSE live sync: clients subscribe per project; changes are pushed to them instantly ──
+const sseClients = new Map(); // project -> Set<res>
+function broadcast(project, payload) {
+  const set = sseClients.get(project);
+  if (!set || !set.size) return;
+  const line = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const r of set) { try { r.write(line); } catch { /* dropped connection */ } }
+}
+
 createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204);
   if (TOKEN && req.headers.authorization !== `Bearer ${TOKEN}`) return send(res, 401, { message: "Unauthorized" });
 
   const url = new URL(req.url, "http://localhost");
+
+  // ── SSE live stream: GET /events?project=<pid> (kept open; pushes topic/CDE changes) ──
+  if (url.pathname === "/events" && req.method === "GET") {
+    const project = url.searchParams.get("project") || "default";
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.write(": connected\n\n");
+    let set = sseClients.get(project);
+    if (!set) { set = new Set(); sseClients.set(project, set); }
+    set.add(res);
+    const ka = setInterval(() => { try { res.write(": ka\n\n"); } catch { /* */ } }, 25000);
+    req.on("close", () => { clearInterval(ka); set.delete(res); });
+    return; // keep the stream open — do NOT call send()
+  }
 
   // ── Sentinel project store: /projects[/:pid[/gate/:stage]] ──
   const pm = url.pathname.match(/^\/projects(?:\/([^/]+))?(?:\/gate\/([^/]+))?$/);
@@ -335,6 +362,7 @@ createServer(async (req, res) => {
         history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
       };
       db.topics.push(topic); persist();
+      broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       return send(res, 201, topic);
     }
     const topic = db.topics.find((t) => inProject(t) && t.guid === guid);
@@ -354,7 +382,9 @@ createServer(async (req, res) => {
       }
       if (b.resolved_by_version) topic.resolved_by_version = b.resolved_by_version;
       topic.modified_date = now;
-      persist(); return send(res, 200, topic);
+      persist();
+      broadcast(pid, { type: "topic", action: "updated", guid: topic.guid, status: topic.topic_status });
+      return send(res, 200, topic);
     }
     // POST comment
     if (req.method === "POST" && sub === "comments") {
@@ -365,7 +395,9 @@ createServer(async (req, res) => {
       topic.comments.push(c);
       topic.history.push({ date: now, author: c.author, action: "Comment added" });
       topic.modified_date = now;
-      persist(); return send(res, 201, c);
+      persist();
+      broadcast(pid, { type: "topic", action: "comment", guid: topic.guid });
+      return send(res, 201, c);
     }
     // POST viewpoint (camera + selected GlobalIds)
     if (req.method === "POST" && sub === "viewpoints") {
@@ -373,7 +405,9 @@ createServer(async (req, res) => {
       const v = { guid: b.guid || randomUUID(), perspective_camera: b.perspective_camera || null,
         components: b.components || { selection: [] }, clipping_planes: b.clipping_planes || [],
         snapshot: b.snapshot || null };
-      topic.viewpoints.push(v); persist(); return send(res, 201, v);
+      topic.viewpoints.push(v); persist();
+      broadcast(pid, { type: "topic", action: "viewpoint", guid: topic.guid });
+      return send(res, 201, v);
     }
     return send(res, 405, { message: "Method not allowed" });
   } catch (e) {
