@@ -22,14 +22,56 @@ namespace Sentinel.Coordination;
 public sealed class BcfSyncManager : IDisposable
 {
     private readonly HttpClient _http;
+    private readonly HttpClient _sse; // long-lived SSE stream — no per-request timeout
     private readonly string _base;
 
     public BcfSyncManager(string baseUrl, string? bearerToken = null)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        _sse = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         if (!string.IsNullOrWhiteSpace(bearerToken))
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        {
+            var auth = new AuthenticationHeaderValue("Bearer", bearerToken);
+            _http.DefaultRequestHeaders.Authorization = auth;
+            _sse.DefaultRequestHeaders.Authorization = auth;
+        }
         _base = baseUrl.TrimEnd('/');
+    }
+
+    /// <summary>
+    /// Live BCF loop (import side): subscribe to the bridge's SSE stream (GET /events?project=…) and
+    /// invoke <paramref name="onChange"/> whenever a topic changes on the web (or another Revit). Pure
+    /// network — call from a background thread; the callback must marshal any Revit work to the API thread
+    /// (e.g. raise <see cref="BcfApplyEvent"/> or re-run FetchActiveAsync). Auto-reconnects on drop until
+    /// the token is cancelled. Debouncing is the caller's concern (many pushes can arrive in a burst).
+    /// </summary>
+    public async Task StartLiveSyncAsync(string projectId, Action onChange, CancellationToken ct = default)
+    {
+        string url = $"{_base}/events?project={Uri.EscapeDataString(projectId)}";
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using HttpResponseMessage resp = await _sse
+                    .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                resp.EnsureSuccessStatusCode();
+                using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var reader = new System.IO.StreamReader(stream);
+                while (!ct.IsCancellationRequested)
+                {
+                    string? line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    if (line is null) break;                              // stream closed → reconnect
+                    if (line.StartsWith("data:", StringComparison.Ordinal))
+                    {
+                        try { onChange(); } catch { /* consumer threw — keep listening */ }
+                    }
+                    // ": comment"/keepalive lines are ignored.
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch { /* bridge restart / transient network → back off + reconnect */ }
+            try { await Task.Delay(3000, ct).ConfigureAwait(false); } catch { break; }
+        }
     }
 
     /// <summary>Pure network — safe on a background thread. Returns the open (non-closed) topics.</summary>
@@ -45,7 +87,7 @@ public sealed class BcfSyncManager : IDisposable
         return JsonSerializer.Deserialize<List<BcfTopic>>(body) ?? new List<BcfTopic>();
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose() { _http.Dispose(); _sse.Dispose(); }
 }
 
 // ---------------------------------------------------------------------------

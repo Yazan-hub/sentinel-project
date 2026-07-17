@@ -71,7 +71,20 @@ public sealed class BcfIssuesCommand : IExternalCommand
             }
         }
         window.RefreshRequested += Refresh;
-        window.Closed += (_, __) => sync.Dispose();
+
+        // Live BCF loop: subscribe to the bridge's SSE stream and refresh (debounced) on every push, so an
+        // issue raised on the web appears in this active Revit session within seconds — no manual refresh.
+        var liveCts = new System.Threading.CancellationTokenSource();
+        var lastLive = DateTime.MinValue;
+        _ = sync.StartLiveSyncAsync(cfg.ProjectId, () =>
+        {
+            var now = DateTime.UtcNow;
+            if ((now - lastLive).TotalMilliseconds < 500) return; // debounce bursts
+            lastLive = now;
+            try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
+        }, liveCts.Token);
+
+        window.Closed += (_, __) => { liveCts.Cancel(); sync.Dispose(); };
 
         window.Show();
         Refresh(); // initial load
