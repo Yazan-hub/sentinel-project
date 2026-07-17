@@ -82,6 +82,7 @@ public sealed class App : IExternalApplication
             {
                 app.ControlledApplication.DocumentOpened += OnDocumentOpened;
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
+                app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
 
                 // 'Revit Doctor': global native-warning interception
                 Updaters.FailureInterceptor.Register(app.ControlledApplication);
@@ -107,6 +108,7 @@ public sealed class App : IExternalApplication
     {
         app.ControlledApplication.DocumentOpened -= OnDocumentOpened;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
+        app.ControlledApplication.DocumentSaved -= OnSaved;
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
         SentinelUpdater.UnregisterAll();
         return Result.Succeeded;
@@ -142,8 +144,13 @@ public sealed class App : IExternalApplication
                 report.DurationMs, report.ElementsChecked + 1, merged);
         }
         PanelVm!.PublishReport(report);
+        Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
         // TODO Phase 3: queue report -> backend scan_reports (offline-safe queue)
     }
+
+    // Local save (non-workshared, or a local save before sync) → push the latest model to the web.
+    private static void OnSaved(object? sender, DocumentSavedEventArgs e)
+        => Sentinel.Engine.AutoPublish.Trigger(e.Document);
 
     private static void BuildRibbon(UIControlledApplication app)
     {
@@ -213,6 +220,9 @@ public sealed class App : IExternalApplication
         AddButton(wf, asm, "Sentinel_Publish", "Publish to\nPlatform",
             "Sentinel.Commands.PublishToPlatformCommand", "panel",
             "Export the active view to IFC into the Sentinel outbox; the Bridge uploads it to That Open Platform.");
+        AddButton(wf, asm, "Sentinel_AutoPublish", "Auto\nPublish",
+            "Sentinel.Commands.ToggleAutoPublishCommand", "panel",
+            "Toggle push-on-save: when ON, every save/sync re-exports the model and the Bridge uploads it, so the web viewer stays in sync. Throttled; turn off for very large models.");
         AddButton(wf, asm, "Sentinel_BcfIssues", "BCF\nIssues",
             "Sentinel.Commands.BcfIssuesCommand", "requests",
             "Review coordination issues raised by non-Revit users on the web; double-click to zoom to the element + camera.");

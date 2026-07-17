@@ -26,83 +26,35 @@ public sealed class PublishToPlatformCommand : IExternalCommand
     {
         if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
 
-        // Outbox the Bridge watches. Persistent (NOT %TEMP%) so the file survives until uploaded.
-        string outbox = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
-            "Sentinel", "outbox");
-        Directory.CreateDirectory(outbox);
+        // Shared exporter (same code path as push-on-save). Manual publish keeps the active-view filter.
+        var (state, path, bytes, error) = Sentinel.Engine.PlatformExporter.ExportToOutbox(doc, doc.ActiveView?.Id);
 
-        string ifcName = SanitizeFileName(Path.GetFileNameWithoutExtension(doc.Title)) + ".ifc";
-        string ifcPath = Path.Combine(outbox, ifcName);
+        switch (state)
+        {
+            case Sentinel.Engine.PlatformExporter.State.Failed:
+                msg = "IFC export failed: " + error;
+                return Result.Failed;
 
-        // Export the active view to IFC (transaction wrapper matches the IFC Delivery Gate's pattern).
-        try
-        {
-            var opts = new IFCExportOptions
-            {
-                FileVersion = IFCVersion.IFC2x3CV2,
-                FilterViewId = doc.ActiveView.Id,
-                ExportBaseQuantities = true,
-            };
-            using var t = new Transaction(doc, "Sentinel: IFC export (publish)");
-            t.Start();
-            doc.Export(outbox, ifcName, opts);
-            t.Commit();
-        }
-        catch (System.Exception ex)
-        {
-            msg = "IFC export failed: " + ex.Message;
-            return Result.Failed;
-        }
-
-        // Gatekeeper: never hand the Bridge an empty or locked export.
-        switch (InspectIfc(ifcPath))
-        {
-            case IfcState.MissingOrEmpty:
-                try { File.Delete(ifcPath); } catch { /* best-effort */ }
+            case Sentinel.Engine.PlatformExporter.State.MissingOrEmpty:
+                try { File.Delete(path); } catch { /* best-effort */ }
                 TaskDialog.Show("Sentinel — Publish to Platform",
                     "Upload Aborted: Generated IFC file contains no valid geometry. " +
                     "Please check your GhostBuilder layer mappings.");
                 return Result.Cancelled;
 
-            case IfcState.Locked:
+            case Sentinel.Engine.PlatformExporter.State.Locked:
                 TaskDialog.Show("Sentinel — Publish to Platform",
                     "The generated IFC file is locked by another process. " +
                     "Close any app holding it and try again.");
                 return Result.Cancelled;
         }
 
-        long kb = new FileInfo(ifcPath).Length / 1024;
         TaskDialog.Show("Sentinel — Publish to Platform",
-            $"Exported to the Sentinel outbox ({kb:N0} KB):\n{ifcPath}\n\n" +
+            $"Exported to the Sentinel outbox ({bytes / 1024:N0} KB):\n{path}\n\n" +
             "The Sentinel Bridge uploads outbox files to That Open Platform. If the Bridge watcher " +
             "is running it will pick this up automatically; otherwise upload it once with:\n\n" +
-            $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{ifcPath}\"");
+            $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{path}\"\n\n" +
+            "Tip: turn on 'Auto Publish' to push automatically on every save.");
         return Result.Succeeded;
-    }
-
-    private enum IfcState { Ok, MissingOrEmpty, Locked }
-
-    /// <summary>Export must exist, be non-empty (0 KB == no geometry), and be readable (not locked).</summary>
-    private static IfcState InspectIfc(string path)
-    {
-        var fi = new FileInfo(path);
-        if (!fi.Exists || fi.Length == 0) return IfcState.MissingOrEmpty;
-        try
-        {
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        }
-        catch (IOException)
-        {
-            return IfcState.Locked;
-        }
-        return IfcState.Ok;
-    }
-
-    private static string SanitizeFileName(string s)
-    {
-        foreach (char ch in Path.GetInvalidFileNameChars())
-            s = s.Replace(ch, '_');
-        return string.IsNullOrWhiteSpace(s) ? "SentinelModel" : s;
     }
 }
