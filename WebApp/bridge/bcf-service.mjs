@@ -361,6 +361,18 @@ createServer(async (req, res) => {
       }
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
+      // Folders (per-project tree): GET/POST /cde/:key/folders · PUT/DELETE /cde/folders/:fid · PUT /cde/containers/:cid/folder
+      if (p2 === "folders" && !p3) {
+        if (req.method === "GET") return send(res, 200, await cde.listFolders(p1));
+        if (req.method === "POST") return send(res, 201, await cde.createFolder(p1, await readBody(req)));
+      }
+      if (p1 === "folders" && p2 && !p3) {
+        if (req.method === "PUT") return send(res, 200, await cde.renameFolder(p2, await readBody(req)));
+        if (req.method === "DELETE") return send(res, 200, await cde.deleteFolder(p2, await readBody(req)));
+      }
+      if (p1 === "containers" && p2 && p3 === "folder" && req.method === "PUT") {
+        return send(res, 200, await cde.moveContainer(p2, await readBody(req)));
+      }
       if (p2 === "transmittals") {
         if (req.method === "GET") return send(res, 200, await cde.listTransmittals(p1));
         if (req.method === "POST") return send(res, 201, await cde.createTransmittal(p1, await readBody(req)));

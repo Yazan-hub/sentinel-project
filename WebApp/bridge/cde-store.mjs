@@ -35,6 +35,68 @@ export async function ensureProject(key) {
   return created[0];
 }
 
+// ── Folders (ACC/Forma-style "Project Files" tree, per project) ───────────────────────────────────────
+// Default seed for a new project. Purely organizational — the ISO 19650 state lives on container_versions.
+const DEFAULT_TREE = ["Architecture", "Structure", "MEP", "Civil", "Shared", "Incoming", "Reports"];
+
+/** Seed the default folder tree the first time a project is touched (idempotent — no-op if folders exist). */
+export async function ensureFolders(projectId) {
+  const existing = await sb(`folders?project_id=eq.${projectId}&select=id&limit=1`);
+  if (existing?.length) return;
+  const root = (await sb(`folders`, {
+    method: "POST",
+    body: { project_id: projectId, parent_id: null, name: "Project Files", kind: "root", sort: 0 },
+    prefer: "return=representation",
+  }))[0];
+  await sb(`folders`, {
+    method: "POST",
+    body: DEFAULT_TREE.map((name, i) => ({ project_id: projectId, parent_id: root.id, name, kind: "folder", sort: i })),
+  });
+}
+
+export async function listFolders(key) {
+  const proj = await ensureProject(key);
+  await ensureFolders(proj.id);
+  return sb(`folders?project_id=eq.${proj.id}&select=*&order=sort.asc,name.asc`);
+}
+
+export async function createFolder(key, b) {
+  const proj = await ensureProject(key);
+  const row = (await sb(`folders`, {
+    method: "POST",
+    body: { project_id: proj.id, parent_id: b.parent_id || null, name: (b.name || "New folder").trim(), kind: "folder", sort: b.sort || 0 },
+    prefer: "return=representation",
+  }))[0];
+  await audit(proj.id, "folder", row.id, "created", b.actor || "web", null, { name: row.name, parent_id: b.parent_id || null });
+  return row;
+}
+
+export async function renameFolder(folderId, b) {
+  const row = (await sb(`folders?id=eq.${folderId}`, {
+    method: "PATCH", body: { name: (b.name || "").trim() }, prefer: "return=representation",
+  }))[0];
+  if (row) await audit(row.project_id, "folder", row.id, "renamed", b.actor || "web", null, { name: row.name });
+  return row;
+}
+
+export async function deleteFolder(folderId, b = {}) {
+  const found = (await sb(`folders?id=eq.${folderId}&select=*`))?.[0];
+  if (!found) return { ok: false, message: "Folder not found" };
+  if (found.kind === "root") return { ok: false, message: "The root folder can't be deleted" };
+  await sb(`folders?id=eq.${folderId}`, { method: "DELETE" }); // cascades to subfolders; containers unfiled (set null)
+  await audit(found.project_id, "folder", folderId, "deleted", b.actor || "web", { name: found.name }, null);
+  return { ok: true };
+}
+
+/** File a container into a folder (folder_id null = project root / unfiled). */
+export async function moveContainer(containerId, b) {
+  const row = (await sb(`information_containers?id=eq.${containerId}`, {
+    method: "PATCH", body: { folder_id: b.folder_id || null }, prefer: "return=representation",
+  }))[0];
+  if (row) await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
+  return row;
+}
+
 export async function listContainers(key) {
   const proj = await ensureProject(key);
   return sb(`information_containers?project_id=eq.${proj.id}&select=*,container_versions(*)&order=created_at.desc`);
@@ -44,7 +106,7 @@ export async function createContainer(key, b) {
   const proj = await ensureProject(key);
   const c = (await sb(`information_containers`, {
     method: "POST",
-    body: { project_id: proj.id, iso_name: b.iso_name, title: b.title, discipline: b.discipline, container_type: b.container_type || "model" },
+    body: { project_id: proj.id, folder_id: b.folder_id || null, iso_name: b.iso_name, title: b.title, discipline: b.discipline, container_type: b.container_type || "model" },
     prefer: "return=representation",
   }))[0];
   const v = (await sb(`container_versions`, {

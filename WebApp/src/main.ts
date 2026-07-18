@@ -316,7 +316,7 @@ async function main() {
     },
     Coordination: {
       icon: "mdi:account-group-outline",
-      template: `"coordination viewer" 1fr / 40rem 1fr`,
+      template: `"coordination viewer" 1fr / 48rem 1fr`,
     },
     Lifecycle: {
       icon: "mdi:chart-timeline-variant",
