@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildCarbon, defaultFactors, type CarbonReport, type CarbonLine, type CarbonFactors, type ElementQuantities } from "../sentinel-core";
@@ -20,7 +21,7 @@ const HUES = ["#22a35c", "#3aa0ff", "#8b52ea", "#d69417", "#12b6c9", "#e0564a", 
 
 export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);

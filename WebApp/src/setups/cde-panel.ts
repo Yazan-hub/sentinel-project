@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid, onActiveProjectChange } from "./active-project";
 import { getAppManager } from "../app";
 
 /**
@@ -30,7 +31,7 @@ interface Audit { id: number; action: string; actor?: string; at: string; }
 
 export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   const root = document.createElement("div");
@@ -319,6 +320,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   });
 
   el("cde-refresh").addEventListener("click", loadAll);
+  // Reload the board when the global switcher changes project.
+  onActiveProjectChange(() => void loadAll());
   void loadAll();
   // Auto-refresh when this tab becomes visible, so changes made elsewhere show up.
   let lastLoad = Date.now();

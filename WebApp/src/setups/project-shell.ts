@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid, onActiveProjectChange } from "./active-project";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
@@ -37,7 +38,7 @@ const healthColor = (v: number) => (v >= 90 ? "#22c55e" : v >= 80 ? "#eab308" : 
 export function projectShell(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
   const fragments = components.get(OBC.FragmentsManager);
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
 
   let project: ProjectState | null = null;
   let kpis: Kpis = { health: null, compliance: null, open: 0, hard: 0, cost: null, currency: defaultRates.currency, blockOpen: 0, openRfis: 0 };
@@ -234,5 +235,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
 
   // initial: load persisted state, then aggregate live KPIs.
   loadProject().then(refresh);
+  // Re-aggregate for the newly selected project when the global switcher changes it.
+  onActiveProjectChange(() => loadProject().then(refresh));
   return root;
 }

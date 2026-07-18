@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 
@@ -24,7 +25,7 @@ interface Rfi {
 
 export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const projectId = () => getAppManager().client?.context?.projectId ?? "default";
+  const projectId = () => activePid();
   const highlighter = components.get(OBF.Highlighter);
   const fragments = components.get(OBC.FragmentsManager);
   let rfis: Rfi[] = [];

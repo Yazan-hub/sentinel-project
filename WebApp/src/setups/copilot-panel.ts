@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -26,7 +27,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
 
   let grounding: Grounding | null = null; // cached ground truth
 

@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, type BoQ, type BoQLine, type ElementQuantities, type RateTable } from "../sentinel-core";
@@ -28,7 +29,7 @@ const fmtDate = (iso?: string) => (iso ? new Date(iso).toISOString().slice(0, 10
 
 export function costPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);

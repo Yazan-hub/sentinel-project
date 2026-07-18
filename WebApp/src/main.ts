@@ -31,6 +31,8 @@ import { clashPanel } from "./setups/clash-panel";
 import { plansPanel } from "./setups/plans-panel";
 import { sheetsPanel } from "./setups/sheets-panel";
 import { viewsPanel } from "./setups/views-panel";
+import { projectsHubPanel } from "./setups/projects-hub-panel";
+import { projectSwitcher } from "./setups/project-switcher";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -218,6 +220,14 @@ async function main() {
   const rfiEl = rfiPanel(components, { baseUrl: SERVICE_URL });
   // Project Shell — the Lifecycle Command Center: aggregates health + issues + 5D cost + stage gates.
   const projectEl = projectShell(components, { baseUrl: SERVICE_URL });
+  // Projects Hub — the "which project?" landing over the governed Supabase dataset. Opening a card
+  // switches the whole app (active-project.ts) and drops you on the Project dashboard.
+  const projectsHubEl = projectsHubPanel(components, {
+    baseUrl: SERVICE_URL,
+    onOpen: () => {
+      app.layout = "Project";
+    },
+  });
   // Grounded Copilot — cited answers over the project's live data; optional local LLM for free-form.
   const copilotEl = copilotPanel(components, { baseUrl: SERVICE_URL });
   // Guide — interactive in-app teaching interface (what Sentinel is + every feature + how to use it).
@@ -280,6 +290,7 @@ async function main() {
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
     objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
+    projectsHub: () => BUI.html`${projectsHubEl}`,
     project: () => BUI.html`${projectEl}`,
     copilot: () => BUI.html`${copilotEl}`,
     guide: () => BUI.html`${guideEl}`,
@@ -297,6 +308,10 @@ async function main() {
   // Operate, then Settings. (The activity bar is a flat icon list, so order carries the structure.)
   app.layouts = {
     // ── Overview / cross-cutting ──
+    Projects: {
+      icon: "mdi:view-grid-outline",
+      template: `"projectsHub viewer" 1fr / 30rem 1fr`,
+    },
     Project: {
       icon: "mdi:view-dashboard-outline",
       template: `"project viewer" 1fr / 26rem 1fr`,
@@ -350,6 +365,18 @@ async function main() {
   };
   app.layout = "Project";
   app.sidebar = true;
+
+  // Global project switcher — a persistent floating pill (layout-independent) so you can switch the
+  // active project from anywhere; "Manage projects…" opens the hub. Appended to the shell container,
+  // not a BUI layout, so it survives activity-bar navigation.
+  container.appendChild(
+    projectSwitcher({
+      baseUrl: SERVICE_URL,
+      onManage: () => {
+        app.layout = "Projects";
+      },
+    }),
+  );
 
   // ── Viewer toolbar — now a built-in slotted INTO <top-viewer> (it consumes the
   // world + components contexts top-viewer provides). The rich bottom toolbar +

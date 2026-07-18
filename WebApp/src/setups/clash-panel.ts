@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
@@ -14,7 +15,7 @@ import { getAppManager } from "../app";
  */
 export function clashPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   const knownKey = () => `sentinel:clash:known:${pid()}`;
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);

@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { missingFields, type Asset } from "../sentinel-core";
@@ -19,7 +20,7 @@ const readyColor = (v?: number) => (v == null ? "#6b7280" : v >= 95 ? "#4ade80" 
 
 export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);

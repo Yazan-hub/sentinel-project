@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { activePid } from "./active-project";
 import { bdsRuleset, type Ruleset } from "../sentinel-core";
 import { activeRuleset } from "./active-ruleset";
 import { getAppManager } from "../app";
@@ -22,7 +23,7 @@ const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", 
 export function packsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   void components;
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   let packs: Pack[] = [];
   let installedId = "";
   let forkFrom: Pack | null = null;

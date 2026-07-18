@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import { getAppManager } from "../app";
 
@@ -18,7 +19,7 @@ export function viewsPanel(components: OBC.Components): HTMLElement {
   const world = (): any => [...worlds.list.values()][0];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const controls = (): any => world()?.camera?.controls;
-  const pid = () => getAppManager().client?.context?.projectId ?? "default";
+  const pid = () => activePid();
   const key = () => `sentinel:views:${pid()}`;
 
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));

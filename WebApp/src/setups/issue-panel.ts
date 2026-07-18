@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
@@ -41,7 +42,7 @@ interface FRAGS_Model {
 
 export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: string } = {}): HTMLElement {
   const base = (opts.bcfBaseUrl ?? "http://localhost:4100").replace(/\/$/, "");
-  const projectId = () => getAppManager().client?.context?.projectId ?? "default";
+  const projectId = () => activePid();
   const highlighter = components.get(OBF.Highlighter);
   const fragments = components.get(OBC.FragmentsManager);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

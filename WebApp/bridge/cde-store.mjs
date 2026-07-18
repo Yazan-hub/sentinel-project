@@ -35,6 +35,49 @@ export async function ensureProject(key) {
   return created[0];
 }
 
+// ── Projects hub (the "which project?" layer above the per-project CDE board) ──────────────────────────
+
+/** Slugify a free-text name into a stable, URL-safe project key. */
+function slugKey(s) {
+  return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** List every CDE project (newest first) with a container count — the hub's card data. */
+export async function listProjects() {
+  // PostgREST embeds an aggregate as information_containers:[{count}].
+  const rows = await sb(
+    `projects?select=id,key,name,appointing_party,status_scheme,created_at,information_containers(count)&order=created_at.desc`,
+  );
+  return (rows || []).map((p) => ({
+    id: p.id,
+    key: p.key,
+    name: p.name,
+    appointing_party: p.appointing_party ?? null,
+    status_scheme: p.status_scheme ?? null,
+    created_at: p.created_at,
+    container_count: Array.isArray(p.information_containers) ? p.information_containers[0]?.count ?? 0 : 0,
+  }));
+}
+
+/** Create a CDE project (idempotent on the derived key) and seed its default folder tree. */
+export async function createProject(b = {}) {
+  const key = slugKey(b.key || b.name);
+  if (!key) throw new Error("A project name or key is required");
+  const existing = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`);
+  if (existing?.length) {
+    await ensureFolders(existing[0].id);
+    return existing[0];
+  }
+  const row = (await sb(`projects`, {
+    method: "POST",
+    body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null },
+    prefer: "return=representation",
+  }))[0];
+  await ensureFolders(row.id);
+  await audit(row.id, "project", row.id, "created", b.actor || "web", null, { key, name: row.name });
+  return row;
+}
+
 // ── Folders (ACC/Forma-style "Project Files" tree, per project) ───────────────────────────────────────
 // Default seed for a new project. Purely organizational — the ISO 19650 state lives on container_versions.
 const DEFAULT_TREE = ["Architecture", "Structure", "MEP", "Civil", "Shared", "Incoming", "Reports"];

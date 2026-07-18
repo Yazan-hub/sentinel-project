@@ -1,4 +1,5 @@
 import { bdsRuleset, type Ruleset } from "../sentinel-core";
+import { activePid } from "./active-project";
 import { getAppManager } from "../app";
 
 /**
@@ -7,7 +8,7 @@ import { getAppManager } from "../app";
  * makes "install a pack → the platform enforces it" real — every scan-consuming panel calls this.
  */
 export async function activeRuleset(baseUrl: string): Promise<Ruleset> {
-  const pid = getAppManager().client?.context?.projectId ?? "default";
+  const pid = activePid();
   try {
     const p = await (await fetch(`${baseUrl.replace(/\/$/, "")}/projects/${encodeURIComponent(pid)}`)).json();
     if (p?.active_ruleset?.rules?.length) return p.active_ruleset as Ruleset;

@@ -355,6 +355,12 @@ createServer(async (req, res) => {
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['cde', p1, p2, p3]
       const p1 = seg[1], p2 = seg[2], p3 = seg[3];
+      // Projects hub: GET/POST /cde/projects — reserved key, safe because every per-project
+      // route carries a p2 segment (/cde/:key/containers…), so a bare /cde/projects can't collide.
+      if (p1 === "projects" && !p2) {
+        if (req.method === "GET") return send(res, 200, await cde.listProjects());
+        if (req.method === "POST") return send(res, 201, await cde.createProject(await readBody(req)));
+      }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
         if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
