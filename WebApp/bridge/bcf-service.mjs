@@ -28,6 +28,13 @@ const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Be
 const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
 
+// Encrypted CDE file blobs (Phase 2 — private CDE). The browser encrypts client-side and uploads ONLY
+// ciphertext; we persist each as an opaque <id>.bin. Zero-knowledge: the bridge never sees a key, the
+// plaintext, or even the filename. Independent of Supabase, so encrypted storage works without the CDE
+// service key. Override the location with SENTINEL_CDE_FILES.
+const CDE_FILES_ROOT = process.env.SENTINEL_CDE_FILES
+  || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "cde-files");
+
 /** @type {{topics: any[]}} */
 let db = { topics: [] };
 try { db = JSON.parse(readFileSync(STORE, "utf8")); } catch { /* first run */ }
@@ -342,6 +349,30 @@ createServer(async (req, res) => {
         return send(res, 200, { ok: true, format: "ifc", name, itemId: result?.item?._id, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` });
       }
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+  }
+
+  // ── Encrypted file blobs (Phase 2, private CDE): POST /cde/files (store ciphertext) · GET /cde/files/:id ──
+  // The body is already AES-GCM ciphertext (IV‖ct) from the browser; we store/serve opaque bytes only.
+  // Deliberately ABOVE the Supabase /cde/ block so it never hits the service-key 503 guard.
+  if (url.pathname === "/cde/files" && req.method === "POST") {
+    try {
+      const bytes = await readRaw(req);
+      if (!bytes.length) return send(res, 400, { message: "Empty body" });
+      if (bytes.length > 512 * 1024 * 1024) return send(res, 413, { message: "File too large (>512MB)" });
+      const id = randomUUID();
+      mkdirSync(CDE_FILES_ROOT, { recursive: true });
+      writeFileSync(join(CDE_FILES_ROOT, `${id}.bin`), bytes);
+      return send(res, 201, { id, size: bytes.length });
+    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+  }
+  const fm = url.pathname.match(/^\/cde\/files\/([A-Za-z0-9-]+)$/);
+  if (fm && req.method === "GET") {
+    const file = join(CDE_FILES_ROOT, `${basename(fm[1])}.bin`); // basename() guards path traversal
+    try {
+      const buf = readFileSync(file);
+      res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*" });
+      return res.end(buf);
+    } catch { return send(res, 404, { message: "Blob not found" }); }
   }
 
   // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──

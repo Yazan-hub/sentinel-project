@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { getAppManager } from "../app";
+import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
+import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
 
 /**
  * Sentinel CDE panel (C3) — the ISO 19650 information-container board: WIP → Shared → Published →
@@ -24,7 +25,7 @@ const NEXT: Record<State, { label: string; state: State }[]> = {
   archived: [],
 };
 
-interface Version { id: string; revision: string; state: State; suitability?: string; author?: string; created_at: string; }
+interface Version { id: string; revision: string; state: State; suitability?: string; author?: string; created_at: string; file_ref?: string | null; }
 interface Container { id: string; iso_name: string; title?: string; discipline?: string; container_type?: string; folder_id?: string | null; container_versions: Version[]; }
 interface Folder { id: string; project_id: string; parent_id: string | null; name: string; kind: string; sort: number; }
 interface Audit { id: number; action: string; actor?: string; at: string; }
@@ -41,9 +42,11 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
     '<span style="font-weight:600">▤ CDE</span><span style="color:#9ca3af;font-size:11px">ISO 19650 · folders</span>' +
     '<span style="flex:1"></span>' +
+    `<button id="cde-lock" style="${btn}" title="Unlock encrypted files (project passphrase)">🔒</button>` +
     `<button id="cde-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ Container</button>` +
     `<button id="cde-refresh" style="${btn}" title="Reload">↻</button>` +
     "</div>" +
+    '<div id="cde-unlock" style="display:none;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;gap:.4rem;align-items:center"></div>' +
     '<div style="flex:1;display:flex;min-height:0">' +
     // ── folder tree sidebar ──
     '<div style="width:14rem;flex:0 0 auto;border-right:1px solid #2a2a30;display:flex;flex-direction:column;min-height:0">' +
@@ -256,6 +259,28 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
           actions.appendChild(b);
         }
         if (NEXT[s].length) card.appendChild(actions);
+
+        // Encrypted-file row (Phase 2): download a decrypted copy, and attach/replace on the editable WIP state.
+        const fileRow = document.createElement("div");
+        fileRow.style.cssText = "display:flex;flex-wrap:wrap;gap:.25rem;align-items:center";
+        const ref = refType(v);
+        if (ref) {
+          const dl = document.createElement("button");
+          dl.textContent = `⤓ ${ref.name.length > 16 ? ref.name.slice(0, 14) + "…" : ref.name}`;
+          dl.title = `Download & decrypt ${esc(ref.name)}`;
+          dl.style.cssText = "border:1px solid #3a3a44;background:#1a2432;color:#93c5fd;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+          dl.addEventListener("click", () => downloadFile(ref));
+          fileRow.appendChild(dl);
+        }
+        if (s === "wip") {
+          const at = document.createElement("button");
+          at.textContent = ref ? "⎘ Replace" : "🔒 Attach";
+          at.title = ref ? "Encrypt & attach a new revision" : "Encrypt a file client-side & attach it";
+          at.style.cssText = "border:1px solid #3a3a44;background:#23232b;color:#d4d4d8;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer";
+          at.addEventListener("click", () => attachFile(c));
+          fileRow.appendChild(at);
+        }
+        if (fileRow.childElementCount) card.appendChild(fileRow);
         col.appendChild(card);
       }
       if (!inState.length) {
@@ -319,9 +344,83 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     });
   });
 
+  // ── E2E encryption (Phase 2): unlock the project, then attach/download encrypted files ──────────────
+  const unlocked = () => isUnlocked(pid());
+  const refType = (v: Version): StoredFile | null => {
+    if (!v.file_ref) return null;
+    try { const o = JSON.parse(v.file_ref); return o && o.id ? (o as StoredFile) : null; } catch { return null; }
+  };
+  const syncLock = () => {
+    const b = el("cde-lock") as HTMLButtonElement | null;
+    if (!b) return;
+    const on = unlocked();
+    b.textContent = on ? "🔓" : "🔒";
+    b.title = on ? "Encrypted files unlocked — click to lock" : "Unlock encrypted files (project passphrase)";
+    b.style.borderColor = on ? "#22c55e" : "#2c2c34";
+  };
+  const toggleUnlock = () => {
+    if (unlocked()) { lockProject(pid()); syncLock(); refreshView(); status("Locked. Encrypted files are sealed."); return; }
+    const bar = el("cde-unlock");
+    if (bar.style.display === "flex") { bar.style.display = "none"; return; }
+    bar.style.display = "flex";
+    bar.innerHTML =
+      '<span style="font-size:11px;color:#9ca3af">Project passphrase</span>' +
+      '<input id="cde-pass" type="password" placeholder="shared secret" style="flex:1;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px system-ui"/>' +
+      `<button id="cde-pass-go" style="${btn};background:#123a1e;border-color:#22c55e;color:#86efac">Unlock</button>`;
+    const input = bar.querySelector("#cde-pass") as HTMLInputElement;
+    input.focus();
+    const go = async () => {
+      if (!input.value) { status("Enter the project passphrase."); return; }
+      try {
+        const { ok, firstUse } = await unlockAndVerify(pid(), input.value);
+        if (!ok) { status("Wrong passphrase for this project."); return; }
+        bar.style.display = "none";
+        syncLock();
+        refreshView();
+        status(firstUse ? "Unlocked — passphrase set for this browser." : "Unlocked. Encrypted files available.");
+      } catch (e) { status(`Unlock failed: ${(e as Error).message}`); }
+    };
+    (bar.querySelector("#cde-pass-go") as HTMLButtonElement).addEventListener("click", go);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") void go(); });
+  };
+  const nextRevision = (c: Container) => `P${String((c.container_versions?.length ?? 0) + 1).padStart(2, "0")}`;
+  const attachFile = (c: Container) => {
+    if (!unlocked()) { status("Unlock the project first (🔒) to attach encrypted files."); toggleUnlock(); return; }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.style.display = "none";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return;
+      try {
+        status(`Encrypting ${file.name}…`);
+        const stored = await putEncryptedFile(base, pid(), file);
+        await api(`containers/${c.id}/versions`, "POST", {
+          revision: nextRevision(c), author: "web", file_ref: JSON.stringify(stored), notes: `attached ${file.name} (encrypted)`,
+        });
+        status(`Attached ${file.name} — encrypted client-side.`);
+        await loadAll();
+      } catch (e) { status(`Attach failed: ${(e as Error).message}`); }
+    });
+    document.body.appendChild(input);
+    input.click();
+  };
+  const downloadFile = async (stored: StoredFile) => {
+    if (!unlocked()) { status("Unlock the project first (🔒) to decrypt files."); toggleUnlock(); return; }
+    try {
+      status(`Decrypting ${stored.name}…`);
+      await downloadDecrypted(base, pid(), stored);
+      status(`Downloaded ${stored.name}.`);
+    } catch (e) { status(`Download failed: ${(e as Error).message}`); }
+  };
+
+  el("cde-lock").addEventListener("click", toggleUnlock);
+  syncLock();
+  // Re-lock indicator when the active project changes (keys are per-project).
   el("cde-refresh").addEventListener("click", loadAll);
   // Reload the board when the global switcher changes project.
-  onActiveProjectChange(() => void loadAll());
+  onActiveProjectChange(() => { syncLock(); void loadAll(); });
   void loadAll();
   // Auto-refresh when this tab becomes visible, so changes made elsewhere show up.
   let lastLoad = Date.now();
