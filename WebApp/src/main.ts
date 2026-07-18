@@ -83,6 +83,7 @@ function tabbed(tabs: { label: string; el: HTMLElement }[]): HTMLElement {
   });
   root.append(bar, body);
   show(0);
+  (root as unknown as { showTab?: (i: number) => void }).showTab = show;
   return root;
 }
 
@@ -219,13 +220,14 @@ async function main() {
   // RFIs / approvals — coordination objects beside BCF issues (Phase 2).
   const rfiEl = rfiPanel(components, { baseUrl: SERVICE_URL });
   // Project Shell — the Lifecycle Command Center: aggregates health + issues + 5D cost + stage gates.
+  let projectSpaceEl: HTMLElement;
   const projectEl = projectShell(components, { baseUrl: SERVICE_URL });
   // Projects Hub — the "which project?" landing over the governed Supabase dataset. Opening a card
   // switches the whole app (active-project.ts) and drops you on the Project dashboard.
   const projectsHubEl = projectsHubPanel(components, {
     baseUrl: SERVICE_URL,
     onOpen: () => {
-      app.layout = "Project";
+      (projectSpaceEl as unknown as { showTab?: (i: number) => void }).showTab?.(1);
     },
   });
   // Grounded Copilot — cited answers over the project's live data; optional local LLM for free-form.
@@ -236,6 +238,7 @@ async function main() {
   const issuesEl = issuePanel(components, { bcfBaseUrl: SERVICE_URL });
   // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
+  projectSpaceEl = tabbed([{ label: "All Projects", el: projectsHubEl }, { label: "Dashboard", el: projectEl }]);
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
@@ -290,8 +293,7 @@ async function main() {
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
     objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
-    projectsHub: () => BUI.html`${projectsHubEl}`,
-    project: () => BUI.html`${projectEl}`,
+    projects: () => BUI.html`${projectSpaceEl}`,
     copilot: () => BUI.html`${copilotEl}`,
     guide: () => BUI.html`${guideEl}`,
     qa: () => BUI.html`${qaEl}`,
@@ -308,14 +310,7 @@ async function main() {
   // Operate, then Settings. (The activity bar is a flat icon list, so order carries the structure.)
   app.layouts = {
     // ── Overview / cross-cutting ──
-    Projects: {
-      icon: "mdi:view-grid-outline",
-      template: `"projectsHub viewer" 1fr / 30rem 1fr`,
-    },
-    Project: {
-      icon: "mdi:view-dashboard-outline",
-      template: `"project viewer" 1fr / 26rem 1fr`,
-    },
+    Projects: { icon: "mdi:view-grid-outline", template: `"projects viewer" 1fr / 30rem 1fr` },
     Guide: {
       icon: "mdi:book-open-page-variant-outline",
       template: `"guide viewer" 1fr / 32rem 1fr`,
@@ -363,7 +358,7 @@ async function main() {
       template: `"settings viewer" 1fr / 22rem 1fr`,
     },
   };
-  app.layout = "Project";
+  app.layout = "Projects";
   app.sidebar = true;
 
   // Global project switcher — a persistent floating pill (layout-independent) so you can switch the
@@ -373,7 +368,7 @@ async function main() {
     projectSwitcher({
       baseUrl: SERVICE_URL,
       onManage: () => {
-        app.layout = "Projects";
+        app.layout = "Projects"; (projectSpaceEl as unknown as { showTab?: (i: number) => void }).showTab?.(0);
       },
     }),
   );
