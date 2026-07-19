@@ -53,6 +53,7 @@ export {
   type DiffSummary,
 } from "./revision-diff";
 export { priceSnapshot, costDiff, type DiffCost } from "./revision-cost";
+export { carbonOfSnapshot, carbonDiff, type DiffCarbon } from "./revision-carbon";
 export {
   assess,
   toCobieCsv,

@@ -43,7 +43,8 @@ export interface CarbonReport {
 
 export const defaultFactors = factorsJson as CarbonFactors;
 
-export function resolveFactor(e: ElementQuantities, f: CarbonFactors): CarbonFactor | undefined {
+/** Takes only category + type_name so a revision snapshot can resolve a factor the same way (see revision-carbon.ts). */
+export function resolveFactor(e: { category: string; type_name?: string }, f: CarbonFactors): CarbonFactor | undefined {
   const cat = (e.category || "").toUpperCase();
   if (e.type_name) {
     const key = `${cat}:${e.type_name}`.toUpperCase();
