@@ -40,6 +40,24 @@ describe("clashSignature", () => {
     const y = item(2, box([0, 0, 0], [1, 1, 1]));
     expect(clashSignature(x, y)).toBe(clashSignature(y, x));
   });
+
+  // Regression: signatures must survive a model re-export so a resolved/approved clash stays resolved.
+  it("keys on GlobalId → identical across a re-export (modelId + localId both change)", () => {
+    const a1: ClashItem = { modelId: "arch_v1", localId: 5, guid: "GUID-A", box: box([0, 0, 0], [1, 1, 1]) };
+    const b1: ClashItem = { modelId: "struct_v1", localId: 9, guid: "GUID-B", box: box([0, 0, 0], [1, 1, 1]) };
+    // Same two elements, re-exported: fragments modelId and IFC localId both shifted; GlobalIds did not.
+    const a2: ClashItem = { modelId: "arch_v2", localId: 77, guid: "GUID-A", box: box([0, 0, 0], [1, 1, 1]) };
+    const b2: ClashItem = { modelId: "struct_v2", localId: 42, guid: "GUID-B", box: box([0, 0, 0], [1, 1, 1]) };
+    expect(clashSignature(a2, b2)).toBe(clashSignature(a1, b1));
+    expect(clashSignature(a1, b1)).toBe(clashSignature(b1, a1)); // still order-independent
+  });
+
+  it("falls back to modelId:localId when a GlobalId is absent", () => {
+    const x = item(1, box([0, 0, 0], [1, 1, 1])); // item() sets no guid
+    const y = item(2, box([0, 0, 0], [1, 1, 1]));
+    expect(clashSignature(x, y)).toBe(clashSignature(y, x));
+    expect(clashSignature(x, y)).toContain("m:1");
+  });
 });
 
 describe("dedupeClashes", () => {

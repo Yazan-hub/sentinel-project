@@ -14,7 +14,11 @@ export interface Clash {
   volume: number; // overlap AABB volume (m^3) — rank clashes by this
 }
 
-const keyOf = (i: ClashItem) => `${i.modelId}:${i.guid ?? i.localId}`;
+// Prefer the globally-unique IFC GlobalId so a clash signature SURVIVES a model re-export: both modelId
+// (fragments load id) and localId shift between exports/reloads, but the GlobalId does not — that stability
+// is what lets a resolved/approved clash stay resolved across revisions. Fall back to modelId:localId only
+// when no GlobalId is available; the "g:" prefix keeps the two key spaces from ever colliding.
+const keyOf = (i: ClashItem) => (i.guid ? `g:${i.guid}` : `${i.modelId}:${i.localId}`);
 /** Order-independent signature for an element pair — the dedup key across runs. */
 export function clashSignature(a: ClashItem, b: ClashItem): string {
   const ka = keyOf(a), kb = keyOf(b);
