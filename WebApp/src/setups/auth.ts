@@ -69,6 +69,19 @@ export async function verifyEmailCode(email: string, code: string): Promise<{ ok
   }
 }
 
+/**
+ * Email + password sign-in — no email round-trip at all (no SMTP/template/redirect needed). The session is
+ * established in-place. This is the primary flow while the project has no custom SMTP configured.
+ */
+export async function signInWithPassword(email: string, password: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const { error } = await supabase().auth.signInWithPassword({ email: email.trim(), password });
+    return error ? { ok: false, message: error.message } : { ok: true, message: "Signed in." };
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
+}
+
 export async function signOut(): Promise<void> {
   await supabase().auth.signOut();
 }
