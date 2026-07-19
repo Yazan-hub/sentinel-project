@@ -23,7 +23,20 @@ const PORT = Number(process.env.BCF_PORT) || 4100;
 // BCF_HOST=0.0.0.0 behind real auth + a reverse proxy. CORS defaults to * for dev; lock it to the
 // platform origin in shared/hosted deployments via BCF_CORS_ORIGIN.
 const HOST = process.env.BCF_HOST || "127.0.0.1";
-const CORS_ORIGIN = process.env.BCF_CORS_ORIGIN || "*";
+// CSRF hardening: the bridge holds the Supabase SERVICE key (full RLS bypass), so a malicious web page must
+// not be able to drive state-changing requests against it. We allowlist the app's web origin(s); browser
+// mutations (POST/PUT/DELETE) from any other origin are refused. Non-browser clients (the Revit plugin, curl)
+// send no Origin header and are unaffected. Override with BCF_CORS_ORIGIN=<comma-separated list>; the literal
+// "*" DISABLES the gate (dev only — insecure, logged loudly at startup).
+const DEFAULT_CORS = [
+  "https://platform.thatopen.com",
+  "http://localhost:5173", "http://127.0.0.1:5173", // vite dev
+  "http://localhost:3000", "http://127.0.0.1:3000",
+];
+const CORS_RAW = process.env.BCF_CORS_ORIGIN || "";
+const CORS_WILDCARD = CORS_RAW === "*";
+const CORS_ALLOW = CORS_RAW && !CORS_WILDCARD ? CORS_RAW.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CORS;
+const originAllowed = (origin) => CORS_WILDCARD || (!!origin && CORS_ALLOW.includes(origin));
 const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
 
 // Crash-safe JSON persistence: write a temp file then atomically rename, so a crash mid-write can never
@@ -146,12 +159,15 @@ const updateClashStatus = (pid, signature, status) => {
 };
 
 const send = (res, code, body) => {
-  res.writeHead(code, {
+  const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": CORS_ORIGIN,
     "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
-  });
+  };
+  // res._cors is the per-request allowed origin (set in the handler); only reflect an allowlisted origin so a
+  // foreign page can neither read responses nor pass a mutation preflight.
+  if (res._cors) { headers["Access-Control-Allow-Origin"] = res._cors; if (res._cors !== "*") headers["Vary"] = "Origin"; }
+  res.writeHead(code, headers);
   res.end(body === undefined ? "" : JSON.stringify(body));
 };
 const readBody = (req) => new Promise((resolve) => {
@@ -178,20 +194,37 @@ function broadcast(project, payload) {
 }
 
 createServer(async (req, res) => {
-  if (req.method === "OPTIONS") return send(res, 204);
+  const origin = req.headers.origin;
+  // Per-request CORS origin: echo an allowlisted origin (or "*" only in wildcard/dev mode); otherwise none.
+  res._cors = CORS_WILDCARD ? (origin || "*") : (originAllowed(origin) ? origin : "");
+
+  if (req.method === "OPTIONS") return send(res, 204); // preflight: send() reflects res._cors (denies foreign origins)
+
+  // CSRF gate: refuse state-changing requests from a browser origin that isn't allowlisted. A request with no
+  // Origin (Revit plugin, curl, server-to-server) is a non-browser caller and is allowed through.
+  if ((req.method === "POST" || req.method === "PUT" || req.method === "DELETE") && origin && !originAllowed(origin)) {
+    return send(res, 403, { message: "Origin not allowed" });
+  }
   if (TOKEN && req.headers.authorization !== `Bearer ${TOKEN}`) return send(res, 401, { message: "Unauthorized" });
 
   const url = new URL(req.url, "http://localhost");
 
+  // Health/posture (no secrets): confirms config without ever returning keys.
+  if (url.pathname === "/health" && req.method === "GET") {
+    let cdeConfigured = false;
+    try { cdeConfigured = (await import("./cde-store.mjs")).cdeConfigured(); } catch { /* */ }
+    return send(res, 200, {
+      ok: true, host: HOST, token: !!TOKEN, cde_configured: cdeConfigured,
+      cors: CORS_WILDCARD ? "wildcard (INSECURE)" : "allowlist", origins: CORS_WILDCARD ? "*" : CORS_ALLOW,
+    });
+  }
+
   // ── SSE live stream: GET /events?project=<pid> (kept open; pushes topic/CDE changes) ──
   if (url.pathname === "/events" && req.method === "GET") {
     const project = url.searchParams.get("project") || "default";
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*",
-    });
+    const sseHeaders = { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" };
+    if (res._cors) sseHeaders["Access-Control-Allow-Origin"] = res._cors; // allowlisted origin only
+    res.writeHead(200, sseHeaders);
     res.write(": connected\n\n");
     let set = sseClients.get(project);
     if (!set) { set = new Set(); sseClients.set(project, set); }
@@ -598,4 +631,10 @@ createServer(async (req, res) => {
   } catch (e) {
     return send(res, 500, { message: String(e?.message || e) });
   }
-}).listen(PORT, HOST, () => console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`));
+}).listen(PORT, HOST, () => {
+  console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
+  console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
+  console.log(`[bridge] bind: ${HOST} · auth token: ${TOKEN ? "required" : "off"}`);
+  if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
+  if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
+});
