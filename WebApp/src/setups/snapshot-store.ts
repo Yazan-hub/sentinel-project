@@ -4,7 +4,16 @@
 // configured (bridge returns 503) or we're offline, postRevision returns null and the caller falls back to
 // storing the snapshot inline in the project store — so nothing breaks.
 
-import type { ElementSnapshot } from "../sentinel-core";
+import type { ElementSnapshot, ElementQuantities } from "../sentinel-core";
+
+/** Revision metadata row from GET /cde/:key/snapshots — the baseline picker's list. */
+export interface RevisionMeta {
+  id: string;
+  rev_code?: string | null;
+  model_id?: string | null;
+  element_count?: number | null;
+  uploaded_at: string;
+}
 
 // The row shape returned by GET /cde/:key/snapshots/:revId (DB columns; measures are nullable).
 interface SnapRow {
@@ -63,4 +72,35 @@ export async function fetchRevisionSnapshots(base: string, key: string, revision
   } catch {
     return [];
   }
+}
+
+/** List a project's saved revisions (newest first) for the baseline picker. Empty array if the CDE is unavailable. */
+export async function fetchRevisions(base: string, key: string): Promise<RevisionMeta[]> {
+  try {
+    const rows = (await (await fetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`)).json()) as RevisionMeta[];
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Reconstitute stored snapshots into ElementQuantities so a picked baseline revision can be RE-PRICED at the
+ * current rates/factors (buildBoQ / buildCarbon) — this is what makes a Δ isolate composition change from rate
+ * edits. local_id / model_id are synthetic (baseline elements aren't in the live model, so not isolatable).
+ */
+export function quantitiesFromSnapshots(snaps: ElementSnapshot[]): ElementQuantities[] {
+  return snaps.map((s, i) => ({
+    guid: s.guid,
+    local_id: i,
+    model_id: "revision",
+    category: s.category ?? "",
+    type_name: s.type_name,
+    count: s.quantities.count ?? 1,
+    length: s.quantities.length,
+    area: s.quantities.area,
+    volume: s.quantities.volume,
+    weight: s.quantities.weight,
+    has_qto: true,
+  }));
 }

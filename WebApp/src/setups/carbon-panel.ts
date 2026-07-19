@@ -3,7 +3,7 @@ import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildCarbon, defaultFactors, snapshotFromQuantities, diffSnapshots, carbonDiff, type CarbonReport, type CarbonLine, type CarbonFactors, type ElementQuantities, type ElementSnapshot } from "../sentinel-core";
-import { postRevision, fetchRevisionSnapshots } from "./snapshot-store";
+import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSnapshots, type RevisionMeta } from "./snapshot-store";
 import { getAppManager } from "../app";
 
 interface CarbonBaseline {
@@ -45,6 +45,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   let report: CarbonReport | null = null;
   let baseline: CarbonBaseline | null = null; // carbon baseline for change tracking
   let comparing = false;
+  let revisions: RevisionMeta[] = [];         // saved revisions (the baseline picker's list)
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
   const root = document.createElement("div");
@@ -53,7 +54,8 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
       '<span style="font-weight:600">☘ Carbon · 6D</span><span style="flex:1"></span>' +
       `<button id="cb-take" style="${btn};background:#16a34a;color:#fff">Take off ▶</button>` +
-      `<button id="cb-base" style="${btn};background:#2a2a30;color:#eee" title="Snapshot current carbon as the baseline">Baseline</button>` +
+      `<button id="cb-base" style="${btn};background:#2a2a30;color:#eee" title="Snapshot current carbon as a new baseline revision">Baseline</button>` +
+      `<select id="cb-rev" title="Pick a saved revision to compare the current model against" style="display:none;max-width:9.5rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
       `<button id="cb-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare current vs baseline">Δ</button>` +
       `<button id="cb-csv" style="${btn};background:#2a2a30;color:#eee" title="Export CSV">CSV</button>` +
     "</div>" +
@@ -109,15 +111,43 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       ? { at, total_kg: baseline.total_kg, source: baseline.source, revision_id: revisionId }
       : baseline;
     fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ carbon_baseline: persisted }) }).catch(() => {});
+    if (revisionId) loadRevisions(); // the new revision joins the picker list
     msg(`Baseline set at ${tCO2(report.total_kg)}CO₂e${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the carbon impact.`);
   };
 
   const toggleCompare = () => {
-    if (!baseline) { msg("Set a Baseline first.", "#eab308"); return; }
+    if (!baseline) { msg("Set a Baseline first (or pick a saved revision).", "#eab308"); return; }
     if (!report) { msg("Take off first.", "#eab308"); return; }
     comparing = !comparing;
     const b = el("cb-cmp"); b.style.background = comparing ? "#16a34a" : "#2a2a30"; b.style.color = comparing ? "#fff" : "#eee";
     draw();
+  };
+
+  // ── baseline picker: compare the current model against ANY saved revision ─────
+  const revLabel = (r: RevisionMeta) => `${r.rev_code || fmtDate(r.uploaded_at)} · ${r.element_count ?? "?"} el`;
+  const renderRevOptions = () => {
+    const sel = el("cb-rev") as HTMLSelectElement;
+    sel.innerHTML =
+      '<option value="">baseline ▾</option>' +
+      revisions.map((r) => `<option value="${esc(r.id)}">${esc(revLabel(r))}</option>`).join("");
+    sel.value = baseline?.revision_id ?? "";
+    sel.style.display = revisions.length ? "" : "none";
+  };
+  const loadRevisions = async () => { revisions = await fetchRevisions(base, pid()); renderRevOptions(); };
+
+  const pickRevision = async (revId: string) => {
+    if (!revId) return;
+    if (!report) { msg("Take off the current model first, then pick a revision to compare against.", "#eab308"); renderRevOptions(); return; }
+    const rev = revisions.find((r) => r.id === revId);
+    msg("Loading revision…");
+    const snaps = await fetchRevisionSnapshots(base, pid(), revId);
+    if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
+    // A picked revision has element snapshots but no stored total — applyCompare reprices it at current factors.
+    baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total_kg: 0, source: report.source, snapshots: snaps, revision_id: revId };
+    comparing = true;
+    const cb = el("cb-cmp"); cb.style.background = "#16a34a"; cb.style.color = "#fff";
+    draw();
+    msg(`Comparing current vs revision ${rev ? revLabel(rev) : ""}.`);
   };
 
   const loadProject = async () => {
@@ -136,11 +166,14 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   // Overlay the Δ view on top of a normal render: hero shows net Δ, banners show the element-composition strip.
   const applyCompare = () => {
     const r = report!, b0 = baseline!;
-    const net = r.total_kg - b0.total_kg;
+    // Reprice the baseline's snapshots at CURRENT factors so the Δ isolates composition change (consistent
+    // with the churn strip + supports a picked historical revision with no stored total).
+    const baseTotal = b0.snapshots?.length ? buildCarbon(quantitiesFromSnapshots(b0.snapshots), factors).total_kg : b0.total_kg;
+    const net = r.total_kg - baseTotal;
     el("cb-total").textContent = signedT(net).replace(" t", "");
     el("cb-total").style.color = net > 0 ? "#f87171" : net < 0 ? "#4ade80" : "#eee";
     const lbl = el("cb-total-label"); if (lbl) lbl.textContent = "tCO₂e vs baseline";
-    el("cb-intensity").textContent = `change vs baseline of ${fmtDate(b0.at)} · now ${tCO2(r.total_kg)}CO₂e`;
+    el("cb-intensity").textContent = `change vs revision of ${fmtDate(b0.at)} · now ${tCO2(r.total_kg)}CO₂e${b0.snapshots?.length ? " · at current factors" : ""}`;
     renderChurn();
   };
 
@@ -275,8 +308,9 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
 
   el("cb-take").addEventListener("click", takeOff);
   el("cb-base").addEventListener("click", setBaseline);
+  el("cb-rev").addEventListener("change", (e) => pickRevision((e.target as HTMLSelectElement).value));
   el("cb-cmp").addEventListener("click", toggleCompare);
   el("cb-csv").addEventListener("click", exportCsv);
-  loadProject(); // pick up the project's saved carbon baseline (fire-and-forget)
+  loadProject().then(loadRevisions); // saved carbon baseline, then populate the revision picker
   return root;
 }
