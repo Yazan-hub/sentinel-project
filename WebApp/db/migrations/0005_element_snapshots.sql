@@ -1,4 +1,6 @@
--- 0005_element_snapshots.sql — DRAFT, NOT YET APPLIED.
+-- 0005_element_snapshots.sql — APPLIED 2026-07-20 (project autqqtwhxqrfjaztablm).
+-- Verified post-apply: 2 tables (RLS on), 4 policies (read=SELECT / write=ALL per table), 4 indexes;
+-- security advisor reported no new lints on either table.
 --
 -- Per-element, per-revision quantity snapshots keyed on the IFC GlobalId. This is the persistence tier for
 -- the shared revision-diff engine (WebApp/src/sentinel-core/revision-diff.ts): one append-only fact table
