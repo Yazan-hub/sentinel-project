@@ -17,6 +17,7 @@
     "@lit/context": "^1.1.6",
     "@markerjs/markerjs3": "^3.9.0",
     "@sparkjsdev/spark": "^0.1.10",
+    "@supabase/supabase-js": "^2.110.7",
     "@thatopen-platform/components-beta": "latest",
     "@thatopen-platform/components-front-beta": "latest",
     "@thatopen-platform/fragments-beta": "latest",

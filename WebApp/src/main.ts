@@ -33,6 +33,7 @@ import { sheetsPanel } from "./setups/sheets-panel";
 import { viewsPanel } from "./setups/views-panel";
 import { projectsHubPanel } from "./setups/projects-hub-panel";
 import { projectSwitcher } from "./setups/project-switcher";
+import { authWidget } from "./setups/auth-widget";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -372,6 +373,10 @@ async function main() {
       },
     }),
   );
+
+  // Sign-in widget (Stage B) — non-blocking magic-link auth (bottom-right). Signing in doesn't gate
+  // anything yet; it proves the auth flow + establishes identity for memberships. See docs/auth-rls-design.md.
+  container.appendChild(authWidget());
 
   // ── Viewer toolbar — now a built-in slotted INTO <top-viewer> (it consumes the
   // world + components contexts top-viewer provides). The rich bottom toolbar +

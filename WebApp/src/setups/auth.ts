@@ -7,22 +7,27 @@
 //      NOT the service_role key, which must never reach the browser).
 //   3. Mount a sign-in gate in main.ts behind VITE_SENTINEL_AUTH=1.
 //
-// This file is intentionally not imported anywhere yet, so it does not affect the bundle. Nothing here
-// changes app behaviour until it is wired in.
+// The URL + anon key are public/browser-safe by design (RLS is the real boundary — see 0004), so they are
+// defaulted here and need no env setup. Override via VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY if the
+// project ever moves.
 
 import { createClient, type SupabaseClient, type Session, type User } from "@supabase/supabase-js";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const env = (import.meta as any).env ?? {};
+const SUPABASE_URL = String(env.VITE_SUPABASE_URL || "https://autqqtwhxqrfjaztablm.supabase.co");
+// Public anon key (safe in the browser — data is protected by RLS, not by hiding this).
+const SUPABASE_ANON = String(
+  env.VITE_SUPABASE_ANON_KEY ||
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1dHFxdHdoeHFyZmphenRhYmxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4OTI3ODAsImV4cCI6MjA5OTQ2ODc4MH0.neIZOdB648o54JBVL2y0tCQdMOCpQQ8b4OopoTIgR8E",
+);
 
 let _sb: SupabaseClient | null = null;
 
 /** The browser Supabase client (anon key + the signed-in user's JWT → RLS enforces access). */
 export function supabase(): SupabaseClient {
   if (_sb) return _sb;
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !anon) {
-    throw new Error("Auth not configured — set VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY.");
-  }
-  _sb = createClient(url, anon, {
+  _sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
   return _sb;
