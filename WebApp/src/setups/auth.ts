@@ -36,16 +36,34 @@ export function supabase(): SupabaseClient {
 /** Whether auth is switched on for this build (feature flag; off by default so nothing changes yet). */
 export const authEnabled = (): boolean => import.meta.env.VITE_SENTINEL_AUTH === "1";
 
-/** Send a passwordless magic link to `email`. Returns a user-facing result, never throws. */
-export async function signInWithMagicLink(email: string): Promise<{ ok: boolean; message: string }> {
+/**
+ * Send a 6-digit sign-in CODE to `email` (no redirect — the robust flow for an app embedded in the
+ * platform, where magic-link redirects fight the iframe). Requires the Supabase "Magic Link" email
+ * template to render `{{ .Token }}`. Returns a user-facing result, never throws.
+ */
+export async function sendEmailCode(email: string): Promise<{ ok: boolean; message: string }> {
   try {
     const { error } = await supabase().auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.href },
+      options: { shouldCreateUser: true },
     });
     return error
       ? { ok: false, message: error.message }
-      : { ok: true, message: `Check ${email} for your sign-in link.` };
+      : { ok: true, message: `Code sent to ${email}.` };
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
+}
+
+/** Verify the 6-digit code the user typed → establishes the session in-place (no redirect). */
+export async function verifyEmailCode(email: string, code: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const { error } = await supabase().auth.verifyOtp({
+      email: email.trim(),
+      token: code.trim(),
+      type: "email",
+    });
+    return error ? { ok: false, message: error.message } : { ok: true, message: "Signed in." };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   }
