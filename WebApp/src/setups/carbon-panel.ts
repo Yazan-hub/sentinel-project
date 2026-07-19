@@ -3,6 +3,7 @@ import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildCarbon, defaultFactors, snapshotFromQuantities, diffSnapshots, carbonDiff, type CarbonReport, type CarbonLine, type CarbonFactors, type ElementQuantities, type ElementSnapshot } from "../sentinel-core";
+import { postRevision, fetchRevisionSnapshots } from "./snapshot-store";
 import { getAppManager } from "../app";
 
 interface CarbonBaseline {
@@ -11,6 +12,8 @@ interface CarbonBaseline {
   source: string;
   /** per-element GlobalId snapshot — enables element-level carbon change tracking (swaps the line Δ hides). */
   snapshots?: ElementSnapshot[];
+  /** server revision id (migration 0005) — set when the baseline was persisted team-wide; snapshots hydrate from it. */
+  revision_id?: string;
 }
 
 /**
@@ -94,11 +97,19 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const draw = () => { if (!report) return; render(report); if (comparing && baseline) applyCompare(); };
 
   // ── change tracking: baseline + compare ──────────────────────────────────────
-  const setBaseline = () => {
+  const setBaseline = async () => {
     if (!report) { msg("Take off first.", "#eab308"); return; }
-    baseline = { at: new Date().toISOString(), total_kg: report.total_kg, source: report.source, snapshots: snapshotFromQuantities(quantities) };
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ carbon_baseline: baseline }) }).catch(() => {});
-    msg(`Baseline set at ${tCO2(report.total_kg)}CO₂e. Change the model, take off again, then press Δ to see the carbon impact.`);
+    const at = new Date().toISOString();
+    const snaps = snapshotFromQuantities(quantities);
+    baseline = { at, total_kg: report.total_kg, source: report.source, snapshots: snaps };
+    // Persist as a server revision (team-wide, migration 0005); null on 503/offline → keep the inline blob.
+    const revisionId = await postRevision(base, pid(), snaps, { rev_code: fmtDate(at) });
+    baseline.revision_id = revisionId ?? undefined;
+    const persisted: CarbonBaseline = revisionId
+      ? { at, total_kg: baseline.total_kg, source: baseline.source, revision_id: revisionId }
+      : baseline;
+    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ carbon_baseline: persisted }) }).catch(() => {});
+    msg(`Baseline set at ${tCO2(report.total_kg)}CO₂e${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the carbon impact.`);
   };
 
   const toggleCompare = () => {
@@ -112,7 +123,13 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const loadProject = async () => {
     try {
       const p = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
-      if (p.carbon_baseline?.total_kg != null) baseline = p.carbon_baseline;
+      if (p.carbon_baseline?.total_kg != null) {
+        baseline = p.carbon_baseline;
+        // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.
+        if (baseline && baseline.revision_id && !(baseline.snapshots && baseline.snapshots.length)) {
+          baseline.snapshots = await fetchRevisionSnapshots(base, pid(), baseline.revision_id);
+        }
+      }
     } catch { /* offline — no baseline */ }
   };
 

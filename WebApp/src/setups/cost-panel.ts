@@ -3,6 +3,7 @@ import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, snapshotFromQuantities, diffSnapshots, costDiff, type BoQ, type BoQLine, type ElementQuantities, type ElementSnapshot, type RateTable } from "../sentinel-core";
+import { postRevision, fetchRevisionSnapshots } from "./snapshot-store";
 import { getAppManager } from "../app";
 
 interface Baseline {
@@ -12,6 +13,8 @@ interface Baseline {
   lines: { code: string; description: string; unit: string; qty: number; amount: number }[];
   /** per-element GlobalId snapshot — enables element-level change tracking (offsetting swaps the line Δ hides). */
   snapshots?: ElementSnapshot[];
+  /** server revision id (migration 0005) — set when the baseline was persisted team-wide; snapshots hydrate from it. */
+  revision_id?: string;
 }
 
 /**
@@ -100,15 +103,26 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   const draw = () => { if (!boq) return; if (comparing && baseline) renderComparison(); else render(boq); };
 
   // ── change tracking: baseline + compare ──────────────────────────────────────
-  const setBaseline = () => {
+  const setBaseline = async () => {
     if (!boq) { msg("Take off quantities first.", "#eab308"); return; }
+    const at = new Date().toISOString();
+    const snaps = snapshotFromQuantities(quantities); // per-element, so a later Δ can see composition swaps
     baseline = {
-      at: new Date().toISOString(), total: boq.total, currency: boq.currency,
+      at, total: boq.total, currency: boq.currency,
       lines: boq.lines.map((l) => ({ code: l.code, description: l.description, unit: l.unit, qty: l.qty, amount: l.amount })),
-      snapshots: snapshotFromQuantities(quantities), // per-element, so a later Δ can see composition swaps
+      snapshots: snaps, // kept in-memory for an immediate Δ this session
     };
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: baseline }) }).catch(() => {});
-    msg(`Baseline set at ${money(boq.total, boq.currency)}. Change the model, take off again, then press Δ to see the cost impact.`);
+    // Persist the per-element snapshot as a server revision (team-wide, durable, migration 0005). If the CDE
+    // isn't configured (503) or we're offline, revisionId is null → we keep the inline blob in the project store.
+    const revisionId = await postRevision(base, pid(), snaps, { rev_code: fmtDate(at) });
+    baseline.revision_id = revisionId ?? undefined;
+    // Reference the server revision when we have one (keeps the project store lean — no 50k-element array);
+    // else store the inline snapshot blob so a reload can still diff.
+    const persisted: Baseline = revisionId
+      ? { at, total: baseline.total, currency: baseline.currency, lines: baseline.lines, revision_id: revisionId }
+      : baseline;
+    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: persisted }) }).catch(() => {});
+    msg(`Baseline set at ${money(boq.total, boq.currency)}${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the cost impact.`);
   };
 
   const toggleCompare = () => {
@@ -127,7 +141,13 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     try {
       const p = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
       if (p.rate_pack?.rules?.length) { rates.currency = p.rate_pack.currency ?? rates.currency; rates.rules = p.rate_pack.rules; }
-      if (p.boq_baseline?.lines) baseline = p.boq_baseline;
+      if (p.boq_baseline?.lines) {
+        baseline = p.boq_baseline;
+        // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.
+        if (baseline && baseline.revision_id && !(baseline.snapshots && baseline.snapshots.length)) {
+          baseline.snapshots = await fetchRevisionSnapshots(base, pid(), baseline.revision_id);
+        }
+      }
     } catch { /* offline — use defaults */ }
   };
 
