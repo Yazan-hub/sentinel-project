@@ -1,5 +1,7 @@
--- 0004 — Supabase Auth + Row-Level Security (the "C4").  *** DRAFT — NOT YET APPLIED ***
--- Design: docs/auth-rls-design.md. Review before running against project autqqtwhxqrfjaztablm.
+-- 0004 — Supabase Auth + Row-Level Security (the "C4").
+-- APPLIED to project autqqtwhxqrfjaztablm on 2026-07-19 (Stage A). Design: docs/auth-rls-design.md.
+-- Verified post-apply: 25 policies across 8 tables + 7 helper functions; service-key bridge unaffected
+-- (GET /cde/projects still 200); an anon connection sees 0 rows (RLS enforcing).
 --
 -- SAFE TO APPLY EARLY: the bridge authenticates with the service_role key, which BYPASSES RLS, so adding
 -- these policies changes nothing for the running app. Policies only bind the `authenticated`/`anon` roles,
