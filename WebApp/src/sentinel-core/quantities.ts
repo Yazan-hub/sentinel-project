@@ -63,8 +63,9 @@ export interface BoQ {
 /** The bundled default rate library (editable in the panel). */
 export const defaultRates = ratesJson as RateTable;
 
-/** Most-specific match wins: category:type first, then category. */
-export function resolveRate(e: ElementQuantities, rates: RateTable): RateRule | undefined {
+/** Most-specific match wins: category:type first, then category. Takes only the fields it needs so a
+ *  revision snapshot (category + type_name, no local_id/measures) can be priced the same way (see revision-cost.ts). */
+export function resolveRate(e: { category: string; type_name?: string }, rates: RateTable): RateRule | undefined {
   const cat = (e.category || "").toUpperCase();
   if (e.type_name) {
     const key = `${cat}:${e.type_name}`.toUpperCase();

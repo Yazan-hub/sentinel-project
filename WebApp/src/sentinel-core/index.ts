@@ -42,6 +42,18 @@ export {
   type CarbonLine,
 } from "./carbon";
 export {
+  diffSnapshots,
+  snapshotFromQuantities,
+  summarizeDiff,
+  netDelta,
+  type ElementSnapshot,
+  type MeasureDelta,
+  type ChangedElement,
+  type RevisionDiff,
+  type DiffSummary,
+} from "./revision-diff";
+export { priceSnapshot, costDiff, type DiffCost } from "./revision-cost";
+export {
   assess,
   toCobieCsv,
   missingFields,

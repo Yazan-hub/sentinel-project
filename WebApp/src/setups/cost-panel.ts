@@ -2,10 +2,17 @@ import * as OBC from "@thatopen/components";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
-import { buildBoQ, defaultRates, type BoQ, type BoQLine, type ElementQuantities, type RateTable } from "../sentinel-core";
+import { buildBoQ, defaultRates, snapshotFromQuantities, diffSnapshots, costDiff, type BoQ, type BoQLine, type ElementQuantities, type ElementSnapshot, type RateTable } from "../sentinel-core";
 import { getAppManager } from "../app";
 
-interface Baseline { at: string; total: number; currency: string; lines: { code: string; description: string; unit: string; qty: number; amount: number }[]; }
+interface Baseline {
+  at: string;
+  total: number;
+  currency: string;
+  lines: { code: string; description: string; unit: string; qty: number; amount: number }[];
+  /** per-element GlobalId snapshot — enables element-level change tracking (offsetting swaps the line Δ hides). */
+  snapshots?: ElementSnapshot[];
+}
 
 /**
  * 5D Cost panel — the Phase 1 quick-win (docs/phase1-spec.md Part B). Pulls quantities straight from
@@ -22,6 +29,7 @@ const esc = (s?: string) =>
   (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
 const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
+const signedMoney = (n: number, cur: string) => (n > 0 ? "+" : n < 0 ? "−" : "") + money(Math.abs(n), cur);
 const qtyFmt = (n: number, unit: string) =>
   unit === "no" ? `${Math.round(n).toLocaleString("en-US")}` : n.toLocaleString("en-US", { maximumFractionDigits: 1 });
 
@@ -97,6 +105,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     baseline = {
       at: new Date().toISOString(), total: boq.total, currency: boq.currency,
       lines: boq.lines.map((l) => ({ code: l.code, description: l.description, unit: l.unit, qty: l.qty, amount: l.amount })),
+      snapshots: snapshotFromQuantities(quantities), // per-element, so a later Δ can see composition swaps
     };
     fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: baseline }) }).catch(() => {});
     msg(`Baseline set at ${money(boq.total, boq.currency)}. Change the model, take off again, then press Δ to see the cost impact.`);
@@ -122,6 +131,62 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     } catch { /* offline — use defaults */ }
   };
 
+  // Element-level change (by GlobalId) — the honest layer under the line totals. A wall swapped for an
+  // equal-cost wall nets to zero per line yet moved real budget; this strip shows the swap and lets the
+  // user isolate the added/resized elements in the viewer. Requires a baseline captured WITH snapshots.
+  const renderChurn = (cur: string) => {
+    const banners = el("cp-banners");
+    const snaps = baseline?.snapshots;
+    if (!snaps || !snaps.length) {
+      banners.innerHTML =
+        '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">Set a fresh <b>Baseline</b> to enable element-level change tracking (added / removed / resized by GlobalId).</div>';
+      return;
+    }
+    const diff = diffSnapshots(snaps, snapshotFromQuantities(quantities));
+    const c = costDiff(diff, rates);
+    if (!(c.added || c.deleted || c.changed)) {
+      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">No element added, removed or resized since the baseline.</div>';
+      return;
+    }
+    // guid → current model/local id, so added/resized elements can be isolated (deleted ones aren't in the model).
+    const gidx = new Map<string, { m: string; l: number }>();
+    for (const q of quantities) if (q.guid) gidx.set(q.guid, { m: q.model_id, l: q.local_id });
+    const mapFor = (guids: string[]) => {
+      const mm: Record<string, number[]> = {};
+      for (const g of guids) { const h = gidx.get(g); if (h) (mm[h.m] ??= []).push(h.l); }
+      return mm;
+    };
+    const addedMap = mapFor(diff.added.map((s) => s.guid));
+    const changedMap = mapFor(diff.changed.map((x) => x.guid));
+    const hidden = c.gross - Math.abs(c.net); // budget that churned but doesn't show in the bottom line
+
+    const row = (sym: string, color: string, label: string, cost: number, kind: "added" | "changed" | null) =>
+      '<div style="display:flex;align-items:center;gap:.5rem;padding:.2rem 0">' +
+        `<span style="color:${color};width:1rem;text-align:center">${sym}</span>` +
+        `<span style="flex:1">${label}</span>` +
+        `<span style="font-variant-numeric:tabular-nums;color:${color};font-family:ui-monospace,Consolas,monospace">${signedMoney(cost, cur)}</span>` +
+        (kind ? `<button class="cp-iso" data-kind="${kind}" style="${btn};background:#2a2a30;color:#9ca3af;padding:.12rem .4rem;font-size:11px">show</button>` : '<span style="width:2.9rem"></span>') +
+      "</div>";
+
+    banners.innerHTML =
+      '<div style="margin:.5rem 0;padding:.55rem .6rem;border:1px solid #2a2a30;border-radius:.4rem;background:#1b1b20">' +
+        '<div style="font-size:11px;color:#9ca3af;margin-bottom:.25rem">Element composition Δ · by GlobalId · at current rates</div>' +
+        (c.added ? row("+", "#4ade80", `${c.added} added`, c.addedCost, Object.keys(addedMap).length ? "added" : null) : "") +
+        (c.deleted ? row("−", "#f87171", `${c.deleted} removed`, -c.deletedCost, null) : "") +
+        (c.changed ? row("~", "#eab308", `${c.changed} resized`, c.changedCost, Object.keys(changedMap).length ? "changed" : null) : "") +
+        '<div style="display:flex;justify-content:space-between;border-top:1px solid #2a2a30;margin-top:.35rem;padding-top:.3rem;font-size:12px">' +
+          `<span style="color:#9ca3af">Net <b style="color:#eee">${signedMoney(c.net, cur)}</b></span>` +
+          `<span style="color:#9ca3af">Gross churned <b style="color:#eee">${money(c.gross, cur)}</b></span>` +
+        "</div>" +
+        (hidden > 1
+          ? `<div style="margin-top:.35rem;font-size:11.5px;color:#f0abfc">⚑ ${c.added + c.deleted + c.changed} element(s) changed for a net ${signedMoney(c.net, cur)} — ${money(hidden, cur)} of work the line totals below can't show.</div>`
+          : "") +
+      "</div>";
+
+    banners.querySelectorAll<HTMLElement>(".cp-iso").forEach((b) =>
+      b.addEventListener("click", () => isolate(b.dataset.kind === "added" ? addedMap : changedMap)));
+  };
+
   const renderComparison = () => {
     const b = boq!, base0 = baseline!;
     el("cp-cur").textContent = `· ${b.currency} · Δ vs baseline`;
@@ -130,7 +195,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     el("cp-total-v").textContent = (delta > 0 ? "+" : delta < 0 ? "−" : "") + money(Math.abs(delta), b.currency);
     el("cp-total-v").style.color = delta > 0 ? "#f87171" : delta < 0 ? "#4ade80" : "#fff";
     el("cp-total-s").textContent = `change vs baseline of ${fmtDate(base0.at)} · now ${money(b.total, b.currency)}`;
-    el("cp-banners").innerHTML = "";
+    renderChurn(b.currency);
     const strip = (s: string) => s.replace(b.currency + " ", "");
     const codes = new Set<string>([...b.lines.map((l) => l.code), ...base0.lines.map((l) => l.code)]);
     const rows = [...codes].map((code) => {
