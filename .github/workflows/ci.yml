@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  web:
+    name: WebApp — test + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: WebApp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run test
+      - run: npm run build
+
+  addin:
+    name: SentinelAddin — build (net8 targets)
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # net8 targets build on the plain .NET SDK. 2021–2024 (net48) and 2027 (net10)
+        # need extra SDK/reference setup — add them here once the runner is provisioned.
+        revit: [2025, 2026]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet build SentinelAddin -c Release -p:RevitVersion=${{ matrix.revit }} -p:DeployToRevit=false
