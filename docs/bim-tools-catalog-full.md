@@ -236,6 +236,58 @@ Addendum sources: [Omniverse free — NVIDIA forum](https://forums.developer.nvi
 
 Sources: [Qonic pricing](https://www.qonic.com/pricing) · [AEC Mag: Rebuilding BIM – Qonic](https://aecmag.com/bim/rebuilding-bim-qonic/) · [Motif interview/funding](https://aecmag.com/bim/motif-to-take-on-revit-exclusive-interview/) · [Arcol unleashed](https://aecmag.com/bim/arcol-unleashed-bim-2-0/) · [Snaptrude $14M](https://www.snaptrude.com/blog/snaptrude-raises-14m-series-a-from-existing-investors-foundamental-and-accel-and-launches-sketch-to-bim-workflows) · [Forma Building Design](https://aecmag.com/bim/autodesk-targets-bim-with-forma-building-design/) · [Hypar's bet against schema](https://aecmag.com/bim/hypars-big-bet-against-schema/) · [TestFit $20M](https://www.thesaasnews.com/news/testfit-raises-20-million-in-series-a/) · [Finch untethered](https://aecmag.com/cad/finch-untethered/) · [Omniverse Launcher deprecation](https://docs.omniverse.nvidia.com/launcher/latest/index.html) · [Higharc $53M](https://www.higharc.com/newsroom/higharc-announces-53m-series-b-investment)
 
+### 9b. Addendum — deferred generative/early-stage research (folded in 2026-07-20)
+
+*From the delayed Forma/Hypar/TestFit/Finch research stream. Covers two tools **new to this catalog** (Swapp, Augmenta) plus facts that **update** existing §9 rows. Single-source claims flagged.*
+
+**New entries (different segments — not early-stage massing):**
+
+| Tool (vendor) | Stack layer | Funding | Cost | Governance/CDE/IDS? | Sentinel |
+|---|---|---|---|---|---|
+| **Swapp** (Tel Aviv/Houston) | **Late-stage CD automation** — agentic assistant ("Frank") inside Revit/ArchiCAD, writes dims/tags/sheets/full CD sets to firm standards | **$18.5M** ($11.5M A 2023, Eurazeo) | not public (demo/sales) | **Firm-QA only** — validates output vs *firm* standards; **no ISO 19650/IDS/IFC** mention anywhere | No product overlap (opposite end from authoring); its firm-QA-rule engine shows the market wants machine-checked deliverables — Sentinel does it at the *standards/dataset* level |
+| **Augmenta** (Toronto, ex-Autodesk) | **Detailed MEP design automation** — "foundation model for construction"; shipping product = Electrical (ACP 2.0), coordinated code-compliant conduit models | ~**$25.6M USD** ($10M/US led by Prelude, Mar 2025; total ≈$37M CAD) | not public | **No** (fits "into current design workflow"; no ISO 19650/IDS/IFC) | No overlap (MEP autorouting, upstream); feeds the authoring stack, doesn't govern it |
+
+**Updates to existing §9 rows:**
+- **Forma** — now the group's **best openBIM**: **exports IFC 4.3** ("Export as IFC to Docs") in addition to importing IFC as context mesh [single-source on 4.3]. Standalone **~$185/mo** or free-in-AEC-Collection [single-source]. Momentum piling up: Esri ArcGIS-for-Forma (Jul 2025), Revit↔Forma bridge strengthened (Apr 2026), Graphisoft Archicad–Forma connection previewed (Jun 2026). ISO 19650 story still lives only in Autodesk Docs/ACC ("Forma Data Management"), **not** the design tool — content-farm claims that "Forma is an ISO 19650 CDE" are unverifiable and conflate the two.
+- **Finch** — funding now **~$4.2M total** (adds a ~€1M Ampli round + ~$1.13M Seed-III Apr 2025 [single-source] to the €2.5M 2022 seed; the "$3.1M" in the table was the Dec-2024 figure). Traction by mid-2026: **130,000+ projects, users in 100+ countries** (ref. Sweco). Enterprise **€14,500/yr for 3 seats**; its "code & compliance checking" is *building-code*, not information-management governance; **no explicit IFC export** (native Revit only).
+- **TestFit** — pricing confirmed (**Parking $2,100 · Site Solver $10k · Portfolio $15k**/yr); rode the data-center-configurator wave [single-source]; still **no IFC export at all** (Revit/.tfrvt/SketchUp/DXF/glTF only) — the most closed of the group.
+
+*Governance verdict, reinforced across all six:* none ship an ISO 19650 / CDE / IDS layer; interchange is overwhelmingly **direct-to-Revit plugins** — these tools *feed* the incumbent stack, they don't govern it. AEC Mag's own warning is the tell: Hypar-style schema-free AI *increases* the need for exactly the validation/audit layer this whole cohort skips. That layer is Sentinel's.
+
+Addendum sources: [Forma Building Design](https://aecmag.com/bim/forma-building-design/) · [Esri for Forma](https://aecmag.com/geospatial/esri-launches-arcgis-for-autodesk-forma/) · [Hypar bet against schema](https://aecmag.com/bim/hypars-big-bet-against-schema/) · [TestFit pricing](https://www.testfit.io/pricing) · [Finch untethered](https://aecmag.com/cad/finch-untethered/) · [Finch pricing](https://finch3d.com/pricing) · [Swapp Series A](https://www.thesaasnews.com/news/swapp-raises-11-5-million-in-series-a) · [Augmenta $14.4M CAD](https://betakit.com/augmenta-closes-14-4-million-cad-to-advance-quest-towards-ai-driven-building-design/)
+
+### 9c. Addendum — deferred governance-landscape + remaining-startup streams (folded in 2026-07-20)
+
+*From three late streams (governance/IDS/CDE landscape · browser-BIM/Speckle sweep · Qonic/Snaptrude/Arcol/Motif deep-dive). Only material **not already in §2/§6/§9** is captured; single-source claims flagged.*
+
+**(i) The IDS / validation layer — Sentinel's actual arena, matured fast:**
+- **IDS v1.0 became a Final buildingSMART Standard on 3 Jun 2024.** Tooling followed within ~18 months: buildingSMART's **IDS-Audit-tool** (MIT, v1.0.0 Oct 2024, validates `.ids` files), **ifctester** in IfcOpenShell (LGPL — "library, CLI and **webapp** for IDS model auditing"), Solibri **IDS Editor**, BIMcollab (Zoom auto-validates vs IDS), ACCA **usBIM.IDS** (+ IDS-in-Revit via usBIM.revolution, Mar 2026), and **Qonic** (browser `.ids` upload). **~57 self-reported implementations** — but buildingSMART **does not verify the list, and no certification exists** → *certified, web-native, workflow-integrated IDS checking is nobody's core product.* That's an open lane Sentinel already occupies (KF-B).
+- **The one pure web-native model-checker was acquired and killed.** Solibri (Nemetschek) bought **Verifi3D/Xinaps (7 Jan 2025)**, rebranded it **Solibri Checkpoint**, then **discontinued it for new purchase (13 Apr 2026)**, migrating users back to *desktop* Solibri (Essential €1,428/yr → Premium €2,772/yr, "WebChecker token" bolt-on). verifi3d.com now redirects to the sunset notice. **→ the browser-based validation slot is currently vacant** — the single most direct market signal for Sentinel's in-browser IDS/clash. Nemetschek is separately buying validation (Firmus AI via Bluebeam, Sep 2025; GoCanvas Jul 2024; HCSS Jul 2026).
+
+**(ii) Speckle — new §9 entry, the adjacent "one to watch":**
+
+| Tool (vendor) | Stack layer | Funding | Cost | Governance/CDE/IDS? | Sentinel |
+|---|---|---|---|---|---|
+| **Speckle** (London) | AEC **data hub** — versioned object data (not files) from Revit/Rhino/etc; viewer, automation, now analytics/AI | **$12.5M A** (Addition, late 2024; ~$19.2M total [single-source]) + **Suffolk Technologies strategic (Apr 2026)** | Free (1 project); Team $99/mo; Enterprise | **Partial & rising** — "Model Validation" (beta→saved checks) + Speckle Automate; AEC Mag calls it "governance infrastructure." **But rules-based, not IDS; CDE *integrations*, not a CDE; no ISO 19650 state machine** | **Closest philosophical competitor to the Governed Element Graph.** Suffolk buying "normalized BIM data for AI" is the *same wedge*. Sentinel edge: IDS-standard + ISO 19650 states/audit, not proprietary rules |
+
+**(iii) Other new/dead entries (fold into §9's map):**
+- **Skema** (ex-Revit founders Rozmanith/Harpham) — AI schematic→**native Revit** from a firm's past catalogues; authoring-acceleration beside Revit; funding undisclosed; **no governance/IFC**.
+- **Giraffe** (giraffe.build) — browser urban feasibility (GIS + calc + app marketplace); **Core $45/mo, Teams $1,500/user/yr**; "governance" = enterprise IT (SOC2/ISO 27001), **not ISO 19650**; no IFC.
+- **Rayon** (Paris, ~€6M [single-source]) — "Figma of 2D CAD," explicitly **not BIM**; peripheral.
+- **Bild AI** (YC W25, $3.1M seed, Khosla) — AI reads blueprints for estimating; the "AI reads plans" wave, no model/IFC layer.
+- **Infurnia** (India) — cloud BIM for interiors→manufacturing; niche vertical.
+- **DEAD:** **BeamUP** (pivoted entirely out of BIM into supply-chain AI — its $15M-seed building-design play failed) and **Modumate** (domain no longer resolves). Two more data points that VC-backed BIM authoring **without a data/governance moat** dies (cf. Kubity §9a).
+
+**(iv) Corrections to existing §9 rows (from the deep-dive):**
+- **Arcol** total is ~**$17.1M** [single-source PitchBook] (seed ~$5.1M + undisclosed late-2024), not ~$20M; IFC is **mesh-only import**, semantic round-trip on roadmap.
+- **Snaptrude** total **$21.8M** (seed $6.6M Jan 2023 + $14M A Nov 2023); **no Series B** as of Jul 2026; IFC is **import-only** (export is .rvt/Rhino).
+- **Motif** IFC support is **none today** (OBJ/GLB + Revit/Rhino streaming only); IFC/RVT is stated intention.
+- **That Open Company** (Sentinel's own supply chain) — **no public funding found**, platform.thatopen.com is a bare login dashboard, no competing hosted CDE; permissive licenses (MIT/MPL-2.0). Watch item for sustainability, not a competitor.
+
+**(v) CDE cert/API updates for §6:** **Thinkproject** gained **TÜV SÜD ISO 19650 attestation (Feb 2024)** for its CONCLUDE "NextGen CDE" — another certified rival beside Aconex/Asite. **BCF 3.0 mandates the OpenCDE Foundation API** as a prerequisite, but server-side BCF-API-3.0 + Foundation adoption remains thin/vendor-by-vendor (Trimble Connect Topics API, Catenda) — OpenCDE is still aspiration, not default. Reinforces §6's "public BCF-API 3.0 endpoint" as a real differentiator.
+
+Addendum sources: [IDS repo](https://github.com/buildingSMART/IDS) · [IDS-Audit-tool](https://github.com/buildingSMART/IDS-Audit-tool) · [ifctester/IfcOpenShell](https://github.com/IfcOpenShell/IfcOpenShell) · [Solibri Checkpoint discontinuation](https://www.solibri.com/checkpoint) · [Solibri pricing](https://www.solibri.com/pricing) · [Firmus AI acq.](https://www.nemetschek.com/en/news-media/ngroup-firmus-ai-acquisition) · [Speckle raises $12.5M](https://speckle.systems/blog) · [Suffolk invests in Speckle](https://aecmag.com/collaboration/suffolk-technologies-invests-in-speckle/) · [Speckle pricing](https://speckle.systems/pricing) · [Thinkproject CDE](https://thinkproject.com/products/cde/) · [Skema](https://aecmag.com/bim/bim-workflow-compression-with-skema/) · [Giraffe pricing](https://www.giraffe.build/pricing) · [BeamUP pivot](https://techcrunch.com/2022/03/30/ai-powered-building-design-platform-beamup-emerges-from-stealth-with-15m/) · [BCF-API](https://github.com/buildingSMART/BCF-API)
+
 ---
 
 *Compiled from 8 parallel research streams; ~90 cited sources retained in the scan transcripts. Costs/claims are as-published on vendor/analyst pages (July 2026); quote-only vendors are marked. See `bim-tools-landscape.md` for the strategic synthesis + ranked replication targets, and `STRATEGIC_REVIEW_2026-07.md` for the platform wedge.*
