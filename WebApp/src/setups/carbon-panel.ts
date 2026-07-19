@@ -43,20 +43,23 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const factors: CarbonFactors = JSON.parse(JSON.stringify(defaultFactors)); // editable working copy
   let quantities: ElementQuantities[] = [];
   let report: CarbonReport | null = null;
-  let baseline: CarbonBaseline | null = null; // carbon baseline for change tracking
+  let baseline: CarbonBaseline | null = null; // carbon baseline for change tracking (the OLD side of the Δ)
   let comparing = false;
-  let revisions: RevisionMeta[] = [];         // saved revisions (the baseline picker's list)
+  let revisions: RevisionMeta[] = [];         // saved revisions (the picker lists)
+  // The NEW side of the Δ: a picked target revision, or null = the current (live-model) take-off.
+  let target: { snapshots: ElementSnapshot[]; at: string; revision_id: string } | null = null;
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
   root.innerHTML =
-    '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
+    '<div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
       '<span style="font-weight:600">☘ Carbon · 6D</span><span style="flex:1"></span>' +
       `<button id="cb-take" style="${btn};background:#16a34a;color:#fff">Take off ▶</button>` +
       `<button id="cb-base" style="${btn};background:#2a2a30;color:#eee" title="Snapshot current carbon as a new baseline revision">Baseline</button>` +
-      `<select id="cb-rev" title="Pick a saved revision to compare the current model against" style="display:none;max-width:9.5rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
-      `<button id="cb-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare current vs baseline">Δ</button>` +
+      `<select id="cb-rev" title="Baseline — pick a saved revision (old side of the Δ)" style="display:none;max-width:8rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
+      `<select id="cb-rev2" title="Now — a saved revision, or leave as the current model (new side of the Δ)" style="display:none;max-width:8rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
+      `<button id="cb-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare the two sides">Δ</button>` +
       `<button id="cb-csv" style="${btn};background:#2a2a30;color:#eee" title="Export CSV">CSV</button>` +
     "</div>" +
     '<div id="cb-hero" style="padding:.7rem;border-bottom:1px solid #2a2a30;display:none">' +
@@ -92,11 +95,22 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const recompute = () => {
     report = buildCarbon(quantities, factors);
     draw();
-    // Publish to the project snapshot so the Owner/FM portal can show carbon without a model loaded.
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000) } }) }).catch(() => {});
+    // Publish the LIVE model's carbon to the project snapshot (Owner/FM portal). Skip when there's no live
+    // model (e.g. diffing two historical revisions) so we don't clobber the snapshot with 0.
+    if (quantities.length)
+      fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000) } }) }).catch(() => {});
   };
 
-  const draw = () => { if (!report) return; render(report); if (comparing && baseline) applyCompare(); };
+  // The "now" side of a Δ: a picked target revision (repriced at current factors), else the live take-off.
+  const nowSide = (): { report: CarbonReport | null; snaps: ElementSnapshot[]; isLive: boolean } =>
+    target
+      ? { report: buildCarbon(quantitiesFromSnapshots(target.snapshots), factors), snaps: target.snapshots, isLive: false }
+      : { report, snaps: report ? snapshotFromQuantities(quantities) : [], isLive: true };
+  const draw = () => {
+    const now = nowSide();
+    if (comparing && baseline && now.report) { render(now.report); applyCompare(now); return; }
+    if (report) render(report);
+  };
 
   // ── change tracking: baseline + compare ──────────────────────────────────────
   const setBaseline = async () => {
@@ -115,39 +129,52 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     msg(`Baseline set at ${tCO2(report.total_kg)}CO₂e${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the carbon impact.`);
   };
 
+  const enterCompare = () => { comparing = true; const cb = el("cb-cmp"); cb.style.background = "#16a34a"; cb.style.color = "#fff"; };
   const toggleCompare = () => {
-    if (!baseline) { msg("Set a Baseline first (or pick a saved revision).", "#eab308"); return; }
-    if (!report) { msg("Take off first.", "#eab308"); return; }
+    if (!baseline) { msg("Pick a baseline revision first (or press Baseline to snapshot the current model).", "#eab308"); return; }
+    if (!target && !report) { msg("Take off the current model, or pick a 'now' revision to compare against.", "#eab308"); return; }
     comparing = !comparing;
     const b = el("cb-cmp"); b.style.background = comparing ? "#16a34a" : "#2a2a30"; b.style.color = comparing ? "#fff" : "#eee";
     draw();
   };
 
-  // ── baseline picker: compare the current model against ANY saved revision ─────
+  // ── revision pickers: diff any two — baseline (old) vs a target revision OR the current model (new) ─────
   const revLabel = (r: RevisionMeta) => `${r.rev_code || fmtDate(r.uploaded_at)} · ${r.element_count ?? "?"} el`;
-  const renderRevOptions = () => {
-    const sel = el("cb-rev") as HTMLSelectElement;
+  const fillSel = (sel: HTMLSelectElement, placeholder: string, value: string) => {
     sel.innerHTML =
-      '<option value="">baseline ▾</option>' +
+      `<option value="">${placeholder}</option>` +
       revisions.map((r) => `<option value="${esc(r.id)}">${esc(revLabel(r))}</option>`).join("");
-    sel.value = baseline?.revision_id ?? "";
+    sel.value = value;
     sel.style.display = revisions.length ? "" : "none";
+  };
+  const renderRevOptions = () => {
+    fillSel(el("cb-rev") as HTMLSelectElement, "baseline ▾", baseline?.revision_id ?? "");
+    fillSel(el("cb-rev2") as HTMLSelectElement, "now: current ▾", target?.revision_id ?? "");
   };
   const loadRevisions = async () => { revisions = await fetchRevisions(base, pid()); renderRevOptions(); };
 
-  const pickRevision = async (revId: string) => {
+  const pickBaseline = async (revId: string) => {
     if (!revId) return;
-    if (!report) { msg("Take off the current model first, then pick a revision to compare against.", "#eab308"); renderRevOptions(); return; }
     const rev = revisions.find((r) => r.id === revId);
     msg("Loading revision…");
     const snaps = await fetchRevisionSnapshots(base, pid(), revId);
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
-    // A picked revision has element snapshots but no stored total — applyCompare reprices it at current factors.
-    baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total_kg: 0, source: report.source, snapshots: snaps, revision_id: revId };
-    comparing = true;
-    const cb = el("cb-cmp"); cb.style.background = "#16a34a"; cb.style.color = "#fff";
+    baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total_kg: 0, source: report?.source ?? "", snapshots: snaps, revision_id: revId };
+    if (target || report) enterCompare();
     draw();
-    msg(`Comparing current vs revision ${rev ? revLabel(rev) : ""}.`);
+    msg(`Baseline = revision ${rev ? revLabel(rev) : ""}. ${target ? "" : "Now side = current model. "}Press Δ or pick a 'now' revision.`);
+  };
+
+  const pickTarget = async (revId: string) => {
+    if (!revId) { target = null; if (comparing) draw(); msg("Now side = current model."); return; }
+    const rev = revisions.find((r) => r.id === revId);
+    msg("Loading revision…");
+    const snaps = await fetchRevisionSnapshots(base, pid(), revId);
+    if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
+    target = { snapshots: snaps, at: rev?.uploaded_at ?? new Date().toISOString(), revision_id: revId };
+    if (baseline) enterCompare();
+    draw();
+    msg(baseline ? `Comparing baseline vs revision ${rev ? revLabel(rev) : ""}.` : "Now side set — pick a baseline revision to compare.");
   };
 
   const loadProject = async () => {
@@ -164,36 +191,38 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   };
 
   // Overlay the Δ view on top of a normal render: hero shows net Δ, banners show the element-composition strip.
-  const applyCompare = () => {
-    const r = report!, b0 = baseline!;
-    // Reprice the baseline's snapshots at CURRENT factors so the Δ isolates composition change (consistent
-    // with the churn strip + supports a picked historical revision with no stored total).
+  const applyCompare = (now: { report: CarbonReport | null; snaps: ElementSnapshot[]; isLive: boolean }) => {
+    const r = now.report!, b0 = baseline!;
+    // Reprice BOTH sides at CURRENT factors so the Δ isolates composition change (consistent with the churn
+    // strip + supports two picked historical revisions with no stored total).
     const baseTotal = b0.snapshots?.length ? buildCarbon(quantitiesFromSnapshots(b0.snapshots), factors).total_kg : b0.total_kg;
     const net = r.total_kg - baseTotal;
+    const nowLabel = target ? `rev ${fmtDate(target.at)}` : "current";
     el("cb-total").textContent = signedT(net).replace(" t", "");
     el("cb-total").style.color = net > 0 ? "#f87171" : net < 0 ? "#4ade80" : "#eee";
     const lbl = el("cb-total-label"); if (lbl) lbl.textContent = "tCO₂e vs baseline";
-    el("cb-intensity").textContent = `change vs revision of ${fmtDate(b0.at)} · now ${tCO2(r.total_kg)}CO₂e${b0.snapshots?.length ? " · at current factors" : ""}`;
-    renderChurn();
+    el("cb-intensity").textContent = `${fmtDate(b0.at)} → ${nowLabel} · now ${tCO2(r.total_kg)}CO₂e${b0.snapshots?.length ? " · at current factors" : ""}`;
+    renderChurn(now);
   };
 
   // Element-level carbon change (by GlobalId) — the honest layer under the line totals. Requires a baseline
   // captured WITH snapshots; degrades to a prompt otherwise.
-  const renderChurn = () => {
+  const renderChurn = (now: { snaps: ElementSnapshot[]; isLive: boolean }) => {
     const banners = el("cb-banners");
     const snaps = baseline?.snapshots;
     if (!snaps || !snaps.length) {
-      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">Set a fresh <b>Baseline</b> to enable element-level carbon tracking (added / removed / resized by GlobalId).</div>';
+      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">Pick a <b>baseline</b> revision (or press Baseline) to enable element-level carbon tracking (added / removed / resized by GlobalId).</div>';
       return;
     }
-    const diff = diffSnapshots(snaps, snapshotFromQuantities(quantities));
+    const diff = diffSnapshots(snaps, now.snaps);
     const c = carbonDiff(diff, factors);
     if (!(c.added || c.deleted || c.changed)) {
-      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">No element added, removed or resized since the baseline.</div>';
+      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">No element added, removed or resized between the two revisions.</div>';
       return;
     }
+    // isolate only when the "now" side IS the live model (a target revision's elements may not be in the viewer).
     const gidx = new Map<string, { m: string; l: number }>();
-    for (const q of quantities) if (q.guid) gidx.set(q.guid, { m: q.model_id, l: q.local_id });
+    if (now.isLive) for (const q of quantities) if (q.guid) gidx.set(q.guid, { m: q.model_id, l: q.local_id });
     const mapFor = (guids: string[]) => {
       const mm: Record<string, number[]> = {};
       for (const g of guids) { const h = gidx.get(g); if (h) (mm[h.m] ??= []).push(h.l); }
@@ -264,7 +293,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
         '<th style="padding:.35rem .3rem;font-weight:600;text-align:right">Qty</th>' +
         '<th style="padding:.35rem .3rem;font-weight:600;text-align:right">kgCO₂e/u</th>' +
         '<th style="padding:.35rem .3rem;font-weight:600;text-align:right">kgCO₂e</th></tr></thead><tbody>' +
-      r.lines.map((l) => rowHtml(l)).join("") + "</tbody></table></div>";
+      r.lines.map((l, i) => rowHtml(l, i)).join("") + "</tbody></table></div>";
 
     root.querySelectorAll<HTMLInputElement>(".cb-fac").forEach((inp) => {
       inp.addEventListener("change", () => {
@@ -277,14 +306,12 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     root.querySelectorAll<HTMLElement>(".cb-row").forEach((row) => row.addEventListener("click", () => isolate(r.lines[Number(row.dataset.i)].model_map)));
   };
 
-  const rowHtml = (l: CarbonLine) => {
-    const idx = report!.lines.indexOf(l);
-    return `<tr class="cb-row" data-i="${idx}" title="Isolate ${l.count} element(s)" style="border-top:1px solid #23232a;cursor:pointer">` +
+  const rowHtml = (l: CarbonLine, idx: number) =>
+    `<tr class="cb-row" data-i="${idx}" title="Isolate ${l.count} element(s)" style="border-top:1px solid #23232a;cursor:pointer">` +
       `<td style="padding:.4rem .3rem"><div style="font-weight:600">${esc(l.description)}</div><div style="color:#6b7280;font-size:11px">${l.count.toLocaleString("en-US")} el · ${esc(l.unit)}</div></td>` +
       `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums">${l.qty.toLocaleString("en-US", { maximumFractionDigits: 1 })}</td>` +
       `<td style="padding:.4rem .3rem;text-align:right"><input class="cb-fac" data-code="${esc(l.code)}" type="number" min="0" value="${l.factor}" style="width:60px;text-align:right;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .3rem;font:12px ui-monospace,Consolas,monospace"/></td>` +
       `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace">${kg(l.kg)}</td></tr>`;
-  };
 
   const banner = (color: string, text: string) =>
     `<div style="display:flex;gap:.5rem;align-items:flex-start;padding:.45rem .55rem;margin:.4rem 0;border:1px solid ${color}44;background:${color}14;border-radius:.35rem;font-size:11.5px;color:#d1d5db">` +
@@ -308,7 +335,8 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
 
   el("cb-take").addEventListener("click", takeOff);
   el("cb-base").addEventListener("click", setBaseline);
-  el("cb-rev").addEventListener("change", (e) => pickRevision((e.target as HTMLSelectElement).value));
+  el("cb-rev").addEventListener("change", (e) => pickBaseline((e.target as HTMLSelectElement).value));
+  el("cb-rev2").addEventListener("change", (e) => pickTarget((e.target as HTMLSelectElement).value));
   el("cb-cmp").addEventListener("click", toggleCompare);
   el("cb-csv").addEventListener("click", exportCsv);
   loadProject().then(loadRevisions); // saved carbon baseline, then populate the revision picker

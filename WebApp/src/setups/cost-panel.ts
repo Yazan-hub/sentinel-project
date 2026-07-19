@@ -48,23 +48,26 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   const rates: RateTable = JSON.parse(JSON.stringify(defaultRates)); // editable working copy (a "rate pack")
   let quantities: ElementQuantities[] = []; // cached so rate edits don't re-read the model
   let boq: BoQ | null = null;
-  let baseline: Baseline | null = null;     // cost baseline for change tracking
+  let baseline: Baseline | null = null;     // cost baseline for change tracking (the OLD side of the Δ)
   let comparing = false;
-  let revisions: RevisionMeta[] = [];       // saved revisions (the baseline picker's list)
+  let revisions: RevisionMeta[] = [];       // saved revisions (the picker lists)
+  // The NEW side of the Δ: a picked target revision, or null = the current (live-model) take-off.
+  let target: { snapshots: ElementSnapshot[]; at: string; revision_id: string } | null = null;
 
   // ── DOM ──────────────────────────────────────────────────────────────────────
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
   root.innerHTML =
-    '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
+    '<div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
       '<span style="font-weight:600">◱ Cost · 5D</span>' +
       '<span id="cp-cur" style="color:#9ca3af;font-size:12px"></span>' +
       '<span style="flex:1"></span>' +
       `<button id="cp-take" style="${btn};background:#6528d7;color:#fff">Take off ▶</button>` +
       `<button id="cp-base" style="${btn};background:#2a2a30;color:#eee" title="Snapshot current cost as a new baseline revision">Baseline</button>` +
-      `<select id="cp-rev" title="Pick a saved revision to compare the current model against" style="display:none;max-width:9.5rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
-      `<button id="cp-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare current vs baseline">Δ</button>` +
+      `<select id="cp-rev" title="Baseline — pick a saved revision (old side of the Δ)" style="display:none;max-width:8rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
+      `<select id="cp-rev2" title="Now — a saved revision, or leave as the current model (new side of the Δ)" style="display:none;max-width:8rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
+      `<button id="cp-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare the two sides">Δ</button>` +
       `<button id="cp-csv" style="${btn};background:#2a2a30;color:#eee" title="Export CSV">CSV</button>` +
     "</div>" +
     '<div id="cp-total" style="padding:.7rem .7rem;border-bottom:1px solid #2a2a30;display:none">' +
@@ -102,7 +105,15 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     boq = buildBoQ(quantities, rates);
     draw();
   };
-  const draw = () => { if (!boq) return; if (comparing && baseline) renderComparison(); else render(boq); };
+  // The "now" side of a Δ: a picked target revision (repriced at current rates), else the live take-off.
+  const nowSide = (): { boq: BoQ | null; snaps: ElementSnapshot[]; isLive: boolean } =>
+    target
+      ? { boq: buildBoQ(quantitiesFromSnapshots(target.snapshots), rates), snaps: target.snapshots, isLive: false }
+      : { boq, snaps: boq ? snapshotFromQuantities(quantities) : [], isLive: true };
+  const draw = () => {
+    if (comparing && baseline && (target || boq)) { renderComparison(); return; }
+    if (boq) render(boq);
+  };
 
   // ── change tracking: baseline + compare ──────────────────────────────────────
   const setBaseline = async () => {
@@ -128,39 +139,54 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     msg(`Baseline set at ${money(boq.total, boq.currency)}${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the cost impact.`);
   };
 
+  const enterCompare = () => { comparing = true; const cb = el("cp-cmp"); cb.style.background = "#6528d7"; cb.style.color = "#fff"; };
   const toggleCompare = () => {
-    if (!baseline) { msg("Set a Baseline first (or pick a saved revision).", "#eab308"); return; }
-    if (!boq) { msg("Take off quantities first.", "#eab308"); return; }
+    if (!baseline) { msg("Pick a baseline revision first (or press Baseline to snapshot the current model).", "#eab308"); return; }
+    if (!target && !boq) { msg("Take off the current model, or pick a 'now' revision to compare against.", "#eab308"); return; }
     comparing = !comparing;
     const b = el("cp-cmp"); b.style.background = comparing ? "#6528d7" : "#2a2a30"; b.style.color = "#fff";
     draw();
   };
 
-  // ── baseline picker: compare the current model against ANY saved revision ─────
+  // ── revision pickers: diff any two — baseline (old) vs a target revision OR the current model (new) ─────
   const revLabel = (r: RevisionMeta) => `${r.rev_code || fmtDate(r.uploaded_at)} · ${r.element_count ?? "?"} el`;
-  const renderRevOptions = () => {
-    const sel = el("cp-rev") as HTMLSelectElement;
+  const fillSel = (sel: HTMLSelectElement, placeholder: string, value: string) => {
     sel.innerHTML =
-      '<option value="">baseline ▾</option>' +
+      `<option value="">${placeholder}</option>` +
       revisions.map((r) => `<option value="${esc(r.id)}">${esc(revLabel(r))}</option>`).join("");
-    sel.value = baseline?.revision_id ?? "";
-    sel.style.display = revisions.length ? "" : "none"; // hide the picker entirely when there's no history
+    sel.value = value;
+    sel.style.display = revisions.length ? "" : "none"; // hide the pickers entirely when there's no history
+  };
+  const renderRevOptions = () => {
+    fillSel(el("cp-rev") as HTMLSelectElement, "baseline ▾", baseline?.revision_id ?? "");
+    fillSel(el("cp-rev2") as HTMLSelectElement, "now: current ▾", target?.revision_id ?? "");
   };
   const loadRevisions = async () => { revisions = await fetchRevisions(base, pid()); renderRevOptions(); };
 
-  const pickRevision = async (revId: string) => {
+  // Baseline (old side): pick any saved revision. Its snapshots load; renderComparison reprices at current rates.
+  const pickBaseline = async (revId: string) => {
     if (!revId) return;
-    if (!boq) { msg("Take off the current model first, then pick a revision to compare against.", "#eab308"); renderRevOptions(); return; }
     const rev = revisions.find((r) => r.id === revId);
     msg("Loading revision…");
     const snaps = await fetchRevisionSnapshots(base, pid(), revId);
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
-    // A picked revision has element snapshots but no stored BoQ — renderComparison reprices it at current rates.
-    baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total: 0, currency: boq.currency, lines: [], snapshots: snaps, revision_id: revId };
-    comparing = true;
-    const cb = el("cp-cmp"); cb.style.background = "#6528d7"; cb.style.color = "#fff";
+    baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total: 0, currency: rates.currency, lines: [], snapshots: snaps, revision_id: revId };
+    if (target || boq) enterCompare();
     draw();
-    msg(`Comparing current vs revision ${rev ? revLabel(rev) : ""}.`);
+    msg(`Baseline = revision ${rev ? revLabel(rev) : ""}. ${target ? "" : "Now side = current model. "}Press Δ or pick a 'now' revision.`);
+  };
+
+  // Now (new side): pick a saved revision, or the empty option to use the live model.
+  const pickTarget = async (revId: string) => {
+    if (!revId) { target = null; if (comparing) draw(); msg("Now side = current model."); return; }
+    const rev = revisions.find((r) => r.id === revId);
+    msg("Loading revision…");
+    const snaps = await fetchRevisionSnapshots(base, pid(), revId);
+    if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
+    target = { snapshots: snaps, at: rev?.uploaded_at ?? new Date().toISOString(), revision_id: revId };
+    if (baseline) enterCompare();
+    draw();
+    msg(baseline ? `Comparing baseline vs revision ${rev ? revLabel(rev) : ""}.` : "Now side set — pick a baseline revision to compare.");
   };
 
   const persistRates = () => {
@@ -184,23 +210,24 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   // Element-level change (by GlobalId) — the honest layer under the line totals. A wall swapped for an
   // equal-cost wall nets to zero per line yet moved real budget; this strip shows the swap and lets the
   // user isolate the added/resized elements in the viewer. Requires a baseline captured WITH snapshots.
-  const renderChurn = (cur: string) => {
+  const renderChurn = (cur: string, now: { snaps: ElementSnapshot[]; isLive: boolean }) => {
     const banners = el("cp-banners");
     const snaps = baseline?.snapshots;
     if (!snaps || !snaps.length) {
       banners.innerHTML =
-        '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">Set a fresh <b>Baseline</b> to enable element-level change tracking (added / removed / resized by GlobalId).</div>';
+        '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">Pick a <b>baseline</b> revision (or press Baseline) to enable element-level change tracking (added / removed / resized by GlobalId).</div>';
       return;
     }
-    const diff = diffSnapshots(snaps, snapshotFromQuantities(quantities));
+    const diff = diffSnapshots(snaps, now.snaps);
     const c = costDiff(diff, rates);
     if (!(c.added || c.deleted || c.changed)) {
-      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">No element added, removed or resized since the baseline.</div>';
+      banners.innerHTML = '<div style="margin:.4rem 0;font-size:11px;color:#9ca3af">No element added, removed or resized between the two revisions.</div>';
       return;
     }
-    // guid → current model/local id, so added/resized elements can be isolated (deleted ones aren't in the model).
+    // guid → live model/local id, so added/resized elements can be isolated — only when the "now" side IS the
+    // live model (a picked target revision's elements may not be in the viewer, so isolate is disabled there).
     const gidx = new Map<string, { m: string; l: number }>();
-    for (const q of quantities) if (q.guid) gidx.set(q.guid, { m: q.model_id, l: q.local_id });
+    if (now.isLive) for (const q of quantities) if (q.guid) gidx.set(q.guid, { m: q.model_id, l: q.local_id });
     const mapFor = (guids: string[]) => {
       const mm: Record<string, number[]> = {};
       for (const g of guids) { const h = gidx.get(g); if (h) (mm[h.m] ??= []).push(h.l); }
@@ -238,20 +265,22 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   };
 
   const renderComparison = () => {
-    const b = boq!, base0 = baseline!;
-    // Reprice the baseline's snapshots at CURRENT rates so the Δ isolates composition/quantity change (and
-    // stays consistent with the churn strip + supports a picked historical revision that has no stored BoQ).
-    // Fall back to the stored lines only when there are no snapshots (a legacy inline-blob baseline).
+    const now = nowSide();
+    const b = now.boq!, base0 = baseline!;
+    // Reprice BOTH sides' snapshots at CURRENT rates so the Δ isolates composition/quantity change (and
+    // stays consistent with the churn strip + supports two picked historical revisions with no stored BoQ).
+    // Fall back to the stored lines only when the baseline has no snapshots (a legacy inline-blob baseline).
     const baseBoq = base0.snapshots?.length ? buildBoQ(quantitiesFromSnapshots(base0.snapshots), rates) : null;
     const base0Lines = baseBoq ? baseBoq.lines : base0.lines;
     const base0Total = baseBoq ? baseBoq.total : base0.total;
-    el("cp-cur").textContent = `· ${b.currency} · Δ vs baseline`;
+    const nowLabel = target ? `rev ${fmtDate(target.at)}` : "current";
+    el("cp-cur").textContent = `· ${b.currency} · Δ ${fmtDate(base0.at)} → ${nowLabel}`;
     el("cp-total").style.display = "block";
     const delta = b.total - base0Total;
     el("cp-total-v").textContent = (delta > 0 ? "+" : delta < 0 ? "−" : "") + money(Math.abs(delta), b.currency);
     el("cp-total-v").style.color = delta > 0 ? "#f87171" : delta < 0 ? "#4ade80" : "#fff";
-    el("cp-total-s").textContent = `change vs revision of ${fmtDate(base0.at)} · now ${money(b.total, b.currency)}${baseBoq ? " · at current rates" : ""}`;
-    renderChurn(b.currency);
+    el("cp-total-s").textContent = `${fmtDate(base0.at)} → ${nowLabel} · now ${money(b.total, b.currency)}${baseBoq ? " · at current rates" : ""}`;
+    renderChurn(b.currency, now);
     const strip = (s: string) => s.replace(b.currency + " ", "");
     const codes = new Set<string>([...b.lines.map((l) => l.code), ...base0Lines.map((l) => l.code)]);
     const rows = [...codes].map((code) => {
@@ -366,7 +395,8 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
 
   el("cp-take").addEventListener("click", takeOff);
   el("cp-base").addEventListener("click", setBaseline);
-  el("cp-rev").addEventListener("change", (e) => pickRevision((e.target as HTMLSelectElement).value));
+  el("cp-rev").addEventListener("change", (e) => pickBaseline((e.target as HTMLSelectElement).value));
+  el("cp-rev2").addEventListener("change", (e) => pickTarget((e.target as HTMLSelectElement).value));
   el("cp-cmp").addEventListener("click", toggleCompare);
   el("cp-csv").addEventListener("click", exportCsv);
   loadProject().then(loadRevisions); // saved rate pack + baseline, then populate the revision picker
