@@ -201,6 +201,72 @@ export async function recordAudit(key, b) {
   }))[0];
 }
 
+// ── Element snapshots (revision tracking) — migration 0005 ─────────────────────────────────────────────
+// Persist per-element, per-revision quantities keyed on the IFC GlobalId. The shared revision-diff engine
+// (WebApp/src/sentinel-core/revision-diff.ts) diffs two revisions on guid to serve 5D cost, 6D carbon, and
+// clash provenance. APPEND-ONLY: each ingest = one model_revisions row + a batch of element_snapshots.
+
+const MAX_SNAPSHOTS = 200000;              // safety cap per revision (a very large federated model)
+const SNAP_INSERT_CHUNK = 2000;            // rows per PostgREST insert (keep each request modest)
+const SNAP_PAGE = 1000;                     // read page size (matches Supabase's default db-max-rows)
+const snapNum = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
+
+/** Ingest a model revision + its element snapshots. Returns { revision_id, element_count, rev_code, uploaded_at }. */
+export async function createRevision(key, b = {}) {
+  const proj = await ensureProject(key);
+  const snaps = Array.isArray(b.snapshots) ? b.snapshots : [];
+  if (snaps.length > MAX_SNAPSHOTS) throw new Error(`too many snapshots (${snaps.length} > ${MAX_SNAPSHOTS})`);
+  // Normalize + drop guid-less rows (guid is NOT NULL and the join key), then de-dupe on guid within the batch
+  // (PK is (revision_id, guid) — a dup would 409 the whole insert; first occurrence wins, matching the diff engine).
+  const seen = new Set();
+  const deduped = snaps
+    .map((s) => ({
+      guid: s && s.guid != null ? String(s.guid) : "",
+      category: s?.category ?? null, type_name: s?.type_name ?? null,
+      count: snapNum(s?.count), length: snapNum(s?.length), area: snapNum(s?.area), volume: snapNum(s?.volume), weight: snapNum(s?.weight),
+    }))
+    .filter((r) => r.guid && (seen.has(r.guid) ? false : (seen.add(r.guid), true)));
+  // Write the revision header with the count we will actually persist, so element_count never overstates.
+  const rev = (await sb(`model_revisions`, {
+    method: "POST",
+    body: {
+      project_id: proj.id,
+      container_version_id: b.container_version_id || null,
+      rev_code: b.rev_code || null,
+      model_id: b.model_id || null,
+      element_count: deduped.length,
+      uploaded_by: b.uploaded_by || null,
+    },
+    prefer: "return=representation",
+  }))[0];
+  for (let i = 0; i < deduped.length; i += SNAP_INSERT_CHUNK) {
+    const chunk = deduped.slice(i, i + SNAP_INSERT_CHUNK).map((r) => ({ ...r, revision_id: rev.id, project_id: proj.id }));
+    await sb(`element_snapshots`, { method: "POST", body: chunk, prefer: "return=minimal" });
+  }
+  await audit(proj.id, "revision", rev.id, "snapshot ingested", b.uploaded_by || "web", null,
+    { rev_code: rev.rev_code, model_id: rev.model_id, element_count: deduped.length });
+  return { revision_id: rev.id, element_count: deduped.length, rev_code: rev.rev_code, uploaded_at: rev.uploaded_at };
+}
+
+/** List a project's revision metadata (newest first) — the baseline picker. No per-element rows. */
+export async function listRevisions(key) {
+  const proj = await ensureProject(key);
+  return sb(`model_revisions?project_id=eq.${proj.id}&select=id,rev_code,model_id,element_count,container_version_id,uploaded_by,uploaded_at&order=uploaded_at.desc&limit=200`);
+}
+
+/** Fetch one revision's element snapshots (for diffing / rehydrating a baseline). Pages past db-max-rows. */
+export async function getRevisionSnapshots(revisionId) {
+  const rid = encodeURIComponent(revisionId);
+  const out = [];
+  for (let offset = 0; ; offset += SNAP_PAGE) {
+    const batch = await sb(`element_snapshots?revision_id=eq.${rid}&select=guid,category,type_name,count,length,area,volume,weight&order=guid.asc&limit=${SNAP_PAGE}&offset=${offset}`);
+    if (!Array.isArray(batch) || !batch.length) break;
+    out.push(...batch);
+    if (batch.length < SNAP_PAGE) break;
+  }
+  return out;
+}
+
 export async function listTransmittals(key) {
   const proj = await ensureProject(key);
   return sb(`transmittals?project_id=eq.${proj.id}&select=*&order=issued_at.desc`);

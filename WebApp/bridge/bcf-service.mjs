@@ -465,6 +465,15 @@ createServer(async (req, res) => {
       }
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
+      // Element snapshots (revision tracking, migration 0005):
+      //   POST /cde/:key/snapshots  { rev_code?, model_id?, uploaded_by?, container_version_id?, snapshots:[{guid,category,type_name,count,length,area,volume,weight}] }
+      //   GET  /cde/:key/snapshots            → revision metadata (newest first, the baseline picker)
+      //   GET  /cde/:key/snapshots/:revId     → that revision's element rows (for diffing / rehydrating a baseline)
+      if (p2 === "snapshots" && !p3) {
+        if (req.method === "GET") return send(res, 200, await cde.listRevisions(p1));
+        if (req.method === "POST") return send(res, 201, await cde.createRevision(p1, await readBody(req)));
+      }
+      if (p2 === "snapshots" && p3 && req.method === "GET") return send(res, 200, await cde.getRevisionSnapshots(p3));
       // Folders (per-project tree): GET/POST /cde/:key/folders · PUT/DELETE /cde/folders/:fid · PUT /cde/containers/:cid/folder
       if (p2 === "folders" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listFolders(p1));
