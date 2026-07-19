@@ -28,6 +28,22 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   let known = new Set<string>();
   try { known = new Set(JSON.parse(localStorage.getItem(knownKey()) || "[]")); } catch { /* */ }
   const persistKnown = () => { try { localStorage.setItem(knownKey(), JSON.stringify([...known])); } catch { /* */ } };
+
+  // Server-side clash-status store (team-wide dedup + lifecycle). localStorage stays as an offline mirror,
+  // so a stale bridge without the /clash route degrades cleanly to the old per-browser behaviour.
+  const loadKnownFromServer = async () => {
+    try {
+      const r = await fetch(`${base}/clash/${encodeURIComponent(pid())}`);
+      if (!r.ok) return; // route absent (bridge not restarted) → keep localStorage-only
+      const data = await r.json();
+      if (Array.isArray(data?.items)) { for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown(); }
+    } catch { /* offline → localStorage only */ }
+  };
+  const knownReady = loadKnownFromServer();
+  const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null }[]) =>
+    fetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
+  const resetKnownOnServer = () => fetch(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" }).catch(() => {});
+
   let clashes: Clash[] = [];
   let tol = 0.02;
 
@@ -85,6 +101,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   async function run() {
     if (fragments.list.size === 0) { status("Load a model first."); return; }
+    await knownReady; // load the team-wide known set before filtering (first run only; resolves instantly after)
     status("Running clash (reading boxes)…");
     try {
       const res = await runClash(fragments, known, tol);
@@ -137,6 +154,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     const post = (path: string, body: unknown) =>
       fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     let raised = 0;
+    const raisedItems: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null }[] = [];
     for (const c of top) {
       try {
         const ga = guids.get(`${c.a.modelId}:${c.a.localId}`), gb = guids.get(`${c.b.modelId}:${c.b.localId}`);
@@ -154,10 +172,12 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
           new_value: { signature: c.id, volume: c.volume, bcf_guid: (topic as { guid?: string })?.guid ?? null },
         }).catch(() => {});
         known.add(c.id);
+        raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${label(c, "a")} ↔ ${label(c, "b")}`, bcf_guid: (topic as { guid?: string })?.guid ?? null });
         raised++;
       } catch { /* keep going */ }
     }
     persistKnown();
+    if (raisedItems.length) pushKnownToServer(raisedItems); // team-wide, survives browser/machine
     clashes = clashes.filter((c) => !known.has(c.id));
     renderList();
     status(`Raised ${raised} clash(es) → Issues + Revit; recorded in the CDE audit. They won't re-surface on the next run.`);
@@ -166,7 +186,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   el("cl-run").addEventListener("click", run);
   el("cl-colour").addEventListener("click", colourAll);
   el("cl-raise").addEventListener("click", raise);
-  el("cl-reset").addEventListener("click", () => { known.clear(); persistKnown(); status("Cleared known clashes — the next run re-surfaces all."); });
+  el("cl-reset").addEventListener("click", () => { known.clear(); persistKnown(); resetKnownOnServer(); status("Cleared known clashes (this project, team-wide) — the next run re-surfaces all."); });
   el("cl-tol").addEventListener("change", (e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (v >= 0) tol = v; });
   return root;
 }

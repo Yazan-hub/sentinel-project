@@ -108,6 +108,43 @@ const PACK_STORE = process.env.SENTINEL_PACK_STORE
 let pkdb = loadJson(PACK_STORE, { packs: [] });
 const persistPack = () => writeJsonAtomic(PACK_STORE, pkdb);
 
+// ── Clash status store (Coordination): server-side dedup + a status lifecycle, replacing the per-browser
+// localStorage "known" set so a resolved/raised clash stays hidden for the whole team, not just one machine.
+// Records are keyed on the clash SIGNATURE (GlobalId pair — stable across a re-export; see clash.ts::keyOf).
+const CLASH_STORE = process.env.SENTINEL_CLASH_STORE
+  || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "clash-store.json");
+/** @type {{clashes: any[]}} */
+let cldb = loadJson(CLASH_STORE, { clashes: [] });
+const persistClash = () => writeJsonAtomic(CLASH_STORE, cldb);
+const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved"]; // new→raised→reviewed→approved→resolved
+const clashItems = (pid) => cldb.clashes.filter((c) => c.project === pid);
+/** Upsert a batch of clash records (raise-time). Merge by signature; unknown status defaults to "raised". */
+const upsertClashes = (pid, items) => {
+  const now = new Date().toISOString();
+  for (const it of Array.isArray(items) ? items : []) {
+    if (!it || !it.signature) continue;
+    const status = CLASH_STATUSES.includes(it.status) ? it.status : "raised";
+    let rec = cldb.clashes.find((c) => c.project === pid && c.signature === it.signature);
+    if (!rec) {
+      cldb.clashes.push({ project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, created_at: now, updated_at: now });
+    } else {
+      rec.status = status;
+      if (it.bcf_guid) rec.bcf_guid = it.bcf_guid;
+      if (it.volume != null) rec.volume = it.volume;
+      if (it.label) rec.label = it.label;
+      rec.updated_at = now;
+    }
+  }
+  persistClash();
+};
+const updateClashStatus = (pid, signature, status) => {
+  if (!signature || !CLASH_STATUSES.includes(status)) return false;
+  const rec = cldb.clashes.find((c) => c.project === pid && c.signature === signature);
+  if (!rec) return false;
+  rec.status = status; rec.updated_at = new Date().toISOString(); persistClash();
+  return true;
+};
+
 const send = (res, code, body) => {
   res.writeHead(code, {
     "Content-Type": "application/json",
@@ -453,6 +490,20 @@ createServer(async (req, res) => {
       }
       return send(res, 404, { message: "CDE route not found" });
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+  }
+
+  // ── Clash status: GET/POST/PUT /clash/:pid · POST /clash/:pid/reset ──
+  //   GET  → { items:[{signature,status,volume,label,bcf_guid,...}] }  (the team-wide "known" set)
+  //   POST → upsert body { items:[...] } (raise-time)   ·   PUT → body { signature, status } (lifecycle)
+  //   POST /clash/:pid/reset → clear this project's records (re-surface all)
+  const cm = url.pathname.match(/^\/clash\/([^/]+)(?:\/(reset))?$/);
+  if (cm) {
+    const [, cpid, sub] = cm;
+    if (req.method === "GET" && !sub) return send(res, 200, { items: clashItems(cpid) });
+    if (req.method === "POST" && sub === "reset") { cldb.clashes = cldb.clashes.filter((c) => c.project !== cpid); persistClash(); return send(res, 200, { ok: true }); }
+    if (req.method === "POST" && !sub) { upsertClashes(cpid, (await readBody(req)).items); return send(res, 201, { items: clashItems(cpid) }); }
+    if (req.method === "PUT" && !sub) { const b = await readBody(req); return send(res, 200, { ok: updateClashStatus(cpid, b.signature, b.status) }); }
+    return send(res, 405, { message: "method not allowed" });
   }
 
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]
