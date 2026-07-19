@@ -13,12 +13,39 @@
 //   POST   /bcf/3.0/projects/:pid/topics/:guid/viewpoints     add viewpoint { perspective_camera, components, ... }
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.BCF_PORT) || 4100;
+// Week-0 hardening: bind to loopback by default (each user runs the bridge locally). Only set
+// BCF_HOST=0.0.0.0 behind real auth + a reverse proxy. CORS defaults to * for dev; lock it to the
+// platform origin in shared/hosted deployments via BCF_CORS_ORIGIN.
+const HOST = process.env.BCF_HOST || "127.0.0.1";
+const CORS_ORIGIN = process.env.BCF_CORS_ORIGIN || "*";
+const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+
+// Crash-safe JSON persistence: write a temp file then atomically rename, so a crash mid-write can never
+// truncate the store. On read, a genuine ENOENT starts empty silently, but a CORRUPT/unreadable file is
+// preserved aside (.corrupt-*) and logged loudly — never silently reinterpreted as "first run" (which
+// would drop all data).
+const writeJsonAtomic = (file, obj) => {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  renameSync(tmp, file);
+};
+const loadJson = (file, fallback) => {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    if (e && e.code === "ENOENT") return fallback; // genuine first run
+    try { renameSync(file, `${file}.corrupt-${process.pid}`); } catch { /* best effort */ }
+    process.stderr.write(`[bridge] WARN: ${file} unreadable (${e && e.message}); preserved as .corrupt-* and starting empty\n`);
+    return fallback;
+  }
+};
 
 // Sheet PNGs the Revit plugin renders (sheets never survive IFC export). One sub-folder per model, each with
 // a manifest.json + <number>.png files. Served read-only to the web app's BIM Tools → Sheets tab.
@@ -36,17 +63,15 @@ const CDE_FILES_ROOT = process.env.SENTINEL_CDE_FILES
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "cde-files");
 
 /** @type {{topics: any[]}} */
-let db = { topics: [] };
-try { db = JSON.parse(readFileSync(STORE, "utf8")); } catch { /* first run */ }
-const persist = () => { mkdirSync(dirname(STORE), { recursive: true }); writeFileSync(STORE, JSON.stringify(db, null, 2)); };
+let db = loadJson(STORE, { topics: [] });
+const persist = () => writeJsonAtomic(STORE, db);
 
 // ── Sentinel project store (Phase 1 — the governed-dataset metadata the platform doesn't model) ──
 const PROJ_STORE = process.env.SENTINEL_PROJECT_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "project-store.json");
 /** @type {{projects: any[]}} */
-let pdb = { projects: [] };
-try { pdb = JSON.parse(readFileSync(PROJ_STORE, "utf8")); } catch { /* first run */ }
-const persistProj = () => { mkdirSync(dirname(PROJ_STORE), { recursive: true }); writeFileSync(PROJ_STORE, JSON.stringify(pdb, null, 2)); };
+let pdb = loadJson(PROJ_STORE, { projects: [] });
+const persistProj = () => writeJsonAtomic(PROJ_STORE, pdb);
 
 const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
 const defaultProject = (pid) => ({
@@ -64,17 +89,15 @@ const getProject = (pid) => {
 const RFI_STORE = process.env.SENTINEL_RFI_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "rfi-store.json");
 /** @type {{rfis: any[]}} */
-let rdb = { rfis: [] };
-try { rdb = JSON.parse(readFileSync(RFI_STORE, "utf8")); } catch { /* first run */ }
-const persistRfi = () => { mkdirSync(dirname(RFI_STORE), { recursive: true }); writeFileSync(RFI_STORE, JSON.stringify(rdb, null, 2)); };
+let rdb = loadJson(RFI_STORE, { rfis: [] });
+const persistRfi = () => writeJsonAtomic(RFI_STORE, rdb);
 
 // ── Tenders / bids (Phase 4 — BoQ-driven tendering, front of the lifecycle) ──
 const TENDER_STORE = process.env.SENTINEL_TENDER_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "tender-store.json");
 /** @type {{tenders: any[]}} */
-let tndb = { tenders: [] };
-try { tndb = JSON.parse(readFileSync(TENDER_STORE, "utf8")); } catch { /* first run */ }
-const persistTender = () => { mkdirSync(dirname(TENDER_STORE), { recursive: true }); writeFileSync(TENDER_STORE, JSON.stringify(tndb, null, 2)); };
+let tndb = loadJson(TENDER_STORE, { tenders: [] });
+const persistTender = () => writeJsonAtomic(TENDER_STORE, tndb);
 /** A bid's total = Σ line.qty × (bid rate for that line, else the estimate rate). */
 const bidTotal = (scope, rates) => scope.reduce((s, l) => s + l.qty * (rates[l.code] != null ? Number(rates[l.code]) : l.rate), 0);
 
@@ -82,14 +105,13 @@ const bidTotal = (scope, rates) => scope.reduce((s, l) => s + l.qty * (rates[l.c
 const PACK_STORE = process.env.SENTINEL_PACK_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "pack-store.json");
 /** @type {{packs: any[]}} */
-let pkdb = { packs: [] };
-try { pkdb = JSON.parse(readFileSync(PACK_STORE, "utf8")); } catch { /* first run */ }
-const persistPack = () => { mkdirSync(dirname(PACK_STORE), { recursive: true }); writeFileSync(PACK_STORE, JSON.stringify(pkdb, null, 2)); };
+let pkdb = loadJson(PACK_STORE, { packs: [] });
+const persistPack = () => writeJsonAtomic(PACK_STORE, pkdb);
 
 const send = (res, code, body) => {
   res.writeHead(code, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",                    // dev; restrict to the platform origin in prod
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
     "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
   });
@@ -99,7 +121,14 @@ const readBody = (req) => new Promise((resolve) => {
   let s = ""; req.on("data", (c) => (s += c)); req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); } });
 });
 const readRaw = (req) => new Promise((resolve, reject) => {
-  const chunks = []; req.on("data", (c) => chunks.push(c)); req.on("end", () => resolve(Buffer.concat(chunks))); req.on("error", reject);
+  const chunks = []; let total = 0;
+  req.on("data", (c) => {
+    total += c.length;
+    if (total > MAX_UPLOAD) { req.destroy(); reject(new Error(`payload exceeds ${Math.round(MAX_UPLOAD / 1048576)} MB cap`)); return; }
+    chunks.push(c);
+  });
+  req.on("end", () => resolve(Buffer.concat(chunks)));
+  req.on("error", reject);
 });
 
 // ── SSE live sync: clients subscribe per project; changes are pushed to them instantly ──
@@ -324,6 +353,7 @@ createServer(async (req, res) => {
   // fragments and uploads via the same @thatopen/services client the outbox watcher uses.
   if (url.pathname === "/ifc" && req.method === "POST") {
     try {
+      if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
@@ -356,9 +386,9 @@ createServer(async (req, res) => {
   // Deliberately ABOVE the Supabase /cde/ block so it never hits the service-key 503 guard.
   if (url.pathname === "/cde/files" && req.method === "POST") {
     try {
+      if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body" });
-      if (bytes.length > 512 * 1024 * 1024) return send(res, 413, { message: "File too large (>512MB)" });
       const id = randomUUID();
       mkdirSync(CDE_FILES_ROOT, { recursive: true });
       writeFileSync(join(CDE_FILES_ROOT, `${id}.bin`), bytes);
@@ -508,4 +538,4 @@ createServer(async (req, res) => {
   } catch (e) {
     return send(res, 500, { message: String(e?.message || e) });
   }
-}).listen(PORT, () => console.log(`Sentinel BCF-API 3.0 listening on http://localhost:${PORT}  (store: ${STORE})`));
+}).listen(PORT, HOST, () => console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`));
