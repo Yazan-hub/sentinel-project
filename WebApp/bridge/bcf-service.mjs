@@ -620,6 +620,8 @@ async function handleRequest(req, res) {
         if (req.method === "POST") return send(res, 201, await cde.createRevision(p1, await readBody(req)));
       }
       if (p2 === "snapshots" && p3 && req.method === "GET") return send(res, 200, await cde.getRevisionSnapshots(p3));
+      // IFC5-aligned ECS export of the governed element graph: GET /cde/:key/element-graph[?revision=<id>]
+      if (p2 === "element-graph" && !p3 && req.method === "GET") return send(res, 200, await cde.getElementGraph(p1, url.searchParams.get("revision") || undefined));
       // E2E crypto keystore (envelope scheme): the server-side wrapped DEK + salt for a project. Useless
       //   without the passphrase (zero-knowledge). GET → keystore|null · POST → create-only (409 if exists) ·
       //   PUT → replace (passphrase re-key).

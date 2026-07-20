@@ -347,6 +347,22 @@ export async function listRevisions(key) {
   return sb(`model_revisions?project_id=eq.${proj.id}&select=id,rev_code,model_id,element_count,container_version_id,uploaded_by,uploaded_at&order=uploaded_at.desc&limit=200`);
 }
 
+/** IFC5-aligned ECS export of the governed element graph for a project (default = latest revision). */
+export async function getElementGraph(key, revisionId) {
+  const revs = await listRevisions(key);
+  const rev = revisionId ? (revs.find((r) => r.id === revisionId) ?? { id: revisionId }) : (revs[0] ?? null);
+  if (!rev) return { revision: null, graph: { schema: "sentinel.element-graph/1", layer: key, count: 0, elements: [] } };
+  const rows = await getRevisionSnapshots(rev.id);
+  const measures = ["count", "length", "area", "volume", "weight"];
+  const snaps = rows.map((r) => {
+    const quantities = {};
+    for (const m of measures) if (r[m] != null) quantities[m] = Number(r[m]);
+    return { guid: r.guid, category: r.category, type_name: r.type_name, quantities };
+  });
+  const c = await core();
+  return { revision: rev, graph: c.toElementGraph(snaps, `${key}${rev.rev_code ? "@" + rev.rev_code : ""}`) };
+}
+
 /** Fetch one revision's element snapshots (for diffing / rehydrating a baseline). Pages past db-max-rows. */
 export async function getRevisionSnapshots(revisionId) {
   const rid = encodeURIComponent(revisionId);

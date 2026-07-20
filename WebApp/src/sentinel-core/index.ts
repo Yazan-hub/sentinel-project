@@ -54,6 +54,7 @@ export {
 } from "./revision-diff";
 export { priceSnapshot, costDiff, type DiffCost } from "./revision-cost";
 export { carbonOfSnapshot, carbonDiff, type DiffCarbon } from "./revision-carbon";
+export { toElementGraph, type ElementGraph, type ElementNode, type ElementComponents } from "./element-graph";
 export {
   assess,
   toCobieCsv,

@@ -686,6 +686,18 @@ function carbonDiff(diff, f) {
   };
 }
 
+// src/sentinel-core/element-graph.ts
+function toElementGraph(snapshots, layer = "base") {
+  const elements = [];
+  for (const s of snapshots) {
+    if (!s.guid) continue;
+    const components = { identity: { class: s.category ?? "", ...s.type_name ? { type: s.type_name } : {} } };
+    if (s.quantities && Object.keys(s.quantities).length) components.quantities = s.quantities;
+    elements.push({ id: s.guid, components });
+  }
+  return { schema: "sentinel.element-graph/1", layer, count: elements.length, elements };
+}
+
 // src/sentinel-core/cobie.ts
 var REQUIRED_FIELDS = ["serial", "manufacturer", "warranty", "install_date"];
 var nonEmpty = (v) => v != null && String(v).trim() !== "";
@@ -1069,5 +1081,6 @@ export {
   snapshotFromQuantities,
   summarizeDiff,
   toCobieCsv,
+  toElementGraph,
   validateElement
 };
