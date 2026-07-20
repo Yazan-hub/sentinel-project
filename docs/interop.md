@@ -35,6 +35,13 @@ Revit  ──save/sync──►  IFC → outbox  ──watch-outbox──►  Th
 delivery gate / preflight / health-scorecard mirror the web's IDS + gates (same BDS ruleset origin); Revit
 publishes now land in the web app's **hash-chained audit trail** (`GovernedNotify`, commit 8a16493).
 
+**Quantities for any tool:** 5D cost / 6D carbon read IFC `Qto_` base-quantity sets when present. When an export
+omits them (common outside Revit, and in older/simple exports), the web app **derives length/area/volume from
+each element's bounding box** and flags the result *estimated* (`deriveQuantitiesFromBox`, commit 972da0a) — so
+take-off works for any IFC regardless of the authoring tool's export settings, while staying honest that authored
+`Qto_` is more precise. Revit's own export already sets `ExportBaseQuantities = true` (`PlatformExporter.cs`), so
+models published from Revit carry real quantities and skip the estimate.
+
 ## Revit integration roadmap (each a small, bridge-only add — no new deps)
 
 1. **Snapshot ingest on publish** — extract per-element quantities (GlobalId + category + Qto) and
