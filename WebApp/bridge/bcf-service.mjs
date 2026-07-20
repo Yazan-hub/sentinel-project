@@ -726,7 +726,9 @@ async function handleRequest(req, res) {
       if (p2 === "propose" && !p3 && req.method === "POST") {
         const b = await readBody(req);
         const result = await cde.adjudicateProposal(p1, b);
-        if (result.verdict === "rejected" && b.raise_bcf !== false) {
+        // Raise a BCF issue per failing requirement whenever there ARE element failures and the IDS isn't "off"
+        // — covers both a hard reject AND a warn (published-but-flagged), so warned checks are still tracked.
+        if ((result.failures?.length > 0) && result.ids_enforce !== "off" && b.raise_bcf !== false) {
           try { result.bcf = await raiseGovernedFailureTopics(cde, p1, result, { author: b.actor || b.source }); }
           catch (e) { result.bcf = { raised: 0, error: String(e?.message || e) }; }
         }

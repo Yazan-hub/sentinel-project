@@ -34,6 +34,10 @@ export interface IdsSpecification {
 }
 export interface IdsSpec {
   title: string;
+  /** How the Governed Publish gate treats element-check failures. Applied by the bridge (adjudicate stays a
+   *  pure validator): "reject" (default) fails the publish; "warn" publishes but records + raises the failures
+   *  as tracked issues; "off" ignores them. Lets a pilot loosen data checks at early schematic, then tighten. */
+  enforce?: "reject" | "warn" | "off";
   specifications: IdsSpecification[];
 }
 

@@ -1,0 +1,35 @@
+{
+  "title": "BDS LOD 300 element checks (schematic)",
+  "enforce": "warn",
+  "_note": "Reference BDS element ruleset derived from the LOD Matrix (LOD 300/350). enforce=warn during schematic: missing data is recorded + raised as BCF but still PUBLISHES, so the pilot team isn't blocked. Tighten to enforce=reject at DD/CD. Copy to %AppData%/Sentinel/ids.json to make it the active gate; a future Base template swaps it.",
+  "specifications": [
+    {
+      "name": "Every element is named",
+      "applicability": { "entity": "^IFC" },
+      "requirements": { "attributes": [{ "name": "Name", "cardinality": "required" }], "properties": [] }
+    },
+    {
+      "name": "Every governed element carries a BDS discipline",
+      "applicability": { "entity": "^IFC(WALL|SLAB|COLUMN|BEAM|DOOR|WINDOW|COVERING|ROOF|STAIR|FOOTING)" },
+      "requirements": {
+        "attributes": [],
+        "properties": [{ "pset": "Pset_BDS", "name": "Discipline", "pattern": "^(ARC|INT|STR|MEP|CIV|LAN)$", "cardinality": "required" }]
+      }
+    },
+    {
+      "name": "Walls carry a fire rating (LOD 350)",
+      "applicability": { "entity": "IFCWALL" },
+      "requirements": { "attributes": [], "properties": [{ "pset": "Pset_WallCommon", "name": "FireRating", "cardinality": "required" }] }
+    },
+    {
+      "name": "Doors carry a fire rating (LOD 350)",
+      "applicability": { "entity": "IFCDOOR" },
+      "requirements": { "attributes": [], "properties": [{ "pset": "Pset_DoorCommon", "name": "FireRating", "cardinality": "required" }] }
+    },
+    {
+      "name": "Windows carry a U-value (LOD 350)",
+      "applicability": { "entity": "IFCWINDOW" },
+      "requirements": { "attributes": [], "properties": [{ "pset": "Pset_WindowCommon", "name": "ThermalTransmittance", "cardinality": "required" }] }
+    }
+  ]
+}

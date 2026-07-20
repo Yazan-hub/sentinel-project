@@ -556,6 +556,16 @@ export async function adjudicateProposal(key, b = {}) {
   const { summary, failures } = adj;
   let verdict = adj.verdict;
 
+  // IDS enforcement: adjudicate is a pure validator; the ruleset's `enforce` decides whether element-check
+  // failures block the publish. "reject" (default) → failures reject; "warn" → publish but keep the failures
+  // as tracked warnings (still raised as BCF so the team sees them); "off" → ignore them entirely.
+  const idsEnforce = (spec && typeof spec.enforce === "string") ? spec.enforce : "reject";
+  let warned = false;
+  if (verdict === "rejected" && idsEnforce !== "reject") {
+    verdict = "accepted";
+    warned = idsEnforce === "warn" && failures.length > 0;
+  }
+
   // Naming gate: if the caller supplies the container/file name, validate it against the (swappable) naming
   // ruleset and fold the result into the verdict per the ruleset's enforcement level. `reject` → a bad name
   // fails the whole publish (even if the IDS passed); `warn` → recorded but doesn't block; `off`/absent → skip.
@@ -590,12 +600,12 @@ export async function adjudicateProposal(key, b = {}) {
       body: {
         project_id: proj.id, entity_type: "file_version", entity_id: b.version_id,
         action: `verdict:${verdict}`, actor: b.actor ?? b.source ?? "agent", old_value: null,
-        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming },
+        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming, warned },
       },
       prefer: "return=minimal", service: true,
     });
   }
-  return { verdict, summary, failures: failures.slice(0, 200), naming, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
+  return { verdict, summary, failures: failures.slice(0, 200), naming, warned, ids_enforce: idsEnforce, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
