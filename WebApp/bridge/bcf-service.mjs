@@ -231,6 +231,11 @@ function broadcast(project, payload) {
     import("./cde-store.mjs").then((cde) => { if (cde.cdeConfigured()) cde.emitEvent(project, INSTANCE_ID, payload).catch(() => {}); }).catch(() => {});
   }
 }
+// The governed-core validators (bundled from src/sentinel-core → sentinel-core.mjs) — the SAME pure code the
+// browser + propose API use; lazy-loaded so a plain BCF-only run never touches it.
+let _core = null;
+const loadCore = async () => (_core ??= await import("./sentinel-core.mjs"));
+
 /** The canonical BCF-3.0 topic object — one shape shared by the POST /topics route and the governed
  *  fail→BCF hook, so a machine-raised issue is byte-identical to a hand-raised one (same fields the web
  *  Issues panel + Revit BcfSyncManager expect). */
@@ -255,37 +260,30 @@ function newTopicObject(pid, b, now) {
 async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   const author = opts.author || "Governed Publish";
   const idsTitle = result?.summary?.ids || "IDS";
-  // Group failing elements by "specification — requirement" → one issue per broken requirement.
-  const groups = new Map();
-  for (const f of result.failures || []) {
-    const k = `${f.specification} — ${f.requirement}`;
-    const g = groups.get(k) || { count: 0, guids: [] };
-    g.count++;
-    if (f.element) g.guids.push(String(f.element));
-    groups.set(k, g);
-  }
-  if (!groups.size) return { raised: 0, skipped: 0, topics: [] };
-  // Dedup: skip requirements that already have an OPEN IDS topic (idempotent on re-publish).
+  // Which requirements already have an OPEN IDS topic → dedup keys (BCF-title parsing stays here; it's the
+  // BCF-shape-specific inverse of the `IDS: <key> (N failing)` subject built below).
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
-  const openReqs = new Set((existing || [])
+  const openReqs = (existing || [])
     .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
-    .map((t) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, "")));
+    .map((t) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, ""));
+  // Pure, unit-tested grouping + dedup (sentinel-core) — one issue per still-open failing requirement.
+  const core = await loadCore();
+  const groups = core.groupFailuresForBcf(result.failures || [], openReqs);
+  if (!groups.length) return { raised: 0, skipped: openReqs.length, topics: [] };
   const now = new Date().toISOString();
   const raised = [];
-  let skipped = 0;
-  for (const [req, info] of groups) {
-    if (openReqs.has(req)) { skipped++; continue; }
+  for (const g of groups) {
     const topic = newTopicObject(pid, {
-      title: `IDS: ${req} (${info.count} failing)`, topic_type: "Issue", priority: "High",
+      title: `IDS: ${g.key} (${g.count} failing)`, topic_type: "Issue", priority: "High",
       creation_author: author,
-      description: `IDS “${idsTitle}” — ${info.count} element(s) fail: ${req}.` +
-        (info.guids.length ? ` Sample GUIDs: ${info.guids.slice(0, 10).join(", ")}` : ""),
+      description: `IDS “${idsTitle}” — ${g.count} element(s) fail: ${g.key}.` +
+        (g.guids.length ? ` Sample GUIDs: ${g.guids.slice(0, 10).join(", ")}` : ""),
     }, now);
-    if (info.guids.length) {
+    if (g.guids.length) {
       topic.viewpoints.push({
         guid: randomUUID(), perspective_camera: null,
-        components: { selection: info.guids.slice(0, 500).map((g) => ({ ifc_guid: g })) },
+        components: { selection: g.guids.slice(0, 500).map((x) => ({ ifc_guid: x })) },
         clipping_planes: [], snapshot: null,
       });
     }
@@ -293,13 +291,13 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
     broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
     try {
       await cde.recordAudit(pid, {
-        entity_type: "ids_validation", actor: author, action: `Issue raised: ${req}`,
-        new_value: { spec: idsTitle, requirement: req, failing: info.count, bcf_guid: topic.guid },
+        entity_type: "ids_validation", actor: author, action: `Issue raised: ${g.key}`,
+        new_value: { spec: idsTitle, requirement: g.key, failing: g.count, bcf_guid: topic.guid },
       });
     } catch { /* audit is best-effort — the topic is already live */ }
     raised.push({ guid: topic.guid, title: topic.title });
   }
-  return { raised: raised.length, skipped, topics: raised };
+  return { raised: raised.length, skipped: openReqs.length, topics: raised };
 }
 
 /** Poll the shared event feed and re-broadcast other bridges' events to our local clients (near-real-time). */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateElement, applies, adjudicate, DEMO_IDS, type IdsSpec } from "./ids";
+import { validateElement, applies, adjudicate, groupFailuresForBcf, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
 import type { ElementProperties } from "./adapter/element-properties";
 
 const elem = (cls: string, name: string | undefined, psets: { name: string; rows: { name: string; value: string }[] }[] = [], guid = "G"): ElementProperties => ({
@@ -83,5 +83,44 @@ describe("adjudicate (the referee)", () => {
     const a = adjudicate(DEMO_IDS, [elem("IFCWALL", undefined)]); // unnamed wall → fails "must be named" + missing IsExternal
     expect(a.verdict).toBe("rejected");
     expect(a.summary.failing).toBe(1);
+  });
+});
+
+describe("groupFailuresForBcf (governed reject → one issue per requirement)", () => {
+  const fail = (specification: string, requirement: string, element: string | null): Failure & { element: string | null } =>
+    ({ specification, requirement, reason: "REQUIRED but missing", element });
+
+  it("groups failures by '<spec> — <requirement>' and collects failing GlobalIds", () => {
+    const groups = groupFailuresForBcf([
+      fail("Walls declare IsExternal", "Pset_WallCommon.IsExternal", "w1"),
+      fail("Walls declare IsExternal", "Pset_WallCommon.IsExternal", "w2"),
+      fail("Doors carry a FireRating", "Pset_DoorCommon.FireRating", "d1"),
+    ]);
+    expect(groups).toHaveLength(2);
+    const wall = groups.find((g) => g.key.startsWith("Walls"))!;
+    expect(wall).toMatchObject({ key: "Walls declare IsExternal — Pset_WallCommon.IsExternal", count: 2 });
+    expect(wall.guids).toEqual(["w1", "w2"]);
+  });
+
+  it("drops requirements that already have an open issue (idempotent re-publish)", () => {
+    const failures = [fail("A", "r1", "e1"), fail("B", "r2", "e2")];
+    const open = ["A — r1"]; // one already raised
+    const groups = groupFailuresForBcf(failures, open);
+    expect(groups.map((g) => g.key)).toEqual(["B — r2"]);
+  });
+
+  it("returns empty when every requirement is already open, and when there are no failures", () => {
+    expect(groupFailuresForBcf([])).toEqual([]);
+    const failures = [fail("A", "r1", "e1")];
+    expect(groupFailuresForBcf(failures, ["A — r1"])).toEqual([]);
+  });
+
+  it("omits blank/absent GlobalIds from the viewpoint selection", () => {
+    const groups = groupFailuresForBcf([
+      fail("A", "r1", null),
+      fail("A", "r1", ""),
+      fail("A", "r1", "e3"),
+    ]);
+    expect(groups[0]).toMatchObject({ count: 3, guids: ["e3"] });
   });
 });

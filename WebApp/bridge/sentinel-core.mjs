@@ -970,6 +970,21 @@ function adjudicate(spec, elements) {
     failures
   };
 }
+function groupFailuresForBcf(failures, openRequirements = []) {
+  const open = new Set(typeof openRequirements === "string" ? [openRequirements] : openRequirements);
+  const groups = /* @__PURE__ */ new Map();
+  for (const f of failures) {
+    const key = `${f.specification} \u2014 ${f.requirement}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, count: 0, guids: [] };
+      groups.set(key, g);
+    }
+    g.count++;
+    if (f.element != null && f.element !== "") g.guids.push(String(f.element));
+  }
+  return [...groups.values()].filter((g) => !open.has(g.key));
+}
 var DEMO_IDS = {
   title: "Sentinel demo IDS (starter checks)",
   specifications: [
@@ -1080,6 +1095,7 @@ export {
   describe,
   diffSnapshots,
   evaluateGate,
+  groupFailuresForBcf,
   levelSequence,
   missingFields,
   netDelta,

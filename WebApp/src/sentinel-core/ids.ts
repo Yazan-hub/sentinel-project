@@ -158,6 +158,37 @@ export function adjudicate(spec: IdsSpec | null, elements: ElementProperties[]):
   };
 }
 
+// ── Failure → BCF grouping (the "governed reject raises one issue per broken requirement" decision) ─────────
+/** One BCF issue's worth of failures: a "<specification> — <requirement>" key, how many elements broke it,
+ *  and their GlobalIds (the viewpoint selection). `key` doubles as the human-readable topic subject. */
+export interface RequirementGroup {
+  key: string;
+  count: number;
+  guids: string[];
+}
+
+/**
+ * Group adjudication failures into one issue per failing requirement, dropping requirements that already have
+ * an open issue (idempotent on re-publish). PURE — the caller builds/persists the actual BCF topics and owns
+ * the BCF-specific title parsing that yields `openRequirements`. Shared by the bridge's governed fail→BCF hook
+ * (G2) and the web IDS panel so the grouping/dedup rule lives in one tested place, not duplicated per caller.
+ */
+export function groupFailuresForBcf(
+  failures: (Failure & { element?: string | number | null })[],
+  openRequirements: Iterable<string> = [],
+): RequirementGroup[] {
+  const open = new Set<string>(typeof openRequirements === "string" ? [openRequirements] : openRequirements);
+  const groups = new Map<string, RequirementGroup>();
+  for (const f of failures) {
+    const key = `${f.specification} — ${f.requirement}`;
+    let g = groups.get(key);
+    if (!g) { g = { key, count: 0, guids: [] }; groups.set(key, g); }
+    g.count++;
+    if (f.element != null && f.element !== "") g.guids.push(String(f.element));
+  }
+  return [...groups.values()].filter((g) => !open.has(g.key));
+}
+
 /** A tiny built-in IDS so the feature is testable immediately without an .ids file. */
 export const DEMO_IDS: IdsSpec = {
   title: "Sentinel demo IDS (starter checks)",
