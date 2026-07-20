@@ -140,12 +140,14 @@ const upsertClashes = (pid, items) => {
     const status = CLASH_STATUSES.includes(it.status) ? it.status : "raised";
     let rec = cldb.clashes.find((c) => c.project === pid && c.signature === it.signature);
     if (!rec) {
-      cldb.clashes.push({ project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, created_at: now, updated_at: now });
+      cldb.clashes.push({ project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
     } else {
       rec.status = status;
       if (it.bcf_guid) rec.bcf_guid = it.bcf_guid;
       if (it.volume != null) rec.volume = it.volume;
       if (it.label) rec.label = it.label;
+      if (it.elements) rec.elements = it.elements; // provenance (captured once at raise; preserved on status updates)
+      if (it.overlap) rec.overlap = it.overlap;
       rec.updated_at = now;
     }
   }
@@ -170,8 +172,8 @@ async function upsertClashesCde(cde, pid, items) {
     const status = CLASH_STATUSES.includes(it.status) ? it.status : "raised";
     const prev = touched.get(it.signature) || bySig.get(it.signature);
     touched.set(it.signature, prev
-      ? { ...prev, status, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, updated_at: now }
-      : { project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, created_at: now, updated_at: now });
+      ? { ...prev, status, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, elements: it.elements || prev.elements, overlap: it.overlap || prev.overlap, updated_at: now }
+      : { project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
   }
   await cde.docUpsertMany("clash", pid, [...touched].map(([sig, data]) => ({ doc_id: sig, data })));
 }

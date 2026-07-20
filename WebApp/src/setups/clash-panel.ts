@@ -40,7 +40,11 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     } catch { /* offline → localStorage only */ }
   };
   const knownReady = loadKnownFromServer();
-  const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null }[]) =>
+  // Per-element provenance captured at raise-time (immutable in the clash record + audit): what the two
+  // clashing elements WERE when flagged, keyed on the revision-stable IFC GlobalId — so a resolved clash
+  // stays auditable even after the model changes.
+  type ClashElement = { guid: string | null; category: string | null; name: string | null; model_id: string; local_id: number };
+  const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[]) =>
     fetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
   const resetKnownOnServer = () => fetch(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" }).catch(() => {});
 
@@ -129,58 +133,75 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     } catch (e) { status("Colour failed: " + ((e as Error)?.message ?? String(e))); }
   }
 
-  async function guidsFor(items: { modelId: string; localId: number }[]): Promise<Map<string, string>> {
+  // Fetch each element's IFC identity at raise-time (GlobalId + category + name) for provenance + the viewpoint.
+  async function elemInfoFor(items: { modelId: string; localId: number }[]): Promise<Map<string, { guid?: string; category?: string; name?: string }>> {
     const byModel: Record<string, number[]> = {};
     for (const i of items) (byModel[i.modelId] ??= []).push(i.localId);
-    const out = new Map<string, string>();
+    const out = new Map<string, { guid?: string; category?: string; name?: string }>();
     for (const [mid, ids] of Object.entries(byModel)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const model = [...fragments.list.values()].find((m: any) => m.modelId === mid) as any;
       if (!model) continue;
       const data = await model.getItemsData(ids, { attributesDefault: true, relationsDefault: { attributes: false, relations: false } });
       for (let i = 0; i < ids.length; i++) {
-        const g = val(data[i]?.["_guid"]) ?? val(data[i]?.["GlobalId"]);
-        if (g) out.set(`${mid}:${ids[i]}`, g);
+        const d = data[i];
+        out.set(`${mid}:${ids[i]}`, {
+          guid: val(d?.["_guid"]) ?? val(d?.["GlobalId"]),
+          category: val(d?.["_category"]),
+          name: val(d?.["Name"]),
+        });
       }
     }
     return out;
   }
 
+  // A human, revision-stable label for one clashing element: "Wall 'Basic Wall:200mm'" — falls back to the
+  // modelId#localId label when the category couldn't be read.
+  const elemLabel = (info: { category?: string; name?: string } | undefined, c: Clash, side: "a" | "b") =>
+    info?.category ? `${info.category.replace(/^IFC/i, "")}${info.name ? ` '${info.name}'` : ""}` : label(c, side);
+
   async function raise() {
     if (!clashes.length) { status("Run clash first."); return; }
     const top = clashes.slice(0, 100); // cap: raise the 100 largest new clashes
     status(`Raising ${top.length} clash(es) + recording…`);
-    const guids = await guidsFor(top.flatMap((c) => [c.a, c.b]));
+    const info = await elemInfoFor(top.flatMap((c) => [c.a, c.b]));
     const post = (path: string, body: unknown) =>
       fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     let raised = 0;
-    const raisedItems: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null }[] = [];
+    const raisedItems: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[] = [];
     for (const c of top) {
       try {
-        const ga = guids.get(`${c.a.modelId}:${c.a.localId}`), gb = guids.get(`${c.b.modelId}:${c.b.localId}`);
+        const ia = info.get(`${c.a.modelId}:${c.a.localId}`), ib = info.get(`${c.b.modelId}:${c.b.localId}`);
+        const ga = ia?.guid, gb = ib?.guid;
+        // Immutable provenance: the two elements as they were at raise-time (GlobalId-keyed).
+        const elements: ClashElement[] = [
+          { guid: ga ?? null, category: ia?.category ?? null, name: ia?.name ?? null, model_id: c.a.modelId, local_id: c.a.localId },
+          { guid: gb ?? null, category: ib?.category ?? null, name: ib?.name ?? null, model_id: c.b.modelId, local_id: c.b.localId },
+        ];
+        const la = elemLabel(ia, c, "a"), lb = elemLabel(ib, c, "b");
         const topic = await (await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
-          title: `Clash: ${label(c, "a")} ↔ ${label(c, "b")} (${c.volume.toFixed(3)} m³)`,
+          title: `Clash: ${la} ↔ ${lb} (${c.volume.toFixed(3)} m³)`,
           topic_type: "Clash", priority: "High", creation_author: "Clash",
-          description: `Hard clash, overlap ${c.overlap.map((o) => o.toFixed(2)).join("×")} m. Signature ${c.id}.`,
+          description: `Hard clash: ${la} ↔ ${lb}. Overlap ${c.overlap.map((o) => o.toFixed(2)).join("×")} m (${c.volume.toFixed(3)} m³). Signature ${c.id}.`,
         })).json().catch(() => ({}));
         const sel = [ga, gb].filter(Boolean).map((g) => ({ ifc_guid: g }));
         if ((topic as { guid?: string })?.guid && sel.length) {
           await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${(topic as { guid: string }).guid}/viewpoints`, { components: { selection: sel } }).catch(() => {});
         }
         await post(`/cde/${encodeURIComponent(pid())}/audit`, {
-          entity_type: "clash", actor: "Clash", action: `Clash raised: ${label(c, "a")} ↔ ${label(c, "b")}`,
-          new_value: { signature: c.id, volume: c.volume, bcf_guid: (topic as { guid?: string })?.guid ?? null },
+          entity_type: "clash", actor: "Clash", action: `Clash raised: ${la} ↔ ${lb}`,
+          new_value: { signature: c.id, volume: c.volume, overlap: c.overlap, elements, bcf_guid: (topic as { guid?: string })?.guid ?? null },
         }).catch(() => {});
         known.add(c.id);
-        raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${label(c, "a")} ↔ ${label(c, "b")}`, bcf_guid: (topic as { guid?: string })?.guid ?? null });
+        raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${la} ↔ ${lb}`, bcf_guid: (topic as { guid?: string })?.guid ?? null, elements, overlap: c.overlap });
         raised++;
       } catch { /* keep going */ }
     }
     persistKnown();
-    if (raisedItems.length) pushKnownToServer(raisedItems); // team-wide, survives browser/machine
+    if (raisedItems.length) pushKnownToServer(raisedItems); // team-wide, survives browser/machine, carries provenance
     clashes = clashes.filter((c) => !known.has(c.id));
     renderList();
-    status(`Raised ${raised} clash(es) → Issues + Revit; recorded in the CDE audit. They won't re-surface on the next run.`);
+    status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the CDE audit + clash register. They won't re-surface on the next run.`);
   }
 
   el("cl-run").addEventListener("click", run);
