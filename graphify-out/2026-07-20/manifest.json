@@ -1,0 +1,1382 @@
+{
+  "SentinelAddin/App.cs": {
+    "mtime": 1784315696.422484,
+    "ast_hash": "958687ce14baa30cd99fd27f0e22d629",
+    "semantic_hash": "958687ce14baa30cd99fd27f0e22d629"
+  },
+  "SentinelAddin/Commands.AutoPublish.cs": {
+    "mtime": 1784283118.1930757,
+    "ast_hash": "7f135d8c9b678affef2e479bd1ca0a66",
+    "semantic_hash": "7f135d8c9b678affef2e479bd1ca0a66"
+  },
+  "SentinelAddin/Commands.BcfIssues.cs": {
+    "mtime": 1784274470.373943,
+    "ast_hash": "ae24a68ba6051521095050e46f0dc745",
+    "semantic_hash": "ae24a68ba6051521095050e46f0dc745"
+  },
+  "SentinelAddin/Commands.GhostBuilder.cs": {
+    "mtime": 1783942440.0080152,
+    "ast_hash": "7f868b5fb575b8c8efd2e3bd8c1eb008",
+    "semantic_hash": "7f868b5fb575b8c8efd2e3bd8c1eb008"
+  },
+  "SentinelAddin/Commands.IfcGate.cs": {
+    "mtime": 1784515053.2583373,
+    "ast_hash": "c6ab08bbb5238a2f18e2d8359b86d5b5",
+    "semantic_hash": ""
+  },
+  "SentinelAddin/Commands.Phase2.cs": {
+    "mtime": 1783647537.1910868,
+    "ast_hash": "814b87d3f411a96aba576594fdb9276b",
+    "semantic_hash": "814b87d3f411a96aba576594fdb9276b"
+  },
+  "SentinelAddin/Commands.PublishSheets.cs": {
+    "mtime": 1784315687.933768,
+    "ast_hash": "04c93be07250616823678547fe3d9601",
+    "semantic_hash": "04c93be07250616823678547fe3d9601"
+  },
+  "SentinelAddin/Commands.PublishToPlatform.cs": {
+    "mtime": 1784534315.1086307,
+    "ast_hash": "0987c09865ad8c7e001864f83cbb3acd",
+    "semantic_hash": ""
+  },
+  "SentinelAddin/Commands.Standards.cs": {
+    "mtime": 1784155952.513042,
+    "ast_hash": "5ce57d5267eb7b968fdcc8b9e8b9389f",
+    "semantic_hash": "5ce57d5267eb7b968fdcc8b9e8b9389f"
+  },
+  "SentinelAddin/Commands.Workflow.cs": {
+    "mtime": 1783640682.2151546,
+    "ast_hash": "94f461f31c8f7ef1e431d49f78a5e8c5",
+    "semantic_hash": "94f461f31c8f7ef1e431d49f78a5e8c5"
+  },
+  "SentinelAddin/Commands.cs": {
+    "mtime": 1783639509.7366476,
+    "ast_hash": "ed6a6a3102cf97a80c109a7561a9c310",
+    "semantic_hash": "ed6a6a3102cf97a80c109a7561a9c310"
+  },
+  "SentinelAddin/Compat.cs": {
+    "mtime": 1783638321.4198189,
+    "ast_hash": "59bc9ddc09a0f1aeb4f67fc2903554d0",
+    "semantic_hash": "59bc9ddc09a0f1aeb4f67fc2903554d0"
+  },
+  "SentinelAddin/Coordination/BcfSyncManager.cs": {
+    "mtime": 1784399105.5698502,
+    "ast_hash": "b2b1e734e684c0e918443461f2578a7b",
+    "semantic_hash": "b2b1e734e684c0e918443461f2578a7b"
+  },
+  "SentinelAddin/Engine/AutoPublish.cs": {
+    "mtime": 1784534200.2303648,
+    "ast_hash": "963750e236bd4f33192627c5c74bc147",
+    "semantic_hash": ""
+  },
+  "SentinelAddin/Engine/BcfExporter.cs": {
+    "mtime": 1783645561.6025274,
+    "ast_hash": "7ff829ff335f80cf58c5e5150bf0ce23",
+    "semantic_hash": "7ff829ff335f80cf58c5e5150bf0ce23"
+  },
+  "SentinelAddin/Engine/CdeSyncGuard.cs": {
+    "mtime": 1783640664.8117037,
+    "ast_hash": "91bcd64d9c75b168ebbda7d380f2ed37",
+    "semantic_hash": "91bcd64d9c75b168ebbda7d380f2ed37"
+  },
+  "SentinelAddin/Engine/ClashManager.cs": {
+    "mtime": 1783646728.7984757,
+    "ast_hash": "fe372bce77551f2f4301d28e4e0b5497",
+    "semantic_hash": "fe372bce77551f2f4301d28e4e0b5497"
+  },
+  "SentinelAddin/Engine/DeliveryContract.cs": {
+    "mtime": 1783859060.825196,
+    "ast_hash": "6b799b5da72ab9f1e86c6df44561e02f",
+    "semantic_hash": "6b799b5da72ab9f1e86c6df44561e02f"
+  },
+  "SentinelAddin/Engine/DependencyMapper.cs": {
+    "mtime": 1783638355.5302107,
+    "ast_hash": "d0f1ed0bcacd73c66d2513e7452d2857",
+    "semantic_hash": "d0f1ed0bcacd73c66d2513e7452d2857"
+  },
+  "SentinelAddin/Engine/HealthScorecard.cs": {
+    "mtime": 1783638396.204386,
+    "ast_hash": "8bce0e0485d1181caae95f93b0e10967",
+    "semantic_hash": "8bce0e0485d1181caae95f93b0e10967"
+  },
+  "SentinelAddin/Engine/IfcDeliveryGate.cs": {
+    "mtime": 1783859096.1931438,
+    "ast_hash": "fe9351649495038019cc82710ab0b10c",
+    "semantic_hash": "fe9351649495038019cc82710ab0b10c"
+  },
+  "SentinelAddin/Engine/IfcPreFlightScanner.cs": {
+    "mtime": 1783640851.562332,
+    "ast_hash": "52d068560f4bcc37e6c9524e5f6d5a70",
+    "semantic_hash": "52d068560f4bcc37e6c9524e5f6d5a70"
+  },
+  "SentinelAddin/Engine/MepVoidManager.cs": {
+    "mtime": 1783833363.6758504,
+    "ast_hash": "dc1190ebb62e4750bffe8bd8527e6816",
+    "semantic_hash": "dc1190ebb62e4750bffe8bd8527e6816"
+  },
+  "SentinelAddin/Engine/PlatformExporter.cs": {
+    "mtime": 1784283087.23838,
+    "ast_hash": "4a15842f78319e724b7699957c04c7f0",
+    "semantic_hash": "4a15842f78319e724b7699957c04c7f0"
+  },
+  "SentinelAddin/Engine/RoiTracker.cs": {
+    "mtime": 1783643104.8862512,
+    "ast_hash": "f770155abf4f0be1a35779df7f7bc708",
+    "semantic_hash": "f770155abf4f0be1a35779df7f7bc708"
+  },
+  "SentinelAddin/Engine/RuleEngineHost.cs": {
+    "mtime": 1783640652.0621357,
+    "ast_hash": "ff1540a8119f156d547c0d7bcbc42f66",
+    "semantic_hash": "ff1540a8119f156d547c0d7bcbc42f66"
+  },
+  "SentinelAddin/Engine/RuleModels.cs": {
+    "mtime": 1783859018.4339278,
+    "ast_hash": "24d29fb368963bb0fb241e50cbd3c4aa",
+    "semantic_hash": "24d29fb368963bb0fb241e50cbd3c4aa"
+  },
+  "SentinelAddin/Engine/RulesetStore.cs": {
+    "mtime": 1783640648.7870615,
+    "ast_hash": "b276c742ab5c9ce80c8e29ae9a2f5cd2",
+    "semantic_hash": "b276c742ab5c9ce80c8e29ae9a2f5cd2"
+  },
+  "SentinelAddin/Engine/SettingsManager.cs": {
+    "mtime": 1783911131.6041372,
+    "ast_hash": "a801d121938c97ee794ed7f1354ab0a0",
+    "semantic_hash": "a801d121938c97ee794ed7f1354ab0a0"
+  },
+  "SentinelAddin/Engine/SheetExporter.cs": {
+    "mtime": 1784319890.9358208,
+    "ast_hash": "28e5f691112669c46c7e739ff4cfc08d",
+    "semantic_hash": "28e5f691112669c46c7e739ff4cfc08d"
+  },
+  "SentinelAddin/Engine/ViewGenerator.cs": {
+    "mtime": 1783861951.6541436,
+    "ast_hash": "d605c1f7585ff3ddb3e430a67a4be920",
+    "semantic_hash": "d605c1f7585ff3ddb3e430a67a4be920"
+  },
+  "SentinelAddin/GhostBuilder/ElementPlacementFactory.cs": {
+    "mtime": 1783941894.7045746,
+    "ast_hash": "d755260dcf8b93f6da7569de2bfd03ac",
+    "semantic_hash": "d755260dcf8b93f6da7569de2bfd03ac"
+  },
+  "SentinelAddin/GhostBuilder/GhostBuilderExternalEvent.cs": {
+    "mtime": 1783915985.9164395,
+    "ast_hash": "b255081abcfc3570b8f153d76d107394",
+    "semantic_hash": "b255081abcfc3570b8f153d76d107394"
+  },
+  "SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs": {
+    "mtime": 1783947070.3502302,
+    "ast_hash": "e2059b8a7faec9dd71f538a7319d89a9",
+    "semantic_hash": "e2059b8a7faec9dd71f538a7319d89a9"
+  },
+  "SentinelAddin/GhostBuilder/GhostBuilder_Architecture.cs": {
+    "mtime": 1783924376.3892932,
+    "ast_hash": "e4cca2f168498495d106b77fea4a094f",
+    "semantic_hash": "e4cca2f168498495d106b77fea4a094f"
+  },
+  "SentinelAddin/GhostBuilder/GhostBuilder_ExtractionAndPlacement.cs": {
+    "mtime": 1783935225.656609,
+    "ast_hash": "46133bfc366b45e79d9c04979b0b3db9",
+    "semantic_hash": "46133bfc366b45e79d9c04979b0b3db9"
+  },
+  "SentinelAddin/GhostBuilder/GhostFailureHandler.cs": {
+    "mtime": 1783947060.7629547,
+    "ast_hash": "29dc2f3b2b9e4bb99abb83597e69a323",
+    "semantic_hash": "29dc2f3b2b9e4bb99abb83597e69a323"
+  },
+  "SentinelAddin/GhostBuilder/GhostFamilyPreloader.cs": {
+    "mtime": 1783911119.3832,
+    "ast_hash": "37b0d26a5d2eadca187d9897ad5eaa06",
+    "semantic_hash": "37b0d26a5d2eadca187d9897ad5eaa06"
+  },
+  "SentinelAddin/GhostBuilder/GhostWallTypeProvisioner.cs": {
+    "mtime": 1783911119.494017,
+    "ast_hash": "5e40abcf711030ac47b710ac347d961a",
+    "semantic_hash": "5e40abcf711030ac47b710ac347d961a"
+  },
+  "SentinelAddin/GhostBuilder/LayerMapper.cs": {
+    "mtime": 1783948453.4171207,
+    "ast_hash": "260081f084d85686a1e9b8e5228306bf",
+    "semantic_hash": "260081f084d85686a1e9b8e5228306bf"
+  },
+  "SentinelAddin/Resources/ruleset.json": {
+    "mtime": 1783859026.1692977,
+    "ast_hash": "189394b431f7f873101c7603fa2bf262",
+    "semantic_hash": "189394b431f7f873101c7603fa2bf262"
+  },
+  "SentinelAddin/RevitEventHub.cs": {
+    "mtime": 1783624595.7819972,
+    "ast_hash": "a42289f1f20ddbdf388f14f7a9941801",
+    "semantic_hash": "a42289f1f20ddbdf388f14f7a9941801"
+  },
+  "SentinelAddin/Sentinel.csproj": {
+    "mtime": 1784074966.9893463,
+    "ast_hash": "84abce9391f2200d97ee484630864fff",
+    "semantic_hash": "84abce9391f2200d97ee484630864fff"
+  },
+  "SentinelAddin/Standards/DocumentExtractor.cs": {
+    "mtime": 1784155896.3043008,
+    "ast_hash": "8cb59cde892c5f9d984d4537d3c8ecbb",
+    "semantic_hash": "8cb59cde892c5f9d984d4537d3c8ecbb"
+  },
+  "SentinelAddin/Standards/DocumentTextReader.cs": {
+    "mtime": 1784073243.3041022,
+    "ast_hash": "c131fe556b8f7d98baad4687abc32484",
+    "semantic_hash": "c131fe556b8f7d98baad4687abc32484"
+  },
+  "SentinelAddin/Standards/GoldenModelExtractor.cs": {
+    "mtime": 1784072854.5718706,
+    "ast_hash": "2ec3587295da91b51619a443958e4340",
+    "semantic_hash": "2ec3587295da91b51619a443958e4340"
+  },
+  "SentinelAddin/Standards/IsoGapAnalyzer.cs": {
+    "mtime": 1784156783.5216644,
+    "ast_hash": "a34ad7024aa8f6818ee88aa3b00c76de",
+    "semantic_hash": "a34ad7024aa8f6818ee88aa3b00c76de"
+  },
+  "SentinelAddin/Standards/StandardsBuilder.cs": {
+    "mtime": 1784155921.1671102,
+    "ast_hash": "2c277ddcdc959ee4515d9a97777bfc4c",
+    "semantic_hash": "2c277ddcdc959ee4515d9a97777bfc4c"
+  },
+  "SentinelAddin/Standards/StandardsCompat.cs": {
+    "mtime": 1784071656.9257462,
+    "ast_hash": "665e13f6c98c87dac42d44d6dac5e530",
+    "semantic_hash": "665e13f6c98c87dac42d44d6dac5e530"
+  },
+  "SentinelAddin/Standards/StandardsPack.cs": {
+    "mtime": 1784155841.049217,
+    "ast_hash": "69f31de9016b63910eb9216bed94c277",
+    "semantic_hash": "69f31de9016b63910eb9216bed94c277"
+  },
+  "SentinelAddin/UI/BcfIssuesWindow.cs": {
+    "mtime": 1784074947.8446786,
+    "ast_hash": "78c26fe2c94d9b24ded4669d7230cca9",
+    "semantic_hash": "78c26fe2c94d9b24ded4669d7230cca9"
+  },
+  "SentinelAddin/UI/ClashManagerDialog.xaml": {
+    "mtime": 1783646774.477906,
+    "ast_hash": "7f5f908676bc59e45f02442cb4a30db7",
+    "semantic_hash": "7f5f908676bc59e45f02442cb4a30db7"
+  },
+  "SentinelAddin/UI/ClashManagerDialog.xaml.cs": {
+    "mtime": 1783861964.443649,
+    "ast_hash": "3607d626f56ea5de996c3036ec2a3823",
+    "semantic_hash": "3607d626f56ea5de996c3036ec2a3823"
+  },
+  "SentinelAddin/UI/FixReviewDialog.xaml": {
+    "mtime": 1783635462.5418782,
+    "ast_hash": "599f803b20d2ee31b7840e26407f1fc6",
+    "semantic_hash": "599f803b20d2ee31b7840e26407f1fc6"
+  },
+  "SentinelAddin/UI/FixReviewDialog.xaml.cs": {
+    "mtime": 1783635479.0094593,
+    "ast_hash": "009c1dcb8b3051884b37a2b28ce019b9",
+    "semantic_hash": "009c1dcb8b3051884b37a2b28ce019b9"
+  },
+  "SentinelAddin/UI/GhostBuilderProgressWindow.cs": {
+    "mtime": 1783916061.3021102,
+    "ast_hash": "95c6a2a3fea230c6cab5925368fe36de",
+    "semantic_hash": "95c6a2a3fea230c6cab5925368fe36de"
+  },
+  "SentinelAddin/UI/RequestsWindow.xaml": {
+    "mtime": 1783628883.956041,
+    "ast_hash": "e8ce7f8aa08a2e36f9a82a33dad635f6",
+    "semantic_hash": "e8ce7f8aa08a2e36f9a82a33dad635f6"
+  },
+  "SentinelAddin/UI/RequestsWindow.xaml.cs": {
+    "mtime": 1783833368.0423088,
+    "ast_hash": "8edf0b380edccdc38909e89d5eadfd54",
+    "semantic_hash": "8edf0b380edccdc38909e89d5eadfd54"
+  },
+  "SentinelAddin/UI/RoiDashboard.cs": {
+    "mtime": 1783645545.6537554,
+    "ast_hash": "909bc46736c13da9b56d951cbf2af452",
+    "semantic_hash": "909bc46736c13da9b56d951cbf2af452"
+  },
+  "SentinelAddin/UI/RulesetWindow.xaml": {
+    "mtime": 1783627517.8575163,
+    "ast_hash": "8e322ee6b84f56e84ba31c2b913318f6",
+    "semantic_hash": "8e322ee6b84f56e84ba31c2b913318f6"
+  },
+  "SentinelAddin/UI/RulesetWindow.xaml.cs": {
+    "mtime": 1783627537.1784537,
+    "ast_hash": "ff53df4c31271e411136ee1febbf393f",
+    "semantic_hash": "ff53df4c31271e411136ee1febbf393f"
+  },
+  "SentinelAddin/UI/SentinelPanel.xaml": {
+    "mtime": 1783643209.1792452,
+    "ast_hash": "cb887af747be951c5708d53af721bfb2",
+    "semantic_hash": "cb887af747be951c5708d53af721bfb2"
+  },
+  "SentinelAddin/UI/SentinelPanel.xaml.cs": {
+    "mtime": 1783633846.7383401,
+    "ast_hash": "cee345b6e7a8906243ee03bd254a7f03",
+    "semantic_hash": "cee345b6e7a8906243ee03bd254a7f03"
+  },
+  "SentinelAddin/UI/SentinelPanelViewModel.cs": {
+    "mtime": 1783643201.3790693,
+    "ast_hash": "65e1b16b4e34669d84c7b2cb0259b0d0",
+    "semantic_hash": "65e1b16b4e34669d84c7b2cb0259b0d0"
+  },
+  "SentinelAddin/UI/SettingsDialog.xaml": {
+    "mtime": 1783640611.4867225,
+    "ast_hash": "25aab312752775cb6d1bc807ac0eb5c4",
+    "semantic_hash": "25aab312752775cb6d1bc807ac0eb5c4"
+  },
+  "SentinelAddin/UI/SettingsDialog.xaml.cs": {
+    "mtime": 1783640628.3725114,
+    "ast_hash": "daa47de830229e3fc5b3a10a596ef6f8",
+    "semantic_hash": "daa47de830229e3fc5b3a10a596ef6f8"
+  },
+  "SentinelAddin/UI/StandardsReviewWindow.cs": {
+    "mtime": 1784156894.5577457,
+    "ast_hash": "1a543e270f989025273b0099c949ff22",
+    "semantic_hash": "1a543e270f989025273b0099c949ff22"
+  },
+  "SentinelAddin/Updaters/FailureInterceptor.cs": {
+    "mtime": 1783643487.6450362,
+    "ast_hash": "8568e8908f022d5fff6185f7e8d8bac3",
+    "semantic_hash": "8568e8908f022d5fff6185f7e8d8bac3"
+  },
+  "SentinelAddin/Updaters/SentinelUpdater.cs": {
+    "mtime": 1783833359.6087294,
+    "ast_hash": "09b199c238fd2c180336ec73b68c033b",
+    "semantic_hash": "09b199c238fd2c180336ec73b68c033b"
+  },
+  "SentinelAddin/Workflow/AutoFixExecution.cs": {
+    "mtime": 1783643273.0015082,
+    "ast_hash": "ca8e29bcf746e5ecd2719575df0c7c7a",
+    "semantic_hash": "ca8e29bcf746e5ecd2719575df0c7c7a"
+  },
+  "SentinelAddin/Workflow/ChangeRequest.cs": {
+    "mtime": 1783628768.9466128,
+    "ast_hash": "da29888f542840ee353c704ff991dc09",
+    "semantic_hash": "da29888f542840ee353c704ff991dc09"
+  },
+  "SentinelAddin/Workflow/FamilyProcessor.cs": {
+    "mtime": 1783646820.9753175,
+    "ast_hash": "daf44f80cce375db6036aa371759edcb",
+    "semantic_hash": "daf44f80cce375db6036aa371759edcb"
+  },
+  "SentinelAddin/Workflow/FamilySanitizer.cs": {
+    "mtime": 1783643156.8927226,
+    "ast_hash": "973e79f0b165bb57fa82f527b5bd8ef8",
+    "semantic_hash": "973e79f0b165bb57fa82f527b5bd8ef8"
+  },
+  "SentinelAddin/Workflow/RequestManager.cs": {
+    "mtime": 1783628823.7416399,
+    "ast_hash": "f8f5515936f987775c220720369f9745",
+    "semantic_hash": "f8f5515936f987775c220720369f9745"
+  },
+  "SentinelAddin/Workflow/RequestStore.cs": {
+    "mtime": 1783859028.8344402,
+    "ast_hash": "a5ac620ccc3da26cf1205379cf929e8c",
+    "semantic_hash": "a5ac620ccc3da26cf1205379cf929e8c"
+  },
+  "SentinelAddin/Workflow/ShowPendingChangeCommand.cs": {
+    "mtime": 1783631785.8036826,
+    "ast_hash": "34d204f3677924fbf047f9ada4ffc767",
+    "semantic_hash": "34d204f3677924fbf047f9ada4ffc767"
+  },
+  "SentinelAddin/build.ps1": {
+    "mtime": 1783626795.23328,
+    "ast_hash": "0d545e6747b6cde90fc0f81f8fbd3433",
+    "semantic_hash": "0d545e6747b6cde90fc0f81f8fbd3433"
+  },
+  "WebApp/bridge/bcf-service.mjs": {
+    "mtime": 1784533506.7446785,
+    "ast_hash": "e93cfc024fb7637b9832ef1610acad02",
+    "semantic_hash": ""
+  },
+  "WebApp/bridge/cde-store.mjs": {
+    "mtime": 1784534054.8354487,
+    "ast_hash": "f86b61b8c85e40cb294ed83b14cf5e4e",
+    "semantic_hash": ""
+  },
+  "WebApp/bridge/ifc-to-frag.mjs": {
+    "mtime": 1784159261.8004026,
+    "ast_hash": "3d72c3dfd4a6e3ba7b33be0624e7db2f",
+    "semantic_hash": "3d72c3dfd4a6e3ba7b33be0624e7db2f"
+  },
+  "WebApp/bridge/thatopen-client.mjs": {
+    "mtime": 1784049306.906346,
+    "ast_hash": "499ee2b20b6159751a0d2f7bdf937e20",
+    "semantic_hash": "499ee2b20b6159751a0d2f7bdf937e20"
+  },
+  "WebApp/bridge/upload-ifc.mjs": {
+    "mtime": 1784049909.283667,
+    "ast_hash": "a988f42538f24bf006f8508685d0a1b4",
+    "semantic_hash": "a988f42538f24bf006f8508685d0a1b4"
+  },
+  "WebApp/bridge/watch-outbox.mjs": {
+    "mtime": 1784156216.261232,
+    "ast_hash": "c93197f269b12b10928974528d6852b8",
+    "semantic_hash": "c93197f269b12b10928974528d6852b8"
+  },
+  "WebApp/db/migrations/0001_cde_core_c1.sql": {
+    "mtime": 1784163593.485501,
+    "ast_hash": "b7c08e86df70de9105d47cb8704cb504",
+    "semantic_hash": "b7c08e86df70de9105d47cb8704cb504"
+  },
+  "WebApp/db/migrations/0002_cde_state_machine_c2.sql": {
+    "mtime": 1784164132.7184963,
+    "ast_hash": "8dc71ceb374798bd146f36329f2778d8",
+    "semantic_hash": "8dc71ceb374798bd146f36329f2778d8"
+  },
+  "WebApp/db/migrations/0003_project_folders.sql": {
+    "mtime": 1784387861.0781245,
+    "ast_hash": "c727a368e1eee5c8fbc714ee789e00ff",
+    "semantic_hash": "c727a368e1eee5c8fbc714ee789e00ff"
+  },
+  "WebApp/package.json": {
+    "mtime": 1784513237.855194,
+    "ast_hash": "0560020cca034a5e4ad51092901467a2",
+    "semantic_hash": ""
+  },
+  "WebApp/src/app.ts": {
+    "mtime": 1783837047.2919357,
+    "ast_hash": "4bdd5528a57e84f36139cc0393220f6e",
+    "semantic_hash": "4bdd5528a57e84f36139cc0393220f6e"
+  },
+  "WebApp/src/assets/tool-placeholder.ts": {
+    "mtime": 1783837047.4912386,
+    "ast_hash": "95a22fdfbdf36d3bb2aa9731724c7cef",
+    "semantic_hash": "95a22fdfbdf36d3bb2aa9731724c7cef"
+  },
+  "WebApp/src/bim-components/CloudRunner/index.ts": {
+    "mtime": 1783837047.4229536,
+    "ast_hash": "94adab379c991a58f5e6ea1045458f20",
+    "semantic_hash": "94adab379c991a58f5e6ea1045458f20"
+  },
+  "WebApp/src/bim-components/CloudRunner/src/index.ts": {
+    "mtime": 1783837047.4249535,
+    "ast_hash": "813946d96b52a1ed8aa11c9e6357bb2b",
+    "semantic_hash": "813946d96b52a1ed8aa11c9e6357bb2b"
+  },
+  "WebApp/src/bim-components/CloudRunner/src/types.ts": {
+    "mtime": 1783837047.494747,
+    "ast_hash": "230c073a4656be13fa4a7c0b9f816f47",
+    "semantic_hash": "230c073a4656be13fa4a7c0b9f816f47"
+  },
+  "WebApp/src/bim-components/index.ts": {
+    "mtime": 1783837047.4270124,
+    "ast_hash": "40db5e63fb706e9c45a62920d3baeae8",
+    "semantic_hash": "40db5e63fb706e9c45a62920d3baeae8"
+  },
+  "WebApp/src/config.ts": {
+    "mtime": 1784138400.585945,
+    "ast_hash": "82ea887261073a6d37d0dc9892983029",
+    "semantic_hash": "82ea887261073a6d37d0dc9892983029"
+  },
+  "WebApp/src/globals.ts": {
+    "mtime": 1783837047.4029465,
+    "ast_hash": "6a9a2ab327e165ba90da7ee3a22be2c2",
+    "semantic_hash": "6a9a2ab327e165ba90da7ee3a22be2c2"
+  },
+  "WebApp/src/main.ts": {
+    "mtime": 1784533943.8146813,
+    "ast_hash": "5c3d9a5a536848c67c86e77561e07369",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/adapter/drawings-detect.ts": {
+    "mtime": 1784278951.3922062,
+    "ast_hash": "2f9cfe3b5ff239149dfc062b3f33bb4c",
+    "semantic_hash": "2f9cfe3b5ff239149dfc062b3f33bb4c"
+  },
+  "WebApp/src/sentinel-core/adapter/element-properties.ts": {
+    "mtime": 1784230435.9677582,
+    "ast_hash": "a5afc50a4c8eadbdf213e5ffc318cf1e",
+    "semantic_hash": "a5afc50a4c8eadbdf213e5ffc318cf1e"
+  },
+  "WebApp/src/sentinel-core/adapter/fragments-assets.ts": {
+    "mtime": 1784133061.366224,
+    "ast_hash": "ea173b9b9177cfbdd8f32b1b5f55ffda",
+    "semantic_hash": "ea173b9b9177cfbdd8f32b1b5f55ffda"
+  },
+  "WebApp/src/sentinel-core/adapter/fragments-facts.ts": {
+    "mtime": 1783856088.8101163,
+    "ast_hash": "a8468bf0cd0bda02b8b9f72670ed8e83",
+    "semantic_hash": "a8468bf0cd0bda02b8b9f72670ed8e83"
+  },
+  "WebApp/src/sentinel-core/adapter/fragments-levels.ts": {
+    "mtime": 1784137876.8593655,
+    "ast_hash": "622b99c9f2f249a5a87631a481b25540",
+    "semantic_hash": "622b99c9f2f249a5a87631a481b25540"
+  },
+  "WebApp/src/sentinel-core/adapter/fragments-quantities.ts": {
+    "mtime": 1784532297.164138,
+    "ast_hash": "bee569b945396baccee958b863bfe149",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/adapter/model-clash.ts": {
+    "mtime": 1784469592.2086177,
+    "ast_hash": "85f847a46d54fa3c58bd6f7b2e13ee18",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/adapter/model-validate.ts": {
+    "mtime": 1784237049.2510483,
+    "ast_hash": "6735d8a79dcf91b246e1e995a89b893f",
+    "semantic_hash": "6735d8a79dcf91b246e1e995a89b893f"
+  },
+  "WebApp/src/sentinel-core/adapter/project-tree.ts": {
+    "mtime": 1784229430.0688026,
+    "ast_hash": "801eddc38f0c41a8eecbe7a48737fa39",
+    "semantic_hash": "801eddc38f0c41a8eecbe7a48737fa39"
+  },
+  "WebApp/src/sentinel-core/adapter/storey-isolate.ts": {
+    "mtime": 1784319915.5817916,
+    "ast_hash": "1f9382ca547ea7481e699c4b94c9c844",
+    "semantic_hash": "1f9382ca547ea7481e699c4b94c9c844"
+  },
+  "WebApp/src/sentinel-core/carbon-factors.json": {
+    "mtime": 1784132731.3443148,
+    "ast_hash": "ba1e1aa6d790868d18eae39ff723cbd6",
+    "semantic_hash": "ba1e1aa6d790868d18eae39ff723cbd6"
+  },
+  "WebApp/src/sentinel-core/carbon.ts": {
+    "mtime": 1784532351.9717877,
+    "ast_hash": "92bec6ec2af9c2595144f2feb4561f9a",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/clash.ts": {
+    "mtime": 1784469574.8140752,
+    "ast_hash": "bf9edec518248438a9f7fa4bd8c0ac2c",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/cobie.ts": {
+    "mtime": 1784133032.5690742,
+    "ast_hash": "1c30bc6ebf5ec1b63288c41484344ab7",
+    "semantic_hash": "1c30bc6ebf5ec1b63288c41484344ab7"
+  },
+  "WebApp/src/sentinel-core/gates.ts": {
+    "mtime": 1784133126.0821104,
+    "ast_hash": "13316be15cd96c88c10ddb6a1033b0ec",
+    "semantic_hash": "13316be15cd96c88c10ddb6a1033b0ec"
+  },
+  "WebApp/src/sentinel-core/ids-parse.ts": {
+    "mtime": 1784230505.3536203,
+    "ast_hash": "c3e12d5fb00bc2770a40dd27887ec84a",
+    "semantic_hash": "c3e12d5fb00bc2770a40dd27887ec84a"
+  },
+  "WebApp/src/sentinel-core/ids.ts": {
+    "mtime": 1784513377.6526127,
+    "ast_hash": "e955f66e530d1b9628e8a28de108d0d9",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/ifc-writer.ts": {
+    "mtime": 1784158967.638389,
+    "ast_hash": "a8971135c792ffa090c292d438ee8ee3",
+    "semantic_hash": "a8971135c792ffa090c292d438ee8ee3"
+  },
+  "WebApp/src/sentinel-core/index.ts": {
+    "mtime": 1784514161.7359643,
+    "ast_hash": "bc87030a759ef2becea3edb40fe59c38",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/quantities.ts": {
+    "mtime": 1784532337.2141016,
+    "ast_hash": "e804cd0e779b1fd6f87cbf7b213ab528",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/rates.json": {
+    "mtime": 1784097369.2274094,
+    "ast_hash": "2fd6470b5ee26494495e9e1bdd5619cb",
+    "semantic_hash": "2fd6470b5ee26494495e9e1bdd5619cb"
+  },
+  "WebApp/src/sentinel-core/rule-engine.ts": {
+    "mtime": 1783856061.0612261,
+    "ast_hash": "9ec06f667a1e4c7dced90ebede5fa8ed",
+    "semantic_hash": "9ec06f667a1e4c7dced90ebede5fa8ed"
+  },
+  "WebApp/src/sentinel-core/ruleset.json": {
+    "mtime": 1783840453.3357704,
+    "ast_hash": "e2ec884ea01ce34ccdda69e081b93f16",
+    "semantic_hash": "e2ec884ea01ce34ccdda69e081b93f16"
+  },
+  "WebApp/src/sentinel-core/scanner.ts": {
+    "mtime": 1783856079.019975,
+    "ast_hash": "43709f69051b848a020ed33a8899f8d6",
+    "semantic_hash": "43709f69051b848a020ed33a8899f8d6"
+  },
+  "WebApp/src/sentinel-core/schedule.ts": {
+    "mtime": 1784131324.4768112,
+    "ast_hash": "5a419746d413ee484db6fd7415ae949b",
+    "semantic_hash": "5a419746d413ee484db6fd7415ae949b"
+  },
+  "WebApp/src/sentinel-core/scorecard.ts": {
+    "mtime": 1783840442.3448436,
+    "ast_hash": "72806f23b30a3c24c923bb988f1f7705",
+    "semantic_hash": "72806f23b30a3c24c923bb988f1f7705"
+  },
+  "WebApp/src/sentinel-core/self-check.ts": {
+    "mtime": 1783840488.1964762,
+    "ast_hash": "4a116c134ef42d627b47d6003c75b80e",
+    "semantic_hash": "4a116c134ef42d627b47d6003c75b80e"
+  },
+  "WebApp/src/sentinel-core/types.ts": {
+    "mtime": 1783856039.9451067,
+    "ast_hash": "236762e52556f583f5da7684dc8ae35d",
+    "semantic_hash": "236762e52556f583f5da7684dc8ae35d"
+  },
+  "WebApp/src/setups/active-project.ts": {
+    "mtime": 1784394985.2052698,
+    "ast_hash": "f241bd4fa602819036b02a5068f4d615",
+    "semantic_hash": "f241bd4fa602819036b02a5068f4d615"
+  },
+  "WebApp/src/setups/active-ruleset.ts": {
+    "mtime": 1784395220.6403706,
+    "ast_hash": "24efa48deb3011d12108c603adcbc43f",
+    "semantic_hash": "24efa48deb3011d12108c603adcbc43f"
+  },
+  "WebApp/src/setups/camera-tools.ts": {
+    "mtime": 1783837047.3029344,
+    "ast_hash": "2df69c90501d45a8aaf3f52761036c8b",
+    "semantic_hash": "2df69c90501d45a8aaf3f52761036c8b"
+  },
+  "WebApp/src/setups/camera-views.ts": {
+    "mtime": 1783837047.3054423,
+    "ast_hash": "102735fe23ba8215653a170a2f391415",
+    "semantic_hash": "102735fe23ba8215653a170a2f391415"
+  },
+  "WebApp/src/setups/carbon-panel.ts": {
+    "mtime": 1784532396.2650483,
+    "ast_hash": "77ac2563f2d09c1a48be5dfc85a93e72",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/card-header.ts": {
+    "mtime": 1783837047.3084505,
+    "ast_hash": "e2cbcc087c34eac0e79feb02518a146c",
+    "semantic_hash": "e2cbcc087c34eac0e79feb02518a146c"
+  },
+  "WebApp/src/setups/cde-panel.ts": {
+    "mtime": 1784515145.4641025,
+    "ast_hash": "ef1fd1778d5be4b53d49e64f7e4827ac",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/clash-panel.ts": {
+    "mtime": 1784514003.1525292,
+    "ast_hash": "30a29608554950fc22a527a40499f186",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/clipper-tool.ts": {
+    "mtime": 1783837047.3164577,
+    "ast_hash": "49052acf3bdd6ffcf8f353c1d8160446",
+    "semantic_hash": "49052acf3bdd6ffcf8f353c1d8160446"
+  },
+  "WebApp/src/setups/clipper.ts": {
+    "mtime": 1783837047.3194568,
+    "ast_hash": "6f788b8b69a5c0f3bc416e233aa3d845",
+    "semantic_hash": "6f788b8b69a5c0f3bc416e233aa3d845"
+  },
+  "WebApp/src/setups/cloud-runner.ts": {
+    "mtime": 1783837047.3224578,
+    "ast_hash": "a8533b6a431136fccce1864ac3edc4aa",
+    "semantic_hash": "a8533b6a431136fccce1864ac3edc4aa"
+  },
+  "WebApp/src/setups/cobie-panel.ts": {
+    "mtime": 1784514003.1535292,
+    "ast_hash": "904dee8dba7103e72c65ea47bcb9e518",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/copilot-panel.ts": {
+    "mtime": 1784514003.1600568,
+    "ast_hash": "4d4c85eaa69938a79407edef75dd49cb",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/copilot/engine.ts": {
+    "mtime": 1784156474.697471,
+    "ast_hash": "741114150dbf6196ac37d09c0d4ce063",
+    "semantic_hash": "741114150dbf6196ac37d09c0d4ce063"
+  },
+  "WebApp/src/setups/cost-panel.ts": {
+    "mtime": 1784532375.3286393,
+    "ast_hash": "6ab8f4df5879e80ed01fc9359811b6cc",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/crypto.ts": {
+    "mtime": 1784510835.7400095,
+    "ast_hash": "4bb54c7c33a5a168275274f3fbb2c4db",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/exploded-view.ts": {
+    "mtime": 1783837047.3964338,
+    "ast_hash": "8a20180d4d101c277c4a4ac1b1f3d970",
+    "semantic_hash": "8a20180d4d101c277c4a4ac1b1f3d970"
+  },
+  "WebApp/src/setups/guide-panel.ts": {
+    "mtime": 1784139534.8978155,
+    "ast_hash": "20b2ecd18ea02ddc0cc0b1fd81838a45",
+    "semantic_hash": "20b2ecd18ea02ddc0cc0b1fd81838a45"
+  },
+  "WebApp/src/setups/helper-panel.ts": {
+    "mtime": 1783837047.405947,
+    "ast_hash": "1dfc24f29845985ebd6d7e01d92e84cb",
+    "semantic_hash": "1dfc24f29845985ebd6d7e01d92e84cb"
+  },
+  "WebApp/src/setups/hider.ts": {
+    "mtime": 1783837047.4129555,
+    "ast_hash": "ef4832f3febc5f251dc76847cb47c9ef",
+    "semantic_hash": "ef4832f3febc5f251dc76847cb47c9ef"
+  },
+  "WebApp/src/setups/index.ts": {
+    "mtime": 1783837047.4290106,
+    "ast_hash": "bc7ba9d625606a0588f9ebecbe8750b1",
+    "semantic_hash": "bc7ba9d625606a0588f9ebecbe8750b1"
+  },
+  "WebApp/src/setups/inspection.ts": {
+    "mtime": 1783837047.4409828,
+    "ast_hash": "1130a7f410e6bec21c6b62415b3031b2",
+    "semantic_hash": "1130a7f410e6bec21c6b62415b3031b2"
+  },
+  "WebApp/src/setups/issue-panel.ts": {
+    "mtime": 1784514003.1620555,
+    "ast_hash": "3fcc87f8b43972412a0f76144526098b",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/measurement-panel.ts": {
+    "mtime": 1783837047.4504273,
+    "ast_hash": "8e8b171b69d7307096c7b4b9f00e2807",
+    "semantic_hash": "8e8b171b69d7307096c7b4b9f00e2807"
+  },
+  "WebApp/src/setups/measurement-tool.ts": {
+    "mtime": 1783837047.452434,
+    "ast_hash": "5fd40434d31206014c548e22e84bec36",
+    "semantic_hash": "5fd40434d31206014c548e22e84bec36"
+  },
+  "WebApp/src/setups/measurements.ts": {
+    "mtime": 1783837047.454436,
+    "ast_hash": "912b02b9440dd41b8c632f92723da581",
+    "semantic_hash": "912b02b9440dd41b8c632f92723da581"
+  },
+  "WebApp/src/setups/model-panel.ts": {
+    "mtime": 1784395220.6478748,
+    "ast_hash": "f98f8a9396ae872956fcef0d4e3bb005",
+    "semantic_hash": "f98f8a9396ae872956fcef0d4e3bb005"
+  },
+  "WebApp/src/setups/navigation-gizmo.ts": {
+    "mtime": 1783837047.4564335,
+    "ast_hash": "b9cd490bf798fe3a8654605ef3023b9a",
+    "semantic_hash": "b9cd490bf798fe3a8654605ef3023b9a"
+  },
+  "WebApp/src/setups/owner-panel.ts": {
+    "mtime": 1784514003.1620555,
+    "ast_hash": "86a2e094ab75b5685ec6cfa284f445d0",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/packs-panel.ts": {
+    "mtime": 1784514003.163055,
+    "ast_hash": "45a8603e7964e27474c65a3bd6d223f1",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/plans-panel.ts": {
+    "mtime": 1783837047.4625661,
+    "ast_hash": "ff1e295ce823d6ee50c6db0468ff5917",
+    "semantic_hash": "ff1e295ce823d6ee50c6db0468ff5917"
+  },
+  "WebApp/src/setups/project-browser-panel.ts": {
+    "mtime": 1784278995.966306,
+    "ast_hash": "8b735072aa6fc97b757ac65d968c1f3a",
+    "semantic_hash": "8b735072aa6fc97b757ac65d968c1f3a"
+  },
+  "WebApp/src/setups/project-shell.ts": {
+    "mtime": 1784514003.163055,
+    "ast_hash": "3f0d6c3e1a5056203d6cfa591623da32",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/project-switcher.ts": {
+    "mtime": 1784514003.163055,
+    "ast_hash": "8128d2766352a0b9bd436454e2e3f494",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/projects-hub-panel.ts": {
+    "mtime": 1784514003.1640556,
+    "ast_hash": "25393006f539cc30987acd394820663f",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/properties-panel.ts": {
+    "mtime": 1784229213.8875515,
+    "ast_hash": "758641f98d76353f2ba8ccb383e99d94",
+    "semantic_hash": "758641f98d76353f2ba8ccb383e99d94"
+  },
+  "WebApp/src/setups/qa-panel.ts": {
+    "mtime": 1784137237.5571792,
+    "ast_hash": "1cf46a73559230fc1adbb82900b0792f",
+    "semantic_hash": "1cf46a73559230fc1adbb82900b0792f"
+  },
+  "WebApp/src/setups/reality-capture-viewer.ts": {
+    "mtime": 1783837047.471566,
+    "ast_hash": "b7a6fe7f9553c1545e3509b0332f0e63",
+    "semantic_hash": "b7a6fe7f9553c1545e3509b0332f0e63"
+  },
+  "WebApp/src/setups/reality-capture/lib/hidden-tiles-plugin.ts": {
+    "mtime": 1783837047.409947,
+    "ast_hash": "8ea3dc6671c584db82f10d9ba9e56222",
+    "semantic_hash": "8ea3dc6671c584db82f10d9ba9e56222"
+  },
+  "WebApp/src/setups/reality-capture/lib/point-tile-plugin.ts": {
+    "mtime": 1783837047.466566,
+    "ast_hash": "dd26731a57311f9c1efb5acecbf2b48f",
+    "semantic_hash": "dd26731a57311f9c1efb5acecbf2b48f"
+  },
+  "WebApp/src/setups/reality-capture/lib/render-frame.ts": {
+    "mtime": 1783837047.4735646,
+    "ast_hash": "335c05c4d959acec8efa4f188b80c944",
+    "semantic_hash": "335c05c4d959acec8efa4f188b80c944"
+  },
+  "WebApp/src/setups/reality-capture/lib/splat-tile-plugin.ts": {
+    "mtime": 1783837047.4815817,
+    "ast_hash": "67f6db527dccf297b80db7d94714c68e",
+    "semantic_hash": "67f6db527dccf297b80db7d94714c68e"
+  },
+  "WebApp/src/setups/rfi-panel.ts": {
+    "mtime": 1784514003.1640556,
+    "ast_hash": "e5acb94bbc60c7f8c5ab456f50f278b2",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/right-sidebar.ts": {
+    "mtime": 1783837047.4780774,
+    "ast_hash": "64d1e0de9ee2f8d4e77c100658b64f10",
+    "semantic_hash": "64d1e0de9ee2f8d4e77c100658b64f10"
+  },
+  "WebApp/src/setups/secure-store.ts": {
+    "mtime": 1784396239.1900432,
+    "ast_hash": "a47f1a76976e561dabb05aff003cc632",
+    "semantic_hash": "a47f1a76976e561dabb05aff003cc632"
+  },
+  "WebApp/src/setups/sheets-panel.ts": {
+    "mtime": 1784514003.1650553,
+    "ast_hash": "fca6e58e9c4b20c9a2023bbe1178bfcb",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/styles-panel.ts": {
+    "mtime": 1783837047.4832335,
+    "ast_hash": "b07b0ab271f06a6dab5599fea95883b2",
+    "semantic_hash": "b07b0ab271f06a6dab5599fea95883b2"
+  },
+  "WebApp/src/setups/styles.ts": {
+    "mtime": 1783837047.4852388,
+    "ast_hash": "934e147ae8f4f8417f0831e815497f40",
+    "semantic_hash": "934e147ae8f4f8417f0831e815497f40"
+  },
+  "WebApp/src/setups/tender-panel.ts": {
+    "mtime": 1784514003.1650553,
+    "ast_hash": "3a832e24c6060b66721f9f771ae8bee3",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/timeline-panel.ts": {
+    "mtime": 1784184089.60174,
+    "ast_hash": "5d6366b9ca3d51fdd92ef8478627ed49",
+    "semantic_hash": "5d6366b9ca3d51fdd92ef8478627ed49"
+  },
+  "WebApp/src/setups/tool-mode-manager.ts": {
+    "mtime": 1783837047.488239,
+    "ast_hash": "e0035dc5be9bda166a50a8486d7e8915",
+    "semantic_hash": "e0035dc5be9bda166a50a8486d7e8915"
+  },
+  "WebApp/src/setups/tool-mode.ts": {
+    "mtime": 1783837047.489238,
+    "ast_hash": "67cacb05ffb4d97fd6f7f068e223029a",
+    "semantic_hash": "67cacb05ffb4d97fd6f7f068e223029a"
+  },
+  "WebApp/src/setups/toolbar.ts": {
+    "mtime": 1783837047.4927428,
+    "ast_hash": "3de7fff534425bb896494032db57df81",
+    "semantic_hash": "3de7fff534425bb896494032db57df81"
+  },
+  "WebApp/src/setups/ui-manager.ts": {
+    "mtime": 1783837047.4997497,
+    "ast_hash": "194feadab57657d218f757e6c855ad5e",
+    "semantic_hash": "194feadab57657d218f757e6c855ad5e"
+  },
+  "WebApp/src/setups/views-panel.ts": {
+    "mtime": 1784395220.6468751,
+    "ast_hash": "e5df023d8da994aa8c9b02c1ac88177e",
+    "semantic_hash": "e5df023d8da994aa8c9b02c1ac88177e"
+  },
+  "WebApp/src/setups/visibility-panel.ts": {
+    "mtime": 1784514003.1650553,
+    "ast_hash": "f5842247994c44806e8639fde3bc0f7b",
+    "semantic_hash": ""
+  },
+  "WebApp/src/ui-components/app-info-section/index.ts": {
+    "mtime": 1783837047.431078,
+    "ast_hash": "80989fee377955ce055cf9b4c10704e3",
+    "semantic_hash": "80989fee377955ce055cf9b4c10704e3"
+  },
+  "WebApp/src/ui-components/app-info-section/src/index.ts": {
+    "mtime": 1783837047.433084,
+    "ast_hash": "813946d96b52a1ed8aa11c9e6357bb2b",
+    "semantic_hash": "813946d96b52a1ed8aa11c9e6357bb2b"
+  },
+  "WebApp/src/ui-components/app-info-section/src/types.ts": {
+    "mtime": 1783837047.4967477,
+    "ast_hash": "93b8438fff170398bf9b7161b655ce9e",
+    "semantic_hash": "93b8438fff170398bf9b7161b655ce9e"
+  },
+  "WebApp/src/ui-components/cloud-runner-section/index.ts": {
+    "mtime": 1783837047.4359765,
+    "ast_hash": "5b5d11bcaf318c1214ae8064e33dd470",
+    "semantic_hash": "5b5d11bcaf318c1214ae8064e33dd470"
+  },
+  "WebApp/src/ui-components/cloud-runner-section/src/index.ts": {
+    "mtime": 1783837047.437982,
+    "ast_hash": "813946d96b52a1ed8aa11c9e6357bb2b",
+    "semantic_hash": "813946d96b52a1ed8aa11c9e6357bb2b"
+  },
+  "WebApp/src/ui-components/cloud-runner-section/src/types.ts": {
+    "mtime": 1783837047.4977481,
+    "ast_hash": "ff2096b2bd4e534212a6ed3e598f47d1",
+    "semantic_hash": "ff2096b2bd4e534212a6ed3e598f47d1"
+  },
+  "WebApp/src/ui-components/index.ts": {
+    "mtime": 1783837047.4389822,
+    "ast_hash": "10ddbb4bfa079ea649b3f5e1d6cdf4d4",
+    "semantic_hash": "10ddbb4bfa079ea649b3f5e1d6cdf4d4"
+  },
+  "WebApp/start.ps1": {
+    "mtime": 1784138777.2455173,
+    "ast_hash": "3582bebb00b537ddb9e65d7c3286f1f5",
+    "semantic_hash": "3582bebb00b537ddb9e65d7c3286f1f5"
+  },
+  "WebApp/tsconfig.json": {
+    "mtime": 1783837047.255063,
+    "ast_hash": "c0ce2a64a4023c9c69c95bdcbce8f4f7",
+    "semantic_hash": "c0ce2a64a4023c9c69c95bdcbce8f4f7"
+  },
+  "WebApp/vite.config.js": {
+    "mtime": 1783837047.222854,
+    "ast_hash": "71bce008a593a3ca3ba0f06f3bddfae6",
+    "semantic_hash": "71bce008a593a3ca3ba0f06f3bddfae6"
+  },
+  "config/appsettings.template.json": {
+    "mtime": 1783910208.0562215,
+    "ast_hash": "ae3f47a7552f892be5bfb592fa03de5d",
+    "semantic_hash": "ae3f47a7552f892be5bfb592fa03de5d"
+  },
+  "module2_knowledge_layer_schema.sql": {
+    "mtime": 1783623558.6362412,
+    "ast_hash": "1cbc4e31805e90cb4a32b536593254ed",
+    "semantic_hash": "1cbc4e31805e90cb4a32b536593254ed"
+  },
+  "README.md": {
+    "mtime": 1783910208.059516,
+    "ast_hash": "67cc59fb2ddd53b5bb3ad5c70fc6928d",
+    "semantic_hash": "67cc59fb2ddd53b5bb3ad5c70fc6928d"
+  },
+  "SENTINEL-USER-GUIDE.md": {
+    "mtime": 1783860809.5548613,
+    "ast_hash": "fa1afa10e086110823ebe69fd3f29562",
+    "semantic_hash": "fa1afa10e086110823ebe69fd3f29562"
+  },
+  "SentinelAddin/INSTALL.md": {
+    "mtime": 1783624630.2967606,
+    "ast_hash": "ecc958ffe58794d595a1ccb1b5a9de95",
+    "semantic_hash": "ecc958ffe58794d595a1ccb1b5a9de95"
+  },
+  "WebApp/README.md": {
+    "mtime": 1784138491.5607934,
+    "ast_hash": "96d76c0c858ddbccb48767d80951ffe6",
+    "semantic_hash": "96d76c0c858ddbccb48767d80951ffe6"
+  },
+  "WebApp/index.html": {
+    "mtime": 1783840357.5052624,
+    "ast_hash": "c351ddbeeaf99019d2cffd9010584a62",
+    "semantic_hash": "c351ddbeeaf99019d2cffd9010584a62"
+  },
+  "docs/3d-authoring-ifc-spec.md": {
+    "mtime": 1784159511.810263,
+    "ast_hash": "38d12cc3e364d4784f3163a17ad34cf4",
+    "semantic_hash": "38d12cc3e364d4784f3163a17ad34cf4"
+  },
+  "docs/4d-market-analysis.md": {
+    "mtime": 1784162401.0545416,
+    "ast_hash": "3025f53ad50314849708bb15e92ac114",
+    "semantic_hash": "3025f53ad50314849708bb15e92ac114"
+  },
+  "docs/AGENTS.md": {
+    "mtime": 1783837047.2635756,
+    "ast_hash": "49cb25e496e3f28bd40b22c26e5847f4",
+    "semantic_hash": "49cb25e496e3f28bd40b22c26e5847f4"
+  },
+  "docs/CHAT_TRANSCRIPT.md": {
+    "mtime": 1783910590.1376886,
+    "ast_hash": "16bb07e8313e2b024fecf44e68bb7d5c",
+    "semantic_hash": "16bb07e8313e2b024fecf44e68bb7d5c"
+  },
+  "docs/CLAUDE.md": {
+    "mtime": 1783837047.2690818,
+    "ast_hash": "d89ee8fd241c05fd91a8d3cb1a1792a8",
+    "semantic_hash": "d89ee8fd241c05fd91a8d3cb1a1792a8"
+  },
+  "docs/OVERNIGHT_REPORT.md": {
+    "mtime": 1784184204.1684394,
+    "ast_hash": "0722cbad97b7f11a40b4ba92073486cb",
+    "semantic_hash": "0722cbad97b7f11a40b4ba92073486cb"
+  },
+  "docs/PILOT.md": {
+    "mtime": 1784138521.3684535,
+    "ast_hash": "fea363e7c6fc5fd6233a548fa5b7e259",
+    "semantic_hash": "fea363e7c6fc5fd6233a548fa5b7e259"
+  },
+  "docs/README.md": {
+    "mtime": 1783837047.280664,
+    "ast_hash": "73be67c4ed441bc3d23cf25e7abdba8f",
+    "semantic_hash": "73be67c4ed441bc3d23cf25e7abdba8f"
+  },
+  "docs/SESSION_LOG.md": {
+    "mtime": 1783898917.5084164,
+    "ast_hash": "8c62e9dcd4bc300201477c446e74134c",
+    "semantic_hash": "8c62e9dcd4bc300201477c446e74134c"
+  },
+  "docs/TEST_A-Z.md": {
+    "mtime": 1784134849.3783295,
+    "ast_hash": "247a6b9c88517df9adec4b6cbd9d4332",
+    "semantic_hash": "247a6b9c88517df9adec4b6cbd9d4332"
+  },
+  "docs/TEST_REPORT.md": {
+    "mtime": 1784157080.983171,
+    "ast_hash": "317e5bbbaa254d2a79451208f06afe9e",
+    "semantic_hash": "317e5bbbaa254d2a79451208f06afe9e"
+  },
+  "docs/cde-market-analysis.md": {
+    "mtime": 1784162960.459711,
+    "ast_hash": "f3b3207cc2c9146c7537230531c2e40b",
+    "semantic_hash": "f3b3207cc2c9146c7537230531c2e40b"
+  },
+  "docs/cde-platform-spec.md": {
+    "mtime": 1784164138.8647254,
+    "ast_hash": "c6a48ee4f62d0badb856db5bfd058926",
+    "semantic_hash": "c6a48ee4f62d0badb856db5bfd058926"
+  },
+  "docs/killer-features-vision.md": {
+    "mtime": 1784230213.3213472,
+    "ast_hash": "62ba780e8831fcdd6c1683fc9c417e32",
+    "semantic_hash": "62ba780e8831fcdd6c1683fc9c417e32"
+  },
+  "docs/phase1-spec.md": {
+    "mtime": 1784129804.895247,
+    "ast_hash": "4e8c0de3c5fc57d92cbaec799837d924",
+    "semantic_hash": "4e8c0de3c5fc57d92cbaec799837d924"
+  },
+  "docs/phase2-spec.md": {
+    "mtime": 1784130846.3041906,
+    "ast_hash": "f8f045cee9428fd5bfc0bb471e73ed24",
+    "semantic_hash": "f8f045cee9428fd5bfc0bb471e73ed24"
+  },
+  "docs/phase3-spec.md": {
+    "mtime": 1784132705.6633408,
+    "ast_hash": "ead09402e515145a30418d802466b75c",
+    "semantic_hash": "ead09402e515145a30418d802466b75c"
+  },
+  "docs/platform-prototype.html": {
+    "mtime": 1784076936.1236267,
+    "ast_hash": "7b8b2d05db752016cc8f32608e7d5068",
+    "semantic_hash": "7b8b2d05db752016cc8f32608e7d5068"
+  },
+  "docs/platform-vision.md": {
+    "mtime": 1784076679.7560346,
+    "ast_hash": "b6e265b772bf4d7893d98dc5d0aad551",
+    "semantic_hash": "b6e265b772bf4d7893d98dc5d0aad551"
+  },
+  "docs/roadmap.html": {
+    "mtime": 1784139797.4397461,
+    "ast_hash": "4c133f3ca558b2b187c904146568e9b9",
+    "semantic_hash": "4c133f3ca558b2b187c904146568e9b9"
+  },
+  "docs/standards-engine-spec.md": {
+    "mtime": 1784073422.9552138,
+    "ast_hash": "08f456ca5d57d0dcbafbcb1ef6d50187",
+    "semantic_hash": "08f456ca5d57d0dcbafbcb1ef6d50187"
+  },
+  "sentinel-next-gen-roadmap.md": {
+    "mtime": 1783833571.339208,
+    "ast_hash": "71f4f3cee2b4d54e36bbe69da4f011ed",
+    "semantic_hash": "71f4f3cee2b4d54e36bbe69da4f011ed"
+  },
+  "sentinel-project-summary.md": {
+    "mtime": 1783621458.7861671,
+    "ast_hash": "b6ea66968aacec28ecce698e65e45a98",
+    "semantic_hash": "b6ea66968aacec28ecce698e65e45a98"
+  },
+  "SentinelAddin/Resources/panel16.png": {
+    "mtime": 1783627441.3984249,
+    "ast_hash": "bb37bf24411ab5989604b9cf036b6478",
+    "semantic_hash": "bb37bf24411ab5989604b9cf036b6478"
+  },
+  "SentinelAddin/Resources/panel32.png": {
+    "mtime": 1783627441.3893967,
+    "ast_hash": "bc75348838fd0d83e11f6ef90b65626d",
+    "semantic_hash": "bc75348838fd0d83e11f6ef90b65626d"
+  },
+  "SentinelAddin/Resources/requests16.png": {
+    "mtime": 1783628943.9431407,
+    "ast_hash": "b61d578dc08767914d45186d2fb8526f",
+    "semantic_hash": "b61d578dc08767914d45186d2fb8526f"
+  },
+  "SentinelAddin/Resources/requests32.png": {
+    "mtime": 1783628943.9353964,
+    "ast_hash": "501e5700b0b8c0d6f46e71080b31c75a",
+    "semantic_hash": "501e5700b0b8c0d6f46e71080b31c75a"
+  },
+  "SentinelAddin/Resources/rules16.png": {
+    "mtime": 1783627441.4157107,
+    "ast_hash": "08fe70ef2e8da12b402756e025d952ef",
+    "semantic_hash": "08fe70ef2e8da12b402756e025d952ef"
+  },
+  "SentinelAddin/Resources/rules32.png": {
+    "mtime": 1783627441.4101725,
+    "ast_hash": "057fba3ee6b5a7e87b61fec0647579d2",
+    "semantic_hash": "057fba3ee6b5a7e87b61fec0647579d2"
+  },
+  "SentinelAddin/Resources/scan16.png": {
+    "mtime": 1783627441.4054658,
+    "ast_hash": "0996efce88a8005b874dd5b68c168c04",
+    "semantic_hash": "0996efce88a8005b874dd5b68c168c04"
+  },
+  "SentinelAddin/Resources/scan32.png": {
+    "mtime": 1783627441.4019325,
+    "ast_hash": "4023461b016c87d934eba768efdf2025",
+    "semantic_hash": "4023461b016c87d934eba768efdf2025"
+  },
+  "SentinelAddin/Resources/setup16.png": {
+    "mtime": 1783628943.9579065,
+    "ast_hash": "3a5bf3268c83ff8ff7ea32a527d405b6",
+    "semantic_hash": "3a5bf3268c83ff8ff7ea32a527d405b6"
+  },
+  "SentinelAddin/Resources/setup32.png": {
+    "mtime": 1783628943.9518423,
+    "ast_hash": "8d9b889b66411f9528fa126b702261a1",
+    "semantic_hash": "8d9b889b66411f9528fa126b702261a1"
+  },
+  "SentinelAddin/Coordination/BcfApplyEvent.cs": {
+    "mtime": 1784399082.6128383,
+    "ast_hash": "782943b6899dc99cc3dfc8908765c609",
+    "semantic_hash": "782943b6899dc99cc3dfc8908765c609"
+  },
+  "SentinelAddin/Coordination/BcfModels.cs": {
+    "mtime": 1784399046.4025471,
+    "ast_hash": "0c449e453b04408d81fc8319ce7a8a99",
+    "semantic_hash": "0c449e453b04408d81fc8319ce7a8a99"
+  },
+  "WebApp/db/migrations/0004_auth_rls.sql": {
+    "mtime": 1784428074.002432,
+    "ast_hash": "c59b312a6cb863a82455ed50d0115c2f",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0005_element_snapshots.sql": {
+    "mtime": 1784502650.5533326,
+    "ast_hash": "3dc6e5945e3634a906f58b23bbaa2fa8",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/clash.test.ts": {
+    "mtime": 1784469621.3696187,
+    "ast_hash": "2cf36c8c808fdbe7e230eca319c2d026",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/revision-diff.test.ts": {
+    "mtime": 1784470231.658429,
+    "ast_hash": "2b18e943d1dbf33b88e03e16c274bfde",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/revision-diff.ts": {
+    "mtime": 1784470097.0164282,
+    "ast_hash": "2bcc8fb0403b75aaa79a9d46adca11cc",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/auth-widget.ts": {
+    "mtime": 1784431174.5982962,
+    "ast_hash": "c9e2b6e786e2822b42854403fbcee276",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/auth.ts": {
+    "mtime": 1784431148.9152558,
+    "ast_hash": "04f9dea3efbb58a869ab6285a2a49ec7",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/crypto.test.ts": {
+    "mtime": 1784510890.2142015,
+    "ast_hash": "ec3c4841a33b11e7b4b4dd610272d475",
+    "semantic_hash": ""
+  },
+  "WebApp/vitest.config.ts": {
+    "mtime": 1784424779.5105417,
+    "ast_hash": "eda98a975e130b49cd76898365e632eb",
+    "semantic_hash": ""
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1784424828.012085,
+    "ast_hash": "92eda834b8fc4f900f9990e0a7dfcb59",
+    "semantic_hash": ""
+  },
+  "docs/STRATEGIC_REVIEW_2026-07.md": {
+    "mtime": 1784423964.529518,
+    "ast_hash": "49317a50eabcd1217334549351dffe3c",
+    "semantic_hash": ""
+  },
+  "docs/auth-rls-design.md": {
+    "mtime": 1784427625.4344008,
+    "ast_hash": "7ff447f75e800ff8bb606d1850c7ffd9",
+    "semantic_hash": ""
+  },
+  "docs/bim-tools-catalog-full.md": {
+    "mtime": 1784502320.6045544,
+    "ast_hash": "93db0ac677df93d2a208685902ee81be",
+    "semantic_hash": ""
+  },
+  "docs/bim-tools-landscape.md": {
+    "mtime": 1784467011.234232,
+    "ast_hash": "38f5793146b1f6c5ad41bd118ee73de4",
+    "semantic_hash": ""
+  },
+  "docs/competitive-build-specs.md": {
+    "mtime": 1784468938.167945,
+    "ast_hash": "1d1c028b622917494c629769de8fa932",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/revision-cost.test.ts": {
+    "mtime": 1784470872.8002424,
+    "ast_hash": "e172a759e84e7e67c3b4784a7ce1904e",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/revision-cost.ts": {
+    "mtime": 1784470850.1099072,
+    "ast_hash": "f56567adff6f36bf0787ac6b91569861",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/revision-carbon.test.ts": {
+    "mtime": 1784471299.0457115,
+    "ast_hash": "ac23f4ba8be249b81b828fe0a807953b",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/revision-carbon.ts": {
+    "mtime": 1784471280.7762055,
+    "ast_hash": "545b6547513426cc08baa18c34f055af",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/snapshot-store.ts": {
+    "mtime": 1784533924.4316466,
+    "ast_hash": "10241b8a653b05633214eba6745d583e",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0006_audit_chain_lock.sql": {
+    "mtime": 1784506903.2518113,
+    "ast_hash": "d387ec804c49f4456128ba9601f7a05c",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0007_project_metadata.sql": {
+    "mtime": 1784507755.6249268,
+    "ast_hash": "bf507e18765d06d4350770926b562c92",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0008_bcf_topics.sql": {
+    "mtime": 1784508324.48495,
+    "ast_hash": "b5dac41699f1e0dfffd41d4042b3738a",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0009_bridge_docs.sql": {
+    "mtime": 1784509240.9050667,
+    "ast_hash": "c6048c85513cf9c10e612af55b3b67a4",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0010_bridge_events.sql": {
+    "mtime": 1784509610.176604,
+    "ast_hash": "43f6713a74b849d0a5eaf602cd2e565d",
+    "semantic_hash": ""
+  },
+  "WebApp/bridge/bridge-auth.mjs": {
+    "mtime": 1784510057.8525176,
+    "ast_hash": "c91926ca67d35b17eb2eee27d25c09b8",
+    "semantic_hash": ""
+  },
+  "docs/jwt-forwarding-activation.md": {
+    "mtime": 1784513849.7609706,
+    "ast_hash": "acb36ce6f7bec0957f75905abe6383dd",
+    "semantic_hash": ""
+  },
+  "WebApp/bridge/mcp-server.mjs": {
+    "mtime": 1784513697.4279022,
+    "ast_hash": "c6bb8e04c99d826877dad42f6baf62fd",
+    "semantic_hash": ""
+  },
+  "WebApp/bridge/sentinel-core.mjs": {
+    "mtime": 1784514194.1796517,
+    "ast_hash": "5d001d89c58a0c10f0513edb95e32ad6",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/bridge-entry.ts": {
+    "mtime": 1784513417.4058304,
+    "ast_hash": "9e3b582d76d84321eaa95d57f5b7f8c6",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/ids.test.ts": {
+    "mtime": 1784513402.4849544,
+    "ast_hash": "75e605aca41fc529e39796ec6f697e1b",
+    "semantic_hash": ""
+  },
+  "docs/mcp-server.md": {
+    "mtime": 1784513703.941592,
+    "ast_hash": "1b055131c7d0b526ecfbab7343d0680b",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/element-graph.test.ts": {
+    "mtime": 1784514151.1951234,
+    "ast_hash": "c0847db26502001aaa62e9c5e4d2a6c8",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/element-graph.ts": {
+    "mtime": 1784514138.9719234,
+    "ast_hash": "dd11d1b7fc5e7c56ddd9af27f36bf7d4",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/bridge-fetch.ts": {
+    "mtime": 1784513809.1790936,
+    "ast_hash": "a4a94c56758cc9d538820e31cf0dbb1e",
+    "semantic_hash": ""
+  },
+  "docs/ARCHITECTURE.md": {
+    "mtime": 1784514103.058801,
+    "ast_hash": "e3237ee24ba9ecd5319a0b196466f7a9",
+    "semantic_hash": ""
+  },
+  "SentinelAddin/Coordination/GovernedNotify.cs": {
+    "mtime": 1784534193.5231426,
+    "ast_hash": "18f8ebb2cdbf67c3f396918800c70de5",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/carbon.test.ts": {
+    "mtime": 1784514523.1720555,
+    "ast_hash": "0f7f3156eecb215c04e53d1bcaeae9e9",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/gates.test.ts": {
+    "mtime": 1784514492.2170992,
+    "ast_hash": "ad39cbbcbfcbd72ec88dfe8d1e45baf2",
+    "semantic_hash": ""
+  },
+  "WebApp/src/sentinel-core/quantities.test.ts": {
+    "mtime": 1784532424.6511662,
+    "ast_hash": "75db56f831666b543c540164e1ba8efc",
+    "semantic_hash": ""
+  },
+  "docs/interop.md": {
+    "mtime": 1784532518.7747643,
+    "ast_hash": "364422e4960d212ffec3777d6e1c2271",
+    "semantic_hash": ""
+  },
+  "WebApp/db/migrations/0011_file_versions.sql": {
+    "mtime": 1784533423.1212926,
+    "ast_hash": "9edf3ce32c7b532c30f06eacddfea83d",
+    "semantic_hash": ""
+  },
+  "WebApp/src/setups/files-panel.ts": {
+    "mtime": 1784533910.2534559,
+    "ast_hash": "8e58f78d13a94b504ef651c7ed4366d2",
+    "semantic_hash": ""
+  },
+  "SentinelAddin/Coordination/GovernedQuery.cs": {
+    "mtime": 1784534304.0929642,
+    "ast_hash": "66f3df41148a88a24ca9c3fff49bee9b",
+    "semantic_hash": ""
+  }
+}

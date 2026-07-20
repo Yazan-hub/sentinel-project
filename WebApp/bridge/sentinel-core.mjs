@@ -249,6 +249,7 @@ function buildBoQ(quantities, rates) {
   let unpriced = 0;
   let missing = 0;
   let priced = 0;
+  let estimated = 0;
   for (const e of quantities) {
     const rule = resolveRate(e, rates);
     if (!rule) {
@@ -265,9 +266,11 @@ function buildBoQ(quantities, rates) {
         qty = 0;
       } else {
         qty = dim;
+        if (e.estimated) estimated++;
       }
     }
     priced++;
+    const dimEstimated = rule.measure !== "count" && e.estimated === true;
     let line = lines.get(rule.match);
     if (!line) {
       line = {
@@ -285,6 +288,7 @@ function buildBoQ(quantities, rates) {
     line.qty += qty;
     line.count += 1;
     line.rate = rule.rate;
+    if (dimEstimated) line.estimated = true;
     (line.model_map[e.model_id] ??= []).push(e.local_id);
   }
   let total = 0;
@@ -299,7 +303,8 @@ function buildBoQ(quantities, rates) {
     total,
     priced_count: priced,
     unpriced_count: unpriced,
-    missing_qto: missing
+    missing_qto: missing,
+    estimated_count: estimated
   };
 }
 function describe(match) {
@@ -515,7 +520,7 @@ function resolveFactor(e, f) {
 }
 function buildCarbon(quantities, f) {
   const lines = /* @__PURE__ */ new Map();
-  let noFactor = 0, missing = 0, priced = 0, gfa = 0;
+  let noFactor = 0, missing = 0, priced = 0, gfa = 0, estimated = 0;
   for (const e of quantities) {
     if (/SLAB/i.test(e.category) && e.area != null) gfa += e.area;
     const rule = resolveFactor(e, f);
@@ -531,9 +536,13 @@ function buildCarbon(quantities, f) {
       if (dim == null) {
         missing++;
         qty = 0;
-      } else qty = dim;
+      } else {
+        qty = dim;
+        if (e.estimated) estimated++;
+      }
     }
     priced++;
+    const dimEstimated = rule.measure !== "count" && e.estimated === true;
     let line = lines.get(rule.match);
     if (!line) {
       line = { code: rule.match, description: describe(rule.match), unit: rule.unit, qty: 0, factor: rule.factor, kg: 0, count: 0, model_map: {} };
@@ -542,6 +551,7 @@ function buildCarbon(quantities, f) {
     line.qty += qty;
     line.count += 1;
     line.factor = rule.factor;
+    if (dimEstimated) line.estimated = true;
     (line.model_map[e.model_id] ??= []).push(e.local_id);
   }
   let total = 0;
@@ -558,6 +568,7 @@ function buildCarbon(quantities, f) {
     priced_count: priced,
     no_factor: noFactor,
     missing_qto: missing,
+    estimated_count: estimated,
     gfa
   };
 }
