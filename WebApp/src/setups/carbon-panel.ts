@@ -282,7 +282,8 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     }).join("");
 
     const banners: string[] = [];
-    if (r.missing_qto > 0) banners.push(banner("#eab308", `${r.missing_qto} element(s) lack IFC Qto_ quantities — measured as 0. Enable quantity export.`));
+    if (r.estimated_count > 0) banners.push(banner("#38bdf8", `${r.estimated_count} element(s) measured from geometry (no IFC Qto_) — carbon is estimated. Publish authored quantities / EPD for precision.`));
+    if (r.missing_qto > 0) banners.push(banner("#eab308", `${r.missing_qto} element(s) have neither IFC Qto_ nor usable geometry — measured as 0.`));
     if (r.no_factor > 0) banners.push(banner("#60a5fa", `${r.no_factor} element(s) have no carbon factor — excluded from the total.`));
     banners.push(banner("#6b7280", `Factors: ${esc(r.source)}`));
     el("cb-banners").innerHTML = banners.join("");
@@ -310,7 +311,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const rowHtml = (l: CarbonLine, idx: number) =>
     `<tr class="cb-row" data-i="${idx}" title="Isolate ${l.count} element(s)" style="border-top:1px solid #23232a;cursor:pointer">` +
       `<td style="padding:.4rem .3rem"><div style="font-weight:600">${esc(l.description)}</div><div style="color:#6b7280;font-size:11px">${l.count.toLocaleString("en-US")} el · ${esc(l.unit)}</div></td>` +
-      `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums">${l.qty.toLocaleString("en-US", { maximumFractionDigits: 1 })}</td>` +
+      `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums" ${l.estimated ? 'title="Quantity estimated from geometry (no IFC Qto_)"' : ""}>${l.estimated ? '<span style="color:#38bdf8">~</span>' : ""}${l.qty.toLocaleString("en-US", { maximumFractionDigits: 1 })}</td>` +
       `<td style="padding:.4rem .3rem;text-align:right"><input class="cb-fac" data-code="${esc(l.code)}" type="number" min="0" value="${l.factor}" style="width:60px;text-align:right;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .3rem;font:12px ui-monospace,Consolas,monospace"/></td>` +
       `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace">${kg(l.kg)}</td></tr>`;
 

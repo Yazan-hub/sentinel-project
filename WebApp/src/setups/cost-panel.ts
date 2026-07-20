@@ -312,8 +312,10 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
 
     // gap banners — shown, never hidden
     const banners: string[] = [];
+    if (b.estimated_count > 0)
+      banners.push(bannerHtml("#38bdf8", `${b.estimated_count} element(s) measured from geometry (no IFC Qto_) — priced as estimates. Publish authored quantities for contract precision.`));
     if (b.missing_qto > 0)
-      banners.push(bannerHtml("#eab308", `${b.missing_qto} element(s) lack IFC Qto_ quantities — enable quantity export in your IFC settings. They're counted but measured as 0.`));
+      banners.push(bannerHtml("#eab308", `${b.missing_qto} element(s) have neither IFC Qto_ nor usable geometry — counted but measured as 0.`));
     if (b.unpriced_count > 0)
       banners.push(bannerHtml("#60a5fa", `${b.unpriced_count} element(s) have no rate in the library — not included in the total.`));
     el("cp-banners").innerHTML = banners.join("");
@@ -353,7 +355,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
       `<tr class="cp-row" data-i="${idx}" title="Isolate ${l.count} element(s)" style="border-top:1px solid #23232a;cursor:pointer">` +
         `<td style="padding:.4rem .3rem"><div style="font-weight:600">${esc(l.description)}</div>` +
           `<div style="color:#6b7280;font-size:11px">${esc(l.code)} · ${l.count.toLocaleString("en-US")} el</div></td>` +
-        `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums">${qtyFmt(l.qty, l.unit)}</td>` +
+        `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums" ${l.estimated ? 'title="Quantity estimated from geometry (no IFC Qto_)"' : ""}>${l.estimated ? '<span style="color:#38bdf8">~</span>' : ""}${qtyFmt(l.qty, l.unit)}</td>` +
         `<td style="padding:.4rem .3rem;color:#9ca3af">${esc(l.unit)}</td>` +
         `<td style="padding:.4rem .3rem;text-align:right">` +
           `<input class="cp-rate" data-code="${esc(l.code)}" type="number" min="0" value="${l.rate}" ` +

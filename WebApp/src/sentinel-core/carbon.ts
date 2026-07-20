@@ -28,6 +28,7 @@ export interface CarbonLine {
   factor: number;
   kg: number; // kgCO₂e
   count: number;
+  estimated?: boolean; // any element priced on a geometry-derived (estimated) dimension
   model_map: Record<string, number[]>;
 }
 export interface CarbonReport {
@@ -38,6 +39,7 @@ export interface CarbonReport {
   priced_count: number;
   no_factor: number; // elements with a quantity but no factor
   missing_qto: number; // elements whose factor needs a dimension the model didn't export
+  estimated_count: number; // priced elements whose dimension was geometry-derived (no Qto_)
   gfa: number; // gross floor area (Σ slab area, m²) for the intensity metric
 }
 
@@ -56,7 +58,7 @@ export function resolveFactor(e: { category: string; type_name?: string }, f: Ca
 
 export function buildCarbon(quantities: ElementQuantities[], f: CarbonFactors): CarbonReport {
   const lines = new Map<string, CarbonLine>();
-  let noFactor = 0, missing = 0, priced = 0, gfa = 0;
+  let noFactor = 0, missing = 0, priced = 0, gfa = 0, estimated = 0;
 
   for (const e of quantities) {
     if (/SLAB/i.test(e.category) && e.area != null) gfa += e.area; // GFA ≈ Σ slab area
@@ -68,9 +70,10 @@ export function buildCarbon(quantities: ElementQuantities[], f: CarbonFactors): 
       qty = e.count;
     } else {
       const dim = e[rule.measure];
-      if (dim == null) { missing++; qty = 0; } else qty = dim;
+      if (dim == null) { missing++; qty = 0; } else { qty = dim; if (e.estimated) estimated++; }
     }
     priced++;
+    const dimEstimated = rule.measure !== "count" && e.estimated === true;
 
     let line = lines.get(rule.match);
     if (!line) {
@@ -80,6 +83,7 @@ export function buildCarbon(quantities: ElementQuantities[], f: CarbonFactors): 
     line.qty += qty;
     line.count += 1;
     line.factor = rule.factor;
+    if (dimEstimated) line.estimated = true;
     (line.model_map[e.model_id] ??= []).push(e.local_id);
   }
 
@@ -88,6 +92,6 @@ export function buildCarbon(quantities: ElementQuantities[], f: CarbonFactors): 
   const sorted = [...lines.values()].sort((a, b) => b.kg - a.kg);
   return {
     unit_label: f.unit_label, source: f.source, lines: sorted,
-    total_kg: total, priced_count: priced, no_factor: noFactor, missing_qto: missing, gfa,
+    total_kg: total, priced_count: priced, no_factor: noFactor, missing_qto: missing, estimated_count: estimated, gfa,
   };
 }

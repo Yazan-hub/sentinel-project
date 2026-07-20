@@ -24,6 +24,31 @@ export interface ElementQuantities {
   weight?: number;
   /** true if ANY dimensional quantity (length/area/volume/weight) was read from a Qto_ set. */
   has_qto: boolean;
+  /** true if length/area/volume were DERIVED from geometry (bounding box) because Qto_ was absent —
+   *  an approximation, so cost/carbon lines built on it are flagged "estimated". */
+  estimated?: boolean;
+}
+
+/** An axis-aligned bounding box in world coordinates (the shape model.getBoxes returns). */
+export interface BoxMinMax {
+  min: { x: number; y: number; z: number };
+  max: { x: number; y: number; z: number };
+}
+
+/**
+ * Fallback quantities from an axis-aligned bounding box, for elements the authoring tool exported
+ * WITHOUT an IFC Qto_ set (common outside Revit, and in older/simple exports). Heuristic:
+ *   volume = dx·dy·dz  ·  area = the two largest extents (dominant face: slab footprint / wall face)
+ *   length = the largest extent.
+ * For box-like mass elements (walls, slabs, columns, roofs) the AABB closely tracks the real solid, so
+ * this recovers a usable 5D/6D estimate. It over-reads for elements rotated off-axis, hence "estimated".
+ */
+export function deriveQuantitiesFromBox(b: BoxMinMax): { length: number; area: number; volume: number } {
+  const dx = Math.max(0, b.max.x - b.min.x);
+  const dy = Math.max(0, b.max.y - b.min.y);
+  const dz = Math.max(0, b.max.z - b.min.z);
+  const [d0, d1, d2] = [dx, dy, dz].sort((a, b) => b - a);
+  return { length: d0, area: d0 * d1, volume: d0 * d1 * d2 };
 }
 
 /** One rate-library rule. `match` is a category ("IFCWALL") or category:type ("IFCWALL:Exterior 300mm"). */
@@ -46,6 +71,8 @@ export interface BoQLine {
   rate: number;
   amount: number;
   count: number; // element count in this line
+  /** true if any element in this line was priced on a geometry-derived (estimated) dimension. */
+  estimated?: boolean;
   /** model_id → local_ids, so the panel can isolate the line's elements in the viewer. */
   model_map: Record<string, number[]>;
 }
@@ -58,6 +85,8 @@ export interface BoQ {
   unpriced_count: number;
   /** elements whose rate needs a dimension the model didn't export (Qto_ missing). */
   missing_qto: number;
+  /** priced elements whose dimension was geometry-derived (no Qto_) — included in the total, flagged estimated. */
+  estimated_count: number;
 }
 
 /** The bundled default rate library (editable in the panel). */
@@ -81,6 +110,7 @@ export function buildBoQ(quantities: ElementQuantities[], rates: RateTable): BoQ
   let unpriced = 0;
   let missing = 0;
   let priced = 0;
+  let estimated = 0;
 
   for (const e of quantities) {
     const rule = resolveRate(e, rates);
@@ -98,9 +128,11 @@ export function buildBoQ(quantities: ElementQuantities[], rates: RateTable): BoQ
         qty = 0;
       } else {
         qty = dim;
+        if (e.estimated) estimated++; // priced on a geometry-derived dimension
       }
     }
     priced++;
+    const dimEstimated = rule.measure !== "count" && e.estimated === true;
 
     let line = lines.get(rule.match);
     if (!line) {
@@ -119,6 +151,7 @@ export function buildBoQ(quantities: ElementQuantities[], rates: RateTable): BoQ
     line.qty += qty;
     line.count += 1;
     line.rate = rule.rate; // honour edited rate
+    if (dimEstimated) line.estimated = true;
     (line.model_map[e.model_id] ??= []).push(e.local_id);
   }
 
@@ -135,6 +168,7 @@ export function buildBoQ(quantities: ElementQuantities[], rates: RateTable): BoQ
     priced_count: priced,
     unpriced_count: unpriced,
     missing_qto: missing,
+    estimated_count: estimated,
   };
 }
 

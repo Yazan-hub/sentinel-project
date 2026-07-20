@@ -9,7 +9,10 @@
 
 import type * as OBC from "@thatopen/components";
 import type * as FRAGS from "@thatopen/fragments";
-import type { ElementQuantities } from "../quantities";
+import { deriveQuantitiesFromBox, type ElementQuantities } from "../quantities";
+
+/** The per-element box shape model.getBoxes resolves to (parallel to the id list). */
+type BoxLike = { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number }; isEmpty: () => boolean };
 
 /** The cost drivers we take off by default (walls/slabs/frame/openings/finishes/stairs/roofs). */
 const COSTABLE: RegExp[] = [
@@ -44,8 +47,35 @@ async function fromModel(
     relationsDefault: { attributes: false, relations: false },
   });
 
+  const start = sink.length;
   for (let i = 0; i < ids.length; i++) {
     sink.push(toQuantities(ids[i], data[i], model.modelId));
+  }
+
+  // Geometry fallback: elements the exporter shipped without a Qto_ set (common outside Revit) would
+  // otherwise measure 0 and vanish from the cost/carbon total. Derive length/area/volume from each such
+  // element's bounding box (worker-backed getBoxes) and flag them `estimated`. Box-like mass elements
+  // (walls, slabs, columns, roofs) track their AABB closely, so this recovers a usable — if approximate —
+  // 5D/6D picture for any IFC. Degrades to a no-op if the model has no getBoxes or the call fails.
+  const missIds: number[] = [];
+  const missSink: number[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    if (!sink[start + i].has_qto) { missIds.push(ids[i]); missSink.push(start + i); }
+  }
+  if (missIds.length) {
+    const getBoxes = (model as unknown as { getBoxes?: (ids: number[]) => Promise<BoxLike[]> }).getBoxes;
+    let boxes: BoxLike[] = [];
+    try { if (getBoxes) boxes = await getBoxes.call(model, missIds); } catch { boxes = []; }
+    for (let k = 0; k < missIds.length; k++) {
+      const b = boxes[k];
+      if (!b || b.isEmpty()) continue;
+      const d = deriveQuantitiesFromBox(b);
+      const e = sink[missSink[k]];
+      e.length = d.length;
+      e.area = d.area;
+      e.volume = d.volume;
+      e.estimated = true;
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildBoQ, resolveRate, type RateTable, type ElementQuantities } from "./quantities";
+import { buildBoQ, resolveRate, deriveQuantitiesFromBox, type RateTable, type ElementQuantities } from "./quantities";
 
 const rates: RateTable = {
   currency: "SAR",
@@ -45,5 +45,39 @@ describe("buildBoQ", () => {
     expect(boq.missing_qto).toBe(1);
     expect(boq.total).toBe(0);
     expect(boq.lines.find((l) => l.code === "IFCWALL")?.qty).toBe(0);
+  });
+  it("prices geometry-estimated elements and tallies/flags them", () => {
+    const boq = buildBoQ(
+      [e("IFCWALL", { area: 10, estimated: true }), e("IFCWALL", { area: 5 })],
+      rates,
+    );
+    expect(boq.total).toBe(15 * 100); // both priced, estimate included in the total
+    expect(boq.estimated_count).toBe(1); // only the geometry-derived one
+    expect(boq.lines.find((l) => l.code === "IFCWALL")?.estimated).toBe(true); // line carries the flag
+  });
+  it("does not flag a count-priced element even if it is estimated", () => {
+    const boq = buildBoQ([e("IFCDOOR", { estimated: true })], rates); // doors priced by count
+    expect(boq.estimated_count).toBe(0);
+    expect(boq.lines.find((l) => l.code === "IFCDOOR")?.estimated).toBeUndefined();
+  });
+});
+
+describe("deriveQuantitiesFromBox (Qto_ fallback)", () => {
+  const box = (dx: number, dy: number, dz: number) => ({ min: { x: 0, y: 0, z: 0 }, max: { x: dx, y: dy, z: dz } });
+  it("slab footprint: area = two largest extents, volume = all three", () => {
+    const d = deriveQuantitiesFromBox(box(8, 5, 0.2)); // 8×5 slab, 200mm thick
+    expect(d.area).toBeCloseTo(40); // footprint 8×5 (thickness excluded)
+    expect(d.volume).toBeCloseTo(8); // 8×5×0.2
+    expect(d.length).toBe(8);
+  });
+  it("wall face: area = length × height (thickness excluded)", () => {
+    const d = deriveQuantitiesFromBox(box(6, 0.3, 3)); // 6 long, 300mm thick, 3 high
+    expect(d.area).toBeCloseTo(18); // 6×3
+    expect(d.volume).toBeCloseTo(5.4); // 6×3×0.3
+  });
+  it("clamps negative/degenerate extents to zero", () => {
+    const d = deriveQuantitiesFromBox({ min: { x: 5, y: 0, z: 0 }, max: { x: 1, y: 0, z: 0 } });
+    expect(d.volume).toBe(0);
+    expect(d.area).toBe(0);
   });
 });
