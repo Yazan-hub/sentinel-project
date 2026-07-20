@@ -11,6 +11,7 @@
     "bridge:upload": "node bridge/upload-ifc.mjs",
     "bridge:watch": "node bridge/watch-outbox.mjs",
     "bcf:serve": "node bridge/bcf-service.mjs",
+    "build:bridge-core": "esbuild src/sentinel-core/bridge-entry.ts --bundle --format=esm --platform=node --outfile=bridge/sentinel-core.mjs",
     "start": "node bridge/bcf-service.mjs"
   },
   "dependencies": {

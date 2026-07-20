@@ -380,6 +380,46 @@ export async function pruneEvents(olderThanMs = 600000) {
   await sb(`bridge_events?created_at=lt.${new Date(Date.now() - olderThanMs).toISOString()}`, { method: "DELETE", prefer: "return=minimal", service: true });
 }
 
+// ── The "propose API" (referee layer) — an agent/tool PROPOSES; Sentinel adjudicates deterministically with
+// the SAME governed-core validators the browser uses (bundled to sentinel-core.mjs) and records the verdict
+// immutably. Let a thousand generators propose; this is where their output becomes TRUE (or is rejected). ──
+let _core = null;
+const core = async () => (_core ??= await import("./sentinel-core.mjs"));
+
+/** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
+ *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
+ *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}). */
+export async function adjudicateProposal(key, b = {}) {
+  const c = await core();
+  const elements = Array.isArray(b.elements) ? b.elements : [];
+  const spec = b.ids ? (typeof b.ids === "string" ? c.parseIds(b.ids) : b.ids) : null;
+  const failures = [];
+  let inScope = 0, passing = 0;
+  if (spec && typeof c.validateElement === "function") {
+    for (const el of elements) {
+      const res = c.validateElement(spec, el);
+      if (!res.inScope) continue;
+      inScope++;
+      if (res.pass) passing++;
+      else for (const f of res.failures) failures.push({ element: el?.identity?.GlobalId ?? el?.localId ?? null, ...f });
+    }
+  }
+  const summary = { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null };
+  const verdict = spec ? (failures.length === 0 ? "accepted" : "rejected") : "recorded";
+  const proj = await ensureProject(key);
+  const audit = (await sb(`audit_log`, {
+    method: "POST",
+    body: {
+      project_id: proj.id, entity_type: "proposal", entity_id: null,
+      action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
+      actor: b.actor ?? b.source ?? "agent", old_value: null,
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50) },
+    },
+    prefer: "return=representation", service: true, // audit_log bypasses RLS by design
+  }))[0];
+  return { verdict, summary, failures: failures.slice(0, 200), audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
+}
+
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
 const enc = encodeURIComponent;
 const DOC_CONFLICT = "on_conflict=store,project_id,doc_id";
