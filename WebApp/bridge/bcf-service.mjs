@@ -157,6 +157,31 @@ const updateClashStatus = (pid, signature, status) => {
   rec.status = status; rec.updated_at = new Date().toISOString(); persistClash();
   return true;
 };
+// Supabase-backed twins (migration 0009) — identical merge semantics over bridge_docs (store="clash").
+async function upsertClashesCde(cde, pid, items) {
+  const now = new Date().toISOString();
+  const bySig = new Map((await cde.docList("clash", pid)).map((r) => [r.signature, r]));
+  // Collapse within-batch duplicate signatures (a bulk upsert can't touch the same PK twice) — merging
+  // sequentially exactly like the local upserter's shared map.
+  const touched = new Map();
+  for (const it of Array.isArray(items) ? items : []) {
+    if (!it || !it.signature) continue;
+    const status = CLASH_STATUSES.includes(it.status) ? it.status : "raised";
+    const prev = touched.get(it.signature) || bySig.get(it.signature);
+    touched.set(it.signature, prev
+      ? { ...prev, status, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, updated_at: now }
+      : { project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, created_at: now, updated_at: now });
+  }
+  await cde.docUpsertMany("clash", pid, [...touched].map(([sig, data]) => ({ doc_id: sig, data })));
+}
+async function updateClashStatusCde(cde, pid, signature, status) {
+  if (!signature || !CLASH_STATUSES.includes(status)) return false;
+  const rec = await cde.docGet("clash", pid, signature);
+  if (!rec) return false;
+  rec.status = status; rec.updated_at = new Date().toISOString();
+  await cde.docUpsert("clash", pid, signature, rec);
+  return true;
+}
 
 const send = (res, code, body) => {
   const headers = {
@@ -329,13 +354,16 @@ createServer(async (req, res) => {
     const [, rpid, rguid] = rm;
     const inP = (r) => r.project_id === rpid;
     try {
+      const cde = await import("./cde-store.mjs");
+      const useCde = cde.cdeConfigured();
+      const listRfis = async () => (useCde ? await cde.docListLazy("rfi", rpid, rdb.rfis.filter(inP), (r) => r.guid) : rdb.rfis.filter(inP));
       if (req.method === "GET" && !rguid) {
         const status = url.searchParams.get("status");
-        return send(res, 200, rdb.rfis.filter(inP).filter((r) => (!status || status === "all") ? true : r.status === status));
+        return send(res, 200, (await listRfis()).filter((r) => (!status || status === "all") ? true : r.status === status));
       }
       if (req.method === "POST" && !rguid) {
         const b = await readBody(req); const now = new Date().toISOString();
-        const num = rdb.rfis.filter(inP).length + 1;
+        const num = (await listRfis()).length + 1;
         const rfi = {
           guid: randomUUID(), project_id: rpid, number: `RFI-${String(num).padStart(3, "0")}`,
           subject: b.subject || "Untitled", question: b.question || "", status: "Open",
@@ -344,9 +372,10 @@ createServer(async (req, res) => {
           creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
           history: [{ date: now, author: b.creation_author || "web", action: "Raised" }],
         };
-        rdb.rfis.push(rfi); persistRfi(); return send(res, 201, rfi);
+        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else { rdb.rfis.push(rfi); persistRfi(); }
+        return send(res, 201, rfi);
       }
-      const rfi = rdb.rfis.find((r) => inP(r) && r.guid === rguid);
+      const rfi = useCde ? await cde.docGet("rfi", rpid, rguid) : rdb.rfis.find((r) => inP(r) && r.guid === rguid);
       if (!rfi) return send(res, 404, { message: "RFI not found" });
       rfi.history = rfi.history || [];
       if (req.method === "PUT") {
@@ -358,7 +387,9 @@ createServer(async (req, res) => {
         for (const [k, label] of [["status", "Status"], ["assigned_to", "Assignee"], ["due_date", "Due date"], ["discipline", "Discipline"]]) {
           if (b[k] !== undefined && b[k] !== rfi[k]) { rfi.history.push({ date: now, author: who, action: `${label}: ${rfi[k] || "—"} → ${b[k] || "—"}` }); rfi[k] = b[k]; }
         }
-        rfi.modified_date = now; persistRfi(); return send(res, 200, rfi);
+        rfi.modified_date = now;
+        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else persistRfi();
+        return send(res, 200, rfi);
       }
       return send(res, 405, { message: "Method not allowed" });
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
@@ -369,29 +400,36 @@ createServer(async (req, res) => {
   if (km) {
     const [, kid, ksub] = km;
     try {
-      if (req.method === "GET" && !kid) return send(res, 200, pkdb.packs);
+      const cde = await import("./cde-store.mjs");
+      const useCde = cde.cdeConfigured();
+      // Global store (project_id=""). One list call (which also lazy-migrates) gives the current set to find in.
+      const packs = useCde ? await cde.docListLazy("pack", "", pkdb.packs, (p) => p.id) : pkdb.packs;
+      const savePack = async (pk) => { if (useCde) await cde.docUpsert("pack", "", pk.id, pk); else persistPack(); };
+      if (req.method === "GET" && !kid) return send(res, 200, packs);
       if (req.method === "POST" && !kid) { // publish (create or update)
         const b = await readBody(req); const now = new Date().toISOString();
         const id = `${b.key}@${b.version}`;
-        const existing = pkdb.packs.find((p) => p.id === id);
+        const existing = packs.find((p) => p.id === id);
         const pack = {
           id, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
           author: b.author || "anon", tags: b.tags || [], ruleset: b.ruleset || { rules: [] },
           installs: existing?.installs || 0, forks: existing?.forks || 0,
           forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || now,
         };
-        if (existing) Object.assign(existing, pack); else pkdb.packs.push(pack);
-        persistPack(); return send(res, 201, pack);
+        if (useCde) await cde.docUpsert("pack", "", id, pack); else { if (existing) Object.assign(existing, pack); else pkdb.packs.push(pack); persistPack(); }
+        return send(res, 201, pack);
       }
-      if (kid && !ksub && req.method === "GET") return send(res, 200, pkdb.packs.find((p) => p.id === kid) || null);
-      const pack = pkdb.packs.find((p) => p.id === kid);
+      if (kid && !ksub && req.method === "GET") return send(res, 200, packs.find((p) => p.id === kid) || null);
+      const pack = packs.find((p) => p.id === kid);
       if (!pack) return send(res, 404, { message: "Pack not found" });
-      if (req.method === "POST" && ksub === "install") { pack.installs = (pack.installs || 0) + 1; persistPack(); return send(res, 200, pack); }
+      if (req.method === "POST" && ksub === "install") { pack.installs = (pack.installs || 0) + 1; await savePack(pack); return send(res, 200, pack); }
       if (req.method === "POST" && ksub === "fork") {
         const b = await readBody(req); const now = new Date().toISOString();
         const nid = `${b.key || pack.key}@${b.version || "fork"}`;
         const fork = { ...pack, id: nid, key: b.key || pack.key, version: b.version || "fork", name: b.name || pack.name + " (fork)", author: b.author || "anon", installs: 0, forks: 0, forked_from: pack.id, created_at: now };
-        pack.forks = (pack.forks || 0) + 1; pkdb.packs.push(fork); persistPack(); return send(res, 201, fork);
+        pack.forks = (pack.forks || 0) + 1;
+        if (useCde) { await cde.docUpsert("pack", "", pack.id, pack); await cde.docUpsert("pack", "", fork.id, fork); } else { pkdb.packs.push(fork); persistPack(); }
+        return send(res, 201, fork);
       }
       return send(res, 405, { message: "Method not allowed" });
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
@@ -403,7 +441,10 @@ createServer(async (req, res) => {
     const [, tpid, tguid, tsub] = tm;
     const inP = (t) => t.project_id === tpid;
     try {
-      if (req.method === "GET" && !tguid) return send(res, 200, tndb.tenders.filter(inP));
+      const cde = await import("./cde-store.mjs");
+      const useCde = cde.cdeConfigured();
+      const listTenders = async () => (useCde ? await cde.docListLazy("tender", tpid, tndb.tenders.filter(inP), (t) => t.guid) : tndb.tenders.filter(inP));
+      if (req.method === "GET" && !tguid) return send(res, 200, await listTenders());
       if (req.method === "POST" && !tguid) {
         const b = await readBody(req); const now = new Date().toISOString();
         const t = {
@@ -413,23 +454,25 @@ createServer(async (req, res) => {
           bids: [], awarded_to: "", creation_date: now, modified_date: now,
           history: [{ date: now, author: b.author || "web", action: "Tender issued" }],
         };
-        tndb.tenders.push(t); persistTender(); return send(res, 201, t);
+        if (useCde) await cde.docUpsert("tender", tpid, t.guid, t); else { tndb.tenders.push(t); persistTender(); }
+        return send(res, 201, t);
       }
-      const t = tndb.tenders.find((x) => inP(x) && x.guid === tguid);
+      const t = useCde ? await cde.docGet("tender", tpid, tguid) : tndb.tenders.find((x) => inP(x) && x.guid === tguid);
       if (!t) return send(res, 404, { message: "Tender not found" });
       t.history = t.history || [];
+      const saveTender = async () => { if (useCde) await cde.docUpsert("tender", tpid, t.guid, t); else persistTender(); };
       if (req.method === "POST" && tsub === "bids") {
         const b = await readBody(req); const now = new Date().toISOString();
         const rates = b.rates || {};
         const bid = { id: randomUUID(), bidder: b.bidder || "Bidder", submitted_date: now, rates, total: bidTotal(t.scope, rates) };
         t.bids.push(bid); t.history.push({ date: now, author: b.bidder || "web", action: `Bid received: ${b.bidder || "Bidder"}` });
-        t.modified_date = now; persistTender(); return send(res, 201, bid);
+        t.modified_date = now; await saveTender(); return send(res, 201, bid);
       }
       if (req.method === "PUT") {
         const b = await readBody(req); const now = new Date().toISOString(); const who = b.author || "web";
         if (b.status && b.status !== t.status) { t.history.push({ date: now, author: who, action: `Status: ${t.status} → ${b.status}` }); t.status = b.status; }
         if (b.awarded_to !== undefined && b.awarded_to !== t.awarded_to) { t.awarded_to = b.awarded_to; t.status = "Awarded"; t.history.push({ date: now, author: who, action: `Awarded to ${b.awarded_to}` }); }
-        t.modified_date = now; persistTender(); return send(res, 200, t);
+        t.modified_date = now; await saveTender(); return send(res, 200, t);
       }
       return send(res, 405, { message: "Method not allowed" });
     } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
@@ -559,11 +602,27 @@ createServer(async (req, res) => {
   const cm = url.pathname.match(/^\/clash\/([^/]+)(?:\/(reset))?$/);
   if (cm) {
     const [, cpid, sub] = cm;
-    if (req.method === "GET" && !sub) return send(res, 200, { items: clashItems(cpid) });
-    if (req.method === "POST" && sub === "reset") { cldb.clashes = cldb.clashes.filter((c) => c.project !== cpid); persistClash(); return send(res, 200, { ok: true }); }
-    if (req.method === "POST" && !sub) { upsertClashes(cpid, (await readBody(req)).items); return send(res, 201, { items: clashItems(cpid) }); }
-    if (req.method === "PUT" && !sub) { const b = await readBody(req); return send(res, 200, { ok: updateClashStatus(cpid, b.signature, b.status) }); }
-    return send(res, 405, { message: "method not allowed" });
+    try {
+      const cde = await import("./cde-store.mjs");
+      const useCde = cde.cdeConfigured(); // Supabase (0009) when configured — genuinely team-wide; local file fallback + lazy migration
+      if (req.method === "GET" && !sub)
+        return send(res, 200, { items: useCde ? await cde.docListLazy("clash", cpid, cldb.clashes.filter((c) => c.project === cpid), (c) => c.signature) : clashItems(cpid) });
+      if (req.method === "POST" && sub === "reset") {
+        if (useCde) await cde.docDeleteProject("clash", cpid); else { cldb.clashes = cldb.clashes.filter((c) => c.project !== cpid); persistClash(); }
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && !sub) {
+        const items = (await readBody(req)).items;
+        if (useCde) await upsertClashesCde(cde, cpid, items); else upsertClashes(cpid, items);
+        return send(res, 201, { items: useCde ? await cde.docList("clash", cpid) : clashItems(cpid) });
+      }
+      if (req.method === "PUT" && !sub) {
+        const b = await readBody(req);
+        const ok = useCde ? await updateClashStatusCde(cde, cpid, b.signature, b.status) : updateClashStatus(cpid, b.signature, b.status);
+        return send(res, 200, { ok });
+      }
+      return send(res, 405, { message: "method not allowed" });
+    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
   }
 
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]

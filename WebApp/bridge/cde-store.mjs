@@ -327,6 +327,40 @@ export async function getRevisionSnapshots(revisionId) {
   return out;
 }
 
+// ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
+const enc = encodeURIComponent;
+const DOC_CONFLICT = "on_conflict=store,project_id,doc_id";
+
+/** List a store's documents for a project (data objects, insertion order). */
+export async function docList(store, pid) {
+  const rows = await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&select=data&order=created_at.asc`);
+  return (rows || []).map((r) => r.data);
+}
+/** Same, but lazy-migrate the local file into Supabase the first time a store/project with no rows is read. */
+export async function docListLazy(store, pid, localDocs, idOf) {
+  let rows = await docList(store, pid);
+  if (!rows.length && Array.isArray(localDocs) && localDocs.length) {
+    await sb(`bridge_docs`, { method: "POST", body: localDocs.map((d) => ({ store, project_id: pid, doc_id: String(idOf(d)), data: d })), prefer: "return=minimal" });
+    rows = await docList(store, pid);
+  }
+  return rows;
+}
+export async function docGet(store, pid, docId) {
+  const rows = await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&select=data`);
+  return rows?.[0]?.data ?? null;
+}
+export async function docUpsert(store, pid, docId, data) {
+  await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal" });
+  return data;
+}
+export async function docUpsertMany(store, pid, items) { // items: [{doc_id, data}]
+  if (!items.length) return;
+  await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: items.map((i) => ({ store, project_id: pid, doc_id: String(i.doc_id), data: i.data, updated_at: new Date().toISOString() })), prefer: "resolution=merge-duplicates,return=minimal" });
+}
+export async function docDeleteProject(store, pid) {
+  await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}`, { method: "DELETE", prefer: "return=minimal" });
+}
+
 // ── BCF topics (migration 0008) — team-wide topic store. One JSONB document per topic so the exact BCF-API
 // shape is preserved; the bridge keeps all topic construction/mutation, cde-store only persists. ────────────
 const bcfRow = (t) => ({ guid: t.guid, project_id: t.project_id, topic_status: t.topic_status, model: t.model || "", data: t });
