@@ -1,5 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { bfetch } from "./bridge-fetch";
+import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
@@ -28,6 +29,8 @@ interface FileRec {
   id: string; iso_name: string; title?: string; discipline?: string; container_type?: string;
   created_at: string; version_count: number; live_version_id: string | null; versions: Version[];
 }
+// One immutable audit event (audit_log row) — the "who did what, when" behind each version.
+interface AuditEvent { id: number; entity_id: string; entity_type?: string; action: string; actor?: string; at: string; }
 
 export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
@@ -36,8 +39,15 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
 
   let files: FileRec[] = [];
   let revByVersion = new Map<string, string>(); // container_version_id → model_revision id (for compare)
+  let auditByEntity = new Map<string, AuditEvent[]>(); // entity_id → its audit events (for the version history)
   const expanded = new Set<string>();
+  const historyOpen = new Set<string>(); // version ids whose history timeline is expanded
   const cmp: { a?: Version; b?: Version; fileId?: string } = {};
+
+  // The signed-in user's identity — recorded as the uploader / actor so "who did it" is real, not "web".
+  const whoami = async (): Promise<string> => {
+    try { return (await currentUser())?.email || "web"; } catch { return "web"; }
+  };
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
@@ -87,6 +97,17 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const revs = await fetchRevisions(base, pid());
       revByVersion = new Map();
       for (const r of revs) if (r.container_version_id) revByVersion.set(r.container_version_id, r.id);
+      // Immutable audit trail → per-version history (uploaded / set live / state transitions, with who + when).
+      // Keyed on entity_id, which the bridge sets to the container_version id for all version events.
+      auditByEntity = new Map();
+      try {
+        const rows = (await api(`${encodeURIComponent(pid())}/audit`)) as AuditEvent[];
+        for (const r of Array.isArray(rows) ? rows : []) {
+          if (!r.entity_id) continue;
+          const list = auditByEntity.get(r.entity_id) ?? auditByEntity.set(r.entity_id, []).get(r.entity_id)!;
+          list.push(r);
+        }
+      } catch { /* audit unavailable — history just shows empty, panel still works */ }
       render();
       status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s).`);
     } catch (e) {
@@ -109,6 +130,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", () => setLive(n.dataset.live!)));
     root.querySelectorAll<HTMLElement>("[data-cmp]").forEach((n) =>
       n.addEventListener("click", () => pickCompare(n.dataset.file!, n.dataset.cmp!)));
+    root.querySelectorAll<HTMLElement>("[data-hist]").forEach((n) =>
+      n.addEventListener("click", () => { const id = n.dataset.hist!; historyOpen.has(id) ? historyOpen.delete(id) : historyOpen.add(id); render(); }));
   }
 
   function fileCard(f: FileRec): string {
@@ -142,14 +165,43 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       cmpBadge +
       (v.is_live ? "" : `<button data-live="${v.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Set live</button>`) +
       `<button data-cmp="${v.id}" data-file="${f.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Compare</button>` +
-      "</div>"
+      `<button data-hist="${v.id}" title="Version history — who did what, when (immutable audit)" style="border:1px solid #2c2c34;background:${historyOpen.has(v.id) ? "#2a1e4d" : "#1f1f27"};color:${historyOpen.has(v.id) ? "#c4b5fd" : "#cbd5e1"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">History</button>` +
+      "</div>" +
+      (historyOpen.has(v.id) ? historyBlock(f, v) : "")
     );
+  }
+
+  // A version's immutable timeline, most useful reading: the file/container events (created, moved) MERGED with
+  // this version's own events (uploaded → set live → ISO 19650 state transitions) — each with who + when. Old
+  // files created before per-version auditing still show their file-level history; new uploads show the full
+  // trail with the real uploader.
+  function historyBlock(f: FileRec, v: Version): string {
+    const evs = [...(auditByEntity.get(v.id) || []), ...(auditByEntity.get(f.id) || [])].sort((a, b) => a.id - b.id);
+    if (!evs.length)
+      return '<div style="padding:.3rem .6rem .45rem 2rem;border-top:1px dashed #2a2a30;background:#141418;color:#71717a;font-size:11px">No recorded history for this version yet.</div>';
+    const rows = evs.map((e) =>
+      '<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;font-size:11.5px">' +
+      '<span style="color:#8b5cf6">◆</span>' +
+      `<span style="color:#e5e7eb;min-width:9rem">${esc(fmtAction(e))}</span>` +
+      `<span style="color:#9ca3af;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.actor)}">${esc(e.actor || "—")}</span>` +
+      `<span style="color:#71717a;font-variant-numeric:tabular-nums">${when(e.at)}</span></div>`).join("");
+    return '<div style="padding:.35rem .6rem .5rem 2rem;border-top:1px dashed #2a2a30;background:#141418">' +
+      '<div style="color:#a1a1aa;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem">Version history · who · when</div>' +
+      rows + "</div>";
+  }
+
+  // "state:wip->shared" → "State: wip → shared"; container (file-level) events read as "File created / moved";
+  // else Sentence-case the version-level verb (Uploaded, Set live).
+  function fmtAction(e: AuditEvent): string {
+    if (e.action.startsWith("state:")) { const [from, to] = e.action.slice(6).split("->"); return `State: ${from} → ${to ?? ""}`; }
+    if (e.entity_type === "container") return `File ${e.action}`;
+    return e.action.charAt(0).toUpperCase() + e.action.slice(1);
   }
 
   async function setLive(versionId: string) {
     status("Setting live…");
     try {
-      await api(`${encodeURIComponent(pid())}/files/set-live`, "POST", { version_id: versionId, actor: "web" });
+      await api(`${encodeURIComponent(pid())}/files/set-live`, "POST", { version_id: versionId, actor: await whoami() });
       await load();
     } catch (e) { status(`Set-live failed: ${esc((e as Error).message)}`); }
   }
@@ -227,9 +279,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         return;
       }
       const sha = await sha256Hex(bytes);
+      const who = await whoami();
       await api(`${encodeURIComponent(pid())}/files`, "POST", {
-        name, author: "web", size_bytes: j.bytes ?? bytes.length, sha256: sha,
-        platform_item_id: j.itemId ?? null, notes: `uploaded ${j.format || "ifc"} via web`,
+        name, author: who, size_bytes: j.bytes ?? bytes.length, sha256: sha,
+        platform_item_id: j.itemId ?? null, notes: `uploaded ${j.format || "ifc"} via web by ${who}`,
       });
       status(`Uploaded ${name} (${nextTag}) ✓ — now the live version.`);
       await load();

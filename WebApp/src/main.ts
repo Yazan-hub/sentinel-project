@@ -277,8 +277,10 @@ async function main() {
     { label: "RFIs", el: rfiEl },
     { label: "Clash", el: clashEl },
     { label: "CDE", el: cdeEl },
-    { label: "Versions", el: filesEl },
   ]);
+  // The governed version history (uploader · when · state · history) lives in the Assets tab, above the
+  // platform model-loader — the project's Forma-style asset+version home. filesEl is a single DOM node, so
+  // it lives here now (moved out of Coordination).
   const lifecycleEl = tabbed([
     { label: "Cost 5D", el: costEl },
     { label: "Carbon 6D", el: carbonEl },
@@ -294,6 +296,8 @@ async function main() {
     properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
     files: () =>
       BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
+    // Governed asset/version history (Sentinel) — sits above the model-loader in the Assets tab.
+    assetgov: () => BUI.html`${filesEl}`,
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
     objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
@@ -343,7 +347,9 @@ async function main() {
     },
     Assets: {
       icon: "mdi:folder-multiple-outline",
-      template: `"files viewer" 1fr "objects viewer" 1fr / 22rem 1fr`,
+      // Governed version history (assetgov) on top — model version · uploader · when · click-through history —
+      // then the platform model-loader and objects list. The project's asset+version home (Forma-style).
+      template: `"assetgov viewer" 1.3fr "files viewer" 1fr "objects viewer" 0.7fr / 24rem 1fr`,
     },
     Data: {
       icon: "mdi:table",
