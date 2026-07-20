@@ -263,6 +263,20 @@ createServer((req, res) => {
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
+  // Platform API-token health-check: one cheap authenticated read at startup so a revoked/rotated
+  // THATOPEN_API_KEY is caught LOUDLY here instead of as a confusing 401 "Token not found" on the first
+  // upload. Non-fatal — BCF/CDE keep working; only platform uploads + Open-3D geometry need the token.
+  (async () => {
+    let m, cfg;
+    try { m = await import("./thatopen-client.mjs"); } catch { return; }
+    try { cfg = m.getConfig(); } catch { return; } // not configured → a separate, already-clear 503 on use
+    try {
+      await m.createClient(cfg).listFolders(cfg.projectId);
+      console.log(`[bridge] platform token: valid ✓ (project ${cfg.projectId})`);
+    } catch (e) {
+      console.warn(`[bridge] ⚠ platform token REJECTED (${String(e?.message || e).slice(0, 50)}) — uploads & Open-3D will fail until fixed. Regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env, then restart.`);
+    }
+  })();
   startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
 });
 
@@ -561,7 +575,13 @@ async function handleRequest(req, res) {
         const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
         return send(res, 200, { ok: true, format: "ifc", name, itemId: result?.item?._id, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` });
       }
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) {
+      const msg = String(e?.message || e);
+      // A revoked/rotated platform token 401s "Token not found" here — turn that into an actionable message.
+      if (e?.status === 401 || /token not found|unauthor/i.test(msg))
+        return send(res, 401, { message: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` });
+      return send(res, e?.status || 500, { message: msg });
+    }
   }
 
   // ── Encrypted file blobs (Phase 2, private CDE): POST /cde/files (store ciphertext) · GET /cde/files/:id ──
