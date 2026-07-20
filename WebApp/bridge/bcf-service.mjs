@@ -211,11 +211,39 @@ const readRaw = (req) => new Promise((resolve, reject) => {
 
 // ── SSE live sync: clients subscribe per project; changes are pushed to them instantly ──
 const sseClients = new Map(); // project -> Set<res>
-function broadcast(project, payload) {
+const INSTANCE_ID = randomUUID();                              // this bridge's id (skips its own events on poll)
+const EVENT_POLL_MS = Number(process.env.BCF_EVENT_POLL_MS ?? 3000); // 0 disables the cross-machine feed
+
+/** Push to THIS bridge's SSE clients only. */
+function broadcastLocal(project, payload) {
   const set = sseClients.get(project);
   if (!set || !set.size) return;
   const line = `data: ${JSON.stringify(payload)}\n\n`;
   for (const r of set) { try { r.write(line); } catch { /* dropped connection */ } }
+}
+/** Local push + cross-machine fan-out: record the event so OTHER bridges' poll loops re-broadcast it. */
+function broadcast(project, payload) {
+  broadcastLocal(project, payload);
+  if (EVENT_POLL_MS > 0) {
+    import("./cde-store.mjs").then((cde) => { if (cde.cdeConfigured()) cde.emitEvent(project, INSTANCE_ID, payload).catch(() => {}); }).catch(() => {});
+  }
+}
+/** Poll the shared event feed and re-broadcast other bridges' events to our local clients (near-real-time). */
+async function startEventPoll() {
+  if (EVENT_POLL_MS <= 0) return;
+  let cde; try { cde = await import("./cde-store.mjs"); } catch { return; }
+  if (!cde.cdeConfigured()) return; // no cross-machine feed without Supabase (local SSE still works)
+  let lastId = 0; try { lastId = await cde.maxEventId(); } catch { /* start from 0 */ }
+  setInterval(async () => {
+    try {
+      for (const ev of await cde.pollEvents(lastId)) {
+        const id = Number(ev.id); if (id > lastId) lastId = id;
+        if (ev.origin !== INSTANCE_ID) broadcastLocal(ev.project_id, ev.payload); // NOT broadcast() — no re-publish loop
+      }
+    } catch { /* transient network — try again next tick */ }
+  }, EVENT_POLL_MS);
+  setInterval(() => { cde.pruneEvents().catch(() => {}); }, 60000); // retention
+  console.log(`[bridge] cross-machine event feed: on (poll ${EVENT_POLL_MS}ms · instance ${INSTANCE_ID.slice(0, 8)})`);
 }
 
 createServer(async (req, res) => {
@@ -724,4 +752,5 @@ createServer(async (req, res) => {
   console.log(`[bridge] bind: ${HOST} · auth token: ${TOKEN ? "required" : "off"}`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
+  startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
 });

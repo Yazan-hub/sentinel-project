@@ -327,6 +327,25 @@ export async function getRevisionSnapshots(revisionId) {
   return out;
 }
 
+// ── Cross-machine event feed (migration 0010) — bridges fan out SSE via a shared table ─────────────────
+/** Record an SSE event so other bridges' poll loops re-broadcast it to their own clients. */
+export async function emitEvent(project, origin, payload) {
+  await sb(`bridge_events`, { method: "POST", body: { project_id: project, origin, payload }, prefer: "return=minimal" });
+}
+/** The current tip id — a bridge starts polling from here so it never replays history at startup. */
+export async function maxEventId() {
+  const r = await sb(`bridge_events?select=id&order=id.desc&limit=1`);
+  return r?.[0]?.id ? Number(r[0].id) : 0;
+}
+/** Events after `afterId` (ascending), for the poll loop. */
+export async function pollEvents(afterId) {
+  return (await sb(`bridge_events?id=gt.${Number(afterId) || 0}&select=id,project_id,origin,payload&order=id.asc&limit=500`)) || [];
+}
+/** Drop events older than `olderThanMs` (they're only for live fan-out). */
+export async function pruneEvents(olderThanMs = 600000) {
+  await sb(`bridge_events?created_at=lt.${new Date(Date.now() - olderThanMs).toISOString()}`, { method: "DELETE", prefer: "return=minimal" });
+}
+
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
 const enc = encodeURIComponent;
 const DOC_CONFLICT = "on_conflict=store,project_id,doc_id";
