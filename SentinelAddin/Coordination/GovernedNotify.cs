@@ -32,6 +32,24 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
+        /// Register a Revit publish as a new version in the web app's file-version history (migration 0011,
+        /// <c>POST /cde/:key/files</c>). The model's title is the file key, so repeated publishes append
+        /// v1 → v2 → … and the newest becomes the live version — the same version timeline a web upload feeds.
+        /// Fire-and-forget; a bridge without the CDE configured just no-ops (503).
+        /// </summary>
+        public static void FileVersion(string modelName, long bytes)
+        {
+            var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
+            Post("/files", new
+            {
+                name,
+                author = "Revit",
+                size_bytes = bytes,
+                notes = "published from Revit",
+            });
+        }
+
+        /// <summary>
         /// Record an IFC Delivery Gate verdict (KF-1) in the governed audit trail, so the web CDE timeline
         /// shows the pass/fail certificate that decided whether a deliverable was fit for upload — the same
         /// gate the web app enforces via IDS, now sourced from Revit. <paramref name="sha256"/> ties the
