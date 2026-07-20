@@ -5,6 +5,7 @@
 // storing the snapshot inline in the project store — so nothing breaks.
 
 import type { ElementSnapshot, ElementQuantities } from "../sentinel-core";
+import { bfetch } from "./bridge-fetch";
 
 /** Revision metadata row from GET /cde/:key/snapshots — the baseline picker's list. */
 export interface RevisionMeta {
@@ -51,7 +52,7 @@ export async function postRevision(
   meta: { rev_code?: string } = {},
 ): Promise<string | null> {
   try {
-    const r = await fetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`, {
+    const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rev_code: meta.rev_code ?? null, snapshots }),
@@ -67,7 +68,7 @@ export async function postRevision(
 /** Fetch a revision's element rows and map to ElementSnapshot[]. Empty array on any failure. */
 export async function fetchRevisionSnapshots(base: string, key: string, revisionId: string): Promise<ElementSnapshot[]> {
   try {
-    const rows = (await (await fetch(`${base}/cde/${encodeURIComponent(key)}/snapshots/${encodeURIComponent(revisionId)}`)).json()) as SnapRow[];
+    const rows = (await (await bfetch(`${base}/cde/${encodeURIComponent(key)}/snapshots/${encodeURIComponent(revisionId)}`)).json()) as SnapRow[];
     return Array.isArray(rows) ? rows.map(rowToSnapshot) : [];
   } catch {
     return [];
@@ -77,7 +78,7 @@ export async function fetchRevisionSnapshots(base: string, key: string, revision
 /** List a project's saved revisions (newest first) for the baseline picker. Empty array if the CDE is unavailable. */
 export async function fetchRevisions(base: string, key: string): Promise<RevisionMeta[]> {
   try {
-    const rows = (await (await fetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`)).json()) as RevisionMeta[];
+    const rows = (await (await bfetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`)).json()) as RevisionMeta[];
     return Array.isArray(rows) ? rows : [];
   } catch {
     return [];

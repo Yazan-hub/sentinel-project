@@ -28,16 +28,12 @@ write with a JWT present still succeeded (service-key escape). The live bridge l
 
 1. **Arm the bridge** — set `SUPABASE_ANON_KEY` in the bridge environment (the anon key is public/browser-safe;
    it's the same one in `WebApp/src/setups/auth.ts`). Restart; the banner will read `JWT-forwarding: armed`.
-2. **Send the token from the web app** — attach the session JWT to bridge calls. `auth.ts` already exposes it:
-
-   ```ts
-   import { accessToken } from "./auth";
-   const t = await accessToken();
-   fetch(url, { headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}), "Content-Type": "application/json" } });
-   ```
-
-   The cleanest path is a small `bridgeFetch()` wrapper the panels adopt. Until wired, requests carry no token
-   → the bridge falls back to the service key (still works, just not RLS-scoped).
+2. **Send the token from the web app** — attach the session JWT to bridge calls. A helper exists:
+   `setups/bridge-fetch.ts` exports **`bfetch(url, init)`** (fetch + the user's Supabase JWT) and
+   `authHeaders()`. `snapshot-store.ts` already uses it; adopt `bfetch` in the other panels' bridge calls
+   (cost/carbon/clash/cde/issue) in place of `fetch`. Until a panel is wired, its requests carry no token →
+   the bridge falls back to the service key (still works, just not RLS-scoped). `bfetch` is dormant-safe: with
+   forwarding off or the user signed out, the header is absent/ignored.
 
 Both are non-breaking for the current single owner (RLS grants an owner full access; privileged writes use the
 service key). RLS enforcement becomes meaningful the moment a **second** user is added: each sees only their
