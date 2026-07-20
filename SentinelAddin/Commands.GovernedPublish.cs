@@ -73,7 +73,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
         var cfg = BcfConfig.Load();
         var elements = Sentinel.Engine.GovernedElementExtractor.Extract(doc, cfg.ProjectId);
         var ids = LoadIdsSpec(); // null ⇒ no IDS configured → verdict "recorded" (gate-only publish)
-        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId: null, actor: "Revit");
+        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId: null, actor: "Revit", containerName: ifcName);
 
         if (!verdict.Reached)
         {
@@ -89,13 +89,20 @@ public sealed class GovernedPublishCommand : IExternalCommand
 
         if (verdict.Verdict == "rejected")
         {
+            var nameFailed = verdict.NamingOk == false;
+            var head = nameFailed
+                ? $"✕ REJECTED — model name does not follow the ISO 19650 convention (not published)\n\nName checked: {ifcName}\n\n"
+                : $"✕ REJECTED — {verdict.Failing} of {verdict.InScope} in-scope element check(s) failed (not published)\n\n";
             TaskDialog.Show("Sentinel — Governed Publish",
-                $"✕ REJECTED — {verdict.Failing} of {verdict.InScope} in-scope element check(s) failed (not published)\n\n" +
+                head +
+                (nameFailed ? "NAMING:\n• " + string.Join("\n• ", verdict.NamingFailures) + "\n\n" : "") +
                 (verdict.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", verdict.Failures) + "\n\n" : "") +
                 (verdict.BcfRaised > 0
                     ? $"{verdict.BcfRaised} BCF issue(s) opened on the failing elements — they're now in the web " +
                       "Issues panel and will live-sync into Revit. Fix them and run Governed Publish again."
-                    : "The rejection is recorded in the immutable audit trail. Fix the failures and retry."));
+                    : nameFailed
+                        ? "Rename the Revit model to the BDS ISO 19650 form and run Governed Publish again."
+                        : "The rejection is recorded in the immutable audit trail. Fix the failures and retry."));
             TryDelete(tempPath);
             return Result.Succeeded;
         }
@@ -116,7 +123,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
 
         var versionId = Sentinel.Coordination.GovernedNotify.RegisterVersionId(doc.Title, bytes, "Revit");
         if (versionId != null && ids != null)
-            Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId, actor: "Revit"); // stamp the badge
+            Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId, actor: "Revit", containerName: ifcName); // stamp the badge
 
         var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title);
         var revLine = live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";

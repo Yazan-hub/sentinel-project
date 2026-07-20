@@ -94,6 +94,8 @@ namespace Sentinel.Coordination
             public int BcfRaised;                      // issues auto-opened on a reject (bridge G2)
             public List<string> Failures = new();      // "<requirement>: <reason>", capped for the dialog
             public string? Error;                      // why Reached is false (timeout / refused / status), for the dialog
+            public bool? NamingOk;                     // null = name not checked; false = container name failed the ISO 19650 gate
+            public List<string> NamingFailures = new();// "<field>: <reason>", for the dialog
         }
 
         /// <summary>
@@ -104,7 +106,7 @@ namespace Sentinel.Coordination
         /// the verdict — this is the one place Revit needs the answer, not fire-and-forget. Never throws:
         /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
-        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor)
+        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor, string? containerName = null)
         {
             var r = new ProposalResult();
             try
@@ -119,6 +121,7 @@ namespace Sentinel.Coordination
                 };
                 if (idsSpec != null) body["ids"] = idsSpec;
                 if (versionId != null) body["version_id"] = versionId;
+                if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = GovHttp.PostAsync(url, content).GetAwaiter().GetResult();
@@ -146,6 +149,16 @@ namespace Sentinel.Coordination
                         var reason = it.TryGetProperty("reason", out var rs) ? rs.GetString() : null;
                         r.Failures.Add((req ?? "requirement") + ": " + (reason ?? "failed"));
                     }
+                }
+                if (root.TryGetProperty("naming", out var nm) && nm.ValueKind == JsonValueKind.Object)
+                {
+                    r.NamingOk = nm.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
+                    if (nm.TryGetProperty("failures", out var nf) && nf.ValueKind == JsonValueKind.Array)
+                        foreach (var it in nf.EnumerateArray())
+                        {
+                            if (r.NamingFailures.Count >= 12) break;
+                            r.NamingFailures.Add(it.TryGetProperty("reason", out var rn) ? rn.GetString() ?? "invalid" : "invalid");
+                        }
                 }
             }
             catch (Exception ex)
