@@ -49,8 +49,17 @@ public sealed class PublishToPlatformCommand : IExternalCommand
                 return Result.Cancelled;
         }
 
+        // Governed context (read-only, best-effort): show where this model stands in the web CDE version
+        // history so the modeller knows what this publish will do (append the next version, becoming live).
+        var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title);
+        var governed = live is null
+            ? "Governed: not versioned yet — this publish starts the file's version history (v1)."
+            : $"Governed: currently {live.Revision} · {live.State} ({live.VersionCount} version(s)) — " +
+              "this publish appends the next version and makes it live.";
+
         TaskDialog.Show("Sentinel — Publish to Platform",
             $"Exported to the Sentinel outbox ({bytes / 1024:N0} KB):\n{path}\n\n" +
+            governed + "\n\n" +
             "The Sentinel Bridge uploads outbox files to That Open Platform. If the Bridge watcher " +
             "is running it will pick this up automatically; otherwise upload it once with:\n\n" +
             $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{path}\"\n\n" +
