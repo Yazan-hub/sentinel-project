@@ -23,3 +23,6 @@ config/appsettings.local.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated knowledge-graph output (regenerable via graphify; huge — never track)
+graphify-out/
