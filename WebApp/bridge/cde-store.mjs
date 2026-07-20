@@ -379,8 +379,20 @@ const SNAP_PAGE = 1000;                     // read page size (matches Supabase'
 const snapNum = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
 
 /** Ingest a model revision + its element snapshots. Returns { revision_id, element_count, rev_code, uploaded_at }. */
+/** The project's live file version, but only if EXACTLY one exists (so auto-linking can't mislink). */
+async function soleLiveVersionId(projectId) {
+  const conts = await sb(`information_containers?project_id=eq.${projectId}&select=id`);
+  const ids = (Array.isArray(conts) ? conts : []).map((c) => c.id);
+  if (!ids.length) return null;
+  const live = await sb(`container_versions?is_live=eq.true&container_id=in.(${ids.join(",")})&select=id`);
+  return Array.isArray(live) && live.length === 1 ? live[0].id : null;
+}
+
 export async function createRevision(key, b = {}) {
   const proj = await ensureProject(key);
+  // Link this take-off to a file version so the Versions panel can diff versions (migration 0011). Honour an
+  // explicit id; else auto-link to the sole live version — a captured baseline belongs to the live file.
+  const containerVersionId = b.container_version_id || (await soleLiveVersionId(proj.id));
   const snaps = Array.isArray(b.snapshots) ? b.snapshots : [];
   if (snaps.length > MAX_SNAPSHOTS) throw new Error(`too many snapshots (${snaps.length} > ${MAX_SNAPSHOTS})`);
   // Normalize + drop guid-less rows (guid is NOT NULL and the join key), then de-dupe on guid within the batch
@@ -398,7 +410,7 @@ export async function createRevision(key, b = {}) {
     method: "POST",
     body: {
       project_id: proj.id,
-      container_version_id: b.container_version_id || null,
+      container_version_id: containerVersionId,
       rev_code: b.rev_code || null,
       model_id: b.model_id || null,
       element_count: deduped.length,
