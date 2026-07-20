@@ -543,7 +543,11 @@ async function handleRequest(req, res) {
       let cfg;
       try { cfg = getConfig(); }
       catch (e) { return send(res, 503, { message: String(e?.message || e) }); } // not configured → clear message
-      const projectId = url.searchParams.get("projectId") || cfg.projectId;
+      // Platform uploads ALWAYS target the configured platform project (the only one this API token can write
+      // to). Callers pass the SENTINEL project KEY as ?projectId (e.g. "demo") for the CDE registration that
+      // follows — but that key is NOT a That Open platform project id, so using it here 401s ("Token not
+      // found"). The Sentinel↔file association is done separately by POST /cde/:key/files.
+      const projectId = cfg.projectId;
       const client = createClient(cfg);
 
       // Convert IFC → fragments locally and upload the viewable .frag; fall back to the raw .ifc.
