@@ -58,6 +58,9 @@ public static class AutoPublish
                 PlatformExporter.State.Locked => "Auto-publish skipped: outbox IFC was locked.",
                 _ => "Auto-publish failed: " + (r.error ?? "unknown"),
             };
+            // On a successful publish, record it in the web app's governed audit trail (fire-and-forget).
+            if (r.state == PlatformExporter.State.Ok)
+                Sentinel.Coordination.GovernedNotify.ModelPublished(doc.Title, r.bytes);
         }
         catch (Exception ex)
         {
