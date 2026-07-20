@@ -41,11 +41,28 @@ async function sb(path, { method = "GET", body, prefer, service = false } = {}) 
   return data;
 }
 
-/** Map the platform projectId (string key) to a CDE project row, creating it on first use. */
+/** Map the platform projectId (string key) to a CDE project row, creating it on first use.
+ *  Multi-user safe: when a caller's JWT is being forwarded (RLS on), existence is checked with the SERVICE
+ *  key (authoritative — sees every project regardless of membership), then a forwarded RLS-filtered read
+ *  confirms the caller is a member. A non-member gets a 403 instead of accidentally RE-creating an
+ *  RLS-hidden project (the old bug: the forwarded SELECT returned empty → INSERT). No JWT (Revit/service /
+ *  dormant forwarding) → the membership gate is skipped, behaviour unchanged. */
 export async function ensureProject(key) {
-  const found = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`);
-  if (found?.length) return found[0];
-  const created = await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=representation" });
+  const forwarding = !!(currentUserToken() && ANON);
+  const found = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }); // authoritative
+  if (found?.length) {
+    const proj = found[0];
+    if (forwarding) {
+      const visible = await sb(`projects?id=eq.${proj.id}&select=id`); // forwarded → RLS; a member sees it, a non-member doesn't
+      if (!visible?.length) { const e = new Error("Not authorized: you are not a member of this project"); e.status = 403; throw e; }
+    }
+    return proj;
+  }
+  // Doesn't exist → create it. Forwarded (when armed) so the owner-bootstrap trigger makes the caller owner.
+  // return=minimal on purpose: the returning-select policy (is_member) can't yet see the owner membership the
+  // trigger just created, so return=representation would 42501. Re-fetch authoritatively with the service key.
+  await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal" });
+  const created = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true });
   return created[0];
 }
 

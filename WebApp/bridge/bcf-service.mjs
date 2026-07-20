@@ -393,7 +393,7 @@ async function handleRequest(req, res) {
         persistProj(); return send(res, 200, p);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // ── RFIs: /rfis/:pid[/:guid] ──
@@ -440,7 +440,7 @@ async function handleRequest(req, res) {
         return send(res, 200, rfi);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // ── Standards-pack marketplace: /packs[/:id[/install|fork]] ──
@@ -480,7 +480,7 @@ async function handleRequest(req, res) {
         return send(res, 201, fork);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // ── Tenders: /tenders/:pid[/:guid[/bids]] ──
@@ -523,7 +523,7 @@ async function handleRequest(req, res) {
         t.modified_date = now; await saveTender(); return send(res, 200, t);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // ── IFC upload → That Open Platform (Phase C: browser bakes → bridge uploads; token stays server-side) ──
@@ -557,7 +557,7 @@ async function handleRequest(req, res) {
         const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
         return send(res, 200, { ok: true, format: "ifc", name, itemId: result?.item?._id, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` });
       }
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // ── Encrypted file blobs (Phase 2, private CDE): POST /cde/files (store ciphertext) · GET /cde/files/:id ──
@@ -572,7 +572,7 @@ async function handleRequest(req, res) {
       mkdirSync(CDE_FILES_ROOT, { recursive: true });
       writeFileSync(join(CDE_FILES_ROOT, `${id}.bin`), bytes);
       return send(res, 201, { id, size: bytes.length });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
   const fm = url.pathname.match(/^\/cde\/files\/([A-Za-z0-9-]+)$/);
   if (fm && req.method === "GET") {
@@ -651,7 +651,7 @@ async function handleRequest(req, res) {
         return send(res, 200, await cde.transition(p2, body.state, body.actor, body.note));
       }
       return send(res, 404, { message: "CDE route not found" });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // ── Clash status: GET/POST/PUT /clash/:pid · POST /clash/:pid/reset ──
@@ -681,7 +681,7 @@ async function handleRequest(req, res) {
         return send(res, 200, { ok });
       }
       return send(res, 405, { message: "method not allowed" });
-    } catch (e) { return send(res, 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]
