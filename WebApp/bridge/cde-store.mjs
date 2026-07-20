@@ -35,6 +35,66 @@ export async function ensureProject(key) {
   return created[0];
 }
 
+// ── Sentinel project metadata (migration 0007) — the governed-project store, unified into the Supabase
+// `projects` row's `metadata` jsonb (was the per-machine bridge/project-store.json). The bridge maps this to
+// the same JSON shape the web app already expects, so consolidating is transparent to callers.
+const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
+const defaultMeta = () => ({
+  stage: "design", standards_pack: "",
+  dimensions: { "2d": true, "3d": true, "4d": false, "5d": true, "6d": false, "7d": false },
+  gates: {}, snapshot: {}, updated_at: new Date().toISOString(),
+});
+/** Merge a patch into project metadata with the same field semantics as the old local store (deep-merge
+ *  dimensions/snapshot, replace the rest). `name` is handled separately (a real column). */
+function mergeMeta(meta, patch) {
+  const out = { ...meta };
+  for (const k of ["stage", "standards_pack", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
+  if (patch.dimensions) out.dimensions = { ...(meta.dimensions || {}), ...patch.dimensions };
+  if (patch.snapshot) out.snapshot = { ...(meta.snapshot || {}), ...patch.snapshot };
+  out.updated_at = new Date().toISOString();
+  return out;
+}
+// Always present the core governance fields (stage/dimensions/gates/snapshot) even if a migrated row's
+// metadata was partial — so consumers never see a null where the local store used to default them.
+const toProjectShape = (row) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}) });
+
+/** Read one project in the web app's shape. `seed` (optional) backfills metadata on first access (one-time
+ *  migration from the local store); if the row already has metadata, `seed` is ignored. */
+export async function getProjectMeta(key, seed) {
+  const proj = await ensureProject(key);
+  if (proj.metadata && Object.keys(proj.metadata).length > 0) return toProjectShape(proj);
+  const metadata = { ...defaultMeta(), ...(seed && Object.keys(seed).length ? seed : {}) }; // complete metadata on seed
+  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))[0];
+  return toProjectShape(row);
+}
+
+/** List every project in the web app's shape (project switcher / hub). Core fields defaulted via toProjectShape. */
+export async function listProjectMeta() {
+  const rows = await sb(`projects?select=key,name,metadata&order=created_at.desc`);
+  return (rows || []).map(toProjectShape);
+}
+
+/** Patch a project's metadata (stage/dims/snapshot/rate_pack/boq_baseline/carbon_baseline/name). */
+export async function patchProjectMeta(key, patch = {}) {
+  const proj = await ensureProject(key);
+  const metadata = mergeMeta((proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta(), patch);
+  const body = { metadata };
+  if (patch.name !== undefined) body.name = patch.name;
+  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" }))[0];
+  return toProjectShape(row);
+}
+
+/** Record a stage gate result; on pass+advance_to, move the project's stage. */
+export async function recordGate(key, stage, b = {}) {
+  const proj = await ensureProject(key);
+  const meta = (proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta();
+  const gates = { ...(meta.gates || {}), [stage]: { status: b.status || "hold", checks: b.checks || [], at: new Date().toISOString() } };
+  const next = { ...meta, gates, updated_at: new Date().toISOString() };
+  if (b.status === "pass" && b.advance_to && STAGES.includes(b.advance_to)) next.stage = b.advance_to;
+  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata: next }, prefer: "return=representation" }))[0];
+  return toProjectShape(row);
+}
+
 // ── Projects hub (the "which project?" layer above the per-project CDE board) ──────────────────────────
 
 /** Slugify a free-text name into a stable, URL-safe project key. */

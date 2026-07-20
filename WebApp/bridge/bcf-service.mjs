@@ -276,26 +276,44 @@ createServer(async (req, res) => {
   }
 
   // ── Sentinel project store: /projects[/:pid[/gate/:stage]] ──
+  // Single source of truth = Supabase projects.metadata (0007) when the CDE is configured (team-wide);
+  // else the per-machine local JSON store. Existing local metadata is lazy-migrated into Supabase on first
+  // read (the `seed`), and the local file is kept as an untouched backup.
   const pm = url.pathname.match(/^\/projects(?:\/([^/]+))?(?:\/gate\/([^/]+))?$/);
   if (pm) {
     const [, ppid, gateStage] = pm;
     try {
-      if (req.method === "GET" && !ppid) return send(res, 200, pdb.projects);              // list (multi-project home)
-      if (req.method === "GET" && ppid && !gateStage) return send(res, 200, getProject(ppid));
-      if (req.method === "PUT" && ppid && !gateStage) {                                     // patch stage/dims/snapshot
+      const cde = await import("./cde-store.mjs");
+      const useCde = cde.cdeConfigured();
+      const localSeed = (pid) => { const l = pdb.projects.find((p) => p.project_id === pid); if (!l) return undefined; const { project_id, name, ...meta } = l; return meta; };
+
+      if (req.method === "GET" && !ppid) {
+        if (!useCde) return send(res, 200, pdb.projects);
+        // Union-safe: migrate any local project not yet in Supabase so none vanish from the switcher.
+        const remote = await cde.listProjectMeta();
+        const known = new Set(remote.map((r) => r.project_id));
+        const missing = pdb.projects.filter((l) => !known.has(l.project_id));
+        for (const l of missing) { const { project_id, name, ...meta } = l; await cde.getProjectMeta(project_id, meta); }
+        return send(res, 200, missing.length ? await cde.listProjectMeta() : remote);
+      }
+      if (req.method === "GET" && ppid && !gateStage) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, localSeed(ppid)) : getProject(ppid));
+      if (req.method === "PUT" && ppid && !gateStage) {
         const b = await readBody(req);
-        const p = getProject(ppid);
+        if (useCde) return send(res, 200, await cde.patchProjectMeta(ppid, b));
+        const p = getProject(ppid); // local fallback (original behaviour)
         for (const k of ["name", "stage", "standards_pack"]) if (b[k] !== undefined) p[k] = b[k];
         if (b.dimensions) p.dimensions = { ...p.dimensions, ...b.dimensions };
         if (b.snapshot) p.snapshot = { ...p.snapshot, ...b.snapshot };
-        if (b.rate_pack) p.rate_pack = b.rate_pack;        // 5D: the project's editable rate library
-        if (b.boq_baseline) p.boq_baseline = b.boq_baseline; // 5D: cost baseline for change tracking
+        if (b.rate_pack) p.rate_pack = b.rate_pack;             // 5D: the project's editable rate library
+        if (b.boq_baseline) p.boq_baseline = b.boq_baseline;    // 5D: cost baseline reference
+        if (b.carbon_baseline) p.carbon_baseline = b.carbon_baseline; // 6D: carbon baseline (was dropped — fixed)
         p.updated_at = new Date().toISOString();
         persistProj(); return send(res, 200, p);
       }
-      if (req.method === "POST" && ppid && gateStage) {                                     // record a gate result
+      if (req.method === "POST" && ppid && gateStage) {
         const b = await readBody(req);
-        const p = getProject(ppid);
+        if (useCde) return send(res, 200, await cde.recordGate(ppid, gateStage, b));
+        const p = getProject(ppid); // local fallback
         p.gates[gateStage] = { status: b.status || "hold", checks: b.checks || [], at: new Date().toISOString() };
         if (b.status === "pass" && b.advance_to && STAGES.includes(b.advance_to)) p.stage = b.advance_to;
         p.updated_at = new Date().toISOString();
