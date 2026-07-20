@@ -4,7 +4,8 @@
 // models) clashes cross-model; a single model self-clashes (noisier). Dedup is the caller's `known` set.
 
 import type * as OBC from "@thatopen/components";
-import { findClashes, dedupeClashes, type ClashItem, type Clash } from "../clash";
+import { type ClashItem, type Clash } from "../clash";
+import { runClashInWorker } from "./clash-worker";
 
 // Solid building elements worth clashing (discipline-agnostic); skip spaces/openings/grids/annotation.
 const CLASHABLE = /^IFC(WALL|WALLSTANDARDCASE|SLAB|ROOF|COLUMN|BEAM|MEMBER|PLATE|DOOR|WINDOW|STAIR|STAIRFLIGHT|RAMP|RAILING|CURTAINWALL|COVERING|FOOTING|PILE|REINFORCINGBAR|FLOWSEGMENT|FLOWFITTING|FLOWTERMINAL|DUCTSEGMENT|PIPESEGMENT|CABLECARRIERSEGMENT|BUILDINGELEMENTPROXY)/i;
@@ -57,16 +58,9 @@ export async function runClash(
 ): Promise<ClashRun> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const models = [...fragments.list.values()] as any[];
-  const sets = await Promise.all(models.map(itemsFor));
+  const sets = await Promise.all(models.map(itemsFor)); // gather boxes on the main thread (fragments-backed)
   const scanned = sets.reduce((a, s) => a + s.length, 0);
-  const all: Clash[] = [];
-  if (models.length >= 2) {
-    for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) {
-      all.push(...findClashes(sets[i], sets[j], tol)); // cross-model (federated) — the clean case
-    }
-  } else if (sets[0]?.length) {
-    for (const c of findClashes(sets[0], sets[0], tol)) if (c.a.localId !== c.b.localId) all.push(c); // self-clash (noisier)
-  }
-  const clashes = dedupeClashes(all, known).sort((a, b) => b.volume - a.volume);
-  return { modelCount: models.length, scanned, total: all.length, clashes };
+  // The O(n²) compare + dedup + sort runs OFF the main thread (falls back to sync when no Worker) — see clash-worker.
+  const { total, clashes } = await runClashInWorker(sets, known, tol);
+  return { modelCount: models.length, scanned, total, clashes };
 }

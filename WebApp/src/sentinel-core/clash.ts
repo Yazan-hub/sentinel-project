@@ -71,3 +71,29 @@ export function dedupeClashes(clashes: Clash[], known: ReadonlySet<string>): Cla
   }
   return out;
 }
+
+export interface ClashComputation { total: number; clashes: Clash[]; }
+
+/**
+ * The whole CPU-bound clash pass over already-gathered item sets — the O(n²)-ish work that must run OFF the
+ * main thread. Federated case (2+ models) clashes every model pair; a single set self-clashes (dropping an
+ * element paired with itself; symmetric duplicates collapse in dedup). Returns the raw `total` (pre-dedup,
+ * for reporting) plus new-only clashes ranked by penetration volume.
+ *
+ * PURE and self-contained on purpose: this is the single canonical algorithm. `adapter/clash-worker` runs it
+ * on the main thread as the sync fallback AND ships a byte-faithful copy inside its blob worker — keep the two
+ * in lock-step (the worker copy is duplicated because a minified `.toString()` would mangle helper references).
+ */
+export function computeClashRun(sets: ClashItem[][], known: ReadonlySet<string> = new Set(), tol = 0.02): ClashComputation {
+  const all: Clash[] = [];
+  if (sets.length >= 2) {
+    for (let i = 0; i < sets.length; i++)
+      for (let j = i + 1; j < sets.length; j++)
+        all.push(...findClashes(sets[i], sets[j], tol)); // cross-model (federated) — the clean case
+  } else if (sets[0]?.length) {
+    for (const c of findClashes(sets[0], sets[0], tol))
+      if (c.a.localId !== c.b.localId) all.push(c); // self-clash (noisier)
+  }
+  const clashes = dedupeClashes(all, known).sort((a, b) => b.volume - a.volume);
+  return { total: all.length, clashes };
+}

@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { boxesClash, findClashes, clashSignature, dedupeClashes, type Aabb, type ClashItem } from "./clash";
+import { boxesClash, findClashes, clashSignature, dedupeClashes, computeClashRun, type Aabb, type ClashItem } from "./clash";
 
 const box = (min: [number, number, number], max: [number, number, number]): Aabb => ({ min, max });
 const item = (id: number, b: Aabb): ClashItem => ({ modelId: "m", localId: id, box: b });
+const mItem = (modelId: string, id: number, b: Aabb): ClashItem => ({ modelId, localId: id, box: b });
 
 describe("boxesClash", () => {
   it("detects a real overlap", () => {
@@ -68,5 +69,43 @@ describe("dedupeClashes", () => {
     expect(dedupeClashes(clashes, new Set())).toHaveLength(1);
     expect(dedupeClashes(clashes, new Set([clashes[0].id]))).toHaveLength(0);
     expect(dedupeClashes([...clashes, ...clashes], new Set())).toHaveLength(1);
+  });
+});
+
+describe("computeClashRun (the off-thread orchestration)", () => {
+  it("federates 2+ sets pairwise (cross-model only) and ranks by penetration volume", () => {
+    // arch wall clashes struct beam (big overlap) and struct column (small overlap); the two arch elements
+    // don't clash each other (federated case never self-clashes a model).
+    const arch = [mItem("arch", 1, box([0, 0, 0], [4, 4, 4])), mItem("arch", 2, box([20, 0, 0], [21, 1, 1]))];
+    const struct = [mItem("struct", 10, box([1, 1, 1], [5, 5, 5])), mItem("struct", 11, box([3.9, 0, 0], [4.4, 0.5, 0.5]))];
+    const { total, clashes } = computeClashRun([arch, struct]);
+    expect(total).toBe(2);
+    expect(clashes).toHaveLength(2);
+    expect(clashes[0].volume).toBeGreaterThanOrEqual(clashes[1].volume); // volume-ranked
+    expect(clashes.every((c) => c.a.modelId !== c.b.modelId)).toBe(true); // strictly cross-model
+  });
+
+  it("self-clashes a single set but never pairs an element with itself", () => {
+    const one = [item(1, box([0, 0, 0], [2, 2, 2])), item(2, box([1, 1, 1], [3, 3, 3])), item(3, box([50, 50, 50], [51, 51, 51]))];
+    const { clashes } = computeClashRun([one]);
+    expect(clashes).toHaveLength(1); // 1↔2 overlap; 3 is far; no 1↔1/2↔2/3↔3
+    expect(clashes[0].a.localId).not.toBe(clashes[0].b.localId);
+  });
+
+  it("excludes clashes already known from a prior run", () => {
+    const arch = [mItem("arch", 1, box([0, 0, 0], [4, 4, 4]))];
+    const struct = [mItem("struct", 10, box([1, 1, 1], [5, 5, 5]))];
+    const first = computeClashRun([arch, struct]);
+    expect(first.clashes).toHaveLength(1);
+    const known = new Set([first.clashes[0].id]);
+    const second = computeClashRun([arch, struct], known);
+    expect(second.total).toBe(1); // raw compare still finds it
+    expect(second.clashes).toHaveLength(0); // ...but it's filtered as already-known
+  });
+
+  it("returns nothing for an empty or single-element scene", () => {
+    expect(computeClashRun([]).clashes).toHaveLength(0);
+    expect(computeClashRun([[]]).clashes).toHaveLength(0);
+    expect(computeClashRun([[item(1, box([0, 0, 0], [1, 1, 1]))]]).clashes).toHaveLength(0);
   });
 });
