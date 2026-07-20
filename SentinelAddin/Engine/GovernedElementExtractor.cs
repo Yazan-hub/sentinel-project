@@ -18,8 +18,10 @@ namespace Sentinel.Engine;
 /// </summary>
 public static class GovernedElementExtractor
 {
-    public sealed class Row { public string name = ""; public string value = ""; }
-    public sealed class Group { public string name = ""; public List<Row> rows = new(); }
+    // NOTE: these MUST be properties (get/set), not fields — System.Text.Json only serializes properties by
+    // default, so fields here would emit empty {} groups and the referee would see no pset data at all.
+    public sealed class Row { public string name { get; set; } = ""; public string value { get; set; } = ""; }
+    public sealed class Group { public string name { get; set; } = ""; public List<Row> rows { get; set; } = new(); }
 
     public sealed class Identity
     {
