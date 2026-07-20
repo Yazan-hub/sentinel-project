@@ -24,6 +24,7 @@ import { tenderPanel } from "./setups/tender-panel";
 import { rfiPanel } from "./setups/rfi-panel";
 import { issuePanel } from "./setups/issue-panel";
 import { cdePanel } from "./setups/cde-panel";
+import { filesPanel } from "./setups/files-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
@@ -239,6 +240,7 @@ async function main() {
   const issuesEl = issuePanel(components, { bcfBaseUrl: SERVICE_URL });
   // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
+  const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
   projectSpaceEl = tabbed([{ label: "All Projects", el: projectsHubEl }, { label: "Dashboard", el: projectEl }]);
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
@@ -275,6 +277,7 @@ async function main() {
     { label: "RFIs", el: rfiEl },
     { label: "Clash", el: clashEl },
     { label: "CDE", el: cdeEl },
+    { label: "Versions", el: filesEl },
   ]);
   const lifecycleEl = tabbed([
     { label: "Cost 5D", el: costEl },

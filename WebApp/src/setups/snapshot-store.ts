@@ -13,6 +13,7 @@ export interface RevisionMeta {
   rev_code?: string | null;
   model_id?: string | null;
   element_count?: number | null;
+  container_version_id?: string | null; // CDE file-version linkage (migration 0011) — powers the Versions-panel compare
   uploaded_at: string;
 }
 
