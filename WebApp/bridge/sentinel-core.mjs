@@ -929,6 +929,50 @@ function propValue(el, pset, name) {
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+function adjudicate(spec, elements) {
+  const failures = [];
+  let inScope = 0, passing = 0;
+  if (spec) {
+    for (const el of elements) {
+      const res = validateElement(spec, el);
+      if (!res.inScope) continue;
+      inScope++;
+      if (res.pass) passing++;
+      else for (const f of res.failures) failures.push({ element: el.identity.GlobalId ?? el.localId ?? null, ...f });
+    }
+  }
+  return {
+    verdict: spec ? failures.length === 0 ? "accepted" : "rejected" : "recorded",
+    summary: { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null },
+    failures
+  };
+}
+var DEMO_IDS = {
+  title: "Sentinel demo IDS (starter checks)",
+  specifications: [
+    {
+      name: "All elements must be named",
+      applicability: { entity: "^IFC" },
+      requirements: { attributes: [{ name: "Name", cardinality: "required" }], properties: [] }
+    },
+    {
+      name: "Walls carry Pset_WallCommon.IsExternal",
+      applicability: { entity: "IFCWALL" },
+      requirements: {
+        attributes: [],
+        properties: [{ pset: "Pset_WallCommon", name: "IsExternal", cardinality: "required" }]
+      }
+    },
+    {
+      name: "Doors carry a FireRating",
+      applicability: { entity: "IFCDOOR" },
+      requirements: {
+        attributes: [],
+        properties: [{ pset: "Pset_DoorCommon", name: "FireRating", cardinality: "required" }]
+      }
+    }
+  ]
+};
 
 // src/sentinel-core/ids-parse.ts
 var nsTags = (root, name) => Array.from(root.getElementsByTagNameNS("*", name));
@@ -991,10 +1035,12 @@ function parseIds(xml) {
   return { title, specifications };
 }
 export {
+  DEMO_IDS,
   GATE_DEFS,
   REQUIRED_FIELDS,
   RuleEngine,
   SCHEMA_VERSION,
+  adjudicate,
   applies,
   assess,
   bdsRuleset,

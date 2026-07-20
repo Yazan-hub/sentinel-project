@@ -123,6 +123,41 @@ function propValue(el: ElementProperties, pset: string, name: string): string | 
 
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+// ── Adjudication (the "referee") — validate a SET of proposed elements against an IDS and return a single
+// verdict. Pure; the bridge's propose API wraps this + records the verdict immutably. ────────────────────
+export interface AdjudicationSummary {
+  elements: number;
+  in_scope: number; // elements at least one specification applied to
+  passing: number;
+  failing: number;
+  ids: string | null;
+}
+export interface Adjudication {
+  verdict: "accepted" | "rejected" | "recorded"; // recorded = no IDS supplied (just logged, not judged)
+  summary: AdjudicationSummary;
+  failures: (Failure & { element: string | number | null })[];
+}
+
+/** Adjudicate a proposal: validate `elements` against `spec`. No spec → verdict "recorded" (nothing judged). */
+export function adjudicate(spec: IdsSpec | null, elements: ElementProperties[]): Adjudication {
+  const failures: Adjudication["failures"] = [];
+  let inScope = 0, passing = 0;
+  if (spec) {
+    for (const el of elements) {
+      const res = validateElement(spec, el);
+      if (!res.inScope) continue;
+      inScope++;
+      if (res.pass) passing++;
+      else for (const f of res.failures) failures.push({ element: el.identity.GlobalId ?? el.localId ?? null, ...f });
+    }
+  }
+  return {
+    verdict: spec ? (failures.length === 0 ? "accepted" : "rejected") : "recorded",
+    summary: { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null },
+    failures,
+  };
+}
+
 /** A tiny built-in IDS so the feature is testable immediately without an .ids file. */
 export const DEMO_IDS: IdsSpec = {
   title: "Sentinel demo IDS (starter checks)",

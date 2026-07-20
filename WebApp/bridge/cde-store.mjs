@@ -393,19 +393,8 @@ export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const spec = b.ids ? (typeof b.ids === "string" ? c.parseIds(b.ids) : b.ids) : null;
-  const failures = [];
-  let inScope = 0, passing = 0;
-  if (spec && typeof c.validateElement === "function") {
-    for (const el of elements) {
-      const res = c.validateElement(spec, el);
-      if (!res.inScope) continue;
-      inScope++;
-      if (res.pass) passing++;
-      else for (const f of res.failures) failures.push({ element: el?.identity?.GlobalId ?? el?.localId ?? null, ...f });
-    }
-  }
-  const summary = { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null };
-  const verdict = spec ? (failures.length === 0 ? "accepted" : "rejected") : "recorded";
+  // Delegate to the pure, unit-tested referee core (same code the browser uses).
+  const { verdict, summary, failures } = c.adjudicate(spec, elements);
   const proj = await ensureProject(key);
   const audit = (await sb(`audit_log`, {
     method: "POST",
