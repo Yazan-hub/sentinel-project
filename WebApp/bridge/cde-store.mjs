@@ -523,6 +523,21 @@ export async function adjudicateProposal(key, b = {}) {
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
+  // When the proposal is about a specific file version (the Governed Publish loop), ALSO record the verdict
+  // against that version's id so the Versions panel can show a ✓/✗ badge on the row (entity_id = version id,
+  // action "verdict:<verdict>"). Kept separate from the proposal record above so the agent/propose surface is
+  // unchanged when no version is in play.
+  if (b.version_id) {
+    await sb(`audit_log`, {
+      method: "POST",
+      body: {
+        project_id: proj.id, entity_type: "file_version", entity_id: b.version_id,
+        action: `verdict:${verdict}`, actor: b.actor ?? b.source ?? "agent", old_value: null,
+        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20) },
+      },
+      prefer: "return=minimal", service: true,
+    });
+  }
   return { verdict, summary, failures: failures.slice(0, 200), audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
 }
 

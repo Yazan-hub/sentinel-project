@@ -31,7 +31,10 @@ interface FileRec {
   created_at: string; version_count: number; live_version_id: string | null; versions: Version[];
 }
 // One immutable audit event (audit_log row) — the "who did what, when" behind each version.
-interface AuditEvent { id: number; entity_id: string; entity_type?: string; action: string; actor?: string; at: string; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface AuditEvent { id: number; entity_id: string; entity_type?: string; action: string; actor?: string; at: string; new_value?: any; }
+// The governed verdict on a version (from a "verdict:*" audit event, recorded by the propose/Governed-Publish path).
+interface Verdict { verdict: "accepted" | "rejected" | "recorded"; passing?: number; in_scope?: number; failing?: number; ids?: string | null; }
 
 export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
@@ -162,6 +165,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<span style="width:1rem;text-align:center">${v.is_live ? '<span style="color:#22c55e">●</span>' : '<span style="color:#3f3f46">○</span>'}</span>` +
       `<span style="font-family:ui-monospace,Consolas,monospace;font-weight:600;width:2.6rem">${esc(v.revision)}</span>` +
       `<span style="color:${sc};font-size:10.5px;border:1px solid ${sc}55;border-radius:.25rem;padding:0 .3rem">${esc(v.state)}</span>` +
+      verdictBadge(v) +
       `<span style="flex:1;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.author || "—")} · ${when(v.created_at)}</span>` +
       `<span style="color:#71717a;font-variant-numeric:tabular-nums">${humanSize(v.size_bytes)}</span>` +
       (hasSnap ? '<span title="Element snapshot captured — comparable" style="color:#38bdf8">◆</span>' : '<span title="No take-off snapshot yet" style="color:#3f3f46">◇</span>') +
@@ -194,12 +198,34 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       rows + "</div>";
   }
 
-  // "state:wip->shared" → "State: wip → shared"; container (file-level) events read as "File created / moved";
-  // else Sentence-case the version-level verb (Uploaded, Set live).
+  // "state:wip->shared" → "State: wip → shared"; "verdict:rejected" → "Verdict: rejected"; container
+  // (file-level) events read as "File created / moved"; else Sentence-case the version-level verb.
   function fmtAction(e: AuditEvent): string {
     if (e.action.startsWith("state:")) { const [from, to] = e.action.slice(6).split("->"); return `State: ${from} → ${to ?? ""}`; }
+    if (e.action.startsWith("verdict:")) return `Verdict: ${e.action.slice(8)}`;
     if (e.entity_type === "container") return `File ${e.action}`;
     return e.action.charAt(0).toUpperCase() + e.action.slice(1);
+  }
+
+  // The latest governed verdict recorded against a version, if any (Governed Publish / propose path).
+  function verdictOf(v: Version): Verdict | null {
+    const ev = (auditByEntity.get(v.id) || []).filter((e) => e.action.startsWith("verdict:")).sort((a, b) => b.id - a.id)[0];
+    if (!ev) return null;
+    const s = ev.new_value?.summary ?? {};
+    return { verdict: ev.action.slice(8) as Verdict["verdict"], passing: s.passing, in_scope: s.in_scope, failing: s.failing, ids: s.ids };
+  }
+
+  // ✓ accepted (green) / ✗ rejected (red) / ◦ recorded (grey) — the "model became TRUE, on the record" badge.
+  // Clickable: reuses the row's data-hist handler so one click opens the version's immutable audit trail
+  // (the verdict event is in it) — G3's "one-click link to the immutable audit entry."
+  function verdictBadge(v: Version): string {
+    const r = verdictOf(v);
+    if (!r) return "";
+    const map = { accepted: ["#22c55e", "✓", "accepted"], rejected: ["#f87171", "✗", "rejected"], recorded: ["#a1a1aa", "◦", "recorded"] } as const;
+    const [col, mark, label] = map[r.verdict] ?? map.recorded;
+    const scope = r.in_scope != null ? `IDS ${r.ids ?? ""} — ${r.passing}/${r.in_scope} passed${r.failing ? `, ${r.failing} failed` : ""}` : "governed verdict";
+    const tip = `${scope} · click for the immutable audit entry`;
+    return `<span data-hist="${v.id}" title="${esc(tip)}" style="color:${col};font-size:10px;font-weight:700;border:1px solid ${col}66;border-radius:.25rem;padding:0 .3rem;white-space:nowrap;cursor:pointer">${mark} ${label}</span>`;
   }
 
   async function setLive(versionId: string) {
