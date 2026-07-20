@@ -80,7 +80,9 @@ public sealed class GovernedPublishCommand : IExternalCommand
             // Bridge/CDE unreachable — the gate passed, so let the modeller publish manually rather than lose work.
             TaskDialog.Show("Sentinel — Governed Publish",
                 "Delivery gate PASSED, but the Sentinel bridge could not be reached to adjudicate + record the " +
-                "verdict.\n\nStart the bridge (npm run bcf:serve) and retry, or publish manually:\n\n" +
+                "verdict.\n\n" +
+                (verdict.Error is { Length: > 0 } ? "Reason: " + verdict.Error + "\n\n" : "") +
+                "Start the bridge (npm run bcf:serve) and retry, or publish manually:\n\n" +
                 $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{tempPath}\"");
             return Result.Succeeded;
         }

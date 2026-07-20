@@ -20,6 +20,12 @@ namespace Sentinel.Coordination
     {
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) };
 
+        // Governed Publish is a deliberate, interactive action whose /propose call adjudicates the whole model
+        // AND (on a reject) creates a BCF issue per failing requirement across several Supabase round-trips —
+        // seconds, not milliseconds, on a large model. Give the blocking governed calls a generous timeout so
+        // they wait for the real verdict instead of tripping the "bridge unreachable" fallback on big models.
+        private static readonly HttpClient GovHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+
         /// <summary>Record a "model published from Revit" event in the governed audit trail.</summary>
         public static void ModelPublished(string modelName, long bytes)
         {
@@ -87,6 +93,7 @@ namespace Sentinel.Coordination
             public int InScope, Passing, Failing;
             public int BcfRaised;                      // issues auto-opened on a reject (bridge G2)
             public List<string> Failures = new();      // "<requirement>: <reason>", capped for the dialog
+            public string? Error;                      // why Reached is false (timeout / refused / status), for the dialog
         }
 
         /// <summary>
@@ -114,9 +121,9 @@ namespace Sentinel.Coordination
                 if (versionId != null) body["version_id"] = versionId;
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                var resp = Http.PostAsync(url, content).GetAwaiter().GetResult();
+                var resp = GovHttp.PostAsync(url, content).GetAwaiter().GetResult();
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (!resp.IsSuccessStatusCode) return r; // Reached stays false → caller treats as "not governed"
+                if (!resp.IsSuccessStatusCode) { r.Error = "bridge returned HTTP " + (int)resp.StatusCode; return r; }
 
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
@@ -141,7 +148,13 @@ namespace Sentinel.Coordination
                     }
                 }
             }
-            catch { /* Reached stays false */ }
+            catch (Exception ex)
+            {
+                // Distinguish a timeout (large model, still adjudicating) from a real connection failure.
+                r.Error = ex is TaskCanceledException or OperationCanceledException
+                    ? "timed out after 120s (model may be very large)"
+                    : ex.InnerException?.Message ?? ex.Message;
+            }
             return r;
         }
 
@@ -159,7 +172,7 @@ namespace Sentinel.Coordination
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + "/files";
                 var body = new { name, author, size_bytes = bytes, notes = notes ?? "published from Revit (Governed Publish)" };
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                var resp = Http.PostAsync(url, content).GetAwaiter().GetResult();
+                var resp = GovHttp.PostAsync(url, content).GetAwaiter().GetResult();
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (!resp.IsSuccessStatusCode) return null;
 
