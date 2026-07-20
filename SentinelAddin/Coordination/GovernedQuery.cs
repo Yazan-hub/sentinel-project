@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.Json;
 using Sentinel.Commands; // BcfConfig (bridge URL + platform project id)
@@ -64,6 +65,47 @@ namespace Sentinel.Coordination
                 return null; // not versioned yet
             }
             catch { return null; } // never surface a read failure into Revit
+        }
+
+        /// <summary>One recorded clash from the web-side team register (GET /clash/:project).</summary>
+        public sealed class ClashRow
+        {
+            public string Label = "";
+            public string Status = "";
+            public double Volume;
+        }
+
+        /// <summary>
+        /// Read the team-wide clash register recorded on the web (status lifecycle raised → reviewed → approved
+        /// → resolved, raise-time volume). Returns the list (possibly empty) when reachable, or null when the
+        /// bridge/CDE can't be reached — so the caller can tell "no clashes" from "offline". Blocking, ~4s cap.
+        /// </summary>
+        public static List<ClashRow> ClashRegister()
+        {
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/clash/" + Uri.EscapeDataString(cfg.ProjectId);
+                var json = Http.GetStringAsync(url).GetAwaiter().GetResult();
+
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+                    return new List<ClashRow>();
+                var rows = new List<ClashRow>();
+                foreach (var it in items.EnumerateArray())
+                {
+                    rows.Add(new ClashRow
+                    {
+                        Label = it.TryGetProperty("label", out var l) && l.ValueKind == JsonValueKind.String && l.GetString() is { Length: > 0 } lbl
+                            ? lbl
+                            : (it.TryGetProperty("signature", out var s) ? s.GetString() ?? "" : ""),
+                        Status = it.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
+                        Volume = it.TryGetProperty("volume", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var vd) ? vd : 0,
+                    });
+                }
+                return rows;
+            }
+            catch { return null; } // unreachable — caller shows a "bridge not reachable" note
         }
     }
 }

@@ -229,6 +229,9 @@ public sealed class App : IExternalApplication
         AddButton(wf, asm, "Sentinel_BcfIssues", "BCF\nIssues",
             "Sentinel.Commands.BcfIssuesCommand", "requests",
             "Review coordination issues raised by non-Revit users on the web; double-click to zoom to the element + camera.");
+        AddButton(wf, asm, "Sentinel_ClashRegister", "Clash\nRegister",
+            "Sentinel.Commands.ClashRegisterCommand", "requests",
+            "View the team-wide clash register recorded on the web (status lifecycle + volume), read-only.");
     }
 
     private static void AddButton(RibbonPanel panel, string asm, string name,
