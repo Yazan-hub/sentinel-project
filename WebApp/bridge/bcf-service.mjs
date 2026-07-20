@@ -231,6 +231,77 @@ function broadcast(project, payload) {
     import("./cde-store.mjs").then((cde) => { if (cde.cdeConfigured()) cde.emitEvent(project, INSTANCE_ID, payload).catch(() => {}); }).catch(() => {});
   }
 }
+/** The canonical BCF-3.0 topic object — one shape shared by the POST /topics route and the governed
+ *  fail→BCF hook, so a machine-raised issue is byte-identical to a hand-raised one (same fields the web
+ *  Issues panel + Revit BcfSyncManager expect). */
+function newTopicObject(pid, b, now) {
+  return {
+    guid: b.guid || randomUUID(), project_id: pid, model: b.model || "",
+    title: b.title || "Untitled", topic_type: b.topic_type || "Issue",
+    topic_status: b.topic_status || "Open", priority: b.priority || "Normal",
+    assigned_to: b.assigned_to || "", due_date: b.due_date || null,
+    stage: b.stage || "", description: b.description || "",
+    creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
+    labels: b.labels || [], comments: [], viewpoints: [],
+    history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
+  };
+}
+
+/** G2 — governed fail→BCF. On a REJECT verdict, surface each failing IDS requirement as a BCF topic
+ *  (deduped against still-open IDS topics), with the failing elements as a viewpoint selection, and record
+ *  the golden-thread audit. Topics live-sync to the web Issues panel and Revit via broadcast() — this closes
+ *  the reject→fix→re-publish loop. Callers reach this only inside the /cde/ block, where CDE is guaranteed
+ *  configured, so it goes straight to the Supabase-backed BCF store. Mirrors visibility-panel's raise path. */
+async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
+  const author = opts.author || "Governed Publish";
+  const idsTitle = result?.summary?.ids || "IDS";
+  // Group failing elements by "specification — requirement" → one issue per broken requirement.
+  const groups = new Map();
+  for (const f of result.failures || []) {
+    const k = `${f.specification} — ${f.requirement}`;
+    const g = groups.get(k) || { count: 0, guids: [] };
+    g.count++;
+    if (f.element) g.guids.push(String(f.element));
+    groups.set(k, g);
+  }
+  if (!groups.size) return { raised: 0, skipped: 0, topics: [] };
+  // Dedup: skip requirements that already have an OPEN IDS topic (idempotent on re-publish).
+  let existing = [];
+  try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  const openReqs = new Set((existing || [])
+    .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+    .map((t) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, "")));
+  const now = new Date().toISOString();
+  const raised = [];
+  let skipped = 0;
+  for (const [req, info] of groups) {
+    if (openReqs.has(req)) { skipped++; continue; }
+    const topic = newTopicObject(pid, {
+      title: `IDS: ${req} (${info.count} failing)`, topic_type: "Issue", priority: "High",
+      creation_author: author,
+      description: `IDS “${idsTitle}” — ${info.count} element(s) fail: ${req}.` +
+        (info.guids.length ? ` Sample GUIDs: ${info.guids.slice(0, 10).join(", ")}` : ""),
+    }, now);
+    if (info.guids.length) {
+      topic.viewpoints.push({
+        guid: randomUUID(), perspective_camera: null,
+        components: { selection: info.guids.slice(0, 500).map((g) => ({ ifc_guid: g })) },
+        clipping_planes: [], snapshot: null,
+      });
+    }
+    await cde.bcfCreateTopic(topic);
+    broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+    try {
+      await cde.recordAudit(pid, {
+        entity_type: "ids_validation", actor: author, action: `Issue raised: ${req}`,
+        new_value: { spec: idsTitle, requirement: req, failing: info.count, bcf_guid: topic.guid },
+      });
+    } catch { /* audit is best-effort — the topic is already live */ }
+    raised.push({ guid: topic.guid, title: topic.title });
+  }
+  return { raised: raised.length, skipped, topics: raised };
+}
+
 /** Poll the shared event feed and re-broadcast other bridges' events to our local clients (near-real-time). */
 async function startEventPoll() {
   if (EVENT_POLL_MS <= 0) return;
@@ -644,10 +715,20 @@ async function handleRequest(req, res) {
       }
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
-      // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note? }
-      //   → { verdict: accepted|rejected|recorded, summary, failures[], audit_id }. Agents propose; the
+      // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, version_id?, raise_bcf? }
+      //   → { verdict: accepted|rejected|recorded, summary, failures[], audit_id, bcf? }. Agents propose; the
       //   governed core (IDS + rules) adjudicates deterministically and records the verdict immutably.
-      if (p2 === "propose" && !p3 && req.method === "POST") return send(res, 200, await cde.adjudicateProposal(p1, await readBody(req)));
+      //   G2: on a REJECT, each failing requirement auto-opens as a BCF issue (live-synced to web + Revit),
+      //   unless the caller passes raise_bcf:false. Best-effort — a BCF hiccup never changes the verdict.
+      if (p2 === "propose" && !p3 && req.method === "POST") {
+        const b = await readBody(req);
+        const result = await cde.adjudicateProposal(p1, b);
+        if (result.verdict === "rejected" && b.raise_bcf !== false) {
+          try { result.bcf = await raiseGovernedFailureTopics(cde, p1, result, { author: b.actor || b.source }); }
+          catch (e) { result.bcf = { raised: 0, error: String(e?.message || e) }; }
+        }
+        return send(res, 200, result);
+      }
       // Element snapshots (revision tracking, migration 0005):
       //   POST /cde/:key/snapshots  { rev_code?, model_id?, uploaded_by?, container_version_id?, snapshots:[{guid,category,type_name,count,length,area,volume,weight}] }
       //   GET  /cde/:key/snapshots            → revision metadata (newest first, the baseline picker)
@@ -756,16 +837,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && !guid) {
       const b = await readBody(req);
       const now = new Date().toISOString();
-      const topic = {
-        guid: b.guid || randomUUID(), project_id: pid, model: b.model || "",
-        title: b.title || "Untitled", topic_type: b.topic_type || "Issue",
-        topic_status: b.topic_status || "Open", priority: b.priority || "Normal",
-        assigned_to: b.assigned_to || "", due_date: b.due_date || null,
-        stage: b.stage || "", description: b.description || "",
-        creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
-        labels: b.labels || [], comments: [], viewpoints: [],
-        history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
-      };
+      const topic = newTopicObject(pid, b, now);
       if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
       broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       return send(res, 201, topic);
