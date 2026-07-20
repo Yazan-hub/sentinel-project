@@ -29,6 +29,13 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   try { known = new Set(JSON.parse(localStorage.getItem(knownKey()) || "[]")); } catch { /* */ }
   const persistKnown = () => { try { localStorage.setItem(knownKey(), JSON.stringify([...known])); } catch { /* */ } };
 
+  // Per-element provenance captured at raise-time (immutable): what the two clashing elements WERE when
+  // flagged, keyed on the revision-stable IFC GlobalId. A recorded clash carries these + a status lifecycle.
+  type ClashElement = { guid: string | null; category: string | null; name: string | null; model_id: string; local_id: number };
+  type ClashRecord = { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[]; created_at?: string; updated_at?: string };
+  let register: ClashRecord[] = []; // the recorded clashes (server store), shown in the Register view
+  let view: "new" | "register" = "new";
+
   // Server-side clash-status store (team-wide dedup + lifecycle). localStorage stays as an offline mirror,
   // so a stale bridge without the /clash route degrades cleanly to the old per-browser behaviour.
   const loadKnownFromServer = async () => {
@@ -36,14 +43,10 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       const r = await fetch(`${base}/clash/${encodeURIComponent(pid())}`);
       if (!r.ok) return; // route absent (bridge not restarted) → keep localStorage-only
       const data = await r.json();
-      if (Array.isArray(data?.items)) { for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown(); }
+      if (Array.isArray(data?.items)) { register = data.items; for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown(); }
     } catch { /* offline → localStorage only */ }
   };
   const knownReady = loadKnownFromServer();
-  // Per-element provenance captured at raise-time (immutable in the clash record + audit): what the two
-  // clashing elements WERE when flagged, keyed on the revision-stable IFC GlobalId — so a resolved clash
-  // stays auditable even after the model changes.
-  type ClashElement = { guid: string | null; category: string | null; name: string | null; model_id: string; local_id: number };
   const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[]) =>
     fetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
   const resetKnownOnServer = () => fetch(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" }).catch(() => {});
@@ -56,7 +59,9 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const btn = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.35rem .55rem;font:600 12px system-ui;cursor:pointer";
   root.innerHTML =
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
-    '<span style="font-weight:600">✸ Clash</span><span style="color:#9ca3af;font-size:11px">headless · dedup’d</span>' +
+    '<span style="font-weight:600">✸ Clash</span>' +
+    `<button id="cl-view-new" style="${btn};padding:.25rem .5rem;font-size:11px;background:#22303a">New</button>` +
+    `<button id="cl-view-reg" style="${btn};padding:.25rem .5rem;font-size:11px" title="Recorded clashes: status lifecycle + element provenance">Register</button>` +
     '<span style="flex:1"></span>' +
     `<button id="cl-run" style="${btn};background:#22303a;border-color:#2f6d8a;color:#bfe3f2">Run clash</button>` +
     "</div>" +
@@ -92,6 +97,63 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     host.querySelectorAll<HTMLElement>(".cl-row").forEach((r) => r.addEventListener("click", () => focusClash(shown[Number(r.dataset.i)])));
   }
 
+  // ── Register: recorded clashes with a status lifecycle + raise-time element provenance ────────────────
+  const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved"];
+  const statusColor = (s: string) => (({ raised: "#f87171", reviewed: "#eab308", approved: "#60a5fa", resolved: "#4ade80" } as Record<string, string>)[s] ?? "#9ca3af");
+
+  const setView = (v: "new" | "register") => {
+    view = v;
+    el("cl-view-new").style.background = v === "new" ? "#22303a" : "#1f1f27";
+    el("cl-view-reg").style.background = v === "register" ? "#22303a" : "#1f1f27";
+    if (v === "register") { renderRegister(); loadRegister(); } else renderList();
+  };
+  const loadRegister = async () => { await loadKnownFromServer(); if (view === "register") renderRegister(); };
+
+  const setStatus = (rec: ClashRecord, next: string) => {
+    const prev = rec.status; rec.status = next;
+    renderRegister();
+    fetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signature: rec.signature, status: next }) }).catch(() => {});
+    // audit the lifecycle transition — the immutable governance trail
+    fetch(`${base}/cde/${encodeURIComponent(pid())}/audit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity_type: "clash", actor: "Clash", action: `Clash ${prev} → ${next}: ${rec.label ?? rec.signature}`, new_value: { signature: rec.signature, status: next } }) }).catch(() => {});
+    status(`Clash marked ${next}.`);
+  };
+
+  async function focusRecorded(rec: ClashRecord) {
+    const map: OBC.ModelIdMap = {};
+    for (const e of rec.elements ?? []) if (e?.model_id && e.local_id != null) (map[e.model_id] ??= new Set<number>()).add(e.local_id);
+    if (!Object.keys(map).length) { status("No element ids recorded to isolate."); return; }
+    try { await hider.isolate(map); await refreshView(); status(`Isolated ${rec.label ?? rec.signature} (raise-time ids — may be stale after a re-export).`); }
+    catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+  }
+
+  function renderRegister() {
+    const host = el("cl-list");
+    if (!register.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No recorded clashes yet. Run clash → <b>⚑ Raise</b> to record them here (status + element provenance).</div>'; return; }
+    const counts = CLASH_STATUSES.map((s) => `${register.filter((r) => r.status === s).length} ${s}`).join(" · ");
+    const sorted = [...register].sort((a, b) => CLASH_STATUSES.indexOf(a.status) - CLASH_STATUSES.indexOf(b.status) || (b.volume ?? 0) - (a.volume ?? 0));
+    host.innerHTML =
+      `<div style="color:#9ca3af;font-size:11px;padding:.2rem .4rem .4rem">${register.length} recorded · ${esc(counts)}</div>` +
+      sorted.map((rec, i) => {
+        const col = statusColor(rec.status);
+        const prov = (rec.elements ?? []).map((e) => `${esc((e.category ?? "?").replace(/^IFC/i, ""))}${e.name ? ` '${esc(e.name)}'` : ""}<span style="color:#6b7280"> ${e.guid ? esc(String(e.guid).slice(0, 8)) : "no-guid"}</span>`).join(' <span style="color:#6b7280">↔</span> ');
+        const vol = rec.volume != null ? (rec.volume < 0.01 ? rec.volume.toExponential(1) : rec.volume.toFixed(2)) + " m³" : "";
+        const opts = CLASH_STATUSES.map((s) => `<option value="${s}"${s === rec.status ? " selected" : ""}>${s}</option>`).join("");
+        return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
+          `<div style="display:flex;gap:.5rem;align-items:center">` +
+            `<span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +
+            `<span style="flex:1;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(rec.label ?? rec.signature)}</span>` +
+            `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${vol}</span>` +
+          `</div>` +
+          `<div style="color:#9ca3af;font-size:11px;margin:.25rem 0 .3rem">${prov || '<span style="color:#6b7280">no provenance recorded</span>'}${rec.bcf_guid ? ' <span style="color:#60a5fa" title="Linked BCF topic">⚑</span>' : ""}</div>` +
+          `<div style="display:flex;gap:.4rem;align-items:center">` +
+            `<select class="cl-reg-status" data-i="${i}" style="background:#111;color:${col};border:1px solid #333;border-radius:.25rem;font:600 11px system-ui;padding:.15rem .25rem;cursor:pointer">${opts}</select>` +
+            `<button class="cl-reg-focus" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px">show</button>` +
+          `</div></div>`;
+      }).join("");
+    host.querySelectorAll<HTMLSelectElement>(".cl-reg-status").forEach((s) => s.addEventListener("change", () => setStatus(sorted[Number(s.dataset.i)], s.value)));
+    host.querySelectorAll<HTMLElement>(".cl-reg-focus").forEach((b) => b.addEventListener("click", () => focusRecorded(sorted[Number(b.dataset.i)])));
+  }
+
   async function focusClash(c: Clash) {
     const map = mapOfClash(c);
     try {
@@ -105,6 +167,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   async function run() {
     if (fragments.list.size === 0) { status("Load a model first."); return; }
+    if (view !== "new") setView("new"); // scan results live in the New view
     await knownReady; // load the team-wide known set before filtering (first run only; resolves instantly after)
     status("Running clash (reading boxes)…");
     try {
@@ -201,9 +264,12 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     if (raisedItems.length) pushKnownToServer(raisedItems); // team-wide, survives browser/machine, carries provenance
     clashes = clashes.filter((c) => !known.has(c.id));
     renderList();
+    loadRegister(); // reflect the newly-recorded clashes in the Register view
     status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the CDE audit + clash register. They won't re-surface on the next run.`);
   }
 
+  el("cl-view-new").addEventListener("click", () => setView("new"));
+  el("cl-view-reg").addEventListener("click", () => setView("register"));
   el("cl-run").addEventListener("click", run);
   el("cl-colour").addEventListener("click", colourAll);
   el("cl-raise").addEventListener("click", raise);
