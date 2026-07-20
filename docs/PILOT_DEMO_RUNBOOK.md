@@ -63,9 +63,16 @@ curl -s http://127.0.0.1:4100/health
 - `demo/bds-pilot/ids.json`, `elements-draft.json`, `elements-fixed.json` — present (repo).
 - `demo/bds-pilot/delivery-contract.json` — copied to `%AppData%\Sentinel\delivery-contract.json` (the
   IFC Delivery Gate reads it there).
-- `demo/bds-pilot/ids.json` — copied to `%AppData%\Sentinel\ids.json` (the Revit **Governed Publish**
-  command adjudicates against it; absent ⇒ the model is recorded but not judged — a gate-only publish).
+- **The element IDS** — copied to `%AppData%\Sentinel\ids.json`. For the real pilot use
+  `demo/bds-pilot/bds-ids.json` (BDS LOD-300 checks, `enforce: warn`); `demo/bds-pilot/ids.json` is the tiny
+  starter. Absent ⇒ the model is recorded but not judged (gate-only publish).
 - The BDS demo model open in Revit (or rely on the headless dry-run in §2 if Revit isn't on the demo box).
+
+> **The gate is two checks, both configurable** (full reference: [`docs/BDS_GATE_CONFIG.md`](BDS_GATE_CONFIG.md)):
+> **(A) Naming** — the model file name vs BDS's 11-field ISO 19650 form (`bridge/naming-ruleset.json`,
+> `enforce: reject`). **(B) Element data** — per-element LOD-300 checks (`%AppData%\Sentinel\ids.json`,
+> `enforce: warn`). Pilot posture = naming reject, data warn; tighten data to `reject` at DD/CD. A future Base
+> template just replaces the two ruleset files — no code change.
 
 ### 1d. Web app open on the project
 - Open the WebApp on the platform (or `npm run dev`), select the **`bds-pilot`** project, and land on the
@@ -131,13 +138,13 @@ BCF topics with the failing elements selected. That is beats 2–4, no Revit req
 4. **Modeler:** **Governed Publish** again → **✓ ACCEPTED — published as v2**. Coordinator refreshes → badge
    flips to **✓ accepted**, no duplicate issues, audit trail reads *rejected → fixed → accepted*.
 
-> The single **Governed Publish** ribbon command (**G1**) is built and compile-verified for Revit 2025/2026;
-> it needs a live Revit run to verify end-to-end (only the user can do that). It loads the IDS from
-> `%AppData%\Sentinel\ids.json` and adjudicates the live model's exportable elements (walls' `IsExternal`,
-> doors' `FireRating`, every element's `Name` — the demo checks) — so the demo model must carry those params.
-> If it misbehaves in Revit, fall back to the three standalone commands (**Quality → IFC Delivery Gate**, then
-> **Workflow → Publish to Platform**, adjudication from the web IDS panel) or the headless dry-run (§2), which
-> proves beats 2–4 without Revit.
+> The single **Governed Publish** ribbon command (**G1**) is verified live end-to-end on a real model (the
+> Snowdon sample) — export → **naming gate** → **element IDS** → immutable verdict → publish-on-pass → ✓ badge
+> → geometry uploaded (Open 3D). It runs BOTH gates (see [`docs/BDS_GATE_CONFIG.md`](BDS_GATE_CONFIG.md)):
+> the file name must match BDS's ISO 19650 form (naming = reject), and each element is checked for its LOD-300
+> data (Discipline, FireRating, U-value — data = warn, so a gap publishes-but-flags during schematic). If it
+> misbehaves, fall back to the three standalone commands (**Quality → IFC Delivery Gate**, then **Workflow →
+> Publish to Platform**, adjudication from the web IDS panel) or the headless dry-run (§2).
 
 ---
 
