@@ -84,6 +84,17 @@ describe("adjudicate (the referee)", () => {
     expect(a.verdict).toBe("rejected");
     expect(a.summary.failing).toBe(1);
   });
+
+  it("does not throw on malformed pset/quantity groups (missing name/rows)", () => {
+    // A real producer can emit a group with no name/rows (a Revit payload did, via field-vs-property
+    // serialization). The referee must treat that as 'property absent', not crash the whole propose.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const broken: any = { modelId: "m", localId: 1, identity: { Class: "IFCWALL", GlobalId: "g", Name: "W" }, psets: [{}, { name: "Pset_WallCommon" }], quantities: [{}] };
+    expect(() => adjudicate(FIRE_IDS, [broken])).not.toThrow();
+    const a = adjudicate(FIRE_IDS, [broken]);
+    expect(a.verdict).toBe("rejected"); // in scope (IFCWALL), FireRating absent → REQUIRED but missing
+    expect(a.failures[0]).toMatchObject({ requirement: "Pset_WallCommon.FireRating" });
+  });
 });
 
 describe("groupFailuresForBcf (governed reject → one issue per requirement)", () => {

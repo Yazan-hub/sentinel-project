@@ -778,7 +778,12 @@ async function handleRequest(req, res) {
         return send(res, 200, await cde.transition(p2, body.state, body.actor, body.note));
       }
       return send(res, 404, { message: "CDE route not found" });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) {
+      // Log server-side so a 500 on a real-model propose (a character Postgres rejects in element data) is
+      // diagnosable instead of vanishing into a generic dialog on the Revit side. Auth failures stay quiet.
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
   }
 
   // ── Clash status: GET/POST/PUT /clash/:pid · POST /clash/:pid/reset ──

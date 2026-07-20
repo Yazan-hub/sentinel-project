@@ -884,7 +884,7 @@ var bdsRuleset = ruleset_default;
 
 // src/sentinel-core/ids.ts
 function applies(spec, el) {
-  const cls = (el.identity.Class ?? "").toUpperCase();
+  const cls = (el.identity?.Class ?? "").toUpperCase();
   if (spec.applicability.entity) {
     let re;
     try {
@@ -941,12 +941,12 @@ function checkFacet(card, wantValue, wantPattern, actual, specName, label, out) 
 }
 function attrValue(el, name) {
   const key = name;
-  return el.identity[key];
+  return el.identity?.[key];
 }
 function propValue(el, pset, name) {
-  const groups = [...el.psets, ...el.quantities];
-  const g = groups.find((x) => x.name.toLowerCase() === pset.toLowerCase());
-  const row = g?.rows.find((r) => r.name.toLowerCase() === name.toLowerCase());
+  const groups = [...el.psets ?? [], ...el.quantities ?? []];
+  const g = groups.find((x) => (x?.name ?? "").toLowerCase() === pset.toLowerCase());
+  const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
   return row?.value;
 }
 function escapeRe(s) {

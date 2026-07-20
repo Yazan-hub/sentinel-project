@@ -50,7 +50,7 @@ export interface ElementResult {
 
 /** Does a specification's applicability target this element? */
 export function applies(spec: IdsSpecification, el: ElementProperties): boolean {
-  const cls = (el.identity.Class ?? "").toUpperCase();
+  const cls = (el.identity?.Class ?? "").toUpperCase();
   if (spec.applicability.entity) {
     let re: RegExp;
     try { re = new RegExp(spec.applicability.entity, "i"); } catch { re = new RegExp(escapeRe(spec.applicability.entity), "i"); }
@@ -111,13 +111,16 @@ function checkFacet(
 
 function attrValue(el: ElementProperties, name: string): string | undefined {
   const key = name as keyof ElementProperties["identity"];
-  return el.identity[key];
+  return el.identity?.[key];
 }
 
+// Null-safe throughout: a proposed element from any producer may carry a malformed pset/quantity group (no
+// name, no rows) — the referee must treat that as "property absent", never throw. A crash here would 500 the
+// whole propose call on one bad element (which is exactly what a real Revit payload did).
 function propValue(el: ElementProperties, pset: string, name: string): string | undefined {
-  const groups = [...el.psets, ...el.quantities];
-  const g = groups.find((x) => x.name.toLowerCase() === pset.toLowerCase());
-  const row = g?.rows.find((r) => r.name.toLowerCase() === name.toLowerCase());
+  const groups = [...(el.psets ?? []), ...(el.quantities ?? [])];
+  const g = groups.find((x) => (x?.name ?? "").toLowerCase() === pset.toLowerCase());
+  const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
   return row?.value;
 }
 
