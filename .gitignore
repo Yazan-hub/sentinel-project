@@ -13,6 +13,8 @@ obj/
 # Secrets — never commit real config
 .env
 *.env
+.env.*
+*.env.*
 config/appsettings.local.json
 # npm auth tokens — the thatopen CLI regenerates .npmrc from the platform token
 .npmrc
