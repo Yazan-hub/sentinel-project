@@ -19,6 +19,9 @@ config/appsettings.local.json
 # npm auth tokens — the thatopen CLI regenerates .npmrc from the platform token
 .npmrc
 **/.npmrc
+# thatopen CLI state — non-secret today (appId/itemType), but the CLI could write a token here
+.thatopen
+**/.thatopen
 
 # OS
 .DS_Store

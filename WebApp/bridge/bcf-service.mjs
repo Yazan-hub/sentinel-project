@@ -39,6 +39,9 @@ const CORS_WILDCARD = CORS_RAW === "*";
 const CORS_ALLOW = CORS_RAW && !CORS_WILDCARD ? CORS_RAW.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CORS;
 const originAllowed = (origin) => CORS_WILDCARD || (!!origin && CORS_ALLOW.includes(origin));
 const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+// JSON bodies (propose/audit/cde) are parsed fully into memory; cap them well above a large
+// governed-publish payload but far below a memory-exhaustion DoS. Tunable via BCF_MAX_JSON_MB.
+const MAX_JSON = (Number(process.env.BCF_MAX_JSON_MB) || 256) * 1024 * 1024;
 
 // Crash-safe JSON persistence: write a temp file then atomically rename, so a crash mid-write can never
 // truncate the store. On read, a genuine ENOENT starts empty silently, but a CORRUPT/unreadable file is
@@ -199,7 +202,12 @@ const send = (res, code, body) => {
   res.end(body === undefined ? "" : JSON.stringify(body));
 };
 const readBody = (req) => new Promise((resolve) => {
-  let s = ""; req.on("data", (c) => (s += c)); req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); } });
+  // Reject early on a declared oversize body, and hard-stop mid-stream if the declared length lied.
+  if (Number(req.headers["content-length"] || 0) > MAX_JSON) { req.destroy(); return resolve({}); }
+  let s = "", total = 0;
+  req.on("data", (c) => { total += c.length; if (total > MAX_JSON) { req.destroy(); return resolve({}); } s += c; });
+  req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); } });
+  req.on("error", () => resolve({}));
 });
 const readRaw = (req) => new Promise((resolve, reject) => {
   const chunks = []; let total = 0;

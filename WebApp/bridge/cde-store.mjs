@@ -9,7 +9,7 @@
 
 import { readFileSync } from "node:fs";
 import { loadEnv } from "./thatopen-client.mjs";
-import { currentUserToken } from "./bridge-auth.mjs";
+import { currentUserToken, currentActor } from "./bridge-auth.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -225,7 +225,7 @@ export async function createFolder(key, b) {
 }
 
 export async function renameFolder(folderId, b) {
-  const row = (await sb(`folders?id=eq.${folderId}`, {
+  const row = (await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, {
     method: "PATCH", body: { name: (b.name || "").trim() }, prefer: "return=representation",
   }))[0];
   if (row) await audit(row.project_id, "folder", row.id, "renamed", b.actor || "web", null, { name: row.name });
@@ -233,17 +233,17 @@ export async function renameFolder(folderId, b) {
 }
 
 export async function deleteFolder(folderId, b = {}) {
-  const found = (await sb(`folders?id=eq.${folderId}&select=*`))?.[0];
+  const found = (await sb(`folders?id=eq.${encodeURIComponent(folderId)}&select=*`))?.[0];
   if (!found) return { ok: false, message: "Folder not found" };
   if (found.kind === "root") return { ok: false, message: "The root folder can't be deleted" };
-  await sb(`folders?id=eq.${folderId}`, { method: "DELETE" }); // cascades to subfolders; containers unfiled (set null)
+  await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, { method: "DELETE" }); // cascades to subfolders; containers unfiled (set null)
   await audit(found.project_id, "folder", folderId, "deleted", b.actor || "web", { name: found.name }, null);
   return { ok: true };
 }
 
 /** File a container into a folder (folder_id null = project root / unfiled). */
 export async function moveContainer(containerId, b) {
-  const row = (await sb(`information_containers?id=eq.${containerId}`, {
+  const row = (await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}`, {
     method: "PATCH", body: { folder_id: b.folder_id || null }, prefer: "return=representation",
   }))[0];
   if (row) await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
@@ -378,7 +378,10 @@ export async function listAudit(key) {
 
 export async function audit(project_id, entity_type, entity_id, action, actor, oldv, newv) {
   // audit_log has no authed-insert policy (writes bypass RLS by design) → force the service key.
-  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor, old_value: oldv, new_value: newv }, service: true });
+  // A forwarded JWT's verified identity outranks any client-asserted actor (anti audit-trail poisoning, F3);
+  // with no JWT (Revit/service path) we keep the supplied actor so the pilot is unaffected.
+  const trustedActor = currentActor() || actor;
+  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: trustedActor, old_value: oldv, new_value: newv }, service: true });
 }
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). */
@@ -580,12 +583,15 @@ export async function adjudicateProposal(key, b = {}) {
   }
 
   const proj = await ensureProject(key);
+  // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
+  // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
+  const trustedActor = currentActor() ?? b.actor ?? b.source ?? "agent";
   const audit = (await sb(`audit_log`, {
     method: "POST",
     body: {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
-      actor: b.actor ?? b.source ?? "agent", old_value: null,
+      actor: trustedActor, old_value: null,
       new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
@@ -599,7 +605,7 @@ export async function adjudicateProposal(key, b = {}) {
       method: "POST",
       body: {
         project_id: proj.id, entity_type: "file_version", entity_id: b.version_id,
-        action: `verdict:${verdict}`, actor: b.actor ?? b.source ?? "agent", old_value: null,
+        action: `verdict:${verdict}`, actor: trustedActor, old_value: null,
         new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming, warned },
       },
       prefer: "return=minimal", service: true,
