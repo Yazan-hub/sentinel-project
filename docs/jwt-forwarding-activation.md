@@ -1,5 +1,18 @@
 # JWT-forwarding activation
 
+> **STATUS: ARMED (2026-07-20).** `SUPABASE_ANON_KEY` is set in `config/.env`, so the bridge now forwards a
+> caller's Supabase JWT → PostgREST enforces RLS per-user; callers with no JWT (Revit/curl) still fall back to
+> the service key. Startup banner reads `JWT-forwarding: armed`. **Step 2 (web app sends the JWT) was already
+> done** — `bfetch` is adopted across all panels (commit `5957e72`). The multi-user `ensureProject` follow-up
+> below is **also already implemented** (commit `7aae852`). Live smoke on the armed bridge: `/health` 200;
+> `/projects` with no JWT → 200 (service-key fallback intact); `/projects` with a bogus JWT → PostgREST
+> `PGRST301` (proves the token is really forwarded + validated, not ignored). DB enforcement independently
+> verified via SQL: RLS on all 10 tables, anon role sees 0 projects, the owner sees their 7, and the owner has
+> a membership on every project (0 orphans) so arming cannot lock them out. Remaining confirmation = a real
+> browser sign-in (the path verified in the prior session). To **disarm**: remove the `SUPABASE_ANON_KEY` line
+> from `config/.env` and restart. Minor known-gap: the bridge maps a rejected JWT to HTTP 500 (wrapping the
+> Supabase 401) rather than 401/403 — cosmetic, pre-existing error mapping.
+
 The bridge holds the Supabase **service_role** key, which bypasses Row-Level Security — so today the bridge
 is a trusted backend with full DB access. **JWT-forwarding** makes the bridge forward a signed-in user's
 Supabase JWT to PostgREST instead, so **RLS enforces per-user access** (a user only sees/writes their own
