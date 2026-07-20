@@ -1,6 +1,6 @@
 # Sentinel Standards Engine — Technical Spec (Idea 1: the Ingester)
 
-> **Status:** Draft v0.1 — design, not yet built.
+> **Status:** ✅ SHIPPED — the Standards Engine (Ingester) is implemented; retained as the design record. For current state see `CAPABILITY_MAP.md` / `../ROADMAP.md`.
 > **One-line:** Turn an office's tacit standards (a "golden" `.rvt` + messy PDFs) into one
 > versioned, machine-readable **Standards Pack** that *builds* the template **and** *enforces*
 > it — reusing the rule engine, delivery contract, and builder patterns Sentinel already ships.

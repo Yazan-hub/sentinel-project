@@ -41,7 +41,7 @@ Fix → dialog shows current value struck-through + editable synthesized suggest
 ## Key file locations
 - Source: `sentinel-project\SentinelAddin\` · build: `.\build.ps1` (Revit must be CLOSED to deploy)
 - Config: `%AppData%\Sentinel\` → `config.json`, `settings.json`, `delivery-contract.json`, `roi.json`, `ruleset.json` (user cache)
-- Backend schema (Phase 3): `module2_knowledge_layer_schema.sql` · Roadmap: `sentinel-next-gen-roadmap.md`
+- Backend schema (Phase 3): `module2_knowledge_layer_schema.sql` · Roadmap: `ROADMAP.md`
 
 ## Known gaps (pre-pilot backlog)
 IFCZIP not parsed by the gate; BCF fallback GUIDs not spec-compressed; Clash Manager has no progress bar/cancel; `BDS_Void_*` / `BDS_Description` params must exist in the project for tracking/healing to fully work; ROI rates hardcoded; Doctor dismisses duplicate-mark warnings without renumbering.

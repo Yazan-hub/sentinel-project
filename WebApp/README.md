@@ -77,6 +77,6 @@ the QA scan, the stage gates, and the delivery gate — and it's shareable via t
 
 ## More docs
 - **[docs/PILOT.md](../docs/PILOT.md)** — guided first run + troubleshooting.
-- **[docs/TEST_A-Z.md](../docs/TEST_A-Z.md)** — full A→Z test script.
+- **[docs/archive/TEST_A-Z.md](../docs/archive/TEST_A-Z.md)** — full A→Z test script (archived/historical).
 - **[docs/platform-vision.md](../docs/platform-vision.md)** — market analysis, architecture, roadmap.
 - **[docs/phase1-spec.md](../docs/phase1-spec.md) … phase3-spec.md** — per-phase technical specs.

@@ -1,6 +1,6 @@
 # Phase 1 — Technical Spec: Project Shell + 5D Quick-Win
 
-> **Status:** Draft v0.1 — design, not yet built. Follows `platform-vision.md` (Phase 1).
+> **Status:** ✅ SHIPPED — this spec is implemented; retained as the design record. For current state see `CAPABILITY_MAP.md` / `../ROADMAP.md`. Follows `platform-vision.md` (Phase 1).
 > **Scope:** two deliverables that turn Sentinel-the-tool into Sentinel-the-platform's first organ —
 > (A) **the Project Shell**: a project = one governed dataset with a lifecycle state; and
 > (B) **the 5D Quick-Win**: live quantities pulled from the model into a running BoQ/cost plan that

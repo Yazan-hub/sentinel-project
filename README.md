@@ -70,4 +70,4 @@ The gate is configured — not coded — against a reference ruleset. See [`docs
 
 The Governed Publish loop is **verified live end-to-end** on a real building model. The governance core has **85 passing tests**; the immutable ledger is **truncate-proof at the database core**; the add-in **builds & deploys clean for Revit 2024–2026**. Known remaining work (service-key fallback, an office-agnostic Base ruleset, ISO 19650 certification, production hosting) is tracked in [`ROADMAP.md`](ROADMAP.md).
 
-> **Note on historical docs:** several files under `docs/` are point-in-time snapshots (e.g. `TEST_REPORT.md`, `TEST_A-Z.md`, `OVERNIGHT_REPORT.md`, `SESSION_LOG.md`, `CHAT_TRANSCRIPT.md`) and the older `sentinel-project-summary.md` / `sentinel-next-gen-roadmap.md`. They record earlier stages (the pyRevit prototype, compile-only verification) and are kept for lineage — trust the canonical docs linked above for current state.
+> **Historical docs** are moved to [`docs/archive/`](docs/archive/) (the pyRevit-era summary, superseded roadmap, and dated test/work logs) — kept for lineage, not current state. Trust the canonical docs linked above.

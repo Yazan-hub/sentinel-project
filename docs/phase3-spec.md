@@ -1,6 +1,6 @@
 # Phase 3 — Technical Spec: Handover & the Golden Thread
 
-> **Status:** Draft v0.1. Follows `platform-vision.md` (Phase 3). Phase 2 shipped.
+> **Status:** ✅ SHIPPED — this spec is implemented; retained as the design record. For current state see `CAPABILITY_MAP.md` / `../ROADMAP.md`. Follows `platform-vision.md` (Phase 3). Phase 2 shipped.
 > **Scope of the phase:** (A) **6D** — embodied carbon / whole-life; (B) **7D** — asset register + COBie
 > handover; (C) **owner/FM portal** + the maintained golden thread. This is where the *owner* finally gets
 > durable value instead of a pile of PDFs.

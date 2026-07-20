@@ -1,6 +1,6 @@
 # Phase 2 — Technical Spec: Time, Cost & Gates across the lifecycle
 
-> **Status:** Draft v0.1. Follows `platform-vision.md` (Phase 2) and Phase 1 (shipped).
+> **Status:** ✅ SHIPPED — this spec is implemented; retained as the design record. For current state see `CAPABILITY_MAP.md` / `../ROADMAP.md`. Follows `platform-vision.md` (Phase 2) and Phase 1 (shipped).
 > **Scope of the phase:** (A) **4D** — schedule ↔ element sets + sequence simulation; (B) **5D full** —
 > cost planning, change tracking; (C) **stage gates everywhere**; (D) **RFIs / submittals / approvals**.
 > **This turn builds slice A's MVP** (the 4D sequence simulator); the rest is outlined for the roadmap.

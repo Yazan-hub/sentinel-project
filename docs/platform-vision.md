@@ -192,4 +192,4 @@ Built tonight as a selfâ€‘contained artifact: **the Lifecycle Command Center** â
 KPIs drawn from the exact concepts Sentinel already computes (health score, open issues, standards
 compliance). It makes the thesis *visible*: the project living in one place, from tender to handover.
 
-*See `standards-engine-spec.md` and `sentinel-next-gen-roadmap.md` for the layers already in motion.*
+*See `standards-engine-spec.md` and `../ROADMAP.md` for the layers already in motion.*
