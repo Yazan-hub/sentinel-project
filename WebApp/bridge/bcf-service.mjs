@@ -665,7 +665,12 @@ async function handleRequest(req, res) {
       mkdirSync(CDE_FILES_ROOT, { recursive: true });
       writeFileSync(join(CDE_FILES_ROOT, `${id}.bin`), bytes);
       return send(res, 201, { id, size: bytes.length });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) {
+      // Log server-side so a 500 on a real-model propose (e.g. a character Postgres rejects) is diagnosable
+      // instead of vanishing into a generic dialog on the Revit side.
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
   }
   const fm = url.pathname.match(/^\/cde\/files\/([A-Za-z0-9-]+)$/);
   if (fm && req.method === "GET") {
