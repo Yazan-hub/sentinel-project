@@ -1,5 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { bfetch } from "./bridge-fetch";
+import { getAppManager } from "../app";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
@@ -132,6 +133,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", () => pickCompare(n.dataset.file!, n.dataset.cmp!)));
     root.querySelectorAll<HTMLElement>("[data-hist]").forEach((n) =>
       n.addEventListener("click", () => { const id = n.dataset.hist!; historyOpen.has(id) ? historyOpen.delete(id) : historyOpen.add(id); render(); }));
+    root.querySelectorAll<HTMLElement>("[data-open]").forEach((n) =>
+      n.addEventListener("click", () => { const f = files.find((x) => x.id === n.dataset.file); const v = f?.versions.find((x) => x.id === n.dataset.open); if (f && v) void openInViewer(f, v); }));
   }
 
   function fileCard(f: FileRec): string {
@@ -165,6 +168,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       cmpBadge +
       (v.is_live ? "" : `<button data-live="${v.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Set live</button>`) +
       `<button data-cmp="${v.id}" data-file="${f.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Compare</button>` +
+      `<button data-open="${v.id}" data-file="${f.id}"${v.platform_item_id ? "" : " disabled"} title="${v.platform_item_id ? "Load this version's geometry into the 3D viewer" : "No platform geometry — this version was registered without a platform upload"}" style="border:1px solid #2c2c34;background:${v.platform_item_id ? "#14314a" : "#191920"};color:${v.platform_item_id ? "#7dd3fc" : "#52525b"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:${v.platform_item_id ? "pointer" : "not-allowed"}">Open 3D</button>` +
       `<button data-hist="${v.id}" title="Version history — who did what, when (immutable audit)" style="border:1px solid #2c2c34;background:${historyOpen.has(v.id) ? "#2a1e4d" : "#1f1f27"};color:${historyOpen.has(v.id) ? "#c4b5fd" : "#cbd5e1"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">History</button>` +
       "</div>" +
       (historyOpen.has(v.id) ? historyBlock(f, v) : "")
@@ -204,6 +208,32 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       await api(`${encodeURIComponent(pid())}/files/set-live`, "POST", { version_id: versionId, actor: await whoami() });
       await load();
     } catch (e) { status(`Set-live failed: ${esc((e as Error).message)}`); }
+  }
+
+  // Load a specific past version's geometry into the 3D viewer (Forma-style "open this version"). Downloads the
+  // version's platform item via the platform client, then loads it through the shared FragmentsManager — the
+  // same `fragments.core` the clash/cost panels drive. GATED to versions that actually have a platform item
+  // (uploaded through the platform-backed path); otherwise it no-ops with a message. EXPERIMENTAL: the platform
+  // may serve the item as IFC (needing conversion) rather than fragments — that surfaces as a clear status
+  // message, never a viewer crash.
+  async function openInViewer(f: FileRec, v: Version) {
+    if (!v.platform_item_id) { status("This version has no platform geometry (registered without a platform upload)."); return; }
+    const client = getAppManager().client as { downloadFile?: (id: string, p?: unknown) => Promise<Response> } | undefined;
+    if (!client?.downloadFile) { status("Platform client unavailable — open the app inside the platform to load geometry."); return; }
+    status(`Loading ${esc(f.iso_name)} ${esc(v.revision)} into the viewer…`);
+    try {
+      const resp = await client.downloadFile(v.platform_item_id);
+      if (!resp.ok) throw new Error(`platform download HTTP ${resp.status}`);
+      const buf = await resp.arrayBuffer();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const core = (_components.get(OBC.FragmentsManager) as any).core;
+      const modelId = `${f.iso_name}@${v.revision}`;
+      if (core?.list?.has?.(modelId)) await core.disposeModel(modelId); // reloading the same version → replace
+      await core.load(buf, { modelId });
+      status(`Loaded ${esc(v.revision)} into the viewer ✓ (model "${esc(modelId)}").`);
+    } catch (e) {
+      status(`Couldn't load ${esc(v.revision)}: ${esc((e as Error).message)}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
+    }
   }
 
   // ── compare two versions via their element snapshots (reuses the verified sentinel-core diff) ──
