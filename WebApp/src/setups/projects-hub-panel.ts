@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
 
 /**
@@ -106,7 +107,7 @@ export function projectsHubPanel(
   const load = async () => {
     status("Loading projects…");
     try {
-      const r = await fetch(`${base}/cde/projects`);
+      const r = await bfetch(`${base}/cde/projects`);
       if (r.status === 503) {
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
@@ -156,7 +157,7 @@ export function projectsHubPanel(
     }
     status("Creating…");
     try {
-      const r = await fetch(`${base}/cde/projects`, {
+      const r = await bfetch(`${base}/cde/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, appointing_party: party || undefined, actor: "web" }),

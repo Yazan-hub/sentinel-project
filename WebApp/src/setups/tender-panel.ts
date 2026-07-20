@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, type RateTable } from "../sentinel-core";
@@ -50,7 +51,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
 
   // ── list ──────────────────────────────────────────────────────────────────────
   const fetchAll = async () => {
-    try { tenders = await (await fetch(`${base}/tenders/${encodeURIComponent(pid())}`)).json(); renderList(); }
+    try { tenders = await (await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`)).json(); renderList(); }
     catch (e) { el("tn-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
   };
 
@@ -87,11 +88,11 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     const b = el("tn-make") as HTMLButtonElement; b.disabled = true; msg("Taking off the scope…");
     try {
       let rates: RateTable = defaultRates;
-      try { const p = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); if (p.rate_pack?.rules?.length) rates = p.rate_pack; } catch { /* default */ }
+      try { const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); if (p.rate_pack?.rules?.length) rates = p.rate_pack; } catch { /* default */ }
       const boq = buildBoQ(await quantityTakeoff(fragments), rates);
       if (!boq.lines.length) { msg("No priced quantities to tender.", "#eab308"); return; }
       const scope: ScopeLine[] = boq.lines.map((l) => ({ code: l.code, description: l.description, unit: l.unit, qty: l.qty, rate: l.rate, amount: l.amount }));
-      await fetch(`${base}/tenders/${encodeURIComponent(pid())}`, {
+      await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: val("tn-title") || "Main works package", due_date: val("tn-due") || null, currency: boq.currency, scope, estimate_total: boq.total, author: "Web coordinator" }),
       });
@@ -170,19 +171,19 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     root.querySelectorAll<HTMLInputElement>(".tn-rate").forEach((i) => { const v = Number(i.value); if (Number.isFinite(v)) rates[i.dataset.code!] = v; });
     msg("Submitting bid…");
     try {
-      await fetch(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
+      await bfetch(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
       await refreshCurrent(); addingBid = false; renderDetail(); msg(`Bid recorded for ${bidder}.`, "#22c55e");
     } catch (e) { msg("Bid failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
   const award = async (bidder: string) => {
     if (!current) return;
-    try { await fetch(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); await refreshCurrent(); renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
+    try { await bfetch(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); await refreshCurrent(); renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
     catch (e) { msg("Award failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
   const refreshCurrent = async () => {
-    tenders = await (await fetch(`${base}/tenders/${encodeURIComponent(pid())}`)).json();
+    tenders = await (await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`)).json();
     current = tenders.find((t) => t.guid === current?.guid) ?? null;
   };
 

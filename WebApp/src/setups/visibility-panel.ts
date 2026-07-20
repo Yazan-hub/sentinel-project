@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -223,11 +224,11 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     const reqs = Object.entries(groupFailures(lastRes));
     if (!reqs.length) { status("Nothing to raise — all compliant."); return; }
     const post = (path: string, body: unknown) =>
-      fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      bfetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     // Dedup: skip requirements that already have an OPEN IDS topic (no duplicates on re-raise).
     status("Checking existing issues…");
     let existing: unknown = [];
-    try { existing = await (await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
+    try { existing = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
     const openReqs = new Set(
       (Array.isArray(existing) ? existing : [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -134,7 +135,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     const persisted: Baseline = revisionId
       ? { at, total: baseline.total, currency: baseline.currency, lines: baseline.lines, revision_id: revisionId }
       : baseline;
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: persisted }) }).catch(() => {});
+    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: persisted }) }).catch(() => {});
     if (revisionId) loadRevisions(); // the new revision joins the picker list
     msg(`Baseline set at ${money(boq.total, boq.currency)}${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the cost impact.`);
   };
@@ -190,12 +191,12 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   };
 
   const persistRates = () => {
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate_pack: rates }) }).catch(() => {});
+    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate_pack: rates }) }).catch(() => {});
   };
 
   const loadProject = async () => {
     try {
-      const p = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
+      const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
       if (p.rate_pack?.rules?.length) { rates.currency = p.rate_pack.currency ?? rates.currency; rates.rules = p.rate_pack.rules; }
       if (p.boq_baseline?.lines) {
         baseline = p.boq_baseline;

@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
@@ -93,7 +94,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       } catch { boq = null; carbon = null; }
     }
     let issues: CopilotIssue[] = [];
-    try { issues = await (await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
+    try { issues = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
     return { facts, report, scorecard, boq, carbon, issues, ruleset, hasModel };
   };
 

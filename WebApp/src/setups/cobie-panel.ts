@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
@@ -73,7 +74,7 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
   };
 
   const publishReadiness = (readiness: number) => {
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { handover_readiness: readiness } }) }).catch(() => {});
+    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { handover_readiness: readiness } }) }).catch(() => {});
   };
 
   const render = (r: CobieReport) => {

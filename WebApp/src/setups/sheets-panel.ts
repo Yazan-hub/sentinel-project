@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 
@@ -70,7 +71,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
   async function refresh() {
     status("Loading sheets from the Bridge…");
     try {
-      const r = await fetch(`${base}/sheets`);
+      const r = await bfetch(`${base}/sheets`);
       if (!r.ok) throw new Error(`Bridge ${r.status}`);
       const data = await r.json() as { sets: SheetSet[] };
       sets = data.sets ?? [];

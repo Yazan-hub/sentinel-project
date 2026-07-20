@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
@@ -64,7 +65,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   const status = (t: string) => (el("cde-status").textContent = t);
 
   const api = async (path: string, method = "GET", body?: unknown) => {
-    const r = await fetch(`${base}/cde/${path}`, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const r = await bfetch(`${base}/cde/${path}`, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
     return j;

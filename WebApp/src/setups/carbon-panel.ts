@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -98,7 +99,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     // Publish the LIVE model's carbon to the project snapshot (Owner/FM portal). Skip when there's no live
     // model (e.g. diffing two historical revisions) so we don't clobber the snapshot with 0.
     if (quantities.length)
-      fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000) } }) }).catch(() => {});
+      bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000) } }) }).catch(() => {});
   };
 
   // The "now" side of a Δ: a picked target revision (repriced at current factors), else the live take-off.
@@ -124,7 +125,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     const persisted: CarbonBaseline = revisionId
       ? { at, total_kg: baseline.total_kg, source: baseline.source, revision_id: revisionId }
       : baseline;
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ carbon_baseline: persisted }) }).catch(() => {});
+    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ carbon_baseline: persisted }) }).catch(() => {});
     if (revisionId) loadRevisions(); // the new revision joins the picker list
     msg(`Baseline set at ${tCO2(report.total_kg)}CO₂e${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the carbon impact.`);
   };
@@ -179,7 +180,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
 
   const loadProject = async () => {
     try {
-      const p = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
+      const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
       if (p.carbon_baseline?.total_kg != null) {
         baseline = p.carbon_baseline;
         // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.

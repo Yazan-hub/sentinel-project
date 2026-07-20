@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -68,7 +69,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   // ── load persisted project state ─────────────────────────────────────────────
   const loadProject = async () => {
     try {
-      const r = await fetch(`${base}/projects/${encodeURIComponent(pid())}`);
+      const r = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
       project = await r.json();
       viewStage = project!.stage;
       renderAll();
@@ -99,14 +100,14 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     }
     // Open issues + hard clashes from the BCF service (works with no model)
     try {
-      const topics = await (await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
+      const topics = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
       const openT = topics.filter((t: any) => t.topic_status !== "Closed" && t.topic_status !== "Resolved");
       kpis.open = openT.length;
       kpis.hard = openT.filter((t: any) => /clash/i.test(t.topic_type)).length;
     } catch { /* leave counts */ }
     // Open RFIs (Phase 2 gate metric)
     try {
-      const rfis = await (await fetch(`${base}/rfis/${encodeURIComponent(pid())}?status=all`)).json();
+      const rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(pid())}?status=all`)).json();
       kpis.openRfis = rfis.filter((r: any) => r.status !== "Closed").length;
     } catch { /* leave count */ }
 
@@ -120,7 +121,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     if (kpis.health != null) snap.health = Math.round(kpis.health);
     if (kpis.compliance != null) snap.compliance = Math.round(kpis.compliance);
     if (kpis.cost != null) snap.cost_total = Math.round(kpis.cost);
-    fetch(`${base}/projects/${encodeURIComponent(pid())}`, {
+    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: snap }),
     }).catch(() => {});
   };
@@ -140,7 +141,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     if (fragments.list.size === 0) { msg("Load a model first — the gate checks model health & compliance.", "#eab308"); return; }
     const next = STAGES[i + 1];
     const g = evaluateGate(project.stage, gateMetrics());
-    await fetch(`${base}/projects/${encodeURIComponent(pid())}/gate/${project.stage}`, {
+    await bfetch(`${base}/projects/${encodeURIComponent(pid())}/gate/${project.stage}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: g.pass ? "pass" : "hold", checks: g.checks, advance_to: g.pass ? next.id : undefined }),
     });

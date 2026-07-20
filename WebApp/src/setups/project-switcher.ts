@@ -1,4 +1,5 @@
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
+import { bfetch } from "./bridge-fetch";
 
 /**
  * Global project switcher (Phase 1) — a small persistent pill, layout-independent, that always shows the
@@ -90,7 +91,7 @@ export function projectSwitcher(
 
   const load = async () => {
     try {
-      const r = await fetch(`${base}/cde/projects`);
+      const r = await bfetch(`${base}/cde/projects`);
       if (!r.ok) return; // 503/offline → keep showing the active key, no list
       projects = (await r.json()).map((p: ProjectLite) => ({ key: p.key, name: p.name }));
       render();

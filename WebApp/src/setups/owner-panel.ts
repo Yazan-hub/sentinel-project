@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
@@ -64,7 +65,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
   // ── summary (from the persisted snapshot — no model needed) ──────────────────
   const loadSummary = async () => {
     try {
-      const p = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
+      const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
       el("ow-name").textContent = getAppManager().projectData?.name ?? p.name ?? p.project_id ?? "Project";
       el("ow-stage").textContent = STAGE_NAME[p.stage] ? `Stage: ${STAGE_NAME[p.stage]}` : "";
       const s = p.snapshot ?? {};
@@ -84,7 +85,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
   // ── open items (read-only) ────────────────────────────────────────────────────
   const loadItems = async () => {
     try {
-      const topics = await (await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
+      const topics = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
       const open = topics.filter((t: any) => t.topic_status !== "Closed");
       el("ow-items").innerHTML = open.length ? open.slice(0, 12).map((t: any) =>
         `<div style="padding:.4rem .5rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem">` +

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -40,7 +41,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   // so a stale bridge without the /clash route degrades cleanly to the old per-browser behaviour.
   const loadKnownFromServer = async () => {
     try {
-      const r = await fetch(`${base}/clash/${encodeURIComponent(pid())}`);
+      const r = await bfetch(`${base}/clash/${encodeURIComponent(pid())}`);
       if (!r.ok) return; // route absent (bridge not restarted) → keep localStorage-only
       const data = await r.json();
       if (Array.isArray(data?.items)) { register = data.items; for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown(); }
@@ -48,8 +49,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   };
   const knownReady = loadKnownFromServer();
   const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[]) =>
-    fetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
-  const resetKnownOnServer = () => fetch(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" }).catch(() => {});
+    bfetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
+  const resetKnownOnServer = () => bfetch(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" }).catch(() => {});
 
   let clashes: Clash[] = [];
   let tol = 0.02;
@@ -112,9 +113,9 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const setStatus = (rec: ClashRecord, next: string) => {
     const prev = rec.status; rec.status = next;
     renderRegister();
-    fetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signature: rec.signature, status: next }) }).catch(() => {});
+    bfetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signature: rec.signature, status: next }) }).catch(() => {});
     // audit the lifecycle transition — the immutable governance trail
-    fetch(`${base}/cde/${encodeURIComponent(pid())}/audit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity_type: "clash", actor: "Clash", action: `Clash ${prev} → ${next}: ${rec.label ?? rec.signature}`, new_value: { signature: rec.signature, status: next } }) }).catch(() => {});
+    bfetch(`${base}/cde/${encodeURIComponent(pid())}/audit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity_type: "clash", actor: "Clash", action: `Clash ${prev} → ${next}: ${rec.label ?? rec.signature}`, new_value: { signature: rec.signature, status: next } }) }).catch(() => {});
     status(`Clash marked ${next}.`);
   };
 
@@ -229,7 +230,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     status(`Raising ${top.length} clash(es) + recording…`);
     const info = await elemInfoFor(top.flatMap((c) => [c.a, c.b]));
     const post = (path: string, body: unknown) =>
-      fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      bfetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     let raised = 0;
     const raisedItems: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[] = [];
     for (const c of top) {

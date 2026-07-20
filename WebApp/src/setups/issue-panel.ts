@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -198,7 +199,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   const fetchAll = async () => {
     el("ip-count").textContent = "(…)";
     try {
-      const r = await fetch(`${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics?status=all&model=`);
+      const r = await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics?status=all&model=`);
       topics = await r.json();
       renderList();
     } catch (e) { el("ip-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the BCF service.<br>${esc((e as Error).message)}</div>`; }

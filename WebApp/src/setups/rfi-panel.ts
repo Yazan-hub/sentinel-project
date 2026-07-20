@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
@@ -126,12 +127,12 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
 
   const fetchAll = async () => {
     el("rf-count").textContent = "(…)";
-    try { rfis = await (await fetch(`${base}/rfis/${encodeURIComponent(projectId())}?status=all`)).json(); renderList(); }
+    try { rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}?status=all`)).json(); renderList(); }
     catch (e) { el("rf-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
   };
 
   const update = async (guid: string, body: Record<string, unknown>) => {
-    try { await fetch(`${base}/rfis/${encodeURIComponent(projectId())}/${guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, author: "Web coordinator" }) }); await fetchAll(); const r = rfis.find((x) => x.guid === guid); if (r) showDetail(guid); msg("Updated."); }
+    try { await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}/${guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, author: "Web coordinator" }) }); await fetchAll(); const r = rfis.find((x) => x.guid === guid); if (r) showDetail(guid); msg("Updated."); }
     catch (e) { msg("Update failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
@@ -144,7 +145,7 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
     const b = el("rf-send") as HTMLButtonElement; b.disabled = true; msg("Raising…");
     try {
       const { ids, model } = await selectionGuids();
-      await fetch(`${base}/rfis/${encodeURIComponent(projectId())}`, {
+      await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject: val("rf-subject") || "RFI", question: val("rf-question"), discipline: val("rf-disc"), assigned_to: val("rf-assignee"), due_date: val("rf-due") || null, linked: ids, model, creation_author: "Web coordinator" }),
       });

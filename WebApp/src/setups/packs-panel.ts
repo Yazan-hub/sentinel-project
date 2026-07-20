@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { bdsRuleset, type Ruleset } from "../sentinel-core";
 import { activeRuleset } from "./active-ruleset";
@@ -47,13 +48,13 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   // ── data ──────────────────────────────────────────────────────────────────────
   const publishPack = (p: Partial<Pack> & { ruleset: Ruleset }) =>
-    fetch(`${base}/packs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+    bfetch(`${base}/packs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
 
   const load = async () => {
     try {
-      packs = await (await fetch(`${base}/packs`)).json();
-      if (!packs.length) { await seed(); packs = await (await fetch(`${base}/packs`)).json(); }
-      try { const proj = await (await fetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); installedId = proj.standards_pack ?? ""; } catch { /* */ }
+      packs = await (await bfetch(`${base}/packs`)).json();
+      if (!packs.length) { await seed(); packs = await (await bfetch(`${base}/packs`)).json(); }
+      try { const proj = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); installedId = proj.standards_pack ?? ""; } catch { /* */ }
       renderBrowse();
     } catch (e) { el("pk-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
   };
@@ -92,8 +93,8 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
     const pack = packs.find((p) => p.id === id); if (!pack) return;
     msg(`Installing ${pack.name}…`);
     try {
-      await fetch(`${base}/packs/${encodeURIComponent(id)}/install`, { method: "POST" });
-      await fetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id, active_ruleset: pack.ruleset }) });
+      await bfetch(`${base}/packs/${encodeURIComponent(id)}/install`, { method: "POST" });
+      await bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id, active_ruleset: pack.ruleset }) });
       installedId = id;
       msg(`Installed ${pack.name}. QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, "#22c55e");
       await load();
@@ -128,7 +129,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
     try {
       if (src) {
         // Fork = server copies the source (+ bumps its fork count) with the new identity.
-        await fetch(`${base}/packs/${encodeURIComponent(src.id)}/fork`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, version, name: val("pk-name").trim() || key }) });
+        await bfetch(`${base}/packs/${encodeURIComponent(src.id)}/fork`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, version, name: val("pk-name").trim() || key }) });
       } else {
         // Publish = the project's current active ruleset, packaged.
         await publishPack({
