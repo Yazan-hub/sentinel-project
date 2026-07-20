@@ -31,7 +31,7 @@ namespace Sentinel.Coordination
         /// same "&lt;title&gt;.ifc" key <see cref="GovernedNotify.FileVersion"/> writes). Blocking, ~4s cap,
         /// returns null on any problem.
         /// </summary>
-        public static LiveInfo LiveVersion(string modelTitle)
+        public static LiveInfo? LiveVersion(string modelTitle)
         {
             try
             {
@@ -80,7 +80,7 @@ namespace Sentinel.Coordination
         /// → resolved, raise-time volume). Returns the list (possibly empty) when reachable, or null when the
         /// bridge/CDE can't be reached — so the caller can tell "no clashes" from "offline". Blocking, ~4s cap.
         /// </summary>
-        public static List<ClashRow> ClashRegister()
+        public static List<ClashRow>? ClashRegister()
         {
             try
             {
