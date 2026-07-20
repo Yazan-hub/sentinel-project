@@ -92,8 +92,9 @@ VID=$(curl -s -X POST $BASE/cde/$KEY/files \
 echo "version_id = $VID"
 
 # 2) Propose the DRAFT against the IDS, tied to that version → REJECTED + BCF issues raised
+#    (the elements-*.json files ARE the elements array — cat them straight in)
 curl -s -X POST $BASE/cde/$KEY/propose -H "Content-Type: application/json" \
-  -d "{\"source\":\"Governed Publish\",\"actor\":\"BDS Modeler\",\"version_id\":\"$VID\",\"ids\":$(cat ../demo/bds-pilot/ids.json),\"elements\":$(node -e 'console.log(JSON.stringify(require("../demo/bds-pilot/elements-draft.json").elements))')}" \
+  -d "{\"source\":\"Governed Publish\",\"actor\":\"BDS Modeler\",\"version_id\":\"$VID\",\"ids\":$(cat ../demo/bds-pilot/ids.json),\"elements\":$(cat ../demo/bds-pilot/elements-draft.json)}" \
   | node -e 'const r=JSON.parse(require("fs").readFileSync(0));console.log("verdict:",r.verdict,"| bcf raised:",r.bcf?.raised,"skipped:",r.bcf?.skipped)'
 # → verdict: rejected | bcf raised: 4 skipped: 0
 
@@ -103,7 +104,7 @@ curl -s "$BASE/cde/$KEY/audit" | node -e 'const a=JSON.parse(require("fs").readF
 
 # 4) Fix and re-propose → ACCEPTED; re-run also proves BCF dedup (raised 0 on the same reqs)
 curl -s -X POST $BASE/cde/$KEY/propose -H "Content-Type: application/json" \
-  -d "{\"source\":\"Governed Publish\",\"actor\":\"BDS Modeler\",\"version_id\":\"$VID\",\"ids\":$(cat ../demo/bds-pilot/ids.json),\"elements\":$(node -e 'console.log(JSON.stringify(require("../demo/bds-pilot/elements-fixed.json").elements))')}" \
+  -d "{\"source\":\"Governed Publish\",\"actor\":\"BDS Modeler\",\"version_id\":\"$VID\",\"ids\":$(cat ../demo/bds-pilot/ids.json),\"elements\":$(cat ../demo/bds-pilot/elements-fixed.json)}" \
   | node -e 'const r=JSON.parse(require("fs").readFileSync(0));console.log("verdict:",r.verdict)'
 # → verdict: accepted
 ```
