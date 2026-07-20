@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSy
 import { join, dirname, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 const PORT = Number(process.env.BCF_PORT) || 4100;
 // Week-0 hardening: bind to loopback by default (each user runs the bridge locally). Only set
@@ -246,7 +247,24 @@ async function startEventPoll() {
   console.log(`[bridge] cross-machine event feed: on (poll ${EVENT_POLL_MS}ms · instance ${INSTANCE_ID.slice(0, 8)})`);
 }
 
-createServer(async (req, res) => {
+// Extract the caller's forwarded Supabase session JWT (when the BCF_TOKEN gate isn't in use) and run the
+// whole request inside that auth context, so cde-store's sb() forwards it to PostgREST (RLS per-user) when
+// forwarding is armed. No JWT → service key (current behaviour). Non-browser callers (Revit) send none.
+createServer((req, res) => {
+  const auth = req.headers.authorization || "";
+  const userJwt = (!TOKEN && auth.startsWith("Bearer ")) ? auth.slice(7) : null;
+  runWithAuth(userJwt, () => handleRequest(req, res));
+}).listen(PORT, HOST, () => {
+  console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
+  console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
+  console.log(`[bridge] bind: ${HOST} · auth token: ${TOKEN ? "required" : "off"}`);
+  if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
+  if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
+  import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
+  startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
+});
+
+async function handleRequest(req, res) {
   const origin = req.headers.origin;
   // Per-request CORS origin: echo an allowlisted origin (or "*" only in wildcard/dev mode); otherwise none.
   res._cors = CORS_WILDCARD ? (origin || "*") : (originAllowed(origin) ? origin : "");
@@ -746,11 +764,4 @@ createServer(async (req, res) => {
   } catch (e) {
     return send(res, 500, { message: String(e?.message || e) });
   }
-}).listen(PORT, HOST, () => {
-  console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
-  console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth token: ${TOKEN ? "required" : "off"}`);
-  if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
-  if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
-  startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
-});
+}

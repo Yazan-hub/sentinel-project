@@ -8,16 +8,30 @@
 //   SUPABASE_SERVICE_KEY=<service_role secret from Supabase → Project Settings → API>
 
 import { loadEnv } from "./thatopen-client.mjs";
+import { currentUserToken } from "./bridge-auth.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
 const KEY = env.SUPABASE_SERVICE_KEY || "";
+const ANON = env.SUPABASE_ANON_KEY || ""; // enables JWT-forwarding when set; without it the bridge stays service-key only
 
 export const cdeConfigured = () => !!(URL && KEY);
+/** True once JWT-forwarding is armed (anon key present). Forwarding still only kicks in per-request when a
+ *  caller actually presents a Supabase JWT; otherwise sb() uses the service key. */
+export const forwardingConfigured = () => !!ANON;
 
-async function sb(path, { method = "GET", body, prefer } = {}) {
+// Forward the caller's Supabase JWT (RLS-enforced) when one is present AND forwarding is armed; else use the
+// service key. `service: true` FORCES the service key for privileged writes that RLS blocks for authed users
+// (audit_log inserts, bridge_events) — those must bypass RLS by design.
+async function sb(path, { method = "GET", body, prefer, service = false } = {}) {
   if (!cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
-  const headers = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
+  const userToken = service ? null : currentUserToken();
+  const useUser = !!(userToken && ANON);
+  const headers = {
+    apikey: useUser ? ANON : KEY,
+    Authorization: `Bearer ${useUser ? userToken : KEY}`,
+    "Content-Type": "application/json",
+  };
   if (prefer) headers.Prefer = prefer;
   const r = await fetch(`${URL}/rest/v1/${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const text = await r.text();
@@ -240,7 +254,8 @@ export async function listAudit(key) {
 }
 
 export async function audit(project_id, entity_type, entity_id, action, actor, oldv, newv) {
-  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor, old_value: oldv, new_value: newv } });
+  // audit_log has no authed-insert policy (writes bypass RLS by design) → force the service key.
+  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor, old_value: oldv, new_value: newv }, service: true });
 }
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). */
@@ -258,6 +273,7 @@ export async function recordAudit(key, b) {
       new_value: b.new_value ?? null,
     },
     prefer: "return=representation",
+    service: true, // audit_log bypasses RLS by design
   }))[0];
 }
 
@@ -330,20 +346,21 @@ export async function getRevisionSnapshots(revisionId) {
 // ── Cross-machine event feed (migration 0010) — bridges fan out SSE via a shared table ─────────────────
 /** Record an SSE event so other bridges' poll loops re-broadcast it to their own clients. */
 export async function emitEvent(project, origin, payload) {
-  await sb(`bridge_events`, { method: "POST", body: { project_id: project, origin, payload }, prefer: "return=minimal" });
+  // bridge_events is service-only (RLS denies authed writes) → force the service key.
+  await sb(`bridge_events`, { method: "POST", body: { project_id: project, origin, payload }, prefer: "return=minimal", service: true });
 }
 /** The current tip id — a bridge starts polling from here so it never replays history at startup. */
 export async function maxEventId() {
-  const r = await sb(`bridge_events?select=id&order=id.desc&limit=1`);
+  const r = await sb(`bridge_events?select=id&order=id.desc&limit=1`, { service: true });
   return r?.[0]?.id ? Number(r[0].id) : 0;
 }
 /** Events after `afterId` (ascending), for the poll loop. */
 export async function pollEvents(afterId) {
-  return (await sb(`bridge_events?id=gt.${Number(afterId) || 0}&select=id,project_id,origin,payload&order=id.asc&limit=500`)) || [];
+  return (await sb(`bridge_events?id=gt.${Number(afterId) || 0}&select=id,project_id,origin,payload&order=id.asc&limit=500`, { service: true })) || [];
 }
 /** Drop events older than `olderThanMs` (they're only for live fan-out). */
 export async function pruneEvents(olderThanMs = 600000) {
-  await sb(`bridge_events?created_at=lt.${new Date(Date.now() - olderThanMs).toISOString()}`, { method: "DELETE", prefer: "return=minimal" });
+  await sb(`bridge_events?created_at=lt.${new Date(Date.now() - olderThanMs).toISOString()}`, { method: "DELETE", prefer: "return=minimal", service: true });
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
