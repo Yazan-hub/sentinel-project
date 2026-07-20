@@ -69,6 +69,10 @@ The gate is configured — not coded — against a reference ruleset. See [`docs
 
 ## Status
 
-The Governed Publish loop is **verified live end-to-end** on a real building model. The governance core has **85 passing tests**; the immutable ledger is **truncate-proof at the database core**; the add-in **builds & deploys clean for Revit 2024–2026**. Known remaining work (service-key fallback, an office-agnostic Base ruleset, ISO 19650 certification, production hosting) is tracked in [`ROADMAP.md`](ROADMAP.md).
+The Governed Publish loop is **verified live end-to-end** on a real building model. The governance core has **85 passing tests**; the immutable ledger is **truncate-proof at the database core**; the add-in **builds & deploys clean for Revit 2024–2026**.
+
+A full **security audit** ([`docs/SECURITY_AUDIT_2026-07.md`](docs/SECURITY_AUDIT_2026-07.md)) — three adversarial passes plus live-DB advisors and dependency/secret scans — has been run. The one **CRITICAL** finding (an anon-open RLS hole that exposed cross-tenant data to the public key) is **fixed and verified closed live**, guarded against regression by [`WebApp/db/security-check.mjs`](WebApp/db/security-check.mjs) (`npm run security:check`). Remaining triaged items and the one owed manual action (key rotation) are in the report.
+
+Known remaining work (mandatory bridge auth, an office-agnostic Base ruleset, ISO 19650 certification, production hosting) is tracked in [`ROADMAP.md`](ROADMAP.md).
 
 > **Historical docs** are moved to [`docs/archive/`](docs/archive/) (the pyRevit-era summary, superseded roadmap, and dated test/work logs) — kept for lineage, not current state. Trust the canonical docs linked above.

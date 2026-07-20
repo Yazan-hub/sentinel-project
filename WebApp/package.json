@@ -6,6 +6,7 @@
     "dev": "thatopen serve",
     "build": "vite build",
     "test": "vitest run",
+    "security:check": "node db/security-check.mjs",
     "login": "thatopen login --local",
     "publish": "thatopen publish",
     "bridge:upload": "node bridge/upload-ifc.mjs",
