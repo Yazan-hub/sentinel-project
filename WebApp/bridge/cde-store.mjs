@@ -327,6 +327,47 @@ export async function getRevisionSnapshots(revisionId) {
   return out;
 }
 
+// ── BCF topics (migration 0008) — team-wide topic store. One JSONB document per topic so the exact BCF-API
+// shape is preserved; the bridge keeps all topic construction/mutation, cde-store only persists. ────────────
+const bcfRow = (t) => ({ guid: t.guid, project_id: t.project_id, topic_status: t.topic_status, model: t.model || "", data: t });
+
+/** List a project's topics (full objects), same status/model filter as the local store. `localTopics`
+ *  (optional) lazy-migrates the local file into Supabase the first time a project with no rows is listed. */
+export async function bcfListTopics(pid, { status, model } = {}, localTopics) {
+  const q = `bcf_topics?project_id=eq.${encodeURIComponent(pid)}&select=data&order=created_at.asc`;
+  let rows = await sb(q);
+  if ((!rows || !rows.length) && Array.isArray(localTopics) && localTopics.length) {
+    await sb(`bcf_topics`, { method: "POST", body: localTopics.map(bcfRow), prefer: "return=minimal" });
+    rows = await sb(q);
+  }
+  return (rows || [])
+    .map((r) => r.data)
+    .filter((t) => (!status ? t.topic_status !== "Closed" : status === "all" ? true : t.topic_status === status))
+    .filter((t) => !model || t.model === model);
+}
+
+/** Fetch one topic object (or null). */
+export async function bcfGetTopic(pid, guid) {
+  const rows = await sb(`bcf_topics?guid=eq.${encodeURIComponent(guid)}&project_id=eq.${encodeURIComponent(pid)}&select=data`);
+  return rows?.[0]?.data ?? null;
+}
+
+/** Insert a freshly-built topic. */
+export async function bcfCreateTopic(topic) {
+  await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal" });
+  return topic;
+}
+
+/** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). */
+export async function bcfSaveTopic(topic) {
+  await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
+    method: "PATCH",
+    body: { data: topic, topic_status: topic.topic_status, model: topic.model || "", modified_at: new Date().toISOString() },
+    prefer: "return=minimal",
+  });
+  return topic;
+}
+
 export async function listTransmittals(key) {
   const proj = await ensureProject(key);
   return sb(`transmittals?project_id=eq.${proj.id}&select=*&order=issued_at.desc`);

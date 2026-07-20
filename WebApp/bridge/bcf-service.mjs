@@ -573,10 +573,18 @@ createServer(async (req, res) => {
   const inProject = (t) => t.project_id === pid;
 
   try {
+    // Topics live in Supabase (team-wide, 0008) when the CDE is configured — with lazy migration of the local
+    // file on first list — else the per-machine local store. Topic construction/mutation is identical either
+    // way (so the BCF-API shape the web panel + Revit BcfSyncManager parse is byte-for-byte the same); only
+    // where the topic is read from / written to differs. The local bcf-store.json is kept as a backup.
+    const cde = await import("./cde-store.mjs");
+    const useCde = cde.cdeConfigured();
+
     // GET topics (filter by status + model) — what BcfSyncManager.FetchActiveAsync calls
     if (req.method === "GET" && !guid) {
       const status = url.searchParams.get("status");
       const model = url.searchParams.get("model");
+      if (useCde) return send(res, 200, await cde.bcfListTopics(pid, { status, model }, db.topics.filter(inProject)));
       // no status → non-Closed (the working set); status=all → everything; else exact match.
       const list = db.topics.filter(inProject)
         .filter((t) => (!status ? t.topic_status !== "Closed" : status === "all" ? true : t.topic_status === status))
@@ -597,13 +605,14 @@ createServer(async (req, res) => {
         labels: b.labels || [], comments: [], viewpoints: [],
         history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
       };
-      db.topics.push(topic); persist();
+      if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
       broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       return send(res, 201, topic);
     }
-    const topic = db.topics.find((t) => inProject(t) && t.guid === guid);
+    const topic = useCde ? await cde.bcfGetTopic(pid, guid) : db.topics.find((t) => inProject(t) && t.guid === guid);
     if (!topic) return send(res, 404, { message: "Topic not found" });
     topic.history = topic.history || []; // back-compat for topics created before history existed
+    const saveTopic = async () => { if (useCde) await cde.bcfSaveTopic(topic); else persist(); };
 
     // PUT — edit fields (status/priority/assignee/etc.); each change is logged to history.
     if (req.method === "PUT" && guid && !sub) {
@@ -618,7 +627,7 @@ createServer(async (req, res) => {
       }
       if (b.resolved_by_version) topic.resolved_by_version = b.resolved_by_version;
       topic.modified_date = now;
-      persist();
+      await saveTopic();
       broadcast(pid, { type: "topic", action: "updated", guid: topic.guid, status: topic.topic_status });
       return send(res, 200, topic);
     }
@@ -631,7 +640,7 @@ createServer(async (req, res) => {
       topic.comments.push(c);
       topic.history.push({ date: now, author: c.author, action: "Comment added" });
       topic.modified_date = now;
-      persist();
+      await saveTopic();
       broadcast(pid, { type: "topic", action: "comment", guid: topic.guid });
       return send(res, 201, c);
     }
@@ -641,7 +650,8 @@ createServer(async (req, res) => {
       const v = { guid: b.guid || randomUUID(), perspective_camera: b.perspective_camera || null,
         components: b.components || { selection: [] }, clipping_planes: b.clipping_planes || [],
         snapshot: b.snapshot || null };
-      topic.viewpoints.push(v); persist();
+      topic.viewpoints.push(v);
+      await saveTopic();
       broadcast(pid, { type: "topic", action: "viewpoint", guid: topic.guid });
       return send(res, 201, v);
     }
