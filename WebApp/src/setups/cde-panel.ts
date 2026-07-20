@@ -29,7 +29,7 @@ const NEXT: Record<State, { label: string; state: State }[]> = {
 interface Version { id: string; revision: string; state: State; suitability?: string; author?: string; created_at: string; file_ref?: string | null; }
 interface Container { id: string; iso_name: string; title?: string; discipline?: string; container_type?: string; folder_id?: string | null; container_versions: Version[]; }
 interface Folder { id: string; project_id: string; parent_id: string | null; name: string; kind: string; sort: number; }
-interface Audit { id: number; action: string; actor?: string; at: string; }
+interface Audit { id: number; action: string; actor?: string; at: string; entity_type?: string; }
 
 export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
@@ -298,7 +298,20 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     el("cde-audit").innerHTML =
       '<div style="color:#71717a;margin-bottom:.2rem">Audit trail (append-only · hash-chained)</div>' +
       (rows.length
-        ? rows.slice(0, 20).map((a) => `<div>${esc(a.at.replace("T", " ").slice(0, 19))} · ${esc(a.action)}${a.actor ? " · " + esc(a.actor) : ""}</div>`).join("")
+        ? rows.slice(0, 20).map((a) => {
+            const when = esc(a.at.replace("T", " ").slice(0, 19));
+            // Verdict cue: gate/govern events read PASS (green) / FAIL (red) at a glance.
+            const action = /\bFAIL\b/.test(a.action)
+              ? `<span style="color:#f87171">${esc(a.action)}</span>`
+              : /\bPASS\b/.test(a.action)
+                ? `<span style="color:#4ade80">${esc(a.action)}</span>`
+                : esc(a.action);
+            // Source badge: mark events that entered from an authoring tool (Revit, etc.) vs the web app.
+            const src = a.actor && a.actor.toLowerCase() !== "web"
+              ? ` <span style="color:#a5b4fc">[${esc(a.actor)}]</span>`
+              : a.actor ? ` · ${esc(a.actor)}` : "";
+            return `<div>${when} · ${action}${src}</div>`;
+          }).join("")
         : '<div style="color:#52525b">no entries yet</div>');
   }
 
