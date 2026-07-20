@@ -31,6 +31,35 @@ namespace Sentinel.Coordination
             });
         }
 
+        /// <summary>
+        /// Record an IFC Delivery Gate verdict (KF-1) in the governed audit trail, so the web CDE timeline
+        /// shows the pass/fail certificate that decided whether a deliverable was fit for upload — the same
+        /// gate the web app enforces via IDS, now sourced from Revit. <paramref name="sha256"/> ties the
+        /// verdict to the exact bytes that were certified (provenance).
+        /// </summary>
+        public static void DeliveryGate(string fileName, bool passed, string contractKey, string schema,
+                                        int totalEntities, int failureCount, string sha256)
+        {
+            Post("/audit", new
+            {
+                entity_type = "delivery_gate",
+                actor = "Revit",
+                action = "IFC delivery gate " + (passed ? "PASS" : "FAIL") + ": " + fileName,
+                new_value = new
+                {
+                    file = fileName,
+                    passed,
+                    contract = contractKey,
+                    schema,
+                    entities = totalEntities,
+                    failures = failureCount,
+                    sha256,
+                    source = "revit",
+                    at = DateTime.UtcNow.ToString("o"),
+                },
+            });
+        }
+
         /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{ProjectId}{path}</c>; fire-and-forget, never throws.</summary>
         private static void Post(string path, object payload)
         {

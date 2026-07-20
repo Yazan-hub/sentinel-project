@@ -96,6 +96,10 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
     private static void Certify(string ifcPath, Sentinel.Engine.DeliveryContract contract)
     {
         var r = Sentinel.Engine.IfcDeliveryGate.Validate(ifcPath, contract);
+        // Record the gate verdict in the web app's governed audit trail (fire-and-forget, never blocks).
+        Sentinel.Coordination.GovernedNotify.DeliveryGate(
+            Path.GetFileName(ifcPath), r.Passed, r.ContractKey, r.DetectedSchema,
+            r.TotalEntities, r.Failures.Count, r.FileSha256);
         var top = r.EntityCounts.OrderByDescending(kv => kv.Value).Take(6)
             .Select(kv => kv.Key + ": " + kv.Value);
 
