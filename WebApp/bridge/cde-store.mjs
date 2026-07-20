@@ -7,6 +7,7 @@
 //   SUPABASE_URL=https://<ref>.supabase.co
 //   SUPABASE_SERVICE_KEY=<service_role secret from Supabase → Project Settings → API>
 
+import { readFileSync } from "node:fs";
 import { loadEnv } from "./thatopen-client.mjs";
 import { currentUserToken } from "./bridge-auth.mjs";
 
@@ -519,6 +520,23 @@ export async function pruneEvents(olderThanMs = 600000) {
 let _core = null;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 
+// Swappable container-naming ruleset (bridge/naming-ruleset.json) — the office's ISO 19650 naming convention
+// as DATA, not code. Cached; missing/invalid → null (naming gate simply off). A caller may also pass an inline
+// ruleset in the propose body to override per-request.
+let _naming; // undefined = not yet loaded, null = absent/invalid
+function defaultNamingRuleset() {
+  if (_naming !== undefined) return _naming;
+  try {
+    // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
+    const rs = JSON.parse(readFileSync(`${import.meta.dirname}/naming-ruleset.json`, "utf8"));
+    _naming = Array.isArray(rs?.fields) && rs.separator ? rs : null;
+    if (_naming) console.error("[naming] ruleset:", _naming.title, "| enforce:", _naming.enforce);
+  } catch (e) { _naming = null; console.error("[naming] ruleset load FAILED:", e?.message || e); }
+  return _naming;
+}
+const resolveNamingRuleset = (inline) =>
+  (inline && typeof inline === "object" && Array.isArray(inline.fields)) ? inline : defaultNamingRuleset();
+
 /** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
  *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
  *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}). */
@@ -534,7 +552,23 @@ export async function adjudicateProposal(key, b = {}) {
     } else spec = b.ids;
   }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
-  const { verdict, summary, failures } = c.adjudicate(spec, elements);
+  const adj = c.adjudicate(spec, elements);
+  const { summary, failures } = adj;
+  let verdict = adj.verdict;
+
+  // Naming gate: if the caller supplies the container/file name, validate it against the (swappable) naming
+  // ruleset and fold the result into the verdict per the ruleset's enforcement level. `reject` → a bad name
+  // fails the whole publish (even if the IDS passed); `warn` → recorded but doesn't block; `off`/absent → skip.
+  let naming = null;
+  if (b.container_name) {
+    const rs = resolveNamingRuleset(b.naming);
+    if (rs && rs.enforce !== "off") {
+      naming = c.validateContainerName(b.container_name, rs);
+      naming.enforce = rs.enforce;
+      if (!naming.ok && rs.enforce === "reject") verdict = "rejected";
+    }
+  }
+
   const proj = await ensureProject(key);
   const audit = (await sb(`audit_log`, {
     method: "POST",
@@ -542,7 +576,7 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: b.actor ?? b.source ?? "agent", old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50) },
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -556,12 +590,12 @@ export async function adjudicateProposal(key, b = {}) {
       body: {
         project_id: proj.id, entity_type: "file_version", entity_id: b.version_id,
         action: `verdict:${verdict}`, actor: b.actor ?? b.source ?? "agent", old_value: null,
-        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20) },
+        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming },
       },
       prefer: "return=minimal", service: true,
     });
   }
-  return { verdict, summary, failures: failures.slice(0, 200), audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
+  return { verdict, summary, failures: failures.slice(0, 200), naming, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.

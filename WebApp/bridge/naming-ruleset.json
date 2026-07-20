@@ -1,0 +1,20 @@
+{
+  "title": "BDS ISO 19650 container naming (V1.4, 11-field)",
+  "separator": "-",
+  "strip_extensions": [".ifc", ".ifczip", ".rvt", ".nwc", ".nwd", ".pdf"],
+  "enforce": "reject",
+  "_note": "Swappable reference ruleset for the BDS pilot — replace with the Base template when it exists. Form: Project-Originator-DocType-SubType-Discipline-Zone-Venue-Level-Number-Suit-Rev. Example: BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03",
+  "fields": [
+    { "key": "project",     "label": "Project",     "pattern": "[A-Za-z0-9]{3,}", "description": "Project code, e.g. BDS20268" },
+    { "key": "originator",  "label": "Originator",  "enum": ["BDS", "STR", "MEP", "CIV", "FAC", "LAN", "ACS", "FIR", "SUR", "CON", "IND", "LIG", "KIT", "IT"] },
+    { "key": "docType",     "label": "Document Type", "enum": ["M3", "DR", "SH", "SP", "CR", "FED", "VS"], "description": "M3=3D model, DR=drawing, SH=schedule, SP=spec, CR=clash, FED=federated, VS=visual" },
+    { "key": "subType",     "label": "Sub-Type",    "placeholders": ["NA"], "pattern": "[A-Za-z0-9]{1,6}", "description": "e.g. IFC4, FP, RM, HV, EQ — NA when not applicable" },
+    { "key": "discipline",  "label": "Discipline",  "enum": ["ARC", "INT", "STR", "MEP", "CIV", "LAN"] },
+    { "key": "zone",        "label": "Zone",        "placeholders": ["ZZ"], "pattern": "Z[0-9]{1,2}", "description": "Z01… per zone, ZZ = whole building" },
+    { "key": "venue",       "label": "Venue",       "placeholders": ["XX"], "pattern": "[A-Za-z0-9]{2,4}", "description": "Venue code (e.g. VNU), XX = not applicable" },
+    { "key": "level",       "label": "Level",       "placeholders": ["XX", "ZZ"], "pattern": "[0-9]{1,2}", "description": "00, 01… XX = not level-specific" },
+    { "key": "number",      "label": "Number",      "pattern": "[A-Za-z]{0,3}[0-9]{3,4}", "description": "Sequence, e.g. M001, SH001, 0001" },
+    { "key": "suitability", "label": "Suitability", "enum": ["S0", "S1", "S2", "S3", "S4", "S6", "S7", "A1", "A2", "B1", "B2"] },
+    { "key": "revision",    "label": "Revision",    "pattern": "[PC][0-9]{2}(\\.[0-9]{1,2})?", "description": "P01… pre-contract, C01… construction; minor P01.01" }
+  ]
+}

@@ -6,3 +6,5 @@ export * from "./index";
 export { validateElement, applies, adjudicate, groupFailuresForBcf, DEMO_IDS } from "./ids";
 export type { IdsSpec, IdsSpecification, IdsApplicability, ElementResult, Failure, Adjudication, RequirementGroup } from "./ids";
 export { parseIds } from "./ids-parse";
+export { validateContainerName } from "./naming";
+export type { NamingRuleset, NamingField, NamingResult, NamingFailure, NamingEnforce } from "./naming";

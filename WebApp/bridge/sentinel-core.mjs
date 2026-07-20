@@ -1072,6 +1072,46 @@ function parseIds(xml) {
   }
   return { title, specifications };
 }
+
+// src/sentinel-core/naming.ts
+function stripExt(name, exts) {
+  for (const e of exts ?? []) {
+    if (name.toLowerCase().endsWith(e.toLowerCase())) return name.slice(0, -e.length);
+  }
+  return name;
+}
+function validateContainerName(rawName, rs) {
+  const name = stripExt((rawName ?? "").trim(), rs.strip_extensions);
+  const failures = [];
+  const parts = name.length ? name.split(rs.separator) : [];
+  if (parts.length !== rs.fields.length) {
+    failures.push({
+      field: "*",
+      reason: `expected ${rs.fields.length} '${rs.separator}'-separated fields (${rs.fields.map((f) => f.label).join(rs.separator)}), got ${parts.length}`
+    });
+    return { ok: false, name, ruleset: rs.title, failures };
+  }
+  const fields = {};
+  rs.fields.forEach((f, i) => {
+    const v = parts[i];
+    fields[f.key] = v;
+    if (f.placeholders?.includes(v)) return;
+    if (f.enum && f.enum.includes(v)) return;
+    if (f.pattern) {
+      let ok = false;
+      try {
+        ok = new RegExp(`^(?:${f.pattern})$`).test(v);
+      } catch {
+        ok = false;
+      }
+      if (ok) return;
+    }
+    if (!f.enum && !f.pattern && v.length > 0) return;
+    const allowed = f.enum ? ` (allowed: ${f.enum.slice(0, 12).join(", ")}${f.enum.length > 12 ? ", \u2026" : ""})` : f.pattern ? ` (must match /${f.pattern}/)` : "";
+    failures.push({ field: f.key, value: v, reason: `'${v}' is not a valid ${f.label}${allowed}` });
+  });
+  return { ok: failures.length === 0, name, ruleset: rs.title, fields, failures };
+}
 export {
   DEMO_IDS,
   GATE_DEFS,
@@ -1109,5 +1149,6 @@ export {
   summarizeDiff,
   toCobieCsv,
   toElementGraph,
+  validateContainerName,
   validateElement
 };
