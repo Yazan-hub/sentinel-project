@@ -114,22 +114,47 @@ public static class GovernedElementExtractor
         return e.UniqueId;
     }
 
-    // Emit ONLY the canonical psets a BDS Stage-3 IDS references, so pset-name matching is exact:
-    //   IFCWALL → Pset_WallCommon.IsExternal   ·   IFCDOOR → Pset_DoorCommon.FireRating
+    // Emit the canonical psets the BDS element IDS references (LOD 300/350), so pset-name matching is exact:
+    //   ALL → Pset_BDS.Discipline · IFCWALL → Pset_WallCommon.{IsExternal,FireRating} ·
+    //   IFCDOOR → Pset_DoorCommon.FireRating · IFCWINDOW → Pset_WindowCommon.ThermalTransmittance
     private static void AddCanonicalPsets(Element e, Document doc, string cls, GovElement el)
     {
+        // BDS discipline on every governed element — the IDS checks Pset_BDS.Discipline against ARC/INT/STR/MEP/CIV.
+        var disc = ReadInstOrType(e, doc, "BDS_Discipline", "Discipline");
+        if (disc != null)
+            el.psets.Add(new Group { name = "Pset_BDS", rows = { new Row { name = "Discipline", value = disc } } });
+
         if (cls == "IFCWALL")
         {
+            var rows = new List<Row>();
             var isExternal = ReadIsExternal(e, doc);
-            if (isExternal != null)
-                el.psets.Add(new Group { name = "Pset_WallCommon", rows = { new Row { name = "IsExternal", value = isExternal } } });
+            if (isExternal != null) rows.Add(new Row { name = "IsExternal", value = isExternal });
+            var fire = ReadInstOrType(e, doc, "FireRating") ?? ReadBip(e, BuiltInParameter.FIRE_RATING);
+            if (fire != null) rows.Add(new Row { name = "FireRating", value = fire });
+            if (rows.Count > 0) el.psets.Add(new Group { name = "Pset_WallCommon", rows = rows });
         }
         else if (cls == "IFCDOOR")
         {
-            var fire = ReadString(e, "FireRating") ?? ReadBip(e, BuiltInParameter.FIRE_RATING) ?? ReadTypeString(e, doc, "FireRating");
+            var fire = ReadInstOrType(e, doc, "FireRating") ?? ReadBip(e, BuiltInParameter.FIRE_RATING);
             if (fire != null)
                 el.psets.Add(new Group { name = "Pset_DoorCommon", rows = { new Row { name = "FireRating", value = fire } } });
         }
+        else if (cls == "IFCWINDOW")
+        {
+            // U-value / thermal transmittance — Revit exposes it under various names depending on the template.
+            var u = ReadInstOrType(e, doc, "ThermalTransmittance", "U-Value", "Heat Transfer Coefficient (U)", "BDS_UValue");
+            if (u != null)
+                el.psets.Add(new Group { name = "Pset_WindowCommon", rows = { new Row { name = "ThermalTransmittance", value = u } } });
+        }
+    }
+
+    // First non-empty value among the named parameters — instance first, then the element's type.
+    private static string? ReadInstOrType(Element e, Document doc, params string[] names)
+    {
+        foreach (var n in names) { var v = ReadString(e, n); if (v != null) return v; }
+        if (doc.GetElement(e.GetTypeId()) is { } type)
+            foreach (var n in names) { var v = ReadString(type, n); if (v != null) return v; }
+        return null;
     }
 
     // IsExternal as IFC expects it ("TRUE"/"FALSE"): an explicit yes/no "IsExternal" param wins; else infer
@@ -159,9 +184,6 @@ public static class GovernedElementExtractor
         }
         return null;
     }
-
-    private static string? ReadTypeString(Element e, Document doc, string name) =>
-        doc.GetElement(e.GetTypeId()) is { } type ? ReadString(type, name) : null;
 
     private static string? ReadBip(Element e, BuiltInParameter bip)
     {
