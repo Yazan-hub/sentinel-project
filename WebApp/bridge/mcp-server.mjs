@@ -26,7 +26,7 @@ const TOOLS = [
       properties: {
         project: { type: "string", description: "the project key" },
         source: { type: "string", description: "who/what is proposing (agent or tool name)" },
-        ids: { description: "an IDS spec as JSON {title, specifications:[{name, applicability:{entity}, requirements:{properties:[{pset,name,cardinality}], attributes:[…]}}]} OR a raw .ids XML string. Omit to just record the proposal." },
+        ids: { description: "an IDS spec as JSON {title, specifications:[{name, applicability:{entity}, requirements:{properties:[{pset,name,cardinality}], attributes:[…]}}]}. Omit to just record the proposal. (Raw .ids XML is parsed browser-side only — pass JSON here.)" },
         elements: { type: "array", description: "elements in the ElementProperties shape: {identity:{Class:'IFCWALL', GlobalId, Name?}, psets:[{name:'Pset_WallCommon', rows:[{name:'FireRating', value:'REI60'}]}], quantities:[…]}" },
         note: { type: "string" },
       },

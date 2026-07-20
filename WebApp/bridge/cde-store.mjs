@@ -392,7 +392,14 @@ const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
-  const spec = b.ids ? (typeof b.ids === "string" ? c.parseIds(b.ids) : b.ids) : null;
+  let spec = null;
+  if (b.ids) {
+    if (typeof b.ids === "string") {
+      // parseIds() needs a DOM (browser). Server-side, require a JSON IdsSpec rather than 500 on raw .ids XML.
+      try { spec = c.parseIds(b.ids); }
+      catch { const e = new Error("Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only."); e.status = 400; throw e; }
+    } else spec = b.ids;
+  }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const { verdict, summary, failures } = c.adjudicate(spec, elements);
   const proj = await ensureProject(key);

@@ -39,7 +39,7 @@ MCP client:
     "psets": [{ "name": "Pset_WallCommon", "rows": [{ "name": "FireRating", "value": "REI60" }] }],
     "quantities": [] }
   ```
-- **ids** — a JSON IDS spec, or a raw `.ids` XML string (parsed by `parseIds`):
+- **ids** — a JSON IDS spec (raw `.ids` XML is parsed browser-side only; pass JSON to the server):
   ```json
   { "title": "Walls need a fire rating",
     "specifications": [{ "name": "FireRating on walls",
