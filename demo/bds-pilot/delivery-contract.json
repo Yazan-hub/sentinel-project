@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "contract_key": "bds-pilot",
+  "ifc_schema": "IFC4",
+  "required_entities": [
+    { "entity": "IFCWALL", "min_count": 1 },
+    { "entity": "IFCDOOR", "min_count": 1 },
+    { "entity": "IFCCOLUMN", "min_count": 1 }
+  ],
+  "required_psets": ["Pset_WallCommon"],
+  "required_properties": [],
+  "forbidden_entities": [
+    { "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 0.2 }
+  ],
+  "require_georeference": false
+}

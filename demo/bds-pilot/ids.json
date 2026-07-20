@@ -1,0 +1,37 @@
+{
+  "title": "BDS Pilot — Stage 3 delivery checks",
+  "specifications": [
+    {
+      "name": "Every element is named",
+      "applicability": { "entity": "^IFC" },
+      "requirements": {
+        "attributes": [{ "name": "Name", "cardinality": "required" }],
+        "properties": []
+      }
+    },
+    {
+      "name": "Walls declare IsExternal",
+      "applicability": { "entity": "IFCWALL" },
+      "requirements": {
+        "attributes": [],
+        "properties": [{ "pset": "Pset_WallCommon", "name": "IsExternal", "cardinality": "required" }]
+      }
+    },
+    {
+      "name": "Doors carry a FireRating",
+      "applicability": { "entity": "IFCDOOR" },
+      "requirements": {
+        "attributes": [],
+        "properties": [{ "pset": "Pset_DoorCommon", "name": "FireRating", "cardinality": "required" }]
+      }
+    },
+    {
+      "name": "BDS naming convention (ARC-/STR-/MEP-)",
+      "applicability": { "entity": "^IFC(WALL|COLUMN|DOOR|SLAB|BEAM)" },
+      "requirements": {
+        "attributes": [{ "name": "Name", "pattern": "^(ARC|STR|MEP)-", "cardinality": "optional" }],
+        "properties": []
+      }
+    }
+  ]
+}

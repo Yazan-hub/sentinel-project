@@ -1,0 +1,44 @@
+[
+  {
+    "modelId": "bds-pilot",
+    "localId": 1,
+    "identity": { "GlobalId": "0KcU3vXYZ1Aab0demoWall01", "Name": "ARC-Wall-Ext-01", "Class": "IFCWALL", "Tag": "1001" },
+    "psets": [{ "name": "Pset_WallCommon", "rows": [{ "name": "IsExternal", "value": "TRUE" }] }],
+    "quantities": [{ "name": "Qto_WallBaseQuantities", "rows": [{ "name": "NetVolume", "value": "3.20" }] }]
+  },
+  {
+    "modelId": "bds-pilot",
+    "localId": 2,
+    "identity": { "GlobalId": "0KcU3vXYZ1Aab0demoWall02", "Name": "ARC-Wall-Int-02", "Class": "IFCWALL", "Tag": "1002" },
+    "psets": [{ "name": "Pset_WallCommon", "rows": [{ "name": "LoadBearing", "value": "FALSE" }] }],
+    "quantities": [{ "name": "Qto_WallBaseQuantities", "rows": [{ "name": "NetVolume", "value": "1.80" }] }]
+  },
+  {
+    "modelId": "bds-pilot",
+    "localId": 3,
+    "identity": { "GlobalId": "0KcU3vXYZ1Aab0demoWall03", "Class": "IFCWALL", "Tag": "1003" },
+    "psets": [{ "name": "Pset_WallCommon", "rows": [{ "name": "IsExternal", "value": "FALSE" }] }],
+    "quantities": []
+  },
+  {
+    "modelId": "bds-pilot",
+    "localId": 4,
+    "identity": { "GlobalId": "0KcU3vXYZ1Aab0demoWall04", "Name": "Wall-05", "Class": "IFCWALL", "Tag": "1004" },
+    "psets": [{ "name": "Pset_WallCommon", "rows": [{ "name": "IsExternal", "value": "TRUE" }] }],
+    "quantities": []
+  },
+  {
+    "modelId": "bds-pilot",
+    "localId": 5,
+    "identity": { "GlobalId": "0KcU3vXYZ1Aab0demoDoor01", "Name": "ARC-Door-01", "Class": "IFCDOOR", "Tag": "2001" },
+    "psets": [{ "name": "Pset_DoorCommon", "rows": [{ "name": "IsExternal", "value": "FALSE" }] }],
+    "quantities": []
+  },
+  {
+    "modelId": "bds-pilot",
+    "localId": 6,
+    "identity": { "GlobalId": "0KcU3vXYZ1Aab0demoCol001", "Name": "STR-Col-01", "Class": "IFCCOLUMN", "Tag": "3001" },
+    "psets": [{ "name": "Pset_ColumnCommon", "rows": [{ "name": "LoadBearing", "value": "TRUE" }] }],
+    "quantities": [{ "name": "Qto_ColumnBaseQuantities", "rows": [{ "name": "Length", "value": "3.00" }] }]
+  }
+]
