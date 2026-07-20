@@ -63,6 +63,8 @@ curl -s http://127.0.0.1:4100/health
 - `demo/bds-pilot/ids.json`, `elements-draft.json`, `elements-fixed.json` — present (repo).
 - `demo/bds-pilot/delivery-contract.json` — copied to `%AppData%\Sentinel\delivery-contract.json` (the
   IFC Delivery Gate reads it there).
+- `demo/bds-pilot/ids.json` — copied to `%AppData%\Sentinel\ids.json` (the Revit **Governed Publish**
+  command adjudicates against it; absent ⇒ the model is recorded but not judged — a gate-only publish).
 - The BDS demo model open in Revit (or rely on the headless dry-run in §2 if Revit isn't on the demo box).
 
 ### 1d. Web app open on the project
@@ -129,10 +131,13 @@ BCF topics with the failing elements selected. That is beats 2–4, no Revit req
 4. **Modeler:** **Governed Publish** again → **✓ ACCEPTED — published as v2**. Coordinator refreshes → badge
    flips to **✓ accepted**, no duplicate issues, audit trail reads *rejected → fixed → accepted*.
 
-> The single **Governed Publish** ribbon command is **G1** of the spec. Until it ships, the three existing
-> commands cover the same path manually: **Quality → IFC Delivery Gate**, then **Workflow → Publish to
-> Platform**, with adjudication driven from the web IDS panel — clunkier, not demo-clean. Prefer the headless
-> dry-run (§2) over the three-command path for a rehearsal.
+> The single **Governed Publish** ribbon command (**G1**) is built and compile-verified for Revit 2025/2026;
+> it needs a live Revit run to verify end-to-end (only the user can do that). It loads the IDS from
+> `%AppData%\Sentinel\ids.json` and adjudicates the live model's exportable elements (walls' `IsExternal`,
+> doors' `FireRating`, every element's `Name` — the demo checks) — so the demo model must carry those params.
+> If it misbehaves in Revit, fall back to the three standalone commands (**Quality → IFC Delivery Gate**, then
+> **Workflow → Publish to Platform**, adjudication from the web IDS panel) or the headless dry-run (§2), which
+> proves beats 2–4 without Revit.
 
 ---
 

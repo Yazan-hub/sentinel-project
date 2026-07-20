@@ -34,9 +34,21 @@ public static class PlatformExporter
     public static (State state, string path, long bytes, string? error) ExportToOutbox(
         Document doc, ElementId? filterViewId = null)
     {
-        string outbox = OutboxDir();
         string ifcName = Sanitize(Path.GetFileNameWithoutExtension(doc.Title)) + ".ifc";
-        string ifcPath = Path.Combine(outbox, ifcName);
+        return ExportToDir(doc, filterViewId, OutboxDir(), ifcName);
+    }
+
+    /// <summary>
+    /// Export <paramref name="doc"/> to <paramref name="dir"/>/<paramref name="ifcName"/> — the shared export
+    /// primitive behind <see cref="ExportToOutbox"/> and the Governed Publish command (which exports to a temp
+    /// dir first so it can publish ONLY on a passing verdict). Same view-filter + transaction idiom; never
+    /// throws — returns a result.
+    /// </summary>
+    public static (State state, string path, long bytes, string? error) ExportToDir(
+        Document doc, ElementId? filterViewId, string dir, string ifcName)
+    {
+        Directory.CreateDirectory(dir);
+        string ifcPath = Path.Combine(dir, ifcName);
 
         try
         {
@@ -49,9 +61,9 @@ public static class PlatformExporter
                 opts.FilterViewId = vid;
 
             // Transaction wrapper mirrors the IFC Delivery Gate / manual Publish pattern (proven path).
-            using var t = new Transaction(doc, "Sentinel: IFC export (publish)");
+            using var t = new Transaction(doc, "Sentinel: IFC export");
             t.Start();
-            doc.Export(outbox, ifcName, opts);
+            doc.Export(dir, ifcName, opts);
             t.Commit();
         }
         catch (Exception ex)

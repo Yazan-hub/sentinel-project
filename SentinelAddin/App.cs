@@ -217,6 +217,9 @@ public sealed class App : IExternalApplication
         AddButton(wf, asm, "Sentinel_ReviewFlag", "Review\nFlag",
             "Sentinel.Commands.SetupWorkflowCommand", "requests",
             "One-time: creates the ZZZ_ReviewStatus flag parameter (coordinator only).");
+        AddButton(wf, asm, "Sentinel_GovernedPublish", "Governed\nPublish",
+            "Sentinel.Commands.GovernedPublishCommand", "panel",
+            "One governed action: export the active view to IFC, run the delivery gate, adjudicate against the project IDS, record the verdict immutably, and publish + version ONLY if it passes. A fail is recorded and each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit).");
         AddButton(wf, asm, "Sentinel_Publish", "Publish to\nPlatform",
             "Sentinel.Commands.PublishToPlatformCommand", "panel",
             "Export the active view to IFC into the Sentinel outbox; the Bridge uploads it to That Open Platform.");
