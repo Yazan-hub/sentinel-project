@@ -8,8 +8,12 @@
 > `/projects` with no JWT → 200 (service-key fallback intact); `/projects` with a bogus JWT → PostgREST
 > `PGRST301` (proves the token is really forwarded + validated, not ignored). DB enforcement independently
 > verified via SQL: RLS on all 10 tables, anon role sees 0 projects, the owner sees their 7, and the owner has
-> a membership on every project (0 orphans) so arming cannot lock them out. Remaining confirmation = a real
-> browser sign-in (the path verified in the prior session). To **disarm**: remove the `SUPABASE_ANON_KEY` line
+> a membership on every project (0 orphans) so arming cannot lock them out. **Sign-in verified end-to-end
+> (2026-07-20):** a real owner session (magic-link admin flow, `role=authenticated`, `sub`=owner) driven
+> through the armed bridge returned HTTP 200 + the owner's 7 projects — vs a bogus JWT's 401 — proving the
+> full chain sign-in → `bfetch` forwards JWT → PostgREST validates → RLS-scoped data. The in-app sign-in
+> widget (`auth-widget.ts`, email+password) is mounted unconditionally in `main.ts`, so it's live in the
+> browser regardless of `VITE_SENTINEL_AUTH`. To **disarm**: remove the `SUPABASE_ANON_KEY` line
 > from `config/.env` and restart. Error mapping: `sb()` attaches the upstream status for auth/permission
 > failures, so a rejected/expired JWT surfaces as **401** and an RLS denial as **403** (verified: bogus JWT →
 > 401) — the web app can prompt re-login instead of showing a generic server error.
