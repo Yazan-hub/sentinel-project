@@ -10,8 +10,9 @@
 > verified via SQL: RLS on all 10 tables, anon role sees 0 projects, the owner sees their 7, and the owner has
 > a membership on every project (0 orphans) so arming cannot lock them out. Remaining confirmation = a real
 > browser sign-in (the path verified in the prior session). To **disarm**: remove the `SUPABASE_ANON_KEY` line
-> from `config/.env` and restart. Minor known-gap: the bridge maps a rejected JWT to HTTP 500 (wrapping the
-> Supabase 401) rather than 401/403 — cosmetic, pre-existing error mapping.
+> from `config/.env` and restart. Error mapping: `sb()` attaches the upstream status for auth/permission
+> failures, so a rejected/expired JWT surfaces as **401** and an RLS denial as **403** (verified: bogus JWT →
+> 401) — the web app can prompt re-login instead of showing a generic server error.
 
 The bridge holds the Supabase **service_role** key, which bypasses Row-Level Security — so today the bridge
 is a trusted backend with full DB access. **JWT-forwarding** makes the bridge forward a signed-in user's

@@ -37,7 +37,15 @@ async function sb(path, { method = "GET", body, prefer, service = false } = {}) 
   const text = await r.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!r.ok) throw new Error(`Supabase ${r.status}: ${typeof data === "string" ? data : JSON.stringify(data)}`);
+  if (!r.ok) {
+    const err = new Error(`Supabase ${r.status}: ${typeof data === "string" ? data : JSON.stringify(data)}`);
+    // Surface auth/permission failures with their real client status instead of a generic 500, so a caller
+    // whose forwarded JWT is missing/expired/invalid gets a 401 (→ the web app can prompt re-login) and an
+    // RLS/row-security denial gets a 403. Routes propagate this via `e?.status || 500`. Other upstream codes
+    // (e.g. a malformed query) stay 500 by default — they signal a bridge bug, not a client-fixable one.
+    if (r.status === 401 || r.status === 403) err.status = r.status;
+    throw err;
+  }
   return data;
 }
 
