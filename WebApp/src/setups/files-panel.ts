@@ -211,11 +211,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   }
 
   // Load a specific past version's geometry into the 3D viewer (Forma-style "open this version"). Downloads the
-  // version's platform item via the platform client, then loads it through the shared FragmentsManager — the
-  // same `fragments.core` the clash/cost panels drive. GATED to versions that actually have a platform item
-  // (uploaded through the platform-backed path); otherwise it no-ops with a message. EXPERIMENTAL: the platform
-  // may serve the item as IFC (needing conversion) rather than fragments — that surfaces as a clear status
-  // message, never a viewer crash.
+  // version's platform item via the platform client (returns loadable fragments), then loads it through the
+  // shared FragmentsManager — the same `fragments.core` the clash/cost panels drive. GATED to versions that
+  // actually have a platform item (uploaded through the platform-backed path); otherwise it no-ops with a
+  // message. Verified end-to-end (a platform-backed upload's version loads into the viewer). The try/catch
+  // still surfaces any load failure as a status message rather than crashing the viewer.
   async function openInViewer(f: FileRec, v: Version) {
     if (!v.platform_item_id) { status("This version has no platform geometry (registered without a platform upload)."); return; }
     const client = getAppManager().client as { downloadFile?: (id: string, p?: unknown) => Promise<Response> } | undefined;
