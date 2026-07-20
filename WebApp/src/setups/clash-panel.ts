@@ -13,6 +13,14 @@ import { getAppManager } from "../app";
  * federated set; self-clash for one), showing only NEW clashes — resolved/raised ones (persisted per
  * project) never re-surface. Click a clash to isolate + colour the pair; raise the top clashes as dedup'd
  * BCF topics bound to the CDE audit (the same golden thread as IDS). Plain-DOM, iframe-safe.
+ *
+ * POSITIONING (docs/STRATEGIC_REVIEW_2026-07.md Part VI — "data clash, not geometric clash"): this
+ * *geometric* clash is NOT the wedge and is NOT positioned as a Navisworks/Revizto replacement — cede that
+ * seat to the incumbents that own it. Its role here is the trust-gap play: reconcile 1:1 against your own
+ * legacy clash export (NWD), sign the diff on the audit chain — a liability-collapsing checker, not a rival
+ * engine. Sentinel's DIFFERENTIATED clash is DATA clash — parameter/category/IDS/delivery-contract/19650-
+ * state contradictions (see the IDS + delivery-gate paths) — which plays to the deterministic-validation
+ * strength. Invest there; keep this panel as the reconcile-against-your-NWD surface.
  */
 export function clashPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");

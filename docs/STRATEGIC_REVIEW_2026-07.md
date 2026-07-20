@@ -108,4 +108,16 @@ Six openings where nobody is strong and Sentinel already holds the asset:
 
 ---
 
+## Part VI — External review refinements (2026-07-20)
+
+Two positioning sharpenings from an external strategic review (Gemini), folded into product doctrine because they resolve the "breadth = focus risk" tension without dropping capability:
+
+- **Data clash, not geometric clash.** Cede *geometric* clash to the incumbents that own it (Navisworks, Revizto) — it is not a defensible wedge and it is a maintenance sink. Sentinel's differentiated clash is **data clash**: "parameter X contradicts category Y / the IDS," "this element violates the delivery contract," "this GUID's state is illegal for its 19650 stage." That plays to the deterministic-validation strength, not against a 20-year-incumbent's geometry engine. The existing AABB geometric clash stays, but only as the **trust-gap play** ("reconcile 1:1 against your own Navisworks NWD, signed on the audit chain") — a liability-collapsing checker, explicitly *not* a Navisworks replacement. Marked in `clash-panel.ts`.
+
+- **5D/6D are derivation-only — never own the data.** The breadth is not "five startups": 4D/5D/6D all *derive from one shared element-snapshot + quantities classification* (one spine, several read-outs). The real cost Gemini correctly flags is **owning region-specific data** — cost books (5D) and EPD/carbon factor libraries (6D) that drift constantly by region and date. Doctrine: these panels **derive** from model quantities and **integrate external data by reference** (e.g. the EC3 free EPD API for carbon), and must **never** take on maintaining a cost-book or EPD database. Position them as **integration modules**, not data products. `defaultRates`/`defaultFactors` are demo seeds, not a product surface. Marked in `cost-panel.ts` and `carbon-panel.ts`.
+
+Both reinforce the same discipline as Part I: pour engineering into the **Governed Publish loop** (the one differentiated seam), keep the downstream panels thin derivations off the shared spine, and never let a data-maintenance liability masquerade as a feature.
+
+---
+
 *Sources: ~60 cited URLs across the four research streams (BSA/Gateway, EPBD, CALGreen, EU Data Act, Finland/Norway/Estonia mandates, Autodesk SEC filing, Speckle/That Open/Qonic/Arcol/Motif, IFC5/OpenUSD, IDS/bSDD, RICS AI, and every platform assessed) retained in the research transcripts. Internal findings verified against the working tree at commit `f5ebe35`.*

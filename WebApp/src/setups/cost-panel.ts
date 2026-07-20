@@ -26,6 +26,12 @@ interface Baseline {
  * Gaps are surfaced, never hidden: elements with no matching rate (unpriced) and elements whose rate
  * needs a dimension the IFC didn't export (missing Qto_) are counted in banners, not silently dropped.
  *
+ * POSITIONING (docs/STRATEGIC_REVIEW_2026-07.md Part VI — "5D/6D are derivation-only"): this panel
+ * DERIVES a BoQ from the shared model quantities/snapshot spine; it must NOT become a cost-DATA product.
+ * `defaultRates` is a demo seed, not a product surface — never take on maintaining a region-specific cost
+ * book (that data drifts constantly and is a maintenance sink). Price by integrating an external rate
+ * source by reference. Position 5D as an INTEGRATION MODULE off the governed spine, not a data product.
+ *
  * Plain-DOM panel (mirrors issue-panel); returned WITHOUT self-mounting — main.ts docks it as "Cost".
  */
 

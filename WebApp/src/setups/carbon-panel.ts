@@ -24,6 +24,12 @@ interface CarbonBaseline {
  *
  * Honesty (like 5D): default factors are INDICATIVE — replace with EPD data; missing-Qto / no-factor gaps
  * are surfaced in banners, never hidden. Plain-DOM panel (mirrors cost-panel); docked as the "6D" tab.
+ *
+ * POSITIONING (docs/STRATEGIC_REVIEW_2026-07.md Part VI — "5D/6D are derivation-only"): this panel
+ * DERIVES embodied carbon from the shared model quantities/snapshot spine; it must NOT become a carbon-DATA
+ * product. `defaultFactors` is a demo seed, not a product surface — never take on maintaining an EPD/factor
+ * database (region- and date-specific, a maintenance sink). Integrate an external EPD source BY REFERENCE
+ * (e.g. the EC3 free EPD API). Position 6D as an INTEGRATION MODULE off the governed spine, not a data product.
  */
 
 const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
