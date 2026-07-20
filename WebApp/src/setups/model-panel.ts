@@ -4,6 +4,7 @@ import * as OBC from "@thatopen/components";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { getAppManager } from "../app";
 import { buildIfc, type BakeElement } from "../sentinel-core/ifc-writer";
+import { bfetch } from "./bridge-fetch";
 
 /**
  * Sentinel 3D Modeling studio — in-browser authoring + editing + markup on top of the That Open world.
@@ -675,6 +676,14 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
         return;
       }
       status(`Uploaded to platform ✓ item ${j.itemId ?? "?"} (v${n}, ${j.format}, ${j.bytes ?? "?"} bytes). Open the model list to view it.`);
+      // Register the upload in the CDE file-version history (migration 0011) so it joins the Versions panel
+      // timeline alongside web-panel uploads + Revit publishes. Best-effort; a CDE-less bridge just 503-noops.
+      try {
+        await bfetch(`${base}/cde/${encodeURIComponent(projectId())}/files`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "sentinel-model.ifc", author: "web", size_bytes: j.bytes ?? null, platform_item_id: j.itemId ?? null, notes: "baked + uploaded via web modeler" }),
+        });
+      } catch { /* versioning is best-effort — the upload already succeeded */ }
     } catch (e) {
       status(`Upload failed: ${(e as Error)?.message ?? String(e)}. Is the bridge running? Start it with start.ps1 (or npm run bcf:serve).`);
     } finally {

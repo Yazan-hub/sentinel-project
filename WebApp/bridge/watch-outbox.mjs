@@ -36,6 +36,26 @@ if (!DRY) await mkdir(SENT, { recursive: true });
 const inFlight = new Set();
 const ts = () => new Date().toISOString();
 
+/**
+ * Register an uploaded outbox file as a version in the CDE file-version history (migration 0011), so files
+ * that reach the platform via the watcher (e.g. Revit "Publish to Platform" → outbox) share the same version
+ * timeline as web uploads and Revit auto-publish. Keys on the .ifc name (not the .frag) for consistent
+ * grouping. Best-effort: no-op if the CDE isn't configured, never breaks the upload.
+ */
+async function registerVersion(name, sizeBytes, itemId) {
+  if (DRY) return;
+  try {
+    const cde = await import("./cde-store.mjs");
+    if (!cde.cdeConfigured()) return;
+    await cde.registerFileVersion(cfg.projectId, {
+      name, author: "outbox", size_bytes: sizeBytes, platform_item_id: itemId || null, notes: "uploaded via outbox watcher",
+    });
+    console.log(`  📚 versioned ${name} in the CDE`);
+  } catch (e) {
+    console.error(`  ⚠ version register failed for ${name}: ${e?.message || e}`);
+  }
+}
+
 /** Wait until a file's size stops changing (so we don't upload a half-written export). */
 async function waitStable(p) {
   let last = -1;
@@ -71,10 +91,12 @@ async function handle(name) {
       const fragBytes = await ifcToFrag(p);
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
+      await registerVersion(name, size, result?.item?._id);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
+      await registerVersion(name, size, result?.item?._id);
     }
 
     await rename(p, join(SENT, `${Date.now()}_${name}`)); // out of the outbox so it isn't re-sent
