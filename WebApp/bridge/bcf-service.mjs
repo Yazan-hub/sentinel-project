@@ -614,6 +614,17 @@ async function handleRequest(req, res) {
         if (req.method === "POST") return send(res, 201, await cde.createRevision(p1, await readBody(req)));
       }
       if (p2 === "snapshots" && p3 && req.method === "GET") return send(res, 200, await cde.getRevisionSnapshots(p3));
+      // E2E crypto keystore (envelope scheme): the server-side wrapped DEK + salt for a project. Useless
+      //   without the passphrase (zero-knowledge). GET → keystore|null · POST → create-only (409 if exists) ·
+      //   PUT → replace (passphrase re-key).
+      if (p2 === "keystore" && !p3) {
+        if (req.method === "GET") return send(res, 200, (await cde.docGet("keystore", p1, "keystore")) ?? null);
+        if (req.method === "POST") {
+          try { await cde.docInsert("keystore", p1, "keystore", await readBody(req)); return send(res, 201, { ok: true }); }
+          catch (e) { const m = String(e?.message || e); return send(res, /409|duplicate|conflict/i.test(m) ? 409 : 500, { message: m }); }
+        }
+        if (req.method === "PUT") { await cde.docUpsert("keystore", p1, "keystore", await readBody(req)); return send(res, 200, { ok: true }); }
+      }
       // Folders (per-project tree): GET/POST /cde/:key/folders · PUT/DELETE /cde/folders/:fid · PUT /cde/containers/:cid/folder
       if (p2 === "folders" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listFolders(p1));

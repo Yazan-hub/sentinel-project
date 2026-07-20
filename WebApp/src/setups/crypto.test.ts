@@ -1,49 +1,83 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { unlockProject, lockProject, isUnlocked, encryptBytes, decryptBytes } from "./crypto";
+import { describe, it, expect } from "vitest";
+import {
+  createKeystore, openKeystore, rewrapKeystore,
+  setUnlocked, isUnlocked, lockProject, encryptBytes, decryptBytes, b64, unb64,
+} from "./crypto";
 
-// Guards the E2E-encryption core: a wrong passphrase or tampered ciphertext must fail (GCM auth),
-// and a locked project must refuse to encrypt. WebCrypto is available on globalThis in Node 18+.
-const KEY = "riverside-tower";
-const enc = new TextEncoder();
-const buf = (s: string) => enc.encode(s).buffer as ArrayBuffer;
+const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
+const text = (b: ArrayBuffer) => new TextDecoder().decode(b);
 
-describe("crypto E2E", () => {
-  beforeEach(() => lockProject(KEY));
+describe("envelope keystore", () => {
+  it("round-trips: the same passphrase re-opens the SAME DEK (encrypt, then decrypt on a 'new device')", async () => {
+    const { keystore, dek } = await createKeystore("correct horse battery staple");
+    setUnlocked("p", dek);
+    const cipher = await encryptBytes("p", bytes("secret drawing"));
+    lockProject("p"); // simulate a fresh device: no cached DEK
 
-  it("round-trips: encrypt then decrypt returns the original bytes", async () => {
-    await unlockProject(KEY, "correct horse battery staple");
-    expect(isUnlocked(KEY)).toBe(true);
-    const plain = buf("SECRET tender pricing — confidential");
-    const cipher = await encryptBytes(KEY, plain);
-    // IV(12) + ciphertext(=plaintext len) + GCM tag(16)
-    expect(cipher.length).toBe(new Uint8Array(plain).byteLength + 12 + 16);
-    const back = await decryptBytes(KEY, cipher.buffer);
-    expect(new Uint8Array(back)).toEqual(new Uint8Array(plain));
+    // reopen from the SERVER keystore with the passphrase (no localStorage verifier involved)
+    setUnlocked("p", await openKeystore(keystore, "correct horse battery staple"));
+    expect(text(await decryptBytes("p", cipher.buffer))).toBe("secret drawing");
   });
 
-  it("ciphertext does not contain the plaintext", async () => {
-    await unlockProject(KEY, "pw");
-    const cipher = await encryptBytes(KEY, buf("NEEDLE"));
-    expect(new TextDecoder().decode(cipher)).not.toContain("NEEDLE");
+  it("rejects a wrong passphrase (no fail-open) — the GCM tag fails to unwrap", async () => {
+    const { keystore } = await createKeystore("right-pass");
+    await expect(openKeystore(keystore, "wrong-pass")).rejects.toBeDefined();
   });
 
-  it("a wrong passphrase fails to decrypt (GCM auth)", async () => {
-    await unlockProject(KEY, "right-passphrase");
-    const cipher = await encryptBytes(KEY, buf("x"));
-    lockProject(KEY);
-    await unlockProject(KEY, "wrong-passphrase");
-    await expect(decryptBytes(KEY, cipher.buffer)).rejects.toBeTruthy();
+  it("re-key: change the passphrase without re-encrypting — old files still decrypt, old passphrase stops working", async () => {
+    const { keystore, dek } = await createKeystore("old-pass");
+    setUnlocked("q", dek);
+    const cipher = await encryptBytes("q", bytes("as-built model"));
+
+    const rekeyed = await rewrapKeystore(keystore, "old-pass", "new-pass");
+    // the same DEK comes back out under the NEW passphrase → the already-encrypted file still opens
+    setUnlocked("q", await openKeystore(rekeyed, "new-pass"));
+    expect(text(await decryptBytes("q", cipher.buffer))).toBe("as-built model");
+    // the OLD passphrase no longer opens the re-keyed store
+    await expect(openKeystore(rekeyed, "old-pass")).rejects.toBeDefined();
   });
 
-  it("tampered ciphertext fails to decrypt", async () => {
-    await unlockProject(KEY, "pw");
-    const cipher = await encryptBytes(KEY, buf("hello world"));
+  it("rewrap verifies the old passphrase before re-keying", async () => {
+    const { keystore } = await createKeystore("old-pass");
+    await expect(rewrapKeystore(keystore, "not-the-old-pass", "new-pass")).rejects.toBeDefined();
+  });
+
+  it("uses a fresh random salt each time (no deterministic-salt precompute)", async () => {
+    const a = await createKeystore("same-pass");
+    const b = await createKeystore("same-pass");
+    expect(a.keystore.salt).not.toBe(b.keystore.salt);              // random salt
+    expect(a.keystore.wrapped_dek).not.toBe(b.keystore.wrapped_dek); // and independent DEKs
+  });
+});
+
+describe("file crypto (AES-GCM under the DEK)", () => {
+  it("encrypt → decrypt round-trips and prepends a 12-byte IV", async () => {
+    const { dek } = await createKeystore("pw");
+    setUnlocked("f", dek);
+    const cipher = await encryptBytes("f", bytes("hello ifc"));
+    expect(cipher.length).toBeGreaterThan(12 + 9); // IV + ciphertext + GCM tag
+    expect(text(await decryptBytes("f", cipher.buffer))).toBe("hello ifc");
+  });
+
+  it("a tampered ciphertext fails the GCM auth tag", async () => {
+    const { dek } = await createKeystore("pw");
+    setUnlocked("t", dek);
+    const cipher = await encryptBytes("t", bytes("integrity"));
     cipher[cipher.length - 1] ^= 0xff; // flip a byte in the tag
-    await expect(decryptBytes(KEY, cipher.buffer)).rejects.toBeTruthy();
+    await expect(decryptBytes("t", cipher.buffer)).rejects.toBeDefined();
   });
 
-  it("refuses to encrypt when the project is locked", async () => {
-    expect(isUnlocked(KEY)).toBe(false);
-    await expect(encryptBytes(KEY, buf("x"))).rejects.toThrow(/locked/);
+  it("locking clears the DEK; encrypt then refuses", async () => {
+    const { dek } = await createKeystore("pw");
+    setUnlocked("l", dek);
+    expect(isUnlocked("l")).toBe(true);
+    lockProject("l");
+    expect(isUnlocked("l")).toBe(false);
+    await expect(encryptBytes("l", bytes("x"))).rejects.toThrow(/locked/);
+  });
+
+  it("base64 helpers round-trip", () => {
+    const u = new Uint8Array([0, 1, 2, 250, 255]);
+    expect([...unb64(b64(u))]).toEqual([...u]);
   });
 });

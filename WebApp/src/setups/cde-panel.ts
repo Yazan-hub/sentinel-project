@@ -372,12 +372,12 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     const go = async () => {
       if (!input.value) { status("Enter the project passphrase."); return; }
       try {
-        const { ok, firstUse } = await unlockAndVerify(pid(), input.value);
+        const { ok, firstUse } = await unlockAndVerify(base, pid(), input.value);
         if (!ok) { status("Wrong passphrase for this project."); return; }
         bar.style.display = "none";
         syncLock();
         refreshView();
-        status(firstUse ? "Unlocked — passphrase set for this browser." : "Unlocked. Encrypted files available.");
+        status(firstUse ? "Unlocked — passphrase set for this project (team-wide)." : "Unlocked. Encrypted files available.");
       } catch (e) { status(`Unlock failed: ${(e as Error).message}`); }
     };
     (bar.querySelector("#cde-pass-go") as HTMLButtonElement).addEventListener("click", go);

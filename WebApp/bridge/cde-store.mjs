@@ -389,6 +389,11 @@ export async function docUpsert(store, pid, docId, data) {
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal" });
   return data;
 }
+/** Create-only insert (no merge) → PostgREST 409 on PK conflict. Used for the crypto keystore so a concurrent
+ *  first-setup can't clobber a DEK that already encrypted files. */
+export async function docInsert(store, pid, docId, data) {
+  await sb(`bridge_docs`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data }, prefer: "return=minimal" });
+}
 export async function docUpsertMany(store, pid, items) { // items: [{doc_id, data}]
   if (!items.length) return;
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: items.map((i) => ({ store, project_id: pid, doc_id: String(i.doc_id), data: i.data, updated_at: new Date().toISOString() })), prefer: "resolution=merge-duplicates,return=minimal" });
