@@ -7,6 +7,7 @@ Sentinel is a **BIM governance system**: the deterministic *referee* layer that 
 **One differentiated seam — desktop → cloud → referee** — is live end-to-end: one button in Revit runs export → delivery gate → IDS adjudication → immutable verdict → publish-on-pass, with failures auto-raised as BCF issues that sync back into Revit.
 
 🔗 **Explainer (share this):** the [Sentinel explainer page](https://claude.ai/code/artifact/76e1dae0-552a-43bc-a755-57e292a16e72) — what it is, the loop, the moat, what's built, the roadmap.
+🧪 **Try it live:** the [**Sentinel Sandbox**](https://claude.ai/code/artifact/79661f4d-a4b5-4220-80c2-f894d19545f0) — edit a model + your own rulesets and watch the referee's verdict update live, running the real engine in your browser (source: [`WebApp/sandbox/`](WebApp/sandbox/)).
 
 ---
 
