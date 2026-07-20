@@ -260,6 +260,80 @@ export async function addVersion(container_id, b) {
   }))[0];
 }
 
+// ── File versioning (migration 0011) ───────────────────────────────────────────────────────────────────
+// A "file" is an information_container; each upload appends a container_version carrying the blob facts
+// (size, sha256, platform item id) and a single `is_live` pointer per file. Built on the same rows the CDE
+// panel shows (one source of truth) — this is just the file/blob-centric view of them.
+
+/** List a project's files (containers) with their version history, newest version first, live flagged. */
+export async function listFiles(key) {
+  const proj = await ensureProject(key);
+  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,title,discipline,container_type,created_at,container_versions(id,revision,state,suitability,author,notes,size_bytes,sha256,platform_item_id,file_ref,is_live,superseded,created_at)&order=created_at.desc`);
+  return (Array.isArray(rows) ? rows : []).map((c) => {
+    const versions = (c.container_versions || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    return {
+      id: c.id, iso_name: c.iso_name, title: c.title, discipline: c.discipline, container_type: c.container_type,
+      created_at: c.created_at, version_count: versions.length,
+      live_version_id: versions.find((v) => v.is_live)?.id ?? null,
+      versions,
+    };
+  });
+}
+
+/** Flip the live pointer: mark one version live, all its siblings not-live (partial-unique-safe: clear first). */
+export async function setLiveVersion(version_id, actor) {
+  const rows = await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}&select=id,container_id,revision`);
+  const v = Array.isArray(rows) ? rows[0] : null;
+  if (!v) { const e = new Error("version not found"); e.status = 404; throw e; }
+  // Clear the container's current live row FIRST so the partial unique index never sees two live rows.
+  await sb(`container_versions?container_id=eq.${v.container_id}&is_live=eq.true`, { method: "PATCH", body: { is_live: false }, prefer: "return=minimal" });
+  await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}`, { method: "PATCH", body: { is_live: true }, prefer: "return=minimal" });
+  const c = await sb(`information_containers?id=eq.${v.container_id}&select=project_id,iso_name`);
+  const meta = Array.isArray(c) ? c[0] : null;
+  if (meta) await audit(meta.project_id, "file_version", version_id, "set live", actor || "web", null, { file: meta.iso_name, revision: v.revision });
+  return { ok: true, version_id, container_id: v.container_id };
+}
+
+/** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live. */
+export async function registerFileVersion(key, b = {}) {
+  const proj = await ensureProject(key);
+  const name = (b.name || b.iso_name || "").trim();
+  if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
+
+  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id,container_versions(id,revision)`);
+  let container = Array.isArray(existing) ? existing[0] : null;
+
+  if (!container) {
+    container = (await sb(`information_containers`, {
+      method: "POST",
+      body: { project_id: proj.id, iso_name: name, title: b.title || name, discipline: b.discipline || null, container_type: "model" },
+      prefer: "return=representation",
+    }))[0];
+    await audit(proj.id, "container", container.id, "created", b.author || "web", null, { iso_name: name });
+  }
+
+  // Next revision label: honour a supplied one, else v{N+1} across the file's existing versions.
+  const priorCount = (container.container_versions || []).length;
+  const revision = b.revision || `v${priorCount + 1}`;
+
+  const version = (await sb(`container_versions`, {
+    method: "POST",
+    body: {
+      container_id: container.id, revision, state: b.state || "wip", suitability: b.suitability || "S0",
+      author: b.author || "web", notes: b.notes || null, file_ref: b.file_ref || null,
+      platform_item_id: b.platform_item_id || null,
+      size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
+      sha256: b.sha256 || null, is_live: false,
+    },
+    prefer: "return=representation",
+  }))[0];
+
+  await setLiveVersion(version.id, b.author || "web");
+  await audit(proj.id, "file_version", version.id, "uploaded", b.author || "web", null,
+    { file: name, revision, size_bytes: version.size_bytes, platform_item_id: version.platform_item_id });
+  return { container_id: container.id, iso_name: name, version: { ...version, is_live: true } };
+}
+
 /** Run the DB state machine (validates the transition, writes the audit row, enforces immutability). */
 export async function transition(version_id, new_state, actor, note) {
   return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: actor, p_note: note } });

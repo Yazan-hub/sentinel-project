@@ -605,6 +605,19 @@ async function handleRequest(req, res) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
         if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
       }
+      // File versioning (migration 0011): a file = a container, each upload = a version, one `is_live` pointer.
+      //   GET  /cde/:key/files                          → files + version history (newest first, live flagged)
+      //   POST /cde/:key/files  { name, revision?, author?, size_bytes?, sha256?, platform_item_id?, notes? }
+      //        → create-or-append a version (becomes live). Same rows the CDE panel shows (one source of truth).
+      //   POST /cde/:key/files/set-live  { version_id, actor? }  → flip the live pointer to another version.
+      if (p2 === "files" && !p3) {
+        if (req.method === "GET") return send(res, 200, await cde.listFiles(p1));
+        if (req.method === "POST") return send(res, 201, await cde.registerFileVersion(p1, await readBody(req)));
+      }
+      if (p2 === "files" && p3 === "set-live" && req.method === "POST") {
+        const b = await readBody(req);
+        return send(res, 200, await cde.setLiveVersion(b.version_id, b.actor));
+      }
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note? }
