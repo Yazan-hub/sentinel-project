@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -25,6 +26,17 @@ namespace Sentinel.Coordination
         // seconds, not milliseconds, on a large model. Give the blocking governed calls a generous timeout so
         // they wait for the real verdict instead of tripping the "bridge unreachable" fallback on big models.
         private static readonly HttpClient GovHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+
+        /// <summary>Send a governed request, attaching the bridge auth-gate bearer (F2) when the bridge requires
+        /// one (BcfConfig.ServiceToken non-empty). Blocking; the caller owns/reads the response.</summary>
+        private static HttpResponseMessage Send(HttpClient client, HttpMethod method, string url, HttpContent? content, BcfConfig cfg)
+        {
+            var msg = new HttpRequestMessage(method, url);
+            if (content != null) msg.Content = content;
+            if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+            return client.SendAsync(msg).GetAwaiter().GetResult();
+        }
 
         /// <summary>Record a "model published from Revit" event in the governed audit trail.</summary>
         public static void ModelPublished(string modelName, long bytes)
@@ -124,7 +136,7 @@ namespace Sentinel.Coordination
                 if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                var resp = GovHttp.PostAsync(url, content).GetAwaiter().GetResult();
+                var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (!resp.IsSuccessStatusCode) { r.Error = "bridge returned HTTP " + (int)resp.StatusCode; return r; }
 
@@ -185,7 +197,7 @@ namespace Sentinel.Coordination
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + "/files";
                 var body = new { name, author, size_bytes = bytes, notes = notes ?? "published from Revit (Governed Publish)" };
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                var resp = GovHttp.PostAsync(url, content).GetAwaiter().GetResult();
+                var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (!resp.IsSuccessStatusCode) return null;
 
@@ -205,8 +217,11 @@ namespace Sentinel.Coordination
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + path;
                 var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                    msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
                 // observe the task's exception so a failed POST never surfaces as an unobserved exception
-                _ = Http.PostAsync(url, content).ContinueWith(t => { _ = t.Exception; }, TaskScheduler.Default);
+                _ = Http.SendAsync(msg).ContinueWith(t => { _ = t.Exception; msg.Dispose(); }, TaskScheduler.Default);
             }
             catch { /* never throw into Revit */ }
         }

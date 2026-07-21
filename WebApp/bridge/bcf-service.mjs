@@ -331,12 +331,16 @@ async function startEventPoll() {
 // forwarding is armed. No JWT → service key (current behaviour). Non-browser callers (Revit) send none.
 createServer((req, res) => {
   const auth = req.headers.authorization || "";
-  const userJwt = (!TOKEN && auth.startsWith("Bearer ")) ? auth.slice(7) : null;
+  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
+  // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
+  // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
+  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3) ? bearer : null;
   runWithAuth(userJwt, () => handleRequest(req, res));
 }).listen(PORT, HOST, () => {
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth token: ${TOKEN ? "required" : "off"}`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; /health + /events exempt)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
@@ -369,9 +373,18 @@ async function handleRequest(req, res) {
   if ((req.method === "POST" || req.method === "PUT" || req.method === "DELETE") && origin && !originAllowed(origin)) {
     return send(res, 403, { message: "Origin not allowed" });
   }
-  if (TOKEN && req.headers.authorization !== `Bearer ${TOKEN}`) return send(res, 401, { message: "Unauthorized" });
-
   const url = new URL(req.url, "http://localhost");
+
+  // Auth gate (F2): when BCF_TOKEN is configured, close the anonymous service-key fall-open. Every route
+  // except /health and the SSE feed (EventSource can't send an Authorization header) must present EITHER a
+  // forwarded Supabase JWT (→ per-user RLS) OR the shared BCF_TOKEN (→ trusted desktop client, e.g. Revit).
+  // With BCF_TOKEN unset, behaviour is unchanged (legacy service-key mode). Activation = set BCF_TOKEN.
+  if (TOKEN) {
+    const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+    const exempt = url.pathname === "/health" || url.pathname === "/events";
+    const ok = bearer === TOKEN || (bearer && bearer !== TOKEN && bearer.split(".").length === 3);
+    if (!exempt && !ok) return send(res, 401, { message: "Unauthorized" });
+  }
 
   // Health/posture (no secrets): confirms config without ever returning keys.
   if (url.pathname === "/health" && req.method === "GET") {

@@ -32,7 +32,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         BcfConfig cfg = BcfConfig.Load();
         var apply = new BcfApplyEvent();
         var externalEvent = ExternalEvent.Create(apply);
-        var sync = new BcfSyncManager(cfg.ServiceUrl);
+        var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
 
         var window = new BcfIssuesWindow();
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
@@ -101,6 +101,9 @@ internal sealed class BcfConfig
     [JsonPropertyName("serviceUrl")] public string ServiceUrl { get; set; } = "http://localhost:4100";
     [JsonPropertyName("projectId")] public string ProjectId { get; set; } = "default";
     [JsonPropertyName("modelId")] public string ModelId { get; set; } = ""; // empty → service returns all models
+    // Shared secret for the bridge's auth gate (F2). When the bridge runs with BCF_TOKEN set, Revit must present
+    // it or the governed calls are rejected as anonymous. Empty = legacy bridge (no gate) → no header is sent.
+    [JsonPropertyName("serviceToken")] public string ServiceToken { get; set; } = "";
 
     public static BcfConfig Load()
     {
@@ -118,6 +121,7 @@ internal sealed class BcfConfig
         {
             ServiceUrl = Env("BCF_SERVICE_URL", "http://localhost:4100"),
             ProjectId = Env("THATOPEN_PROJECT_ID", "default"),
+            ServiceToken = Env("BCF_TOKEN", ""),
         };
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using Sentinel.Commands; // BcfConfig (bridge URL + platform project id)
 
@@ -17,6 +18,18 @@ namespace Sentinel.Coordination
     {
         // Short timeout: this runs on the UI thread of a manual command, so a slow/absent bridge can't hang Revit.
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+
+        /// <summary>Blocking GET that attaches the bridge auth-gate bearer (F2) when configured. Throws on a
+        /// non-success status (callers already catch and return null).</summary>
+        private static string GetString(string url, string token)
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrWhiteSpace(token))
+                msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
+            resp.EnsureSuccessStatusCode();
+            return resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        }
 
         /// <summary>The live version of a model file in the web CDE, or null if unknown/unreachable.</summary>
         public sealed class LiveInfo
@@ -38,7 +51,7 @@ namespace Sentinel.Coordination
                 var cfg = BcfConfig.Load();
                 var name = modelTitle.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelTitle : modelTitle + ".ifc";
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + "/files";
-                var json = Http.GetStringAsync(url).GetAwaiter().GetResult();
+                var json = GetString(url, cfg.ServiceToken);
 
                 using var doc = JsonDocument.Parse(json);
                 if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
@@ -86,7 +99,7 @@ namespace Sentinel.Coordination
             {
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/clash/" + Uri.EscapeDataString(cfg.ProjectId);
-                var json = Http.GetStringAsync(url).GetAwaiter().GetResult();
+                var json = GetString(url, cfg.ServiceToken);
 
                 using var doc = JsonDocument.Parse(json);
                 if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
