@@ -1,6 +1,7 @@
 import { bdsRuleset, type Ruleset } from "../sentinel-core";
 import { activePid } from "./active-project";
 import { getAppManager } from "../app";
+import { bfetch } from "./bridge-fetch";
 
 /**
  * Resolves the ruleset the QA scan / gates should enforce for the CURRENT project: the standards pack
@@ -10,7 +11,7 @@ import { getAppManager } from "../app";
 export async function activeRuleset(baseUrl: string): Promise<Ruleset> {
   const pid = activePid();
   try {
-    const p = await (await fetch(`${baseUrl.replace(/\/$/, "")}/projects/${encodeURIComponent(pid)}`)).json();
+    const p = await (await bfetch(`${baseUrl.replace(/\/$/, "")}/projects/${encodeURIComponent(pid)}`)).json();
     if (p?.active_ruleset?.rules?.length) return p.active_ruleset as Ruleset;
   } catch { /* offline → bundled */ }
   return bdsRuleset;

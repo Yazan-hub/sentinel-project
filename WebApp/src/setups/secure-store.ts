@@ -1,4 +1,5 @@
 import { encryptBytes, decryptBytes } from "./crypto";
+import { bfetch } from "./bridge-fetch";
 
 /**
  * Encrypted file storage + local cache (Phase 2). Files are encrypted client-side (crypto.ts); only the
@@ -56,7 +57,7 @@ export interface StoredFile {
 /** Encrypt a file client-side, upload only the ciphertext, cache it locally, and return its ref. */
 export async function putEncryptedFile(base: string, projectKey: string, file: File): Promise<StoredFile> {
   const cipher = await encryptBytes(projectKey, await file.arrayBuffer());
-  const r = await fetch(`${base.replace(/\/$/, "")}/cde/files`, {
+  const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files`, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: cipher,
@@ -71,7 +72,7 @@ export async function putEncryptedFile(base: string, projectKey: string, file: F
 export async function getDecryptedFile(base: string, projectKey: string, id: string): Promise<ArrayBuffer> {
   let cipher = await cacheGet(id);
   if (!cipher) {
-    const r = await fetch(`${base.replace(/\/$/, "")}/cde/files/${encodeURIComponent(id)}`);
+    const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files/${encodeURIComponent(id)}`);
     if (!r.ok) throw new Error(`Download failed (HTTP ${r.status})`);
     cipher = await r.arrayBuffer();
     await cachePut(id, cipher);

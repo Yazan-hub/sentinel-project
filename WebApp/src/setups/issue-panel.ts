@@ -90,7 +90,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     if (globalIds.length === 0) throw new Error("Select an element in the model first.");
     const H = { "Content-Type": "application/json" };
     const P = `${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics`;
-    const topic = await (await fetch(P, {
+    const topic = await (await bfetch(P, {
       method: "POST", headers: H,
       body: JSON.stringify({
         title: f.title || "Coordination issue", topic_type: f.topicType, topic_status: f.status,
@@ -99,7 +99,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       }),
     })).json();
     const vp = await viewpoint(model);
-    await fetch(`${P}/${topic.guid}/viewpoints`, {
+    await bfetch(`${P}/${topic.guid}/viewpoints`, {
       method: "POST", headers: H,
       body: JSON.stringify({ ...vp, components: { selection: globalIds.map((g) => ({ ifc_guid: g })) } }),
     });

@@ -665,7 +665,7 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
       const url =
         `${base}/ifc?name=${encodeURIComponent("sentinel-model.ifc")}` +
         `&version=v${n}&projectId=${encodeURIComponent(projectId())}`;
-      const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-step" }, body: ifc });
+      const resp = await bfetch(url, { method: "POST", headers: { "Content-Type": "application/x-step" }, body: ifc });
       const j = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         status(

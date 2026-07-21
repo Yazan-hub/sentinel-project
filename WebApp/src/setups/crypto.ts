@@ -15,6 +15,8 @@
  * IV: a fresh random 12 bytes per file, prepended to the ciphertext. Keys live in memory only.
  */
 
+import { bfetch } from "./bridge-fetch";
+
 const enc = new TextEncoder();
 const PBKDF2_ITERS = 210_000; // OWASP guidance for PBKDF2-HMAC-SHA256
 
@@ -123,7 +125,7 @@ const keystoreUrl = (base: string, projectKey: string) =>
 
 async function getKeystore(base: string, projectKey: string): Promise<Keystore | null> {
   try {
-    const r = await fetch(keystoreUrl(base, projectKey));
+    const r = await bfetch(keystoreUrl(base, projectKey));
     if (!r.ok) return null;
     const d = await r.json();
     return d && d.wrapped_dek ? (d as Keystore) : null;
@@ -155,7 +157,7 @@ export async function unlockAndVerify(
   // First-time setup for this project.
   const { keystore, dek } = await createKeystore(passphrase);
   try {
-    const r = await fetch(keystoreUrl(base, projectKey), {
+    const r = await bfetch(keystoreUrl(base, projectKey), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(keystore),

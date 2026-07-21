@@ -19,13 +19,13 @@ So when a mutation is forwarded as the user's JWT, PostgREST checks membership a
 
 ## Activation checklist (do this when you're ready to network the bridge)
 
-Do **not** arm the gate before step 1, or signed-in SPA panels that use raw `fetch` will get 401s.
-
-1. **Switch the remaining raw bridge `fetch()` calls to `bfetch()`** so they forward the JWT. Audit these files (raw `fetch(` to a bridge route today): `crypto.ts` (keystore GET/PUT), and check `active-ruleset.ts`, `copilot-panel.ts`, `issue-panel.ts`, `model-panel.ts`, `secure-store.ts`. **Only switch calls that target the bridge** (`SERVICE_URL` / `:4100`) — a `bfetch` on a Supabase or platform URL would attach the wrong `Authorization` header. This switch is safe to land *before* arming (when signed out, `bfetch` == `fetch`).
+1. ~~Switch the remaining raw bridge `fetch()` calls to `bfetch()`~~ — **✅ DONE** (commit history). All 8 SPA bridge calls now forward the JWT: `active-ruleset.ts` (`/projects`), `crypto.ts` (keystore GET/POST), `issue-panel.ts` (BCF topic + viewpoint), `model-panel.ts` (`/ifc`), `secure-store.ts` (`/cde/files` GET/POST). `copilot-panel.ts` was deliberately left raw — it targets **Ollama**, not the bridge. Verified: SPA builds clean, 85 tests pass. So arming the gate will **not** 401 signed-in panels.
 2. **Generate a strong shared secret** and set `BCF_TOKEN=<secret>` in `config/.env`. Restart the bridge — it should log `auth gate: ARMED`.
 3. **Configure Revit**: add `"serviceToken": "<same secret>"` to `%AppData%\Sentinel\bcf-config.json` (or set the `BCF_TOKEN` env var), then **rebuild + redeploy the add-in** (`dotnet build -p:RevitVersion=2024` with Revit closed).
 4. **Test both clients against the armed bridge**: the SPA (signed in → panels load, versions/issues work) and Revit (Governed Publish reaches a verdict). Watch for any 401.
 5. **Run `npm run security:check`** — still all ✓.
+
+> **One caveat on step 2:** the SPA only forwards a JWT when a user is **signed in** (`VITE_SENTINEL_AUTH=1` + a session). If the pilot currently runs the SPA signed-out (relying on the service key), arm the gate only once sign-in is on — otherwise the signed-out SPA has no JWT to present. Revit is unaffected (it uses the token).
 
 ## Residuals (tracked, lower priority)
 
