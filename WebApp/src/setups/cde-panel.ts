@@ -386,8 +386,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     const go = async () => {
       if (!input.value) { status("Enter the project passphrase."); return; }
       try {
-        const { ok, firstUse } = await unlockAndVerify(base, pid(), input.value);
-        if (!ok) { status("Wrong passphrase for this project."); return; }
+        const { ok, firstUse, reason } = await unlockAndVerify(base, pid(), input.value);
+        if (!ok) { status(reason || "Wrong passphrase for this project."); return; }
         bar.style.display = "none";
         syncLock();
         refreshView();

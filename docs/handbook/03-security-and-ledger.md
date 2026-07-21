@@ -32,7 +32,9 @@ A full security audit was run (three adversarial passes + live-DB advisors + dep
 | **F2** bridge auth optional (could fall open to the service key) | HIGH | 🟨 **Built, not armed** — one-switch to activate; see `docs/SECURITY_F2_ACTIVATION.md`. Mitigated today: loopback bind + F1 closed |
 | **F4** IDOR on id-addressed mutations | HIGH | ✅ Closed by existing RLS + the F2 gate (no extra code) |
 | **F16** dev-only dependency CVEs | LOW | ✅ Accepted (dev toolchain only, zero production surface) |
-| **F7 / F11 / F12 / F13 / F14** | LOW/MED | ⬜ Triaged, next-session hardening |
+| **F7** keystore offline-crack | MED | ✅ Mitigated (JWT-gated read + passphrase-strength gate) |
+| **F14** `/sheets/img` path traversal | LOW | ✅ Fixed (resolve-prefix guard) |
+| **F11 / F12 / F13** | LOW/MED | ⬜ Triaged — need live testing (CORS, HTTPS) |
 
 **Verified sound by the audit:** the immutable ledger, the hash chain, RLS coverage, pinned `search_path` on all functions (no injection), and the end-to-end crypto envelope (PBKDF2 @ 210k iterations, AES-256-GCM, fresh IVs, no fail-open). No secrets are in git history; the key shipped in the browser is the **public anon key** (safe by design — RLS is the real boundary).
 

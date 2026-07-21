@@ -135,6 +135,21 @@ async function getKeystore(base: string, projectKey: string): Promise<Keystore |
 }
 
 /**
+ * A human-readable reason a passphrase is too weak to CREATE a project keystore, or null if acceptable.
+ * Length-first by design — a shared project passphrase (e.g. four random words) beats character-class rules,
+ * and the keystore is the only secret protecting the whole project's encrypted files (F7). Enforced only at
+ * first-time setup; existing keystores are never re-gated, and createKeystore stays unguarded for tests.
+ */
+export function passphraseIssue(pw: string): string | null {
+  const p = pw ?? "";
+  if (p.length < 12) return "Use at least 12 characters — a memorable passphrase (e.g. four random words) is ideal.";
+  if (/^(.)\1+$/.test(p)) return "Too repetitive — use a longer, more varied passphrase.";
+  if (["passwordpassword", "123456789012", "changemechangeme"].includes(p.toLowerCase()))
+    return "That passphrase is too common — choose something unique to this project.";
+  return null;
+}
+
+/**
  * Unlock a project with its shared passphrase. If a server keystore exists, the passphrase is VERIFIED by
  * unwrapping the DEK (cross-device, no fail-open). If none exists, this is genuine first-time setup: a new
  * keystore is created (insert-only, so a concurrent first-setup can't clobber the DEK that already encrypted
@@ -144,7 +159,7 @@ export async function unlockAndVerify(
   base: string,
   projectKey: string,
   passphrase: string,
-): Promise<{ ok: boolean; firstUse: boolean }> {
+): Promise<{ ok: boolean; firstUse: boolean; reason?: string }> {
   const existing = await getKeystore(base, projectKey);
   if (existing) {
     try {
@@ -154,7 +169,10 @@ export async function unlockAndVerify(
       return { ok: false, firstUse: false }; // wrong passphrase — GCM auth failed, no fail-open
     }
   }
-  // First-time setup for this project.
+  // First-time setup for this project — enforce a minimum passphrase strength HERE (createKeystore stays
+  // unguarded so the pure tests can use short fixtures). Existing keystores are never re-gated.
+  const issue = passphraseIssue(passphrase);
+  if (issue) return { ok: false, firstUse: true, reason: issue };
   const { keystore, dek } = await createKeystore(passphrase);
   try {
     const r = await bfetch(keystoreUrl(base, projectKey), {

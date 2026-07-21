@@ -14,7 +14,7 @@
 
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, dirname, basename, extname } from "node:path";
+import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { runWithAuth } from "./bridge-auth.mjs";
@@ -439,6 +439,9 @@ async function handleRequest(req, res) {
     const file = basename(decodeURIComponent(simg[2]));
     if (extname(file).toLowerCase() !== ".png") return send(res, 404, { message: "Not found" });
     const path = join(SHEETS_ROOT, set, file);
+    // Defence-in-depth (F14/CWE-22): basename() lets "." and ".." through, so confirm the resolved path
+    // actually stays inside SHEETS_ROOT before reading it.
+    if (!resolve(path).startsWith(resolve(SHEETS_ROOT) + sep)) return send(res, 404, { message: "Not found" });
     try {
       const buf = readFileSync(path);
       res.writeHead(200, {

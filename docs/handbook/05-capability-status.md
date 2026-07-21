@@ -38,7 +38,8 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Immutable ledger + tamper triggers | ✅ Verified | See [03](03-security-and-ledger.md) |
 | Bridge auth gate (JWT-or-token, F2) | 🟨 Partial | Built, **not armed**; one-switch activation |
 | Key rotation / leaked-password protection | 🟨 Partial | Keys rotated 2026-07-21; HIBP toggle still owed |
-| Advanced hardening (F7/F11/F12/F13/F14) | ⬜ Planned | Triaged, next-session |
+| Keystore offline-crack (F7) + path traversal (F14) | ✅ Verified | Passphrase-strength gate + resolve-prefix guard; 85 tests pass |
+| Advanced hardening (F11 CORS / F12 HTTPS / F13) | ⬜ Planned | Need live testing; triaged |
 
 ## Adoption / go-to-market
 
