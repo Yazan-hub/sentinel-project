@@ -108,6 +108,10 @@ The model MUST return this shape (schema-constrained, as `LocalGhostBuilder` alr
 
 `params` is pre-populated with the exact fields the office IDS requires → elements are **born compliant**.
 
+## Deterministic layer mapping (the reliability backbone)
+
+The INTERPRET stage is **deterministic-first**. A **DWG Layer Standard** (`docs/BDS_DWG_LAYER_STANDARD.md` + the ruleset `demo/bds-pilot/bds-layers.json`, same config pattern as naming/IDS) maps compliant layer names → category / family / seeded IDS params with confidence 1.0 and **no AI call**. The cloud model is reserved for the genuine gaps: non-compliant or ambiguous layers, which it *proposes* a mapping for (lower confidence) **and** suggests a compliant rename for. A **layer-compliance gate** (`reject`/`warn`/`off`) flags non-standard DWGs in the review so the source can be fixed and the next run is fully deterministic. This is what keeps an autonomous build trustworthy — the standard carries the common cases; the AI handles ambiguity, not chaos.
+
 ## Safety rails (what makes autonomous build safe)
 
 1. **One-click undo** — the entire build is one `TransactionGroup`; `RollBack`/undo reverts everything. No partial or stuck state ever (a mid-build failure rolls the group back automatically).
