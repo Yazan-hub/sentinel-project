@@ -18,7 +18,7 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 | **F9** unbounded-body DoS | ✅ **Fixed** | `readBody` capped (256 MB default, `BCF_MAX_JSON_MB`) + `Content-Length` precheck. |
 | **F6** stray `config/.env.txt` | ✅ **Deleted** | Removed; real `.env` retained (gitignored). **Key rotation still owed by you — dashboard action** (see below). |
 | **F15** `.thatopen` gitignore | ✅ **Added** | `.thatopen` / `**/.thatopen` now ignored. |
-| **F16** dev-dep CVEs | ⏸ **Deferred (deliberate)** | Fix is `vite 5→8 + vitest 2→3` (breaking); **dev-only, zero prod surface**. Left for a dedicated toolchain-bump so the green build isn't risked overnight. |
+| **F16** dev-dep CVEs | ✅ **Accepted (decision recorded)** | All five are in the `vite`/`vitest`/`esbuild` **build-and-test toolchain** — not the bridge, not the shipped bundle, not the DB. The only fix is a breaking `vite 5→8 + vitest 2→3` bump. **Accepted as dev-only with zero production surface**; revisit only if/when the toolchain is upgraded for other reasons. |
 | **F2** bridge auth optional | ⏸ **Documented, not flipped** | Making auth mandatory would break the Revit flow (it sends no JWT). Needs the `require-JWT-or-BCF_TOKEN` rollout in the plan below — a coordinated C#+bridge change to test against live Revit, not an overnight blind flip. Mitigated today: bridge binds loopback, and F1 (the actual data-exposure) is closed. |
 | **F4** IDOR · **F7** keystore crack · **F11** ACAO · **F12** transport · **F13/F14** hardening | ⏸ **Triaged** | Next-session work; see remediation order. Lower live risk now that F1 is closed and the bridge is loopback-bound. |
 
