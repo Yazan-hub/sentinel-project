@@ -34,8 +34,11 @@ namespace Sentinel.GhostBuilder
     /// </summary>
     public sealed class LocalGhostBuilder : IDisposable, ILayerMapper
     {
-        private const string OllamaUrl = "http://localhost:11434/api/generate";
-        private const string Model     = "llama3";
+        // Local model runtime (Ollama). Defaults keep the plugin fully offline; both are overridable via
+        // Sentinel settings so the office can pick a stronger local model (P1 default: qwen2.5:7b-instruct)
+        // with no code change. Data never leaves the machine on this path.
+        private readonly string _ollamaUrl;
+        private readonly string _model;
 
         private readonly HttpClient _http;
         private readonly string _schema; // optional caller-supplied JSON schema; empty -> DefaultSchema
@@ -67,9 +70,13 @@ namespace Sentinel.GhostBuilder
   ""required"": [""mappings""]
 }";
 
-        public LocalGhostBuilder(string schemaJson)
+        public LocalGhostBuilder(string schemaJson,
+                                 string model = "qwen2.5:7b-instruct",
+                                 string ollamaUrl = "http://localhost:11434/api/generate")
         {
             _schema = schemaJson; // null/empty is fine — MapLayersAsync falls back to DefaultSchema
+            _model = string.IsNullOrWhiteSpace(model) ? "qwen2.5:7b-instruct" : model;
+            _ollamaUrl = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
         }
 
@@ -77,10 +84,16 @@ namespace Sentinel.GhostBuilder
         /// <param name="ct">Cancels the HTTP call when the user aborts (ESC / Cancel).</param>
         public async Task<MappingResult> MapLayersAsync(IEnumerable<string> cadLayers, CancellationToken ct = default)
         {
+            // Only layers the deterministic BDS-standard pass could NOT resolve reach the model, so the
+            // prompt is tuned for disambiguating messy/non-standard names into the fixed category set.
             string prompt =
-                "Map each CAD layer to a standard Badran Design Studio Revit family at LOD 200. " +
-                "Return ONLY JSON matching the schema. Include every input layer exactly once in " +
-                "'mappings'. Choose 'category' from the allowed set and set 'confidence' from 0 to 1.\n" +
+                "You map non-standard CAD layer names to Revit model categories for a LOD 200 build. " +
+                "Return ONLY JSON matching the schema, with every input layer included exactly once in " +
+                "'mappings'. 'category' MUST be one of: Walls, Floors, Ceilings, Doors, Windows, Columns, " +
+                "Furniture. Set 'confidence' 0-1. If a layer is annotation/text/grid or clearly not model " +
+                "geometry, still return it but with low confidence.\n" +
+                "Examples: 'EXT-WALL-2HR' -> Walls; 'A_DR_INTERIOR' -> Doors; 'CURTAIN-GLASS' -> Windows; " +
+                "'RCP-GRID' -> Ceilings.\n" +
                 "Layers: " + string.Join(", ", cadLayers);
 
             // Send the schema in Ollama's `format` field so decoding is constrained to our shape.
@@ -99,14 +112,14 @@ namespace Sentinel.GhostBuilder
 
             string payload = JsonSerializer.Serialize(new
             {
-                model  = Model,
+                model  = _model,
                 prompt,
                 stream = false,
                 format   // JSON schema object -> Ollama constrains output to this exact shape
             });
 
             using var body = new StringContent(payload, Encoding.UTF8, "application/json");
-            using HttpResponseMessage resp = await _http.PostAsync(OllamaUrl, body, ct);
+            using HttpResponseMessage resp = await _http.PostAsync(_ollamaUrl, body, ct);
             resp.EnsureSuccessStatusCode();
 
             // Ollama wraps the model's text in { "response": "<json string>", ... }.

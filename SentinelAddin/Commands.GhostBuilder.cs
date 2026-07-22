@@ -76,7 +76,13 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // 3. PHASE 1 — Revit API reads, on this (API) thread. Fast; safe to do inline.
         // Cache + base-dictionary layer for dirty external DWGs: known layers resolve locally, only
         // unrecognised ones reach Ollama (LocalGhostBuilder), and every result is remembered.
-        var mapper = new LayerMapper(new LocalGhostBuilder(schemaJson));
+        // Ghost Builder v2 (P1): the BDS DWG Layer Standard (bds-layers.json) drives deterministic mapping;
+        // the LOCAL model (settings.GhostModel, default qwen2.5) resolves only the unrecognised layers.
+        // Cloud stays off — the drawing never leaves the machine.
+        var rulesetPath = string.IsNullOrWhiteSpace(settings.GhostLayerRulesetPath) ? null : settings.GhostLayerRulesetPath;
+        var mapper = new LayerMapper(
+            new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl),
+            matcher: LayerRulesetMatcher.Load(rulesetPath));
         var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0.5, familyLibraryDir: libraryDir);
         GhostBuilderOrchestrator.Inputs inputs;
         try
@@ -141,8 +147,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
             catch (System.Net.Http.HttpRequestException)
             {
                 FailOnUi(progress, mapper,
-                    "Could not reach the local model at http://localhost:11434.\n\n" +
-                    "Start Ollama and pull the model (\"ollama run llama3\"), then try again.");
+                    $"Could not reach the local model at {settings.OllamaUrl}.\n\n" +
+                    $"Start Ollama and pull the model (\"ollama pull {settings.GhostModel}\"), then try again.");
             }
             catch (System.Exception ex)
             {

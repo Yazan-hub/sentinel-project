@@ -52,6 +52,7 @@
   <ItemGroup>
     <!-- Shipped ruleset + ribbon icons: copied to output, deployed with the DLL -->
     <Content Include="Resources\ruleset.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Resources\bds-layers.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Resources\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

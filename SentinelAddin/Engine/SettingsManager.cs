@@ -24,6 +24,13 @@ public sealed class SentinelSettings
     [JsonPropertyName("ghost_family_library_dir")] public string GhostFamilyLibraryDir { get; set; } = string.Empty; // .rfa library root; empty -> skip preload
     [JsonPropertyName("ghost_mapping_schema_path")] public string GhostMappingSchemaPath { get; set; } = string.Empty; // JSON schema file echoed into the LLM prompt
 
+    // Ghost Builder v2 (P1): local model + swappable DWG layer standard. LOCAL-by-default (privacy — the
+    // office's drawings never leave the machine); cloud is an explicit opt-in and stays OFF unless enabled.
+    [JsonPropertyName("ghost_model")] public string GhostModel { get; set; } = "qwen2.5:7b-instruct";          // local Ollama model for the unknown-layer gaps
+    [JsonPropertyName("ollama_url")] public string OllamaUrl { get; set; } = "http://localhost:11434/api/generate";
+    [JsonPropertyName("ghost_layer_ruleset_path")] public string GhostLayerRulesetPath { get; set; } = string.Empty; // empty -> %AppData%\Sentinel\bds-layers.json, then the shipped Resources copy
+    [JsonPropertyName("ghost_cloud_opt_in")] public bool GhostCloudOptIn { get; set; } = false;                 // OFF: no drawing leaves the machine
+
     [JsonIgnore] public bool IsEmpty =>
         string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath);
 }

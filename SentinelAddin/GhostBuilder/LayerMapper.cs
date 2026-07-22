@@ -38,19 +38,21 @@ namespace Sentinel.GhostBuilder
     public sealed class LayerMapper : ILayerMapper, IDisposable
     {
         private readonly ILayerMapper _llm;                       // tier 3: unknown layers only
+        private readonly LayerRulesetMatcher _matcher;            // tier 0 (ignore) + tier 2 (map): standard-driven
         private readonly string _cachePath;                      // tier 1 backing file
         private readonly Dictionary<string, LayerMapping> _cache; // normalised layer -> mapping
         private bool _dirty;
 
-        public LayerMapper(ILayerMapper llmFallback, string cachePath = null)
+        public LayerMapper(ILayerMapper llmFallback, string cachePath = null, LayerRulesetMatcher matcher = null)
         {
             _llm = llmFallback ?? throw new ArgumentNullException(nameof(llmFallback));
+            _matcher = matcher ?? LayerRulesetMatcher.Load(); // P1: BDS DWG Layer Standard drives ignore + mapping
             _cachePath = cachePath ?? DefaultCachePath();
             _cache = LoadCache(_cachePath);
 
             // Self-heal: purge any previously-cached system/annotation layers (e.g. a stale
             // DEFPOINTS -> Walls written before the ignore-list existed) so the next save drops them.
-            var stale = _cache.Keys.Where(ShouldIgnore).ToList();
+            var stale = _cache.Keys.Where(_matcher.ShouldIgnore).ToList();
             foreach (string k in stale) _cache.Remove(k);
             if (stale.Count > 0) _dirty = true;
         }
@@ -76,7 +78,7 @@ namespace Sentinel.GhostBuilder
                 // Tier 0: AutoCAD system / annotation layers are never model geometry — drop them
                 // before any cache/dictionary/LLM work so they can't become walls, furniture, or
                 // IFC noise, and never cost a model call.
-                if (ShouldIgnore(layer)) continue;
+                if (_matcher.ShouldIgnore(layer)) continue;
 
                 string key = Normalize(layer);
 
@@ -87,8 +89,9 @@ namespace Sentinel.GhostBuilder
                     continue;
                 }
 
-                // Tier 2: built-in keyword heuristics.
-                LayerMapping baseHit = MatchBase(layer);
+                // Tier 2: the BDS DWG Layer Standard (exact / alias / standard-format), with the old
+                // keyword heuristics kept as a fallback inside the matcher.
+                LayerMapping baseHit = _matcher.Match(layer);
                 if (baseHit != null)
                 {
                     _cache[key] = baseHit;
@@ -118,77 +121,8 @@ namespace Sentinel.GhostBuilder
             return new MappingResult { Mappings = resolved };
         }
 
-        // ---- ignore-list (tier 0) ----
-
-        // Non-model layers that must never yield geometry — dropped before any cache/dictionary/LLM
-        // work so they can't become walls/floors/furniture or bloat the IFC, and never cost a model
-        // call. Matched case-insensitively: exact for the bare system layers, substring for the tokens.
-        private static readonly string[] IgnoreExact = { "DEFPOINTS", "0" };
-        private static readonly string[] IgnoreTokens =
-        {
-            // Documentation / annotation — never model geometry.
-            "ANNO", "TEXT", "DIM", "NOTE", "TAG", "LEADER", "SYMBOL", "LEGEND",
-            "TITLE", "REVCLOUD", "MATCHLINE", "GRID", "VIEWPORT", "VPORT", "WIPEOUT", "NPLT",
-            // Fills & area-calc boundaries (not slabs).
-            "HATCH",
-            // "AREA" = area/space-boundary layers (BD-AREA etc.): calc annotation, not model slabs.
-            // Remove this token if a project genuinely draws floor slabs on an *AREA* layer.
-            "AREA",
-        };
-
-        private static bool ShouldIgnore(string layer)
-        {
-            if (string.IsNullOrWhiteSpace(layer)) return true;
-            string u = layer.Trim().ToUpperInvariant();
-            if (IgnoreExact.Contains(u)) return true;
-            foreach (string token in IgnoreTokens)
-                if (u.Contains(token)) return true;
-            return false;
-        }
-
-        // ---- base keyword dictionary (tier 2) ----
-
-        // Ordered longest/most-specific first; the first token a layer name contains wins. These are
-        // hints, not law: the cache and the LLM refine anything they don't cover. bdsFamily is a
-        // generic default so mapped walls still provision a type downstream (GhostWallTypeProvisioner).
-        private static readonly (string Token, string Category, string Family)[] BaseRules =
-        {
-            ("PARTITION", "Walls",     "Generic Wall"),
-            ("WALL",      "Walls",     "Generic Wall"),
-            ("DOOR",      "Doors",     "Generic Door"),
-            ("WINDOW",    "Windows",   "Generic Window"),
-            ("GLAZ",      "Windows",   "Generic Window"),
-            ("GLASS",     "Windows",   "Generic Window"),
-            ("SLAB",      "Floors",    "Generic Floor"),
-            ("FLOOR",     "Floors",    "Generic Floor"),
-            ("FLOR",      "Floors",    "Generic Floor"),
-            ("CEILING",   "Ceilings",  "Generic Ceiling"),
-            ("CEIL",      "Ceilings",  "Generic Ceiling"),
-            ("CLNG",      "Ceilings",  "Generic Ceiling"),
-            ("RCP",       "Ceilings",  "Generic Ceiling"),
-            ("COLUMN",    "Columns",   "Generic Column"),
-            ("COL",       "Columns",   "Generic Column"),
-            ("FURN",      "Furniture", "Generic Furniture"),
-            ("CASEWORK",  "Furniture", "Generic Furniture"),
-            ("EQUIP",     "Furniture", "Generic Furniture"),
-        };
-
-        private static LayerMapping MatchBase(string layer)
-        {
-            string upper = layer.ToUpperInvariant();
-            foreach (var rule in BaseRules)
-            {
-                if (upper.Contains(rule.Token))
-                    return new LayerMapping
-                    {
-                        CadLayer = layer,
-                        Category = rule.Category,
-                        BdsFamily = rule.Family,
-                        Confidence = 0.75, // heuristic — above the 0.5 placement floor, below LLM certainty
-                    };
-            }
-            return null;
-        }
+        // Tier 0 (ignore) + tier 2 (standard-driven mapping) now live in LayerRulesetMatcher, loaded from
+        // the BDS DWG Layer Standard (bds-layers.json). See LayerRulesetMatcher.cs.
 
         // ---- cache persistence (tier 1) ----
 
