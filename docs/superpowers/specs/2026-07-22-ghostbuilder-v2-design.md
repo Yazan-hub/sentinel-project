@@ -4,7 +4,7 @@
 
 ## Summary
 
-GhostBuilder v2 upgrades Sentinel's existing CAD→BIM auto-modeller in two ways — a stronger **brain** (multi-model cloud AI instead of the local Llama 3) and more **senses** (a scoped local folder of DWG + PDF + sketch/render documents instead of DWG layers alone) — and wires the result into Sentinel's governance loop.
+GhostBuilder v2 upgrades Sentinel's existing CAD→BIM auto-modeller in two ways — a stronger **brain** (an upgraded **local** model by default, with cloud AI as an explicit opt-in) and more **senses** (a scoped local folder of DWG + PDF + sketch/render documents instead of DWG layers alone) — and wires the result into Sentinel's governance loop. **Privacy-first: by default the office's drawings never leave the machine.**
 
 The interaction model is **autonomous**: the agent reads a folder, builds the whole model, governs it, and presents the result for review. What makes "review after" safe rather than reckless is three rails — **one-click undo, confidence-graded "ghost" placement, and the referee as guardrail** — all of which are native Sentinel strengths.
 
@@ -12,7 +12,7 @@ The interaction model is **autonomous**: the agent reads a folder, builds the wh
 
 ## Goals
 
-1. Replace GhostBuilder's local Llama 3 with a **provider-abstracted multi-model gateway** (Claude default; Kimi and others pluggable), hosted on the **bridge** so no API keys ever reach the desktop plugin.
+1. Build a **provider-abstracted interpreter with the LOCAL model as the default** (privacy-first — the office's drawings never leave the machine). Cloud models (Claude/Kimi) are an explicit **per-project opt-in** routed through the bridge, so no API keys ever reach the desktop *and* no drawing leaves the office unless deliberately enabled. Upgrade the local brain from Llama 3 to a stronger/vision-capable local model.
 2. Extend document intake from DWG-layers-only to a **scoped local folder** of mixed documents: **DWG (geometry), PDF (text/schedules/specs), images (sketches/renders, via vision)**.
 3. Produce a structured, governable **Build Proposal** and build the model **autonomously**, wrapped in safety rails that make an unattended run reversible and auditable.
 4. **Govern every build**: each generated element is adjudicated against the office standard (IDS) and recorded on the audit ledger.
@@ -47,7 +47,7 @@ The interaction model is **autonomous**: the agent reads a folder, builds the wh
   1 · SENSE      DWG → layers + linework (curves) · PDF → text/schedules · images → bytes
                  → assemble an "Evidence Packet"
                                 │
-  2 · INTERPRET  bridge → cloud model (Claude/Kimi) with { evidence + office IDS + examples }
+  2 · INTERPRET  LOCAL model by default (cloud Claude/Kimi opt-in via bridge) with { evidence + office IDS + examples }
                  → a schema-validated "Build Proposal" (element → family/type/params, confidence, rationale)
                                 │
   3 · BUILD      placement engine consumes the Proposal, inside ONE Revit TransactionGroup
@@ -63,14 +63,14 @@ The interaction model is **autonomous**: the agent reads a folder, builds the wh
 
 Each component has one responsibility and a defined interface, so it can be built and tested in isolation.
 
-### C1 · AI gateway (bridge) — `WebApp/bridge/ai-*.mjs`
-- **Responsibility:** the single place that talks to cloud LLM/vision providers; holds keys; routes by model.
-- **Interface:** `POST /ai/interpret` `{ evidence, standard, model?, examples? } → BuildProposal`; (later) `POST /ai/chat` for the copilot.
-- **Provider abstraction:** `interpret(provider, payload)` with adapters for Anthropic (Claude, incl. vision), Moonshot (Kimi), … behind one signature. Default + per-request `model`. Keys in `config/.env` (`ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`), never on the desktop.
-- **Depends on:** the F2 auth gate (the AI routes are protected like every other bridge route).
+### C1 · Local interpreter (plugin, DEFAULT) — `LocalInterpreter : ILayerMapper`
+- **Responsibility:** the default brain. Runs an on-machine model (Ollama runtime, upgraded from Llama 3 to a stronger/vision-capable local model) and returns a validated `BuildProposal`. **No network, no keys — the drawings never leave the machine.** This is the path 99% of projects use.
 
-### C2 · Model interpreter (plugin) — `BridgeInterpreter : ILayerMapper`
-- **Responsibility:** desktop-side client that posts the Evidence Packet to `/ai/interpret` and returns a validated `BuildProposal`. Selected by config in place of `LocalGhostBuilder`; `LocalGhostBuilder` stays as the **offline / privacy fallback**.
+### C2 · Cloud gateway (bridge, OPT-IN) — `WebApp/bridge/ai-*.mjs` + `BridgeInterpreter : ILayerMapper`
+- **Responsibility:** the *opt-in only* path. When a project explicitly enables cloud, `BridgeInterpreter` posts the Evidence Packet to `POST /ai/interpret`; the bridge routes to a cloud provider and holds the keys.
+- **Interface:** `POST /ai/interpret` `{ evidence, standard, model?, examples? } → BuildProposal`; (later) `POST /ai/chat` for the copilot.
+- **Provider abstraction:** `interpret(provider, payload)` with adapters for Anthropic (Claude, incl. vision), Moonshot (Kimi), … behind one signature. Keys in `config/.env` (`ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`), never on the desktop. Protected by the F2 auth gate.
+- **Guard:** cloud is off unless a per-project setting turns it on, with a clear "drawings will be sent to <provider>" warning.
 
 ### C3 · SENSE — `GhostSense` (plugin)
 - **Responsibility:** read the scoped folder and assemble the Evidence Packet. DWG → layers + curves (reuse `GhostBuilder_ExtractionAndPlacement`); PDF → text (reuse `DocumentTextReader`); images → base64 bytes + filename.
@@ -121,7 +121,7 @@ The INTERPRET stage is **deterministic-first**. A **DWG Layer Standard** (`docs/
 
 ## Data flow (end to end)
 
-Revit command → `GhostSense` reads folder → Evidence Packet → `BridgeInterpreter` → `POST /ai/interpret` → bridge → provider (Claude) → `BuildProposal` (schema-validated bridge-side) → back to plugin → `GhostBuilderOrchestrator` builds in a TransactionGroup → `GovernedElementExtractor` + `adjudicate()` → verdicts + ledger append → `GhostReviewWindow`.
+Revit command → `GhostSense` reads folder → Evidence Packet → **interpreter** — `LocalInterpreter` by default (on-machine, no network), *or* `BridgeInterpreter` → `POST /ai/interpret` → bridge → cloud provider **only if the project opted in** → `BuildProposal` (schema-validated) → `GhostBuilderOrchestrator` builds in a TransactionGroup → `GovernedElementExtractor` + `adjudicate()` → verdicts + ledger append → `GhostReviewWindow`.
 
 ## Error handling & failure modes
 
@@ -139,7 +139,7 @@ Revit command → `GhostSense` reads folder → Evidence Packet → `BridgeInter
 - **Keys on the bridge only** (consistent with today's trust boundary); desktop stays thin.
 - **AI routes protected** by the F2 auth gate.
 - **Scoped folder** — the agent reads only the one configured folder, nothing else on disk.
-- **⚠ Privacy call-out (needs an office decision):** cloud interpretation means the office's **drawings/specs are sent to a third-party model API** (Anthropic / Moonshot). This must be surfaced to the user and made a setting. `LocalGhostBuilder` (offline) remains available for sensitive projects. *This is a real trade-off to confirm with the firm, not a detail.*
+- **Privacy-first — DECIDED: local is the default, drawings never leave the machine.** The default interpreter is the on-machine local model (no network, no keys — the plugin talks to a local runtime directly, not even the bridge). **Cloud interpretation (Claude/Kimi) is strictly opt-in per project**, behind an explicit setting + warning, only for offices that accept sending drawings to a third-party API. This is a hard product constraint, not a toggle to default on.
 - **Governed** — every build recorded to the tamper-evident ledger.
 
 ## Learning (how the agent improves)
@@ -158,14 +158,14 @@ This delivers "learns my workflow from my examples" honestly and cheaply; option
 
 ## Phasing (within v2)
 
-1. **P1 — Gateway + brain swap.** Bridge AI gateway + provider abstraction; `BridgeInterpreter` behind `ILayerMapper`; run the *existing* DWG-only flow through Claude. Ship value immediately (better mappings).
+1. **P1 — Provider abstraction (local-default) + upgrade the local brain.** Interpreter abstraction with the **local model as default** (data stays on-machine, no bridge/keys on this path); upgrade from Llama 3 to a stronger/vision-capable local model; add the cloud adapter (via bridge) as **opt-in**. Run the *existing* DWG-only flow through the upgraded local brain. Ship value immediately (better mappings, zero data egress).
 2. **P2 — Senses.** Scoped folder + multi-doc SENSE (PDF + vision) + the richer Build Proposal contract.
 3. **P3 — Autonomous rails + review.** TransactionGroup undo, ghost/confidence placement, GOVERN integration, `GhostReviewWindow`. (This is where "auto-build → review" becomes real.)
 4. **P4 — Multi-model + tuning.** Kimi/other routing, the example library + knowledge base, prompt/confidence tuning.
 
 ## Open questions (to resolve before/within build)
 
-1. **Cloud vs local default** — is cloud interpretation acceptable for the pilot's drawings, or is `LocalGhostBuilder` the default with cloud opt-in? (Privacy trade-off above.)
+1. ~~Cloud vs local default~~ — **DECIDED (2026-07-22): local is the default, cloud is strictly opt-in** (privacy — no drawings to third-party APIs). Remaining sub-question: *which stronger local model* to upgrade to (a larger Llama 3.x / Qwen, + a local VLM for sketches).
 2. **Confidence threshold** for ghost vs solid — start at a value (e.g. 0.75) and tune from real runs.
 3. **Which providers at launch** — Claude (has vision) is the natural first; Kimi second for large doc sets. Confirm accounts/keys.
 4. **Governance timing** — govern *after* build (as specced), or a pre-build dry-run adjudication of the Proposal too? (Post-build is simpler for v1.)
