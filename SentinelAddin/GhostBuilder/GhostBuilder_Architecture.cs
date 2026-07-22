@@ -136,9 +136,40 @@ namespace Sentinel.GhostBuilder
             string inner = doc.RootElement.GetProperty("response").GetString()
                            ?? throw new InvalidOperationException("Empty LLM response.");
 
-            return JsonSerializer.Deserialize<MappingResult>(inner)
+            var result = JsonSerializer.Deserialize<MappingResult>(inner)
                    ?? throw new InvalidOperationException("LLM returned malformed mapping JSON.");
+            NormalizeFamilies(result);
+            return result;
         }
+
+        // The model often omits a family/type name (the schema only requires cadLayer/category/confidence),
+        // returning an EMPTY string that defeats the `BdsFamilyType ?? BdsFamily` fallback in the provisioner
+        // + placement (`??` only catches null) — so the layer skipped on an empty type. Normalise: empty type
+        // -> null (so the fallback works), empty family -> a generic default. For "Walls" that generic type is
+        // system-provisioned downstream, so a spec-inferred layer like EXTERIOR-ENVELOPE now actually builds;
+        // other categories still need their .rfa families loaded.
+        private static void NormalizeFamilies(MappingResult r)
+        {
+            if (r?.Mappings == null) return;
+            foreach (var m in r.Mappings)
+            {
+                if (m == null) continue;
+                if (string.IsNullOrWhiteSpace(m.BdsFamilyType)) m.BdsFamilyType = null;
+                if (string.IsNullOrWhiteSpace(m.BdsFamily)) m.BdsFamily = GenericFamilyFor(m.Category);
+            }
+        }
+
+        private static string GenericFamilyFor(string category) => (category ?? "").Trim() switch
+        {
+            "Walls" => "Generic Wall",
+            "Doors" => "Generic Door",
+            "Windows" => "Generic Window",
+            "Floors" => "Generic Floor",
+            "Ceilings" => "Generic Ceiling",
+            "Columns" => "Generic Column",
+            "Furniture" => "Generic Furniture",
+            _ => null,
+        };
 
         public void Dispose() => _http.Dispose();
 

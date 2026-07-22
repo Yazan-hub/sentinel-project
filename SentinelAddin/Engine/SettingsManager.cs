@@ -119,7 +119,19 @@ public static class SettingsManager
     /// empty settings when neither exists (engine then uses built-in chain).</summary>
     public static SentinelSettings Resolve(Document? doc)
     {
-        if (doc is not null && LoadFromDocument(doc) is SentinelSettings project) return project;
-        return LoadFromMachine() ?? new SentinelSettings();
+        var machine = LoadFromMachine();
+        var project = doc is not null ? LoadFromDocument(doc) : null;
+        if (project is null) return machine ?? new SentinelSettings();
+
+        // A project's document ES wins for its own fields, but the machine config still supplies the GHOST
+        // operational defaults (source folder / family library / ruleset path) so they apply even in a project
+        // that carries its own Sentinel ES — otherwise a per-project setup silently disables P2's doc folder.
+        if (machine is not null)
+        {
+            if (string.IsNullOrWhiteSpace(project.GhostSourceFolder)) project.GhostSourceFolder = machine.GhostSourceFolder;
+            if (string.IsNullOrWhiteSpace(project.GhostFamilyLibraryDir)) project.GhostFamilyLibraryDir = machine.GhostFamilyLibraryDir;
+            if (string.IsNullOrWhiteSpace(project.GhostLayerRulesetPath)) project.GhostLayerRulesetPath = machine.GhostLayerRulesetPath;
+        }
+        return project;
     }
 }
