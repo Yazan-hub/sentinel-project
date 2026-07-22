@@ -111,8 +111,14 @@ namespace Sentinel.GhostBuilder
                 var wallProv = new GhostWallTypeProvisioner(_doc).Provision(mapping);
                 if (wallProv.Created > 0) _doc.Regenerate();
 
+                // Floor types are system families too — duplicate a base type for any mapped floor type
+                // the doc lacks, so a "Floors" layer builds instead of skipping on a missing type.
+                var floorProv = new GhostFloorTypeProvisioner(_doc).Provision(mapping);
+                if (floorProv.Created > 0) _doc.Regenerate();
+
                 var engine = new GhostPlacementEngine(_doc, _minConfidence);
                 report = engine.Place(mapping, elements);
+                report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);
                 if (pre != null) report.Warnings.InsertRange(0, pre.Warnings);
 

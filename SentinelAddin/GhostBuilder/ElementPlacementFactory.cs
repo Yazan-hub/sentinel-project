@@ -76,7 +76,7 @@ namespace Sentinel.GhostBuilder
                 case "Windows":
                 case "Columns":
                 case "Furniture":
-                    return PlaceFamilyInstance(el, wanted, out warning);
+                    return PlaceFamilyInstance(el, wanted, map.Category, out warning);
 
                 default:
                     warning = $"Category '{map.Category}' (layer '{el.CadLayer}') not handled at LOD 200; skipped.";
@@ -143,20 +143,69 @@ namespace Sentinel.GhostBuilder
         }
 
         // ---- Point families (doors/windows/columns/furniture): stable API, no #if ----
-        private Outcome PlaceFamilyInstance(GhostElement el, string wanted, out string warning)
+        private Outcome PlaceFamilyInstance(GhostElement el, string wanted, string category, out string warning)
         {
             warning = null;
-            if (el.LocationPoint == null) return Outcome.SkippedNoGeometry;
 
-            if (wanted == null || !_symbols.TryGetValue(wanted, out FamilySymbol sym))
+            // A block insert carries an insertion point directly; a symbol drawn as a closed outline
+            // (e.g. a column square) carries a loop instead — use its centroid so it still places.
+            XYZ pt = el.LocationPoint ?? Centroid(el.LocationLoop);
+            if (pt == null) return Outcome.SkippedNoGeometry;
+
+            // Resolve the named symbol; if the model invented a name the doc lacks, fall back to ANY loaded
+            // family of the matching category, so a column/furniture layer still places when a family of that
+            // kind exists in the project. A blank project with no such family skips — honestly.
+            FamilySymbol sym = null;
+            if (wanted != null) _symbols.TryGetValue(wanted, out sym);
+            if (sym == null) sym = FallbackSymbol(category);
+            if (sym == null)
             {
-                warning = $"FamilySymbol '{wanted}' not found (layer '{el.CadLayer}'); skipped.";
+                warning = $"No {category} family available (layer '{el.CadLayer}'); load one for this category " +
+                          "or set the Ghost family library. Skipped.";
                 return Outcome.SkippedUnknownType;
             }
 
             if (!sym.IsActive) sym.Activate(); // inactive symbols throw on NewFamilyInstance
-            _doc.Create.NewFamilyInstance(el.LocationPoint, sym, _level, StructuralType.NonStructural);
+            _doc.Create.NewFamilyInstance(pt, sym, _level, StructuralType.NonStructural);
             return Outcome.Placed;
+        }
+
+        private static XYZ Centroid(IList<Curve> loop)
+        {
+            if (loop == null || loop.Count == 0) return null;
+            double x = 0, y = 0, z = 0; int n = 0;
+            foreach (Curve c in loop)
+            {
+                if (c == null || !c.IsBound) continue;
+                XYZ p = c.GetEndPoint(0);
+                x += p.X; y += p.Y; z += p.Z; n++;
+            }
+            return n > 0 ? new XYZ(x / n, y / n, z / n) : null;
+        }
+
+        private readonly Dictionary<string, FamilySymbol> _fallbackByCategory =
+            new Dictionary<string, FamilySymbol>(StringComparer.OrdinalIgnoreCase);
+
+        // First loaded family symbol of the category, or null when the project has none.
+        private FamilySymbol FallbackSymbol(string category)
+        {
+            string key = category ?? "";
+            if (_fallbackByCategory.TryGetValue(key, out FamilySymbol cached)) return cached;
+
+            BuiltInCategory? bic = category switch
+            {
+                "Doors" => BuiltInCategory.OST_Doors,
+                "Windows" => BuiltInCategory.OST_Windows,
+                "Columns" => BuiltInCategory.OST_Columns,
+                "Furniture" => BuiltInCategory.OST_Furniture,
+                _ => (BuiltInCategory?)null,
+            };
+            FamilySymbol sym = bic == null ? null
+                : new FilteredElementCollector(_doc).OfCategory(bic.Value)
+                    .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().FirstOrDefault();
+
+            _fallbackByCategory[key] = sym;
+            return sym;
         }
 
         // ---- Floors & ceilings: the ONE genuine cross-version break ----
