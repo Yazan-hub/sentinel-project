@@ -1112,6 +1112,110 @@ function validateContainerName(rawName, rs) {
   });
   return { ok: failures.length === 0, name, ruleset: rs.title, fields, failures };
 }
+
+// src/sentinel-core/layers.ts
+var MAJOR_CATEGORY = {
+  WALL: "Walls",
+  DOOR: "Doors",
+  WIND: "Windows",
+  GLAZ: "Windows",
+  FLOR: "Floors",
+  SLAB: "Floors",
+  CLNG: "Ceilings",
+  COLS: "Columns",
+  FURN: "Furniture",
+  EQPM: "Furniture",
+  BEAM: "(extension)",
+  STRS: "(extension)",
+  ROOF: "(extension)",
+  DUCT: "(extension)",
+  PIPE: "(extension)"
+};
+var MINOR_PARAMS = {
+  EXT: { IsExternal: true },
+  INT: { IsExternal: false }
+};
+var MINOR_REQUIRES = { FIRE: ["FireRating"] };
+function globToRegex(glob) {
+  try {
+    const rx = glob.split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+    return new RegExp(`^${rx}$`, "i");
+  } catch {
+    return null;
+  }
+}
+function mapLayer(raw, rs) {
+  const ci = rs.match?.caseInsensitive !== false;
+  const norm = (s) => {
+    let v = s ?? "";
+    if (rs.match?.trim !== false) v = v.trim();
+    return ci ? v.toUpperCase() : v;
+  };
+  const input = raw ?? "";
+  const normalized = norm(input);
+  const base = { input, normalized, kind: "none", compliant: false, ignored: false, confidence: 0, needsAI: true };
+  if (!normalized) return { ...base, reason: "empty layer name" };
+  for (const g of rs.ignore ?? []) {
+    const rx = globToRegex(ci ? g.toUpperCase() : g);
+    if (rx && rx.test(normalized)) return { ...base, kind: "ignored", compliant: true, ignored: true, confidence: 1, needsAI: false, reason: "non-model layer (ignored)" };
+  }
+  const exact = rs.layers.find((l) => norm(l.layer) === normalized);
+  if (exact) return { ...base, kind: "exact", compliant: true, confidence: 1, needsAI: false, category: exact.category, family: exact.family, params: exact.params, requires: exact.requires };
+  const aliased = rs.layers.find((l) => (l.aliases ?? []).some((a) => norm(a) === normalized));
+  if (aliased) return { ...base, kind: "alias", compliant: false, confidence: 0.95, needsAI: false, category: aliased.category, family: aliased.family, params: aliased.params, requires: aliased.requires, suggestion: aliased.layer, reason: `non-standard name \u2014 maps to ${aliased.layer}` };
+  const ext = (rs.extensions ?? []).find((e) => norm(e.layer) === normalized);
+  if (ext) {
+    const cat = MAJOR_CATEGORY[ext.major ?? ""] ?? "(extension)";
+    return { ...base, kind: "extension", compliant: true, confidence: 0.9, needsAI: cat === "(extension)", category: cat, params: ext.params, reason: ext.note ?? "extension layer" };
+  }
+  const parts = normalized.split("-");
+  if (parts.length >= 2 && (rs.disciplines ? parts[0] in rs.disciplines : parts[0].length === 1)) {
+    const major = parts[1];
+    const minor = parts[2];
+    const cat = MAJOR_CATEGORY[major];
+    if (cat && cat !== "(extension)") {
+      const params = { Discipline: parts[0], ...MINOR_PARAMS[minor] ?? {} };
+      return { ...base, kind: "pattern", compliant: true, confidence: 0.7, needsAI: false, category: cat, params, requires: MINOR_REQUIRES[minor], reason: "standard format \u2014 derived mapping" };
+    }
+    return { ...base, kind: "pattern", compliant: true, confidence: 0, needsAI: true, reason: `standard format but unrecognized element '${major}'` };
+  }
+  return { ...base, kind: "none", compliant: false, needsAI: true, confidence: 0, suggestion: guessRename(normalized), reason: "unrecognized layer name" };
+}
+function guessRename(name) {
+  const n = name.toUpperCase();
+  const hit = (kw) => n.includes(kw);
+  if (hit("EXT") && hit("WALL")) return "A-WALL-EXT";
+  if (hit("WALL")) return "A-WALL-INT";
+  if (hit("DOOR")) return "A-DOOR";
+  if (hit("WIND") || hit("GLAZ")) return "A-WIND";
+  if (hit("FLOOR") || hit("FLOR") || hit("SLAB")) return "A-FLOR";
+  if (hit("CEIL") || hit("CLNG")) return "A-CLNG";
+  if (hit("COL")) return "A-COLS";
+  if (hit("FURN")) return "A-FURN";
+  return void 0;
+}
+function validateLayers(names, rs) {
+  const mappings = (names ?? []).map((n) => mapLayer(n, rs));
+  const nonCompliant = mappings.filter((m) => !m.compliant && !m.ignored);
+  const needsAI = mappings.filter((m) => m.needsAI && !m.ignored);
+  const counts = {
+    compliant: mappings.filter((m) => m.compliant && !m.ignored).length,
+    ignored: mappings.filter((m) => m.ignored).length,
+    nonCompliant: nonCompliant.length,
+    needsAI: needsAI.length
+  };
+  const verdict = rs.enforce === "off" ? "ok" : rs.enforce === "reject" && nonCompliant.length > 0 ? "rejected" : nonCompliant.length > 0 ? "warn" : "ok";
+  return {
+    standard: rs.standard,
+    enforce: rs.enforce,
+    verdict,
+    total: mappings.length,
+    counts,
+    nonCompliant: nonCompliant.map((m) => ({ input: m.input, suggestion: m.suggestion, reason: m.reason })),
+    needsAI: needsAI.map((m) => m.input),
+    mappings
+  };
+}
 export {
   DEMO_IDS,
   GATE_DEFS,
@@ -1137,6 +1241,7 @@ export {
   evaluateGate,
   groupFailuresForBcf,
   levelSequence,
+  mapLayer,
   missingFields,
   netDelta,
   parseIds,
@@ -1150,5 +1255,6 @@ export {
   toCobieCsv,
   toElementGraph,
   validateContainerName,
-  validateElement
+  validateElement,
+  validateLayers
 };

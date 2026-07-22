@@ -3,3 +3,4 @@
 // Build:  esbuild src/sentinel-core/sandbox.ts --bundle --format=iife --global-name=SentinelCore --platform=browser --minify
 export { adjudicate, validateElement, groupFailuresForBcf, DEMO_IDS } from "./ids";
 export { validateContainerName } from "./naming";
+export { mapLayer, validateLayers } from "./layers";

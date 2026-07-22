@@ -8,3 +8,5 @@ export type { IdsSpec, IdsSpecification, IdsApplicability, ElementResult, Failur
 export { parseIds } from "./ids-parse";
 export { validateContainerName } from "./naming";
 export type { NamingRuleset, NamingField, NamingResult, NamingFailure, NamingEnforce } from "./naming";
+export { mapLayer, validateLayers } from "./layers";
+export type { LayerRuleset, LayerDef, LayerExtension, LayerMapping, LayerValidation, LayerMatchKind, LayerEnforce } from "./layers";
