@@ -30,9 +30,13 @@ public sealed class SentinelSettings
     [JsonPropertyName("ollama_url")] public string OllamaUrl { get; set; } = "http://localhost:11434/api/generate";
     [JsonPropertyName("ghost_layer_ruleset_path")] public string GhostLayerRulesetPath { get; set; } = string.Empty; // empty -> %AppData%\Sentinel\bds-layers.json, then the shipped Resources copy
     [JsonPropertyName("ghost_cloud_opt_in")] public bool GhostCloudOptIn { get; set; } = false;                 // OFF: no drawing leaves the machine
+    // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs/sketches) the agent may read — and ONLY this
+    // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
+    [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
 
     [JsonIgnore] public bool IsEmpty =>
-        string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath);
+        string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath)
+        && string.IsNullOrWhiteSpace(GhostSourceFolder) && string.IsNullOrWhiteSpace(GhostFamilyLibraryDir);
 }
 
 public static class SettingsManager

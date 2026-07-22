@@ -39,6 +39,7 @@ namespace Sentinel.GhostBuilder
         // with no code change. Data never leaves the machine on this path.
         private readonly string _ollamaUrl;
         private readonly string _model;
+        private readonly string _evidence; // P2: scoped-folder document context (empty -> none)
 
         private readonly HttpClient _http;
         private readonly string _schema; // optional caller-supplied JSON schema; empty -> DefaultSchema
@@ -72,11 +73,13 @@ namespace Sentinel.GhostBuilder
 
         public LocalGhostBuilder(string schemaJson,
                                  string model = "qwen2.5:7b-instruct",
-                                 string ollamaUrl = "http://localhost:11434/api/generate")
+                                 string ollamaUrl = "http://localhost:11434/api/generate",
+                                 string evidence = null)
         {
             _schema = schemaJson; // null/empty is fine — MapLayersAsync falls back to DefaultSchema
             _model = string.IsNullOrWhiteSpace(model) ? "qwen2.5:7b-instruct" : model;
             _ollamaUrl = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
+            _evidence = evidence ?? string.Empty; // P2: document context the model uses to disambiguate layers
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
         }
 
@@ -95,6 +98,12 @@ namespace Sentinel.GhostBuilder
                 "Examples: 'EXT-WALL-2HR' -> Walls; 'A_DR_INTERIOR' -> Doors; 'CURTAIN-GLASS' -> Windows; " +
                 "'RCP-GRID' -> Ceilings.\n" +
                 "Layers: " + string.Join(", ", cadLayers);
+
+            // P2: prepend scoped-folder document context so the model can disambiguate messy layer names
+            // (and, later, seed parameters) from the project's own specs/schedules.
+            if (!string.IsNullOrWhiteSpace(_evidence))
+                prompt = "PROJECT DOCUMENTS (context to interpret ambiguous layer names and their category):\n"
+                         + _evidence + "\n\n" + prompt;
 
             // Send the schema in Ollama's `format` field so decoding is constrained to our shape.
             // A caller-supplied schema (from settings) wins; otherwise the built-in default is used.

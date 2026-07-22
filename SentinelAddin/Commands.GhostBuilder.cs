@@ -80,8 +80,10 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // the LOCAL model (settings.GhostModel, default qwen2.5) resolves only the unrecognised layers.
         // Cloud stays off — the drawing never leaves the machine.
         var rulesetPath = string.IsNullOrWhiteSpace(settings.GhostLayerRulesetPath) ? null : settings.GhostLayerRulesetPath;
+        // P2 SENSE (slice 1): read supporting docs (PDF/specs) from the SCOPED folder → context for the model.
+        var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);
         var mapper = new LayerMapper(
-            new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl),
+            new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context),
             matcher: LayerRulesetMatcher.Load(rulesetPath));
         var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0.5, familyLibraryDir: libraryDir);
         GhostBuilderOrchestrator.Inputs inputs;
@@ -130,7 +132,9 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             try
             {
-                progress.SetStatus("Mapping CAD layers with the local model…");
+                progress.SetStatus(evidence.IsEmpty
+                    ? "Mapping CAD layers with the local model…"
+                    : $"Mapping CAD layers with the local model ({evidence.Sources.Count} doc(s) for context)…");
                 MappingResult mapping = await orchestrator.MapAsync(inputs, progress.Token).ConfigureAwait(false);
 
                 if (progress.Token.IsCancellationRequested) return; // user aborted; window already closing
