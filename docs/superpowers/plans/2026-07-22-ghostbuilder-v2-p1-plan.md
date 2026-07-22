@@ -70,6 +70,8 @@ Revit layers + PDF text
 
 **Done when:** a compliant BDS DWG auto-builds offline with 0 AI calls; a messy DWG builds with only its non-standard layers hitting the local model; the model is swappable via settings; nothing leaves the machine.
 
+> **Verified 2026-07-22 (AI, offline):** `LayerRulesetMatcher.cs` (the one non-Revit new file) was compiled in isolation on .NET 8 and run against the real `bds-layers.json` — **15/15 conformance checks pass** (exact/alias/ignore/format/keyword/unknown/extension/empty), matching `layers.test.ts`. The remaining files are small Revit-coupled edits (model de-hardcode + wiring) that need the user's `dotnet build` to confirm.
+
 ## Risks & mitigations
 
 | Risk | Mitigation |
