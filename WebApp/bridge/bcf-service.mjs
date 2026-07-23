@@ -432,6 +432,27 @@ async function handleRequest(req, res) {
     return; // keep the stream open — do NOT call send()
   }
 
+  // ── AI gateway: GET /ai/providers · POST /ai/chat ──────────────────────────────────────────────
+  // The one seam every AI feature calls. Provider keys stay on the bridge; the SPA never holds one
+  // and never talks to a provider directly. Cloud providers need a key AND SENTINEL_AI_CLOUD=1 —
+  // local (Ollama) is the default and needs neither. Lazily imported so a bridge with no AI
+  // configured never pays for loading the SDK.
+  if (url.pathname === "/ai/providers" && req.method === "GET") {
+    const ai = await import("./ai-gateway.mjs");
+    return send(res, 200, { providers: ai.listProviders() });
+  }
+  if (url.pathname === "/ai/chat" && req.method === "POST") {
+    const ai = await import("./ai-gateway.mjs");
+    const body = await readBody(req);
+    try {
+      return send(res, 200, await ai.chat(body));
+    } catch (e) {
+      // A blocked provider or an unreachable local model is the caller's problem to fix and the
+      // message says how — pass it through rather than letting it become a generic 500.
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
   // ── Revit sheets (rendered PNGs the plugin pushes): GET /sheets  +  GET /sheets/img/:set/:file ──
   // GET /sheets → all sheet sets with their manifests (each sheet carries a ready-to-use image url).
   if (url.pathname === "/sheets" && req.method === "GET") {

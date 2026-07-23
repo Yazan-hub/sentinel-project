@@ -17,6 +17,7 @@
     "start": "node bridge/bcf-service.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.113.0",
     "@lit/context": "^1.1.6",
     "@markerjs/markerjs3": "^3.9.0",
     "@sparkjsdev/spark": "^0.1.10",

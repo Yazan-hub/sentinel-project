@@ -1,0 +1,199 @@
+// The Sentinel AI layer — ONE seam every AI feature calls, so the Copilot, the agent mode, and
+// anything later share the same providers, the same privacy rule, and the same tool contract.
+//
+// PRIVACY (decision D-?? / GhostBuilder v2, 2026-07-22): **local is the default and cloud is strictly
+// opt-in.** A cloud provider is only usable when BOTH are true: its API key is configured AND
+// SENTINEL_AI_CLOUD=1 is set. A key sitting in .env is not consent — the switch is separate on purpose,
+// so a key added for one thing can't silently start shipping model data somewhere.
+//
+// Keys live HERE, on the bridge, never in the browser (same reasoning as the Supabase service key —
+// see docs/handbook/06-glossary.md "bridge = trust boundary"). The SPA calls /ai/chat; it never holds
+// a provider key and never talks to a provider directly.
+import Anthropic from "@anthropic-ai/sdk";
+
+// ── providers ────────────────────────────────────────────────────────────────────────────────────
+// `cloud: false` means it never leaves the machine. Everything else needs the opt-in above.
+// Model lists are the picker's defaults, not a whitelist — a caller may pass any model string.
+export const PROVIDERS = {
+  local: {
+    label: "Local (Ollama)",
+    cloud: false,
+    models: ["qwen2.5:7b-instruct", "llama3", "qwen3.6"],
+    note: "Runs on this machine. Nothing leaves it.",
+  },
+  claude: {
+    label: "Claude",
+    cloud: true,
+    env: "ANTHROPIC_API_KEY",
+    // claude-opus-4-8 is the current default per the Anthropic model catalog.
+    models: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+    note: "Anthropic. Strongest on long reasoning and vision.",
+  },
+  gemini: {
+    label: "Gemini",
+    cloud: true,
+    env: "GEMINI_API_KEY",
+    models: ["gemini-2.5-pro", "gemini-2.5-flash"],
+    base: "https://generativelanguage.googleapis.com/v1beta/openai",
+    note: "Google. Large context, cheap.",
+  },
+  kimi: {
+    label: "Kimi",
+    cloud: true,
+    env: "MOONSHOT_API_KEY",
+    models: ["kimi-k2-0905-preview", "moonshot-v1-128k"],
+    base: "https://api.moonshot.ai/v1",
+    note: "Moonshot. Strong on very large document sets.",
+  },
+};
+
+const CLOUD_OPTIN = process.env.SENTINEL_AI_CLOUD === "1";
+const keyOf = (id) => (PROVIDERS[id]?.env ? process.env[PROVIDERS[id].env] || "" : "");
+
+/** Why a provider can't be used right now — null when it can. The UI shows this verbatim, so a
+ *  misconfiguration explains itself instead of failing as a generic error at call time. */
+export function blockedReason(id) {
+  const p = PROVIDERS[id];
+  if (!p) return "Unknown provider.";
+  if (!p.cloud) return null;
+  if (!keyOf(id)) return `No API key — set ${p.env} in config/.env and restart the bridge.`;
+  if (!CLOUD_OPTIN) return "Cloud is off. Set SENTINEL_AI_CLOUD=1 in config/.env to allow it.";
+  return null;
+}
+
+/** What the picker renders. Never leaks a key — only whether one is present. */
+export function listProviders() {
+  return Object.entries(PROVIDERS).map(([id, p]) => ({
+    id, label: p.label, cloud: p.cloud, models: p.models, note: p.note,
+    configured: p.cloud ? !!keyOf(id) : true,
+    available: blockedReason(id) === null,
+    blocked: blockedReason(id),
+  }));
+}
+
+// ── the one call ─────────────────────────────────────────────────────────────────────────────────
+/**
+ * chat({provider, model, system, messages, tools}) -> {text, toolCalls:[{id,name,input}], provider, model}
+ *
+ * `messages` is [{role:"user"|"assistant", content:"..."}]. `tools` is the Anthropic tool shape
+ * ({name, description, input_schema}) because it is the most explicit of the three, and the two
+ * OpenAI-compatible providers convert from it cleanly — going the other way loses the schema's
+ * `description` fields, which is exactly what the model needs to pick the right tool.
+ *
+ * Tools are what makes agent mode possible: the model returns a STRUCTURED PROPOSAL (toolCalls)
+ * rather than prose, and the caller decides whether to run any of it. Nothing here executes anything.
+ */
+export async function chat({ provider = "local", model, system, messages = [], tools = [] }) {
+  const blocked = blockedReason(provider);
+  if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
+
+  const p = PROVIDERS[provider];
+  const chosen = model || p.models[0];
+  const out =
+    provider === "local"  ? await viaOllama(chosen, system, messages, tools)
+  : provider === "claude" ? await viaClaude(chosen, system, messages, tools)
+                          : await viaOpenAiCompatible(provider, chosen, system, messages, tools);
+  return { ...out, provider, model: chosen };
+}
+
+// ── Claude (official SDK — never a compatibility shim) ────────────────────────────────────────────
+async function viaClaude(model, system, messages, tools) {
+  const client = new Anthropic({ apiKey: keyOf("claude") });
+  const res = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    // Adaptive thinking is the only supported on-mode on current models; budget_tokens is removed.
+    thinking: { type: "adaptive" },
+    ...(system ? { system } : {}),
+    ...(tools.length ? { tools } : {}),
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+  });
+
+  // stop_reason must be checked before reading content — a refusal returns HTTP 200 with no text.
+  if (res.stop_reason === "refusal")
+    return { text: "The model declined to answer this request.", toolCalls: [], refused: true };
+
+  return {
+    text: res.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim(),
+    toolCalls: res.content
+      .filter((b) => b.type === "tool_use")
+      .map((b) => ({ id: b.id, name: b.name, input: b.input })),
+  };
+}
+
+// ── Gemini + Kimi (both expose an OpenAI-compatible chat-completions endpoint) ────────────────────
+// One code path for two providers: the only differences are the base URL, the key, and the model
+// string, so a second bespoke client would be duplication, not clarity.
+async function viaOpenAiCompatible(provider, model, system, messages, tools) {
+  const p = PROVIDERS[provider];
+  const body = {
+    model,
+    messages: [
+      ...(system ? [{ role: "system", content: system }] : []),
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ],
+    ...(tools.length ? { tools: tools.map(toOpenAiTool) } : {}),
+  };
+  const resp = await fetch(`${p.base}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${keyOf(provider)}` },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const detail = (await resp.text()).slice(0, 300);
+    throw Object.assign(new Error(`${p.label} error ${resp.status}: ${detail}`), { status: 502 });
+  }
+  const json = await resp.json();
+  const msg = json.choices?.[0]?.message ?? {};
+  return {
+    text: (msg.content || "").trim(),
+    toolCalls: (msg.tool_calls || []).map((c) => ({
+      id: c.id,
+      name: c.function?.name,
+      input: safeJson(c.function?.arguments),
+    })),
+  };
+}
+
+const toOpenAiTool = (t) => ({
+  type: "function",
+  function: { name: t.name, description: t.description, parameters: t.input_schema },
+});
+
+// ── Local (Ollama) ───────────────────────────────────────────────────────────────────────────────
+// /api/chat (not /api/generate) because it is the one that supports tools + roles.
+async function viaOllama(model, system, messages, tools) {
+  const url = (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
+  const resp = await fetch(`${url}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      messages: [
+        ...(system ? [{ role: "system", content: system }] : []),
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ],
+      ...(tools.length ? { tools: tools.map(toOpenAiTool) } : {}),
+    }),
+  });
+  if (!resp.ok) {
+    throw Object.assign(
+      new Error(`Local model unreachable (${resp.status}). Is Ollama running, and is "${model}" pulled?`),
+      { status: 503 },
+    );
+  }
+  const json = await resp.json();
+  return {
+    text: (json.message?.content || "").trim(),
+    toolCalls: (json.message?.tool_calls || []).map((c, i) => ({
+      id: `local_${i}`,
+      name: c.function?.name,
+      input: typeof c.function?.arguments === "string" ? safeJson(c.function.arguments) : c.function?.arguments || {},
+    })),
+  };
+}
+
+function safeJson(s) {
+  try { return typeof s === "string" ? JSON.parse(s) : s || {}; } catch { return {}; }
+}
