@@ -48,6 +48,17 @@ claude    blocked   No API key — set ANTHROPIC_API_KEY in config/.env and rest
 If one says *"Cloud is off"*, the `SENTINEL_AI_CLOUD=1` line is missing. If it says *"No API key"*,
 that provider's line is missing or misspelled.
 
+## Which model to pick
+
+The picker asks each provider what your key can actually reach, so the list is always current. Two
+findings from setting this up that are easy to misread as outages:
+
+- **Gemini:** `gemini-2.5-flash` is closed to new users (404) and `gemini-2.5-pro` has no free-tier
+  quota (429). Working defaults on a current key: **`gemini-3.6-flash`** and `gemini-flash-latest`.
+- **NVIDIA:** the key reaches ~118 models. `nvidia/llama-3.3-nemotron-super-49b-v1.5` is the default
+  and is verified working; the full Nemotron family (nano-8b, super-49b, ultra-253b, vision, safety)
+  is available.
+
 ## Two safety notes
 
 - **`config/.env` is gitignored** (verified) — your keys are never committed. Don't paste keys into

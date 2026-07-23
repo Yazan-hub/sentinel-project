@@ -39,7 +39,9 @@ export const PROVIDERS = {
     label: "Gemini",
     cloud: true,
     env: "GEMINI_API_KEY",
-    models: ["gemini-2.5-pro", "gemini-2.5-flash"],
+    // Verified working on a current key 2026-07-23. NOT 2.5-* : gemini-2.5-flash is closed to new
+    // users (404) and gemini-2.5-pro has no free-tier quota (429) — both look like outages, aren't.
+    models: ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3-pro-preview"],
     base: "https://generativelanguage.googleapis.com/v1beta/openai",
     note: "Google. Large context, cheap.",
   },
@@ -113,7 +115,9 @@ export async function listModels(id) {
     const r = await fetch(`${p.base}/models`, { headers: { authorization: `Bearer ${keyOf(id)}` } });
     if (!r.ok) return p.models;
     const j = await r.json();
-    const names = (j.data || []).map((m) => m.id).filter(Boolean);
+    // Gemini returns ids as "models/gemini-3.6-flash"; the chat endpoint wants the bare name, so a
+    // picker fed the raw id would 404 on every pick.
+    const names = (j.data || []).map((m) => String(m.id || "").replace(/^models\//, "")).filter(Boolean);
     return names.length ? names.sort() : p.models;
   } catch {
     return p.models; // offline or an unexpected shape — the static list is still usable
