@@ -1,0 +1,16 @@
+# A PDF's cross-reference table stores ABSOLUTE BYTE OFFSETS. If Git rewrites its line endings on
+# checkout (autocrlf is on for this repo), every offset after the first newline is wrong and the file
+# is silently corrupt — it may still open in a viewer while failing in a parser, which is the worst
+# kind of broken. Mark the binary formats so Git copies them byte-for-byte.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.rfa  binary
+*.rvt  binary
+*.ifc  binary
+
+# DXF is plain text, but the AutoCAD family expects CRLF. Pin it so the sample file is byte-identical
+# on every machine that clones this repo.
+*.dxf  text eol=crlf
