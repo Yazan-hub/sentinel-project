@@ -36,7 +36,8 @@ A full security audit was run (three adversarial passes + live-DB advisors + dep
 | **F14** `/sheets/img` path traversal | LOW | ✅ Fixed (resolve-prefix guard) |
 | **F14** verbose 500 bodies · unbounded SSE | LOW | ✅ Fixed 2026-07-23 (scrubbed once in `send()`; `BCF_MAX_SSE` cap). SSE *project* authz still open — needs the JWT in a query string, which trades against F12 |
 | **F11** `ACAO: *` on sheet/blob routes | MED | ✅ Fixed & verified 2026-07-23 (allowlisted-origin reflection on both binary routes) |
-| **F13** snapshots not append-only | LOW | 📝 Migration `0017` written, **not applied** — contributor+ gate + `BEFORE UPDATE` trigger; applying is a live-DB action |
+| **F13** snapshots not append-only | LOW | ✅ Fixed live 2026-07-23 (`0017`) — contributor+ gate + `BEFORE UPDATE` trigger; UPDATE rejected even for the service key, FK cascade intact |
+| **Advisors** anon-callable RLS helpers | LOW | ✅ Fixed live 2026-07-23 (`0018`) — `project_of_container` no longer leaks container→project for anon |
 | **F12** transport (HTTPS) | MED | ⬜ Triaged — a hosting change |
 
 **Verified sound by the audit:** the immutable ledger, the hash chain, RLS coverage, pinned `search_path` on all functions (no injection), and the end-to-end crypto envelope (PBKDF2 @ 210k iterations, AES-256-GCM, fresh IVs, no fail-open). No secrets are in git history; the key shipped in the browser is the **public anon key** (safe by design — RLS is the real boundary).

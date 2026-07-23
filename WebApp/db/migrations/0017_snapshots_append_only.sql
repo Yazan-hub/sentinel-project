@@ -1,9 +1,16 @@
 -- Sentinel CDE 0017 — F13: element_snapshots write posture (role gate + no in-place rewrite).
 --
--- ⚠ NOT APPLIED. Written 2026-07-23, reviewed but deliberately left for you to run — it touches a live
--- table holding ~37,500 rows, and after 0016 the exposure it closes is LOW. Apply via the Supabase
--- migration flow when you're ready, then record the post-apply verification at the top of this file the
--- way 0005 does.
+-- ✅ APPLIED 2026-07-23 (project autqqtwhxqrfjaztablm). Post-apply verification, run live:
+--   * row counts unchanged — element_snapshots 37,525 · model_revisions 19 (identical before/after)
+--   * policies now element_snapshots{read:SELECT, insert:INSERT, delete:DELETE} (no UPDATE policy at all)
+--     and model_revisions{read, insert, update, delete}; trg_snapshot_no_update present
+--   * an in-place UPDATE is REJECTED even for the elevated role:
+--       "element_snapshots is append-only — write a new revision instead of editing revision 67decff4…"
+--   * the FK cascade still works — a temp model_revision + child snapshot were inserted, the revision
+--     deleted, and the child row went with it (0 left). Both checks ran inside a DO block ending in a
+--     RAISE, so every test write was rolled back; counts re-confirmed at 37,525 / 19 afterwards.
+--   * `npm run security:check` still locks anon out of all 7 guarded tables; 99 WebApp tests pass;
+--     Supabase security advisors report NO new lint from this migration.
 --
 -- Context (audit F13). 0005 declared element_snapshots "APPEND-ONLY … Rows are never updated in place",
 -- and the whole 5D/6D revision-diff engine depends on that: a Δ is a self-join of two revisions on guid,

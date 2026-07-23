@@ -41,7 +41,8 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Keystore offline-crack (F7) + path traversal (F14) | ✅ Verified | Passphrase-strength gate + resolve-prefix guard; 99 tests pass |
 | CORS on the binary routes (F11) | ✅ Verified | Allowlisted-origin reflection replaces `ACAO: *` on sheet PNGs + CDE blobs; verified against a throwaway instance |
 | Error-body scrub + SSE cap (F14 residuals) | 🟩 Built | 500s generic (real text logged); `BCF_MAX_SSE` default 64. SSE *project* authz still open |
-| Snapshot append-only (F13) | 🟨 Partial | Migration `0017` written and code-path-checked, **not applied** — a live-DB action |
+| Snapshot append-only (F13) | ✅ Verified | `0017` applied 2026-07-23 — in-place UPDATE rejected even for the service key; FK cascade intact |
+| Anon locked out of the RLS helpers | ✅ Verified | `0018` applied — `project_of_container` no longer maps containers→projects for anon; 3 advisor WARNs cleared |
 | HTTPS / networked hosting (F12) | ⬜ Planned | Hosting change; gated with F2 activation |
 
 ## Adoption / go-to-market
