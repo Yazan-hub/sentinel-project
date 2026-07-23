@@ -250,6 +250,7 @@ namespace Sentinel.GhostBuilder
         public IList<Curve> LocationLoop { get; set; }   // floors/ceilings: closed boundary
         public double BaseElevation { get; set; }
         public double TopElevation { get; set; }         // walls: height driver
+        public double ThicknessMm { get; set; }          // walls: measured from the two drawn faces (0 = unpaired/unknown)
         // NOTE: LocationLoop is the seam for floor/ceiling placement. GhostCadExtractor populates it
         // for CLOSED polylines (open polylines still split into per-segment wall runs via
         // LocationCurve). ElementPlacementFactory maps LocationLoop to Floor/Ceiling.Create, and its

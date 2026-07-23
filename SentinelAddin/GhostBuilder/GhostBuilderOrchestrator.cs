@@ -80,7 +80,12 @@ namespace Sentinel.GhostBuilder
                 return new GhostPlacementEngine.PlacementReport
                 { Warnings = { "LLM returned no mappings; nothing to build." } };
 
-            var elements = inputs.Elements;
+            // Between map and place: collapse each wall's two drawn faces into one centreline element
+            // carrying the measured thickness. A DWG draws a wall as two parallel lines a thickness apart;
+            // without this each becomes a separate paper-thin wall and the thickness — the number the
+            // Office Modelling Guideline picks the wall TYPE from — is thrown away. Additive and safe: a
+            // wall it can't pair stays exactly the run it was.
+            var elements = GhostWallPairer.PairWalls(inputs.Elements, mapping);
 
             using var t = new Transaction(_doc, "Ghost Builder - LOD 200");
             t.Start();
