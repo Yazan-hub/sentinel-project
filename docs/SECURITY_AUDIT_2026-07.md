@@ -16,7 +16,7 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 | **F3** audit-trail poisoning | ✅ **Hardened (backward-compatible)** | Forwarded-JWT identity now stamps the ledger (`currentActor()`), outranking the client `actor`; no-JWT Revit/service path unchanged so the pilot still works. |
 | **F10** PostgREST arg injection | ✅ **Fixed** | `encodeURIComponent` on the four route-fed folder/container ids. |
 | **F9** unbounded-body DoS | ✅ **Fixed** | `readBody` capped (256 MB default, `BCF_MAX_JSON_MB`) + `Content-Length` precheck. |
-| **F6** stray `config/.env.txt` | ✅ **Deleted** | Removed; real `.env` retained (gitignored). **Key rotation still owed by you — dashboard action** (see below). |
+| **F6** stray `config/.env.txt` + key rotation | ✅ **Closed 2026-07-21** | Stray file removed, real `.env` retained (gitignored), and **both Supabase `service_role` keys and both That Open tokens were rotated** by the maintainer; the bridge was restarted and `security:check` passes against the new keys. |
 | **F15** `.thatopen` gitignore | ✅ **Added** | `.thatopen` / `**/.thatopen` now ignored. |
 | **F16** dev-dep CVEs | ✅ **Accepted (decision recorded)** | All five are in the `vite`/`vitest`/`esbuild` **build-and-test toolchain** — not the bridge, not the shipped bundle, not the DB. The only fix is a breaking `vite 5→8 + vitest 2→3` bump. **Accepted as dev-only with zero production surface**; revisit only if/when the toolchain is upgraded for other reasons. |
 | **F2** bridge auth optional | ✅ **Mechanism built & verified; activation documented** | The bridge now supports a `JWT-or-BCF_TOKEN` gate (`/health`+`/events` exempt), forwarding & token coexist, and the Revit add-in sends the token — all **inert until `BCF_TOKEN` is set** so the pilot is unaffected. Verified on a throwaway gated instance (anon→401, token→200, wrong→401). Turn-on checklist (incl. a raw-`fetch`→`bfetch` pass) in [`SECURITY_F2_ACTIVATION.md`](SECURITY_F2_ACTIVATION.md). |
@@ -31,7 +31,9 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 
 **Verification:** `0016` applied via Supabase migration; anon/member access re-tested live (results above); all **85 core tests pass**; the three modified bridge modules pass `node --check`.
 
-**⚠️ You still owe one manual action (needs dashboard access I don't have):** rotate the **two** Supabase `service_role` keys and the **two** That Open tokens (F6), and enable Supabase **leaked-password protection** (F15). They were never committed, but they sat in a plaintext working-tree file — treat them as compromised.
+**Manual (dashboard) actions.** ✅ **Key rotation is DONE** — the maintainer rotated both Supabase `service_role` keys and both That Open tokens on **2026-07-21**, restarted the bridge, and `security:check` passes against the new keys. (The old keys were never committed, but had sat in a plaintext working-tree file, so they were correctly treated as compromised.) ⬜ **Still owed:** enable Supabase **leaked-password protection** (HaveIBeenPwned) in the dashboard — F15.
+
+> This block previously read "you still owe key rotation" long after the rotation happened, and contradicted [`handbook/05`](handbook/05-capability-status.md). Corrected 2026-07-23 — when a remediation lands, update **both** pages or the honest map stops being honest.
 
 ## Executive summary
 
@@ -42,7 +44,7 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 | F3 | HIGH | Bridge / DB | **Audit-trail poisoning** — unauthenticated `/propose` + client-asserted `actor` forge governance verdicts |
 | F4 | HIGH | Bridge | **IDOR** — id-addressed mutations (set-live, folder/container ops) don't check the id belongs to the route's project |
 | F5 | HIGH | DB | **Membership privilege escalation** — a `lead` can self-promote to `owner` / evict the owner |
-| F6 | HIGH | Secrets | Live service_role + platform keys in `config/.env` (+ stray `.env.txt`) — **rotate** (two service keys present; not committed, but distributed for review) |
+| F6 | HIGH | Secrets | Live service_role + platform keys in `config/.env` (+ stray `.env.txt`) — **rotate** (two service keys present; not committed, but distributed for review) · **✅ rotated 2026-07-21** |
 | F7 | MEDIUM | Crypto | Unauthenticated keystore read → offline dictionary attack on the shared passphrase |
 | F8 | MEDIUM | DB | Global `bridge_docs` (marketplace) writable by any authenticated user → cross-project governance tampering |
 | F9 | MEDIUM | Bridge | Unbounded JSON body → memory-exhaustion DoS |
@@ -88,7 +90,7 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 
 **Fix:** migration `0016` — add a role ceiling (`has_min_role(project_id, role)` so you can't grant/hold above your own rank) to both `USING` and `WITH CHECK`.
 
-## F6 — HIGH · Rotate the live keys; delete the stray `.env.txt`
+## F6 — HIGH · Rotate the live keys; delete the stray `.env.txt` — ✅ DONE 2026-07-21
 
 `config/.env` and a stray `config/.env.txt` hold **live** `SUPABASE_SERVICE_KEY` (two different ones — a prior rotation left one live), `THATOPEN_API_KEY`, and the anon key. **Verified: none are committed** — `.gitignore` covers `.env` variants and `git grep`/history checks are clean. But a plaintext working-tree secret file distributed for review is exposed. **Rotate both Supabase service_role keys and both That Open tokens; delete `config/.env.txt`; move production secrets to a secret manager.**
 
@@ -124,7 +126,7 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 
 1. **F1** — apply migration `0016` (closes the live data exposure). *One migration, ~verified fix.*
 2. **F2 / F3 / F4** — make bridge auth mandatory; derive `actor` from the JWT; add project-scope checks on id-addressed mutations. *Bridge code.*
-3. **F6** — rotate all four keys; delete `config/.env.txt`.
+3. ~~**F6** — rotate all four keys; delete `config/.env.txt`.~~ ✅ done 2026-07-21. *(Moving production secrets to a secret manager remains a good next step, but the exposed material is no longer live.)*
 4. **F5 / F8** — folded into migration `0016`.
 5. **F9–F12** — body cap, `encodeURIComponent` (F10), `res._cors` on the two GETs (F11), HTTPS for the hosted pilot.
 6. **F13–F16** — hardening; `npm audit fix`; enable leaked-password protection; `.thatopen` gitignore.
