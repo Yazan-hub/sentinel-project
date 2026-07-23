@@ -13,8 +13,9 @@ static class Check
         else { _fail++; Console.WriteLine("  FAIL  " + name); }
     }
 
-    static int Main()
+    static int Main(string[] args)
     {
+        if (args.Contains("sample")) return SampleRun.Run();
         Console.WriteLine("WallPairing — read wall thickness from two drawn faces\n");
 
         // A single 200mm-thick, 5000mm-long wall drawn as two parallel faces.

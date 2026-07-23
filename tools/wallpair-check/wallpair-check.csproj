@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\WallPairing.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
   </ItemGroup>
 </Project>
