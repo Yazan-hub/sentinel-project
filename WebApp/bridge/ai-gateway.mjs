@@ -10,6 +10,12 @@
 // see docs/handbook/06-glossary.md "bridge = trust boundary"). The SPA calls /ai/chat; it never holds
 // a provider key and never talks to a provider directly.
 import Anthropic from "@anthropic-ai/sdk";
+import { loadEnv } from "./thatopen-client.mjs";
+
+// config/.env is NOT loaded into process.env by this project — `loadEnv()` parses it and each module
+// merges it (same pattern as cde-store.mjs), with the file authoritative over a stale shell var.
+// Reading process.env directly here silently ignored every key in the file.
+const env = { ...process.env, ...loadEnv() };
 
 // ── providers ────────────────────────────────────────────────────────────────────────────────────
 // `cloud: false` means it never leaves the machine. Everything else needs the opt-in above.
@@ -61,8 +67,8 @@ export const PROVIDERS = {
   },
 };
 
-const CLOUD_OPTIN = process.env.SENTINEL_AI_CLOUD === "1";
-const keyOf = (id) => (PROVIDERS[id]?.env ? process.env[PROVIDERS[id].env] || "" : "");
+const CLOUD_OPTIN = String(env.SENTINEL_AI_CLOUD || "").trim() === "1";
+const keyOf = (id) => (PROVIDERS[id]?.env ? String(env[PROVIDERS[id].env] || "").trim() : "");
 
 /** Why a provider can't be used right now — null when it can. The UI shows this verbatim, so a
  *  misconfiguration explains itself instead of failing as a generic error at call time. */
@@ -98,7 +104,7 @@ export async function listModels(id) {
 
   try {
     if (id === "local") {
-      const url = (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
+      const url = (env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
       const r = await fetch(`${url}/api/tags`);
       const j = await r.json();
       const names = (j.models || []).map((m) => m.name).filter(Boolean);
@@ -206,7 +212,7 @@ const toOpenAiTool = (t) => ({
 // ── Local (Ollama) ───────────────────────────────────────────────────────────────────────────────
 // /api/chat (not /api/generate) because it is the one that supports tools + roles.
 async function viaOllama(model, system, messages, tools) {
-  const url = (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
+  const url = (env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
   const resp = await fetch(`${url}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
