@@ -12,7 +12,7 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 854 >>
+<< /Length 855 >>
 stream
 BT
 /F1 11 Tf
@@ -50,7 +50,7 @@ T*
 T*
 (4.  ENVELOPE ZONE) Tj
 T*
-(    The zone drawn on layer EXT-ENVELOPE-2HR is the external envelope) Tj
+(    The zone drawn on layer EXTERIOR-ENVELOPE is the external envelope) Tj
 T*
 (    line and shall be treated as external walling, 2 hour fire rated.) Tj
 T*
@@ -74,5 +74,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1216
+1217
 %%EOF

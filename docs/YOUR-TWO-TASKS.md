@@ -1,102 +1,98 @@
-# The only two things left that need a human
+# What's left that needs a human
 
-Everything else in the July security audit is closed and verified. These two need a browser or Revit —
-things an assistant can't drive. Both are short. Follow them literally; no BIM or SQL knowledge needed.
+Everything else in the July security audit is closed and verified. These need a browser or Revit —
+things an assistant can't drive. Follow them literally; no BIM or SQL knowledge needed.
+
+> **Checked on your machine, 2026-07-23** — so you can skip the usual setup worries:
+> Ollama is **running**, with `qwen2.5:7b-instruct` (the mapping model) **and** `llava` (the vision
+> model) already pulled. Your **Ghost source folder** is already set to `C:\Users\yazan\Desktop\ghost-docs`,
+> which already contains a spec naming FR60 external walls **and** a sketch PNG — so the vision path
+> gets exercised too. You're running **Revit 2024**. Nothing to install.
+
+---
+
+## Task 0 — Close Revit and tell me (30 seconds) ⬅ **do this first**
+
+The add-in currently installed in Revit 2024 is from **before** today's work — it has none of the
+document-reading, the parameter writing, or the review window. Revit locks the add-in files while it's
+open, so it cannot be replaced underneath a running session. (The build refuses rather than pretending
+to succeed — that guard is deliberate; a silently stale install is worse than a failed build.)
+
+**Just close Revit and say "closed".** I'll rebuild and install the current version, and confirm it
+landed. Then reopen Revit and do Task 2.
 
 ---
 
 ## Task 1 — Turn on leaked-password protection (2 minutes)
 
 **What it does:** when someone sets a Sentinel password, Supabase checks it against the HaveIBeenPwned
-breach list and refuses passwords already known to attackers. It is off today. This is the last open item
-from the audit (F15).
-
-**You need:** the Supabase dashboard, signed in as the project owner.
+breach list and refuses passwords already known to attackers. It is off today. This is the last open
+item from the audit (F15), and the only one with no API — hence the clicking.
 
 1. Go to **https://supabase.com/dashboard/project/autqqtwhxqrfjaztablm/auth/policies**
-   (if that lands somewhere odd: dashboard → your project **Yazan-hub's Project** → **Authentication** in
-   the left sidebar → **Policies**, sometimes labelled **Password / Attack Protection** or
-   **Auth Protection** depending on the dashboard version).
-2. Find the row **"Prevent use of leaked passwords"** (it may read *Leaked password protection* or
-   *HaveIBeenPwned*).
-3. Flip the toggle **on**.
-4. Click **Save** if the page has a save button. Some versions save immediately — if there is no button,
-   it's already done.
+   (if that lands somewhere odd: dashboard → **Yazan-hub's Project** → **Authentication** in the left
+   sidebar → **Policies**, sometimes labelled **Password / Attack Protection**).
+2. Find the row **"Prevent use of leaked passwords"** (may read *Leaked password protection*).
+3. Flip the toggle **on**. Click **Save** if there's a button; some versions save immediately.
 
-**How you'll know it worked:** ask me next session to re-run the Supabase security advisors. The warning
-*"Leaked Password Protection Disabled"* should be gone. That's the whole check — nothing to type.
+**How you'll know it worked:** ask me to re-run the Supabase security advisors. The warning
+*"Leaked Password Protection Disabled"* should be gone. Nothing for you to type.
 
-**If you can't find the toggle:** tell me which menu items you *do* see under Authentication and I'll
-point at the right one. Dashboard layouts move around.
+**If you can't find it:** tell me what you *do* see under Authentication and I'll point at the right one.
 
 ---
 
 ## Task 2 — Run GhostBuilder once in Revit (10 minutes)
 
-**Why:** I rebuilt a lot of GhostBuilder this session (it now reads your project's PDFs, writes spec
-values like fire ratings onto the geometry, and asks for your approval before building anything). It
-compiles clean and its logic is tested offline, but **it has never been run in a real Revit**. Until it
-is, "it works" is a claim, not a fact. You are the only one who can turn that claim into a fact.
+**Why:** GhostBuilder was largely rebuilt this session — it now reads your project's documents, writes
+spec values like fire ratings onto the geometry, and asks your approval before building anything. It
+compiles clean and its logic passes 33 offline checks, but **it has never run in a real Revit**. Until
+it does, "it works" is a claim, not a fact.
 
-### Before you start
+### The drawing — already made for you
 
-- Close Revit. Open a terminal in the project folder and run:
-  `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2026`
-  (change `2026` to whichever Revit you use). It must say **Build succeeded**. This installs the add-in.
-- Make sure **Ollama is running** (GhostBuilder needs the local model — nothing leaves your machine).
+**`demo/ghost-sample/sample-plan.dxf`** in this repo: a 10 × 7 m plan with external walls, an internal
+partition, a floor slab, two doors, one deliberately non-standard layer, and two layers that must be
+ignored. You don't need to draw anything.
 
-### The test files — already made for you
+*(It's a DXF, not a DWG — DWG is a closed binary format I can't author. Revit imports DXF through the
+same Import CAD command and GhostBuilder reads it identically.)*
 
-They're in **`demo/ghost-sample/`** in this repo:
-
-| File | What it is |
-|---|---|
-| `sample-plan.dxf` | A 10 × 7 m floor plan: external walls, an internal partition, a floor slab, two doors, one deliberately messy layer, and two layers that must be ignored |
-| `sample-spec.pdf` | A one-page outline spec that says **"external walls (layer A-WALL-EXT) … fire rating of FR60"** |
-
-Together they exercise every part of the new pipeline in one run. You don't need to draw or write
-anything. *(It's a DXF rather than a DWG because DWG is a closed binary format I can't author — Revit
-imports DXF through the same Import CAD command and GhostBuilder can't tell the difference. If you'd
-rather have a true `.dwg`, open the DXF in AutoCAD and save-as.)*
-
-1. In Revit: **Sentinel ribbon → Project Setup**, set the **Ghost source folder** to the full path of
-   `demo/ghost-sample` (copy it from your file explorer's address bar).
+Your existing `ghost-docs` folder supplies the spec, so **there is no setting to change**.
 
 ### The run
 
-4. **Insert → Import CAD**, pick `sample-plan.dxf`. If it asks for units, choose **Millimeters**.
-5. **Sentinel ribbon → Ghost Builder**, then click the DWG when it asks you to select it.
-6. Wait. A progress window shows what it's doing ("reading the project documents…", "mapping CAD
-   layers…"). This can take a minute or two — the model runs locally.
+1. Open Revit 2024, open or start any project **that has at least one Level**.
+2. **Insert → Import CAD**, choose `demo/ghost-sample/sample-plan.dxf`. If it asks for units, pick
+   **Millimeters**.
+3. **Sentinel ribbon → Ghost Builder**, then click the imported drawing when it asks you to select it.
+4. Wait. A progress window narrates ("reading sketches with the local vision model…", "reading
+   parameters from the project documents…"). A minute or two is normal — the model runs on your machine.
 
 ### What to check — this is the actual test
 
-7. **A review window appears and NOTHING has been built yet.** ← the single most important thing. If
-   geometry appears in your model before you click Build, tell me: the safety gate failed.
-8. Look at the list. Each row is one CAD layer: what it will become, how many elements, a confidence
-   dot, and any parameters read from the PDF (e.g. `⚙ Fire Rating = FR60`). With the sample you should
-   see roughly:
-   - `A-WALL-EXT` → Walls, 4 elements — **and ideally `⚙ Fire Rating = FR60`**, lifted from the PDF
+5. **A review window appears and NOTHING has been built yet.** ← the single most important check. If
+   geometry appears before you click Build, the safety gate failed and I need to know immediately.
+6. Read the list. Expect roughly:
+   - `A-WALL-EXT` → Walls, 4 elements — **ideally with `⚙ Fire Rating = FR60`** lifted from your spec
    - `A-WALL-INT` → Walls, 1 element
    - `A-FLOR` → Floors, 1 element
    - `A-DOOR` → Doors, 2 elements
-   - `EXT-ENVELOPE-2HR` → the messy layer, whatever the local model made of it (its confidence dot
-     will likely be amber or red — that's the point of showing you the score)
-   - **`A-ANNO` and `DEFPOINTS` must NOT appear at all** — they're on the ignore list. If you see them,
-     tell me.
-9. **Untick one layer that is ticked** — `A-WALL-INT` is the easy one to spot afterwards. Click **Build**.
-10. Check the model: the layer you unticked must **not** have been built. The ticked ones must be there.
-11. Click one of the external walls → look at its properties, and at **Edit Type** → the **Fire Rating**
-    should read `FR60`. *(It may be on the type rather than the wall — either is a pass. If the review
-    window showed the `⚙` but the model has no value, that's the interesting failure and I want it.)*
-12. Press **Ctrl+Z once**. The entire build should disappear in that single undo.
+   - `EXTERIOR-ENVELOPE` → whatever the local model decided. **I cleared this one from the cache** so it
+     genuinely goes to the model this time — your spec says it "represents the building's outer wall
+     envelope", so a good answer is Walls. Its confidence dot may be amber; that's the point of showing it.
+   - **`A-ANNO` and `DEFPOINTS` must NOT appear** — they're on the ignore list. If you see them, tell me.
+7. **Untick `A-WALL-INT`.** Click **Build**.
+8. In the model: `A-WALL-INT` must **not** be there; the ticked layers must be.
+9. Click an external wall → **Edit Type** → **Fire Rating** should read `FR60`. *(Type or instance,
+   either is a pass. Review window showed the `⚙` but the model has no value = the interesting failure.)*
+10. Press **Ctrl+Z once**. The whole build should vanish in that single undo.
 
 ### Tell me what happened
 
-Just say which of steps 7–12 did what you expected and which didn't — plain words are fine
-("the window came up but the fire rating wasn't on the wall"). I don't need logs or screenshots to start
-debugging; if I do, I'll ask for something specific.
+Plain words are fine — "the window came up but the fire rating wasn't on the wall". I'll ask for
+specifics only if I need them.
 
-**If it fails early:** the two usual causes are Ollama not running, and no model pulled. In a terminal:
-`ollama list` — if it's empty, run `ollama pull qwen2.5:7b-instruct`. Vision (reading sketch images) is
-optional; if no vision model is installed, images are skipped and the rest still works.
+**Things that are NOT bugs:** doors skipping if your project has no door family loaded (it says so
+honestly in the report); the envelope layer getting a low confidence score; warnings about a wall
+**type** parameter being set, which by design affects every wall of that type.

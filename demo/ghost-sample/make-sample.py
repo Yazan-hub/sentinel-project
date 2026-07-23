@@ -32,7 +32,7 @@ LINES = [
     # A deliberately NON-standard layer name, the kind a consultant's drawing actually arrives with.
     # The deterministic BDS pass cannot match it, so it is the one layer handed to the local model —
     # which is exactly what the spec PDF is there to help it interpret.
-    ("EXT-ENVELOPE-2HR", -500, -500, W + 500, -500),
+    ("EXTERIOR-ENVELOPE", -500, -500, W + 500, -500),
 
     # These two MUST be dropped before any model call (tier 0 of the ruleset: '*-ANNO', 'DEFPOINTS').
     # If either shows up in the review window, the ignore list has regressed.
@@ -51,7 +51,7 @@ POLYLINES = [
     ("A-DOOR", rect(6000, -200, 900, 400)), # door leaf in the south wall
 ]
 
-LAYERS = ["A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR", "EXT-ENVELOPE-2HR", "A-ANNO", "DEFPOINTS"]
+LAYERS = ["A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR", "EXTERIOR-ENVELOPE", "A-ANNO", "DEFPOINTS"]
 
 # ── The spec. Deliberately states values GhostBuilder should lift onto the geometry. ───────────────
 SPEC_LINES = [
@@ -71,7 +71,7 @@ SPEC_LINES = [
     "    concrete.",
     "",
     "4.  ENVELOPE ZONE",
-    "    The zone drawn on layer EXT-ENVELOPE-2HR is the external envelope",
+    "    The zone drawn on layer EXTERIOR-ENVELOPE is the external envelope",
     "    line and shall be treated as external walling, 2 hour fire rated.",
     "",
     "5.  DOORS",

@@ -149,11 +149,11 @@ static class Check
         Ok(ev.Sources.Contains("sample-spec.pdf"), "the spec PDF is cited as a source");
         Ok(ev.Context.Contains("FR60"), "the fire rating the model must lift is in the evidence text");
         Ok(ev.Context.Contains("A-WALL-EXT"), "the layer that rating applies to is in the evidence text");
-        Ok(ev.Context.Contains("EXT-ENVELOPE-2HR"), "the non-standard layer is explained in the evidence");
+        Ok(ev.Context.Contains("EXTERIOR-ENVELOPE"), "the non-standard layer is explained in the evidence");
 
         // The DXF must carry both the standard layers and the two that tier 0 has to drop.
         string dxf = File.ReadAllText(Path.Combine(sampleDir, "sample-plan.dxf"));
-        foreach (string layer in new[] { "A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR", "EXT-ENVELOPE-2HR" })
+        foreach (string layer in new[] { "A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR", "EXTERIOR-ENVELOPE" })
             Ok(dxf.Contains(layer), $"DXF carries layer {layer}");
         Ok(dxf.Contains("A-ANNO") && dxf.Contains("DEFPOINTS"), "DXF carries the two must-be-ignored layers");
 
