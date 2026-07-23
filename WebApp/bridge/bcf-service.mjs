@@ -441,6 +441,14 @@ async function handleRequest(req, res) {
     const ai = await import("./ai-gateway.mjs");
     return send(res, 200, { providers: ai.listProviders() });
   }
+  if (url.pathname === "/ai/models" && req.method === "GET") {
+    const ai = await import("./ai-gateway.mjs");
+    try {
+      return send(res, 200, { models: await ai.listModels(url.searchParams.get("provider") || "local") });
+    } catch (e) {
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
   if (url.pathname === "/ai/chat" && req.method === "POST") {
     const ai = await import("./ai-gateway.mjs");
     const body = await readBody(req);

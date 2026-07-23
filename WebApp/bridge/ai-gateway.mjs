@@ -45,6 +45,20 @@ export const PROVIDERS = {
     base: "https://api.moonshot.ai/v1",
     note: "Moonshot. Strong on very large document sets.",
   },
+  nemotron: {
+    label: "NVIDIA Nemotron",
+    cloud: true,
+    env: "NVIDIA_API_KEY",
+    // Starting list only — NVIDIA rotates these often, so ask the provider rather than trusting
+    // this: GET /ai/models?provider=nemotron returns whatever the key can actually reach today.
+    models: [
+      "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "nvidia/nemotron-nano-9b-v2",
+    ],
+    base: "https://integrate.api.nvidia.com/v1",
+    note: "NVIDIA NIM. Open-weight reasoning models; hosted API.",
+  },
 };
 
 const CLOUD_OPTIN = process.env.SENTINEL_AI_CLOUD === "1";
@@ -69,6 +83,35 @@ export function listProviders() {
     available: blockedReason(id) === null,
     blocked: blockedReason(id),
   }));
+}
+
+/**
+ * Ask a provider which models the configured key can actually reach, instead of trusting the
+ * hardcoded list above. NVIDIA in particular rotates its catalogue often, and a stale picker entry
+ * fails as an opaque 404 at call time — far worse than an empty dropdown.
+ * Falls back to the static list for `local` (Ollama has its own endpoint) and on any error.
+ */
+export async function listModels(id) {
+  const p = PROVIDERS[id];
+  if (!p) throw Object.assign(new Error("Unknown provider."), { status: 404 });
+  if (blockedReason(id)) return p.models;
+
+  try {
+    if (id === "local") {
+      const url = (process.env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
+      const r = await fetch(`${url}/api/tags`);
+      const j = await r.json();
+      const names = (j.models || []).map((m) => m.name).filter(Boolean);
+      return names.length ? names : p.models;
+    }
+    const r = await fetch(`${p.base}/models`, { headers: { authorization: `Bearer ${keyOf(id)}` } });
+    if (!r.ok) return p.models;
+    const j = await r.json();
+    const names = (j.data || []).map((m) => m.id).filter(Boolean);
+    return names.length ? names.sort() : p.models;
+  } catch {
+    return p.models; // offline or an unexpected shape — the static list is still usable
+  }
 }
 
 // ── the one call ─────────────────────────────────────────────────────────────────────────────────
