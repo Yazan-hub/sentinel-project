@@ -66,6 +66,14 @@ namespace Sentinel.GhostBuilder
         // instance is pointless work and pointless noise.
         private readonly HashSet<string> _typeParamsDone = new HashSet<string>();
 
+        // Wall types CREATED during this build (a guideline gap → make the type at the measured thickness).
+        // Keyed by name so the second 275mm wall reuses the type the first one created, never re-duplicates.
+        private readonly Dictionary<string, WallType> _createdWallTypes =
+            new Dictionary<string, WallType>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Names of wall types this build created — surfaced in the report so a human sees the
+        /// office standard was extended, not just that walls were placed.</summary>
+        public readonly List<string> CreatedTypes = new List<string>();
+
         /// <summary>
         /// Place one element. <paramref name="warning"/> is set (non-null) when the element is
         /// skipped for a reason worth surfacing to the user.
@@ -123,6 +131,25 @@ namespace Sentinel.GhostBuilder
 
             if (res.Confidence <= 0)
             {
+                // A gap is a "make it", not a "give up": clone the office's nearest real build-up and
+                // resize it to the measured thickness, so the type is still a BDS assembly named to the
+                // office convention. Only if creation genuinely can't proceed do we fall back to the gap.
+                if (!string.IsNullOrWhiteSpace(res.Type) && res.Available != null && res.Available.Count > 0)
+                {
+                    var made = GhostTypeCreator.CreateWallType(
+                        _doc, res.Type, el.ThicknessMm, res.Available, out string createReason);
+                    if (made != null)
+                    {
+                        if (!_createdWallTypes.ContainsKey(made.Name))
+                        {
+                            _createdWallTypes[made.Name] = made;
+                            CreatedTypes.Add($"{made.Name} (from a {el.ThicknessMm:0} mm wall on '{el.CadLayer}')");
+                        }
+                        return made.Name;
+                    }
+                    gapReason = $"{res.Why} Tried to create it and couldn't: {createReason}.";
+                    return null;
+                }
                 gapReason = res.Why ?? $"No office type for a {el.ThicknessMm:0} mm wall on '{el.CadLayer}'.";
                 return null;
             }
@@ -154,7 +181,10 @@ namespace Sentinel.GhostBuilder
 
             if (runs.Count == 0) return Outcome.SkippedNoGeometry;
 
-            if (wanted == null || !_wallTypes.TryGetValue(wanted, out WallType wt))
+            // Look up in the doc's types first, then in the types this build just created (a guideline
+            // gap resolved to a new type at the measured thickness).
+            if (wanted == null
+                || (!_wallTypes.TryGetValue(wanted, out WallType wt) && !_createdWallTypes.TryGetValue(wanted, out wt)))
             {
                 warning = $"WallType '{wanted}' not found (layer '{el.CadLayer}'); skipped.";
                 return Outcome.SkippedUnknownType;

@@ -239,6 +239,13 @@ public sealed class GhostBuilderCommand : IExternalCommand
         if (r.SkippedLowConfidence > 0) lines.AppendLine($"Skipped (low confidence): {r.SkippedLowConfidence}");
         if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (family not in model): {r.SkippedUnknownFamily}");
         if (r.SkippedNoGeometry > 0)    lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");
+        if (r.CreatedTypes.Count > 0)
+        {
+            // The office standard was extended by a size — show it plainly; this is a deliberate change
+            // to the model's type library, not a placement side-effect.
+            lines.AppendLine().AppendLine($"Created {r.CreatedTypes.Count} new type(s) to match the drawing:");
+            foreach (var t in r.CreatedTypes) lines.AppendLine($"  + {t}");
+        }
         if (r.Warnings.Count > 0)
         {
             // Collapse identical warnings (a dirty layer can skip tens of thousands of elements for

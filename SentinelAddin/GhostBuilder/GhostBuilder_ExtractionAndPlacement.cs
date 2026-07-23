@@ -317,6 +317,8 @@ namespace Sentinel.GhostBuilder
             public int SkippedUnknownFamily;
             public int SkippedNoGeometry;
             public readonly List<string> Warnings = new List<string>();
+            /// <summary>Types this build created to fill a guideline gap (office standard extended by a size).</summary>
+            public readonly List<string> CreatedTypes = new List<string>();
         }
 
         public PlacementReport Place(MappingResult mapping, IEnumerable<GhostElement> elements)
@@ -380,6 +382,7 @@ namespace Sentinel.GhostBuilder
 
             // P2: what the project documents actually wrote onto the geometry (and what would not take).
             report.Warnings.AddRange(factory.Notes);
+            report.CreatedTypes.AddRange(factory.CreatedTypes);
 
             return report;
         }
