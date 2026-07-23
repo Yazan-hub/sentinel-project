@@ -8,7 +8,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 |---|---|---|
 | Governed Publish loop (Revit → gate → verdict → publish/BCF) | ✅ Verified | Live end-to-end on a real building model (G1–G4) |
 | One-button Revit command + governance ribbon | 🟩 Built | Verified building on Revit 2024–2026 |
-| Pure governance engine (`sentinel-core`) | ✅ Verified | 85 passing tests |
+| Pure governance engine (`sentinel-core`) | ✅ Verified | 99 passing tests |
 | Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Config: `bridge/naming-ruleset.json` |
 | Element IDS gate (Phase B, LOD-300, enforce=warn) | 🟩 Built | Config: `demo/bds-pilot/bds-ids.json` |
 | Immutable hash-chained audit ledger | ✅ Verified | Truncate/tamper-proof at the DB core (`0015`) |
@@ -38,8 +38,11 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Immutable ledger + tamper triggers | ✅ Verified | See [03](03-security-and-ledger.md) |
 | Bridge auth gate (JWT-or-token, F2) | 🟨 Partial | Built, **not armed**; one-switch activation |
 | Key rotation / leaked-password protection | 🟨 Partial | Keys rotated 2026-07-21; HIBP toggle still owed |
-| Keystore offline-crack (F7) + path traversal (F14) | ✅ Verified | Passphrase-strength gate + resolve-prefix guard; 85 tests pass |
-| Advanced hardening (F11 CORS / F12 HTTPS / F13) | ⬜ Planned | Need live testing; triaged |
+| Keystore offline-crack (F7) + path traversal (F14) | ✅ Verified | Passphrase-strength gate + resolve-prefix guard; 99 tests pass |
+| CORS on the binary routes (F11) | ✅ Verified | Allowlisted-origin reflection replaces `ACAO: *` on sheet PNGs + CDE blobs; verified against a throwaway instance |
+| Error-body scrub + SSE cap (F14 residuals) | 🟩 Built | 500s generic (real text logged); `BCF_MAX_SSE` default 64. SSE *project* authz still open |
+| Snapshot append-only (F13) | 🟨 Partial | Migration `0017` written and code-path-checked, **not applied** — a live-DB action |
+| HTTPS / networked hosting (F12) | ⬜ Planned | Hosting change; gated with F2 activation |
 
 ## Adoption / go-to-market
 

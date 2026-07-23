@@ -35,7 +35,7 @@ Catches and fixes issues inside Revit, before anything ships. `SentinelAddin/` +
 | Clash Manager + View Generator | Solid | Real link-vs-host solid-boolean clash, severity, 3D clash views with browser routing. |
 | MEP Void Manager | Caveat | Detects MEP/structure intersections, places + reconciles voids — **needs a void family loaded**. |
 | CDE Sync Guard | Solid | Blocks non-compliant central filenames on synchronize. |
-| GhostBuilder (auto-modeler) | Caveat | DWG-layer extract → 3-tier layer map (cache→heuristics→LLM) → validated Revit placement. **Needs local Ollama.** Real, fully-wired pipeline. |
+| GhostBuilder (auto-modeler) | Caveat | **v2.** DWG-layer extract → deterministic BDS-standard match (cache → `bds-layers.json` → local model for the remainder only) → **scoped-folder senses** (PDF/spec text + sketch images via a local VLM) → spec-derived parameters on the proposal → **human review gate** → validated Revit placement. **Needs local Ollama**; vision is optional and skipped if no VLM is pulled. Nothing is written to the model until the reviewer ticks it. **Not yet run in live Revit** since the P2/P3 changes. |
 | Standards: Document Extractor | Caveat | LLM mines standards from PDF/txt into a pack. **Needs local Ollama** (no cloud fallback wired). |
 | Golden-Model Extractor | Solid | Reverse-extracts an office standard from a reference `.rvt` (worksets, params, view templates, browser org). |
 | Standards Builder + ISO Gap Analyzer | Solid | HITL review → transactional build into the live model; grades a pack vs ISO 19650 (honest name-match = Partial). |

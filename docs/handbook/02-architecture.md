@@ -37,7 +37,7 @@ The heart. Pure TypeScript with **no DOM, no Node, no platform** dependencies �
 - `validateContainerName(name, ruleset)` — the ISO 19650 naming gate.
 - `groupFailuresForBcf(failures, openReqs)` — turn failures into coordination issues.
 
-Backed by **✅ 85 passing tests**.
+Backed by **✅ 99 passing tests**.
 
 ### Supporting: `WebApp/db/migrations/` — the schema
 Supabase/PostgreSQL: the ISO 19650 CDE tables, row-level security policies, and the immutable hash-chained audit ledger. Migrations `0001`→`0016`.

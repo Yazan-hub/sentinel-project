@@ -31,7 +31,7 @@ The reasoning behind every major call. This is the page that lets you **defend**
 ### D-05 · One pure engine runs in both the browser and the bridge
 - **Context:** The same validation could be written twice (client + server) and drift.
 - **Decision:** A single **pure `sentinel-core`** (no DOM/Node/platform deps), bundled for both.
-- **Why:** Guarantees the referee gives an identical verdict everywhere; enables the client-side Sandbox to run the *real* engine, not a mock; easier to test (85 tests on pure functions).
+- **Why:** Guarantees the referee gives an identical verdict everywhere; enables the client-side Sandbox to run the *real* engine, not a mock; easier to test (99 tests on pure functions).
 - **Trade-off:** The engine must stay dependency-free — a discipline to maintain.
 
 ### D-06 · A single Node bridge is the trust boundary

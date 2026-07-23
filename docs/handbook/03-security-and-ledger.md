@@ -34,7 +34,10 @@ A full security audit was run (three adversarial passes + live-DB advisors + dep
 | **F16** dev-only dependency CVEs | LOW | ✅ Accepted (dev toolchain only, zero production surface) |
 | **F7** keystore offline-crack | MED | ✅ Mitigated (JWT-gated read + passphrase-strength gate) |
 | **F14** `/sheets/img` path traversal | LOW | ✅ Fixed (resolve-prefix guard) |
-| **F11 / F12 / F13** | LOW/MED | ⬜ Triaged — need live testing (CORS, HTTPS) |
+| **F14** verbose 500 bodies · unbounded SSE | LOW | ✅ Fixed 2026-07-23 (scrubbed once in `send()`; `BCF_MAX_SSE` cap). SSE *project* authz still open — needs the JWT in a query string, which trades against F12 |
+| **F11** `ACAO: *` on sheet/blob routes | MED | ✅ Fixed & verified 2026-07-23 (allowlisted-origin reflection on both binary routes) |
+| **F13** snapshots not append-only | LOW | 📝 Migration `0017` written, **not applied** — contributor+ gate + `BEFORE UPDATE` trigger; applying is a live-DB action |
+| **F12** transport (HTTPS) | MED | ⬜ Triaged — a hosting change |
 
 **Verified sound by the audit:** the immutable ledger, the hash chain, RLS coverage, pinned `search_path` on all functions (no injection), and the end-to-end crypto envelope (PBKDF2 @ 210k iterations, AES-256-GCM, fresh IVs, no fail-open). No secrets are in git history; the key shipped in the browser is the **public anon key** (safe by design — RLS is the real boundary).
 
