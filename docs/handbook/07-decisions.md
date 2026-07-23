@@ -70,6 +70,14 @@ The reasoning behind every major call. This is the page that lets you **defend**
 - **Why:** Regulation creates a *must-have*, not a nice-to-have, and Sentinel's ledger produces the required record for free.
 - **Trade-off:** Tied to regulatory timelines and jurisdictions; needs the certification/hosting work (⬜ planned) to fully land enterprise.
 
+### D-12 · Accept F15 (leaked-password protection) rather than pay for Supabase Pro
+- **Context:** The audit's F15 recommends Supabase's HaveIBeenPwned check, which rejects passwords known from public breaches. Verified 2026-07-23: the feature is **Pro-plan and above** and the project is on **free**, so the toggle does not exist in the dashboard. Not an oversight — a paywall.
+- **Decision (maintainer, 2026-07-23): accept the risk.** Do not upgrade the plan for this.
+- **Why:** F15 is **LOW**. The real exposure today is a single maintainer account on a pilot with no public sign-up. Paying a monthly platform fee to close a low finding on a pre-revenue pilot is the wrong trade, and the same explicit-acceptance posture was already taken for the F16 dev-only CVEs.
+- **Trade-off:** If a Sentinel account is ever created with a password that appears in a public breach corpus, nothing stops it. **Revisit when any of these become true:** the pilot takes on users outside the maintainer, sign-up is opened to a client, the project moves to paid hosting for other reasons (F12 HTTPS is already ⬜ planned and may force a plan change anyway), or the app grows a real sign-up screen.
+- **Free mitigations still available, not taken today:** raise the minimum password length + required character classes under **Authentication → Providers → Email** (free on any plan); or implement the HaveIBeenPwned k-anonymity range check in-app — rejected for now because it is an outbound third-party call, which cuts against the local-default privacy stance in the GhostBuilder work.
+- **Note for readers of the Supabase advisors:** the *"Leaked Password Protection Disabled"* lint will report **forever** on this plan. It is a known accepted item, not an open action.
+
 ---
 
 *When you make a new significant decision, add it here the same day — the reasoning is worth more than the outcome, and it's the first thing that fades from memory.*

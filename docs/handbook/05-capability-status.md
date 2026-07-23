@@ -38,7 +38,8 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Anon-exposure fix (F1) + regression guard | ✅ Verified | `npm run security:check` |
 | Immutable ledger + tamper triggers | ✅ Verified | See [03](03-security-and-ledger.md) |
 | Bridge auth gate (JWT-or-token, F2) | 🟨 Partial | Built, **not armed**; one-switch activation |
-| Key rotation / leaked-password protection | 🟨 Partial | Keys rotated 2026-07-21 ✅. HIBP toggle is **Pro-plan only** and the org is on free — blocked, not owed; free mitigations in `docs/YOUR-TWO-TASKS.md` |
+| Key rotation | ✅ Verified | Rotated 2026-07-21; `security:check` passes against the new keys |
+| Leaked-password protection (F15) | ⬜ Accepted | Pro-plan only, org is on free. Accepted as LOW — see [D-12](07-decisions.md); the advisor lint is permanent and not an action |
 | Keystore offline-crack (F7) + path traversal (F14) | ✅ Verified | Passphrase-strength gate + resolve-prefix guard; 99 tests pass |
 | CORS on the binary routes (F11) | ✅ Verified | Allowlisted-origin reflection replaces `ACAO: *` on sheet PNGs + CDE blobs; verified against a throwaway instance |
 | Error-body scrub + SSE cap (F14 residuals) | 🟩 Built | 500s generic (real text logged); `BCF_MAX_SSE` default 64. SSE *project* authz still open |

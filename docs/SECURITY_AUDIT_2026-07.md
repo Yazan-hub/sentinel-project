@@ -32,13 +32,16 @@ The highest-severity findings have been **fixed and verified**; the rest are tri
 
 **Verification:** `0016` applied via Supabase migration; anon/member access re-tested live (results above); all **85 core tests pass**; the three modified bridge modules pass `node --check`.
 
-**Manual (dashboard) actions.** ✅ **Key rotation is DONE** — the maintainer rotated both Supabase `service_role` keys and both That Open tokens on **2026-07-21**, restarted the bridge, and `security:check` passes against the new keys. (The old keys were never committed, but had sat in a plaintext working-tree file, so they were correctly treated as compromised.) ⛔ **F15 leaked-password protection — BLOCKED, not owed.** Verified 2026-07-23: the org is on the **free**
-plan and Supabase gates this feature to **Pro and above**, so the toggle does not exist in the dashboard.
-(It lives under **Authentication → Providers → Email**, not the RLS "Policies" page — an earlier version of
-the handoff doc pointed at the wrong one.) The advisor will keep reporting it until the plan changes.
-Free alternatives, in `docs/YOUR-TWO-TASKS.md`: raise the minimum password length + required character
-classes on the same page (recommended), or implement the HaveIBeenPwned k-anonymity range check in-app
-(weigh against the local-default privacy stance), or accept it explicitly as a LOW finding.
+**Manual (dashboard) actions.** ✅ **Key rotation is DONE** — the maintainer rotated both Supabase `service_role` keys and both That Open tokens on **2026-07-21**, restarted the bridge, and `security:check` passes against the new keys. (The old keys were never committed, but had sat in a plaintext working-tree file, so they were correctly treated as compromised.) ✅ **F15 leaked-password protection — ACCEPTED (decision recorded 2026-07-23).** The feature is
+**Pro-plan and above**; this org is on **free**, so the toggle does not exist in the dashboard. (It lives
+under **Authentication → Providers → Email**, not the RLS "Policies" page — an earlier version of the
+handoff doc pointed at the wrong one.) The maintainer chose **not to upgrade for a LOW finding** on a
+pilot whose only account is their own and which has no public sign-up — the same explicit-acceptance
+posture as F16. Rationale, revisit triggers and the untaken free mitigations are recorded as
+**[D-12](handbook/07-decisions.md)**. ⚠ The Supabase advisor will report *"Leaked Password Protection
+Disabled"* forever on this plan: it is an accepted item, **not an open action**.
+
+**There are now no outstanding manual/dashboard actions.**
 
 > This block previously read "you still owe key rotation" long after the rotation happened, and contradicted [`handbook/05`](handbook/05-capability-status.md). Corrected 2026-07-23 — when a remediation lands, update **both** pages or the honest map stops being honest.
 
