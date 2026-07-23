@@ -10,7 +10,7 @@ Legend: ✅ shipped & verified · 🟠 in progress · ⬜ next · 🔭 later
 
 ### ✅ Foundation & governance core *(shipped)*
 - **Governed Publish loop, live end-to-end** — one Revit button: export → IFC delivery gate → IDS adjudication → immutable verdict → publish-on-pass → live BCF. Verified on a real building (the Snowdon Towers sample).
-- **Pure governance engine** (`sentinel-core`) — IDS validation, ISO 19650 gates, naming, clash/quantities/carbon — the *same* code in the browser and, bundled, on the bridge. **85 passing unit tests.**
+- **Pure governance engine** (`sentinel-core`) — IDS validation, ISO 19650 gates, naming, clash/quantities/carbon — the *same* code in the browser and, bundled, on the bridge. **99 passing unit tests.**
 - **ISO 19650 CDE** on Supabase — container state machine (WIP→Shared→Published→Archived), suitability, versioning, folders; single source of truth (all stores consolidated into Postgres).
 
 ### ✅ Trust & security hardening *(shipped)*
