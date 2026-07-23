@@ -61,7 +61,7 @@ namespace Sentinel.GhostBuilder
             try
             {
                 var dup = (WallType)baseType.Duplicate(newName);
-                if (!SetTotalWidth(dup, thicknessMm / FeetToMm, out reason))
+                if (!SetCoreThickness(dup, thicknessMm / FeetToMm, out reason))
                 {
                     doc.Delete(dup.Id); // don't leave a wrong-width type behind
                     return null;
@@ -70,6 +70,110 @@ namespace Sentinel.GhostBuilder
             }
             catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = ex.Message; return null; }
             catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { reason = ex.Message; return null; }
+        }
+
+        /// <summary>
+        /// Floors are system families too — same CompoundStructure mechanism as walls. A floor "gap" is
+        /// rarer than a wall's: a plan carries no slab thickness (that's a section property), so the
+        /// guideline names floor types explicitly and validateAgainstCatalog keeps them real. This exists
+        /// for the blank-model case, and for when a named type does carry a thickness in its name.
+        /// </summary>
+        public static FloorType CreateFloorType(
+            Document doc, string newName, double thicknessMm, IEnumerable<string> siblingNames, out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(newName)) { reason = "no name to create"; return null; }
+
+            var floors = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
+            var present = floors.FirstOrDefault(f => string.Equals(f.Name, newName, StringComparison.OrdinalIgnoreCase));
+            if (present != null) return present;
+
+            // Clone the nearest-thickness sibling; else any floor type.
+            FloorType baseType = NearestByName(floors, siblingNames, thicknessMm) ?? floors.FirstOrDefault();
+            if (baseType == null) { reason = "no floor type to clone from"; return null; }
+
+            try
+            {
+                var dup = (FloorType)baseType.Duplicate(newName);
+                // Only resize when we actually have a target thickness (from the name or a measurement).
+                if (thicknessMm > 0 && !SetCoreThickness(dup, thicknessMm / FeetToMm, out reason))
+                {
+                    doc.Delete(dup.Id);
+                    return null;
+                }
+                return dup;
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = ex.Message; return null; }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { reason = ex.Message; return null; }
+        }
+
+        /// <summary>
+        /// Columns are LOADABLE families, so a new "type" is a duplicated FamilySymbol with its section
+        /// dimensions set — not a compound structure. A column IS measurable from its drawn rectangle
+        /// (unlike a floor), so width×depth can come from the drawing. Requires the family to already be
+        /// in the model (loaded); a gap on an absent family still reports rather than inventing.
+        /// </summary>
+        public static FamilySymbol CreateColumnType(
+            Document doc, string newName, double widthMm, double depthMm, IEnumerable<string> siblingNames, out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(newName) || widthMm <= 0 || depthMm <= 0)
+            {
+                reason = "no name or section size to create from";
+                return null;
+            }
+
+            var cols = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_StructuralColumns).OfClass(typeof(FamilySymbol))
+                .Cast<FamilySymbol>().ToList();
+            var present = cols.FirstOrDefault(s => string.Equals(s.Name, newName, StringComparison.OrdinalIgnoreCase));
+            if (present != null) return present;
+
+            // Prefer duplicating a sibling type of the SAME family named in the guideline; else any column.
+            var names = new HashSet<string>(siblingNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            FamilySymbol baseSym = cols.FirstOrDefault(s => names.Contains(s.Name)) ?? cols.FirstOrDefault();
+            if (baseSym == null) { reason = "no structural column family loaded to duplicate"; return null; }
+
+            try
+            {
+                var dup = (FamilySymbol)baseSym.Duplicate(newName);
+                bool w = SetDimension(dup, widthMm / FeetToMm, "b", "Width", "Depth-Width");
+                bool d = SetDimension(dup, depthMm / FeetToMm, "h", "Depth", "Height");
+                if (!w || !d)
+                {
+                    doc.Delete(dup.Id);
+                    reason = "the column family exposes no editable width/depth parameter to set";
+                    return null;
+                }
+                return dup;
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = ex.Message; return null; }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { reason = ex.Message; return null; }
+        }
+
+        // Set the first writable dimension parameter found among the given names. Column families disagree
+        // on naming (b/h vs Width/Depth), so try each; return false only if NONE took.
+        private static bool SetDimension(FamilySymbol sym, double valueFt, params string[] names)
+        {
+            foreach (string n in names)
+            {
+                Parameter p = sym.LookupParameter(n);
+                if (p != null && !p.IsReadOnly && p.StorageType == StorageType.Double)
+                {
+                    try { p.Set(valueFt); return true; }
+                    catch (Autodesk.Revit.Exceptions.ArgumentException) { /* wrong param — keep trying */ }
+                }
+            }
+            return false;
+        }
+
+        // FloorType/WallType both inherit HostObjAttributes; the nearest-sibling logic is identical.
+        private static FloorType NearestByName(List<FloorType> types, IEnumerable<string> siblingNames, double targetMm)
+        {
+            var names = new HashSet<string>(siblingNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            var cand = types.Where(t => names.Contains(t.Name)).ToList();
+            if (cand.Count == 0) return null;
+            return cand.OrderBy(t => Math.Abs(ThicknessFromName(t.Name) - targetMm)).First();
         }
 
         /// <summary>The sibling whose own thickness is closest to the target — best build-up to inherit.</summary>
@@ -83,29 +187,27 @@ namespace Sentinel.GhostBuilder
 
         // The trailing "<n> mm" in a BDS type name — the office convention encodes thickness there, and
         // the audit confirmed it matches the real Width on every conforming type.
-        private static double ThicknessFromName(string name)
-        {
-            var m = Regex.Match(name ?? "", @"(\d+)\s*mm\s*$", RegexOptions.IgnoreCase);
-            return m.Success ? double.Parse(m.Groups[1].Value) : double.MaxValue;
-        }
+        // (thickness parsing moved to the pure TypeNameParse; kept as a thin alias for callers)
+        private static double ThicknessFromName(string name) => TypeNameParse.ThicknessMm(name);
 
         /// <summary>
-        /// Resize a wall type to a total width by adjusting its CORE (widest) layer, so finish layers are
-        /// preserved and only the structural thickness changes — exactly how a modeller edits a build-up.
-        /// A single-layer wall just becomes the target width.
+        /// Resize a system-family type (wall OR floor — both inherit HostObjAttributes) to a total
+        /// thickness by adjusting its CORE (widest) layer, so finish layers are preserved and only the
+        /// structural thickness changes — exactly how a modeller edits a build-up. A single-layer type
+        /// just becomes the target thickness.
         /// </summary>
-        private static bool SetTotalWidth(WallType wt, double targetFt, out string reason)
+        private static bool SetCoreThickness(HostObjAttributes ht, double targetFt, out string reason)
         {
             reason = null;
-            CompoundStructure cs = wt.GetCompoundStructure();
+            CompoundStructure cs = ht.GetCompoundStructure();
             if (cs == null)
             {
-                reason = "wall type has no compound structure to resize";
+                reason = "type has no compound structure to resize";
                 return false;
             }
 
             IList<CompoundStructureLayer> layers = cs.GetLayers();
-            if (layers.Count == 0) { reason = "wall type has no layers"; return false; }
+            if (layers.Count == 0) { reason = "type has no layers"; return false; }
 
             double currentFt = cs.GetWidth();
             // Widest layer = the structural core (membranes have width 0 and can't be resized anyway).
@@ -119,12 +221,12 @@ namespace Sentinel.GhostBuilder
             try
             {
                 cs.SetLayerWidth(core, newCoreFt);
-                wt.SetCompoundStructure(cs);
+                ht.SetCompoundStructure(cs);
             }
             catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = "could not set core width: " + ex.Message; return false; }
 
             // Confirm we actually hit the target (Revit rounds/validates) — within 0.5 mm.
-            double achievedMm = wt.GetCompoundStructure().GetWidth() * FeetToMm;
+            double achievedMm = ht.GetCompoundStructure().GetWidth() * FeetToMm;
             if (Math.Abs(achievedMm - targetFt * FeetToMm) > 0.5)
             {
                 reason = $"resize landed at {achievedMm:0} mm, not {targetFt * FeetToMm:0} mm";
@@ -132,5 +234,10 @@ namespace Sentinel.GhostBuilder
             }
             return true;
         }
+
+        // ---- pure size parsing (offline-testable; the Revit calls above are not) ----
+
+        public static bool TryParseSection(string typeName, out double widthMm, out double depthMm)
+            => TypeNameParse.TrySection(typeName, out widthMm, out depthMm);
     }
 }
