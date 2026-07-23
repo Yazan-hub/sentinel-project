@@ -1,7 +1,7 @@
 {
   "$schema": "https://sentinel.dev/schemas/office-guideline-v1.json",
-  "version": 2,
-  "standard": "BDS Office Modelling Guideline v2",
+  "version": 3,
+  "standard": "BDS Office Modelling Guideline v3",
   "office": "BDS",
   "doc": "docs/superpowers/specs/2026-07-23-office-modelling-guideline.md",
   "audit": "docs/BDS_TEMPLATE_TYPE_AUDIT.md",
@@ -254,7 +254,7 @@
       ]
     },
     {
-      "category": "Columns",
+      "category": "Structural Columns",
       "rules": [
         {
           "when": {
@@ -264,7 +264,7 @@
             "family": "BDS_Column_Concrete_Rectangular",
             "type": "BDS_INT_STR_CONC_300 X 1500 mm"
           },
-          "why": "Structural columns use the BDS concrete rectangular column."
+          "why": "Structural columns use the BDS concrete rectangular family. Size comes from the type name (300x300 / 300x1500 / 600x600)."
         }
       ]
     },
@@ -285,7 +285,214 @@
     }
   ],
   "graphics": {
-    "tags": {}
+    "note": "Tag families harvested from the template. `officeAuthored: false` means the template is still on the stock Revit tag — a real gap in the office standard, not a Sentinel limitation.",
+    "tags": {
+      "Doors": {
+        "family": "BDS_Door Tag",
+        "type": "BDS_Door Tag",
+        "officeAuthored": true
+      },
+      "Windows": {
+        "family": "BDS_Window Tag",
+        "type": "BDS_Window Tag",
+        "officeAuthored": true
+      },
+      "Rooms": {
+        "family": "BDS_Room Tag",
+        "type": "Number, Number, Area_1-100",
+        "officeAuthored": true
+      },
+      "Curtain Walls": {
+        "family": "BDS_Curtain Wall Tag",
+        "type": "8mm",
+        "officeAuthored": true
+      },
+      "Walls": {
+        "family": "M_Wall Tag",
+        "type": "8mm",
+        "officeAuthored": false
+      },
+      "Ceilings": {
+        "family": "M_Ceiling Tag w Height",
+        "officeAuthored": false
+      },
+      "Floors": {
+        "family": "M_Floor Tag",
+        "officeAuthored": false
+      },
+      "Columns": {
+        "family": "M_Structural Column Tag",
+        "officeAuthored": false
+      },
+      "Furniture": {
+        "family": "M_Furniture Tag - Quantity",
+        "officeAuthored": false
+      },
+      "Casework": {
+        "family": "M_Casework Tag",
+        "officeAuthored": false
+      },
+      "Stairs": {
+        "family": "M_Stair Tag",
+        "officeAuthored": false
+      }
+    },
+    "dimensionStyle": null,
+    "textStyle": null
   },
-  "views": []
+  "views": [
+    {
+      "use": "GA Plan",
+      "wipTemplate": "01.100_WIP_FLOOR_PLANS",
+      "sheetTemplate": "02.100_SHEET_FLOOR_PLANS",
+      "viewType": "FloorPlan",
+      "namePrefix": "FP",
+      "tag": [
+        "Doors",
+        "Windows",
+        "Rooms"
+      ]
+    },
+    {
+      "use": "Presentation Plan",
+      "wipTemplate": "01.100_WIP_PRESENTATION_PLANS",
+      "sheetTemplate": "02.100_SHEET_PRESENTATION_PLANS",
+      "viewType": "FloorPlan",
+      "namePrefix": "PP",
+      "tag": [
+        "Rooms"
+      ]
+    },
+    {
+      "use": "Presentation Plan (no colour)",
+      "wipTemplate": "01.100_WIP_PRESENTATION_PLANS_NO COLOUR",
+      "sheetTemplate": "02.100_SHEET_PRESENTATION_PLANS_NO COLOUR",
+      "viewType": "FloorPlan",
+      "namePrefix": "PP",
+      "tag": [
+        "Rooms"
+      ]
+    },
+    {
+      "use": "Area Plan",
+      "wipTemplate": "01.100_WIP_AREA_PLANS",
+      "sheetTemplate": "02.100_SHEET_AREA_PLANS",
+      "viewType": "FloorPlan",
+      "namePrefix": "BUA",
+      "tag": [
+        "Rooms"
+      ]
+    },
+    {
+      "use": "QA/QC Plan",
+      "wipTemplate": "01.100_WIP_QA/QC_PLANS",
+      "sheetTemplate": "02.100_SHEET_QA/QC_PLANS",
+      "viewType": "FloorPlan",
+      "namePrefix": "QA",
+      "tag": []
+    },
+    {
+      "use": "RCP",
+      "wipTemplate": "01.700_WIP_PRESENTATION_CEILING PLANS",
+      "sheetTemplate": "02.700_SHEET_PRESENTATION_CEILING PLANS",
+      "viewType": "CeilingPlan",
+      "namePrefix": "RCP",
+      "tag": [
+        "Ceilings"
+      ]
+    },
+    {
+      "use": "Elevation",
+      "wipTemplate": "01.200_WIP_PRESENTATION_ELEVATIONS",
+      "sheetTemplate": "02.200_SHEET_PRESENTATION_ELEVATIONS",
+      "viewType": "Section",
+      "namePrefix": "PE",
+      "tag": []
+    },
+    {
+      "use": "Section",
+      "wipTemplate": "01.300_WIP_PRESENTATION_SECTIONS",
+      "sheetTemplate": "02.300_SHEET_PRESENTATION_SECTIONS",
+      "viewType": "Section",
+      "namePrefix": "PS",
+      "tag": [
+        "Walls",
+        "Floors"
+      ]
+    },
+    {
+      "use": "Enlarged Section",
+      "wipTemplate": "01.400_WIP_PRESENTATION_ENLARGED_SECTIONS",
+      "sheetTemplate": "02.400_SHEET_PRESENTATION_ENLARGED_SECTIONS",
+      "viewType": "Section",
+      "namePrefix": "PES",
+      "tag": [
+        "Walls",
+        "Floors"
+      ]
+    },
+    {
+      "use": "Typical Detail",
+      "wipTemplate": "01.500_WIP_PRESENTATION_TYPICAL-DETAILS",
+      "sheetTemplate": "02.500_SHEET_PRESENTATION_TYPICAL-DETAILS",
+      "viewType": "Section",
+      "namePrefix": "TDT",
+      "tag": []
+    },
+    {
+      "use": "Enlarged Drawing",
+      "wipTemplate": "01.800_WIP_ENLARGED-DRAWINGS",
+      "sheetTemplate": "02.800_SHEET_ENLARGED-DRAWINGS",
+      "viewType": "FloorPlan",
+      "namePrefix": "END",
+      "tag": [
+        "Doors",
+        "Windows",
+        "Rooms"
+      ]
+    },
+    {
+      "use": "3D View",
+      "wipTemplate": "01.900_WIP_3D VIEWS",
+      "sheetTemplate": "02.900_SHEET_3D VIEWS",
+      "viewType": "ThreeD",
+      "namePrefix": "3D",
+      "tag": []
+    },
+    {
+      "use": "Coordination",
+      "wipTemplate": "05_COORDINATION & QA/QC",
+      "viewType": "ThreeD",
+      "tag": []
+    },
+    {
+      "use": "Structural Plan",
+      "wipTemplate": "05.2_STRUCTURAL PLANS",
+      "viewType": "FloorPlan",
+      "tag": [
+        "Columns"
+      ]
+    },
+    {
+      "use": "Model Management",
+      "wipTemplate": "06_MODEL_MANAGEMENT",
+      "viewType": "FloorPlan",
+      "tag": []
+    },
+    {
+      "use": "Export",
+      "wipTemplate": "04_EXPORT VIEWS",
+      "viewType": "ThreeD",
+      "tag": []
+    }
+  ],
+  "viewNaming": {
+    "structure": "[STATUS]_[TYPE]_[LEVEL]_[DESCRIPTION]",
+    "source": "BDS-RTG-001 §5.1",
+    "statusPrefixes": {
+      "WIP_": "01_WIP_VIEWS",
+      "SH_": "02_SHEET_VIEWS",
+      "EXPORT_": "04_EXPORT_SCHEDULE"
+    }
+  }
 }

@@ -90,6 +90,25 @@ Not a guideline problem, but it is the "keep the template clean" concern, with n
 The homoglyph is the one to fix first: it is invisible in the Revit UI and would silently defeat any
 guideline rule matching on `BDS_EXT_…`.
 
+## 4b. The full library — 1,434 types across 193 categories
+
+The first sweep harvested only the categories GhostBuilder can place (255 types). Recording what the
+template *has* is a different question from deciding what the guideline *uses*, so it now harvests every
+categorised element type. What that revealed:
+
+- **Only 4 tag families are BDS-authored** — `BDS_Door Tag`, `BDS_Window Tag`, `BDS_Room Tag`,
+  `BDS_Curtain Wall Tag`. Walls, ceilings, floors, columns, furniture, casework and stairs are all still
+  on the stock Revit `M_*` tags. That is a genuine gap in the office standard, and the guideline records
+  it as `officeAuthored: false` rather than hiding it.
+- **Dimension and text styles cannot be harvested yet.** `DimensionType` and `TextNoteType` carry **no
+  Revit Category**, so an all-types sweep filtered on "has a category" cannot see them. They need
+  collecting by class instead. `graphics.dimensionStyle` / `textStyle` are left `null` — not invented.
+- **Category names are Revit's, not ours.** The BDS column family lives under **Structural Columns**,
+  not "Columns" — the hand-picked list had flattened both. The catalogue guard caught this the moment
+  the guideline was re-validated, which is precisely its job.
+- The library carries substantial MEP and structural content (duct/pipe/conduit fittings, rebar shapes,
+  Revit sample families) that no BDS convention covers — worth a purge decision separately.
+
 ## 5. What this changes in the Guideline
 
 1. Replace the invented `BDS_Wall_Ext_200_FR60` style types with real catalogue names.

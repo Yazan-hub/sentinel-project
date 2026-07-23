@@ -34,32 +34,6 @@ public static class GoldenModelExtractor
         return pack;
     }
 
-    // Categories the guideline can place. Kept in step with GhostBuilder's build categories — a type
-    // harvested for a category GhostBuilder can't place would only be noise when authoring rules.
-    private static readonly (BuiltInCategory Bic, string Name)[] CatalogCategories =
-    {
-        (BuiltInCategory.OST_Walls, "Walls"),
-        (BuiltInCategory.OST_Floors, "Floors"),
-        (BuiltInCategory.OST_Ceilings, "Ceilings"),
-        (BuiltInCategory.OST_Doors, "Doors"),
-        (BuiltInCategory.OST_Windows, "Windows"),
-        (BuiltInCategory.OST_Columns, "Columns"),
-        (BuiltInCategory.OST_StructuralColumns, "Columns"),
-        (BuiltInCategory.OST_Furniture, "Furniture"),
-        // Annotation families — the guideline's graphics section names TAGS, and without harvesting
-        // them that section can only ever be invented, which is the failure mode this whole exercise
-        // exists to prevent.
-        (BuiltInCategory.OST_WallTags, "Tags:Walls"),
-        (BuiltInCategory.OST_DoorTags, "Tags:Doors"),
-        (BuiltInCategory.OST_WindowTags, "Tags:Windows"),
-        (BuiltInCategory.OST_FloorTags, "Tags:Floors"),
-        (BuiltInCategory.OST_CeilingTags, "Tags:Ceilings"),
-        (BuiltInCategory.OST_StructuralColumnTags, "Tags:Columns"),
-        (BuiltInCategory.OST_RoomTags, "Tags:Rooms"),
-        (BuiltInCategory.OST_Dimensions, "Dimensions"),
-        (BuiltInCategory.OST_TextNotes, "Text"),
-    };
-
     // Type parameters worth capturing when authoring rules. Deliberately a short list: the point is to
     // show what an office standard actually keys on, not to dump every parameter in the template.
     private static readonly string[] InterestingParams =
@@ -78,41 +52,39 @@ public static class GoldenModelExtractor
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (bic, name) in CatalogCategories)
+        // EVERY element type in the template, not a hand-picked list. The first version harvested only
+        // the categories GhostBuilder can place, which quietly excluded most of the family library —
+        // stairs, railings, roofs, casework, generic models, section marks, title blocks. An office
+        // standard covers the whole library, so the catalogue must too; deciding what the guideline
+        // USES is a separate question from recording what the template HAS.
+        foreach (ElementType t in new FilteredElementCollector(doc)
+                     .WhereElementIsElementType().Cast<ElementType>())
         {
-            IEnumerable<ElementType> types;
-            try
-            {
-                types = new FilteredElementCollector(doc)
-                    .OfCategory(bic).WhereElementIsElementType().Cast<ElementType>();
-            }
-            catch { continue; } // a category absent from this template is not an error
+            // No category = a Revit-internal type (view types, project info, …). Not part of the
+            // office's family library and only noise in the picker.
+            string category;
+            try { category = t.Category?.Name ?? ""; } catch { continue; }
+            if (string.IsNullOrWhiteSpace(category)) continue;
 
-            foreach (ElementType t in types)
-            {
-                // FamilyName is the system-family name for walls/floors/ceilings and the loaded family
-                // name for everything else — which is exactly the distinction the guideline needs.
-                string family = SafeFamilyName(t);
-                string key = name + "|" + family + "|" + t.Name;
-                if (!seen.Add(key)) continue; // Columns appears twice (arch + structural)
+            string family = SafeFamilyName(t);
+            if (!seen.Add(category + "|" + family + "|" + t.Name)) continue;
 
-                var spec = new TypeSpec
-                {
-                    Category = name,
-                    Family = family,
-                    Type = t.Name,
-                    IsSystem = t is HostObjAttributes, // Wall/Floor/Ceiling/Roof types
-                    WidthMm = Mm(t, BuiltInParameter.CURVE_ELEM_LENGTH) ?? Mm(t, BuiltInParameter.WALL_ATTR_WIDTH_PARAM)
-                              ?? MmByName(t, "Width") ?? MmByName(t, "Thickness"),
-                    HeightMm = MmByName(t, "Height"),
-                };
-                foreach (string p in InterestingParams)
-                {
-                    string? v = t.LookupParameter(p)?.AsString();
-                    if (!string.IsNullOrWhiteSpace(v)) spec.Params[p] = v!;
-                }
-                pack.Provision.TypeCatalog.Add(spec);
+            var spec = new TypeSpec
+            {
+                Category = category,
+                Family = family,
+                Type = t.Name,
+                IsSystem = t is HostObjAttributes, // Wall/Floor/Ceiling/Roof — duplicated, not loaded
+                WidthMm = Mm(t, BuiltInParameter.WALL_ATTR_WIDTH_PARAM)
+                          ?? MmByName(t, "Width") ?? MmByName(t, "Thickness"),
+                HeightMm = MmByName(t, "Height"),
+            };
+            foreach (string p in InterestingParams)
+            {
+                string? v = t.LookupParameter(p)?.AsString();
+                if (!string.IsNullOrWhiteSpace(v)) spec.Params[p] = v!;
             }
+            pack.Provision.TypeCatalog.Add(spec);
         }
 
         pack.Provision.TypeCatalog.Sort((a, b) =>

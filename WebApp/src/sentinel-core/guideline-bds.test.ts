@@ -73,3 +73,40 @@ describe("BDS guideline — determinism", () => {
     expect(new Set(runs).size).toBe(1);
   });
 });
+
+describe("BDS guideline — graphics and views name real things", () => {
+  const raw = JSON.parse(readFileSync("../SentinelAddin/Resources/bds-guideline.json", "utf8"));
+  const CAT = JSON.parse(readFileSync("../demo/bds-pilot/bds-type-catalog.json", "utf8"));
+  const families = new Set<string>(CAT.types.map((t: any) => t.family.toLowerCase()));
+  const templates = new Set<string>(CAT.view_templates.map((v: any) => v.name));
+
+  it("every tag family exists in the template", () => {
+    const missing = Object.entries(raw.graphics.tags)
+      .filter(([, v]: [string, any]) => !families.has(String(v.family).toLowerCase()))
+      .map(([k]) => k);
+    expect(missing).toEqual([]);
+  });
+
+  it("every view template named is one the template actually has", () => {
+    const missing = raw.views
+      .flatMap((v: any) => [v.wipTemplate, v.sheetTemplate].filter(Boolean))
+      .filter((n: string) => !templates.has(n));
+    expect(missing).toEqual([]);
+  });
+
+  it("flags which tags are still stock Revit rather than office-authored", () => {
+    const stock = Object.entries(raw.graphics.tags)
+      .filter(([, v]: [string, any]) => v.officeAuthored === false)
+      .map(([k]) => k);
+    // Not a failure — a recorded gap in the office standard. Asserting it so a future
+    // BDS-authored tag makes this test fail and forces the guideline to be updated.
+    expect(stock.sort()).toEqual(
+      ["Casework", "Ceilings", "Columns", "Floors", "Furniture", "Stairs", "Walls"],
+    );
+  });
+
+  it("does not invent a dimension or text style — neither is harvestable yet", () => {
+    expect(raw.graphics.dimensionStyle).toBeNull();
+    expect(raw.graphics.textStyle).toBeNull();
+  });
+});
