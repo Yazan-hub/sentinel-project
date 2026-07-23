@@ -28,10 +28,10 @@ namespace Sentinel.GhostBuilder
         private readonly string _url;
         private readonly HttpClient _http;
 
-        public LocalVisionReader(string model = "llama3.2-vision",
+        public LocalVisionReader(string model = "llava",
                                  string ollamaUrl = "http://localhost:11434/api/generate")
         {
-            _model = string.IsNullOrWhiteSpace(model) ? "llama3.2-vision" : model;
+            _model = string.IsNullOrWhiteSpace(model) ? "llava" : model;
             _url = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local vision inference is slow
         }
