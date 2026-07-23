@@ -118,6 +118,8 @@ public sealed class StandardsReviewWindow : Window
             o => $"{o.Name}   [{o.Target}]",
             o => o.Confidence, o => o.Provenance);
 
+        AddTypeCatalog(pack.Provision.TypeCatalog);
+
         int total = pack.Provision.Worksets.Count + pack.Provision.SharedParameters.Count
                     + pack.Provision.NamingRules.Count
                     + pack.Provision.ViewTemplates.Count + pack.Provision.BrowserOrganization.Count;
@@ -152,6 +154,53 @@ public sealed class StandardsReviewWindow : Window
             _leaves.Add(new Leaf(cb, item!));
         }
         _tree.Items.Add(node);
+    }
+
+    /// <summary>
+    /// The families and types the template already carries — shown READ-ONLY, grouped by category.
+    ///
+    /// They belong in this window because they are unmistakably part of the office standard: leaving
+    /// them out made it look like the extractor had ignored the family library. But they are NOT
+    /// tickable, because ticking here means "create this in the model" and these already exist. This is
+    /// the vocabulary the Modelling Guideline is allowed to name — reference, not work.
+    /// </summary>
+    private void AddTypeCatalog(IReadOnlyList<TypeSpec> catalog)
+    {
+        if (catalog is null || catalog.Count == 0) return;
+
+        var root = new TreeViewItem
+        {
+            Header = $"Families & Types ({catalog.Count})  —  reference only, nothing to build",
+            IsExpanded = false,                       // collapsed: it is the largest group and the least actionable
+            FontWeight = FontWeights.Bold,
+        };
+
+        foreach (var group in catalog.GroupBy(t => t.Category).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var famCount = group.Select(t => t.Family).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            var catNode = new TreeViewItem
+            {
+                Header = $"{group.Key} — {group.Count()} type(s) in {famCount} famil{(famCount == 1 ? "y" : "ies")}",
+                FontWeight = FontWeights.Normal,
+            };
+            foreach (var t in group.OrderBy(t => t.Family + t.Type, StringComparer.OrdinalIgnoreCase))
+            {
+                string size = t.WidthMm is double w
+                    ? $"   {w:0.#} mm" + (t.HeightMm is double h ? $" × {h:0.#} mm" : "")
+                    : "";
+                var row = new TextBlock
+                {
+                    Text = $"{t.Family} · {t.Type}{size}",
+                    Foreground = new SolidColorBrush(Color.FromRgb(140, 148, 160)),
+                    FontWeight = FontWeights.Normal,
+                    ToolTip = t.Params.Count == 0 ? "No classification parameters set."
+                            : string.Join(Environment.NewLine, t.Params.Select(p => $"{p.Key}: {p.Value}")),
+                };
+                catNode.Items.Add(new TreeViewItem { Header = row, Focusable = false });
+            }
+            root.Items.Add(catNode);
+        }
+        _tree.Items.Add(root);
     }
 
     private static string Badge(double c) => c >= 0.9 ? "●" : c >= 0.6 ? "◐" : "○";

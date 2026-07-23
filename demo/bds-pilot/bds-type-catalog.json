@@ -1,0 +1,2636 @@
+{
+  "source": "BDS_Project Number_Project Name (Template)",
+  "extracted_at": "2026-07-23T17:43:07.1128929+02:00",
+  "count": 234,
+  "types": [
+    {
+      "category": "Ceilings",
+      "family": "Basic Ceiling",
+      "type": "Generic",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3030"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "16mm GWB on Metal Stud",
+      "system": true,
+      "width_mm": 108,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3030220",
+        "Type Mark": "C02"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "16mm GWB on Wood Furring",
+      "system": true,
+      "width_mm": 54,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3030220",
+        "Type Mark": "C01"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "600mm x 1200mm ACT System",
+      "system": true,
+      "width_mm": 56,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3030210",
+        "Type Mark": "C04"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "600mm x 600mm ACT System",
+      "system": true,
+      "width_mm": 56,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3030210",
+        "Type Mark": "C03"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "BDS_EXT_ARC_FALSE CEILING_GNRC_115 mm",
+      "system": true,
+      "width_mm": 115,
+      "height_mm": null,
+      "params": {
+        "Keynote": "K40"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "BDS_INT_ARC_CMNT-MR_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Keynote": "K40"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "BDS_INT_ARC_CMNT-WATERPROOF_6 mm",
+      "system": true,
+      "width_mm": 6,
+      "height_mm": null,
+      "params": {
+        "Keynote": "K40"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "BDS_INT_ARC_GYPS-MR_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Keynote": "K40"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "BDS_INT_ARC_GYPS_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Keynote": "K40"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "family": "Compound Ceiling",
+      "type": "BDS_INT_CEILING_PLASTER_PAINT_15_mm",
+      "system": true,
+      "width_mm": 15,
+      "height_mm": null,
+      "params": {
+        "Keynote": "K40"
+      }
+    },
+    {
+      "category": "Columns",
+      "family": "BDS_Column_Concrete_Rectangular",
+      "type": "BDS_INT_STR_CONC_300 X 1500 mm",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "BDS_Column_Concrete_Rectangular",
+      "type": "BDS_INT_STR_CONC_300 X 300 mm",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "BDS_Column_Concrete_Rectangular",
+      "type": "BDS_INT_STR_CONC_600 X 600 mm",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Concrete-Rectangular-Column",
+      "type": "300 x 450mm",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Concrete-Rectangular-Column",
+      "type": "450 x 600mm",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Concrete-Rectangular-Column",
+      "type": "600 x 750mm",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_HSS-Hollow Structural Section-Column",
+      "type": "HSS152.4X152.4X7.9",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Metal Clad Column",
+      "type": "610mm Diameter",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Rectangular Column",
+      "type": "457 x 475mm",
+      "system": false,
+      "width_mm": 475,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Rectangular Column",
+      "type": "475 x 610mm",
+      "system": false,
+      "width_mm": 610,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_Rectangular Column",
+      "type": "610 x 610mm",
+      "system": false,
+      "width_mm": 610,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "M_SC_Reference Column",
+      "type": "M_SC_Reference Column",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "Reference ONLY"
+      }
+    },
+    {
+      "category": "Columns",
+      "family": "UC-Universal Column-Column",
+      "type": "203x203x46UC",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "UC-Universal Column-Column",
+      "type": "254x254x132UC",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "UC-Universal Column-Column",
+      "type": "254x254x73UC",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "UC-Universal Column-Column",
+      "type": "356x368x129UC",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Columns",
+      "family": "UC-Universal Column-Column",
+      "type": "356x406x393UC",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_Door Panel",
+      "type": "BDS_Door Panel",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "129"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_Door Panel",
+      "type": "BDS_Door Panel2",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "130"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_1 PNL",
+      "type": "BDS_EXT_1 PNL_GLASS_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "75"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_1 PNL",
+      "type": "BDS_EXT_1 PNL_GLASS_SWING_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "84"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_1 PNL",
+      "type": "BDS_EXT_1 PNL_STEEL_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "76"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_1 PNL",
+      "type": "BDS_EXT_1 PNL_STEEL_SWING_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "85"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_1 PNL",
+      "type": "BDS_EXT_1 PNL_WOOD_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "74"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_1 PNL",
+      "type": "BDS_EXT_1 PNL_WOOD_SWING_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "86"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_GLASS_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "71"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_GLASS_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "90"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_STEEL-WINDOW_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "73"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_STEEL-WINDOW_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "89"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_STEEL_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "72"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_STEEL_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "88"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_WOOD_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "70"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 PNL",
+      "type": "BDS_EXT_2 PNL_WOOD_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "87"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2000x3000 mm",
+      "system": false,
+      "width_mm": 2000,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "91"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2000x3700 mm",
+      "system": false,
+      "width_mm": 2000,
+      "height_mm": 3700,
+      "params": {
+        "Type Mark": "92"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2100x3000 mm",
+      "system": false,
+      "width_mm": 2100,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "100"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2200x3000 mm",
+      "system": false,
+      "width_mm": 2200,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "99"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2300x3000 mm",
+      "system": false,
+      "width_mm": 2300,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "96"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2350x3000 mm",
+      "system": false,
+      "width_mm": 2350,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "101"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2400x3000 mm",
+      "system": false,
+      "width_mm": 2400,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "97"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_2 Sliding PNL",
+      "type": "2750x3000 mm",
+      "system": false,
+      "width_mm": 2750,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "98"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "2950x3000 mm",
+      "system": false,
+      "width_mm": 2950,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "104"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "3050x3000 mm",
+      "system": false,
+      "width_mm": 3050,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "106"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "3100x3000 mm",
+      "system": false,
+      "width_mm": 3100,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "102"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "3500x3000 mm",
+      "system": false,
+      "width_mm": 3500,
+      "height_mm": 3700,
+      "params": {
+        "Type Mark": "93"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "3500x3700 mm",
+      "system": false,
+      "width_mm": 3500,
+      "height_mm": 3700,
+      "params": {
+        "Type Mark": "94"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "3600x3000 mm",
+      "system": false,
+      "width_mm": 3600,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "103"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_3 Sliding PNL",
+      "type": "3650x3000 mm",
+      "system": false,
+      "width_mm": 3650,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "105"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_4 Sliding PNL",
+      "type": "4750x3700 mm",
+      "system": false,
+      "width_mm": 4750,
+      "height_mm": 3700,
+      "params": {
+        "Type Mark": "95"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_CW_2 PNL",
+      "type": "BDS_EXT_CW_GLASS_2 PNL",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2030100",
+        "Type Mark": "51"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_EXT_CW_FRAMED_1 PNL",
+      "type": "BDS_EXT_CW_GLASS-FRAMED_1 PNL",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2030100",
+        "Type Mark": "52"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_1 PNL",
+      "type": "BDS_INT_1 PNL_GLASS_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "54"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_1 PNL",
+      "type": "BDS_INT_1 PNL_GLASS_SWING_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "83"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_1 PNL",
+      "type": "BDS_INT_1 PNL_STEEL_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "53"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_1 PNL",
+      "type": "BDS_INT_1 PNL_STEEL_SWING_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "82"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_1 PNL",
+      "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "47"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_1 PNL",
+      "type": "BDS_INT_1 PNL_WOOD_SWING_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 960,
+      "height_mm": 1980,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "81"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_GLASS_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "63"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_GLASS_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "79"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_STEEL-WINDOW_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "65"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_STEEL-WINDOW_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "80"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_STEEL_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "64"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_STEEL_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "78"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_WOOD_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "62"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_2 PNL",
+      "type": "BDS_INT_2 PNL_WOOD_SWING_2000 x 2100 mm",
+      "system": false,
+      "width_mm": 980,
+      "height_mm": 2080,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "77"
+      }
+    },
+    {
+      "category": "Doors",
+      "family": "BDS_INT_FRAME",
+      "type": "BDS_INT_FRAME_WOOD_1000 x 2100 mm",
+      "system": false,
+      "width_mm": 1000,
+      "height_mm": 2100,
+      "params": {
+        "Assembly Code": "C1020",
+        "Type Mark": "49"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_ARC_FLOOR_FNH-EPOXY_4MM",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_ARC_FNH_GNRC-TILE_10 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_ARC_FNH_STONE_50 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_ARC_ROOFING_150 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_ARC_ROOFING_250 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_ARC_SCREED_90 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_LSE_GRASS_100 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_LSE_GRAVEL_100 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_EXT_LSE_WATER_50 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_FND_STR_CONC-RAFT_2500 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_CEMENTITOUS-WATERPROOFING_6 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_FNH_GNRC_10 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3020100",
+        "Type Mark": "05",
+        "Keynote": "03 31 00.B5"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_FNH_PORC-TILES_10 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "PR002"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_MTL_20 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_SCREED-CONC_100 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_SCREED_90 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_SCREED_ANTI-STATIC-EPOXY_100 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_SCREED_EPOXY_300 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_ARC_SCREED_PORC-TILE_300 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_STR_CONC_150 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_STR_CONC_300 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "BDS_INT_STR_CONC_450 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Keynote": "E60/130"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Concrete 100mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "AF01"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Concrete 100mm w VCT",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "AF02"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Concrete 150mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "SF01"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Concrete 250mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "SF02"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Generic - 12\"",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "G01"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Generic - 300mm - Filled",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "G02"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Generic 300mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Steel Bar Joist 350mm - Concrete 75mm w VCT",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "AF03"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Wood Joist 235mm - Ceramic Tile",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "AF05"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Wood Joist 235mm - Wood Finish",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "AF04"
+      }
+    },
+    {
+      "category": "Floors",
+      "family": "Floor",
+      "type": "Wood Truss  Joist 286mm - Carpet Finish",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B1010",
+        "Type Mark": "AF06"
+      }
+    },
+    {
+      "category": "Furniture",
+      "family": "M_Chair-Task (Arms)",
+      "type": "M_Chair-Task (Arms)",
+      "system": false,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Furniture",
+      "family": "M_Desk",
+      "type": "1525 x 762mm",
+      "system": false,
+      "width_mm": 1525,
+      "height_mm": 762,
+      "params": {}
+    },
+    {
+      "category": "Furniture",
+      "family": "M_Desk",
+      "type": "1525 x 762mm Student",
+      "system": false,
+      "width_mm": 1525,
+      "height_mm": 762,
+      "params": {}
+    },
+    {
+      "category": "Furniture",
+      "family": "M_Desk",
+      "type": "1830 x 915mm",
+      "system": false,
+      "width_mm": 1830,
+      "height_mm": 762,
+      "params": {}
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_ARCH_WALL_EXT_BEIGE_PLASTER_30_MM",
+      "system": true,
+      "width_mm": 30,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_ARCH_WALL_EXT_MTL_50_mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_ARCH_WALL_EXT_MTL_5_CM",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_CMU_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_CMU_200 mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_CMU_300 mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_CMU_400 mm",
+      "system": true,
+      "width_mm": 400,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_MTL_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_MTL_30 mm",
+      "system": true,
+      "width_mm": 30,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_MTL_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_PLS-BEIGE_30 mm",
+      "system": true,
+      "width_mm": 30,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_PLS-WHITE_30 mm",
+      "system": true,
+      "width_mm": 30,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_PORCELAIN_20 mm",
+      "system": true,
+      "width_mm": 20,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_ARC_STONE_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010160"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_150 mm",
+      "system": true,
+      "width_mm": 150,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_200 mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_250 mm",
+      "system": true,
+      "width_mm": 250,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_300 mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_350 mm",
+      "system": true,
+      "width_mm": 350,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_EXT_STR_CONC_400 mm",
+      "system": true,
+      "width_mm": 400,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_CEM-WATERPROOF_6 mm",
+      "system": true,
+      "width_mm": 6,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C3010130"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_CMU_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010120"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_CMU_150 mm",
+      "system": true,
+      "width_mm": 150,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010120"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_CMU_200 mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010120"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_CMU_300 mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010120"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_GYPS_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010140"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_GYPS_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010140"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_MTL_50 mm",
+      "system": true,
+      "width_mm": 50,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010100"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_PLS PAINT-MOISTURE RESISTANT_15 mm",
+      "system": true,
+      "width_mm": 15,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_ARC_PLS PAINT_15 mm",
+      "system": true,
+      "width_mm": 15,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C30"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_STR_CONC_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_STR_CONC_200 mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_STR_CONC_300 mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_INT_STR_CONC_400 mm",
+      "system": true,
+      "width_mm": 400,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_LSE_WALL_CONC_150_mm",
+      "system": true,
+      "width_mm": 150,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_ÊXT_LSE_CONC_100 mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "BDS_ÊXT_LSE_CONC_200 mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Concrete 200mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "C01"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Concrete 250mm",
+      "system": true,
+      "width_mm": 250,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "C02"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Concrete 300mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "C03"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Concrete 450mm",
+      "system": true,
+      "width_mm": 450,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "C04"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Concrete 600mm",
+      "system": true,
+      "width_mm": 600,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "C05"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Foundation - 250mm Concrete",
+      "system": true,
+      "width_mm": 250,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "A1010200",
+        "Type Mark": "F01"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Foundation - 300mm Concrete",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "A1010200",
+        "Type Mark": "F02"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Foundation - 600mm Concrete Footing",
+      "system": true,
+      "width_mm": 600,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "A1010200",
+        "Type Mark": "F04"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Foundation - 900mm Concrete Footing",
+      "system": true,
+      "width_mm": 900,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "A1010200",
+        "Type Mark": "F05"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 100mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G01"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 100mm Brick",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G02"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 125mm",
+      "system": true,
+      "width_mm": 125,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G03"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 150mm",
+      "system": true,
+      "width_mm": 150,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G04"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 150mm Masonry",
+      "system": true,
+      "width_mm": 150,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G05"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 200mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G06"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 200mm Filled",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G07"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 200mm Masonry",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G08"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 300mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G09"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Generic - 300mm Masonry",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "G10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 114mm Partition",
+      "system": true,
+      "width_mm": 114,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010145",
+        "Type Mark": "P02"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 121mm Partition (1-hr)",
+      "system": true,
+      "width_mm": 121,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "1 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P03"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 125mm Partition",
+      "system": true,
+      "width_mm": 125,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "C1010145",
+        "Type Mark": "P08"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 125mm Partition (1-hr)",
+      "system": true,
+      "width_mm": 125,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "1 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P04"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 128mm Partition (2-hr)",
+      "system": true,
+      "width_mm": 128,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "2 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P05"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 141mm Partition (1-hr)",
+      "system": true,
+      "width_mm": 141,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "1 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P06"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 157mm Partition (2-hr)",
+      "system": true,
+      "width_mm": 157,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "2 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P07"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 182mm Partition (1-hr)",
+      "system": true,
+      "width_mm": 182,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "1 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P09"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Interior - 97mm Partition (1-hr)",
+      "system": true,
+      "width_mm": 97,
+      "height_mm": null,
+      "params": {
+        "Fire Rating": "1 HR",
+        "Assembly Code": "C1010145",
+        "Type Mark": "P01"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Brick on CMU",
+      "system": true,
+      "width_mm": 498,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010156",
+        "Type Mark": "W13"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Brick on Mtl. Stud",
+      "system": true,
+      "width_mm": 349,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Brick on Wood Stud",
+      "system": true,
+      "width_mm": 282,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W07"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - CMU Insulated",
+      "system": true,
+      "width_mm": 671,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010144",
+        "Type Mark": "W14"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - CMU on Mtl. Stud",
+      "system": true,
+      "width_mm": 447,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W12"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - EIFS on Mtl. Stud",
+      "system": true,
+      "width_mm": 308,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010100",
+        "Type Mark": "W08"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Insulated Metal Panel",
+      "system": true,
+      "width_mm": 287,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W06"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Split Face CMU",
+      "system": true,
+      "width_mm": 257,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010156",
+        "Type Mark": "W05"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Wood Shingle on Wood Stud",
+      "system": true,
+      "width_mm": 181,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010100",
+        "Type Mark": "W01"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Wood Shingle over Wood Siding on Wood Stud",
+      "system": true,
+      "width_mm": 191,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "W04"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "M_Exterior - Wood Siding on Wood Stud",
+      "system": true,
+      "width_mm": 184,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010100",
+        "Type Mark": "W02"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Retaining - 300mm Concrete",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Type Mark": "F03"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "Soffit - 12mm GWB & Metal Stud",
+      "system": true,
+      "width_mm": 51,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010",
+        "Type Mark": "S01"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "TEST_FamilyCheck_100mm",
+      "system": true,
+      "width_mm": 100,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "TEST_FamilyCheck_150mm",
+      "system": true,
+      "width_mm": 150,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "TEST_FamilyCheck_200mm",
+      "system": true,
+      "width_mm": 200,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "TEST_FamilyCheck_250mm",
+      "system": true,
+      "width_mm": 250,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Basic Wall",
+      "type": "TEST_FamilyCheck_300mm",
+      "system": true,
+      "width_mm": 300,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2010158",
+        "Type Mark": "W10"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "BDS_ARCH_CRTN_WALL_RAILING",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2020200"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "BDS_ARCH_CRTN_WALL_RAILING _100X50MM_RAILING",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2020200"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "BDS_INT_ARC_CW_G_REC._100x100 mm",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2020200"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "M_Exterior Glazing",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2020200",
+        "Type Mark": "CW02"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "M_Storefront",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {
+        "Assembly Code": "B2020200",
+        "Type Mark": "CW03"
+      }
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "louvers horizontal",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Walls",
+      "family": "Curtain Wall",
+      "type": "louvers vertical",
+      "system": true,
+      "width_mm": null,
+      "height_mm": null,
+      "params": {}
+    },
+    {
+      "category": "Windows",
+      "family": "BDS-ARC-WINDOW-ALUMINUM-FRAMED-GLAZED-DOUBLE-PANEL",
+      "type": "3100x2900 mm",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "75"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window Panel",
+      "type": "BDS_Window Panel",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "83"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window Sliding Panel",
+      "type": "BDS_Window Sliding Panel",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "76"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "1000x3000 mm",
+      "system": false,
+      "width_mm": 1000,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "80"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "1200x2600 mm",
+      "system": false,
+      "width_mm": 1200,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "54"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "1200x3000 mm",
+      "system": false,
+      "width_mm": 1200,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "56"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "600x1300 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 1300,
+      "params": {
+        "Type Mark": "82"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "600x2600 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "58"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "600x3000 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "64"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "800x1200 mm",
+      "system": false,
+      "width_mm": 800,
+      "height_mm": 1200,
+      "params": {
+        "Type Mark": "81"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel+FX",
+      "type": "800x2600 mm",
+      "system": false,
+      "width_mm": 800,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "57"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_1 Panel",
+      "type": "3100x1500 mm",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "53"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_2 Panels",
+      "type": "3100x2900 mm",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "45"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_2 Sliding Panels+FX",
+      "type": "1300x2600 mm",
+      "system": false,
+      "width_mm": 1300,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "77"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_2 Sliding Panels+FX",
+      "type": "1500x2600 mm",
+      "system": false,
+      "width_mm": 1500,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "67"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_2 Sliding Panels+FX",
+      "type": "1500x3000 mm",
+      "system": false,
+      "width_mm": 1500,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "74"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_2 Sliding Panels",
+      "type": "1500x2600 mm",
+      "system": false,
+      "width_mm": 1500,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "71"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_3 Panels",
+      "type": "3100x2900 mm",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "46"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_3 Sliding Panels+FX",
+      "type": "2650x3000 mm",
+      "system": false,
+      "width_mm": 2650,
+      "height_mm": 2600,
+      "params": {
+        "Type Mark": "72"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_3 Sliding Panels+FX",
+      "type": "3600x3000 mm",
+      "system": false,
+      "width_mm": 3600,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "78"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_3 Sliding Panels+FX",
+      "type": "3650x3000 mm",
+      "system": false,
+      "width_mm": 3650,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "79"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_4 Panels",
+      "type": "3100x2900 mm",
+      "system": false,
+      "width_mm": 0,
+      "height_mm": 0,
+      "params": {
+        "Type Mark": "39"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_4 Sliding Panels+FX",
+      "type": "2650x3000 mm",
+      "system": false,
+      "width_mm": 3500,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "73"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_Single Panel",
+      "type": "1200x2000 mm",
+      "system": false,
+      "width_mm": 1200,
+      "height_mm": 2000,
+      "params": {
+        "Type Mark": "55"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_Single Panel",
+      "type": "600x1200 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 1200,
+      "params": {
+        "Type Mark": "60"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_Single Panel",
+      "type": "600x1300 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 1300,
+      "params": {
+        "Type Mark": "59"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_Single Panel",
+      "type": "600x1900 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 1900,
+      "params": {
+        "Type Mark": "62"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_Single Panel",
+      "type": "600x2000 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 2000,
+      "params": {
+        "Type Mark": "61"
+      }
+    },
+    {
+      "category": "Windows",
+      "family": "BDS_Window_Single Panel",
+      "type": "600x3000 mm",
+      "system": false,
+      "width_mm": 600,
+      "height_mm": 3000,
+      "params": {
+        "Type Mark": "63"
+      }
+    }
+  ]
+}
