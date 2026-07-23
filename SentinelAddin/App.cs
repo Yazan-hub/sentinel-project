@@ -224,6 +224,8 @@ public sealed class App : IExternalApplication
             "Load a saved standards pack and build it into the active model — the golden→blank round-trip.");
         Sub(std, "Sentinel_IngestDocs", "Ingest Docs", "Sentinel.Commands.IngestDocumentsCommand", "ingest",
             "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack. Requires Ollama.");
+        Push(st, "Sentinel_Datum", "Datum from\nDrawings", "Sentinel.Commands.DatumFromDrawingsCommand", "ghost",
+            "Datum first: read the levels from an imported section's levels layer and the grids from an imported plan's grid layer, then create them — real floor-to-floor heights and a real column grid, measured off the drawings, before any element is modelled.");
         Push(st, "Sentinel_GhostBuilder", "Ghost\nBuilder", "Sentinel.Commands.GhostBuilderCommand", "ghost",
             "Build LOD 200 Revit geometry from a 2D DWG import: local LLM maps CAD layers to BDS families, then places walls and instances.");
         Push(st, "Sentinel_Massing", "Photo\nMassing", "Sentinel.Commands.MassingFromImagesCommand", "ghost",
