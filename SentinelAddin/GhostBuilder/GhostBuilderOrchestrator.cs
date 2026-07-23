@@ -89,6 +89,19 @@ namespace Sentinel.GhostBuilder
             // Office Modelling Guideline picks the wall TYPE from — is thrown away. Additive and safe: a
             // wall it can't pair stays exactly the run it was.
             var elements = GhostWallPairer.PairWalls(inputs.Elements, mapping);
+            return PlacePrepared(elements, mapping);
+        }
+
+        /// <summary>
+        /// Place already-prepared elements + mapping, WITHOUT the DWG face-pairing pass — for callers that
+        /// bring their own geometry with thickness already set (photo massing). Same transaction,
+        /// provisioners, guideline and audit as a DWG build, so a massing is governed identically.
+        /// </summary>
+        public GhostPlacementEngine.PlacementReport PlacePrepared(
+            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping)
+        {
+            if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
+                return new GhostPlacementEngine.PlacementReport { Warnings = { "Nothing to build." } };
 
             using var t = new Transaction(_doc, "Ghost Builder - LOD 200");
             t.Start();

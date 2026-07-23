@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline conformance for MassingPlanner.cs (port of massing.ts + massing-plan.ts). Pure, no Revit. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>massing-check</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\MassingPlanner.cs" />
+  </ItemGroup>
+</Project>

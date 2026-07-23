@@ -226,6 +226,8 @@ public sealed class App : IExternalApplication
             "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack. Requires Ollama.");
         Push(st, "Sentinel_GhostBuilder", "Ghost\nBuilder", "Sentinel.Commands.GhostBuilderCommand", "ghost",
             "Build LOD 200 Revit geometry from a 2D DWG import: local LLM maps CAD layers to BDS families, then places walls and instances.");
+        Push(st, "Sentinel_Massing", "Photo\nMassing", "Sentinel.Commands.MassingFromImagesCommand", "ghost",
+            "Estimate a building's massing from the project images (photos/renders/elevations) in the scoped folder, review and correct the numbers, then build it through the same governed placement + guideline.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Man-hours and monetary value saved by Sentinel's automated interventions.");
     }
