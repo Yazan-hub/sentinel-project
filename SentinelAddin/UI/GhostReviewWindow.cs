@@ -33,12 +33,17 @@ public sealed class GhostReviewWindow : Window
     public GhostReviewWindow()
     {
         Title = "Sentinel — Ghost Builder: review the build proposal";
-        Width = 640;
+        Width = 860;
         Height = 620;
+        MinWidth = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
 
         _tree = new TreeView { Margin = new Thickness(0, 6, 0, 0) };
+        // Wrap long parameter lines instead of scrolling them off the right edge. Paired with the
+        // stretched row content below, this is what keeps a long spec readable at any window size.
+        ScrollViewer.SetHorizontalScrollBarVisibility(_tree, ScrollBarVisibility.Disabled);
+        _tree.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         _status = new TextBlock
         {
             Text = "…", Margin = new Thickness(0, 6, 0, 0),
@@ -133,22 +138,37 @@ public sealed class GhostReviewWindow : Window
                     FontWeight = FontWeights.Normal,
                 };
 
-                var row = new StackPanel { Orientation = Orientation.Horizontal, ToolTip = Provenance(m) };
-                row.Children.Add(cb);
-                row.Children.Add(name);
-                row.Children.Add(badge);
+                var line1 = new StackPanel { Orientation = Orientation.Horizontal };
+                line1.Children.Add(cb);
+                line1.Children.Add(name);
+                line1.Children.Add(badge);
+
+                // The whole row is a VERTICAL stack: identity on line 1, parameters WRAPPED underneath.
+                // They were on one horizontal line, which clipped behind a scrollbar the moment a spec
+                // listed more than two values — and a reviewer cannot approve what they cannot read.
+                var row = new StackPanel { Orientation = Orientation.Vertical, ToolTip = Provenance(m) };
+                row.Children.Add(line1);
 
                 // P2 parameters are the highest-risk part of the proposal (a misread spec writes a wrong
                 // fire rating into the model), so they are shown on the row itself, never hidden in a tooltip.
                 if (m.Params != null && m.Params.Count > 0)
                     row.Children.Add(new TextBlock
                     {
-                        Text = "   ⚙ " + string.Join(" · ", m.Params.Select(p => $"{p.Name} = {p.Value}")),
+                        Text = "⚙ " + string.Join(" · ", m.Params.Select(p => $"{p.Name} = {p.Value}")),
                         Foreground = new SolidColorBrush(Color.FromRgb(60, 90, 170)),
-                        VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.Normal,
+                        FontWeight = FontWeights.Normal,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(24, 1, 4, 3),
                     });
 
-                node.Items.Add(new TreeViewItem { Header = row, Focusable = false });
+                node.Items.Add(new TreeViewItem
+                {
+                    Header = row,
+                    Focusable = false,
+                    // Let the row use the tree's full width so the wrapped parameter line has somewhere
+                    // to wrap TO, instead of growing sideways forever.
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                });
                 _rows.Add((cb, m));
             }
 
