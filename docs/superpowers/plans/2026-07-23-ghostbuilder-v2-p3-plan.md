@@ -57,10 +57,27 @@ Also deleted: `GhostBuilderPlacementEvent`'s `_minConfidence` field, which was n
 > proposal cannot be built. Add-in builds clean on **Revit 2026 (net8)** and **Revit 2021 (net48)**, 0 warnings.
 > The check constructs the real WPF window on an STA thread without showing it — no Revit needed.
 
-**Still needs you (live Revit):** run GhostBuilder on a real DWG with a spec PDF in the scoped folder and
-confirm (a) the review window lists the layers with sane counts, (b) unticking a layer means it is not
-built, (c) a ticked layer's spec parameter lands on the element or its type, (d) Ctrl+Z removes the build
-in one step.
+### ✅ Verified in live Revit — 2026-07-23
+
+Run on **Revit 2024**, on the maintainer's own drawing (not the shipped sample), with `ghost-docs` as the
+scoped folder — a markdown spec plus a sketch PNG:
+
+| # | Check | Result |
+|---|---|---|
+| a | The review window appears and **nothing is built yet** | ✅ *"Nothing has been built yet."* — geometry appeared only after Build |
+| b | Proposal lists layers with sane counts + confidence | ✅ 7 layers / 9 elements, all at 1.0, grouped by category |
+| c | Tier 0 drops annotation layers | ✅ `A-ANNO` and `DEFPOINTS` never reached the window |
+| d | The model uses the spec to read a non-standard layer | ✅ `EXTERIOR-ENVELOPE` → external Wall, `Fire Rating = FR60` |
+| e | Unticking a layer excludes it from the build | ✅ `A-WALL-INT` absent from the model |
+| f | A spec parameter lands on the built element | ✅ external walls carry `Fire Rating = FR60` |
+| g | Ctrl+Z removes the build in one step | ⏳ not yet confirmed |
+
+The vision model also ran (*"Reading 1 sketch(es) with the local vision model…"*), so the full P2 sense
+stack — scoped folder → PDF/markdown text → local VLM on images → enriched proposal — is live.
+
+**One defect found by the run**, fixed in `4d20af2`: the parameter text was clipped behind a horizontal
+scrollbar (`Mat…`, `Thickness = 20…`). Reviewing is the entire point of this window, and a reviewer cannot
+approve values they cannot finish reading. Rows are now two lines with the parameters wrapped underneath.
 
 ## Next
 

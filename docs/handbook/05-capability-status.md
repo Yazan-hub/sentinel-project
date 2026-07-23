@@ -12,6 +12,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Config: `bridge/naming-ruleset.json` |
 | Element IDS gate (Phase B, LOD-300, enforce=warn) | 🟩 Built | Config: `demo/bds-pilot/bds-ids.json` |
 | Immutable hash-chained audit ledger | ✅ Verified | Truncate/tamper-proof at the DB core (`0015`) |
+| GhostBuilder v2: docs → proposal → **human review** → build | ✅ Verified | Live on Revit 2024, 2026-07-23. Local-only: BDS standard resolves known layers with no model call; the local LLM + vision model read the project's spec and sketches; spec values (e.g. `Fire Rating = FR60`) land on the built geometry; **nothing is written until a reviewer ticks it** |
 
 ## Platform (web app)
 

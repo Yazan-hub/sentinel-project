@@ -87,8 +87,20 @@ cross-project layer cache — they are project-specific by definition.
 > pass, compiled against the real `GhostBuilder_Architecture.cs` (layer match is case/whitespace-insensitive,
 > hallucinated layers dropped, blank name/value filtered, malformed JSON is a no-op, the P1 mapping shape
 > still deserializes, new fields survive the cache round-trip). Full add-in builds clean on **Revit 2026
-> (net8)** and **Revit 2021 (net48)** — 0 warnings, 0 errors. **Not yet run in live Revit** with a real
-> DWG + spec PDF: that is the acceptance run below and needs you.
+> (net8)** and **Revit 2021 (net48)** — 0 warnings, 0 errors.
+
+> **✅ Verified in live Revit 2026-07-23** (Revit 2024, the maintainer's own drawing, `ghost-docs` as the
+> scoped folder). The whole sense stack ran: the local **vision model read the sketch PNG**, the markdown
+> spec supplied context, and the enrichment pass put `Fire Rating = FR60` on the external walls — which
+> then **appeared on the built walls in the model**. The non-standard `EXTERIOR-ENVELOPE` layer, which the
+> deterministic pass cannot match, came back from the local model as an external Wall carrying FR60,
+> because the spec explains it. That is P2's entire premise, confirmed end to end. See the
+> [P3 plan](2026-07-23-ghostbuilder-v2-p3-plan.md) for the full result table.
+
+> **Bug found by the live dry run** (`99e4743`): the model returned `Rationale = "<the spec sentence>"`
+> *inside* the params array, so GhostBuilder would have hunted for a Revit parameter named "Rationale".
+> Prompt wording won't reliably stop a 7B model doing that — `MergeParams` now filters the response's own
+> meta field names and promotes stray rationale text into the field it belonged in.
 
 ## Testing & acceptance
 
