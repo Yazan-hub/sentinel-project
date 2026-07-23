@@ -23,22 +23,35 @@ landed. Then reopen Revit and do Task 2.
 
 ---
 
-## Task 1 — Turn on leaked-password protection (2 minutes)
+## Task 1 — Leaked-password protection ⛔ **BLOCKED: needs a paid plan**
 
-**What it does:** when someone sets a Sentinel password, Supabase checks it against the HaveIBeenPwned
-breach list and refuses passwords already known to attackers. It is off today. This is the last open
-item from the audit (F15), and the only one with no API — hence the clicking.
+**Don't go looking for this — the toggle is not in your dashboard.** Checked 2026-07-23:
+`Yazan-hub's Org` is on the **free** plan, and Supabase gates leaked-password protection to **Pro and
+above**. It is absent, not hidden.
 
-1. Go to **https://supabase.com/dashboard/project/autqqtwhxqrfjaztablm/auth/policies**
-   (if that lands somewhere odd: dashboard → **Yazan-hub's Project** → **Authentication** in the left
-   sidebar → **Policies**, sometimes labelled **Password / Attack Protection**).
-2. Find the row **"Prevent use of leaked passwords"** (may read *Leaked password protection*).
-3. Flip the toggle **on**. Click **Save** if there's a button; some versions save immediately.
+*(Two earlier versions of this file sent you to the wrong place. The setting lives under
+**Authentication → Providers → Email** — `/auth/providers?provider=Email` — **not** `/auth/policies`,
+which is the RLS policies page for database tables. Even at the right address, the free plan doesn't
+show it.)*
 
-**How you'll know it worked:** ask me to re-run the Supabase security advisors. The warning
-*"Leaked Password Protection Disabled"* should be gone. Nothing for you to type.
+**What it would do:** reject any password already known from a public breach, by checking it against
+HaveIBeenPwned. Supabase does this server-side using k-anonymity — only the first 5 characters of the
+password's SHA-1 hash ever leave the server, never the password.
 
-**If you can't find it:** tell me what you *do* see under Authentication and I'll point at the right one.
+### What to do instead — three options, cheapest first
+
+1. **Tighten the password rules that *are* free.** On the same page (**Authentication → Providers →
+   Email**) you can set a **minimum password length** and **required character types**. Set the length to
+   at least 12. This is free, takes a minute, and closes most of the same risk. ⬅ **recommended**
+2. **Do the breach check ourselves.** The HaveIBeenPwned range API is free and needs no key — the same
+   k-anonymity trick Supabase uses. ~20 lines at the sign-up path. **But** it is an outbound call to a
+   third party, which cuts against this project's local-default privacy stance, so it is your call, not
+   mine to assume. Say the word and I'll build it.
+3. **Accept it.** This is a **LOW** finding, and the practical exposure today is one maintainer account
+   on a pilot. Accepting it explicitly — as was done for the F16 dev-only CVEs — is a legitimate answer.
+
+**Whichever you pick, tell me and I'll record the decision** in the audit so this stops resurfacing as
+an open item.
 
 ---
 
