@@ -33,6 +33,7 @@ public sealed class SentinelSettings
     // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs/sketches) the agent may read — and ONLY this
     // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
     [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
+    [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llama3.2-vision"; // local VLM for sketches/renders
 
     [JsonIgnore] public bool IsEmpty =>
         string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath)

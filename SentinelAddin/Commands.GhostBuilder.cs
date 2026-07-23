@@ -82,9 +82,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
         var rulesetPath = string.IsNullOrWhiteSpace(settings.GhostLayerRulesetPath) ? null : settings.GhostLayerRulesetPath;
         // P2 SENSE (slice 1): read supporting docs (PDF/specs) from the SCOPED folder → context for the model.
         var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);
-        var mapper = new LayerMapper(
-            new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context),
-            matcher: LayerRulesetMatcher.Load(rulesetPath));
+        var llm = new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context);
+        var mapper = new LayerMapper(llm, matcher: LayerRulesetMatcher.Load(rulesetPath));
         var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0.5, familyLibraryDir: libraryDir);
         GhostBuilderOrchestrator.Inputs inputs;
         try
@@ -132,6 +131,17 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             try
             {
+                // P2 slice 2: read sketch/render images with the local vision model and fold their hints into
+                // the model's context. Best-effort + offline; no images / no VLM pulled -> silently skipped.
+                int imgCount = LocalVisionReader.CountImages(settings.GhostSourceFolder);
+                if (imgCount > 0)
+                {
+                    progress.SetStatus($"Reading {imgCount} sketch(es) with the local vision model…");
+                    using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
+                    string hints = await vision.ReadFolderAsync(settings.GhostSourceFolder, ct: progress.Token).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(hints)) llm.AppendEvidence(hints);
+                }
+
                 progress.SetStatus(evidence.IsEmpty
                     ? "Mapping CAD layers with the local model…"
                     : $"Mapping CAD layers with the local model ({evidence.Sources.Count} doc(s) for context)…");

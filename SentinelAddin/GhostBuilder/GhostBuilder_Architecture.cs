@@ -39,7 +39,7 @@ namespace Sentinel.GhostBuilder
         // with no code change. Data never leaves the machine on this path.
         private readonly string _ollamaUrl;
         private readonly string _model;
-        private readonly string _evidence; // P2: scoped-folder document context (empty -> none)
+        private string _evidence; // P2: scoped-folder document + vision context (empty -> none); appendable
 
         private readonly HttpClient _http;
         private readonly string _schema; // optional caller-supplied JSON schema; empty -> DefaultSchema
@@ -81,6 +81,14 @@ namespace Sentinel.GhostBuilder
             _ollamaUrl = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
             _evidence = evidence ?? string.Empty; // P2: document context the model uses to disambiguate layers
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
+        }
+
+        /// <summary>P2 slice 2: add vision-model hints (from LocalVisionReader) to the document context on the
+        /// background thread, before the mapping call. Safe to call once between construction and MapLayersAsync.</summary>
+        public void AppendEvidence(string more)
+        {
+            if (string.IsNullOrWhiteSpace(more)) return;
+            _evidence = string.IsNullOrWhiteSpace(_evidence) ? more : _evidence + "\n\n" + more;
         }
 
         /// <param name="cadLayers">Layer names from GhostCadExtractor.ExtractCadLayers.</param>
