@@ -32,8 +32,44 @@ public sealed class BuildOfficeSystemCommand : IExternalCommand
 
         // Read-only extraction, up front on the API thread.
         StandardsPack pack = GoldenModelExtractor.Extract(doc);
+
+        // Write the TYPE CATALOGUE out unconditionally, before the review window opens. It is reference
+        // material for authoring the Office Modelling Guideline — not something you tick and build — and
+        // the review window only ever emits the ticked subset, so routing it through there would drop it.
+        // One known path, overwritten each run, so "re-extract and re-read" is the whole workflow.
+        string? catalogPath = WriteTypeCatalog(pack, doc);
+
         StandardsReview.Show(uiapp, pack, sourceLabel: doc.Title, buildTarget: doc.Title);
+        if (catalogPath != null)
+            TaskDialog.Show("Sentinel — Office System",
+                $"Type catalogue exported ({pack.Provision.TypeCatalog.Count} types from this template):\n\n{catalogPath}\n\n" +
+                "This is the list of families and types the Modelling Guideline is allowed to name.");
         return Result.Succeeded;
+    }
+
+    /// <summary>Write the harvested type catalogue to %AppData%/Sentinel/type-catalog.json. Never throws:
+    /// a read-only or missing folder must not sink an otherwise-successful extraction.</summary>
+    private static string? WriteTypeCatalog(StandardsPack pack, Document doc)
+    {
+        try
+        {
+            string dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel");
+            System.IO.Directory.CreateDirectory(dir);
+            string path = System.IO.Path.Combine(dir, "type-catalog.json");
+            var payload = new
+            {
+                source = doc.Title,
+                path = doc.PathName,
+                extracted_at = DateTimeOffset.Now.ToString("o"),
+                count = pack.Provision.TypeCatalog.Count,
+                types = pack.Provision.TypeCatalog,
+            };
+            System.IO.File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(
+                payload, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            return path;
+        }
+        catch { return null; }
     }
 }
 

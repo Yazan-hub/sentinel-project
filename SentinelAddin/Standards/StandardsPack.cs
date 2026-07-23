@@ -53,6 +53,31 @@ public sealed class ProvisionSet
     // the golden model, so building them requires that model to be open at build time.
     [JsonPropertyName("view_templates")] public List<ViewTemplateSpec> ViewTemplates { get; set; } = new();
     [JsonPropertyName("browser_organization")] public List<BrowserOrgSpec> BrowserOrganization { get; set; } = new();
+
+    // The TYPE CATALOGUE — every family/type the template actually carries. Read-only reference, never
+    // built into a target model. It exists so the Office Modelling Guideline can name types that EXIST:
+    // a guideline written against invented names makes GhostBuilder provision types nobody recognises,
+    // which is precisely the mistake that shipped once already (see docs/…office-modelling-guideline.md).
+    [JsonPropertyName("type_catalog")] public List<TypeSpec> TypeCatalog { get; set; } = new();
+}
+
+/// <summary>One placeable type in the template — the vocabulary the guideline is allowed to use.</summary>
+public sealed class TypeSpec
+{
+    /// <summary>Revit category, e.g. "Walls", "Doors" — matches the GhostBuilder build categories.</summary>
+    [JsonPropertyName("category")] public string Category { get; set; } = "";
+    /// <summary>Family name. For system families (walls/floors/ceilings) this is the system family name.</summary>
+    [JsonPropertyName("family")] public string Family { get; set; } = "";
+    /// <summary>Type name as it appears in the template.</summary>
+    [JsonPropertyName("type")] public string Type { get; set; } = "";
+    /// <summary>true for system families (Wall/Floor/Ceiling) — these are duplicated, not loaded.</summary>
+    [JsonPropertyName("system")] public bool IsSystem { get; set; }
+    /// <summary>Overall thickness/width in mm where the type exposes one — the dimension an office
+    /// standard most often keys on ("200 blockwork"). Null when the type has no such parameter.</summary>
+    [JsonPropertyName("width_mm")] public double? WidthMm { get; set; }
+    [JsonPropertyName("height_mm")] public double? HeightMm { get; set; }
+    /// <summary>Type parameters worth seeing when authoring rules (Fire Rating, Material, Assembly Code…).</summary>
+    [JsonPropertyName("params")] public Dictionary<string, string> Params { get; set; } = new();
 }
 
 /// <summary>Identity of the golden model a pack was extracted from (for cross-document transfer).</summary>

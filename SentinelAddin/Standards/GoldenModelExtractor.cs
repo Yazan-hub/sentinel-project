@@ -30,8 +30,103 @@ public static class GoldenModelExtractor
         ExtractSharedParameters(doc, pack, src);
         ExtractViewTemplates(doc, pack, src);
         ExtractBrowserOrganization(doc, pack, src);
+        ExtractTypeCatalog(doc, pack);
         return pack;
     }
+
+    // Categories the guideline can place. Kept in step with GhostBuilder's build categories — a type
+    // harvested for a category GhostBuilder can't place would only be noise when authoring rules.
+    private static readonly (BuiltInCategory Bic, string Name)[] CatalogCategories =
+    {
+        (BuiltInCategory.OST_Walls, "Walls"),
+        (BuiltInCategory.OST_Floors, "Floors"),
+        (BuiltInCategory.OST_Ceilings, "Ceilings"),
+        (BuiltInCategory.OST_Doors, "Doors"),
+        (BuiltInCategory.OST_Windows, "Windows"),
+        (BuiltInCategory.OST_Columns, "Columns"),
+        (BuiltInCategory.OST_StructuralColumns, "Columns"),
+        (BuiltInCategory.OST_Furniture, "Furniture"),
+    };
+
+    // Type parameters worth capturing when authoring rules. Deliberately a short list: the point is to
+    // show what an office standard actually keys on, not to dump every parameter in the template.
+    private static readonly string[] InterestingParams =
+    { "Fire Rating", "Material", "Structural Material", "Assembly Code", "Type Mark", "Keynote", "Function" };
+
+    /// <summary>
+    /// Harvest every placeable TYPE in the template — the vocabulary the Office Modelling Guideline is
+    /// allowed to use. Read-only, no transaction.
+    ///
+    /// This closes a real hole: the guideline previously had to be written from a document or from
+    /// memory, so it named types like "BDS_Wall_Ext_200_FR60" that do not exist in the template, and
+    /// GhostBuilder would provision an invented type on first build. Harvesting means a rule can only
+    /// ever point at something real.
+    /// </summary>
+    private static void ExtractTypeCatalog(Document doc, StandardsPack pack)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (bic, name) in CatalogCategories)
+        {
+            IEnumerable<ElementType> types;
+            try
+            {
+                types = new FilteredElementCollector(doc)
+                    .OfCategory(bic).WhereElementIsElementType().Cast<ElementType>();
+            }
+            catch { continue; } // a category absent from this template is not an error
+
+            foreach (ElementType t in types)
+            {
+                // FamilyName is the system-family name for walls/floors/ceilings and the loaded family
+                // name for everything else — which is exactly the distinction the guideline needs.
+                string family = SafeFamilyName(t);
+                string key = name + "|" + family + "|" + t.Name;
+                if (!seen.Add(key)) continue; // Columns appears twice (arch + structural)
+
+                var spec = new TypeSpec
+                {
+                    Category = name,
+                    Family = family,
+                    Type = t.Name,
+                    IsSystem = t is HostObjAttributes, // Wall/Floor/Ceiling/Roof types
+                    WidthMm = Mm(t, BuiltInParameter.CURVE_ELEM_LENGTH) ?? Mm(t, BuiltInParameter.WALL_ATTR_WIDTH_PARAM)
+                              ?? MmByName(t, "Width") ?? MmByName(t, "Thickness"),
+                    HeightMm = MmByName(t, "Height"),
+                };
+                foreach (string p in InterestingParams)
+                {
+                    string? v = t.LookupParameter(p)?.AsString();
+                    if (!string.IsNullOrWhiteSpace(v)) spec.Params[p] = v!;
+                }
+                pack.Provision.TypeCatalog.Add(spec);
+            }
+        }
+
+        pack.Provision.TypeCatalog.Sort((a, b) =>
+            string.CompareOrdinal(a.Category + a.Family + a.Type, b.Category + b.Family + b.Type));
+    }
+
+    private static string SafeFamilyName(ElementType t)
+    {
+        try { return t.FamilyName ?? ""; } catch { return ""; }
+    }
+
+    /// <summary>A length parameter in MILLIMETRES. Revit stores internally in feet; the guideline and
+    /// the BDS type names are both in mm, so convert once here rather than at every reader.</summary>
+    private static double? Mm(ElementType t, BuiltInParameter bip)
+    {
+        Parameter p = t.get_Parameter(bip);
+        return p != null && p.StorageType == StorageType.Double ? Round(p.AsDouble() * 304.8) : (double?)null;
+    }
+
+    private static double? MmByName(ElementType t, string name)
+    {
+        Parameter p = t.LookupParameter(name);
+        return p != null && p.StorageType == StorageType.Double ? Round(p.AsDouble() * 304.8) : (double?)null;
+    }
+
+    private static double Round(double v) => Math.Round(v, 1);
 
     private static void ExtractWorksets(Document doc, StandardsPack pack, string src)
     {
