@@ -78,6 +78,14 @@ The reasoning behind every major call. This is the page that lets you **defend**
 - **Free mitigations still available, not taken today:** raise the minimum password length + required character classes under **Authentication → Providers → Email** (free on any plan); or implement the HaveIBeenPwned k-anonymity range check in-app — rejected for now because it is an outbound third-party call, which cuts against the local-default privacy stance in the GhostBuilder work.
 - **Note for readers of the Supabase advisors:** the *"Leaked Password Protection Disabled"* lint will report **forever** on this plan. It is a known accepted item, not an open action.
 
+### D-13 · AI keys belong to the FIRM, not to individual users and not to us
+- **Context:** Users shouldn't have to obtain four API keys to use the AI features. The tempting fix — one key we hold for everyone — was considered and rejected.
+- **Decision (2026-07-23):** one key **per customer firm**, configured once by that firm's admin. Individual users never see or manage a key. We hold no key on anyone's behalf.
+- **Why:** a key we held would make us the data processor for other firms' confidential project data (a DPA relationship, and their own client NDAs may forbid it outright), would put every tenant's data through one account where a single context or logging bug mixes them, and would make cost unbounded and unattributable. A firm-level key keeps the data controller, the bill, and the risk with the party that owns the project.
+- **Trade-off / what it implies:** the bridge is currently per-workstation and loopback-bound, so a firm key today lives in `config/.env` on **every** machine — readable by anyone at that desk. The leak-resistant form needs one bridge per firm with the key on the firm's server: that is the already-planned *Production hosting (networked, TLS, mandatory auth)* item, gated on F2 activation + HTTPS. Same key model, better custody.
+- **Unchanged:** local (Ollama) remains the default and is the only option where no data leaves the machine at all. Cloud stays explicitly opt-in per the earlier privacy decision — a key is still not consent.
+- **Live constraint:** check the provider's **tier**, not just the provider. Gemini's free tier trains on submitted content and Google's terms say not to send confidential information through it; the paid tier says the opposite. See `docs/AI-KEYS-SETUP.md`.
+
 ---
 
 *When you make a new significant decision, add it here the same day — the reasoning is worth more than the outcome, and it's the first thing that fades from memory.*
