@@ -44,7 +44,10 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
   root.innerHTML =
-    '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
+    // flex-wrap + shrinkable selects: the panel is dockable and gets narrow, and without this the
+    // model picker overlapped the Ask/Agent toggle instead of moving. Wrapping to a second row is
+    // the right failure mode for a control strip.
+    '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
       '<span style="font-weight:600">✦ Copilot</span>' +
       // Ask ↔ Agent. The ONLY difference is whether the model may propose actions: Ask answers,
       // Agent proposes and a human ticks. Same chat, same providers, same grounding.
@@ -52,9 +55,9 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
         `<button data-mode="ask" style="${btn};border-radius:0;background:#6528d7;color:#fff">Ask</button>` +
         `<button data-mode="agent" style="${btn};border-radius:0;background:transparent;color:#9ca3af">Agent</button>` +
       "</span>" +
-      '<span style="flex:1"></span>' +
-      `<select id="co-provider" title="Which AI" style="background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem"></select>` +
-      `<select id="co-model" title="Model" style="background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem;max-width:130px"></select>` +
+      '<span style="flex:1 1 0;min-width:0"></span>' +
+      `<select id="co-provider" title="Which AI" style="flex:1 1 92px;min-width:0;background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem"></select>` +
+      `<select id="co-model" title="Model" style="flex:1 1 92px;min-width:0;max-width:150px;background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem"></select>` +
       `<button id="co-refresh" style="${btn};background:#2a2a30;color:#eee" title="Reload project context">↻</button>` +
     "</div>" +
     '<div id="co-log" style="flex:1;overflow:auto;padding:.6rem;display:flex;flex-direction:column;gap:.5rem"></div>' +

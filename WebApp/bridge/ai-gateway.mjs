@@ -137,7 +137,13 @@ export async function listModels(id) {
       const r = await fetch(`${url}/api/tags`);
       const j = await r.json();
       const names = (j.models || []).map((m) => m.name).filter(Boolean);
-      return names.length ? names : p.models;
+      if (!names.length) return p.models;
+      // Curated first here too — Ollama lists in its own order, which put "llava" (a VISION model)
+      // at the top and made it the chat default. Match loosely: a pulled model is "qwen2.5:7b-instruct"
+      // while the curated name may be "qwen2.5" or vice-versa.
+      const pref = p.models.flatMap((c) => names.filter((n) => n === c || n.startsWith(`${c}:`) || c.startsWith(`${n.split(":")[0]}`)));
+      const seen = new Set(pref);
+      return [...pref, ...names.filter((n) => !seen.has(n)).sort()];
     }
     const r = await fetch(`${p.base}/models`, { headers: { authorization: `Bearer ${keyOf(id)}` } });
     if (!r.ok) return p.models;
@@ -145,7 +151,14 @@ export async function listModels(id) {
     // Gemini returns ids as "models/gemini-3.6-flash"; the chat endpoint wants the bare name, so a
     // picker fed the raw id would 404 on every pick.
     const names = (j.data || []).map((m) => String(m.id || "").replace(/^models\//, "")).filter(Boolean);
-    return names.length ? names.sort() : p.models;
+    if (!names.length) return p.models;
+    // CURATED FIRST, then the rest alphabetically. A plain .sort() put "01-ai/yi-large" at the top of
+    // NVIDIA's 118-model list — not a Nemotron model, not enabled on the account, and an instant 404
+    // for anyone who just opened the dropdown. The picker takes [0] as its default, so ordering here
+    // IS the default. Curated entries are kept even if absent from the live list; they are the ones
+    // actually verified against this product.
+    const rest = names.filter((n) => !p.models.includes(n)).sort();
+    return [...p.models, ...rest];
   } catch {
     return p.models; // offline or an unexpected shape — the static list is still usable
   }
