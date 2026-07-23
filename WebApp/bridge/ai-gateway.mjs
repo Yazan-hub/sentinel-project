@@ -10,6 +10,7 @@
 // see docs/handbook/06-glossary.md "bridge = trust boundary"). The SPA calls /ai/chat; it never holds
 // a provider key and never talks to a provider directly.
 import Anthropic from "@anthropic-ai/sdk";
+import { readdirSync } from "node:fs";
 import { loadEnv } from "./thatopen-client.mjs";
 
 // config/.env is NOT loaded into process.env by this project — `loadEnv()` parses it and each module
@@ -70,6 +71,23 @@ export const PROVIDERS = {
 };
 
 const CLOUD_OPTIN = String(env.SENTINEL_AI_CLOUD || "").trim() === "1";
+
+// Claude can authenticate two ways: a pasted API key, or an ACCOUNT LOGIN (`ant auth login`), which
+// stores an OAuth profile the SDK picks up from a bare `new Anthropic()`. The login path is what most
+// people actually want — no key to copy, no key to leak, revocable from the account. Detect it so the
+// provider reports itself available without a key.
+function hasAnthropicProfile() {
+  const dirs = [
+    env.ANTHROPIC_CONFIG_DIR,
+    process.env.APPDATA ? `${process.env.APPDATA}\Anthropic` : null,
+    process.env.HOME ? `${process.env.HOME}/.config/anthropic` : null,
+    process.env.USERPROFILE ? `${process.env.USERPROFILE}/.config/anthropic` : null,
+  ].filter(Boolean);
+  for (const d of dirs) {
+    try { if (readdirSync(`${d}/credentials`).some((f) => f.endsWith(".json"))) return true; } catch { /* next */ }
+  }
+  return false;
+}
 const keyOf = (id) => (PROVIDERS[id]?.env ? String(env[PROVIDERS[id].env] || "").trim() : "");
 
 /** Why a provider can't be used right now — null when it can. The UI shows this verbatim, so a
@@ -78,7 +96,9 @@ export function blockedReason(id) {
   const p = PROVIDERS[id];
   if (!p) return "Unknown provider.";
   if (!p.cloud) return null;
-  if (!keyOf(id)) return `No API key — set ${p.env} in config/.env and restart the bridge.`;
+  if (id === "claude" && !keyOf(id) && !hasAnthropicProfile())
+    return "Not signed in — run `ant auth login` to use your Claude account, or set ANTHROPIC_API_KEY in config/.env.";
+  if (id !== "claude" && !keyOf(id)) return `No API key — set ${p.env} in config/.env and restart the bridge.`;
   if (!CLOUD_OPTIN) return "Cloud is off. Set SENTINEL_AI_CLOUD=1 in config/.env to allow it.";
   return null;
 }
@@ -87,7 +107,8 @@ export function blockedReason(id) {
 export function listProviders() {
   return Object.entries(PROVIDERS).map(([id, p]) => ({
     id, label: p.label, cloud: p.cloud, models: p.models, note: p.note,
-    configured: p.cloud ? !!keyOf(id) : true,
+    auth: !p.cloud ? "none" : id === "claude" ? "login-or-key" : "key",
+    configured: p.cloud ? !!keyOf(id) || (id === "claude" && hasAnthropicProfile()) : true,
     available: blockedReason(id) === null,
     blocked: blockedReason(id),
   }));
@@ -151,7 +172,10 @@ export async function chat({ provider = "local", model, system, messages = [], t
 
 // ── Claude (official SDK — never a compatibility shim) ────────────────────────────────────────────
 async function viaClaude(model, system, messages, tools) {
-  const client = new Anthropic({ apiKey: keyOf("claude") });
+  // Passing apiKey:"" would DEFEAT the account-login path — the SDK resolves the OAuth profile only
+  // when no key is supplied. Pass a key when there is one, otherwise let the SDK resolve credentials.
+  const key = keyOf("claude");
+  const client = key ? new Anthropic({ apiKey: key }) : new Anthropic();
   const res = await client.messages.create({
     model,
     max_tokens: 4096,

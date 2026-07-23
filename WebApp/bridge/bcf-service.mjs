@@ -441,6 +441,26 @@ async function handleRequest(req, res) {
     const ai = await import("./ai-gateway.mjs");
     return send(res, 200, { providers: ai.listProviders() });
   }
+  // What the AI is allowed to do, and which of those need a human tick. The UI renders the gate from
+  // this, so a tool added to the registry shows up in both the agent and the MCP server with no
+  // further wiring.
+  if (url.pathname === "/ai/tools" && req.method === "GET") {
+    const t = await import("./ai-tools.mjs");
+    return send(res, 200, {
+      tools: t.TOOLS.map(({ name, description, policy, input_schema }) => ({ name, description, policy, input_schema })),
+    });
+  }
+  // Run ONE tool. `approved:true` is the human's decision arriving from the review gate — without it
+  // a write-policy tool is refused, so a missing gate fails loudly instead of silently doing nothing.
+  if (url.pathname === "/ai/run-tool" && req.method === "POST") {
+    const t = await import("./ai-tools.mjs");
+    const { name, args, approved } = await readBody(req);
+    try {
+      return send(res, 200, { name, result: await t.runTool(name, args || {}, { allowWrites: approved === true }) });
+    } catch (e) {
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
   if (url.pathname === "/ai/models" && req.method === "GET") {
     const ai = await import("./ai-gateway.mjs");
     try {
