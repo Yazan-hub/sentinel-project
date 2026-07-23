@@ -189,15 +189,30 @@ async function updateClashStatusCde(cde, pid, signature, status) {
   return true;
 }
 
+// res._cors is the per-request allowed origin (set in handleRequest); only reflect an allowlisted origin so
+// a foreign page can neither read responses nor pass a mutation preflight. Shared by send() AND the two
+// binary routes (sheet PNGs, CDE blobs) — those used a hardcoded "*" (F11), which let any site the user
+// happened to visit read sheets and document blobs straight out of the loopback bridge.
+const corsHeaders = (res) => (res._cors
+  ? { "Access-Control-Allow-Origin": res._cors, ...(res._cors === "*" ? {} : { Vary: "Origin" }) }
+  : {});
+
 const send = (res, code, body) => {
+  // F14 (schema disclosure): a raw PostgREST/Postgres error names tables, columns and constraints, and the
+  // bridge echoed one at ~10 call sites. Scrub it ONCE here instead — every current and future 5xx is
+  // covered, and a new route can't reintroduce the leak. Exactly 500 is scrubbed, so the deliberate 4xx
+  // and 503 guidance ("CDE not configured — set SUPABASE_URL…") still reaches the user. The real text is
+  // logged server-side, where it is a diagnostic rather than a disclosure.
+  if (code === 500 && body && typeof body.message === "string") {
+    console.error(`[bridge] 500: ${body.message}`);
+    body = { ...body, message: "Internal error — see the bridge log." };
+  }
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
+    ...corsHeaders(res),
   };
-  // res._cors is the per-request allowed origin (set in the handler); only reflect an allowlisted origin so a
-  // foreign page can neither read responses nor pass a mutation preflight.
-  if (res._cors) { headers["Access-Control-Allow-Origin"] = res._cors; if (res._cors !== "*") headers["Vary"] = "Origin"; }
   res.writeHead(code, headers);
   res.end(body === undefined ? "" : JSON.stringify(body));
 };
@@ -444,10 +459,12 @@ async function handleRequest(req, res) {
     if (!resolve(path).startsWith(resolve(SHEETS_ROOT) + sep)) return send(res, 404, { message: "Not found" });
     try {
       const buf = readFileSync(path);
+      // No ACAO:* here (F11) — a plain <img src> needs no CORS header at all, and a fetch() from the
+      // allowlisted app origin is still served by the reflection.
       res.writeHead(200, {
         "Content-Type": "image/png",
         "Cache-Control": "no-cache",
-        "Access-Control-Allow-Origin": "*",
+        ...corsHeaders(res),
       });
       return res.end(buf);
     } catch {
@@ -701,7 +718,8 @@ async function handleRequest(req, res) {
     const file = join(CDE_FILES_ROOT, `${basename(fm[1])}.bin`); // basename() guards path traversal
     try {
       const buf = readFileSync(file);
-      res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*" });
+      // Document blobs are the more sensitive of the two binary routes — same fix (F11).
+      res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", ...corsHeaders(res) });
       return res.end(buf);
     } catch { return send(res, 404, { message: "Blob not found" }); }
   }
