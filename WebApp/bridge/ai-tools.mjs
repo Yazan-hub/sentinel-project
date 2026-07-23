@@ -93,8 +93,16 @@ export const TOOLS = [
         assigned_to: { type: "string", description: "email of the responsible party" },
       },
     },
-    run: ({ project, title, description, priority, assigned_to }) =>
-      cde.bcfCreateTopic({ project_id: project, title, description, priority, assigned_to, status: "Open" }),
+    // Build through the SHARED canonical builder, not by hand: `guid` is NOT NULL and the web Issues
+    // panel + Revit BcfSyncManager read specific field names. A hand-rolled object inserted fine in
+    // theory and died with a 23502 not-null violation in practice. `creation_author` records that a
+    // machine raised it, so the trail distinguishes agent-raised from hand-raised issues.
+    run: async ({ project, title, description, priority, assigned_to }) => {
+      const proj = await cde.ensureProject(project);
+      return cde.bcfCreateTopic(
+        cde.newTopicObject(proj.id, { title, description, priority, assigned_to, creation_author: "copilot-agent" }),
+      );
+    },
   },
   {
     name: "propose_elements",

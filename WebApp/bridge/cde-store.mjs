@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // Sentinel CDE store — Supabase-backed ISO 19650 information-container access for the bridge (C3).
 // Zero-dep: talks to Supabase PostgREST + RPC over fetch with the SERVICE key (server-side only, never
 // the browser). The state machine, published-immutability, and hash-chained audit all live in the DB
@@ -679,6 +680,23 @@ export async function bcfGetTopic(pid, guid) {
 }
 
 /** Insert a freshly-built topic. */
+/** The canonical BCF topic shape. Every producer must go through this — the web Issues panel, the
+ *  Revit BcfSyncManager and the governed fail→BCF hook all expect these exact fields, and `guid` is
+ *  NOT NULL in the database. A caller that hand-rolls a partial object gets a 23502 at insert time.
+ *  Lives here, beside bcfCreateTopic, so the AI tool registry and the HTTP routes share one definition. */
+export function newTopicObject(pid, b = {}, now = new Date().toISOString()) {
+  return {
+    guid: b.guid || randomUUID(), project_id: pid, model: b.model || "",
+    title: b.title || "Untitled", topic_type: b.topic_type || "Issue",
+    topic_status: b.topic_status || "Open", priority: b.priority || "Normal",
+    assigned_to: b.assigned_to || "", due_date: b.due_date || null,
+    stage: b.stage || "", description: b.description || "",
+    creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
+    labels: b.labels || [], comments: [], viewpoints: [],
+    history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
+  };
+}
+
 export async function bcfCreateTopic(topic) {
   await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal" });
   return topic;

@@ -267,18 +267,7 @@ const loadCore = async () => (_core ??= await import("./sentinel-core.mjs"));
 /** The canonical BCF-3.0 topic object — one shape shared by the POST /topics route and the governed
  *  fail→BCF hook, so a machine-raised issue is byte-identical to a hand-raised one (same fields the web
  *  Issues panel + Revit BcfSyncManager expect). */
-function newTopicObject(pid, b, now) {
-  return {
-    guid: b.guid || randomUUID(), project_id: pid, model: b.model || "",
-    title: b.title || "Untitled", topic_type: b.topic_type || "Issue",
-    topic_status: b.topic_status || "Open", priority: b.priority || "Normal",
-    assigned_to: b.assigned_to || "", due_date: b.due_date || null,
-    stage: b.stage || "", description: b.description || "",
-    creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
-    labels: b.labels || [], comments: [], viewpoints: [],
-    history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
-  };
-}
+// newTopicObject now lives in cde-store.mjs so the AI tool registry shares the exact same shape.
 
 /** G2 — governed fail→BCF. On a REJECT verdict, surface each failing IDS requirement as a BCF topic
  *  (deduped against still-open IDS topics), with the failing elements as a viewpoint selection, and record
@@ -302,7 +291,7 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   const now = new Date().toISOString();
   const raised = [];
   for (const g of groups) {
-    const topic = newTopicObject(pid, {
+    const topic = cde.newTopicObject(pid, {
       title: `IDS: ${g.key} (${g.count} failing)`, topic_type: "Issue", priority: "High",
       creation_author: author,
       description: `IDS “${idsTitle}” — ${g.count} element(s) fail: ${g.key}.` +
@@ -944,7 +933,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && !guid) {
       const b = await readBody(req);
       const now = new Date().toISOString();
-      const topic = newTopicObject(pid, b, now);
+      const topic = cde.newTopicObject(pid, b, now);
       if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
       broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       return send(res, 201, topic);
