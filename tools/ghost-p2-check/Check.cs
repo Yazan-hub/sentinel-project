@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -131,6 +132,30 @@ static class Check
         Ok(emitted?.Mappings.Count == 1, "only ticked rows are emitted");
         Ok(emitted?.Mappings[0].Params?[0].Value == "FR60", "approved row keeps its document-derived params");
         Ok(!ReferenceEquals(emitted, proposal), "emits a new proposal, never the unreviewed one");
+
+        // ---- The shipped sample: does the real SENSE path actually read it? ----
+        Console.WriteLine("\nSample pair (demo/ghost-sample)");
+
+        string sampleDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "demo", "ghost-sample"));
+        Ok(Directory.Exists(sampleDir), $"sample folder exists ({sampleDir})");
+        Ok(File.Exists(Path.Combine(sampleDir, "sample-plan.dxf")), "sample-plan.dxf present");
+        Ok(File.Exists(Path.Combine(sampleDir, "sample-spec.pdf")), "sample-spec.pdf present");
+
+        // GhostEvidence.FromFolder is the exact call the command makes. If the hand-written PDF were
+        // malformed, this would silently return Empty and the whole live test would be inconclusive.
+        var ev = GhostEvidence.FromFolder(sampleDir);
+        Ok(!ev.IsEmpty, "GhostEvidence reads the sample folder (PDF parses in PdfPig)");
+        Ok(ev.Sources.Contains("sample-spec.pdf"), "the spec PDF is cited as a source");
+        Ok(ev.Context.Contains("FR60"), "the fire rating the model must lift is in the evidence text");
+        Ok(ev.Context.Contains("A-WALL-EXT"), "the layer that rating applies to is in the evidence text");
+        Ok(ev.Context.Contains("EXT-ENVELOPE-2HR"), "the non-standard layer is explained in the evidence");
+
+        // The DXF must carry both the standard layers and the two that tier 0 has to drop.
+        string dxf = File.ReadAllText(Path.Combine(sampleDir, "sample-plan.dxf"));
+        foreach (string layer in new[] { "A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR", "EXT-ENVELOPE-2HR" })
+            Ok(dxf.Contains(layer), $"DXF carries layer {layer}");
+        Ok(dxf.Contains("A-ANNO") && dxf.Contains("DEFPOINTS"), "DXF carries the two must-be-ignored layers");
 
         // Empty proposal: nothing to build, and Build must stay a no-op rather than emit an empty run.
         emitted = null;

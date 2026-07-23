@@ -1,0 +1,78 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 854 >>
+stream
+BT
+/F1 11 Tf
+14 TL
+56 780 Td
+(BDS SAMPLE PROJECT - OUTLINE SPECIFICATION) Tj
+T*
+(Document: BDS-SAMPLE-XX-XX-SP-A-0001   Revision: P01) Tj
+T*
+() Tj
+T*
+(1.  EXTERNAL WALLS) Tj
+T*
+(    All external walls \(layer A-WALL-EXT\) shall be 200 mm blockwork) Tj
+T*
+(    with a fire rating of FR60.) Tj
+T*
+() Tj
+T*
+(2.  INTERNAL WALLS) Tj
+T*
+(    Internal partitions \(layer A-WALL-INT\) shall be 100 mm stud and) Tj
+T*
+(    are not fire rated.) Tj
+T*
+() Tj
+T*
+(3.  FLOORS) Tj
+T*
+(    The ground floor slab \(layer A-FLOR\) shall be 200 mm reinforced) Tj
+T*
+(    concrete.) Tj
+T*
+() Tj
+T*
+(4.  ENVELOPE ZONE) Tj
+T*
+(    The zone drawn on layer EXT-ENVELOPE-2HR is the external envelope) Tj
+T*
+(    line and shall be treated as external walling, 2 hour fire rated.) Tj
+T*
+() Tj
+T*
+(5.  DOORS) Tj
+T*
+(    All doors \(layer A-DOOR\) shall be fire rated FD30.) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1216
+%%EOF

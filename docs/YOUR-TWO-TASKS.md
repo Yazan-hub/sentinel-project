@@ -45,16 +45,26 @@ is, "it works" is a claim, not a fact. You are the only one who can turn that cl
   (change `2026` to whichever Revit you use). It must say **Build succeeded**. This installs the add-in.
 - Make sure **Ollama is running** (GhostBuilder needs the local model — nothing leaves your machine).
 
-### Set up a test folder
+### The test files — already made for you
 
-1. Make a new folder anywhere, e.g. `C:\GhostTest`.
-2. Put in it: **one DWG floor plan**, and **one PDF** that says something specific about the walls —
-   even a one-line PDF reading *"All external walls shall be FR60 fire rated."* is a perfect test.
-3. In Revit: **Sentinel ribbon → Project Setup**, set the **Ghost source folder** to `C:\GhostTest`.
+They're in **`demo/ghost-sample/`** in this repo:
+
+| File | What it is |
+|---|---|
+| `sample-plan.dxf` | A 10 × 7 m floor plan: external walls, an internal partition, a floor slab, two doors, one deliberately messy layer, and two layers that must be ignored |
+| `sample-spec.pdf` | A one-page outline spec that says **"external walls (layer A-WALL-EXT) … fire rating of FR60"** |
+
+Together they exercise every part of the new pipeline in one run. You don't need to draw or write
+anything. *(It's a DXF rather than a DWG because DWG is a closed binary format I can't author — Revit
+imports DXF through the same Import CAD command and GhostBuilder can't tell the difference. If you'd
+rather have a true `.dwg`, open the DXF in AutoCAD and save-as.)*
+
+1. In Revit: **Sentinel ribbon → Project Setup**, set the **Ghost source folder** to the full path of
+   `demo/ghost-sample` (copy it from your file explorer's address bar).
 
 ### The run
 
-4. Link or import the DWG into a Revit view.
+4. **Insert → Import CAD**, pick `sample-plan.dxf`. If it asks for units, choose **Millimeters**.
 5. **Sentinel ribbon → Ghost Builder**, then click the DWG when it asks you to select it.
 6. Wait. A progress window shows what it's doing ("reading the project documents…", "mapping CAD
    layers…"). This can take a minute or two — the model runs locally.
@@ -64,11 +74,21 @@ is, "it works" is a claim, not a fact. You are the only one who can turn that cl
 7. **A review window appears and NOTHING has been built yet.** ← the single most important thing. If
    geometry appears in your model before you click Build, tell me: the safety gate failed.
 8. Look at the list. Each row is one CAD layer: what it will become, how many elements, a confidence
-   dot, and any parameters read from your PDF (e.g. `⚙ Fire Rating = FR60`).
-9. **Untick one layer that is ticked.** Click **Build**.
+   dot, and any parameters read from the PDF (e.g. `⚙ Fire Rating = FR60`). With the sample you should
+   see roughly:
+   - `A-WALL-EXT` → Walls, 4 elements — **and ideally `⚙ Fire Rating = FR60`**, lifted from the PDF
+   - `A-WALL-INT` → Walls, 1 element
+   - `A-FLOR` → Floors, 1 element
+   - `A-DOOR` → Doors, 2 elements
+   - `EXT-ENVELOPE-2HR` → the messy layer, whatever the local model made of it (its confidence dot
+     will likely be amber or red — that's the point of showing you the score)
+   - **`A-ANNO` and `DEFPOINTS` must NOT appear at all** — they're on the ignore list. If you see them,
+     tell me.
+9. **Untick one layer that is ticked** — `A-WALL-INT` is the easy one to spot afterwards. Click **Build**.
 10. Check the model: the layer you unticked must **not** have been built. The ticked ones must be there.
-11. Click a wall from a ticked layer → look at its properties (or its type's properties) → the value
-    from your PDF should be there.
+11. Click one of the external walls → look at its properties, and at **Edit Type** → the **Fire Rating**
+    should read `FR60`. *(It may be on the type rather than the wall — either is a pass. If the review
+    window showed the `⚙` but the model has no value, that's the interesting failure and I want it.)*
 12. Press **Ctrl+Z once**. The entire build should disappear in that single undo.
 
 ### Tell me what happened
