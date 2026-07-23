@@ -20,6 +20,8 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostBuilder_Architecture.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostEvidence.cs" />
     <Compile Include="..\..\SentinelAddin\Standards\DocumentTextReader.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerRulesetMatcher.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerMapper.cs" />
     <Compile Include="..\..\SentinelAddin\UI\GhostReviewWindow.cs" />
   </ItemGroup>
 </Project>

@@ -253,8 +253,17 @@ namespace Sentinel.GhostBuilder
             return mapping;
         }
 
+        // The model reliably leaks the response's OWN meta fields into the params array — a live run
+        // against a real spec came back with `Rationale = "- All external walls are 200 mm, FR60."` as if
+        // it were a Revit parameter. Writing that would hunt for a parameter named "Rationale", fail, and
+        // fill the report with noise. Names are matched case-insensitively; the rationale text is not
+        // thrown away, it is promoted to the field it belonged in.
+        private static readonly string[] MetaParamNames =
+            { "rationale", "why", "reason", "source", "sourcedoc", "source doc", "note", "notes", "cadlayer", "layer" };
+
         /// <summary>Fold an enrichment response into the mapping rows, matching by CAD layer. Unknown layers,
-        /// blank names/values and malformed JSON are dropped. Pure — no I/O — so it is directly testable.</summary>
+        /// blank names/values, the response's own meta fields, and malformed JSON are dropped. Pure — no
+        /// I/O — so it is directly testable.</summary>
         public static void MergeParams(MappingResult mapping, string enrichmentJson)
         {
             if (mapping?.Mappings == null || string.IsNullOrWhiteSpace(enrichmentJson)) return;
@@ -274,13 +283,24 @@ namespace Sentinel.GhostBuilder
                 if (a?.CadLayer == null) continue;
                 if (!byLayer.TryGetValue(a.CadLayer.Trim(), out LayerMapping m)) continue; // layer the model invented
 
-                var clean = (a.Params ?? new List<ParamAssignment>())
+                var supplied = (a.Params ?? new List<ParamAssignment>())
                     .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Name) && !string.IsNullOrWhiteSpace(p.Value))
+                    .ToList();
+
+                // A meta field that arrived as a parameter is not a Revit parameter — but its text is still
+                // the provenance we wanted, so keep it as the rationale rather than discarding it.
+                string strayRationale = supplied
+                    .FirstOrDefault(p => p.Name.Trim().ToLowerInvariant() is "rationale" or "why" or "reason")?.Value;
+
+                var clean = supplied
+                    .Where(p => Array.IndexOf(MetaParamNames, p.Name.Trim().ToLowerInvariant()) < 0)
                     .ToList();
                 if (clean.Count == 0) continue; // rationale without a value is just noise
 
                 m.Params = clean;
-                m.Rationale = string.IsNullOrWhiteSpace(a.Rationale) ? null : a.Rationale.Trim();
+                m.Rationale = !string.IsNullOrWhiteSpace(a.Rationale) ? a.Rationale.Trim()
+                            : !string.IsNullOrWhiteSpace(strayRationale) ? strayRationale.Trim()
+                            : null;
                 m.SourceDoc = string.IsNullOrWhiteSpace(a.SourceDoc) ? null : a.SourceDoc.Trim();
             }
         }

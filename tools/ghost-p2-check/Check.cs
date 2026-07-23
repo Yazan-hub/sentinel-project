@@ -15,15 +15,6 @@ using System.Threading.Tasks;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
 
-// Stub for the seam that lives in LayerMapper.cs (Revit-free, but pulls in the ruleset matcher).
-namespace Sentinel.GhostBuilder
-{
-    public interface ILayerMapper
-    {
-        Task<MappingResult> MapLayersAsync(IEnumerable<string> cadLayers, CancellationToken ct = default);
-    }
-}
-
 static class Check
 {
     static int _pass, _fail;
@@ -165,7 +156,96 @@ static class Check
         w2.Build();
         Ok(emitted == null, "empty proposal cannot be built");
 
+        if (Environment.GetCommandLineArgs().Contains("--live")) LiveDryRun().GetAwaiter().GetResult();
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// `--live`: run the REAL mapping + parameter pipeline against the REAL local Ollama and the REAL
+    /// scoped folder, using the sample DXF's layer list. Everything here except Revit placement and the
+    /// window's own message loop is the same code the add-in runs, so this answers "will the Revit run
+    /// produce a sensible proposal?" BEFORE anyone opens Revit.
+    ///
+    /// Opt-in because it needs Ollama up and takes real inference time; the default suite stays hermetic.
+    /// It writes its layer cache to a TEMP path — polluting the real cache would defeat the next live run
+    /// (a cached layer never reaches the model).
+    /// </summary>
+    static async Task LiveDryRun()
+    {
+        Console.WriteLine("\nLIVE dry run (real Ollama, real documents — no Revit)");
+
+        string[] layers = { "A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR",
+                            "EXTERIOR-ENVELOPE", "A-ANNO", "DEFPOINTS" };
+
+        string folder = Environment.GetEnvironmentVariable("GHOST_SOURCE_FOLDER")
+                        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "ghost-docs");
+        var evidence = GhostEvidence.FromFolder(folder);
+        Console.WriteLine($"  evidence: {(evidence.IsEmpty ? "NONE" : $"{evidence.Sources.Count} doc(s) — {string.Join(", ", evidence.Sources)}")}");
+        Ok(!evidence.IsEmpty, "the configured scoped folder yields document context");
+
+        string cache = Path.Combine(Path.GetTempPath(), "ghost-live-check-cache.json");
+        try { File.Delete(cache); } catch { }
+
+        // Load the SHIPPED BDS ruleset explicitly. Without this the matcher finds no bds-layers.json next
+        // to THIS tool's DLL and silently falls back to its built-in keyword heuristics — which resolve
+        // "Generic Wall" at 0.70 instead of the standard's BDS_Wall_Ext at 1.00, making the dry run
+        // unrepresentative of the add-in (whose deploy folder does carry Resources\bds-layers.json).
+        string ruleset = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "SentinelAddin", "Resources", "bds-layers.json"));
+        Ok(File.Exists(ruleset), "the shipped BDS layer ruleset is on disk");
+
+        var llm = new LocalGhostBuilder(schemaJson: "", model: "qwen2.5:7b-instruct",
+                                        ollamaUrl: "http://localhost:11434/api/generate",
+                                        evidence: evidence.Context);
+        using var mapper = new LayerMapper(llm, cachePath: cache,
+                                           matcher: LayerRulesetMatcher.Load(ruleset));
+
+        MappingResult result;
+        try { result = await mapper.MapLayersAsync(layers); }
+        catch (Exception ex) { Ok(false, $"mapping call failed: {ex.GetType().Name}: {ex.Message}"); return; }
+
+        var byLayer = result.Mappings.ToDictionary(m => m.CadLayer, m => m, StringComparer.OrdinalIgnoreCase);
+        Console.WriteLine("  --- proposal after mapping ---");
+        foreach (var m in result.Mappings)
+            Console.WriteLine($"    {m.CadLayer,-20} -> {m.Category,-10} {m.BdsFamilyType ?? m.BdsFamily,-22} conf {m.Confidence:0.00}");
+
+        Ok(!byLayer.ContainsKey("A-ANNO") && !byLayer.ContainsKey("DEFPOINTS"),
+           "tier 0 drops A-ANNO + DEFPOINTS before any model call");
+        Ok(byLayer.TryGetValue("A-WALL-EXT", out var ext) && ext.Category == "Walls",
+           "A-WALL-EXT resolves deterministically to Walls");
+        Ok(ext != null && ext.Confidence >= 1.0 && (ext.BdsFamily ?? "").StartsWith("BDS_"),
+           $"A-WALL-EXT came from the BDS standard, not the keyword fallback (got '{ext?.BdsFamily}' @ {ext?.Confidence:0.00})");
+        Ok(byLayer.TryGetValue("A-FLOR", out var flr) && flr.Category == "Floors",
+           "A-FLOR resolves deterministically to Floors");
+        Ok(byLayer.ContainsKey("EXTERIOR-ENVELOPE"),
+           "the non-standard layer came back from the local model at all");
+        if (byLayer.TryGetValue("EXTERIOR-ENVELOPE", out var env))
+            Ok(env.Category == "Walls",
+               $"the model read the spec and called EXTERIOR-ENVELOPE a Wall (got '{env.Category}')");
+
+        // The P2 payload: does the spec's FR60 actually come back attached to the external walls?
+        try { await llm.EnrichParamsAsync(result); }
+        catch (Exception ex) { Ok(false, $"parameter pass failed: {ex.GetType().Name}: {ex.Message}"); return; }
+
+        Console.WriteLine("  --- parameters lifted from the documents ---");
+        bool any = false;
+        foreach (var m in result.Mappings.Where(m => m.Params is { Count: > 0 }))
+        {
+            any = true;
+            Console.WriteLine($"    {m.CadLayer,-20} {string.Join(" · ", m.Params.Select(p => $"{p.Name} = {p.Value}"))}");
+            if (!string.IsNullOrWhiteSpace(m.Rationale)) Console.WriteLine($"      why: {m.Rationale}");
+        }
+        if (!any) Console.WriteLine("    (none)");
+
+        Ok(any, "the parameter pass returned at least one document-derived value");
+        Ok(result.Mappings.All(m => m.Params == null ||
+               m.Params.All(p => !new[] { "rationale", "why", "reason", "source", "sourcedoc", "note" }
+                                  .Contains(p.Name.Trim().ToLowerInvariant()))),
+           "no meta field leaked in as a Revit parameter name");
+        var extParams = byLayer.TryGetValue("A-WALL-EXT", out var e2) ? e2.Params : null;
+        Ok(extParams != null && extParams.Any(p => p.Value != null && p.Value.Contains("60")),
+           "the external walls carry the spec's FR60 rating");
     }
 }
