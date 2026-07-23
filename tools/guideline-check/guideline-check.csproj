@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline conformance check for GuidelineMatcher.cs, the C# port of sentinel-core/guideline.ts.
+       The TS tests are the reference; this asserts the port gives the SAME answers on the SAME inputs,
+       against the real office files. GuidelineMatcher has no Revit dependency, so it runs on plain net8
+       without Revit installed - the same trick the P1 LayerRulesetMatcher conformance run used.
+       Run with `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>guideline-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
+  </ItemGroup>
+</Project>

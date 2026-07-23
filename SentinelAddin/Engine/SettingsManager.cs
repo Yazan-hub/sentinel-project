@@ -33,6 +33,13 @@ public sealed class SentinelSettings
     // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs/sketches) the agent may read — and ONLY this
     // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
     [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
+
+    // The OFFICE MODELLING GUIDELINE and the TYPE CATALOGUE harvested from that office's template.
+    // Both are per-firm by design (decision D-03: BDS is a reference profile, not a fixed standard) —
+    // another practice points these at their own files and nothing in the code changes. Empty falls back
+    // to %AppData%\Sentinel\ then the shipped Resources copy, exactly like the layer ruleset above.
+    [JsonPropertyName("ghost_guideline_path")] public string GhostGuidelinePath { get; set; } = string.Empty;
+    [JsonPropertyName("ghost_type_catalog_path")] public string GhostTypeCatalogPath { get; set; } = string.Empty;
     [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
 
     [JsonIgnore] public bool IsEmpty =>
@@ -132,6 +139,8 @@ public static class SettingsManager
             if (string.IsNullOrWhiteSpace(project.GhostSourceFolder)) project.GhostSourceFolder = machine.GhostSourceFolder;
             if (string.IsNullOrWhiteSpace(project.GhostFamilyLibraryDir)) project.GhostFamilyLibraryDir = machine.GhostFamilyLibraryDir;
             if (string.IsNullOrWhiteSpace(project.GhostLayerRulesetPath)) project.GhostLayerRulesetPath = machine.GhostLayerRulesetPath;
+            if (string.IsNullOrWhiteSpace(project.GhostGuidelinePath)) project.GhostGuidelinePath = machine.GhostGuidelinePath;
+            if (string.IsNullOrWhiteSpace(project.GhostTypeCatalogPath)) project.GhostTypeCatalogPath = machine.GhostTypeCatalogPath;
         }
         return project;
     }

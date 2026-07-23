@@ -53,6 +53,9 @@
     <!-- Shipped ruleset + ribbon icons: copied to output, deployed with the DLL -->
     <Content Include="Resources\ruleset.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Resources\bds-layers.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Reference PROFILE, not a fixed standard (D-03). Another firm points ghost_guideline_path at
+         their own file; this ships so the add-in works out of the box, not to lock anyone to BDS. -->
+    <Content Include="Resources\bds-guideline.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Resources\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
