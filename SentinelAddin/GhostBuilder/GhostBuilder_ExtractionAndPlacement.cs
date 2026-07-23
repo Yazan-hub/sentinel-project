@@ -275,10 +275,13 @@ namespace Sentinel.GhostBuilder
         private readonly Dictionary<string, ElementType> _ceilingTypes;
         private readonly Level _defaultLevel;
 
-        public GhostPlacementEngine(Document doc, double minConfidence = 0.5)
+        private readonly GuidelineMatcher _guideline; // optional office guideline for per-wall type choice
+
+        public GhostPlacementEngine(Document doc, double minConfidence = 0.5, GuidelineMatcher guideline = null)
         {
             _doc = doc;
             _minConfidence = minConfidence;
+            _guideline = guideline;
 
             _wallTypes = new FilteredElementCollector(doc)
                 .OfClass(typeof(WallType)).Cast<WallType>()
@@ -333,7 +336,7 @@ namespace Sentinel.GhostBuilder
 
             // All creation logic lives in the factory; the engine just iterates and tallies.
             var factory = new ElementPlacementFactory(
-                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes);
+                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes, _guideline);
 
             foreach (GhostElement el in elements)
             {

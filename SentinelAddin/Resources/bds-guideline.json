@@ -56,14 +56,13 @@
         },
         {
           "when": {
-            "layer": "A-WALL-EXT",
-            "discipline": "S"
+            "layer": "S-WALL"
           },
           "use": {
             "family": "Basic Wall",
             "typePattern": "BDS_EXT_STR_CONC_{thickness} mm"
           },
-          "why": "External STRUCTURAL walls are concrete."
+          "why": "Structural walls (S-WALL) are external concrete by default. Internal structural concrete (BDS_INT_STR_CONC) needs a location signal the DWG does not currently carry — flagged for the office to decide."
         },
         {
           "when": {
@@ -74,17 +73,6 @@
             "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm"
           },
           "why": "External architectural walls are CMU unless the spec says otherwise."
-        },
-        {
-          "when": {
-            "layer": "A-WALL-INT",
-            "discipline": "S"
-          },
-          "use": {
-            "family": "Basic Wall",
-            "typePattern": "BDS_INT_STR_CONC_{thickness} mm"
-          },
-          "why": "Internal STRUCTURAL walls are concrete."
         },
         {
           "when": {

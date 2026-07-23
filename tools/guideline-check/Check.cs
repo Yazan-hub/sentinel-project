@@ -43,7 +43,8 @@ static class Check
 
         Ok(T("A-WALL-EXT", 200) == "BDS_EXT_ARC_CMU_200 mm", "external architectural 200 → CMU 200");
         Ok(T("A-WALL-EXT", 300) == "BDS_EXT_ARC_CMU_300 mm", "same layer, different measurement → different type");
-        Ok(T("A-WALL-EXT", 250, "S") == "BDS_EXT_STR_CONC_250 mm", "structural external → concrete");
+        Ok(m.Resolve(new GuidelineInput { Category = "Walls", Layer = "S-WALL", ThicknessMm = 250 }).Type
+            == "BDS_EXT_STR_CONC_250 mm", "structural wall layer (S-WALL) → concrete");
         Ok(T("A-WALL-EXT", 50, null, new Dictionary<string, string> { ["Material"] = "STONE" })
             == "BDS_EXT_ARC_STONE_50 mm", "spec overrides the material, thickness untouched");
         Ok(T("A-WALL-INT", 100) == "BDS_INT_ARC_GYPS_100 mm", "internal partitions default to gypsum");

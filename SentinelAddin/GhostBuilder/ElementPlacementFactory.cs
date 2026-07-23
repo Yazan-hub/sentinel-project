@@ -33,12 +33,18 @@ namespace Sentinel.GhostBuilder
         private readonly IReadOnlyDictionary<string, FloorType> _floorTypes;
         private readonly IReadOnlyDictionary<string, ElementType> _ceilingTypes;
 
+        // Optional Office Modelling Guideline. When present, a wall's TYPE is chosen from the measured
+        // thickness (GhostWallPairer) via the office's own catalogue, instead of the one-guess-per-layer
+        // family the mapping supplies. Null = the pre-guideline behaviour, unchanged.
+        private readonly GuidelineMatcher _guideline;
+
         public ElementPlacementFactory(
             Document doc, Level level,
             IReadOnlyDictionary<string, WallType> wallTypes,
             IReadOnlyDictionary<string, FamilySymbol> symbols,
             IReadOnlyDictionary<string, FloorType> floorTypes = null,
-            IReadOnlyDictionary<string, ElementType> ceilingTypes = null)
+            IReadOnlyDictionary<string, ElementType> ceilingTypes = null,
+            GuidelineMatcher guideline = null)
         {
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
             _level = level ?? throw new ArgumentNullException(nameof(level));
@@ -46,6 +52,7 @@ namespace Sentinel.GhostBuilder
             _symbols = symbols ?? new Dictionary<string, FamilySymbol>();
             _floorTypes = floorTypes ?? new Dictionary<string, FloorType>();
             _ceilingTypes = ceilingTypes ?? new Dictionary<string, ElementType>();
+            _guideline = guideline;
         }
 
         /// <summary>Outcome of one placement attempt, so the engine can tally without re-inspecting.</summary>
@@ -92,10 +99,50 @@ namespace Sentinel.GhostBuilder
             }
         }
 
+        /// <summary>
+        /// Choose the wall TYPE. If a guideline is loaded and the wall has a measured thickness, the
+        /// office's own type wins over the mapping's single-guess family. A guideline GAP (a measured
+        /// thickness the office template has no type for) returns null with a reviewer-facing reason —
+        /// the wall is then skipped, never built with an invented type or snapped to the wrong size.
+        /// </summary>
+        private string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason)
+        {
+            gapReason = null;
+            if (_guideline == null || !_guideline.HasGuideline || el.ThicknessMm <= 0)
+                return map.BdsFamilyType ?? map.BdsFamily; // pre-guideline behaviour
+
+            // Discipline is the layer's first token: A-WALL-EXT -> "A", S-WALL -> "S".
+            string disc = (el.CadLayer ?? "").Split('-', '_').FirstOrDefault();
+            var res = _guideline.Resolve(new GuidelineInput
+            {
+                Category = "Walls",
+                Layer = el.CadLayer,
+                Discipline = disc,
+                ThicknessMm = el.ThicknessMm,
+            });
+
+            if (res.Confidence <= 0)
+            {
+                gapReason = res.Why ?? $"No office type for a {el.ThicknessMm:0} mm wall on '{el.CadLayer}'.";
+                return null;
+            }
+            return res.Type ?? map.BdsFamilyType ?? map.BdsFamily;
+        }
+
         // ---- Walls: stable API 2021-2027, no #if ----
         private Outcome PlaceWall(GhostElement el, string wanted, LayerMapping map, out string warning)
         {
             warning = null;
+
+            // The guideline decides the type from the measured thickness where it can; a gap is surfaced
+            // and the wall skipped rather than mis-typed.
+            string resolved = ResolveWallType(el, map, out string gapReason);
+            if (gapReason != null)
+            {
+                warning = $"Wall on '{el.CadLayer}': {gapReason}";
+                return Outcome.SkippedUnknownType;
+            }
+            wanted = resolved ?? wanted;
 
             // A wall element carries either a single open run (LocationCurve) or, when the CAD source
             // was a closed polyline on a wall layer, a boundary loop -> one wall per loop edge.

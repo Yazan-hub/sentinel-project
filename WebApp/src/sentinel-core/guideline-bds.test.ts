@@ -30,8 +30,10 @@ describe("BDS guideline — walls: material is the rule, thickness is measured",
       .toBe("BDS_EXT_ARC_CMU_300 mm");
   });
 
-  it("a structural external wall is concrete, not CMU", () => {
-    expect(resolveWithCatalog(G, { category: "Walls", layer: "A-WALL-EXT", discipline: "S", thicknessMm: 250 }, CATALOG).type)
+  it("a wall on the structural layer (S-WALL) is concrete, not CMU", () => {
+    // Structural walls live on S-WALL, not on an arch layer with discipline S — an A- layer is
+    // always discipline A, so the old rule could never fire on a real drawing.
+    expect(resolveWithCatalog(G, { category: "Walls", layer: "S-WALL", thicknessMm: 250 }, CATALOG).type)
       .toBe("BDS_EXT_STR_CONC_250 mm");
   });
 

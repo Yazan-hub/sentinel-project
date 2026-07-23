@@ -86,10 +86,16 @@ public sealed class GhostBuilderCommand : IExternalCommand
         var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);
         var llm = new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context);
         var mapper = new LayerMapper(llm, matcher: LayerRulesetMatcher.Load(rulesetPath));
+        // The Office Modelling Guideline (per-firm, swappable): picks the wall TYPE from the measured
+        // thickness against the office's own harvested catalogue. Absent → GhostBuilder behaves exactly
+        // as before, so this is safe to always attempt.
+        var guideline = GuidelineMatcher.Load(
+            string.IsNullOrWhiteSpace(settings.GhostGuidelinePath) ? null : settings.GhostGuidelinePath,
+            string.IsNullOrWhiteSpace(settings.GhostTypeCatalogPath) ? null : settings.GhostTypeCatalogPath);
         // minConfidence 0: the P3 review window is the confidence gate now. It pre-ticks at 0.5 and shows
         // the score on every row, so a human has already adjudicated each layer by the time we place —
         // a second silent engine-side threshold would just drop layers the reviewer deliberately ticked.
-        var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0, familyLibraryDir: libraryDir);
+        var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0, familyLibraryDir: libraryDir, guideline: guideline);
         GhostBuilderOrchestrator.Inputs inputs;
         try
         {
