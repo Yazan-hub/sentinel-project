@@ -1,17 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Offline check for the GhostBuilder P2 build-proposal contract (params + provenance).
-       It compiles the REAL GhostBuilder_Architecture.cs — that file has no Revit dependency, so the
-       parsing/merge logic can be proven on plain net8 without Revit installed. Same trick the P1
-       LayerRulesetMatcher conformance run used. Run it with `dotnet run` from this folder.
-       Lives OUTSIDE SentinelAddin so the add-in's source glob never picks up its Main(). -->
+  <!-- Offline checks for the GhostBuilder v2 contract + review gate. Compiles the REAL source files:
+       GhostBuilder_Architecture.cs (P2 build-proposal contract) and GhostReviewWindow.cs (the P3 gate).
+       Neither touches the Revit API, so both can be proven on plain .NET without Revit installed —
+       the same trick the P1 LayerRulesetMatcher conformance run used.
+       Run with `dotnet run` from this folder. UseWPF + STA because the review gate is a WPF window
+       (constructed, never shown). Lives OUTSIDE SentinelAddin so the add-in glob never sees its Main(). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>disable</Nullable>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
     <AssemblyName>ghost-p2-check</AssemblyName>
     <RootNamespace>Sentinel.Checks</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostBuilder_Architecture.cs" />
+    <Compile Include="..\..\SentinelAddin\UI\GhostReviewWindow.cs" />
   </ItemGroup>
 </Project>

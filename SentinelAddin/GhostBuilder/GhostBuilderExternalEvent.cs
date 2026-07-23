@@ -15,8 +15,6 @@ namespace Sentinel.GhostBuilder
     /// </summary>
     public sealed class GhostBuilderPlacementEvent : IExternalEventHandler
     {
-        private readonly double _minConfidence;
-
         // Per-raise payload, staged on the UI/background thread just before Raise().
         private GhostBuilderOrchestrator _orchestrator;
         private GhostBuilderOrchestrator.Inputs _inputs;
@@ -25,7 +23,8 @@ namespace Sentinel.GhostBuilder
         /// <summary>Fired on the API thread after placement. Report null when an error is passed.</summary>
         public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
-        public GhostBuilderPlacementEvent(double minConfidence = 0.5) => _minConfidence = minConfidence;
+        // (No confidence threshold here: the orchestrator owns placement policy, and since P3 the review
+        // window is the gate. The field this class used to carry was never read.)
 
         /// <summary>Stage the pre-computed inputs + mapping for the next Raise().</summary>
         public void SetRequest(GhostBuilderOrchestrator orchestrator,

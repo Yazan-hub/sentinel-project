@@ -1,6 +1,9 @@
-// Offline conformance check for the P2 build-proposal contract (LocalGhostBuilder.MergeParams + the
-// LayerMapping JSON shape). Compiled in isolation on net8 — GhostBuilder_Architecture.cs has no Revit
-// dependency, exactly like LayerRulesetMatcher in the P1 verification.
+// Offline checks for GhostBuilder v2:
+//   • P2 — the build-proposal contract (LocalGhostBuilder.MergeParams + the LayerMapping JSON shape)
+//   • P3 — the review gate (GhostReviewWindow emits ONLY ticked rows: the rule that stops an
+//          unreviewed proposal reaching the model)
+// Both source files are Revit-free, so they compile and run without Revit installed — exactly like
+// LayerRulesetMatcher in the P1 verification.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -9,6 +12,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Sentinel.GhostBuilder;
+using Sentinel.UI;
 
 // Stub for the seam that lives in LayerMapper.cs (Revit-free, but pulls in the ruleset matcher).
 namespace Sentinel.GhostBuilder
@@ -38,9 +42,11 @@ static class Check
         }
     };
 
+    [STAThread] // WPF: the review gate is a Window, so the check must run on an STA thread.
     static int Main()
     {
-        Console.WriteLine("P2 build-proposal contract check\n");
+        Console.WriteLine("GhostBuilder v2 offline checks\n");
+        Console.WriteLine("P2 — build-proposal contract");
 
         // 1. Happy path: params + provenance land on the matching layer, case/whitespace insensitively.
         var m = Sample();
@@ -88,6 +94,51 @@ static class Check
         // 6. Round-trip through the persistent cache's serializer keeps the new fields.
         var round = JsonSerializer.Deserialize<LayerMapping>(JsonSerializer.Serialize(wall));
         Ok(round.Params?[0].Value == "FR60" && round.SourceDoc == "spec.pdf", "new fields survive JSON round-trip");
+
+        // ---- P3: the review gate ----
+        Console.WriteLine("\nP3 — review gate");
+
+        var proposal = new MappingResult
+        {
+            Mappings = new List<LayerMapping>
+            {
+                new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls", BdsFamilyType = "EXT-200", Confidence = 0.95,
+                                   Params = new List<ParamAssignment> { new ParamAssignment { Name = "Fire Rating", Value = "FR60" } },
+                                   Rationale = "External walls shall be FR60.", SourceDoc = "spec.pdf" },
+                new LayerMapping { CadLayer = "A-GUESS",    Category = "Walls", BdsFamilyType = "INT-100", Confidence = 0.30 },
+                new LayerMapping { CadLayer = "A-EMPTY",    Category = "Doors", BdsFamily = "Generic Door", Confidence = 1.00 },
+            }
+        };
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["A-WALL-EXT"] = 120, ["A-GUESS"] = 7, // A-EMPTY absent => zero geometry
+        };
+
+        MappingResult emitted = null;
+        var w = new GhostReviewWindow();          // constructed, never shown
+        w.BuildRequested += m => emitted = m;
+        w.Load(proposal, counts, "Project.rvt");
+
+        // The gate's whole purpose: nothing is emitted until a human clicks Build.
+        Ok(emitted == null, "loading a proposal emits nothing (no build without review)");
+
+        w.Build();   // simulate the Build click with the default ticks
+        Ok(emitted != null, "Build emits the approved proposal");
+        var layers = emitted?.Mappings.Select(m => m.CadLayer).ToList() ?? new List<string>();
+        Ok(layers.Contains("A-WALL-EXT"), "high-confidence layer with geometry is pre-ticked");
+        Ok(!layers.Contains("A-GUESS"), "low-confidence layer is opt-in, not built by default");
+        Ok(!layers.Contains("A-EMPTY"), "layer with no geometry is never pre-ticked");
+        Ok(emitted?.Mappings.Count == 1, "only ticked rows are emitted");
+        Ok(emitted?.Mappings[0].Params?[0].Value == "FR60", "approved row keeps its document-derived params");
+        Ok(!ReferenceEquals(emitted, proposal), "emits a new proposal, never the unreviewed one");
+
+        // Empty proposal: nothing to build, and Build must stay a no-op rather than emit an empty run.
+        emitted = null;
+        var w2 = new GhostReviewWindow();
+        w2.BuildRequested += m => emitted = m;
+        w2.Load(new MappingResult { Mappings = new List<LayerMapping>() }, counts, "Project.rvt");
+        w2.Build();
+        Ok(emitted == null, "empty proposal cannot be built");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

@@ -13,13 +13,15 @@ namespace Sentinel.Commands;
 
 /// <summary>
 /// Ghost Builder: pick a 2D DWG import, map its CAD layers to BDS families via the local LLM,
-/// and build LOD 200 geometry — WITHOUT freezing the Revit UI.
+/// review the proposal, and build LOD 200 geometry — WITHOUT freezing the Revit UI.
 ///
 /// Threading (this is the whole point of the command):
 ///   • Execute (API thread): resolve config, pick DWG, extract inputs (reads), show a modeless
 ///     progress window, then RETURN immediately so Revit's UI stays live.
 ///   • Task.Run (background): the LLM HTTP call only — the sole slow, Revit-API-free step.
 ///     Cancellable via the window's ESC / Cancel (CancellationToken).
+///   • Review (UI thread): the proposal is shown for approval — NOTHING is written until the user
+///     ticks layers and clicks Build. Cancel/ESC ends the run having touched nothing (P3 gate).
 ///   • ExternalEvent (API thread): geometry placement (Wall.Create etc.), the only place Revit
 ///     API writes are legal. Reads and writes never touch the background thread.
 /// </summary>
@@ -84,7 +86,10 @@ public sealed class GhostBuilderCommand : IExternalCommand
         var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);
         var llm = new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context);
         var mapper = new LayerMapper(llm, matcher: LayerRulesetMatcher.Load(rulesetPath));
-        var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0.5, familyLibraryDir: libraryDir);
+        // minConfidence 0: the P3 review window is the confidence gate now. It pre-ticks at 0.5 and shows
+        // the score on every row, so a human has already adjudicated each layer by the time we place —
+        // a second silent engine-side threshold would just drop layers the reviewer deliberately ticked.
+        var orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0, familyLibraryDir: libraryDir);
         GhostBuilderOrchestrator.Inputs inputs;
         try
         {
@@ -105,20 +110,37 @@ public sealed class GhostBuilderCommand : IExternalCommand
         }
 
         // 4. Wire the PHASE 3 placement handoff (runs on the API thread when raised).
-        var placementEvent = new GhostBuilderPlacementEvent(minConfidence: 0.5);
+        var placementEvent = new GhostBuilderPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
 
         // 5. Modeless progress window owns the CancellationTokenSource (ESC / Cancel -> cancel).
         var progress = new GhostBuilderProgressWindow();
         new System.Windows.Interop.WindowInteropHelper(progress) { Owner = c.Application.MainWindowHandle };
 
+        // 5b. The P3 review gate. Created here (UI thread) but only shown once the proposal exists;
+        // its Build click is the ONLY path to placement, so an unreviewed proposal can never reach the model.
+        var review = new GhostReviewWindow();
+        new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
+        bool building = false;
+
+        review.BuildRequested += approved =>
+        {
+            building = true;
+            placementEvent.SetRequest(orchestrator, inputs, approved);
+            externalEvent.Raise();
+        };
+
+        // Closing the review without building ends the run — nothing was written, so there is nothing
+        // to report or undo. Disposing the mapper here is what releases its HttpClient.
+        review.Closed += (_, __) => { if (!building) mapper.Dispose(); };
+
         placementEvent.Completed += (report, error) =>
         {
             // Back on the API thread. Marshal UI updates to the window's dispatcher.
-            progress.Dispatcher.Invoke(() =>
+            review.Dispatcher.Invoke(() =>
             {
                 mapper.Dispose();
-                progress.Close();
+                review.Close();
                 if (error != null)
                     TaskDialog.Show("Sentinel — Ghost Builder", "Placement failed: " + error.Message);
                 else
@@ -159,10 +181,18 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     await llm.EnrichParamsAsync(mapping, progress.Token).ConfigureAwait(false);
                 }
 
-                // Stage phase 3 and raise — Revit runs Place() on the API thread.
-                progress.SetStatus("Placing geometry…");
-                placementEvent.SetRequest(orchestrator, inputs, mapping);
-                externalEvent.Raise();
+                // P3 gate: hand the proposal to the human instead of building it. Placement is raised
+                // from the review window's Build click, never from here.
+                var perLayer = inputs.Elements
+                    .GroupBy(e => e.CadLayer ?? "", System.StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.Count(), System.StringComparer.OrdinalIgnoreCase);
+
+                progress.Dispatcher.Invoke(() =>
+                {
+                    progress.Close();
+                    review.Load(mapping, perLayer, doc.Title);
+                    review.Show();
+                });
             }
             catch (System.OperationCanceledException)
             {
