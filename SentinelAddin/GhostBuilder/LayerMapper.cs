@@ -167,6 +167,12 @@ namespace Sentinel.GhostBuilder
             BdsFamily = src.BdsFamily,
             BdsFamilyType = src.BdsFamilyType,
             Confidence = src.Confidence,
+            // P2: carry the proposal's document-derived fields; a cached row has none (enrichment runs
+            // per-project, after mapping) but a matcher-supplied one may, and dropping them silently
+            // would lose the build proposal's provenance.
+            Params = src.Params,
+            Rationale = src.Rationale,
+            SourceDoc = src.SourceDoc,
         };
 
         public void Dispose() => (_llm as IDisposable)?.Dispose();

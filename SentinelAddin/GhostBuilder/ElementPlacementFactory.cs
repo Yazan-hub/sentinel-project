@@ -51,6 +51,14 @@ namespace Sentinel.GhostBuilder
         /// <summary>Outcome of one placement attempt, so the engine can tally without re-inspecting.</summary>
         public enum Outcome { Placed, SkippedNoGeometry, SkippedUnknownType, SkippedUnsupported }
 
+        /// <summary>Parameter-seeding notes (P2), deduped — a dirty layer places thousands of elements and
+        /// would otherwise repeat the same line thousands of times. The engine folds these into its report.</summary>
+        public readonly HashSet<string> Notes = new HashSet<string>();
+
+        // "<typeId>|<paramName>" already written — a type parameter is shared, so writing it once per
+        // instance is pointless work and pointless noise.
+        private readonly HashSet<string> _typeParamsDone = new HashSet<string>();
+
         /// <summary>
         /// Place one element. <paramref name="warning"/> is set (non-null) when the element is
         /// skipped for a reason worth surfacing to the user.
@@ -64,19 +72,19 @@ namespace Sentinel.GhostBuilder
             switch (map.Category)
             {
                 case "Walls":
-                    return PlaceWall(el, wanted, out warning);
+                    return PlaceWall(el, wanted, map, out warning);
 
                 case "Floors":
-                    return PlaceSlab(el, wanted, isCeiling: false, out warning);
+                    return PlaceSlab(el, wanted, isCeiling: false, map, out warning);
 
                 case "Ceilings":
-                    return PlaceSlab(el, wanted, isCeiling: true, out warning);
+                    return PlaceSlab(el, wanted, isCeiling: true, map, out warning);
 
                 case "Doors":
                 case "Windows":
                 case "Columns":
                 case "Furniture":
-                    return PlaceFamilyInstance(el, wanted, map.Category, out warning);
+                    return PlaceFamilyInstance(el, wanted, map.Category, map, out warning);
 
                 default:
                     warning = $"Category '{map.Category}' (layer '{el.CadLayer}') not handled at LOD 200; skipped.";
@@ -85,7 +93,7 @@ namespace Sentinel.GhostBuilder
         }
 
         // ---- Walls: stable API 2021-2027, no #if ----
-        private Outcome PlaceWall(GhostElement el, string wanted, out string warning)
+        private Outcome PlaceWall(GhostElement el, string wanted, LayerMapping map, out string warning)
         {
             warning = null;
 
@@ -116,8 +124,8 @@ namespace Sentinel.GhostBuilder
                 // length-check each run so a single bad edge is skipped, not fatal to the element.
                 Curve run = ToHorizontal(raw);
                 if (run == null || run.Length < minLen) continue;
-                Wall.Create(_doc, run, wt.Id, _level.Id,
-                            height, el.BaseElevation, flip: false, structural: false);
+                ApplyParams(Wall.Create(_doc, run, wt.Id, _level.Id,
+                            height, el.BaseElevation, flip: false, structural: false), map);
                 placed++;
             }
             return placed > 0 ? Outcome.Placed : Outcome.SkippedNoGeometry;
@@ -143,7 +151,7 @@ namespace Sentinel.GhostBuilder
         }
 
         // ---- Point families (doors/windows/columns/furniture): stable API, no #if ----
-        private Outcome PlaceFamilyInstance(GhostElement el, string wanted, string category, out string warning)
+        private Outcome PlaceFamilyInstance(GhostElement el, string wanted, string category, LayerMapping map, out string warning)
         {
             warning = null;
 
@@ -166,7 +174,7 @@ namespace Sentinel.GhostBuilder
             }
 
             if (!sym.IsActive) sym.Activate(); // inactive symbols throw on NewFamilyInstance
-            _doc.Create.NewFamilyInstance(pt, sym, _level, StructuralType.NonStructural);
+            ApplyParams(_doc.Create.NewFamilyInstance(pt, sym, _level, StructuralType.NonStructural), map);
             return Outcome.Placed;
         }
 
@@ -209,7 +217,7 @@ namespace Sentinel.GhostBuilder
         }
 
         // ---- Floors & ceilings: the ONE genuine cross-version break ----
-        private Outcome PlaceSlab(GhostElement el, string wanted, bool isCeiling, out string warning)
+        private Outcome PlaceSlab(GhostElement el, string wanted, bool isCeiling, LayerMapping map, out string warning)
         {
             warning = null;
 
@@ -223,11 +231,11 @@ namespace Sentinel.GhostBuilder
             }
 
             if (isCeiling)
-                return CreateCeiling(el, wanted, loop, out warning);
-            return CreateFloor(el, wanted, loop, out warning);
+                return CreateCeiling(el, wanted, loop, map, out warning);
+            return CreateFloor(el, wanted, loop, map, out warning);
         }
 
-        private Outcome CreateFloor(GhostElement el, string wanted, CurveLoop loop, out string warning)
+        private Outcome CreateFloor(GhostElement el, string wanted, CurveLoop loop, LayerMapping map, out string warning)
         {
             warning = null;
             FloorType ft = ResolveType(_floorTypes, wanted);
@@ -239,17 +247,17 @@ namespace Sentinel.GhostBuilder
 
 #if REVIT2022_OR_GREATER
             // 2022+ : Floor.Create takes a list of CurveLoops.
-            Floor.Create(_doc, new List<CurveLoop> { loop }, ft.Id, _level.Id);
+            ApplyParams(Floor.Create(_doc, new List<CurveLoop> { loop }, ft.Id, _level.Id), map);
 #else
             // 2021 : legacy NewFloor(CurveArray, ...). Convert the loop to a CurveArray.
             var arr = new CurveArray();
             foreach (Curve c in loop) arr.Append(c);
-            _doc.Create.NewFloor(arr, ft, _level, structural: false);
+            ApplyParams(_doc.Create.NewFloor(arr, ft, _level, structural: false), map);
 #endif
             return Outcome.Placed;
         }
 
-        private Outcome CreateCeiling(GhostElement el, string wanted, CurveLoop loop, out string warning)
+        private Outcome CreateCeiling(GhostElement el, string wanted, CurveLoop loop, LayerMapping map, out string warning)
         {
             warning = null;
 #if REVIT2022_OR_GREATER
@@ -260,7 +268,7 @@ namespace Sentinel.GhostBuilder
                 return Outcome.SkippedUnknownType;
             }
             // 2022+ : Ceiling.Create takes a list of CurveLoops.
-            Ceiling.Create(_doc, new List<CurveLoop> { loop }, ct.Id, _level.Id);
+            ApplyParams(Ceiling.Create(_doc, new List<CurveLoop> { loop }, ct.Id, _level.Id), map);
             return Outcome.Placed;
 #else
             // Revit 2021 has NO public ceiling-creation API. Honestly report rather than fake it.
@@ -270,6 +278,71 @@ namespace Sentinel.GhostBuilder
         }
 
         // ---- helpers ----
+
+        /// <summary>
+        /// P2: write the document-derived parameters onto a just-created element — the point of reading the
+        /// specs at all. A spec's "external walls FR60" becomes an actual Fire Rating on the wall, so the
+        /// IDS/referee pass downstream has real data to check instead of an empty LOD 200 shell.
+        ///
+        /// Instance parameter first. Spec data usually lives on the TYPE (Fire Rating on a WallType, not the
+        /// wall), so a missing/read-only instance parameter falls back to the element's type — written once
+        /// per (type, parameter) and NOTED, because that write is visible on every other instance of the type.
+        ///
+        /// Values are set via SetValueString for anything non-textual, so "200" is read in the document's
+        /// display units. A raw Parameter.Set(double) would take it as 200 FEET.
+        /// Never throws: a parameter that will not take a value is skipped with a note, never a failed build.
+        /// </summary>
+        private void ApplyParams(Element e, LayerMapping map)
+        {
+            if (e == null || map?.Params == null || map.Params.Count == 0) return;
+
+            foreach (ParamAssignment pa in map.Params)
+            {
+                if (pa == null || string.IsNullOrWhiteSpace(pa.Name)) continue;
+
+                Parameter p = e.LookupParameter(pa.Name);
+                if (p != null && !p.IsReadOnly)
+                {
+                    if (SetValue(p, pa.Value))
+                        Notes.Add($"Set '{pa.Name}' = '{pa.Value}' on layer '{map.CadLayer}' elements{Provenance(map)}.");
+                    else
+                        Notes.Add($"Could not apply '{pa.Name}' = '{pa.Value}' to layer '{map.CadLayer}' " +
+                                  "elements (value not accepted by the parameter); skipped.");
+                    continue;
+                }
+
+                var et = _doc.GetElement(e.GetTypeId()) as ElementType;
+                Parameter tp = et?.LookupParameter(pa.Name);
+                if (tp == null || tp.IsReadOnly)
+                {
+                    Notes.Add($"Parameter '{pa.Name}' not found on layer '{map.CadLayer}' elements or their type; skipped.");
+                    continue;
+                }
+
+                if (!_typeParamsDone.Add(et.Id.ToString() + "|" + pa.Name)) continue; // already written for this type
+                if (SetValue(tp, pa.Value))
+                    Notes.Add($"Set TYPE parameter '{pa.Name}' = '{pa.Value}' on '{et.Name}'{Provenance(map)} " +
+                              "— this affects every instance of that type.");
+                else
+                    Notes.Add($"Could not apply '{pa.Name}' = '{pa.Value}' to type '{et.Name}' " +
+                              "(value not accepted by the parameter); skipped.");
+            }
+        }
+
+        private static string Provenance(LayerMapping map) =>
+            string.IsNullOrWhiteSpace(map.SourceDoc) ? "" : $" (from {map.SourceDoc})";
+
+        private static bool SetValue(Parameter p, string value)
+        {
+            if (value == null) return false;
+            try
+            {
+                // Text goes in verbatim; everything else through SetValueString so the document's units
+                // and value-list rules apply (and an unparseable value simply returns false).
+                return p.StorageType == StorageType.String ? p.Set(value) : p.SetValueString(value);
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException) { return false; }
+        }
 
         /// <summary>
         /// Build a validated, planar-ish closed CurveLoop from the element's boundary curves.

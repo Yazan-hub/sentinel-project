@@ -149,6 +149,16 @@ public sealed class GhostBuilderCommand : IExternalCommand
 
                 if (progress.Token.IsCancellationRequested) return; // user aborted; window already closing
 
+                // P2 (task 4/5): one more local call — read the project documents for parameter values that
+                // belong on the mapped elements (a spec's "FR60" -> the wall's Fire Rating). Runs over the
+                // FINAL mapping set, so layers the deterministic BDS pass resolved get seeded too. No
+                // documents in the scoped folder -> no call, no change.
+                if (llm.HasEvidence)
+                {
+                    progress.SetStatus("Reading parameters from the project documents…");
+                    await llm.EnrichParamsAsync(mapping, progress.Token).ConfigureAwait(false);
+                }
+
                 // Stage phase 3 and raise — Revit runs Place() on the API thread.
                 progress.SetStatus("Placing geometry…");
                 placementEvent.SetRequest(orchestrator, inputs, mapping);

@@ -60,6 +60,36 @@ For reading sketches, renders, and PDF drawing pages into *semantic hints* (neve
 5. **Interpreter enrichment** — thread PDF/vision context into the mapping prompt; seed params.
 6. **Wire into the pipeline** — SENSE assembles the packet; keep local-default; keep the deterministic-first pass in front.
 
+## Status
+
+| # | Task | State |
+|---|---|---|
+| 1 | Scoped folder (`ghost_source_folder` + guard) | ✅ `GhostEvidence.FromFolder` |
+| 2 | PDF sense (`DocumentTextReader` → packet) | ✅ |
+| 3 | `LocalVisionReader` (Ollama VLM, optional) | ✅ default `llava` |
+| 4 | Richer Build Proposal contract (params/rationale/source) | ✅ `LayerMapping.Params/Rationale/SourceDoc` |
+| 5 | Interpreter enrichment (docs → context **and** params) | ✅ `LocalGhostBuilder.EnrichParamsAsync` + `ElementPlacementFactory.ApplyParams` |
+| 6 | Wire into the pipeline | ✅ `Commands.GhostBuilder.cs` |
+
+**Where the params pass actually runs (a correction to the sketch above).** Enrichment is a **second local
+call over the FINAL mapping set**, not a richer version of the mapping call. The deterministic BDS-standard
+tier resolves most layers *without ever calling the model* — and those standard layers are exactly the ones a
+spec talks about, so folding params into the mapping prompt would have missed `A-WALL-EXT` entirely. It runs
+only when the scoped folder yielded evidence; with an empty folder the P1 path is byte-for-byte unchanged.
+
+Parameters are written **instance-first, then the element's type** (Fire Rating lives on a `WallType`, not the
+wall) — once per (type, parameter), and every write is reported, because a type write is visible on every
+other instance of that type. Non-text values go through `Parameter.SetValueString` so "200" is read in the
+document's display units (a raw `Set(double)` would mean 200 **feet**). Params are **not** written to the
+cross-project layer cache — they are project-specific by definition.
+
+> **Verified 2026-07-23 (AI, offline):** `dotnet run` in `tools/ghost-p2-check` — **10/10** contract checks
+> pass, compiled against the real `GhostBuilder_Architecture.cs` (layer match is case/whitespace-insensitive,
+> hallucinated layers dropped, blank name/value filtered, malformed JSON is a no-op, the P1 mapping shape
+> still deserializes, new fields survive the cache round-trip). Full add-in builds clean on **Revit 2026
+> (net8)** and **Revit 2021 (net48)** — 0 warnings, 0 errors. **Not yet run in live Revit** with a real
+> DWG + spec PDF: that is the acceptance run below and needs you.
+
 ## Testing & acceptance
 
 - **Scoped folder:** SENSE reads a chosen folder and **refuses** a path outside it.

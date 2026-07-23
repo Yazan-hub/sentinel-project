@@ -374,6 +374,9 @@ namespace Sentinel.GhostBuilder
                 }
             }
 
+            // P2: what the project documents actually wrote onto the geometry (and what would not take).
+            report.Warnings.AddRange(factory.Notes);
+
             return report;
         }
     }
