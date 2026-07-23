@@ -237,6 +237,11 @@ const readRaw = (req) => new Promise((resolve, reject) => {
 
 // ── SSE live sync: clients subscribe per project; changes are pushed to them instantly ──
 const sseClients = new Map(); // project -> Set<res>
+// F14: the fan-out was unbounded — /events is auth-exempt (EventSource cannot send a header), so anything
+// that can reach the port could hold open arbitrarily many streams, each with a 25s keep-alive timer, until
+// the bridge ran out of sockets. Cap the total; a legitimate desktop uses one or two.
+const MAX_SSE = Number(process.env.BCF_MAX_SSE) || 64;
+const sseCount = () => { let n = 0; for (const s of sseClients.values()) n += s.size; return n; };
 const INSTANCE_ID = randomUUID();                              // this bridge's id (skips its own events on poll)
 const EVENT_POLL_MS = Number(process.env.BCF_EVENT_POLL_MS ?? 3000); // 0 disables the cross-machine feed
 
@@ -414,6 +419,7 @@ async function handleRequest(req, res) {
   // ── SSE live stream: GET /events?project=<pid> (kept open; pushes topic/CDE changes) ──
   if (url.pathname === "/events" && req.method === "GET") {
     const project = url.searchParams.get("project") || "default";
+    if (sseCount() >= MAX_SSE) return send(res, 503, { message: "Too many live connections" });
     const sseHeaders = { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" };
     if (res._cors) sseHeaders["Access-Control-Allow-Origin"] = res._cors; // allowlisted origin only
     res.writeHead(200, sseHeaders);
