@@ -59,6 +59,23 @@ findings from setting this up that are easy to misread as outages:
   and is verified working; the full Nemotron family (nano-8b, super-49b, ultra-253b, vision, safety)
   is available.
 
+## ⚠ Gemini: the free tier trains on what you send it
+
+Checked against Google's API terms 2026-07-23. This is not a general caution — it is what the terms say:
+
+| | Free (unpaid) | Paid (billing enabled) |
+|---|---|---|
+| Used to train/improve Google products | **Yes** | No |
+| Human reviewers may read it | **Yes** | No |
+| Google's own guidance | *"Do not submit sensitive, confidential, or personal information to the Unpaid Services"* | Logged briefly for abuse detection only |
+
+The key currently configured is on the **free** tier (it hits free-tier quota limits). That is fine
+for testing with the sample files. **Do not send real client project data through it** — enable
+billing on the Google Cloud project behind the key first, which moves it to the paid terms.
+
+The same question applies to every cloud provider: check whether the tier you are on trains on
+input. Local (Ollama) is the only option where the question doesn't arise.
+
 ## Two safety notes
 
 - **`config/.env` is gitignored** (verified) — your keys are never committed. Don't paste keys into

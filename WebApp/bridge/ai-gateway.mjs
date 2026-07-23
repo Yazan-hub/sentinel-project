@@ -44,7 +44,13 @@ export const PROVIDERS = {
     // users (404) and gemini-2.5-pro has no free-tier quota (429) — both look like outages, aren't.
     models: ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3-pro-preview"],
     base: "https://generativelanguage.googleapis.com/v1beta/openai",
-    note: "Google. Large context, cheap.",
+    // ⚠ TIER MATTERS, and the free tier is not safe for client work: Google's API terms say unpaid
+    // content is used "to provide, improve, and develop Google products", that "human reviewers may
+    // read, annotate, and process your API input and output", and explicitly "Do not submit
+    // sensitive, confidential, or personal information to the Unpaid Services". The PAID tier states
+    // the opposite ("Google doesn't use your prompts or responses to improve our products").
+    // Project data must only go through a BILLING-ENABLED Gemini key.
+    note: "Google. Large context. ⚠ Free tier trains on your data — use a billing-enabled key for real project data.",
   },
   kimi: {
     label: "Kimi",
