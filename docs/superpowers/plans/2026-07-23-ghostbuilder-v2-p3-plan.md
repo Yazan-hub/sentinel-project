@@ -42,6 +42,8 @@ a second silent engine-side threshold would drop layers the reviewer had deliber
 
 - **TransactionGroup undo** — redundant. `GhostBuilderOrchestrator.Place` already wraps the whole build in
   **one** `Transaction`, which is already one Ctrl+Z step. A group around a single transaction adds nothing.
+  **Confirmed live 2026-07-23** — one undo removed the entire build. (Verified, not assumed: this was the
+  last unchecked row in the acceptance table above.)
 - **Confidence ghosts** (placing low-confidence elements as visually distinct geometry) — the review window
   addresses the same worry *before* anything is written, which is strictly better than marking up geometry
   after the fact. Revisit only if reviewers ask to judge proposals in 3D rather than in a list.
@@ -70,7 +72,14 @@ scoped folder — a markdown spec plus a sketch PNG:
 | d | The model uses the spec to read a non-standard layer | ✅ `EXTERIOR-ENVELOPE` → external Wall, `Fire Rating = FR60` |
 | e | Unticking a layer excludes it from the build | ✅ `A-WALL-INT` absent from the model |
 | f | A spec parameter lands on the built element | ✅ external walls carry `Fire Rating = FR60` |
-| g | Ctrl+Z removes the build in one step | ⏳ not yet confirmed |
+| g | Ctrl+Z removes the build in one step | ✅ everything disappeared in a single undo |
+
+**This retires the "TransactionGroup undo" idea for good.** P3's original scope included wrapping the build
+in a `TransactionGroup` for one-click undo. It was skipped on the reasoning that
+`GhostBuilderOrchestrator.Place` already runs the entire build — family preload, wall/floor type
+provisioning, and every placement — inside **one** `Transaction`, which Revit already presents as a single
+undo step. That reasoning was untested until now. It is now confirmed on a real model: one Ctrl+Z, whole
+build gone. The feature would have added a wrapper around a single transaction and changed nothing.
 
 The vision model also ran (*"Reading 1 sketch(es) with the local vision model…"*), so the full P2 sense
 stack — scoped folder → PDF/markdown text → local VLM on images → enriched proposal — is live.
