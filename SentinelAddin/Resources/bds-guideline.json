@@ -1,9 +1,11 @@
 {
   "$schema": "https://sentinel.dev/schemas/office-guideline-v1.json",
-  "version": 1,
-  "standard": "BDS Office Modelling Guideline v1",
+  "version": 2,
+  "standard": "BDS Office Modelling Guideline v2",
   "office": "BDS",
   "doc": "docs/superpowers/specs/2026-07-23-office-modelling-guideline.md",
+  "audit": "docs/BDS_TEMPLATE_TYPE_AUDIT.md",
+  "catalog": "demo/bds-pilot/bds-type-catalog.json",
   "references": {
     "layers": "bds-layers.json",
     "ids": "demo/bds-pilot/bds-ids.json",
@@ -17,115 +19,110 @@
           "when": {
             "layer": "A-WALL-EXT",
             "params": {
-              "Fire Rating": "FR60"
+              "Material": "STONE"
             }
           },
           "use": {
-            "family": "BDS_Wall_Ext",
-            "type": "BDS_Wall_Ext_200_FR60",
-            "params": {
-              "Fire Rating": "FR60",
-              "IsExternal": true
-            }
+            "family": "Basic Wall",
+            "typePattern": "BDS_EXT_ARC_STONE_{thickness} mm"
           },
-          "why": "External walls with a 60-minute rating use the rated build-up, not the standard 200."
+          "why": "Spec calls for stone cladding externally."
         },
         {
           "when": {
             "layer": "A-WALL-EXT",
             "params": {
-              "Fire Rating": "FR120"
+              "Material": "PORCELAIN"
             }
           },
           "use": {
-            "family": "BDS_Wall_Ext",
-            "type": "BDS_Wall_Ext_300_FR120",
+            "family": "Basic Wall",
+            "typePattern": "BDS_EXT_ARC_PORCELAIN_{thickness} mm"
+          },
+          "why": "Spec calls for porcelain cladding externally."
+        },
+        {
+          "when": {
+            "layer": "A-WALL-EXT",
             "params": {
-              "Fire Rating": "FR120",
-              "IsExternal": true
+              "Material": "MTL"
             }
           },
-          "why": "120-minute rating requires the 300 cavity build-up."
+          "use": {
+            "family": "Basic Wall",
+            "typePattern": "BDS_EXT_ARC_MTL_{thickness} mm"
+          },
+          "why": "Spec calls for a metal external skin."
+        },
+        {
+          "when": {
+            "layer": "A-WALL-EXT",
+            "discipline": "S"
+          },
+          "use": {
+            "family": "Basic Wall",
+            "typePattern": "BDS_EXT_STR_CONC_{thickness} mm"
+          },
+          "why": "External STRUCTURAL walls are concrete."
         },
         {
           "when": {
             "layer": "A-WALL-EXT"
           },
           "use": {
-            "family": "BDS_Wall_Ext",
+            "family": "Basic Wall",
+            "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm"
+          },
+          "why": "External architectural walls are CMU unless the spec says otherwise."
+        },
+        {
+          "when": {
+            "layer": "A-WALL-INT",
+            "discipline": "S"
+          },
+          "use": {
+            "family": "Basic Wall",
+            "typePattern": "BDS_INT_STR_CONC_{thickness} mm"
+          },
+          "why": "Internal STRUCTURAL walls are concrete."
+        },
+        {
+          "when": {
+            "layer": "A-WALL-INT",
             "params": {
-              "IsExternal": true,
-              "Discipline": "A"
+              "Material": "CMU"
             }
           },
-          "why": "BDS DWG Layer Standard: A-WALL-EXT is Walls."
+          "use": {
+            "family": "Basic Wall",
+            "typePattern": "BDS_INT_ARC_CMU_{thickness} mm"
+          },
+          "why": "Spec calls for blockwork internally."
         },
         {
           "when": {
             "layer": "A-WALL-INT"
           },
           "use": {
-            "family": "BDS_Wall_Int",
-            "params": {
-              "IsExternal": false,
-              "Discipline": "A"
-            }
+            "family": "Basic Wall",
+            "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm"
           },
-          "why": "BDS DWG Layer Standard: A-WALL-INT is Walls."
-        },
-        {
-          "when": {
-            "layer": "A-WALL-FIRE"
-          },
-          "use": {
-            "family": "BDS_Wall_Fire",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-WALL-FIRE is Walls."
+          "why": "Internal partitions are gypsum board unless the spec says otherwise."
         },
         {
           "when": {
             "layer": "A-WALL-PART"
           },
           "use": {
-            "family": "BDS_Wall_Partition",
-            "params": {
-              "IsExternal": false,
-              "Discipline": "A"
-            }
+            "family": "Basic Wall",
+            "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm"
           },
-          "why": "BDS DWG Layer Standard: A-WALL-PART is Walls."
-        },
-        {
-          "when": {
-            "layer": "A-WALL"
-          },
-          "use": {
-            "family": "BDS_Wall_Int",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-WALL is Walls."
-        },
-        {
-          "when": {
-            "layer": "S-WALL"
-          },
-          "use": {
-            "family": "BDS_Wall_Shear",
-            "params": {
-              "Discipline": "S"
-            }
-          },
-          "why": "BDS DWG Layer Standard: S-WALL is Walls."
+          "why": "Partitions follow the internal architectural standard."
         }
       ],
       "default": {
-        "family": "BDS_Wall_Int",
-        "type": "BDS_Wall_Int_100"
+        "family": "Basic Wall",
+        "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm"
       }
     },
     {
@@ -133,15 +130,141 @@
       "rules": [
         {
           "when": {
-            "layer": "A-DOOR"
-          },
-          "use": {
-            "family": "BDS_Door",
+            "layer": "A-DOOR",
             "params": {
-              "Discipline": "A"
+              "Location": "EXT",
+              "Material": "WOOD"
             }
           },
-          "why": "BDS DWG Layer Standard: A-DOOR is Doors."
+          "use": {
+            "family": "BDS_EXT_1 PNL",
+            "type": "BDS_EXT_1 PNL_WOOD_1000 x 2100 mm"
+          },
+          "why": "EXT single-panel wood door, nominal opening from the type NAME (its Width parameter is the leaf, not the opening)."
+        },
+        {
+          "when": {
+            "layer": "A-DOOR",
+            "params": {
+              "Location": "EXT",
+              "Material": "GLASS"
+            }
+          },
+          "use": {
+            "family": "BDS_EXT_1 PNL",
+            "type": "BDS_EXT_1 PNL_GLASS_1000 x 2100 mm"
+          },
+          "why": "EXT single-panel glass door, nominal opening from the type NAME (its Width parameter is the leaf, not the opening)."
+        },
+        {
+          "when": {
+            "layer": "A-DOOR",
+            "params": {
+              "Location": "EXT",
+              "Material": "STEEL"
+            }
+          },
+          "use": {
+            "family": "BDS_EXT_1 PNL",
+            "type": "BDS_EXT_1 PNL_STEEL_1000 x 2100 mm"
+          },
+          "why": "EXT single-panel steel door, nominal opening from the type NAME (its Width parameter is the leaf, not the opening)."
+        },
+        {
+          "when": {
+            "layer": "A-DOOR",
+            "params": {
+              "Location": "INT",
+              "Material": "WOOD"
+            }
+          },
+          "use": {
+            "family": "BDS_INT_1 PNL",
+            "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm"
+          },
+          "why": "INT single-panel wood door, nominal opening from the type NAME (its Width parameter is the leaf, not the opening)."
+        },
+        {
+          "when": {
+            "layer": "A-DOOR",
+            "params": {
+              "Location": "INT",
+              "Material": "GLASS"
+            }
+          },
+          "use": {
+            "family": "BDS_INT_1 PNL",
+            "type": "BDS_INT_1 PNL_GLASS_1000 x 2100 mm"
+          },
+          "why": "INT single-panel glass door, nominal opening from the type NAME (its Width parameter is the leaf, not the opening)."
+        },
+        {
+          "when": {
+            "layer": "A-DOOR",
+            "params": {
+              "Location": "INT",
+              "Material": "STEEL"
+            }
+          },
+          "use": {
+            "family": "BDS_INT_1 PNL",
+            "type": "BDS_INT_1 PNL_STEEL_1000 x 2100 mm"
+          },
+          "why": "INT single-panel steel door, nominal opening from the type NAME (its Width parameter is the leaf, not the opening)."
+        }
+      ],
+      "default": {
+        "family": "BDS_INT_1 PNL",
+        "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm"
+      }
+    },
+    {
+      "category": "Floors",
+      "rules": [
+        {
+          "when": {
+            "layer": "A-FLOR",
+            "level": "Ground"
+          },
+          "use": {
+            "family": "Floor",
+            "type": "BDS_FND_STR_CONC-RAFT_2500 mm"
+          },
+          "why": "Ground floor is the concrete raft."
+        }
+      ],
+      "default": {
+        "family": "Floor",
+        "type": "BDS_INT_ARC_CEMENTITOUS-WATERPROOFING_6 mm"
+      }
+    },
+    {
+      "category": "Ceilings",
+      "rules": [
+        {
+          "when": {
+            "layer": "A-CLNG"
+          },
+          "use": {
+            "family": "Basic Ceiling",
+            "type": "Generic"
+          },
+          "why": "Ceilings use the template's standard ceiling type."
+        }
+      ]
+    },
+    {
+      "category": "Columns",
+      "rules": [
+        {
+          "when": {
+            "layer": "S-COLS"
+          },
+          "use": {
+            "family": "BDS_Column_Concrete_Rectangular",
+            "type": "BDS_INT_STR_CONC_300 X 1500 mm"
+          },
+          "why": "Structural columns use the BDS concrete rectangular column."
         }
       ]
     },
@@ -153,192 +276,16 @@
             "layer": "A-WIND"
           },
           "use": {
-            "family": "BDS_Window",
-            "params": {
-              "Discipline": "A"
-            }
+            "family": "BDS_Window_1 Panel+FX",
+            "type": "1000x3000 mm"
           },
-          "why": "BDS DWG Layer Standard: A-WIND is Windows."
-        }
-      ]
-    },
-    {
-      "category": "Floors",
-      "rules": [
-        {
-          "when": {
-            "layer": "A-FLOR",
-            "level": "Ground"
-          },
-          "use": {
-            "family": "BDS_Floor",
-            "type": "BDS_Floor_200_RC"
-          },
-          "why": "Ground floor is a 200 reinforced concrete slab."
-        },
-        {
-          "when": {
-            "layer": "A-FLOR"
-          },
-          "use": {
-            "family": "BDS_Floor",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-FLOR is Floors."
-        },
-        {
-          "when": {
-            "layer": "A-FLOR-FNSH"
-          },
-          "use": {
-            "family": "BDS_Floor_Finish",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-FLOR-FNSH is Floors."
-        },
-        {
-          "when": {
-            "layer": "S-SLAB"
-          },
-          "use": {
-            "family": "BDS_Slab_Struct",
-            "params": {
-              "Discipline": "S"
-            }
-          },
-          "why": "BDS DWG Layer Standard: S-SLAB is Floors."
-        }
-      ]
-    },
-    {
-      "category": "Ceilings",
-      "rules": [
-        {
-          "when": {
-            "layer": "A-CLNG"
-          },
-          "use": {
-            "family": "BDS_Ceiling",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-CLNG is Ceilings."
-        }
-      ]
-    },
-    {
-      "category": "Columns",
-      "rules": [
-        {
-          "when": {
-            "layer": "A-COLS"
-          },
-          "use": {
-            "family": "BDS_Column_Arch",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-COLS is Columns."
-        },
-        {
-          "when": {
-            "layer": "S-COLS"
-          },
-          "use": {
-            "family": "BDS_Column_Struct",
-            "params": {
-              "Discipline": "S"
-            }
-          },
-          "why": "BDS DWG Layer Standard: S-COLS is Columns."
-        }
-      ]
-    },
-    {
-      "category": "Furniture",
-      "rules": [
-        {
-          "when": {
-            "layer": "A-FURN"
-          },
-          "use": {
-            "family": "BDS_Furniture",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-FURN is Furniture."
-        },
-        {
-          "when": {
-            "layer": "A-EQPM"
-          },
-          "use": {
-            "family": "BDS_Equipment",
-            "params": {
-              "Discipline": "A"
-            }
-          },
-          "why": "BDS DWG Layer Standard: A-EQPM is Furniture."
+          "why": "Windows default to the single-panel BDS family; size from the type name."
         }
       ]
     }
   ],
   "graphics": {
-    "dimensionStyle": "BDS_Dim_2.5mm_Arial",
-    "textStyle": "BDS_Text_2.5mm_Arial",
-    "tags": {
-      "Walls": "BDS_Tag_Wall",
-      "Doors": "BDS_Tag_Door",
-      "Windows": "BDS_Tag_Window",
-      "Floors": "BDS_Tag_Floor",
-      "Columns": "BDS_Tag_Column",
-      "Ceilings": "BDS_Tag_Ceiling"
-    }
+    "tags": {}
   },
-  "views": [
-    {
-      "use": "GA Plan",
-      "template": "BDS_GA_Plan",
-      "scale": "1:100",
-      "detailLevel": "Medium",
-      "tag": [
-        "Doors",
-        "Windows",
-        "Walls"
-      ]
-    },
-    {
-      "use": "RCP",
-      "template": "BDS_RCP",
-      "scale": "1:100",
-      "detailLevel": "Medium",
-      "tag": [
-        "Ceilings"
-      ]
-    },
-    {
-      "use": "Section",
-      "template": "BDS_Section",
-      "scale": "1:50",
-      "detailLevel": "Fine",
-      "tag": [
-        "Walls",
-        "Floors"
-      ]
-    },
-    {
-      "use": "Detail",
-      "template": "BDS_Detail",
-      "scale": "1:5",
-      "detailLevel": "Fine",
-      "tag": []
-    }
-  ]
+  "views": []
 }

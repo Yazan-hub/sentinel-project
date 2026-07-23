@@ -29,6 +29,14 @@ export interface GuidelineWhen {
 export interface GuidelineUse {
   family: string;
   type?: string;
+  /**
+   * A type name with `{thickness}` substituted from the measured geometry, e.g.
+   * `"BDS_EXT_ARC_CMU_{thickness} mm"`. This exists because the BDS template's wall names encode a
+   * thickness that MATCHES the real Width parameter (32/32 conforming types) — so the office rule only
+   * has to decide the MATERIAL, and the drawing supplies the size. Writing one rule per thickness would
+   * be 14 rules per material saying the same thing.
+   */
+  typePattern?: string;
   /** Parameters this choice implies — seeded onto the element, same shape layers.ts already uses. */
   params?: Record<string, string | number | boolean>;
 }
@@ -86,6 +94,9 @@ export interface Resolution {
   why?: string;
   /** How specific the winning rule was — useful when explaining why one rule beat another. */
   matched?: string[];
+  /** Set when the resolved type is NOT in the template. The review gate shows these so a human picks,
+   *  rather than the builder inventing a type or silently snapping to the nearest size. */
+  available?: string[];
 }
 
 export interface ResolveInput {
@@ -94,9 +105,46 @@ export interface ResolveInput {
   level?: string;
   discipline?: string;
   params?: Record<string, string>;
+  /** Measured from the drawing (mm) — fills `{thickness}` in a typePattern. */
+  thicknessMm?: number;
+}
+
+/** One row of the template's harvested type catalogue (bds-type-catalog.json). */
+export interface CatalogType {
+  category: string;
+  family: string;
+  type: string;
+  width_mm?: number | null;
 }
 
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+
+/** Resolve `use` to a concrete type name: an explicit `type` wins, else `{thickness}` is substituted
+ *  from the measured geometry. Returns undefined when a pattern has no measurement to fill it. */
+function fillPattern(use: GuidelineUse, input: ResolveInput): string | undefined {
+  if (use.type) return use.type;
+  if (!use.typePattern) return undefined;
+  if (input.thicknessMm === undefined || input.thicknessMm === null) return undefined;
+  // Round to the nearest mm — a DWG measurement is never exactly 200.0, and template names are integers.
+  return use.typePattern.replace(/\{thickness\}/g, String(Math.round(input.thicknessMm)));
+}
+
+/** Types in the catalogue that a pattern could produce — the options a reviewer picks from when the
+ *  measured size has no matching type. Ordered by size so the list reads sensibly. */
+function patternRegex(pattern: string): RegExp {
+  // Split on the placeholder FIRST, then escape each literal part — escaping the whole string and
+  // trying to un-escape the placeholder afterwards is where this goes wrong.
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("^" + pattern.split("{thickness}").map(esc).join("(\\d+)") + "$", "i");
+}
+
+function patternOptions(pattern: string, catalog: CatalogType[]): string[] {
+  const rx = patternRegex(pattern);
+  return catalog
+    .map((c) => c.type)
+    .filter((t) => rx.test(t))
+    .sort((a, b) => Number(a.match(rx)?.[1] ?? 0) - Number(b.match(rx)?.[1] ?? 0));
+}
 
 /** Does `when` match the input? Every stated field must match; unstated fields are wildcards. */
 function matches(when: GuidelineWhen, input: ResolveInput): string[] | null {
@@ -136,6 +184,70 @@ const specificity = (w: GuidelineWhen) =>
  * "external walls are X, and FR60 external walls are Y" in that natural order and expect the second to
  * win; ordering by specificity means they get that without having to think about precedence.
  */
+/**
+ * Resolve, then CHECK the answer against the template's real type catalogue.
+ *
+ * This is the guard that makes the original mistake impossible: a guideline written from a document
+ * named `BDS_Wall_Ext_200_FR60`, a type that does not exist, and the builder would have provisioned an
+ * invented type on first run. Here, a type the template lacks comes back with `available` listing what
+ * the template DOES have, and confidence dropped — so the review gate asks a human instead of guessing.
+ */
+export function resolveWithCatalog(
+  guideline: Guideline,
+  input: ResolveInput,
+  catalog: CatalogType[],
+): Resolution {
+  const r = resolveType(guideline, input);
+  if (r.source === "none" || !r.type) return r;
+
+  const inCatalog = catalog.some(
+    (c) => norm(c.type) === norm(r.type) && norm(c.category) === norm(input.category),
+  );
+  if (inCatalog) return r;
+
+  // Find the rule that produced this, so we can offer what its pattern COULD produce.
+  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
+  const pattern = el?.rules.find((x) => x.use.typePattern && matches(x.when, input))?.use.typePattern;
+  const options = pattern
+    ? patternOptions(pattern, catalog.filter((c) => norm(c.category) === norm(input.category)))
+    : [];
+
+  return {
+    ...r,
+    confidence: 0,
+    available: options,
+    why:
+      `"${r.type}" is not in the template. ` +
+      (options.length
+        ? `Available: ${options.join(", ")}.`
+        : "No comparable type found — the office standard may need this type added."),
+  };
+}
+
+/** Every type a guideline names that the template does NOT contain. Run this when a guideline is
+ *  authored or edited: it is the difference between a standard and a wish list. */
+export function validateAgainstCatalog(guideline: Guideline, catalog: CatalogType[]): string[] {
+  const errs: string[] = [];
+  for (const el of guideline.elements) {
+    const inCat = catalog.filter((c) => norm(c.category) === norm(el.category));
+    if (!inCat.length) {
+      errs.push(`"${el.category}" — the template has no types in this category at all.`);
+      continue;
+    }
+    const check = (use: GuidelineUse, label: string) => {
+      if (!inCat.some((c) => norm(c.family) === norm(use.family)))
+        errs.push(`${label}: family "${use.family}" is not in the template.`);
+      if (use.type && !inCat.some((c) => norm(c.type) === norm(use.type)))
+        errs.push(`${label}: type "${use.type}" is not in the template.`);
+      if (use.typePattern && !patternOptions(use.typePattern, inCat).length)
+        errs.push(`${label}: pattern "${use.typePattern}" matches no type in the template.`);
+    };
+    el.rules.forEach((r, i) => check(r.use, `${el.category} rule ${i + 1}`));
+    if (el.default) check(el.default, `${el.category} default`);
+  }
+  return errs;
+}
+
 export function resolveType(guideline: Guideline, input: ResolveInput): Resolution {
   const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
   if (!el) return { family: "", params: {}, source: "none", confidence: 0 };
@@ -149,7 +261,7 @@ export function resolveType(guideline: Guideline, input: ResolveInput): Resoluti
     if (hit) {
       return {
         family: rule.use.family,
-        type: rule.use.type,
+        type: fillPattern(rule.use, input),
         params: rule.use.params ?? {},
         source: "rule",
         confidence: 1,

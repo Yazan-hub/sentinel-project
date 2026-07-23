@@ -64,6 +64,9 @@ public sealed class BuildOfficeSystemCommand : IExternalCommand
                 extracted_at = DateTimeOffset.Now.ToString("o"),
                 count = pack.Provision.TypeCatalog.Count,
                 types = pack.Provision.TypeCatalog,
+                // The guideline's view section names these; exporting them here means ONE run supplies
+                // everything the guideline needs instead of two.
+                view_templates = pack.Provision.ViewTemplates,
             };
             System.IO.File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(
                 payload, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));

@@ -46,6 +46,18 @@ public static class GoldenModelExtractor
         (BuiltInCategory.OST_Columns, "Columns"),
         (BuiltInCategory.OST_StructuralColumns, "Columns"),
         (BuiltInCategory.OST_Furniture, "Furniture"),
+        // Annotation families — the guideline's graphics section names TAGS, and without harvesting
+        // them that section can only ever be invented, which is the failure mode this whole exercise
+        // exists to prevent.
+        (BuiltInCategory.OST_WallTags, "Tags:Walls"),
+        (BuiltInCategory.OST_DoorTags, "Tags:Doors"),
+        (BuiltInCategory.OST_WindowTags, "Tags:Windows"),
+        (BuiltInCategory.OST_FloorTags, "Tags:Floors"),
+        (BuiltInCategory.OST_CeilingTags, "Tags:Ceilings"),
+        (BuiltInCategory.OST_StructuralColumnTags, "Tags:Columns"),
+        (BuiltInCategory.OST_RoomTags, "Tags:Rooms"),
+        (BuiltInCategory.OST_Dimensions, "Dimensions"),
+        (BuiltInCategory.OST_TextNotes, "Text"),
     };
 
     // Type parameters worth capturing when authoring rules. Deliberately a short list: the point is to
