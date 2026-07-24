@@ -30,8 +30,8 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>
-        /// Detect (no writes) — for the confirmation preview. Scans every CAD import in the doc: level
-        /// lines come from any layer whose name contains <paramref name="levelLayerKeyword"/> (section),
+        /// Detect (no writes) — for the confirmation preview. Scans every CAD import ALREADY in the doc:
+        /// level lines from any layer whose name contains <paramref name="levelLayerKeyword"/> (section),
         /// grid lines from any layer containing <paramref name="gridLayerKeyword"/> (plan).
         /// </summary>
         public DatumResult Detect(string levelLayerKeyword = "LEVEL", string gridLayerKeyword = "GRID")
@@ -44,17 +44,90 @@ namespace Sentinel.GhostBuilder
                 CollectSegs(import, levelLayerKeyword, levelSegs);
                 CollectSegs(import, gridLayerKeyword, gridSegs);
             }
+            return Compute(levelSegs, gridSegs, levelLayerKeyword, gridLayerKeyword);
+        }
 
+        /// <summary>
+        /// Detect from the DWGs in a FOLDER, matching the real workflow: the project drawings live in a
+        /// folder and you want grids + levels off them WITHOUT hand-importing anything. Revit can only read
+        /// a DWG's geometry once it's in the document, so this imports each DWG temporarily (origin-to-origin,
+        /// so it lands on your project base point), reads the datum, then REMOVES the temp imports — the
+        /// model is left with only the levels/grids the follow-up Build creates. All in one transaction that
+        /// is rolled back, so nothing from the read is ever committed.
+        /// </summary>
+        public DatumResult DetectFromFolder(string folder, string levelLayerKeyword = "LEVEL",
+                                            string gridLayerKeyword = "GRID")
+        {
+            var dwgs = System.IO.Directory.EnumerateFiles(folder, "*.*")
+                .Where(f => f.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (dwgs.Count == 0)
+            {
+                var empty = new DatumResult();
+                empty.Warnings.Add($"No .dwg/.dxf files in {folder}.");
+                return empty;
+            }
+
+            var levelSegs = new List<Seg>();
+            var gridSegs = new List<Seg>();
+            var read = new List<string>();
+
+            // One transaction we deliberately ROLL BACK: the temp imports exist only long enough to read.
+            using var t = new Transaction(_doc, "Sentinel — read DWG datum (temporary)");
+            t.Start();
+            try
+            {
+                var view = ScratchView();
+                var opts = new DWGImportOptions
+                {
+                    Placement = ImportPlacement.Origin,   // origin-to-origin → aligns with the base point
+                    ThisViewOnly = true,
+                    ColorMode = ImportColorMode.Preserved,
+                };
+                foreach (var path in dwgs)
+                {
+                    if (_doc.Import(path, opts, view, out ElementId id) && _doc.GetElement(id) is ImportInstance imp)
+                    {
+                        _doc.Regenerate(); // make the imported geometry readable before we read it
+                        int before = levelSegs.Count + gridSegs.Count;
+                        CollectSegs(imp, levelLayerKeyword, levelSegs);
+                        CollectSegs(imp, gridLayerKeyword, gridSegs);
+                        if (levelSegs.Count + gridSegs.Count > before)
+                            read.Add(System.IO.Path.GetFileName(path));
+                    }
+                }
+            }
+            finally
+            {
+                if (t.HasStarted() && !t.HasEnded()) t.RollBack(); // discard every temp import — leave no trace
+            }
+
+            var res = Compute(levelSegs, gridSegs, levelLayerKeyword, gridLayerKeyword);
+            if (read.Count > 0) res.Warnings.Insert(0, "Datum read from: " + string.Join(", ", read));
+            return res;
+        }
+
+        private DatumResult Compute(List<Seg> levelSegs, List<Seg> gridSegs, string levelKw, string gridKw)
+        {
             var res = new DatumResult
             {
                 Levels = DatumFromDrawing.Levels(levelSegs),
                 Grids = DatumFromDrawing.Grids(gridSegs),
             };
             if (res.Levels.Count == 0)
-                res.Warnings.Add($"No level lines found on a '*{levelLayerKeyword}*' layer — is a section imported?");
+                res.Warnings.Add($"No level lines found on a '*{levelKw}*' layer — is a section among the drawings?");
             if (res.Grids.Count == 0)
-                res.Warnings.Add($"No grid lines found on a '*{gridLayerKeyword}*' layer — is a plan imported?");
+                res.Warnings.Add($"No grid lines found on a '*{gridKw}*' layer — is a plan among the drawings?");
             return res;
+        }
+
+        // A throwaway drafting view to host the temporary DWG imports; goes away with the rolled-back txn.
+        private View ScratchView()
+        {
+            var vft = new FilteredElementCollector(_doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                .First(v => v.ViewFamily == ViewFamily.Drafting);
+            return ViewDrafting.Create(_doc, vft.Id);
         }
 
         /// <summary>Create the detected Levels + Grids in one transaction. Skips levels/grids that already

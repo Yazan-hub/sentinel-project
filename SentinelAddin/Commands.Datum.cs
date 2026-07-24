@@ -4,6 +4,7 @@ using System.Text;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 
 namespace Sentinel.Commands;
@@ -24,15 +25,25 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
 
-        if (!new FilteredElementCollector(doc).OfClass(typeof(ImportInstance)).Any())
+        var builder = new DatumBuilder(doc);
+
+        // Match the real workflow: read the datum straight from the project drawings folder — no hand
+        // importing. Fall back to any DWG already imported into the model if no folder is set.
+        var settings = SettingsManager.Resolve(doc);
+        string folder = settings.GhostSourceFolder;
+        bool haveFolder = !string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder);
+        bool haveImports = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance)).Any();
+
+        if (!haveFolder && !haveImports)
         {
             TaskDialog.Show("Sentinel — Datum",
-                "No CAD imports found. Import your section (for levels) and plan (for grids) first, then run again.");
+                "No drawings to read. Set the Ghost source folder (Project Setup) to the folder holding your " +
+                "project DWGs — the section (for levels) and plan (for grids) — then run again. " +
+                "Set your project base point / survey point first, as usual; the DWGs are read origin-to-origin.");
             return Result.Cancelled;
         }
 
-        var builder = new DatumBuilder(doc);
-        var detected = builder.Detect();
+        var detected = haveFolder ? builder.DetectFromFolder(folder) : builder.Detect();
 
         if (detected.Levels.Count == 0 && detected.Grids.Count == 0)
         {
