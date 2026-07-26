@@ -91,12 +91,13 @@ namespace Sentinel.GhostBuilder
             // this exactly as it does for a DWG's LLM mapping.
             var mapping = new MappingResult
             {
+                // Deterministic, authored mappings — never go through the LLM/provenance-gated window.
                 Mappings = new List<LayerMapping>
                 {
-                    new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls",   Confidence = 1.0 },
-                    new LayerMapping { CadLayer = "A-FLOR",     Category = "Floors",  Confidence = 1.0 },
-                    new LayerMapping { CadLayer = "A-DOOR",     Category = "Doors",   Confidence = 1.0 },
-                    new LayerMapping { CadLayer = "A-WIND",     Category = "Windows", Confidence = 1.0 },
+                    new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls",   Confidence = 1.0, Source = "standard" },
+                    new LayerMapping { CadLayer = "A-FLOR",     Category = "Floors",  Confidence = 1.0, Source = "standard" },
+                    new LayerMapping { CadLayer = "A-DOOR",     Category = "Doors",   Confidence = 1.0, Source = "standard" },
+                    new LayerMapping { CadLayer = "A-WIND",     Category = "Windows", Confidence = 1.0, Source = "standard" },
                 },
             };
             return (elements, mapping);

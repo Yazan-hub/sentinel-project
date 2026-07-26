@@ -43,12 +43,24 @@ namespace Sentinel.GhostBuilder
         private readonly Dictionary<string, LayerMapping> _cache; // normalised layer -> mapping
         private bool _dirty;
 
+        // On-disk shape: {"ruleset": "<standard name>", "mappings": {...}}. Stamped with the ruleset
+        // that produced the Source=="standard" rows, so a ruleset swap doesn't keep pre-ticking the
+        // old standard's mappings under the new one. LLM rows are ruleset-independent and survive.
+        private sealed class CacheFile
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("ruleset")]
+            public string Ruleset { get; set; }
+            [System.Text.Json.Serialization.JsonPropertyName("mappings")]
+            public Dictionary<string, LayerMapping> Mappings { get; set; }
+        }
+
         public LayerMapper(ILayerMapper llmFallback, string cachePath = null, LayerRulesetMatcher matcher = null)
         {
             _llm = llmFallback ?? throw new ArgumentNullException(nameof(llmFallback));
             _matcher = matcher ?? LayerRulesetMatcher.Load(); // P1: BDS DWG Layer Standard drives ignore + mapping
             _cachePath = cachePath ?? DefaultCachePath();
-            _cache = LoadCache(_cachePath);
+            _cache = LoadCache(_cachePath, _matcher.StandardName, out bool rulesetChanged);
+            if (rulesetChanged) _dirty = true;
 
             // Self-heal: purge any previously-cached system/annotation layers (e.g. a stale
             // DEFPOINTS -> Walls written before the ignore-list existed) so the next save drops them.
@@ -130,15 +142,32 @@ namespace Sentinel.GhostBuilder
 
         private static string Normalize(string layer) => layer.Trim().ToUpperInvariant();
 
-        private static Dictionary<string, LayerMapping> LoadCache(string path)
+        private static Dictionary<string, LayerMapping> LoadCache(string path, string currentRuleset, out bool rulesetChanged)
         {
+            rulesetChanged = false;
             var dict = new Dictionary<string, LayerMapping>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 if (File.Exists(path))
                 {
-                    var loaded = JsonSerializer.Deserialize<Dictionary<string, LayerMapping>>(
-                        File.ReadAllText(path));
+                    string json = File.ReadAllText(path);
+                    var wrapped = JsonSerializer.Deserialize<CacheFile>(json);
+                    Dictionary<string, LayerMapping> loaded;
+                    bool hadStamp;
+                    if (wrapped?.Mappings != null)
+                    {
+                        loaded = wrapped.Mappings;
+                        hadStamp = string.Equals(wrapped.Ruleset, currentRuleset, StringComparison.Ordinal);
+                    }
+                    else
+                    {
+                        // Pre-stamp format: a bare {layer -> mapping} dictionary. No stamp = treat as
+                        // mismatched so any previously-cached "standard" rows get dropped below.
+                        loaded = JsonSerializer.Deserialize<Dictionary<string, LayerMapping>>(json);
+                        hadStamp = false;
+                    }
+                    if (!hadStamp) rulesetChanged = true;
+
                     if (loaded != null)
                         foreach (var kv in loaded)
                         {
@@ -147,6 +176,10 @@ namespace Sentinel.GhostBuilder
                             // but guard an explicit JSON null too (System.Text.Json calls the setter for
                             // a present-but-null property, overwriting the default).
                             if (kv.Value.Source == null) kv.Value.Source = "llm";
+                            // Ruleset swapped: drop stale deterministic rows. LLM rows are ruleset-
+                            // independent (they're per-layer model guesses, not standard lookups) — keep them.
+                            if (!hadStamp && string.Equals(kv.Value.Source, "standard", StringComparison.OrdinalIgnoreCase))
+                                continue;
                             dict[kv.Key] = kv.Value;
                         }
                 }
@@ -160,8 +193,9 @@ namespace Sentinel.GhostBuilder
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(_cachePath));
+                var wrapped = new CacheFile { Ruleset = _matcher.StandardName, Mappings = _cache };
                 File.WriteAllText(_cachePath,
-                    JsonSerializer.Serialize(_cache, new JsonSerializerOptions { WriteIndented = true }));
+                    JsonSerializer.Serialize(wrapped, new JsonSerializerOptions { WriteIndented = true }));
                 _dirty = false;
             }
             catch (Exception) { /* best-effort: a read-only cache dir must not fail the mapping run */ }

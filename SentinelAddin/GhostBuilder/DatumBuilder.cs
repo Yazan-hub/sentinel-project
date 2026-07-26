@@ -127,9 +127,9 @@ namespace Sentinel.GhostBuilder
                 Grids = DatumFromDrawing.Grids(gridSegs),
             };
             if (res.Levels.Count == 0)
-                res.Warnings.Add($"No level lines found on a '*{levelKw}*' layer — is a section among the drawings?");
+                res.Warnings.Add($"No level lines found on a '*{levelKw}*' layer in the drawing(s) read — levels come from a section export.");
             if (res.Grids.Count == 0)
-                res.Warnings.Add($"No grid lines found on a '*{gridKw}*' layer — is a plan among the drawings?");
+                res.Warnings.Add($"No grid lines found on a '*{gridKw}*' layer in the drawing(s) read — grids come from a plan export.");
             return res;
         }
 
@@ -182,7 +182,7 @@ namespace Sentinel.GhostBuilder
         private void AddIfOnLayer(GeometryObject o, string layerKeyword, List<Seg> into)
         {
             string layer = LayerOf(o);
-            if (layer == null || layer.IndexOf(layerKeyword, StringComparison.OrdinalIgnoreCase) < 0) return;
+            if (layer == null || !LayerMatches(layer, layerKeyword)) return;
 
             switch (o)
             {
@@ -195,6 +195,17 @@ namespace Sentinel.GhostBuilder
                     break;
                 // arcs/splines aren't level or grid datums — ignore
             }
+        }
+
+        // AIA layer naming abbreviates "LEVEL" to "-LEVL" (e.g. A-ANNO-LEVL); a plain "LEVEL" substring
+        // check never matches those. Accept either spelling for the level keyword — but not the bare "LEV"
+        // prefix, which would false-match elevation layers like A-ELEV. Grids don't need this: AIA uses GRID.
+        private static bool LayerMatches(string layer, string keyword)
+        {
+            if (string.Equals(keyword, "LEVEL", StringComparison.OrdinalIgnoreCase))
+                return layer.IndexOf("LEVEL", StringComparison.OrdinalIgnoreCase) >= 0
+                    || layer.IndexOf("LEVL", StringComparison.OrdinalIgnoreCase) >= 0;
+            return layer.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private string LayerOf(GeometryObject o)
