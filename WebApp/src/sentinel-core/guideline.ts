@@ -56,19 +56,42 @@ export interface GuidelineElement {
 
 /** Drawing graphics — the half that makes 2D come out annotated. Consumed by the view generator, not by
  *  placement, but it lives in the same document because it is the same office decision. */
+export interface GuidelineTag {
+  family: string;
+  type?: string;
+  officeAuthored?: boolean;
+}
+
 export interface GuidelineGraphics {
-  dimensionStyle?: string;
-  textStyle?: string;
-  /** Element category → the tag family to place in views. */
-  tags?: Record<string, string>;
+  dimensionStyle?: string | null;
+  textStyle?: string | null;
+  /** Element category → the tag family/type to place in views. */
+  tags?: Record<string, GuidelineTag>;
 }
 
 export interface GuidelineViewStandard {
   use: string;                                     // "GA Plan" | "RCP" | "Section" …
-  template?: string;                               // Revit view template name
-  scale?: string;
-  detailLevel?: "Coarse" | "Medium" | "Fine";
-  tag?: string[];                                  // categories to tag automatically
+  wipTemplate?: string;                             // Revit WIP view template name
+  sheetTemplate?: string;                           // Revit sheet view template name
+  viewType: string;                                 // "FloorPlan" | "CeilingPlan" | "Section" …
+  namePrefix?: string;                              // e.g. "FP" — absent means not plannable
+  tag?: string[];                                   // categories to tag automatically
+}
+
+export interface GuidelineViewNaming {
+  structure?: string;                               // e.g. "[STATUS]_[TYPE]_[LEVEL]_[DESCRIPTION]"
+  source?: string;
+  statusPrefixes?: Record<string, string>;          // e.g. "WIP_" -> "01_WIP_VIEWS"
+}
+
+/** One planned WIP view, one per plannable guideline entry per level. */
+export interface PlannedView {
+  name: string;
+  use: string;
+  viewType: string;
+  levelName: string;
+  template?: string;
+  browserStatus?: string;
 }
 
 export interface Guideline {
@@ -80,6 +103,7 @@ export interface Guideline {
   elements: GuidelineElement[];
   graphics?: GuidelineGraphics;
   views?: GuidelineViewStandard[];
+  viewNaming?: GuidelineViewNaming;
 }
 
 export interface Resolution {
@@ -305,4 +329,34 @@ export function validateGuideline(g: Guideline): string[] {
     }
   }
   return errs;
+}
+
+const PLANNABLE = new Set(["FloorPlan", "CeilingPlan"]);
+
+/** Deterministic WIP view plan: one view per plannable guideline entry per level.
+ *  Name follows the office structure [STATUS]_[TYPE]_[LEVEL] (description omitted). */
+export function planViews(
+  views: GuidelineViewStandard[] | undefined,
+  naming: GuidelineViewNaming | undefined,
+  levelNames: string[],
+): PlannedView[] {
+  if (!views || !naming || levelNames.length === 0) return [];
+  const status = "WIP_";
+  const browserStatus = naming.statusPrefixes?.[status];
+  const out: PlannedView[] = [];
+  for (const v of views) {
+    if (!v.namePrefix || !PLANNABLE.has(v.viewType)) continue;
+    for (const level of levelNames) {
+      const levelToken = level.trim().toUpperCase().replace(/\s+/g, "-");
+      out.push({
+        name: `${status}${v.namePrefix}_${levelToken}`,
+        use: v.use,
+        viewType: v.viewType,
+        levelName: level,
+        template: v.wipTemplate,
+        browserStatus,
+      });
+    }
+  }
+  return out;
 }
