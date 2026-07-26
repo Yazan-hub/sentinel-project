@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
@@ -60,18 +62,60 @@ public sealed class GhostBuilderCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        // 2. Pick a DWG import (API thread — legal here, before we hand off).
-        ImportInstance? cadLink;
-        try
+        // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
+        ImportInstance? cadLink = null;
+        var folderDwgs = Directory.Exists(settings.GhostSourceFolder ?? "")
+            ? Directory.EnumerateFiles(settings.GhostSourceFolder!, "*.*")
+                .Where(f => f.EndsWith(".dwg", System.StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".dxf", System.StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f).ToList()
+            : new List<string>();
+
+        bool pickFromModel = folderDwgs.Count == 0;
+        if (folderDwgs.Count > 0)
         {
-            var picked = uidoc.Selection.PickObject(
-                ObjectType.Element, new CadImportFilter(),
-                "Select a 2D CAD (DWG) import to build from.");
-            cadLink = doc.GetElement(picked.ElementId) as ImportInstance;
+            var pick = new DwgPickWindow(folderDwgs);
+            new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
+            if (pick.ShowDialog() != true) return Result.Cancelled;
+            pickFromModel = pick.PickFromModel;
+
+            if (!pickFromModel && pick.SelectedPath is { } dwgPath)
+            {
+                // Import KEPT in the model (unlike Datum's rolled-back scratch read) so the user
+                // sees what was built from, and re-runs can re-pick it from the model.
+                using var t = new Transaction(doc, "Sentinel — import DWG plan");
+                t.Start();
+                var opts = new DWGImportOptions
+                {
+                    Placement = ImportPlacement.Origin,   // aligns with Datum's origin-to-origin read
+                    ThisViewOnly = false,
+                    ColorMode = ImportColorMode.Preserved,
+                };
+                if (doc.Import(dwgPath, opts, uidoc.ActiveView, out ElementId impId))
+                    cadLink = doc.GetElement(impId) as ImportInstance;
+                if (cadLink is null)
+                {
+                    t.RollBack();
+                    TaskDialog.Show("Sentinel — Ghost Builder", $"Could not import:\n{dwgPath}");
+                    return Result.Failed;
+                }
+                t.Commit();
+            }
         }
-        catch (Autodesk.Revit.Exceptions.OperationCanceledException)
+
+        if (pickFromModel)
         {
-            return Result.Cancelled; // user pressed Esc during pick — not an error
+            try
+            {
+                var picked = uidoc.Selection.PickObject(
+                    ObjectType.Element, new CadImportFilter(),
+                    "Select a 2D CAD (DWG) import to build from.");
+                cadLink = doc.GetElement(picked.ElementId) as ImportInstance;
+            }
+            catch (Autodesk.Revit.Exceptions.OperationCanceledException)
+            {
+                return Result.Cancelled;
+            }
         }
         if (cadLink is null) return Result.Cancelled;
 
