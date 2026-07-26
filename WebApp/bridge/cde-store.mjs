@@ -530,12 +530,15 @@ const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 let _naming; // undefined = not yet loaded, null = absent/invalid
 function defaultNamingRuleset() {
   if (_naming !== undefined) return _naming;
+  // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
+  const p = env.SENTINEL_NAMING_RULESET || `${import.meta.dirname}/naming-ruleset.json`;
   try {
-    // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
-    const rs = JSON.parse(readFileSync(`${import.meta.dirname}/naming-ruleset.json`, "utf8"));
+    const rs = JSON.parse(readFileSync(p, "utf8"));
     _naming = Array.isArray(rs?.fields) && rs.separator ? rs : null;
     if (_naming) console.error("[naming] ruleset:", _naming.title, "| enforce:", _naming.enforce);
-  } catch (e) { _naming = null; console.error("[naming] ruleset load FAILED:", e?.message || e); }
+  } catch (e) { _naming = null; }
+  if (_naming === null)
+    console.warn(`[bridge] WARNING: naming ruleset invalid or unreadable (${p}) — naming gate is OFF`);
   return _naming;
 }
 const resolveNamingRuleset = (inline) =>
