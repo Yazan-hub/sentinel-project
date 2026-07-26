@@ -5,7 +5,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { IfcImporter } from "@thatopen-platform/fragments-beta";
+import { IfcImporter } from "@thatopen/fragments";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // web-ifc ships its .wasm here; the importer loads web-ifc.wasm from this directory.

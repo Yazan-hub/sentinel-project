@@ -2,8 +2,8 @@ import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
-// Inlines the fragments worker so it runs inside the platform's sandboxed iframe.
-import "@thatopen/fragments/inline";
+// Worker loading: FragmentsModels.getWorker() fetches the worker and blob-inlines it,
+// which is sandbox-iframe-safe — the beta-only "fragments/inline" side-effect import is gone.
 import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
