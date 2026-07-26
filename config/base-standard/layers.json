@@ -9,8 +9,12 @@
 
   "ignore": [
     "0", "DEFPOINTS",
-    "*-ANNO", "*-ANNO-*"
+    "*-ANNO", "*-ANNO-*",
+
+    "*-IDEN", "*-PATT", "*-OVHD", "*-HRAL", "*-OTLN-*", "*-LEVL",
+    "A-VRTC*", "Q-SPCQ*", "L-PLNT*", "L-SITE*", "G-*", "SD-*", "*-TTLB*", "*-PLOT*"
   ],
+  "_note_aia_ignore": "IDEN=tags, PATT=hatching, OVHD=overhead dashed, HRAL=handrails (real geometry but not LOD-200 primary), LEVL=level annotation, VRTC=vertical-circulation symbols, SPCQ=space/area queries, L-*=landscape, G-/SD-=general/site-detail sheets, TTLB/PLOT=title block.",
 
   "disciplines": {
     "A": "Architectural", "S": "Structural", "M": "Mechanical",
@@ -19,11 +23,11 @@
   },
 
   "layers": [
-    { "layer": "A-WALL", "category": "Walls",   "family": "Generic_Wall",   "params": { "Discipline": "A" }, "aliases": [] },
-    { "layer": "A-DOOR", "category": "Doors",    "family": "Generic_Door",   "params": { "Discipline": "A" }, "aliases": [] },
-    { "layer": "A-GLAZ", "category": "Windows",  "family": "Generic_Window", "params": { "Discipline": "A" }, "aliases": [] },
-    { "layer": "A-FLOR", "category": "Floors",   "family": "Generic_Floor",  "params": { "Discipline": "A" }, "aliases": [] },
-    { "layer": "S-COLS", "category": "Columns",  "family": "Generic_Column", "params": { "Discipline": "S" }, "aliases": [] }
+    { "layer": "A-WALL", "category": "Walls",   "family": "Generic_Wall",   "params": { "Discipline": "A" }, "aliases": ["A-WALL-EXT", "A-WALL-INT", "A-WALL-FULL", "A-WALL-PRHT"] },
+    { "layer": "A-DOOR", "category": "Doors",    "family": "Generic_Door",   "params": { "Discipline": "A" }, "aliases": ["A-DOOR-FRAM"] },
+    { "layer": "A-GLAZ", "category": "Windows",  "family": "Generic_Window", "params": { "Discipline": "A" }, "aliases": ["A-GLAZ-FULL", "A-WIND"] },
+    { "layer": "A-FLOR", "category": "Floors",   "family": "Generic_Floor",  "params": { "Discipline": "A" }, "aliases": ["A-FLOR-OTLN"] },
+    { "layer": "S-COLS", "category": "Columns",  "family": "Generic_Column", "params": { "Discipline": "S" }, "aliases": ["S-COLS-CONC", "S-COLS-STL"] }
   ],
 
   "extensions": []
