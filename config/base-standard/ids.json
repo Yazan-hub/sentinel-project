@@ -1,0 +1,32 @@
+{
+  "title": "Base element data requirements (generic)",
+  "enforce": "warn",
+  "_note": "Office-agnostic starter. Server-side custody: set SENTINEL_IDS to this file's path on the bridge to make it authoritative.",
+  "specifications": [
+    {
+      "name": "Walls carry fire rating",
+      "applicability": { "entity": "IFCWALL" },
+      "requirements": {
+        "properties": [
+          { "pset": "Pset_WallCommon", "name": "FireRating", "cardinality": "required" }
+        ]
+      }
+    },
+    {
+      "name": "All elements have a name",
+      "applicability": { "entity": "IFC.*" },
+      "requirements": {
+        "attributes": [ { "name": "Name", "cardinality": "required" } ]
+      }
+    },
+    {
+      "name": "Slabs carry load-bearing flag",
+      "applicability": { "entity": "IFCSLAB" },
+      "requirements": {
+        "properties": [
+          { "pset": "Pset_SlabCommon", "name": "LoadBearing", "cardinality": "required" }
+        ]
+      }
+    }
+  ]
+}

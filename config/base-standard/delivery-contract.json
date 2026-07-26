@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "contract_key": "base-default",
+  "ifc_schema": "IFC2X3",
+  "required_entities": [],
+  "required_psets": [],
+  "required_properties": [],
+  "forbidden_entities": [
+    { "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 2147483647, "max_ratio": 0.25 }
+  ],
+  "require_georeference": false
+}
