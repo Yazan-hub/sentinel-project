@@ -5,7 +5,9 @@ Autodesk's Snowdon Towers sample exported to DWG (33 files, `A100`–`SD106`, AI
 layer names, per-sheet paper-space origins), folder set in Project Setup, chain
 run as a first-time user would. Findings ranked by severity.
 
-## 1 · Datum pools grids across incompatible sheet origins — HIGH
+## 1 · Datum pools grids across incompatible sheet origins — HIGH — **Fixed, verified live 2026-07-26**
+
+*Fix:* Datum now reads ONE picked drawing per run (reuses the Ghost pick window, honest header, no pick-from-model). Re-run on `A101.dwg`: 15 coherent grids (1–9/A–F) vs the 35 misaligned before; AIA `-LEVL` layers now match the level keyword. Residual (low): a `*LEVL*` layer on a plan sheet can propose annotation-derived levels (A101 offered one at +3658 mm) — the confirmation dialog is the guard.
 
 Datum read all 33 DWGs and proposed **0 levels, 35 grids**. Grids are deduped by
 NAME, so each grid landed at whichever sheet's paper-space offset it appeared in
@@ -17,7 +19,9 @@ sheet set it silently produces a wrong datum.
 window), or detect origin inconsistency (same layer geometry envelope shifting
 between files) and refuse to pool.
 
-## 2 · Confidently-wrong LLM layer mappings arrive pre-ticked — HIGH
+## 2 · Confidently-wrong LLM layer mappings arrive pre-ticked — HIGH — **Fixed, verified live 2026-07-26**
+
+*Fix:* `LayerMapping.Source` provenance; review window ticks only deterministic rows under a 500-element cap; LLM rows labelled `· LLM` and unticked; AIA aliases + ignore globs in both shipped rulesets. Re-run on `A101.dwg`: 21 layers / 4,609 elements (was 32 / 14,140 — the 6,961-element handrail layer is ignored at tier 0); 8 deterministic rows ticked incl. the new `A-DOOR-FRAM`/`A-FLOR-OTLN` aliases; all LLM and high-count rows unticked. Residuals (low): a pre-upgrade unstamped cache serves old rows as `llm` until cleared (safe direction — masks standard ticks, never adds trust); a genuine full-floor wall layer (531 segments) exceeds the 500 cap and needs a manual tick.
 
 Ghost Builder on `A101.dwg` proposed **32 layers / 14,140 elements**. The
 deterministic standard matches were correct (`A-WALL → BDS_Wall_Int` 1.0,
