@@ -18,11 +18,11 @@ public static class ViewGenerator
 
     // BDS-RTG-001 §4: browser routing parameters. Offices vary — each slot
     // tries a list of candidate names, first match wins (strict routing, #1).
-    private static readonly string[] MainGroupParams =
+    internal static readonly string[] MainGroupParams =
         { "BDS_View Status", "View_Group", "BDS_Discipline", "View Group" };
-    private static readonly string[] SubGroupParams =
+    internal static readonly string[] SubGroupParams =
         { "BDS_View Type", "BDS_Sub-Discipline", "View_SubGroup", "Sub Discipline" };
-    private static readonly string[] SubSubGroupParams =
+    internal static readonly string[] SubSubGroupParams =
         { "BDS_View Sub Type", "View_Detail_Group" };
 
     public static View3D? CreateClashView(Document doc, List<ClashManager.ClashItem> clashes)
@@ -95,7 +95,7 @@ public static class ViewGenerator
     }
 
     /// Try each candidate parameter name; set the first writable string match.
-    private static bool SetFirstMatch(Element e, string[] candidates, string value)
+    internal static bool SetFirstMatch(Element e, string[] candidates, string value)
     {
         foreach (var name in candidates)
         {
