@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { runWithAuth } from "./bridge-auth.mjs";
 import { loadEnv } from "./thatopen-client.mjs";
 
@@ -75,6 +75,22 @@ const loadJson = (file, fallback) => {
 const SHEETS_ROOT = process.env.SENTINEL_SHEETS
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "sheets");
 const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Bearer <TOKEN>"
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
+
+// ponytail: HS256-only — Supabase signs with a shared secret today. If the project moves
+// to RS256/JWKS, swap this for a jose-style verifier then.
+function verifyJwt(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const sig = createHmac("sha256", JWT_SECRET)
+    .update(parts[0] + "." + parts[1]).digest("base64url");
+  const a = Buffer.from(sig), b = Buffer.from(parts[2]);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    return !payload.exp || payload.exp * 1000 > Date.now();
+  } catch { return false; }
+}
 const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
 
@@ -350,7 +366,7 @@ createServer((req, res) => {
   // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
   // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
   // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
-  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3) ? bearer : null;
+  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer))) ? bearer : null;
   runWithAuth(userJwt, () => handleRequest(req, res));
 }).listen(PORT, HOST, () => {
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
@@ -397,7 +413,9 @@ async function handleRequest(req, res) {
   if (TOKEN) {
     const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
     const exempt = url.pathname === "/health" || url.pathname === "/events";
-    const ok = bearer === TOKEN || (bearer && bearer !== TOKEN && bearer.split(".").length === 3);
+    const jwtOk = bearer && bearer !== TOKEN && bearer.split(".").length === 3
+      && (!JWT_SECRET || verifyJwt(bearer));
+    const ok = bearer === TOKEN || jwtOk;
     if (!exempt && !ok) return send(res, 401, { message: "Unauthorized" });
   }
 
