@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import * as OBF from "@thatopen/components-front";
 import * as BUI from "@thatopen/ui";
 import {
@@ -54,7 +55,7 @@ const modeColor = (mode: string): string =>
   })[mode] ?? "#64748b";
 
 export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } = {}) => {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);

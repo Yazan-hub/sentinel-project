@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { bdsRuleset, type Ruleset } from "../sentinel-core";
@@ -23,7 +24,7 @@ const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", 
 
 export function packsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   void components;
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   let packs: Pack[] = [];
   let installedId = "";

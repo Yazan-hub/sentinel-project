@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
@@ -25,7 +26,7 @@ interface Rfi {
 }
 
 export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const projectId = () => activePid();
   const highlighter = components.get(OBF.Highlighter);
   const fragments = components.get(OBC.FragmentsManager);

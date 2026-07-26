@@ -1,4 +1,5 @@
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 
 /**
@@ -19,7 +20,7 @@ interface ProjectLite {
 export function projectSwitcher(
   opts: { baseUrl?: string; onManage?: () => void; anchor?: string } = {},
 ): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const esc = (s?: string) =>
     (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 

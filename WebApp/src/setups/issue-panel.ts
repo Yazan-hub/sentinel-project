@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
@@ -42,7 +43,7 @@ interface FRAGS_Model {
 }
 
 export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: string } = {}): HTMLElement {
-  const base = (opts.bcfBaseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.bcfBaseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const projectId = () => activePid();
   const highlighter = components.get(OBF.Highlighter);
   const fragments = components.get(OBC.FragmentsManager);

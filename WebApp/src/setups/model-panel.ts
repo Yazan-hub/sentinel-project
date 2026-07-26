@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { SERVICE_URL } from "../config";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
@@ -51,7 +52,7 @@ const ACCENT = 0x6528d7;
 const KIND_COLOR: Record<Kind, number> = { wall: 0xb4bac6, column: 0x8a94a6, slab: 0x9aa3b2 };
 
 export function modelPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const projectId = () => activePid();
   const storeKey = () => `sentinel:model:${projectId()}`;
   const verKey = () => `sentinel:model:ver:${projectId()}`;

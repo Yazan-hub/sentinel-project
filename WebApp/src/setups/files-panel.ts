@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { getAppManager } from "../app";
 import { currentUser } from "./auth";
@@ -37,7 +38,7 @@ interface AuditEvent { id: number; entity_id: string; entity_type?: string; acti
 interface Verdict { verdict: "accepted" | "rejected" | "recorded"; passing?: number; in_scope?: number; failing?: number; ids?: string | null; }
 
 export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 

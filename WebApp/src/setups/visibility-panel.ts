@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
@@ -18,7 +19,7 @@ import { getAppManager } from "../app";
  * Plain-DOM, iframe-safe. Docked as the "Visibility" tab.
  */
 export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);

@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
@@ -32,7 +33,7 @@ interface Folder { id: string; project_id: string; parent_id: string | null; nam
 interface Audit { id: number; action: string; actor?: string; at: string; entity_type?: string; }
 
 export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 

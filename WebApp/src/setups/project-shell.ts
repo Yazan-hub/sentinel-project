@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
@@ -37,7 +38,7 @@ const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString
 const healthColor = (v: number) => (v >= 90 ? "#22c55e" : v >= 80 ? "#eab308" : "#ef4444");
 
 export function projectShell(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const fragments = components.get(OBC.FragmentsManager);
   const pid = () => activePid();
 
