@@ -73,7 +73,7 @@ namespace Sentinel.GhostBuilder
         /// PHASE 3 — geometry creation inside one transaction. Revit API writes: API thread ONLY,
         /// must be invoked from an IExternalEventHandler.Execute. Never from Task.Run.
         /// </summary>
-        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping)
+        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping, Level level = null)
         {
             if (inputs?.Layers == null || inputs.Layers.Count == 0)
                 return new GhostPlacementEngine.PlacementReport
@@ -89,7 +89,7 @@ namespace Sentinel.GhostBuilder
             // Office Modelling Guideline picks the wall TYPE from — is thrown away. Additive and safe: a
             // wall it can't pair stays exactly the run it was.
             var elements = GhostWallPairer.PairWalls(inputs.Elements, mapping);
-            return PlacePrepared(elements, mapping);
+            return PlacePrepared(elements, mapping, level);
         }
 
         /// <summary>
@@ -98,7 +98,7 @@ namespace Sentinel.GhostBuilder
         /// provisioners, guideline and audit as a DWG build, so a massing is governed identically.
         /// </summary>
         public GhostPlacementEngine.PlacementReport PlacePrepared(
-            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping)
+            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null)
         {
             if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
                 return new GhostPlacementEngine.PlacementReport { Warnings = { "Nothing to build." } };
@@ -137,7 +137,7 @@ namespace Sentinel.GhostBuilder
                 var floorProv = new GhostFloorTypeProvisioner(_doc).Provision(mapping);
                 if (floorProv.Created > 0) _doc.Regenerate();
 
-                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline);
+                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level);
                 report = engine.Place(mapping, elements);
                 report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);

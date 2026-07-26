@@ -277,7 +277,7 @@ namespace Sentinel.GhostBuilder
 
         private readonly GuidelineMatcher _guideline; // optional office guideline for per-wall type choice
 
-        public GhostPlacementEngine(Document doc, double minConfidence = 0.5, GuidelineMatcher guideline = null)
+        public GhostPlacementEngine(Document doc, double minConfidence = 0.5, GuidelineMatcher guideline = null, Level level = null)
         {
             _doc = doc;
             _minConfidence = minConfidence;
@@ -305,7 +305,7 @@ namespace Sentinel.GhostBuilder
                 .GroupBy(ct => ct.Name).ToDictionary(g => g.Key, g => g.First(),
                          StringComparer.OrdinalIgnoreCase);
 
-            _defaultLevel = new FilteredElementCollector(doc)
+            _defaultLevel = level ?? new FilteredElementCollector(doc)
                 .OfClass(typeof(Level)).Cast<Level>()
                 .OrderBy(l => l.Elevation).FirstOrDefault();
         }
