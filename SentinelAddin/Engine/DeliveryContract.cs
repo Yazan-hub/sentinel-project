@@ -48,21 +48,14 @@ public sealed class DeliveryContract
         {
             if (File.Exists(DefaultPath))
                 return JsonSerializer.Deserialize<DeliveryContract>(File.ReadAllText(DefaultPath))
-                       ?? BdsDefault();
+                       ?? BuiltInDefault();
         }
         catch (Exception) { }
-        var d = BdsDefault();
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(DefaultPath)!);
-            File.WriteAllText(DefaultPath, JsonSerializer.Serialize(d, new JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch (IOException) { }
-        return d;
+        return BuiltInDefault();
     }
 
-    /// Sensible BDS starting contract; coordinator edits the JSON.
-    private static DeliveryContract BdsDefault() => new()
+    // generic starter; offices install their own delivery-contract.json (see config/base-standard/)
+    private static DeliveryContract BuiltInDefault() => new()
     {
         RequiredEntities = new List<EntityRequirement>
         {

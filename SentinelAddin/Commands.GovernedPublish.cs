@@ -101,7 +101,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
                     ? $"{verdict.BcfRaised} BCF issue(s) opened on the failing elements — they're now in the web " +
                       "Issues panel and will live-sync into Revit. Fix them and run Governed Publish again."
                     : nameFailed
-                        ? "Rename the Revit model to the BDS ISO 19650 form and run Governed Publish again."
+                        ? "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again."
                         : "The rejection is recorded in the immutable audit trail. Fix the failures and retry."));
             TryDelete(tempPath);
             return Result.Succeeded;
