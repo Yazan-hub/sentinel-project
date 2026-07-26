@@ -1,4 +1,11 @@
 import * as THREE from "three";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+
+// ponytail: NearPlaneLineMaterial is a platform-beta-only export. On the public
+// engine fall back to the stock fat LineMaterial - same thick edges, may show the
+// near-plane streak the beta material fixed. Swap back when beta packages return.
+const SectionLineMaterial: any =
+  (OBF as unknown as Record<string, unknown>).NearPlaneLineMaterial ?? LineMaterial;
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { toolModeManager, type ManagedTool } from "./tool-mode-manager";
@@ -78,7 +85,7 @@ export const ensureSectionStyle = (components: OBC.Components) => {
     // NearPlaneLineMaterial: a fat line (real px width) that ALSO discards
     // segments behind the camera plane in-shader, so it gives thick edges WITHOUT
     // the near-plane "infinity streak" the stock fat LineMaterial produced.
-    linesMaterial: new OBF.NearPlaneLineMaterial({
+    linesMaterial: new SectionLineMaterial({
       color: "#111111",
       linewidth: 2,
     }),
@@ -192,7 +199,7 @@ const clipperToolImpl = (components: OBC.Components): ClipperTool => {
       // edges with NO near-plane "infinity streak". Re-enables the Edge-width
       // control (the setter drives `linewidth`). ClipEdges' fat-line path
       // (isLineMaterial) builds a LineSegments2 and keeps `resolution` in sync.
-      linesMaterial: new OBF.NearPlaneLineMaterial({
+      linesMaterial: new SectionLineMaterial({
         color: sectionStyle.line,
         linewidth: sectionStyle.width,
       }),
