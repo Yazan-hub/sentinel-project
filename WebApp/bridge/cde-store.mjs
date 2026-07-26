@@ -544,19 +544,44 @@ function defaultNamingRuleset() {
 const resolveNamingRuleset = (inline) =>
   (inline && typeof inline === "object" && Array.isArray(inline.fields)) ? inline : defaultNamingRuleset();
 
+// Server-side IDS custody (SENTINEL_IDS) — when set and valid, the server's spec is authoritative and a
+// client-posted `b.ids` is ignored (but audited). Mirrors defaultNamingRuleset()'s cache/warn idiom exactly.
+let _serverIds; // undefined = not yet loaded, null = absent/invalid
+function serverIdsSpec() {
+  if (_serverIds !== undefined) return _serverIds;
+  const p = env.SENTINEL_IDS || "";
+  if (!p) { _serverIds = null; return _serverIds; }
+  try {
+    const s = JSON.parse(readFileSync(p, "utf8"));
+    _serverIds = Array.isArray(s?.specifications) ? s : null;
+  } catch { _serverIds = null; }
+  if (_serverIds === null)
+    console.warn(`[bridge] WARNING: SENTINEL_IDS set but invalid/unreadable (${p}) — falling back to client-supplied IDS`);
+  return _serverIds;
+}
+
 /** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
  *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
- *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}). */
+ *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}).
+ *  Server-side IDS custody: when SENTINEL_IDS is set and valid, that spec is authoritative and any client-posted
+ *  `b.ids` is ignored (audited as ids_source: "server", client_ids_ignored: true). Otherwise, current
+ *  client-supplied behaviour (ids_source: "client" or "none"). */
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
-  let spec = null;
-  if (b.ids) {
+  const serverSpec = serverIdsSpec();
+  let spec = null, idsSource = "none", clientIdsIgnored = false;
+  if (serverSpec) {
+    spec = serverSpec;
+    idsSource = "server";
+    if (b.ids) clientIdsIgnored = true;
+  } else if (b.ids) {
     if (typeof b.ids === "string") {
       // parseIds() needs a DOM (browser). Server-side, require a JSON IdsSpec rather than 500 on raw .ids XML.
       try { spec = c.parseIds(b.ids); }
       catch { const e = new Error("Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only."); e.status = 400; throw e; }
     } else spec = b.ids;
+    idsSource = "client";
   }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const adj = c.adjudicate(spec, elements);
@@ -596,7 +621,7 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming },
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -615,7 +640,7 @@ export async function adjudicateProposal(key, b = {}) {
       prefer: "return=minimal", service: true,
     });
   }
-  return { verdict, summary, failures: failures.slice(0, 200), naming, warned, ids_enforce: idsEnforce, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
+  return { verdict, summary, failures: failures.slice(0, 200), naming, warned, ids_enforce: idsEnforce, ids_source: idsSource, client_ids_ignored: clientIdsIgnored, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.

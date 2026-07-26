@@ -7,6 +7,7 @@
       "name": "Walls carry fire rating",
       "applicability": { "entity": "IFCWALL" },
       "requirements": {
+        "attributes": [],
         "properties": [
           { "pset": "Pset_WallCommon", "name": "FireRating", "cardinality": "required" }
         ]
@@ -16,13 +17,15 @@
       "name": "All elements have a name",
       "applicability": { "entity": "IFC.*" },
       "requirements": {
-        "attributes": [ { "name": "Name", "cardinality": "required" } ]
+        "attributes": [ { "name": "Name", "cardinality": "required" } ],
+        "properties": []
       }
     },
     {
       "name": "Slabs carry load-bearing flag",
       "applicability": { "entity": "IFCSLAB" },
       "requirements": {
+        "attributes": [],
         "properties": [
           { "pset": "Pset_SlabCommon", "name": "LoadBearing", "cardinality": "required" }
         ]
