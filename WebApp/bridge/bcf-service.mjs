@@ -384,7 +384,14 @@ async function handleRequest(req, res) {
   // Per-request CORS origin: echo an allowlisted origin (or "*" only in wildcard/dev mode); otherwise none.
   res._cors = CORS_WILDCARD ? (origin || "*") : (originAllowed(origin) ? origin : "");
 
-  if (req.method === "OPTIONS") return send(res, 204); // preflight: send() reflects res._cors (denies foreign origins)
+  if (req.method === "OPTIONS") {
+    // Chrome Private Network Access: a public origin (the platform) calling a private
+    // address (the tailnet bridge) must be granted explicitly in the preflight, or
+    // Chrome blocks the request before it ever reaches us. Allowlisted origins only.
+    if (req.headers["access-control-request-private-network"] === "true" && res._cors)
+      res.setHeader("Access-Control-Allow-Private-Network", "true");
+    return send(res, 204); // preflight: send() reflects res._cors (denies foreign origins)
+  }
 
   // CSRF gate: refuse state-changing requests from a browser origin that isn't allowlisted. A request with no
   // Origin (Revit plugin, curl, server-to-server) is a non-browser caller and is allowed through.
@@ -403,7 +410,13 @@ async function handleRequest(req, res) {
     const jwtOk = bearer && bearer !== TOKEN && bearer.split(".").length === 3
       && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET));
     const ok = bearer === TOKEN || jwtOk;
-    if (!exempt && !ok) return send(res, 401, { message: "Unauthorized" });
+    if (!exempt && !ok) {
+      // Why-log for rejected calls: no secrets, just the credential's shape.
+      const why = !bearer ? "no-bearer"
+        : bearer.split(".").length === 3 ? "jwt-rejected" : "token-mismatch";
+      console.warn(`[bridge] 401 ${req.method} ${url.pathname} (${why}, origin: ${req.headers.origin || "none"})`);
+      return send(res, 401, { message: "Unauthorized" });
+    }
   }
 
   // Health/posture (no secrets): confirms config without ever returning keys.

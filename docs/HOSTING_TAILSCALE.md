@@ -34,3 +34,19 @@ in the bridge; certs are issued and renewed by Tailscale for your tailnet's *.ts
 - `/events` (SSE) stays unauthenticated (EventSource cannot set headers). Tailnet membership
   is the perimeter for it. Query-param JWT auth is the follow-up now that transport is encrypted.
 - This is pilot hosting: one bridge, one tailnet. Public/production hosting is a separate decision.
+
+## Browser gotchas (found live, 2026-07-26)
+
+- **Chrome Local Network Access:** a public origin (the platform) calling the
+  tailnet bridge is "public -> private address space". The bridge answers the
+  PNA preflight (`Access-Control-Allow-Private-Network: true`), but newer Chrome
+  ALSO asks the user per-site. If panels 401/fail with "Permission was denied
+  ... `local` address space" in the console: site settings -> Local network
+  access -> Allow, then reload.
+- **`SUPABASE_JWT_SECRET` and new Supabase projects:** projects created since
+  ~2025 sign access tokens with ES256 (asymmetric) - the dashboard's legacy
+  HS256 "JWT secret" does NOT sign them, so setting it makes the gate reject
+  every real session token (`jwt-rejected` in the bridge log). Leave it unset
+  until the bridge grows a JWKS (ES256) verifier.
+- The bridge logs every 401 with a why (`no-bearer` / `jwt-rejected` /
+  `token-mismatch`) and the origin - read the log before guessing.
