@@ -43,7 +43,33 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        var detected = haveFolder ? builder.DetectFromFolder(folder) : builder.Detect();
+        DatumBuilder.DatumResult detected;
+        if (haveFolder)
+        {
+            var files = System.IO.Directory.EnumerateFiles(folder, "*.*")
+                .Where(f => f.EndsWith(".dwg", System.StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".dxf", System.StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f).ToList();
+            if (files.Count == 0)
+            {
+                TaskDialog.Show("Sentinel — Datum", $"No .dwg/.dxf files in {folder}.");
+                return Result.Cancelled;
+            }
+
+            var pick = new Sentinel.UI.DwgPickWindow(files, null,
+                title: "Sentinel — Datum: choose ONE drawing",
+                header: "Pick the drawing to read datum from. Levels come from a section's " +
+                        "LEVEL layer, grids from a plan's GRID layer. The drawing is read " +
+                        "temporarily (nothing is kept). Sheets have different origins - " +
+                        "run once per drawing; existing levels/grids are kept, not duplicated.",
+                showPickFromModel: false);
+            new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
+            if (pick.ShowDialog() != true || pick.SelectedPath == null)
+                return Result.Cancelled;
+
+            detected = builder.DetectFromFiles(new[] { pick.SelectedPath });
+        }
+        else detected = builder.Detect();
 
         if (detected.Levels.Count == 0 && detected.Grids.Count == 0)
         {

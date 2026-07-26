@@ -61,14 +61,25 @@ namespace Sentinel.GhostBuilder
             var dwgs = System.IO.Directory.EnumerateFiles(folder, "*.*")
                 .Where(f => f.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase)
                          || f.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                .OrderBy(f => f).ToList();
             if (dwgs.Count == 0)
             {
                 var empty = new DatumResult();
                 empty.Warnings.Add($"No .dwg/.dxf files in {folder}.");
                 return empty;
             }
+            return DetectFromFiles(dwgs, levelLayerKeyword, gridLayerKeyword);
+        }
 
+        /// <summary>
+        /// Detect from a SPECIFIC set of files (typically one, user-picked) instead of pooling every DWG in a
+        /// folder — pooling multiple sheets' geometry produced misaligned grids when sheets used different
+        /// origins. Same scratch-import/rollback structure as DetectFromFolder.
+        /// </summary>
+        public DatumResult DetectFromFiles(IReadOnlyList<string> files, string levelLayerKeyword = "LEVEL",
+                                           string gridLayerKeyword = "GRID")
+        {
+            var dwgs = files;
             var levelSegs = new List<Seg>();
             var gridSegs = new List<Seg>();
             var read = new List<string>();
