@@ -51,4 +51,17 @@ describe("validateContainerName", () => {
     const r = validateContainerName("BDS20268-BDS-M3-IFC4-ARC-Z01-VNU-2-M001-S2-X99", BDS); // level '2' ok, rev 'X99' bad
     expect(r.failures.map((f) => f.field)).toContain("revision");
   });
+
+  it("engine genericity: a structurally different ruleset (dot separator, 3 fields) validates on its own terms", () => {
+    const DOTTED: NamingRuleset = {
+      title: "Dotted 3-field", separator: ".", enforce: "reject",
+      fields: [
+        { key: "site", label: "Site", pattern: "[A-Z]{3}" },
+        { key: "seq", label: "Sequence", pattern: "[0-9]{2}" },
+        { key: "rev", label: "Revision", enum: ["A", "B", "C"] },
+      ],
+    };
+    expect(validateContainerName("ABC.01.A", DOTTED).ok).toBe(true);
+    expect(validateContainerName("BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03", DOTTED).ok).toBe(false);
+  });
 });

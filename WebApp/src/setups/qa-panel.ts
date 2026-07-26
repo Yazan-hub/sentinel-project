@@ -3,10 +3,10 @@ import { SERVICE_URL } from "../config";
 import * as OBF from "@thatopen/components-front";
 import * as BUI from "@thatopen/ui";
 import {
-  bdsRuleset,
   scan,
   buildScorecard,
   type Scorecard,
+  type Ruleset,
 } from "../sentinel-core";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { activeRuleset, paramNamesOf } from "./active-ruleset";
@@ -36,6 +36,8 @@ interface PanelState {
   scorecard: Scorecard | null;
   /** rule-id prefixes whose row is expanded (domain filter chips). */
   domainFilter: string | null;
+  /** the ruleset last used for a scan (marketplace pack, or bundled default). */
+  ruleset: Ruleset | null;
 }
 
 // Targets that don't survive IFC export → reported as authoring-side only.
@@ -79,7 +81,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         now: new Date().toISOString(),
       });
       const scorecard = buildScorecard(report);
-      update({ status: "done", report, scorecard });
+      update({ status: "done", report, scorecard, ruleset });
     } catch (err) {
       console.error("[Sentinel] scan failed", err);
       update({ status: "empty", report: null, scorecard: null });
@@ -173,9 +175,12 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       };
 
       // Authoring-side-only note: rules whose target can't survive IFC export.
-      const authoringRules = bdsRuleset.rules.filter((r) =>
+      const authoringRules = (state.ruleset?.rules ?? []).filter((r) =>
         AUTHORING_ONLY_TARGETS.has(r.target),
       );
+      const rulesetLabel = state.ruleset
+        ? `${state.ruleset.standard_key} ${state.ruleset.semver}`
+        : "the active standard";
       const authoringNote =
         state.status === "done" && authoringRules.length > 0
           ? BUI.html`
@@ -188,7 +193,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
 
       const body = () => {
         if (state.status === "idle")
-          return BUI.html`<div class="qa-empty">Load a model, then run a compliance scan against the BDS V1.4 standard.</div>`;
+          return BUI.html`<div class="qa-empty">Load a model, then run a compliance scan against ${rulesetLabel}.</div>`;
         if (state.status === "scanning")
           return BUI.html`<div class="qa-empty">Scanning…</div>`;
         if (state.status === "empty")
@@ -200,7 +205,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
 
       return BUI.html`
         <bim-panel
-          label="QA / QC — BDS ${bdsRuleset.semver}"
+          label="QA / QC — ${rulesetLabel}"
           icon="mdi:clipboard-check-outline"
           style="width: 100%; height: 100%; pointer-events: auto;"
         >
@@ -266,6 +271,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       report: null,
       scorecard: null,
       domainFilter: null,
+      ruleset: null,
     },
   );
 

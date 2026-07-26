@@ -9,8 +9,8 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Governed Publish loop (Revit → gate → verdict → publish/BCF) | ✅ Verified | Live end-to-end on a real building model (G1–G4) |
 | One-button Revit command + governance ribbon | 🟩 Built | Verified building on Revit 2024–2026 |
 | Pure governance engine (`sentinel-core`) | ✅ Verified | 99 passing tests |
-| Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Config: `bridge/naming-ruleset.json` |
-| Element IDS gate (Phase B, LOD-300, enforce=warn) | 🟩 Built | Config: `demo/bds-pilot/bds-ids.json` |
+| Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Active: `WebApp/bridge/naming-ruleset.json` (BDS pilot); swap via `SENTINEL_NAMING_RULESET` env var |
+| Element IDS gate (Phase B, LOD-300, enforce=warn) | 🟩 Built | Active: client-supplied; enforce server-side via `SENTINEL_IDS` env var |
 | Immutable hash-chained audit ledger | ✅ Verified | Truncate/tamper-proof at the DB core (`0015`) |
 | GhostBuilder v2: docs → proposal → **human review** → build | ✅ Verified | Live on Revit 2024, 2026-07-23. Local-only: BDS standard resolves known layers with no model call; the local LLM + vision model read the project's spec and sketches; spec values (e.g. `Fire Rating = FR60`) land on the built geometry; **nothing is written until a reviewer ticks it** |
 | Datum → Ghost → Annotate chain (folder-driven, level-aware, guideline views) | ✅ Verified | Live on Revit 2024, 2026-07-26 (`demo/ghost-sample`): Datum read levels+grids from the folder DXFs (kept existing L1, idempotent); Ghost's pick window listed the folder drawings and on re-run flagged + reused the existing import; the reviewer chose a non-lowest level and the wall's Base Constraint verified as that level; Annotate created 24 guideline views across 4 levels, re-run skipped all 28. Warnings correctly named the default template's missing BDS view templates — full scoring needs the office template |
@@ -53,7 +53,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Capability | Status | Notes |
 |---|---|---|
 | Pilot onboarding runbook | 🟩 Built | `docs/PILOT.md`, `PILOT_DEMO_RUNBOOK.md` |
-| Office-agnostic "Base" ruleset template | ⬜ Planned | Today the gate is configured against BDS as a *reference*, not a fixed standard |
+| Office-agnostic "Base" ruleset template | 🟩 Built | `config/base-standard/` pack (naming, IDS, layers, delivery contract) + server-side custody via `SENTINEL_NAMING_RULESET` and `SENTINEL_IDS` env vars + D-03 proof tests (7-field underscore standard passes both gates). goes ✅ only after a live swap run. |
 | Deployment playbook (4-phase / hardware / roles) | 🟨 Partial | Skeleton only — see [08](08-deployment-playbook.md); specifics unsourced/placeholder |
 | ISO 19650 certification | ⬜ Planned | — |
 | Production hosting (networked, TLS, mandatory auth) | ⬜ Planned | Gated on F2 activation + hosting |

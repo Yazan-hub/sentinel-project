@@ -11,7 +11,7 @@ They drive the whole story — *reject → fix → accept* — without needing R
 | `ids.json` | IDS **adjudicate** (`POST /cde/:key/propose`) | 4 Stage-3 checks: everything named, walls declare `IsExternal`, doors carry `FireRating`, BDS naming (`ARC-/STR-/MEP-`). |
 | `elements-draft.json` | adjudicate | 6 elements with **4 intentional failures** → verdict **rejected**. |
 | `elements-fixed.json` | adjudicate | The same 6, corrected → verdict **accepted**. |
-| `delivery-contract.json` | Revit **IFC Delivery Gate** (`IfcDeliveryGate.Validate`) | EIR/BEP contract: required entities/psets, forbidden proxies. Drop at `%AppData%\Sentinel\delivery-contract.json`. |
+| `delivery-contract.json` | Revit **IFC Delivery Gate** (`IfcDeliveryGate.Validate`) | EIR/BEP contract: required entities/psets, forbidden proxies. Created by the office and dropped at `%AppData%\Sentinel\delivery-contract.json` (template: `config/base-standard/delivery-contract.json`); the built-in default applies when absent. |
 
 The IFC model itself is produced by **Revit → Governed Publish** at demo time (the real path). These JSON
 fixtures are what make the referee half of the loop testable and demoable headlessly.

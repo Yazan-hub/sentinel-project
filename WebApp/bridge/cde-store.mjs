@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 //   SUPABASE_SERVICE_KEY=<service_role secret from Supabase → Project Settings → API>
 
 import { readFileSync } from "node:fs";
+import { resolve, isAbsolute } from "node:path";
 import { loadEnv } from "./thatopen-client.mjs";
 import { currentUserToken, currentActor } from "./bridge-auth.mjs";
 
@@ -524,36 +525,80 @@ export async function pruneEvents(olderThanMs = 600000) {
 let _core = null;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 
+// Repo root (WebApp/bridge is two levels below it: WebApp/bridge → WebApp → root). The bridge runs with cwd
+// WebApp/ (see server.mjs), so a repo-relative operator path like "config/base-standard/naming-ruleset.json"
+// resolves wrong against cwd — anchor non-absolute SENTINEL_* paths here instead.
+const REPO_ROOT = resolve(import.meta.dirname, "../..");
+const resolveConfigPath = (p) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
+
 // Swappable container-naming ruleset (bridge/naming-ruleset.json) — the office's ISO 19650 naming convention
 // as DATA, not code. Cached; missing/invalid → null (naming gate simply off). A caller may also pass an inline
 // ruleset in the propose body to override per-request.
 let _naming; // undefined = not yet loaded, null = absent/invalid
 function defaultNamingRuleset() {
   if (_naming !== undefined) return _naming;
+  // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
+  const raw = env.SENTINEL_NAMING_RULESET || `${import.meta.dirname}/naming-ruleset.json`;
+  const p = env.SENTINEL_NAMING_RULESET ? resolveConfigPath(raw) : raw;
   try {
-    // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
-    const rs = JSON.parse(readFileSync(`${import.meta.dirname}/naming-ruleset.json`, "utf8"));
+    const rs = JSON.parse(readFileSync(p, "utf8"));
     _naming = Array.isArray(rs?.fields) && rs.separator ? rs : null;
     if (_naming) console.error("[naming] ruleset:", _naming.title, "| enforce:", _naming.enforce);
-  } catch (e) { _naming = null; console.error("[naming] ruleset load FAILED:", e?.message || e); }
+  } catch (e) { _naming = null; }
+  if (_naming === null)
+    console.warn(`[bridge] WARNING: naming ruleset invalid or unreadable (resolved path: ${p}) — naming gate is OFF`);
   return _naming;
 }
 const resolveNamingRuleset = (inline) =>
   (inline && typeof inline === "object" && Array.isArray(inline.fields)) ? inline : defaultNamingRuleset();
 
+// Server-side IDS custody (SENTINEL_IDS) — when set and valid, the server's spec is authoritative and a
+// client-posted `b.ids` is ignored (but audited). Mirrors defaultNamingRuleset()'s cache/warn idiom.
+// Fail-safe policy: SENTINEL_IDS unset → today's client-supplied fallback (cached as null). SENTINEL_IDS SET
+// but unreadable/malformed → do NOT fall back to the client spec; adjudicate with NO spec (cached as the
+// sentinel string "invalid", distinct from null so the two states aren't conflated).
+let _serverIds; // undefined = not yet loaded, null = unset (client fallback), "invalid" = set-but-broken (fail safe)
+function serverIdsSpec() {
+  if (_serverIds !== undefined) return _serverIds;
+  const raw = env.SENTINEL_IDS || "";
+  if (!raw) { _serverIds = null; return _serverIds; }
+  const p = resolveConfigPath(raw);
+  try {
+    const s = JSON.parse(readFileSync(p, "utf8"));
+    _serverIds = Array.isArray(s?.specifications) ? s : "invalid";
+  } catch { _serverIds = "invalid"; }
+  if (_serverIds === "invalid")
+    console.warn(`[bridge] WARNING: SENTINEL_IDS set but invalid/unreadable (resolved path: ${p}) — failing safe with NO spec (server-invalid); client-supplied IDS is ignored`);
+  return _serverIds;
+}
+
 /** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
  *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
- *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}). */
+ *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}).
+ *  Server-side IDS custody: when SENTINEL_IDS is set and valid, that spec is authoritative and any client-posted
+ *  `b.ids` is ignored (audited as ids_source: "server", client_ids_ignored: true). Otherwise, current
+ *  client-supplied behaviour (ids_source: "client" or "none"). */
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
-  let spec = null;
-  if (b.ids) {
+  const serverSpec = serverIdsSpec();
+  let spec = null, idsSource = "none", clientIdsIgnored = false;
+  if (serverSpec === "invalid") {
+    // Fail safe: SENTINEL_IDS is set but broken — adjudicate with NO spec rather than silently trusting
+    // whatever the client posted. Still record that a client spec arrived and was ignored.
+    idsSource = "server-invalid";
+    if (b.ids) clientIdsIgnored = true;
+  } else if (serverSpec) {
+    spec = serverSpec;
+    idsSource = "server";
+    if (b.ids) clientIdsIgnored = true;
+  } else if (b.ids) {
     if (typeof b.ids === "string") {
       // parseIds() needs a DOM (browser). Server-side, require a JSON IdsSpec rather than 500 on raw .ids XML.
       try { spec = c.parseIds(b.ids); }
       catch { const e = new Error("Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only."); e.status = 400; throw e; }
     } else spec = b.ids;
+    idsSource = "client";
   }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const adj = c.adjudicate(spec, elements);
@@ -593,7 +638,7 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming },
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -612,7 +657,7 @@ export async function adjudicateProposal(key, b = {}) {
       prefer: "return=minimal", service: true,
     });
   }
-  return { verdict, summary, failures: failures.slice(0, 200), naming, warned, ids_enforce: idsEnforce, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
+  return { verdict, summary, failures: failures.slice(0, 200), naming, warned, ids_enforce: idsEnforce, ids_source: idsSource, client_ids_ignored: clientIdsIgnored, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.

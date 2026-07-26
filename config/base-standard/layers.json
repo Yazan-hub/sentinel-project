@@ -1,0 +1,30 @@
+{
+  "$schema": "https://sentinel.dev/schemas/dwg-layers-v1.json",
+  "version": 1,
+  "standard": "Base AIA-style DWG Layer Standard v1",
+  "doc": "config/base-standard/README.md",
+  "format": "D-MAJR[-MINR]",
+  "enforce": "warn",
+  "match": { "caseInsensitive": true, "trim": true },
+
+  "ignore": [
+    "0", "DEFPOINTS",
+    "*-ANNO", "*-ANNO-*"
+  ],
+
+  "disciplines": {
+    "A": "Architectural", "S": "Structural", "M": "Mechanical",
+    "E": "Electrical", "P": "Plumbing", "F": "Fire protection",
+    "C": "Civil", "I": "Interiors", "G": "General"
+  },
+
+  "layers": [
+    { "layer": "A-WALL", "category": "Walls",   "family": "Generic_Wall",   "params": { "Discipline": "A" }, "aliases": [] },
+    { "layer": "A-DOOR", "category": "Doors",    "family": "Generic_Door",   "params": { "Discipline": "A" }, "aliases": [] },
+    { "layer": "A-GLAZ", "category": "Windows",  "family": "Generic_Window", "params": { "Discipline": "A" }, "aliases": [] },
+    { "layer": "A-FLOR", "category": "Floors",   "family": "Generic_Floor",  "params": { "Discipline": "A" }, "aliases": [] },
+    { "layer": "S-COLS", "category": "Columns",  "family": "Generic_Column", "params": { "Discipline": "S" }, "aliases": [] }
+  ],
+
+  "extensions": []
+}

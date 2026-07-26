@@ -1,0 +1,16 @@
+{
+  "title": "Base ISO 19650 container naming (generic)",
+  "separator": "_",
+  "strip_extensions": [".ifc", ".ifczip", ".rvt", ".nwc", ".nwd", ".pdf"],
+  "enforce": "reject",
+  "_note": "Office-agnostic starter. Copy, rename fields to your convention, adjust enums. Same schema as the pilot standard's ruleset - the engine reads whatever is here.",
+  "fields": [
+    { "key": "project",    "label": "Project code",  "pattern": "^[A-Z0-9]{2,10}$" },
+    { "key": "originator", "label": "Originator",    "pattern": "^[A-Z]{2,6}$" },
+    { "key": "volume",     "label": "Volume/system", "placeholders": ["ZZ", "XX"], "pattern": "^[A-Z0-9]{2}$" },
+    { "key": "level",      "label": "Level",         "placeholders": ["ZZ", "XX"], "pattern": "^[A-Z0-9]{2}$" },
+    { "key": "type",       "label": "Document type", "enum": ["M3", "DR", "SP", "SH"] },
+    { "key": "discipline", "label": "Discipline",    "enum": ["A", "S", "M", "E", "P", "L"] },
+    { "key": "number",     "label": "Number",        "pattern": "^[0-9]{4}$" }
+  ]
+}
