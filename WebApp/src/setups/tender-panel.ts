@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -25,7 +26,7 @@ const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString
 const STATUS_COLOR: Record<string, string> = { Draft: "#9ca3af", Issued: "#eab308", Awarded: "#22c55e", Closed: "#6b7280" };
 
 export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   let tenders: Tender[] = [];

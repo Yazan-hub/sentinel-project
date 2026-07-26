@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
@@ -20,7 +21,7 @@ const num = (v: unknown) => (typeof v === "number" ? v : undefined);
 const readyColor = (v?: number) => (v == null ? "#6b7280" : v >= 95 ? "#4ade80" : v >= 70 ? "#eab308" : "#f87171");
 
 export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);

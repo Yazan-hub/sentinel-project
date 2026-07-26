@@ -18,6 +18,13 @@ import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { runWithAuth } from "./bridge-auth.mjs";
+import { loadEnv } from "./load-env.mjs";
+import { verifyJwt } from "./verify-jwt.mjs";
+
+// config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
+// read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
+// arms the auth gate. File values win for keys they define, matching cde-store.mjs/ai-gateway.mjs.
+for (const [k, v] of Object.entries(loadEnv())) process.env[k] = v;
 
 const PORT = Number(process.env.BCF_PORT) || 4100;
 // Week-0 hardening: bind to loopback by default (each user runs the bridge locally). Only set
@@ -69,6 +76,7 @@ const loadJson = (file, fallback) => {
 const SHEETS_ROOT = process.env.SENTINEL_SHEETS
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "sheets");
 const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Bearer <TOKEN>"
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
 const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
 
@@ -344,7 +352,7 @@ createServer((req, res) => {
   // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
   // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
   // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
-  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3) ? bearer : null;
+  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
   runWithAuth(userJwt, () => handleRequest(req, res));
 }).listen(PORT, HOST, () => {
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
@@ -352,6 +360,7 @@ createServer((req, res) => {
   console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; /health + /events exempt)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
+  if (JWT_SECRET && !TOKEN) console.warn("[bridge] WARNING: SUPABASE_JWT_SECRET set without BCF_TOKEN — a wrong secret silently downgrades signed-in users to the service key; arm BCF_TOKEN or unset the secret.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
   // Platform API-token health-check: one cheap authenticated read at startup so a revoked/rotated
   // THATOPEN_API_KEY is caught LOUDLY here instead of as a confusing 401 "Token not found" on the first
@@ -391,7 +400,9 @@ async function handleRequest(req, res) {
   if (TOKEN) {
     const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
     const exempt = url.pathname === "/health" || url.pathname === "/events";
-    const ok = bearer === TOKEN || (bearer && bearer !== TOKEN && bearer.split(".").length === 3);
+    const jwtOk = bearer && bearer !== TOKEN && bearer.split(".").length === 3
+      && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET));
+    const ok = bearer === TOKEN || jwtOk;
     if (!exempt && !ok) return send(res, 401, { message: "Unauthorized" });
   }
 

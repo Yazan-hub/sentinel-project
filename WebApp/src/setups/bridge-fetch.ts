@@ -18,5 +18,12 @@ export async function authHeaders(): Promise<Record<string, string>> {
 /** fetch() that adds the user's Supabase JWT. Caller headers win over the injected Authorization. */
 export async function bfetch(url: string, init: RequestInit = {}): Promise<Response> {
   const auth = await authHeaders();
-  return fetch(url, { ...init, headers: { ...auth, ...(init.headers || {}) } });
+  const res = await fetch(url, { ...init, headers: { ...auth, ...(init.headers || {}) } });
+  // A 401 with no auth header attached means the caller is signed out (not a bad/expired token) —
+  // surface it once so a panel author can eventually show "sign in" instead of a bare "HTTP 401".
+  if (res.status === 401 && !auth.Authorization) {
+    console.warn(`[bridge] 401 signed-out: ${url}`);
+    document.dispatchEvent(new CustomEvent("sentinel:signin-needed", { detail: { url } }));
+  }
+  return res;
 }

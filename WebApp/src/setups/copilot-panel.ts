@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
@@ -26,7 +27,7 @@ const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", 
 const SUGGESTIONS = ["Model health?", "What fails naming?", "Total cost?", "How many doors?", "Open clashes?"];
 
 export function copilotPanel(components: OBC.Components, opts: { baseUrl?: string; ollamaUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const ollamaUrl = opts.ollamaUrl ?? "http://localhost:11434/api/generate";
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);

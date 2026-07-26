@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
 
@@ -26,7 +27,7 @@ export function projectsHubPanel(
   _components: OBC.Components,
   opts: { baseUrl?: string; onOpen?: (key: string) => void } = {},
 ): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const esc = (s?: string | null) =>
     (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
   const fmtDate = (iso: string) => {

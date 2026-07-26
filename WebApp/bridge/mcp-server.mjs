@@ -6,8 +6,14 @@
 // Register (e.g. Claude Desktop / any MCP client):
 //   { "mcpServers": { "sentinel": { "command": "node", "args": ["<abs>/WebApp/bridge/mcp-server.mjs"] } } }
 import { createInterface } from "node:readline";
+import { loadEnv } from "./load-env.mjs";
+
+// Load config/.env into process.env before reading any values (same idiom as bcf-service.mjs)
+for (const [k, v] of Object.entries(loadEnv())) process.env[k] = v;
 
 const BASE = (process.env.BCF_BASE || "http://127.0.0.1:4100").replace(/\/$/, "");
+const BRIDGE_TOKEN = process.env.BCF_TOKEN || "";
+const authHeaders = BRIDGE_TOKEN ? { Authorization: `Bearer ${BRIDGE_TOKEN}` } : {};
 const PROTO = "2024-11-05";
 const enc = encodeURIComponent;
 
@@ -36,18 +42,18 @@ const TOOLS = [
 ];
 
 async function callTool(name, args = {}) {
-  if (name === "sentinel_list_projects") return await (await fetch(`${BASE}/cde/projects`)).json();
+  if (name === "sentinel_list_projects") return await (await fetch(`${BASE}/cde/projects`, { headers: authHeaders })).json();
   if (name === "sentinel_propose") {
     const { project, ...body } = args;
     if (!project) throw new Error("project is required");
-    const r = await fetch(`${BASE}/cde/${enc(project)}/propose`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch(`${BASE}/cde/${enc(project)}/propose`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
     return await r.json();
   }
   if (name === "sentinel_audit") {
     const { project, limit } = args;
     if (!project) throw new Error("project is required");
-    const rows = await (await fetch(`${BASE}/cde/${enc(project)}/audit`)).json();
+    const rows = await (await fetch(`${BASE}/cde/${enc(project)}/audit`, { headers: authHeaders })).json();
     return Array.isArray(rows) ? rows.slice(0, limit || 50) : rows;
   }
   throw new Error(`unknown tool: ${name}`);

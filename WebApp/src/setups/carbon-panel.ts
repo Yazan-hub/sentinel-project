@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
@@ -41,7 +42,7 @@ const fmtDate = (iso?: string) => (iso ? new Date(iso).toISOString().slice(0, 10
 const HUES = ["#22a35c", "#3aa0ff", "#8b52ea", "#d69417", "#12b6c9", "#e0564a", "#6b7280"];
 
 export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
-  const base = (opts.baseUrl ?? "http://localhost:4100").replace(/\/$/, "");
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
