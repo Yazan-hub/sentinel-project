@@ -29,8 +29,10 @@ Reasoning: a wrong file name is cheap to fix and pollutes the CDE, so block it. 
 
 ## 1. Naming gate (Phase A)
 
-**Config file:** `config/base-standard/naming-ruleset.json` (or `SENTINEL_NAMING_RULESET` env var for server-side override)
+**Active config file:** `WebApp/bridge/naming-ruleset.json` (the BDS pilot ruleset, bundled with the bridge)
 **What it checks:** the published model / IFC **file name** against BDS's ISO 19650 11-field form.
+
+**To use a different ruleset:** set `SENTINEL_NAMING_RULESET=/path/to/ruleset.json` in `config/.env`; restart the bridge. Example: to use the Base template, point to `config/base-standard/naming-ruleset.json`.
 
 ```
 Project-Originator-DocType-SubType-Discipline-Zone-Venue-Level-Number-Suit-Rev
@@ -63,8 +65,10 @@ The ruleset defines each field as data — a list of allowed values (`enum`), a 
 
 ## 2. Element gate (Phase B)
 
-**Config file:** `config/base-standard/ids.json` (or `SENTINEL_IDS` env var for server-side override)
+**Active config:** None server-side by default; the gate uses the client-supplied IDS spec (from the Revit publish).
 **What it checks:** each exported **element** against BDS's LOD-300 data requirements (from the LOD Matrix).
+
+**To enforce a server-side spec:** set `SENTINEL_IDS=/path/to/ids.json` in `config/.env`; restart the bridge. When set, the server-side spec is authoritative and the client-supplied spec is ignored (audited). Example: to use the Base template, point to `config/base-standard/ids.json`.
 
 ```jsonc
 {
@@ -108,11 +112,11 @@ A parameter that isn't authored is simply *absent* → the IDS reports it (as a 
 
 | Action | How |
 |---|---|
-| **Use server-side naming ruleset** | set `SENTINEL_NAMING_RULESET=/path/to/ruleset.json` in `config/.env`; restart the bridge |
-| **Use server-side element IDS spec** | set `SENTINEL_IDS=/path/to/ids.json` in `config/.env`; restart the bridge |
-| **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in the active ruleset file, restart the bridge |
-| **Tighten element data at DD/CD** | set `"enforce": "reject"` in the active IDS spec file |
-| **Swap for a different Base template** | replace `config/base-standard/naming-ruleset.json` and/or `config/base-standard/ids.json`, or override via env vars — no code change |
+| **Swap naming ruleset to Base template** | set `SENTINEL_NAMING_RULESET=config/base-standard/naming-ruleset.json` in `config/.env`; restart the bridge |
+| **Add server-side IDS enforcement** | set `SENTINEL_IDS=config/base-standard/ids.json` (or any other spec) in `config/.env`; restart the bridge |
+| **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in `WebApp/bridge/naming-ruleset.json` (or the env-var-pointed file), restart |
+| **Tighten element data at DD/CD** | set `"enforce": "reject"` in the server-side IDS file pointed to by `SENTINEL_IDS`, restart |
+| **Override a spec per-request** | a caller may pass an inline `naming` ruleset and/or `ids` spec in the propose body to override the on-disk defaults for that request only |
 | **Reload after any edit** | restart the bridge (`npm run bcf:serve`); rulesets are cached at first use |
 
 Per-request override (agents/tools): a caller may pass an inline `naming` ruleset and/or `ids` spec in the propose body to override the on-disk defaults for that request.
