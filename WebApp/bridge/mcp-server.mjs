@@ -6,7 +6,7 @@
 // Register (e.g. Claude Desktop / any MCP client):
 //   { "mcpServers": { "sentinel": { "command": "node", "args": ["<abs>/WebApp/bridge/mcp-server.mjs"] } } }
 import { createInterface } from "node:readline";
-import { loadEnv } from "./thatopen-client.mjs";
+import { loadEnv } from "./load-env.mjs";
 
 // Load config/.env into process.env before reading any values (same idiom as bcf-service.mjs)
 for (const [k, v] of Object.entries(loadEnv())) process.env[k] = v;

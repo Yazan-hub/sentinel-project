@@ -25,6 +25,11 @@ in the bridge; certs are issued and renewed by Tailscale for your tailnet's *.ts
   The machine must be on the tailnet. Certs are publicly trusted (Let's Encrypt) — no add-in change.
 - **mcp-server:** `BCF_BASE=https://…` + `BCF_TOKEN` in env.
 
+## Watch out
+- `config/.env` values **override real env vars including empty values** — an empty `BCF_TOKEN=`
+  line silently disarms the gate (the file wins over any shell/Windows env var of the same name,
+  even a blank one). Delete the line rather than blanking it.
+
 ## Known residuals (deliberate)
 - `/events` (SSE) stays unauthenticated (EventSource cannot set headers). Tailnet membership
   is the perimeter for it. Query-param JWT auth is the follow-up now that transport is encrypted.

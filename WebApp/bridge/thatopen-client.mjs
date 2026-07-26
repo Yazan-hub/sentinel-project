@@ -3,31 +3,14 @@
 // and the outbox watcher (watch-outbox.mjs) use the exact same, verified upload path.
 
 import { readFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
-import { basename, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, resolve } from "node:path";
 import { EngineServicesClient } from "@thatopen/services";
+import { loadEnv } from "./load-env.mjs";
 
-/**
- * Load config/.env and make it AUTHORITATIVE — its values override any pre-existing process.env
- * (unlike process.loadEnvFile, which silently keeps a stale shell/Windows env var and shadows the
- * file). Also strips quotes and trailing CR so a CRLF file or quoted value can't corrupt a token.
- */
-export function loadEnv() {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const fromFile = {};
-  for (const p of [resolve(here, "../../config/.env"), resolve(here, "../.env")]) {
-    let text;
-    try { text = readFileSync(p, "utf8"); } catch { continue; } // not there — try next
-    for (const line of text.split(/\r?\n/)) {
-      const m = /^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/.exec(line);
-      if (!m) continue;
-      fromFile[m[1]] = m[2].trim().replace(/^["']|["']$/g, ""); // strip quotes/whitespace (& CR)
-    }
-    break; // first file found wins
-  }
-  return fromFile; // getConfig treats these as authoritative over process.env
-}
+// Re-exported so cde-store.mjs/ai-gateway.mjs (and anyone else importing loadEnv from here) keep
+// working unchanged. bcf-service.mjs/mcp-server.mjs now import it from ./load-env.mjs directly —
+// that module has no deps, so those two entrypoints no longer statically pull in @thatopen/services.
+export { loadEnv };
 
 /**
  * Resolve platform config. Base host is https://platform.thatopen.com (the SDK appends /api/…);
