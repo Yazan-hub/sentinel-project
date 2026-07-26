@@ -108,7 +108,7 @@ static class Check
 
         MappingResult emitted = null;
         var w = new GhostReviewWindow();          // constructed, never shown
-        w.BuildRequested += m => emitted = m;
+        w.BuildRequested += (m, _) => emitted = m;
         w.Load(proposal, counts, "Project.rvt");
 
         // The gate's whole purpose: nothing is emitted until a human clicks Build.
@@ -151,7 +151,7 @@ static class Check
         // Empty proposal: nothing to build, and Build must stay a no-op rather than emit an empty run.
         emitted = null;
         var w2 = new GhostReviewWindow();
-        w2.BuildRequested += m => emitted = m;
+        w2.BuildRequested += (m, _) => emitted = m;
         w2.Load(new MappingResult { Mappings = new List<LayerMapping>() }, counts, "Project.rvt");
         w2.Build();
         Ok(emitted == null, "empty proposal cannot be built");

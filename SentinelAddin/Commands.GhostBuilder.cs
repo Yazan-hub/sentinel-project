@@ -129,10 +129,23 @@ public sealed class GhostBuilderCommand : IExternalCommand
         new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
         bool building = false;
 
-        review.BuildRequested += approved =>
+        // Reviewer picks the build level here too — collected from the model, elevation-ordered so the
+        // lowest level is the sane default (matches the orchestrator's own null-level fallback).
+#if NET48
+        static long IdOf(Level l) => l.Id.IntegerValue;
+#else
+        static long IdOf(Level l) => l.Id.Value;
+#endif
+        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+            .OrderBy(l => l.Elevation)
+            .Select(l => (l.Name, IdOf(l)))
+            .ToList();
+        if (levels.Count > 0) review.LoadLevels(levels, levels[0].Item2);
+
+        review.BuildRequested += (approved, levelId) =>
         {
             building = true;
-            placementEvent.SetRequest(orchestrator, inputs, approved);
+            placementEvent.SetRequest(orchestrator, inputs, approved, levelId);
             externalEvent.Raise();
         };
 
