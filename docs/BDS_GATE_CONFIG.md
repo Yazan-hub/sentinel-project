@@ -29,7 +29,7 @@ Reasoning: a wrong file name is cheap to fix and pollutes the CDE, so block it. 
 
 ## 1. Naming gate (Phase A)
 
-**Config file:** `WebApp/bridge/naming-ruleset.json`
+**Config file:** `config/base-standard/naming-ruleset.json` (or `SENTINEL_NAMING_RULESET` env var for server-side override)
 **What it checks:** the published model / IFC **file name** against BDS's ISO 19650 11-field form.
 
 ```
@@ -63,7 +63,7 @@ The ruleset defines each field as data — a list of allowed values (`enum`), a 
 
 ## 2. Element gate (Phase B)
 
-**Config file:** `%AppData%\Sentinel\ids.json` (reference copy in the repo: `demo/bds-pilot/bds-ids.json`)
+**Config file:** `config/base-standard/ids.json` (or `SENTINEL_IDS` env var for server-side override)
 **What it checks:** each exported **element** against BDS's LOD-300 data requirements (from the LOD Matrix).
 
 ```jsonc
@@ -108,11 +108,12 @@ A parameter that isn't authored is simply *absent* → the IDS reports it (as a 
 
 | Action | How |
 |---|---|
-| **Activate the BDS element ruleset** | copy `demo/bds-pilot/bds-ids.json` → `%AppData%\Sentinel\ids.json` |
-| **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in `bridge/naming-ruleset.json`, restart the bridge |
-| **Tighten element data at DD/CD** | set `"enforce": "reject"` in `%AppData%\Sentinel\ids.json` |
-| **Swap for the future Base template** | replace `bridge/naming-ruleset.json` and/or `%AppData%\Sentinel\ids.json` — no code change |
-| **Reload after any edit** | restart the bridge (`npm run bcf:serve`); the naming ruleset is cached at first use |
+| **Use server-side naming ruleset** | set `SENTINEL_NAMING_RULESET=/path/to/ruleset.json` in `config/.env`; restart the bridge |
+| **Use server-side element IDS spec** | set `SENTINEL_IDS=/path/to/ids.json` in `config/.env`; restart the bridge |
+| **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in the active ruleset file, restart the bridge |
+| **Tighten element data at DD/CD** | set `"enforce": "reject"` in the active IDS spec file |
+| **Swap for a different Base template** | replace `config/base-standard/naming-ruleset.json` and/or `config/base-standard/ids.json`, or override via env vars — no code change |
+| **Reload after any edit** | restart the bridge (`npm run bcf:serve`); rulesets are cached at first use |
 
 Per-request override (agents/tools): a caller may pass an inline `naming` ruleset and/or `ids` spec in the propose body to override the on-disk defaults for that request.
 
