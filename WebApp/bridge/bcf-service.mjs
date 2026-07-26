@@ -18,6 +18,12 @@ import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { runWithAuth } from "./bridge-auth.mjs";
+import { loadEnv } from "./thatopen-client.mjs";
+
+// config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
+// read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
+// arms the auth gate. File values win for keys they define, matching cde-store.mjs/ai-gateway.mjs.
+for (const [k, v] of Object.entries(loadEnv())) process.env[k] = v;
 
 const PORT = Number(process.env.BCF_PORT) || 4100;
 // Week-0 hardening: bind to loopback by default (each user runs the bridge locally). Only set
