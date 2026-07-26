@@ -879,6 +879,262 @@ var ruleset_default = {
   ]
 };
 
+// src/sentinel-core/guideline.ts
+var norm = (s) => (s ?? "").trim().toLowerCase();
+function fillPattern(use, input) {
+  if (use.type) return use.type;
+  if (!use.typePattern) return void 0;
+  if (input.thicknessMm === void 0 || input.thicknessMm === null) return void 0;
+  return use.typePattern.replace(/\{thickness\}/g, String(Math.round(input.thicknessMm)));
+}
+function patternRegex(pattern) {
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("^" + pattern.split("{thickness}").map(esc).join("(\\d+)") + "$", "i");
+}
+function patternOptions(pattern, catalog) {
+  const rx = patternRegex(pattern);
+  return catalog.map((c) => c.type).filter((t) => rx.test(t)).sort((a, b) => Number(a.match(rx)?.[1] ?? 0) - Number(b.match(rx)?.[1] ?? 0));
+}
+function matches(when, input) {
+  const hit = [];
+  if (when.layer !== void 0) {
+    if (norm(when.layer) !== norm(input.layer)) return null;
+    hit.push("layer");
+  }
+  if (when.level !== void 0) {
+    if (norm(when.level) !== norm(input.level)) return null;
+    hit.push("level");
+  }
+  if (when.discipline !== void 0) {
+    if (norm(when.discipline) !== norm(input.discipline)) return null;
+    hit.push("discipline");
+  }
+  for (const [k, v] of Object.entries(when.params ?? {})) {
+    const key = Object.keys(input.params ?? {}).find((n) => norm(n).replace(/\s+/g, "") === norm(k).replace(/\s+/g, ""));
+    if (key === void 0) return null;
+    if (!norm((input.params ?? {})[key]).includes(norm(v))) return null;
+    hit.push(`param:${k}`);
+  }
+  return hit;
+}
+var specificity = (w) => (w.layer ? 1 : 0) + (w.level ? 1 : 0) + (w.discipline ? 1 : 0) + Object.keys(w.params ?? {}).length;
+function resolveWithCatalog(guideline, input, catalog) {
+  const r = resolveType(guideline, input);
+  if (r.source === "none" || !r.type) return r;
+  const inCatalog = catalog.some(
+    (c) => norm(c.type) === norm(r.type) && norm(c.category) === norm(input.category)
+  );
+  if (inCatalog) return r;
+  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
+  const pattern = el?.rules.find((x) => x.use.typePattern && matches(x.when, input))?.use.typePattern;
+  const options = pattern ? patternOptions(pattern, catalog.filter((c) => norm(c.category) === norm(input.category))) : [];
+  return {
+    ...r,
+    confidence: 0,
+    available: options,
+    why: `"${r.type}" is not in the template. ` + (options.length ? `Available: ${options.join(", ")}.` : "No comparable type found \u2014 the office standard may need this type added.")
+  };
+}
+function validateAgainstCatalog(guideline, catalog) {
+  const errs = [];
+  for (const el of guideline.elements) {
+    const inCat = catalog.filter((c) => norm(c.category) === norm(el.category));
+    if (!inCat.length) {
+      errs.push(`"${el.category}" \u2014 the template has no types in this category at all.`);
+      continue;
+    }
+    const check = (use, label) => {
+      if (!inCat.some((c) => norm(c.family) === norm(use.family)))
+        errs.push(`${label}: family "${use.family}" is not in the template.`);
+      if (use.type && !inCat.some((c) => norm(c.type) === norm(use.type)))
+        errs.push(`${label}: type "${use.type}" is not in the template.`);
+      if (use.typePattern && !patternOptions(use.typePattern, inCat).length)
+        errs.push(`${label}: pattern "${use.typePattern}" matches no type in the template.`);
+    };
+    el.rules.forEach((r, i) => check(r.use, `${el.category} rule ${i + 1}`));
+    if (el.default) check(el.default, `${el.category} default`);
+  }
+  return errs;
+}
+function resolveType(guideline, input) {
+  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
+  if (!el) return { family: "", params: {}, source: "none", confidence: 0 };
+  const ordered = el.rules.map((rule, i) => ({ rule, i })).sort((a, b) => specificity(b.rule.when) - specificity(a.rule.when) || a.i - b.i);
+  for (const { rule } of ordered) {
+    const hit = matches(rule.when, input);
+    if (hit) {
+      return {
+        family: rule.use.family,
+        type: fillPattern(rule.use, input),
+        params: rule.use.params ?? {},
+        source: "rule",
+        confidence: 1,
+        why: rule.why,
+        matched: hit
+      };
+    }
+  }
+  if (el.default) {
+    return {
+      family: el.default.family,
+      type: el.default.type,
+      params: el.default.params ?? {},
+      source: "default",
+      confidence: 0.6,
+      why: `No office rule matched \u2014 fell back to the ${el.category} default.`
+    };
+  }
+  return { family: "", params: {}, source: "none", confidence: 0 };
+}
+function coverageGaps(guideline, seen) {
+  return seen.filter((s) => resolveType(guideline, s).source === "none");
+}
+function validateGuideline(g) {
+  const errs = [];
+  if (!g.standard) errs.push("Guideline has no `standard` name.");
+  if (!g.elements?.length) errs.push("Guideline defines no elements.");
+  for (const el of g.elements ?? []) {
+    if (!el.category) errs.push("An element block has no `category`.");
+    if (!el.rules?.length && !el.default) errs.push(`"${el.category}" has neither rules nor a default.`);
+    for (const r of el.rules ?? []) {
+      if (!r.use?.family) errs.push(`A rule in "${el.category}" has no family to place.`);
+      if (!Object.keys(r.when ?? {}).length)
+        errs.push(`A rule in "${el.category}" has an empty \`when\` \u2014 it would match everything; use \`default\`.`);
+    }
+  }
+  return errs;
+}
+var PLANNABLE = /* @__PURE__ */ new Set(["FloorPlan", "CeilingPlan"]);
+function planViews(views, naming, levelNames) {
+  if (!views || !naming || levelNames.length === 0) return [];
+  const status = "WIP_";
+  const browserStatus = naming.statusPrefixes?.[status];
+  const out = [];
+  for (const v of views) {
+    if (!v.namePrefix || !PLANNABLE.has(v.viewType)) continue;
+    for (const level of levelNames) {
+      const levelToken = level.trim().toUpperCase().replace(/\s+/g, "-");
+      out.push({
+        name: `${status}${v.namePrefix}_${levelToken}`,
+        use: v.use,
+        viewType: v.viewType,
+        levelName: level,
+        template: v.wipTemplate,
+        browserStatus
+      });
+    }
+  }
+  return out;
+}
+
+// src/sentinel-core/massing.ts
+var BOUNDS = {
+  footprintWidthMm: [2e3, 5e5],
+  // 2 m … 500 m
+  footprintDepthMm: [2e3, 5e5],
+  storeys: [1, 200],
+  storeyHeightMm: [2100, 8e3],
+  // 2.1 m … 8 m
+  openingWidthMm: [300, 2e4],
+  openingHeightMm: [300, 12e3]
+};
+var ASSUMED_BELOW = 0.35;
+function clampField(v, [lo, hi]) {
+  const out = { ...v };
+  if (!Number.isFinite(out.value)) {
+    return { value: lo, confidence: 0, source: "assumed", note: "no usable value \u2014 assumed" };
+  }
+  if (out.value < lo) {
+    out.value = lo;
+    out.note = `raised to the ${lo} mm minimum`;
+    out.source = "assumed";
+    out.confidence = Math.min(out.confidence, 0.3);
+  }
+  if (out.value > hi) {
+    out.value = hi;
+    out.note = `capped at the ${hi} mm maximum`;
+    out.source = "assumed";
+    out.confidence = Math.min(out.confidence, 0.3);
+  }
+  if (out.source === "photo" && out.confidence <= ASSUMED_BELOW) {
+    out.source = "assumed";
+    out.note = out.note ?? "low confidence \u2014 treat as an assumption to confirm";
+  }
+  return out;
+}
+function validateMassing(raw) {
+  const seen = (raw.facadesSeen ?? []).map((s) => String(s).toLowerCase());
+  const openings = (raw.openings ?? []).map((o) => {
+    const facade = String(o?.facade ?? "front").toLowerCase();
+    const w = clampField(o?.widthMm ?? assumed(BOUNDS.openingWidthMm[0]), BOUNDS.openingWidthMm);
+    const h = clampField(o?.heightMm ?? assumed(BOUNDS.openingHeightMm[0]), BOUNDS.openingHeightMm);
+    if (!seen.includes(facade)) {
+      w.source = h.source = "assumed";
+      w.note = h.note = `on the '${facade}' fa\xE7ade, which the photo did not show`;
+    }
+    return { kind: o?.kind === "window" ? "window" : "door", widthMm: w, heightMm: h, facade };
+  });
+  return {
+    footprintWidthMm: clampField(raw.footprintWidthMm ?? assumed(BOUNDS.footprintWidthMm[0]), BOUNDS.footprintWidthMm),
+    footprintDepthMm: clampField(raw.footprintDepthMm ?? assumed(BOUNDS.footprintDepthMm[0]), BOUNDS.footprintDepthMm),
+    storeys: clampField(raw.storeys ?? assumed(1), BOUNDS.storeys),
+    storeyHeightMm: clampField(raw.storeyHeightMm ?? assumed(3e3), BOUNDS.storeyHeightMm),
+    openings,
+    facadesSeen: seen,
+    notes: raw.notes,
+    provenance: "photo"
+  };
+}
+var assumed = (value) => ({ value, confidence: 0, source: "assumed" });
+function fieldsNeedingReview(m) {
+  const out = [];
+  const check = (label, v) => {
+    if (v.source !== "photo" || v.confidence <= ASSUMED_BELOW) out.push(label);
+  };
+  check("footprint width", m.footprintWidthMm);
+  check("footprint depth", m.footprintDepthMm);
+  check("storeys", m.storeys);
+  check("storey height", m.storeyHeightMm);
+  m.openings.forEach((o, i) => check(`opening ${i + 1} (${o.kind} on ${o.facade})`, o.widthMm));
+  return out;
+}
+var MASSING_SCHEMA = {
+  type: "object",
+  properties: {
+    footprintWidthMm: valueSchema(),
+    footprintDepthMm: valueSchema(),
+    storeys: valueSchema(),
+    storeyHeightMm: valueSchema(),
+    facadesSeen: { type: "array", items: { type: "string" } },
+    openings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["door", "window"] },
+          widthMm: valueSchema(),
+          heightMm: valueSchema(),
+          facade: { type: "string" }
+        },
+        required: ["kind", "widthMm", "heightMm", "facade"]
+      }
+    },
+    notes: { type: "string" }
+  },
+  required: ["footprintWidthMm", "footprintDepthMm", "storeys", "storeyHeightMm", "facadesSeen"]
+};
+function valueSchema() {
+  return {
+    type: "object",
+    properties: {
+      value: { type: "number" },
+      confidence: { type: "number" },
+      source: { type: "string", enum: ["photo", "assumed", "user"] }
+    },
+    required: ["value", "confidence"]
+  };
+}
+
 // src/sentinel-core/index.ts
 var bdsRuleset = ruleset_default;
 
@@ -902,14 +1158,14 @@ function applies(spec, el) {
 function validateElement(spec, el) {
   const failures = [];
   let inScope = false;
-  for (const s of spec.specifications) {
+  for (const s of spec.specifications ?? []) {
     if (!applies(s, el)) continue;
     inScope = true;
-    for (const a of s.requirements.attributes) {
+    for (const a of s.requirements?.attributes ?? []) {
       const actual = attrValue(el, a.name);
       checkFacet(a.cardinality, a.value, a.pattern, actual, s.name, `@${a.name}`, failures);
     }
-    for (const p of s.requirements.properties) {
+    for (const p of s.requirements?.properties ?? []) {
       const actual = propValue(el, p.pset, p.name);
       checkFacet(p.cardinality, p.value, p.pattern, actual, s.name, `${p.pset}.${p.name}`, failures);
     }
@@ -1146,24 +1402,24 @@ function globToRegex(glob) {
 }
 function mapLayer(raw, rs) {
   const ci = rs.match?.caseInsensitive !== false;
-  const norm = (s) => {
+  const norm2 = (s) => {
     let v = s ?? "";
     if (rs.match?.trim !== false) v = v.trim();
     return ci ? v.toUpperCase() : v;
   };
   const input = raw ?? "";
-  const normalized = norm(input);
+  const normalized = norm2(input);
   const base = { input, normalized, kind: "none", compliant: false, ignored: false, confidence: 0, needsAI: true };
   if (!normalized) return { ...base, reason: "empty layer name" };
   for (const g of rs.ignore ?? []) {
     const rx = globToRegex(ci ? g.toUpperCase() : g);
     if (rx && rx.test(normalized)) return { ...base, kind: "ignored", compliant: true, ignored: true, confidence: 1, needsAI: false, reason: "non-model layer (ignored)" };
   }
-  const exact = rs.layers.find((l) => norm(l.layer) === normalized);
+  const exact = rs.layers.find((l) => norm2(l.layer) === normalized);
   if (exact) return { ...base, kind: "exact", compliant: true, confidence: 1, needsAI: false, category: exact.category, family: exact.family, params: exact.params, requires: exact.requires };
-  const aliased = rs.layers.find((l) => (l.aliases ?? []).some((a) => norm(a) === normalized));
+  const aliased = rs.layers.find((l) => (l.aliases ?? []).some((a) => norm2(a) === normalized));
   if (aliased) return { ...base, kind: "alias", compliant: false, confidence: 0.95, needsAI: false, category: aliased.category, family: aliased.family, params: aliased.params, requires: aliased.requires, suggestion: aliased.layer, reason: `non-standard name \u2014 maps to ${aliased.layer}` };
-  const ext = (rs.extensions ?? []).find((e) => norm(e.layer) === normalized);
+  const ext = (rs.extensions ?? []).find((e) => norm2(e.layer) === normalized);
   if (ext) {
     const cat = MAJOR_CATEGORY[ext.major ?? ""] ?? "(extension)";
     return { ...base, kind: "extension", compliant: true, confidence: 0.9, needsAI: cat === "(extension)", category: cat, params: ext.params, reason: ext.note ?? "extension layer" };
@@ -1217,8 +1473,10 @@ function validateLayers(names, rs) {
   };
 }
 export {
+  ASSUMED_BELOW,
   DEMO_IDS,
   GATE_DEFS,
+  MASSING_SCHEMA,
   REQUIRED_FIELDS,
   RuleEngine,
   SCHEMA_VERSION,
@@ -1232,6 +1490,7 @@ export {
   carbonDiff,
   carbonOfSnapshot,
   costDiff,
+  coverageGaps,
   csvToSchedule,
   defaultFactors,
   defaultRates,
@@ -1239,22 +1498,29 @@ export {
   describe,
   diffSnapshots,
   evaluateGate,
+  fieldsNeedingReview,
   groupFailuresForBcf,
   levelSequence,
   mapLayer,
   missingFields,
   netDelta,
   parseIds,
+  planViews,
   priceSnapshot,
   resolveFactor,
   resolveRate,
+  resolveType,
+  resolveWithCatalog,
   scan,
   scheduleRange,
   snapshotFromQuantities,
   summarizeDiff,
   toCobieCsv,
   toElementGraph,
+  validateAgainstCatalog,
   validateContainerName,
   validateElement,
-  validateLayers
+  validateGuideline,
+  validateLayers,
+  validateMassing
 };

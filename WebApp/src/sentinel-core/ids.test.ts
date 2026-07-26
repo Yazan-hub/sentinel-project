@@ -95,6 +95,22 @@ describe("adjudicate (the referee)", () => {
     expect(a.verdict).toBe("rejected"); // in scope (IFCWALL), FireRating absent → REQUIRED but missing
     expect(a.failures[0]).toMatchObject({ requirement: "Pset_WallCommon.FireRating" });
   });
+
+  it("does not throw on a spec missing requirements.properties (attributes-only)", () => {
+    // A partial/malformed IDS (server-cached or client-supplied) may drop one of the two requirement arrays.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const spec: any = { title: "t", specifications: [{ name: "s", applicability: { entity: "IFCWALL" }, requirements: { attributes: [{ name: "Name", cardinality: "required" }] } }] };
+    expect(() => adjudicate(spec, [elem("IFCWALL", "w")])).not.toThrow();
+    expect(adjudicate(spec, [elem("IFCWALL", "w")]).verdict).toBe("accepted");
+    expect(adjudicate(spec, [elem("IFCWALL", undefined)]).verdict).toBe("rejected");
+  });
+
+  it("does not throw on a spec missing requirements entirely", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const spec: any = { title: "t", specifications: [{ name: "s", applicability: { entity: "IFCWALL" } }] };
+    expect(() => adjudicate(spec, [elem("IFCWALL", "w")])).not.toThrow();
+    expect(adjudicate(spec, [elem("IFCWALL", "w")]).verdict).toBe("accepted");
+  });
 });
 
 describe("groupFailuresForBcf (governed reject → one issue per requirement)", () => {

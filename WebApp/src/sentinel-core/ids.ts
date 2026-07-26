@@ -72,15 +72,15 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
   const failures: Failure[] = [];
   let inScope = false;
 
-  for (const s of spec.specifications) {
+  for (const s of spec.specifications ?? []) {
     if (!applies(s, el)) continue;
     inScope = true;
 
-    for (const a of s.requirements.attributes) {
+    for (const a of s.requirements?.attributes ?? []) {
       const actual = attrValue(el, a.name);
       checkFacet(a.cardinality, a.value, a.pattern, actual, s.name, `@${a.name}`, failures);
     }
-    for (const p of s.requirements.properties) {
+    for (const p of s.requirements?.properties ?? []) {
       const actual = propValue(el, p.pset, p.name);
       checkFacet(p.cardinality, p.value, p.pattern, actual, s.name, `${p.pset}.${p.name}`, failures);
     }
