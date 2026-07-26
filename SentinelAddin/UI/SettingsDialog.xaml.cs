@@ -12,13 +12,16 @@ namespace Sentinel.UI;
 /// </summary>
 public partial class SettingsDialog : Window
 {
+    private readonly SentinelSettings _current;
+
     public SettingsDialog(Document? doc)
     {
         InitializeComponent();
-        var current = SettingsManager.Resolve(doc);
-        RulesetPathBox.Text = current.MasterRulesetPath;
-        TemplatePathBox.Text = current.RevitTemplatePath;
-        ProjectCodeBox.Text = current.ProjectCode;
+        _current = SettingsManager.Resolve(doc);
+        RulesetPathBox.Text = _current.MasterRulesetPath;
+        TemplatePathBox.Text = _current.RevitTemplatePath;
+        ProjectCodeBox.Text = _current.ProjectCode;
+        GhostFolderBox.Text = _current.GhostSourceFolder;
         if (doc is null)
         {
             ScopeProject.IsEnabled = false;      // no document open
@@ -48,14 +51,26 @@ public partial class SettingsDialog : Window
         if (dlg.ShowDialog(this) == true) TemplatePathBox.Text = dlg.FileName;
     }
 
+    private void OnBrowseGhostFolder(object sender, RoutedEventArgs e)
+    {
+#if NET48
+        // net48 WPF has no folder dialog; the TextBox accepts a pasted path.
+        MessageBox.Show(this, "Paste the folder path into the box (network drives and ACC Desktop Connector paths work).",
+            "Sentinel", MessageBoxButton.OK, MessageBoxImage.Information);
+#else
+        var dlg = new OpenFolderDialog { Title = "Select the Ghost source folder" };
+        if (dlg.ShowDialog(this) == true) GhostFolderBox.Text = dlg.FolderName;
+#endif
+    }
+
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        var settings = new SentinelSettings
-        {
-            MasterRulesetPath = RulesetPathBox.Text.Trim(),
-            RevitTemplatePath = TemplatePathBox.Text.Trim(),
-            ProjectCode = ProjectCodeBox.Text.Trim().ToUpperInvariant(),
-        };
+        // Mutate the RESOLVED settings so fields this dialog doesn't show survive the save.
+        _current.MasterRulesetPath = RulesetPathBox.Text.Trim();
+        _current.RevitTemplatePath = TemplatePathBox.Text.Trim();
+        _current.ProjectCode = ProjectCodeBox.Text.Trim().ToUpperInvariant();
+        _current.GhostSourceFolder = GhostFolderBox.Text.Trim();
+        var settings = _current;
 
         if (ScopeMachine.IsChecked == true)
         {

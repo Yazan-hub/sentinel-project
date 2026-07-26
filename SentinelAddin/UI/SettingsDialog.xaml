@@ -36,6 +36,15 @@
                      Margin="0,4,0,16" VerticalContentAlignment="Center" Width="200"
                      HorizontalAlignment="Left"/>
 
+            <TextBlock Text="Ghost source folder (DWGs, specs, sketches — drives Datum &amp; Ghost Builder)"
+                       FontSize="11" Foreground="#667"/>
+            <DockPanel Margin="0,4,0,16">
+                <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
+                        Margin="6,0,0,0" Click="OnBrowseGhostFolder"/>
+                <TextBox x:Name="GhostFolderBox" Height="28" FontSize="12" Padding="6,4"
+                         VerticalContentAlignment="Center"/>
+            </DockPanel>
+
             <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1"
                     CornerRadius="6" Padding="12" Margin="0,0,0,16">
                 <StackPanel>
