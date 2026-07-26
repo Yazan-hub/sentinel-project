@@ -94,16 +94,19 @@ static class Check
         {
             Mappings = new List<LayerMapping>
             {
-                new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls", BdsFamilyType = "EXT-200", Confidence = 0.95,
+                new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls", BdsFamilyType = "EXT-200", Confidence = 0.95, Source = "standard",
                                    Params = new List<ParamAssignment> { new ParamAssignment { Name = "Fire Rating", Value = "FR60" } },
                                    Rationale = "External walls shall be FR60.", SourceDoc = "spec.pdf" },
-                new LayerMapping { CadLayer = "A-GUESS",    Category = "Walls", BdsFamilyType = "INT-100", Confidence = 0.30 },
-                new LayerMapping { CadLayer = "A-EMPTY",    Category = "Doors", BdsFamily = "Generic Door", Confidence = 1.00 },
+                new LayerMapping { CadLayer = "A-GUESS",    Category = "Walls", BdsFamilyType = "INT-100", Confidence = 0.30, Source = "standard" },
+                new LayerMapping { CadLayer = "A-EMPTY",    Category = "Doors", BdsFamily = "Generic Door", Confidence = 1.00, Source = "standard" },
+                // Finding 7: an LLM-sourced row must never pre-tick, even at high confidence with geometry —
+                // this is the canary that fails if the row-build site stops consulting Source.
+                new LayerMapping { CadLayer = "A-LLM-GUESS", Category = "Walls", BdsFamilyType = "INT-100", Confidence = 0.90, Source = "llm" },
             }
         };
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
-            ["A-WALL-EXT"] = 120, ["A-GUESS"] = 7, // A-EMPTY absent => zero geometry
+            ["A-WALL-EXT"] = 120, ["A-GUESS"] = 7, ["A-LLM-GUESS"] = 50, // A-EMPTY absent => zero geometry
         };
 
         MappingResult emitted = null;
@@ -120,9 +123,16 @@ static class Check
         Ok(layers.Contains("A-WALL-EXT"), "high-confidence layer with geometry is pre-ticked");
         Ok(!layers.Contains("A-GUESS"), "low-confidence layer is opt-in, not built by default");
         Ok(!layers.Contains("A-EMPTY"), "layer with no geometry is never pre-ticked");
+        Ok(!layers.Contains("A-LLM-GUESS"), "LLM-sourced row is never pre-ticked, even high-confidence with geometry");
         Ok(emitted?.Mappings.Count == 1, "only ticked rows are emitted");
         Ok(emitted?.Mappings[0].Params?[0].Value == "FR60", "approved row keeps its document-derived params");
         Ok(!ReferenceEquals(emitted, proposal), "emits a new proposal, never the unreviewed one");
+
+        // Snowdon finding 2: LLM rows and absurd-count rows must never start ticked, even at high confidence.
+        Ok(GhostReviewWindow.PreTick(10, 1.0, "standard", 0.5), "standard/1.0/10 pre-ticks");
+        Ok(!GhostReviewWindow.PreTick(10, 0.9, "llm", 0.5), "llm/0.9/10 does not pre-tick");
+        Ok(!GhostReviewWindow.PreTick(10000, 1.0, "standard", 0.5), "standard/1.0/10000 (absurd count) does not pre-tick");
+        Ok(!GhostReviewWindow.PreTick(10, 1.0, null, 0.5), "null source does not pre-tick");
 
         // ---- The shipped sample: does the real SENSE path actually read it? ----
         Console.WriteLine("\nSample pair (demo/ghost-sample)");

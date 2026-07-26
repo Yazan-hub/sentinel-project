@@ -14,9 +14,13 @@ public sealed class DwgPickWindow : Window
     public string? SelectedPath { get; private set; }
     public bool PickFromModel { get; private set; }
 
-    public DwgPickWindow(IReadOnlyList<string> files, IReadOnlyCollection<string>? alreadyImportedNames = null)
+    public DwgPickWindow(IReadOnlyList<string> files,
+                         IReadOnlyCollection<string>? alreadyImportedNames = null,
+                         string? title = null,
+                         string? header = null,
+                         bool showPickFromModel = true)
     {
-        Title = "Sentinel — Ghost Builder: choose a drawing";
+        Title = title ?? "Sentinel — Ghost Builder: choose a drawing";
         Width = 520; Height = 380; MinWidth = 380;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
@@ -41,18 +45,20 @@ public sealed class DwgPickWindow : Window
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 5, 10, 5), IsCancel = true };
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(build); buttons.Children.Add(model); buttons.Children.Add(cancel);
+        buttons.Children.Add(build);
+        if (showPickFromModel) buttons.Children.Add(model);
+        buttons.Children.Add(cancel);
 
-        var header = new TextBlock
+        var headerText = new TextBlock
         {
-            Text = "Drawings found in the project's Ghost source folder. The chosen one is imported origin-to-origin and kept in the model.",
+            Text = header ?? "Drawings found in the project's Ghost source folder. The chosen one is imported origin-to-origin and kept in the model.",
             TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Bold,
         };
 
         var root = new DockPanel { Margin = new Thickness(12) };
-        DockPanel.SetDock(header, Dock.Top);
+        DockPanel.SetDock(headerText, Dock.Top);
         DockPanel.SetDock(buttons, Dock.Bottom);
-        root.Children.Add(header); root.Children.Add(buttons); root.Children.Add(_list);
+        root.Children.Add(headerText); root.Children.Add(buttons); root.Children.Add(_list);
         Content = root;
     }
 

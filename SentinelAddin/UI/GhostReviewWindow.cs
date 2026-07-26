@@ -34,6 +34,21 @@ public sealed class GhostReviewWindow : Window
     /// <summary>Fires with the ticked layers + the chosen level's ElementId value (-1 = default).</summary>
     public event Action<MappingResult, long>? BuildRequested;
 
+    // ponytail: fixed cap - one plan layer proposing >500 elements is annotation noise
+    // (Snowdon: 6,961 handrail segments as "floors"). Make configurable if a real
+    // layer ever legitimately exceeds it.
+    internal const int HighCountFlag = 500;
+
+    /// <summary>
+    /// Whether a row starts ticked: deterministic ("standard") matches only, under the absurd-count cap,
+    /// at or above the confidence floor. LLM-sourced rows and high-count rows never start ticked (Snowdon
+    /// finding 2 — confident-but-wrong LLM rows arrived pre-ticked). Null/empty source is treated as NOT
+    /// standard, mirroring Task 3's conservative posture.
+    /// </summary>
+    internal static bool PreTick(int n, double confidence, string source, double preTickAbove) =>
+        n > 0 && n <= HighCountFlag && confidence >= preTickAbove &&
+        string.Equals(source, "standard", StringComparison.OrdinalIgnoreCase);
+
     // net48's LangVersion lacks IsExternalInit (needed for `record`), so this is a plain class.
     private sealed class LevelChoice
     {
@@ -134,18 +149,21 @@ public sealed class GhostReviewWindow : Window
             foreach (LayerMapping m in group.OrderByDescending(m => Count(elementsPerLayer, m.CadLayer)))
             {
                 int n = Count(elementsPerLayer, m.CadLayer);
+                bool isStandard = string.Equals(m.Source, "standard", StringComparison.OrdinalIgnoreCase);
+                bool absurd = n > HighCountFlag;
                 var cb = new CheckBox
                 {
-                    IsChecked = n > 0 && m.Confidence >= preTickAbove,
+                    IsChecked = PreTick(n, m.Confidence, m.Source, preTickAbove),
                     VerticalAlignment = VerticalAlignment.Center,
                 };
                 cb.Checked += (_, __) => UpdateStatus();
                 cb.Unchecked += (_, __) => UpdateStatus();
 
                 string type = m.BdsFamilyType ?? m.BdsFamily ?? "(no type)";
+                string suffix = (isStandard ? "" : "  · LLM") + (absurd ? "  ⚠ high count — likely annotation" : "");
                 var name = new TextBlock
                 {
-                    Text = $"{m.CadLayer}  →  {type}   ·   {n:N0} element(s)",
+                    Text = $"{m.CadLayer}  →  {type}   ·   {n:N0} element(s){suffix}",
                     Margin = new Thickness(6, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
                     FontWeight = FontWeights.Normal,
                 };
@@ -201,7 +219,7 @@ public sealed class GhostReviewWindow : Window
         }
 
         _status.Text = $"{_rows.Count} layer(s), {totalElements:N0} element(s) proposed for '{targetLabel}'. " +
-                       $"Rows below {preTickAbove:0.0} confidence, and layers with no geometry, start unticked.";
+                       "Deterministic standard matches start ticked; LLM-proposed and high-count rows start unticked — review before building.";
         UpdateStatus();
     });
 

@@ -26,6 +26,10 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("params")]        public List<ParamAssignment> Params { get; set; }
         [JsonPropertyName("rationale")]     public string Rationale { get; set; }
         [JsonPropertyName("sourceDoc")]     public string SourceDoc { get; set; }
+
+        /// <summary>Which tier produced this mapping: "standard" (deterministic ruleset) or "llm".
+        /// Cached rows from before this field exist deserialize as null - treat null as "llm".</summary>
+        [JsonPropertyName("source")]        public string Source { get; set; } = "llm";
     }
 
     /// <summary>One Revit parameter the project documents state for a mapped layer's elements
