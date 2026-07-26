@@ -75,10 +75,11 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // re-run can reuse the existing import instead of importing the same drawing again.
         var existingImports = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
             .Cast<ImportInstance>()
-            .Select(imp => (Instance: imp, Name: doc.GetElement(imp.GetTypeId())?.Name))
-            .Where(x => !string.IsNullOrEmpty(x.Name))
+            .Select(imp => (Instance: imp, TypeName: doc.GetElement(imp.GetTypeId())?.Name))
+            .Where(x => !string.IsNullOrEmpty(x.TypeName))
+            .Select(x => (x.Instance, Name: Path.GetFileNameWithoutExtension(x.TypeName!)))
             .ToList();
-        var existingImportNames = existingImports.Select(x => x.Name!).ToList();
+        var existingImportNames = existingImports.Select(x => x.Name).ToList();
 
         bool pickFromModel = folderDwgs.Count == 0;
         if (folderDwgs.Count > 0)
@@ -105,7 +106,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     View importView = uidoc.ActiveView;
                     var unhostable = importView.ViewType is ViewType.Schedule or ViewType.Legend
                         or ViewType.DrawingSheet or ViewType.ProjectBrowser or ViewType.SystemBrowser
-                        or ViewType.Internal or ViewType.Undefined or ViewType.ColumnSchedule or ViewType.PanelSchedule;
+                        or ViewType.Internal or ViewType.Undefined or ViewType.ColumnSchedule or ViewType.PanelSchedule
+                        or ViewType.ThreeD;
                     if (unhostable)
                     {
                         var fallback = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
