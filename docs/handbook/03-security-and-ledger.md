@@ -29,7 +29,7 @@ A full security audit was run (three adversarial passes + live-DB advisors + dep
 | **F5** membership privilege-escalation · **F8** global-docs writable | HIGH/MED | ✅ Fixed (`0016`) |
 | **F3** audit-trail actor could be spoofed | HIGH | ✅ Hardened (verified JWT identity now stamps the ledger) |
 | **F10** PostgREST arg injection · **F9** unbounded-body DoS | MED | ✅ Fixed |
-| **F2** bridge auth optional (could fall open to the service key) | HIGH | 🟨 **Built, not armed** — one-switch to activate; see `docs/SECURITY_F2_ACTIVATION.md`. Mitigated today: loopback bind + F1 closed |
+| **F2** bridge auth optional (could fall open to the service key) | HIGH | ✅ **Armed live 2026-07-26** — see `docs/SECURITY_F2_ACTIVATION.md`; HTTPS via Tailscale Serve (`docs/HOSTING_TAILSCALE.md`) |
 | **F4** IDOR on id-addressed mutations | HIGH | ✅ Closed by existing RLS + the F2 gate (no extra code) |
 | **F16** dev-only dependency CVEs | LOW | ✅ Accepted (dev toolchain only, zero production surface) |
 | **F7** keystore offline-crack | MED | ✅ Mitigated (JWT-gated read + passphrase-strength gate) |

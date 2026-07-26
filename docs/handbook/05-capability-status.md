@@ -38,7 +38,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Row-Level Security across project data | ✅ Verified | Anon lockout re-verified live post-`0016` |
 | Anon-exposure fix (F1) + regression guard | ✅ Verified | `npm run security:check` |
 | Immutable ledger + tamper triggers | ✅ Verified | See [03](03-security-and-ledger.md) |
-| Bridge auth gate (JWT-or-token, F2) | 🟨 Partial | Built, **not armed**; one-switch activation |
+| Bridge auth gate (JWT-or-token, F2) | ✅ Verified | **Armed live 2026-07-26**: env-loader gap fixed (old procedure failed open), 401/200 verified over loopback + HTTPS; optional HS256 JWT verification rejects the public anon key (role check, regression-tested) |
 | Key rotation | ✅ Verified | Rotated 2026-07-21; `security:check` passes against the new keys |
 | Leaked-password protection (F15) | ⬜ Accepted | Pro-plan only, org is on free. Accepted as LOW — see [D-12](07-decisions.md); the advisor lint is permanent and not an action |
 | Keystore offline-crack (F7) + path traversal (F14) | ✅ Verified | Passphrase-strength gate + resolve-prefix guard; 99 tests pass |
@@ -46,7 +46,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Error-body scrub + SSE cap (F14 residuals) | 🟩 Built | 500s generic (real text logged); `BCF_MAX_SSE` default 64. SSE *project* authz still open |
 | Snapshot append-only (F13) | ✅ Verified | `0017` applied 2026-07-23 — in-place UPDATE rejected even for the service key; FK cascade intact |
 | Anon locked out of the RLS helpers | ✅ Verified | `0018` applied — `project_of_container` no longer maps containers→projects for anon; 3 advisor WARNs cleared |
-| HTTPS / networked hosting (F12) | ⬜ Planned | Hosting change; gated with F2 activation |
+| HTTPS / networked hosting (F12) | ✅ Verified | **Live 2026-07-26** via Tailscale Serve (tailnet-only): HTTPS terminates to the loopback bridge, gate verified through the proxy; runbook `docs/HOSTING_TAILSCALE.md`. Public/production hosting still ⬜ |
 
 ## Adoption / go-to-market
 
