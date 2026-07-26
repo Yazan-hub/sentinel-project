@@ -59,9 +59,40 @@ namespace Sentinel.GhostBuilder
 
     public sealed class GuidelineDoc
     {
-        [JsonPropertyName("standard")] public string Standard { get; set; }
-        [JsonPropertyName("office")]   public string Office { get; set; }
-        [JsonPropertyName("elements")] public List<GuidelineElement> Elements { get; set; } = new List<GuidelineElement>();
+        [JsonPropertyName("standard")]   public string Standard { get; set; }
+        [JsonPropertyName("office")]     public string Office { get; set; }
+        [JsonPropertyName("elements")]   public List<GuidelineElement> Elements { get; set; } = new List<GuidelineElement>();
+        [JsonPropertyName("graphics")]   public GuidelineGraphics Graphics { get; set; }
+        [JsonPropertyName("views")]      public List<GuidelineViewStandard> Views { get; set; }
+        [JsonPropertyName("viewNaming")] public GuidelineViewNaming ViewNaming { get; set; }
+    }
+
+    public sealed class GuidelineTag
+    {
+        [JsonPropertyName("family")]         public string Family { get; set; }
+        [JsonPropertyName("type")]           public string Type { get; set; }
+        [JsonPropertyName("officeAuthored")] public bool OfficeAuthored { get; set; }
+    }
+
+    public sealed class GuidelineGraphics
+    {
+        [JsonPropertyName("tags")] public Dictionary<string, GuidelineTag> Tags { get; set; }
+    }
+
+    public sealed class GuidelineViewStandard
+    {
+        [JsonPropertyName("use")]           public string Use { get; set; }
+        [JsonPropertyName("wipTemplate")]   public string WipTemplate { get; set; }
+        [JsonPropertyName("sheetTemplate")] public string SheetTemplate { get; set; }
+        [JsonPropertyName("viewType")]      public string ViewType { get; set; }
+        [JsonPropertyName("namePrefix")]    public string NamePrefix { get; set; }
+        [JsonPropertyName("tag")]           public List<string> Tag { get; set; }
+    }
+
+    public sealed class GuidelineViewNaming
+    {
+        [JsonPropertyName("structure")]      public string Structure { get; set; }
+        [JsonPropertyName("statusPrefixes")] public Dictionary<string, string> StatusPrefixes { get; set; }
     }
 
     /// <summary>One row of the office's harvested type catalogue (type-catalog.json).</summary>
@@ -112,6 +143,9 @@ namespace Sentinel.GhostBuilder
         public bool HasGuideline => _doc?.Elements != null && _doc.Elements.Count > 0;
         public bool HasCatalog => _catalog != null && _catalog.Count > 0;
         public string Standard => _doc?.Standard ?? "(no guideline)";
+        public List<GuidelineViewStandard> Views => _doc?.Views;
+        public GuidelineViewNaming ViewNaming => _doc?.ViewNaming;
+        public GuidelineGraphics Graphics => _doc?.Graphics;
 
         private GuidelineMatcher(GuidelineDoc doc, List<CatalogEntry> catalog)
         {

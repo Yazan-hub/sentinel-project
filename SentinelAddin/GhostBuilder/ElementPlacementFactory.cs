@@ -127,6 +127,7 @@ namespace Sentinel.GhostBuilder
                 Layer = el.CadLayer,
                 Discipline = disc,
                 ThicknessMm = el.ThicknessMm,
+                Level = _level.Name,
             });
 
             if (res.Confidence <= 0)

@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
@@ -60,18 +62,101 @@ public sealed class GhostBuilderCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        // 2. Pick a DWG import (API thread — legal here, before we hand off).
-        ImportInstance? cadLink;
-        try
+        // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
+        ImportInstance? cadLink = null;
+        var folderDwgs = Directory.Exists(settings.GhostSourceFolder ?? "")
+            ? Directory.EnumerateFiles(settings.GhostSourceFolder!, "*.*")
+                .Where(f => f.EndsWith(".dwg", System.StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".dxf", System.StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f).ToList()
+            : new List<string>();
+
+        // Already-imported DWGs (by filename, sans extension) so the picker can flag them and a
+        // re-run can reuse the existing import instead of importing the same drawing again.
+        var existingImports = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
+            .Cast<ImportInstance>()
+            .Select(imp => (Instance: imp, TypeName: doc.GetElement(imp.GetTypeId())?.Name))
+            .Where(x => !string.IsNullOrEmpty(x.TypeName))
+            .Select(x => (x.Instance, Name: Path.GetFileNameWithoutExtension(x.TypeName!)))
+            .ToList();
+        var existingImportNames = existingImports.Select(x => x.Name).ToList();
+
+        bool pickFromModel = folderDwgs.Count == 0;
+        if (folderDwgs.Count > 0)
         {
-            var picked = uidoc.Selection.PickObject(
-                ObjectType.Element, new CadImportFilter(),
-                "Select a 2D CAD (DWG) import to build from.");
-            cadLink = doc.GetElement(picked.ElementId) as ImportInstance;
+            var pick = new DwgPickWindow(folderDwgs, existingImportNames);
+            new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
+            if (pick.ShowDialog() != true) return Result.Cancelled;
+            pickFromModel = pick.PickFromModel;
+
+            if (!pickFromModel && pick.SelectedPath is { } dwgPath)
+            {
+                // Re-running on the same drawing: reuse the ImportInstance already in the model
+                // instead of importing (and duplicating) it again.
+                var reuse = existingImports.FirstOrDefault(x =>
+                    string.Equals(x.Name, Path.GetFileNameWithoutExtension(dwgPath), System.StringComparison.OrdinalIgnoreCase));
+                if (reuse.Instance != null)
+                {
+                    cadLink = reuse.Instance;
+                }
+                else
+                {
+                    // Import needs a view that can actually host CAD geometry — the active view can
+                    // be a schedule/legend/sheet etc. in which case fall back to any floor plan.
+                    View importView = uidoc.ActiveView;
+                    var unhostable = importView.ViewType is ViewType.Schedule or ViewType.Legend
+                        or ViewType.DrawingSheet or ViewType.ProjectBrowser or ViewType.SystemBrowser
+                        or ViewType.Internal or ViewType.Undefined or ViewType.ColumnSchedule or ViewType.PanelSchedule
+                        or ViewType.ThreeD;
+                    if (unhostable)
+                    {
+                        var fallback = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                            .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan && !v.IsTemplate);
+                        if (fallback is null)
+                        {
+                            TaskDialog.Show("Sentinel — Ghost Builder",
+                                "The active view can't host a DWG import, and no floor plan view was found. Open a floor plan view and try again.");
+                            return Result.Cancelled;
+                        }
+                        importView = fallback;
+                    }
+
+                    // Import KEPT in the model (unlike Datum's rolled-back scratch read) so the user
+                    // sees what was built from, and re-runs can re-pick it from the model.
+                    using var t = new Transaction(doc, "Sentinel — import DWG plan");
+                    t.Start();
+                    var opts = new DWGImportOptions
+                    {
+                        Placement = ImportPlacement.Origin,   // aligns with Datum's origin-to-origin read
+                        ThisViewOnly = false,
+                        ColorMode = ImportColorMode.Preserved,
+                    };
+                    if (doc.Import(dwgPath, opts, importView, out ElementId impId))
+                        cadLink = doc.GetElement(impId) as ImportInstance;
+                    if (cadLink is null)
+                    {
+                        t.RollBack();
+                        TaskDialog.Show("Sentinel — Ghost Builder", $"Could not import:\n{dwgPath}");
+                        return Result.Failed;
+                    }
+                    t.Commit();
+                }
+            }
         }
-        catch (Autodesk.Revit.Exceptions.OperationCanceledException)
+
+        if (pickFromModel)
         {
-            return Result.Cancelled; // user pressed Esc during pick — not an error
+            try
+            {
+                var picked = uidoc.Selection.PickObject(
+                    ObjectType.Element, new CadImportFilter(),
+                    "Select a 2D CAD (DWG) import to build from.");
+                cadLink = doc.GetElement(picked.ElementId) as ImportInstance;
+            }
+            catch (Autodesk.Revit.Exceptions.OperationCanceledException)
+            {
+                return Result.Cancelled;
+            }
         }
         if (cadLink is null) return Result.Cancelled;
 
@@ -129,10 +214,23 @@ public sealed class GhostBuilderCommand : IExternalCommand
         new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
         bool building = false;
 
-        review.BuildRequested += approved =>
+        // Reviewer picks the build level here too — collected from the model, elevation-ordered so the
+        // lowest level is the sane default (matches the orchestrator's own null-level fallback).
+#if NET48
+        static long IdOf(Level l) => l.Id.IntegerValue;
+#else
+        static long IdOf(Level l) => l.Id.Value;
+#endif
+        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+            .OrderBy(l => l.Elevation)
+            .Select(l => (l.Name, IdOf(l)))
+            .ToList();
+        if (levels.Count > 0) review.LoadLevels(levels, levels[0].Item2);
+
+        review.BuildRequested += (approved, levelId) =>
         {
             building = true;
-            placementEvent.SetRequest(orchestrator, inputs, approved);
+            placementEvent.SetRequest(orchestrator, inputs, approved, levelId);
             externalEvent.Raise();
         };
 

@@ -25,10 +25,23 @@ public sealed class GhostReviewWindow : Window
     private readonly TreeView _tree;
     private readonly TextBlock _status;
     private readonly Button _build;
+    private readonly ComboBox _levelBox = new()
+    {
+        MinWidth = 160, Margin = new Thickness(6, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center,
+    };
     private readonly List<(CheckBox Box, LayerMapping Map)> _rows = new();
 
-    /// <summary>Fires with a proposal containing ONLY the ticked layers — build exactly these.</summary>
-    public event Action<MappingResult>? BuildRequested;
+    /// <summary>Fires with the ticked layers + the chosen level's ElementId value (-1 = default).</summary>
+    public event Action<MappingResult, long>? BuildRequested;
+
+    // net48's LangVersion lacks IsExternalInit (needed for `record`), so this is a plain class.
+    private sealed class LevelChoice
+    {
+        public LevelChoice(string name, long id) { Name = name; Id = id; }
+        public string Name { get; }
+        public long Id { get; }
+        public override string ToString() => Name;
+    }
 
     public GhostReviewWindow()
     {
@@ -55,6 +68,11 @@ public sealed class GhostReviewWindow : Window
         cancel.IsCancel = true; // ESC closes without building
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        buttons.Children.Add(new TextBlock
+        {
+            Text = "Build on level:", VerticalAlignment = VerticalAlignment.Center,
+        });
+        buttons.Children.Add(_levelBox);
         buttons.Children.Add(_build);
         buttons.Children.Add(cancel);
 
@@ -187,6 +205,16 @@ public sealed class GhostReviewWindow : Window
         UpdateStatus();
     });
 
+    /// <summary>Populate the build-level choices. Call before Show().</summary>
+    public void LoadLevels(IReadOnlyList<(string Name, long Id)> levels, long defaultId) => Dispatcher.Invoke(() =>
+    {
+        _levelBox.Items.Clear();
+        foreach (var (name, id) in levels) _levelBox.Items.Add(new LevelChoice(name, id));
+
+        _levelBox.SelectedIndex = Math.Max(0,
+            levels.ToList().FindIndex(l => l.Id == defaultId));
+    });
+
     private static int Count(IReadOnlyDictionary<string, int> counts, string layer) =>
         layer != null && counts != null && counts.TryGetValue(layer, out int n) ? n : 0;
 
@@ -220,7 +248,8 @@ public sealed class GhostReviewWindow : Window
 
         _build.IsEnabled = false;              // one build per review; the window closes when it completes
         _status.Text = $"Building {ticked.Count} layer(s)…";
-        BuildRequested?.Invoke(new MappingResult { Mappings = ticked });
+        long levelId = (_levelBox.SelectedItem as LevelChoice)?.Id ?? -1;
+        BuildRequested?.Invoke(new MappingResult { Mappings = ticked }, levelId);
     }
 
     public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);

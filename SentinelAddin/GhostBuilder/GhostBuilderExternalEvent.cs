@@ -19,6 +19,7 @@ namespace Sentinel.GhostBuilder
         private GhostBuilderOrchestrator _orchestrator;
         private GhostBuilderOrchestrator.Inputs _inputs;
         private MappingResult _mapping;
+        private long _levelId = -1;
 
         /// <summary>Fired on the API thread after placement. Report null when an error is passed.</summary>
         public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
@@ -28,11 +29,12 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Stage the pre-computed inputs + mapping for the next Raise().</summary>
         public void SetRequest(GhostBuilderOrchestrator orchestrator,
-                               GhostBuilderOrchestrator.Inputs inputs, MappingResult mapping)
+                               GhostBuilderOrchestrator.Inputs inputs, MappingResult mapping, long levelId = -1)
         {
             _orchestrator = orchestrator;
             _inputs = inputs;
             _mapping = mapping;
+            _levelId = levelId;
         }
 
         public void Execute(UIApplication app)
@@ -41,7 +43,8 @@ namespace Sentinel.GhostBuilder
             var orchestrator = _orchestrator;
             var inputs = _inputs;
             var mapping = _mapping;
-            _orchestrator = null; _inputs = null; _mapping = null;
+            var levelId = _levelId;
+            _orchestrator = null; _inputs = null; _mapping = null; _levelId = -1;
 
             try
             {
@@ -49,7 +52,11 @@ namespace Sentinel.GhostBuilder
                     throw new InvalidOperationException("No request staged. Call SetRequest() before Raise().");
 
                 // We ARE on the API thread here — the transaction + geometry writes are legal.
-                var report = orchestrator.Place(inputs, mapping);
+                // Level resolution happens inside the orchestrator, against ITS OWN _doc — not
+                // ActiveUIDocument. The review window is modeless, so the user can switch documents
+                // before clicking Build; resolving here against app.ActiveUIDocument could pick up a
+                // same-numbered ElementId from the wrong document.
+                var report = orchestrator.Place(inputs, mapping, levelId);
                 Completed?.Invoke(report, null);
             }
             catch (Exception ex)

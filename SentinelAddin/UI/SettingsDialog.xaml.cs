@@ -12,13 +12,16 @@ namespace Sentinel.UI;
 /// </summary>
 public partial class SettingsDialog : Window
 {
+    private readonly SentinelSettings _current;
+
     public SettingsDialog(Document? doc)
     {
         InitializeComponent();
-        var current = SettingsManager.Resolve(doc);
-        RulesetPathBox.Text = current.MasterRulesetPath;
-        TemplatePathBox.Text = current.RevitTemplatePath;
-        ProjectCodeBox.Text = current.ProjectCode;
+        _current = SettingsManager.Resolve(doc);
+        RulesetPathBox.Text = _current.MasterRulesetPath;
+        TemplatePathBox.Text = _current.RevitTemplatePath;
+        ProjectCodeBox.Text = _current.ProjectCode;
+        GhostFolderBox.Text = _current.GhostSourceFolder;
         if (doc is null)
         {
             ScopeProject.IsEnabled = false;      // no document open
@@ -48,17 +51,35 @@ public partial class SettingsDialog : Window
         if (dlg.ShowDialog(this) == true) TemplatePathBox.Text = dlg.FileName;
     }
 
+    private void OnBrowseGhostFolder(object sender, RoutedEventArgs e)
+    {
+#if NET48
+        // net48 WPF has no folder dialog; the TextBox accepts a pasted path.
+        MessageBox.Show(this, "Paste the folder path into the box (network drives and ACC Desktop Connector paths work).",
+            "Sentinel", MessageBoxButton.OK, MessageBoxImage.Information);
+#else
+        var dlg = new OpenFolderDialog { Title = "Select the Ghost source folder" };
+        if (dlg.ShowDialog(this) == true) GhostFolderBox.Text = dlg.FolderName;
+#endif
+    }
+
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        var settings = new SentinelSettings
-        {
-            MasterRulesetPath = RulesetPathBox.Text.Trim(),
-            RevitTemplatePath = TemplatePathBox.Text.Trim(),
-            ProjectCode = ProjectCodeBox.Text.Trim().ToUpperInvariant(),
-        };
+        var path = RulesetPathBox.Text.Trim();
+        var template = TemplatePathBox.Text.Trim();
+        var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
+        var ghostFolder = GhostFolderBox.Text.Trim();
 
         if (ScopeMachine.IsChecked == true)
         {
+            // Load the UNMERGED machine settings (not the doc+machine merge shown in the dialog) so
+            // saving to machine can't bake in project-only values, or blow away machine fields this
+            // dialog doesn't show.
+            var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
+            settings.MasterRulesetPath = path;
+            settings.RevitTemplatePath = template;
+            settings.ProjectCode = code;
+            settings.GhostSourceFolder = ghostFolder;
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Engine?.ReloadRuleset(null);
@@ -73,6 +94,14 @@ public partial class SettingsDialog : Window
         {
             var doc = uiapp.ActiveUIDocument?.Document;
             if (doc is null) return;
+            // Load the UNMERGED project settings (not the doc+machine merge shown in the dialog) so
+            // saving to project can't bake in machine-local paths, or blow away project fields this
+            // dialog doesn't show.
+            var settings = SettingsManager.LoadFromDocument(doc) ?? new SentinelSettings();
+            settings.MasterRulesetPath = path;
+            settings.RevitTemplatePath = template;
+            settings.ProjectCode = code;
+            settings.GhostSourceFolder = ghostFolder;
             using var t = new Transaction(doc, "Sentinel: Save project settings");
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);

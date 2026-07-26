@@ -73,7 +73,7 @@ namespace Sentinel.GhostBuilder
         /// PHASE 3 — geometry creation inside one transaction. Revit API writes: API thread ONLY,
         /// must be invoked from an IExternalEventHandler.Execute. Never from Task.Run.
         /// </summary>
-        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping)
+        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping, Level level = null)
         {
             if (inputs?.Layers == null || inputs.Layers.Count == 0)
                 return new GhostPlacementEngine.PlacementReport
@@ -89,7 +89,40 @@ namespace Sentinel.GhostBuilder
             // Office Modelling Guideline picks the wall TYPE from — is thrown away. Additive and safe: a
             // wall it can't pair stays exactly the run it was.
             var elements = GhostWallPairer.PairWalls(inputs.Elements, mapping);
-            return PlacePrepared(elements, mapping);
+            return PlacePrepared(elements, mapping, level);
+        }
+
+        /// <summary>
+        /// Same as Place(Inputs, MappingResult, Level), but resolves the level by ElementId against
+        /// THIS orchestrator's own _doc — never the active document. The review window is modeless,
+        /// so the user can switch documents between picking a level and clicking Build; resolving
+        /// against ActiveUIDocument would risk placing on a same-numbered ElementId from the wrong
+        /// document. -1 means "no level chosen" (falls back to the doc's lowest level, same as
+        /// passing level: null).
+        /// </summary>
+        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping, long levelId)
+        {
+            Level level = null;
+            string fallbackWarning = null;
+            if (levelId >= 0)
+            {
+#if NET48
+                level = _doc.GetElement(new ElementId((int)levelId)) as Level;
+#else
+                level = _doc.GetElement(new ElementId(levelId)) as Level;
+#endif
+                if (level == null)
+                {
+                    var lowest = new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>()
+                        .OrderBy(l => l.Elevation).FirstOrDefault();
+                    fallbackWarning = lowest != null
+                        ? $"Chosen level no longer exists — built on {lowest.Name} instead."
+                        : "Chosen level no longer exists.";
+                }
+            }
+            var report = Place(inputs, mapping, level);
+            if (fallbackWarning != null) report.Warnings.Insert(0, fallbackWarning);
+            return report;
         }
 
         /// <summary>
@@ -98,7 +131,7 @@ namespace Sentinel.GhostBuilder
         /// provisioners, guideline and audit as a DWG build, so a massing is governed identically.
         /// </summary>
         public GhostPlacementEngine.PlacementReport PlacePrepared(
-            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping)
+            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null)
         {
             if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
                 return new GhostPlacementEngine.PlacementReport { Warnings = { "Nothing to build." } };
@@ -137,7 +170,7 @@ namespace Sentinel.GhostBuilder
                 var floorProv = new GhostFloorTypeProvisioner(_doc).Provision(mapping);
                 if (floorProv.Created > 0) _doc.Regenerate();
 
-                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline);
+                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level);
                 report = engine.Place(mapping, elements);
                 report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);
