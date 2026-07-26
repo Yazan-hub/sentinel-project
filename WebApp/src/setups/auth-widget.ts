@@ -68,6 +68,16 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
 
   onAuthChange((s) => { session = s; open = false; msg = ""; busy = false; render(); });
   currentSession().then((s) => { session = s; render(); }).catch(() => render());
+
+  // ponytail: debounce by checking state before opening; upgrade if event spam becomes an issue
+  document.addEventListener("sentinel:signin-needed", () => {
+    if (!open && !session) {
+      open = true;
+      msg = "";
+      render();
+    }
+  });
+
   render();
   return wrap;
 }
