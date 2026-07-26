@@ -22,7 +22,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 | **IFC Pre-Flight** | Before exporting: audits 14 exportable categories for missing `Export to IFC As` mappings (locale-safe BuiltInParameter read) + empty mandatory properties. Generic Models/Specialty Equipment = WARN (they export as useless proxies); others = MONITOR. |
 | **Health Scorecard** | Severity-weighted 0–100 score (block=8, request=4, warn=2, monitor=0.5) with A–F grade and per-domain breakdown — the PM view. |
 | **Sanitize Family** | Gateway for loading an .rfa: checks solid budget (≤150), nested CAD imports, required shared params, unnamed types. Loads only on pass. |
-| **IFC Delivery Gate** ⭐ | KF-1. Exports the active 3D view to IFC (or takes an existing .ifc), re-parses the file, and diffs it against the delivery contract (`%AppData%\Sentinel\delivery-contract.json`: schema, required entities/psets, proxy-ratio cap, georeference). Issues a signed pass/fail certificate (`.sentinel-cert.json`, SHA-256). FAIL = don't upload to the CDE. |
+| **IFC Delivery Gate** ⭐ | KF-1. Exports the active 3D view to IFC (or takes an existing .ifc), re-parses the file, and diffs it against the delivery contract (`%AppData%\Sentinel\delivery-contract.json` — created by the office, template: `config/base-standard/delivery-contract.json`; the built-in default applies when absent — schema, required entities/psets, proxy-ratio cap, georeference). Issues a signed pass/fail certificate (`.sentinel-cert.json`, SHA-256). FAIL = don't upload to the CDE. |
 | **Clash Manager** | Native clash detection: linked RVT MEP + IFC DirectShape drops vs walls/floors/framing. Solid-boolean severity: Hard (red, >1 L shared volume) / Medium (orange) / Soft (yellow, proximity). UI: severity-colored list → Show element, Export BCF, or Create 3D clash view (auto-named `CO_MEP-CLASH_*`, routed to 05_COORDINATION browser group, color-overridden, section-boxed). Note: slow on big models — run in coordination sessions. |
 | **Heal Loaded Families** | Scans families already in the project. Missing shared params → auto-heals (EditFamily in background, inject, silent reload). Geometry/CAD problems → flagged "requires human interaction", never touched. |
 | **MEP Openings** | Lifecycle void manager. Finds MEP/structure intersections (solid-precise, IFC DirectShape aware), merges candidates within 150 mm, places tracked 'Provision for Void' families (`BDS_Void_ID` GUID, `BDS_Void_Status`=Pending). On re-run with a new IFC drop: relocates voids whose MEP moved, flags deleted ones Orphaned, never touches status=Cut. Can export the set as BCF instead. |
@@ -40,7 +40,7 @@ Fix → dialog shows current value struck-through + editable synthesized suggest
 
 ## Key file locations
 - Source: `sentinel-project\SentinelAddin\` · build: `.\build.ps1` (Revit must be CLOSED to deploy)
-- Config: `%AppData%\Sentinel\` → `config.json`, `settings.json`, `delivery-contract.json`, `roi.json`, `ruleset.json` (user cache)
+- Config: `%AppData%\Sentinel\` → `config.json`, `settings.json`, `delivery-contract.json` (created by the office, template: `config/base-standard/delivery-contract.json`; built-in default applies when absent), `roi.json`, `ruleset.json` (user cache)
 - Backend schema (Phase 3): `module2_knowledge_layer_schema.sql` · Roadmap: `ROADMAP.md`
 
 ## Known gaps (pre-pilot backlog)

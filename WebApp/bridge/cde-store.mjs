@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 //   SUPABASE_SERVICE_KEY=<service_role secret from Supabase → Project Settings → API>
 
 import { readFileSync } from "node:fs";
+import { resolve, isAbsolute } from "node:path";
 import { loadEnv } from "./thatopen-client.mjs";
 import { currentUserToken, currentActor } from "./bridge-auth.mjs";
 
@@ -524,6 +525,12 @@ export async function pruneEvents(olderThanMs = 600000) {
 let _core = null;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 
+// Repo root (WebApp/bridge is two levels below it: WebApp/bridge → WebApp → root). The bridge runs with cwd
+// WebApp/ (see server.mjs), so a repo-relative operator path like "config/base-standard/naming-ruleset.json"
+// resolves wrong against cwd — anchor non-absolute SENTINEL_* paths here instead.
+const REPO_ROOT = resolve(import.meta.dirname, "../..");
+const resolveConfigPath = (p) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
+
 // Swappable container-naming ruleset (bridge/naming-ruleset.json) — the office's ISO 19650 naming convention
 // as DATA, not code. Cached; missing/invalid → null (naming gate simply off). A caller may also pass an inline
 // ruleset in the propose body to override per-request.
@@ -531,32 +538,37 @@ let _naming; // undefined = not yet loaded, null = absent/invalid
 function defaultNamingRuleset() {
   if (_naming !== undefined) return _naming;
   // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
-  const p = env.SENTINEL_NAMING_RULESET || `${import.meta.dirname}/naming-ruleset.json`;
+  const raw = env.SENTINEL_NAMING_RULESET || `${import.meta.dirname}/naming-ruleset.json`;
+  const p = env.SENTINEL_NAMING_RULESET ? resolveConfigPath(raw) : raw;
   try {
     const rs = JSON.parse(readFileSync(p, "utf8"));
     _naming = Array.isArray(rs?.fields) && rs.separator ? rs : null;
     if (_naming) console.error("[naming] ruleset:", _naming.title, "| enforce:", _naming.enforce);
   } catch (e) { _naming = null; }
   if (_naming === null)
-    console.warn(`[bridge] WARNING: naming ruleset invalid or unreadable (${p}) — naming gate is OFF`);
+    console.warn(`[bridge] WARNING: naming ruleset invalid or unreadable (resolved path: ${p}) — naming gate is OFF`);
   return _naming;
 }
 const resolveNamingRuleset = (inline) =>
   (inline && typeof inline === "object" && Array.isArray(inline.fields)) ? inline : defaultNamingRuleset();
 
 // Server-side IDS custody (SENTINEL_IDS) — when set and valid, the server's spec is authoritative and a
-// client-posted `b.ids` is ignored (but audited). Mirrors defaultNamingRuleset()'s cache/warn idiom exactly.
-let _serverIds; // undefined = not yet loaded, null = absent/invalid
+// client-posted `b.ids` is ignored (but audited). Mirrors defaultNamingRuleset()'s cache/warn idiom.
+// Fail-safe policy: SENTINEL_IDS unset → today's client-supplied fallback (cached as null). SENTINEL_IDS SET
+// but unreadable/malformed → do NOT fall back to the client spec; adjudicate with NO spec (cached as the
+// sentinel string "invalid", distinct from null so the two states aren't conflated).
+let _serverIds; // undefined = not yet loaded, null = unset (client fallback), "invalid" = set-but-broken (fail safe)
 function serverIdsSpec() {
   if (_serverIds !== undefined) return _serverIds;
-  const p = env.SENTINEL_IDS || "";
-  if (!p) { _serverIds = null; return _serverIds; }
+  const raw = env.SENTINEL_IDS || "";
+  if (!raw) { _serverIds = null; return _serverIds; }
+  const p = resolveConfigPath(raw);
   try {
     const s = JSON.parse(readFileSync(p, "utf8"));
-    _serverIds = Array.isArray(s?.specifications) ? s : null;
-  } catch { _serverIds = null; }
-  if (_serverIds === null)
-    console.warn(`[bridge] WARNING: SENTINEL_IDS set but invalid/unreadable (${p}) — falling back to client-supplied IDS`);
+    _serverIds = Array.isArray(s?.specifications) ? s : "invalid";
+  } catch { _serverIds = "invalid"; }
+  if (_serverIds === "invalid")
+    console.warn(`[bridge] WARNING: SENTINEL_IDS set but invalid/unreadable (resolved path: ${p}) — failing safe with NO spec (server-invalid); client-supplied IDS is ignored`);
   return _serverIds;
 }
 
@@ -571,7 +583,12 @@ export async function adjudicateProposal(key, b = {}) {
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const serverSpec = serverIdsSpec();
   let spec = null, idsSource = "none", clientIdsIgnored = false;
-  if (serverSpec) {
+  if (serverSpec === "invalid") {
+    // Fail safe: SENTINEL_IDS is set but broken — adjudicate with NO spec rather than silently trusting
+    // whatever the client posted. Still record that a client spec arrived and was ignored.
+    idsSource = "server-invalid";
+    if (b.ids) clientIdsIgnored = true;
+  } else if (serverSpec) {
     spec = serverSpec;
     idsSource = "server";
     if (b.ids) clientIdsIgnored = true;
