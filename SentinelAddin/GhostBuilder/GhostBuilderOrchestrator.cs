@@ -93,6 +93,39 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>
+        /// Same as Place(Inputs, MappingResult, Level), but resolves the level by ElementId against
+        /// THIS orchestrator's own _doc — never the active document. The review window is modeless,
+        /// so the user can switch documents between picking a level and clicking Build; resolving
+        /// against ActiveUIDocument would risk placing on a same-numbered ElementId from the wrong
+        /// document. -1 means "no level chosen" (falls back to the doc's lowest level, same as
+        /// passing level: null).
+        /// </summary>
+        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping, long levelId)
+        {
+            Level level = null;
+            string fallbackWarning = null;
+            if (levelId >= 0)
+            {
+#if NET48
+                level = _doc.GetElement(new ElementId((int)levelId)) as Level;
+#else
+                level = _doc.GetElement(new ElementId(levelId)) as Level;
+#endif
+                if (level == null)
+                {
+                    var lowest = new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>()
+                        .OrderBy(l => l.Elevation).FirstOrDefault();
+                    fallbackWarning = lowest != null
+                        ? $"Chosen level no longer exists — built on {lowest.Name} instead."
+                        : "Chosen level no longer exists.";
+                }
+            }
+            var report = Place(inputs, mapping, level);
+            if (fallbackWarning != null) report.Warnings.Insert(0, fallbackWarning);
+            return report;
+        }
+
+        /// <summary>
         /// Place already-prepared elements + mapping, WITHOUT the DWG face-pairing pass — for callers that
         /// bring their own geometry with thickness already set (photo massing). Same transaction,
         /// provisioners, guideline and audit as a DWG build, so a massing is governed identically.

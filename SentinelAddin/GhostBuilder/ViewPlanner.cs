@@ -21,7 +21,9 @@ namespace Sentinel.GhostBuilder
         private static readonly HashSet<string> Plannable = new HashSet<string> { "FloorPlan", "CeilingPlan" };
 
         /// <summary>Deterministic WIP view plan: one view per plannable guideline entry per level.
-        /// Name follows the office structure [STATUS]_[TYPE]_[LEVEL] (description omitted).</summary>
+        /// Name follows the office structure [STATUS]_[TYPE]_[LEVEL] (description omitted).
+        /// GuidelineViewNaming.structure is documentation only for now — this format is fixed and
+        /// does not read that field.</summary>
         public static List<PlannedView> Plan(
             List<GuidelineViewStandard> views, GuidelineViewNaming naming, List<string> levelNames)
         {

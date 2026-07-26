@@ -79,6 +79,8 @@ export interface GuidelineViewStandard {
 }
 
 export interface GuidelineViewNaming {
+  // Documentation only for now — the actual naming is fixed to [STATUS]_[TYPE]_[LEVEL] (see planViews /
+  // SentinelAddin ViewPlanner.cs); this field isn't read to drive that format.
   structure?: string;                               // e.g. "[STATUS]_[TYPE]_[LEVEL]_[DESCRIPTION]"
   source?: string;
   statusPrefixes?: Record<string, string>;          // e.g. "WIP_" -> "01_WIP_VIEWS"

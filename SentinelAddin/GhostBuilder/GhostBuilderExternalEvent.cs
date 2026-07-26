@@ -52,11 +52,11 @@ namespace Sentinel.GhostBuilder
                     throw new InvalidOperationException("No request staged. Call SetRequest() before Raise().");
 
                 // We ARE on the API thread here — the transaction + geometry writes are legal.
-                Autodesk.Revit.DB.Level level = null;
-                if (levelId >= 0)
-                    level = app.ActiveUIDocument?.Document?.GetElement(
-                        new Autodesk.Revit.DB.ElementId(levelId)) as Autodesk.Revit.DB.Level;
-                var report = orchestrator.Place(inputs, mapping, level);
+                // Level resolution happens inside the orchestrator, against ITS OWN _doc — not
+                // ActiveUIDocument. The review window is modeless, so the user can switch documents
+                // before clicking Build; resolving here against app.ActiveUIDocument could pick up a
+                // same-numbered ElementId from the wrong document.
+                var report = orchestrator.Place(inputs, mapping, levelId);
                 Completed?.Invoke(report, null);
             }
             catch (Exception ex)

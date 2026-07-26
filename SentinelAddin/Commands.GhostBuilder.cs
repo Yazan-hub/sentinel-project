@@ -71,35 +71,74 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 .OrderBy(f => f).ToList()
             : new List<string>();
 
+        // Already-imported DWGs (by filename, sans extension) so the picker can flag them and a
+        // re-run can reuse the existing import instead of importing the same drawing again.
+        var existingImports = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
+            .Cast<ImportInstance>()
+            .Select(imp => (Instance: imp, Name: doc.GetElement(imp.GetTypeId())?.Name))
+            .Where(x => !string.IsNullOrEmpty(x.Name))
+            .ToList();
+        var existingImportNames = existingImports.Select(x => x.Name!).ToList();
+
         bool pickFromModel = folderDwgs.Count == 0;
         if (folderDwgs.Count > 0)
         {
-            var pick = new DwgPickWindow(folderDwgs);
+            var pick = new DwgPickWindow(folderDwgs, existingImportNames);
             new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
             if (pick.ShowDialog() != true) return Result.Cancelled;
             pickFromModel = pick.PickFromModel;
 
             if (!pickFromModel && pick.SelectedPath is { } dwgPath)
             {
-                // Import KEPT in the model (unlike Datum's rolled-back scratch read) so the user
-                // sees what was built from, and re-runs can re-pick it from the model.
-                using var t = new Transaction(doc, "Sentinel — import DWG plan");
-                t.Start();
-                var opts = new DWGImportOptions
+                // Re-running on the same drawing: reuse the ImportInstance already in the model
+                // instead of importing (and duplicating) it again.
+                var reuse = existingImports.FirstOrDefault(x =>
+                    string.Equals(x.Name, Path.GetFileNameWithoutExtension(dwgPath), System.StringComparison.OrdinalIgnoreCase));
+                if (reuse.Instance != null)
                 {
-                    Placement = ImportPlacement.Origin,   // aligns with Datum's origin-to-origin read
-                    ThisViewOnly = false,
-                    ColorMode = ImportColorMode.Preserved,
-                };
-                if (doc.Import(dwgPath, opts, uidoc.ActiveView, out ElementId impId))
-                    cadLink = doc.GetElement(impId) as ImportInstance;
-                if (cadLink is null)
-                {
-                    t.RollBack();
-                    TaskDialog.Show("Sentinel — Ghost Builder", $"Could not import:\n{dwgPath}");
-                    return Result.Failed;
+                    cadLink = reuse.Instance;
                 }
-                t.Commit();
+                else
+                {
+                    // Import needs a view that can actually host CAD geometry — the active view can
+                    // be a schedule/legend/sheet etc. in which case fall back to any floor plan.
+                    View importView = uidoc.ActiveView;
+                    var unhostable = importView.ViewType is ViewType.Schedule or ViewType.Legend
+                        or ViewType.DrawingSheet or ViewType.ProjectBrowser or ViewType.SystemBrowser
+                        or ViewType.Internal or ViewType.Undefined or ViewType.ColumnSchedule or ViewType.PanelSchedule;
+                    if (unhostable)
+                    {
+                        var fallback = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                            .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan && !v.IsTemplate);
+                        if (fallback is null)
+                        {
+                            TaskDialog.Show("Sentinel — Ghost Builder",
+                                "The active view can't host a DWG import, and no floor plan view was found. Open a floor plan view and try again.");
+                            return Result.Cancelled;
+                        }
+                        importView = fallback;
+                    }
+
+                    // Import KEPT in the model (unlike Datum's rolled-back scratch read) so the user
+                    // sees what was built from, and re-runs can re-pick it from the model.
+                    using var t = new Transaction(doc, "Sentinel — import DWG plan");
+                    t.Start();
+                    var opts = new DWGImportOptions
+                    {
+                        Placement = ImportPlacement.Origin,   // aligns with Datum's origin-to-origin read
+                        ThisViewOnly = false,
+                        ColorMode = ImportColorMode.Preserved,
+                    };
+                    if (doc.Import(dwgPath, opts, importView, out ElementId impId))
+                        cadLink = doc.GetElement(impId) as ImportInstance;
+                    if (cadLink is null)
+                    {
+                        t.RollBack();
+                        TaskDialog.Show("Sentinel — Ghost Builder", $"Could not import:\n{dwgPath}");
+                        return Result.Failed;
+                    }
+                    t.Commit();
+                }
             }
         }
 

@@ -14,15 +14,23 @@ public sealed class DwgPickWindow : Window
     public string? SelectedPath { get; private set; }
     public bool PickFromModel { get; private set; }
 
-    public DwgPickWindow(IReadOnlyList<string> files)
+    public DwgPickWindow(IReadOnlyList<string> files, IReadOnlyCollection<string>? alreadyImportedNames = null)
     {
         Title = "Sentinel — Ghost Builder: choose a drawing";
         Width = 520; Height = 380; MinWidth = 380;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
 
+        var imported = new HashSet<string>(alreadyImportedNames ?? System.Array.Empty<string>(),
+            System.StringComparer.OrdinalIgnoreCase);
+
         _list = new ListBox { Margin = new Thickness(0, 6, 0, 6) };
-        foreach (var f in files) _list.Items.Add(new ListBoxItem { Content = Path.GetFileName(f), Tag = f });
+        foreach (var f in files)
+        {
+            var label = Path.GetFileName(f);
+            if (imported.Contains(Path.GetFileNameWithoutExtension(f))) label += " (already imported)";
+            _list.Items.Add(new ListBoxItem { Content = label, Tag = f });
+        }
         if (_list.Items.Count > 0) _list.SelectedIndex = 0;
         _list.MouseDoubleClick += (_, __) => Accept();
 

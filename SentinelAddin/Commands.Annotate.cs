@@ -53,7 +53,9 @@ public sealed class AnnotateViewsCommand : IExternalCommand
 
         // Caches: existing view names (idempotency), templates by name, VFTs, levels by name.
         var allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
-        var taken = new HashSet<string>(allViews.Where(v => !v.IsTemplate).Select(v => v.Name));
+        // Includes template names too: View.Name = ... throws if a VIEW TEMPLATE already holds that
+        // name, even when no non-template view does.
+        var taken = new HashSet<string>(allViews.Select(v => v.Name));
         var templates = allViews.Where(v => v.IsTemplate)
             .GroupBy(v => v.Name).ToDictionary(g => g.Key, g => g.First());
         var vfts = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType))

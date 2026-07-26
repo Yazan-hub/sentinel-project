@@ -65,15 +65,21 @@ public partial class SettingsDialog : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        // Mutate the RESOLVED settings so fields this dialog doesn't show survive the save.
-        _current.MasterRulesetPath = RulesetPathBox.Text.Trim();
-        _current.RevitTemplatePath = TemplatePathBox.Text.Trim();
-        _current.ProjectCode = ProjectCodeBox.Text.Trim().ToUpperInvariant();
-        _current.GhostSourceFolder = GhostFolderBox.Text.Trim();
-        var settings = _current;
+        var path = RulesetPathBox.Text.Trim();
+        var template = TemplatePathBox.Text.Trim();
+        var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
+        var ghostFolder = GhostFolderBox.Text.Trim();
 
         if (ScopeMachine.IsChecked == true)
         {
+            // Load the UNMERGED machine settings (not the doc+machine merge shown in the dialog) so
+            // saving to machine can't bake in project-only values, or blow away machine fields this
+            // dialog doesn't show.
+            var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
+            settings.MasterRulesetPath = path;
+            settings.RevitTemplatePath = template;
+            settings.ProjectCode = code;
+            settings.GhostSourceFolder = ghostFolder;
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Engine?.ReloadRuleset(null);
@@ -88,6 +94,14 @@ public partial class SettingsDialog : Window
         {
             var doc = uiapp.ActiveUIDocument?.Document;
             if (doc is null) return;
+            // Load the UNMERGED project settings (not the doc+machine merge shown in the dialog) so
+            // saving to project can't bake in machine-local paths, or blow away project fields this
+            // dialog doesn't show.
+            var settings = SettingsManager.LoadFromDocument(doc) ?? new SentinelSettings();
+            settings.MasterRulesetPath = path;
+            settings.RevitTemplatePath = template;
+            settings.ProjectCode = code;
+            settings.GhostSourceFolder = ghostFolder;
             using var t = new Transaction(doc, "Sentinel: Save project settings");
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);
