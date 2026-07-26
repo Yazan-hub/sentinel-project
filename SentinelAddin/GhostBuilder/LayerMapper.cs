@@ -94,6 +94,7 @@ namespace Sentinel.GhostBuilder
                 LayerMapping baseHit = _matcher.Match(layer);
                 if (baseHit != null)
                 {
+                    baseHit.Source = "standard";
                     _cache[key] = baseHit;
                     _dirty = true;
                     resolved.Add(WithLayer(baseHit, layer));
@@ -111,6 +112,7 @@ namespace Sentinel.GhostBuilder
                 foreach (LayerMapping m in llmResult?.Mappings ?? Enumerable.Empty<LayerMapping>())
                 {
                     if (m == null || string.IsNullOrWhiteSpace(m.CadLayer)) continue;
+                    m.Source = "llm";
                     _cache[Normalize(m.CadLayer)] = m;   // learn it for next time
                     _dirty = true;
                     resolved.Add(m);
@@ -139,7 +141,14 @@ namespace Sentinel.GhostBuilder
                         File.ReadAllText(path));
                     if (loaded != null)
                         foreach (var kv in loaded)
-                            if (kv.Value != null) dict[kv.Key] = kv.Value;
+                        {
+                            if (kv.Value == null) continue;
+                            // Old cache rows predate Source; a missing key leaves the "llm" initializer,
+                            // but guard an explicit JSON null too (System.Text.Json calls the setter for
+                            // a present-but-null property, overwriting the default).
+                            if (kv.Value.Source == null) kv.Value.Source = "llm";
+                            dict[kv.Key] = kv.Value;
+                        }
                 }
             }
             catch (Exception) { /* corrupt/unreadable cache -> start empty, it will be rebuilt */ }
@@ -173,6 +182,7 @@ namespace Sentinel.GhostBuilder
             Params = src.Params,
             Rationale = src.Rationale,
             SourceDoc = src.SourceDoc,
+            Source = src.Source,
         };
 
         public void Dispose() => (_llm as IDisposable)?.Dispose();
