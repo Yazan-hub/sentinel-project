@@ -16,6 +16,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # @thatopen-platform/fragments-beta is a private npm package; without a token
+      # npm returns 404 and the whole job dies at install. NPM_TOKEN is a repo
+      # Actions secret (Settings -> Secrets -> Actions) holding a read token for
+      # that scope. The old token leaked in early git history and is revoked.
+      - run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
       - run: npm install
       - run: npm run test
       - run: npm run build
