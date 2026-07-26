@@ -53,7 +53,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Capability | Status | Notes |
 |---|---|---|
 | Pilot onboarding runbook | 🟩 Built | `docs/PILOT.md`, `PILOT_DEMO_RUNBOOK.md` |
-| Office-agnostic "Base" ruleset template | 🟩 Built | `config/base-standard/` pack (naming, IDS, layers, delivery contract) + server-side custody via `SENTINEL_NAMING_RULESET` and `SENTINEL_IDS` env vars + D-03 proof tests (7-field underscore standard passes both gates). goes ✅ only after a live swap run. |
+| Office-agnostic "Base" ruleset template | ✅ Verified | **Live swap run 2026-07-26**: bridge restarted on `config/base-standard/` via `SENTINEL_NAMING_RULESET`+`SENTINEL_IDS` — Base name (7-field/underscore) accepted, BDS name rejected, server IDS authoritative over a permissive client spec (`ids_source: server`, `client_ids_ignored: true`, warn fired on missing FireRating); reverted to BDS config and BDS names pass again. D-03 holds: config swap, zero code change. |
 | Deployment playbook (4-phase / hardware / roles) | 🟨 Partial | Skeleton only — see [08](08-deployment-playbook.md); specifics unsourced/placeholder |
 | ISO 19650 certification | ⬜ Planned | — |
 | Production hosting (networked, TLS, mandatory auth) | ⬜ Planned | Gated on F2 activation + hosting |
