@@ -57,16 +57,32 @@ actionable, does the score move when one is fixed."
    Revit main window's monitor (owner is already set — check
    WindowStartupLocation).
 
-## Not yet run (Session C part 2)
+## Part 2 — run same evening
 
-Planted pset damage → Pre-Flight delta; Delivery Gate FAIL path (violating
-model); Family Health ranking; Heal Loaded Families (with before/after type
-count diff).
+7. **HIGH — Delivery Gate fail path is silent and switches documents.**
+   Ran the gate on the EMPTY `Project1` (no walls, no slabs — the
+   bds-default contract must refuse it). Expected: a loud "rejected" naming
+   the missing entities. Got: **no dialog, no export, no certificate, and
+   the active window switched to the OTHER open document's 3D view**
+   (the Golden Nugget model), with `Project1`'s view tabs gone from the tab
+   bar. A user cannot tell the gate refused, errored, or ran at all — and
+   ends up staring at a different building. Likely root: the "find a 3D
+   view" fallback crossing document boundaries + an exception swallowed
+   before the result dialog. The referee's no must be as loud as its yes.
+8. **LOW — "Family Health" is a container, not a tool.** The ribbon button
+   only holds Sanitize/Heal; the per-family health ranking the handbook
+   table describes does not exist in the UI. Fix the docs or build the
+   report.
 
-## Verdict so far
+Still pending (part 3): planted pset damage → Pre-Flight delta; Heal Loaded
+Families with before/after type-count diff; Delivery Gate fail path RETEST
+after finding 7 is fixed.
 
-The Validate panel's substance holds on hostile input: fast (88–238 ms),
-correct, honest, and the fix loop is genuinely governed (validated-only
-apply). The findings are metric-labelling and standard-coupling, not
-correctness. Best moment: the Delivery Gate certificate with SHA-256 — a
-deliverable that carries its own proof.
+## Verdict
+
+The Validate panel's substance holds on hostile input — fast (88–238 ms),
+correct, honest, genuinely governed fix loop — until the fail path: finding
+7 is the session's one correctness bug and the next fix-first item. Best
+moment: the SHA-256 delivery certificate. Worst moment: the silent refusal.
+Both are the same feature, which is exactly why the protocol tests both
+directions.
