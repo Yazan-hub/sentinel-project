@@ -137,6 +137,7 @@ Update in place; date + reviews-file link on every non-⬜ entry.
 | Governed Publish loop | ✅ verified | handbook 05, G1–G4 + 2026-07-26 |
 | Base/standard swap | ✅ verified | handbook 05, 2026-07-26 |
 | Auth gate + HTTPS + platform browser session | ✅ verified | 2026-07-26 live debug |
+| Session A — onboard foreign model (Build Office System, Apply Standard, Rule Set, Ingest Docs) | ✅ verified | reviews/session-a-2026-07-27-golden-nugget.md — PASS, 1 med 3 low |
 | Everything else above | ⬜ untested | — |
 
 *The gap between the handbook's 🟩 Built rows and this ledger's ⬜ rows is
