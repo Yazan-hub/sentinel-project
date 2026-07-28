@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -19,6 +20,8 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         var uidoc = c.Application.ActiveUIDocument;
         var doc = uidoc?.Document;
         if (uidoc is null || doc is null) return Result.Cancelled;
+        var targetDocPath = doc.PathName;
+        var targetTitle = doc.Title;
 
         var choice = new TaskDialog("Sentinel — IFC Delivery Gate")
         {
@@ -43,7 +46,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         {
             var open = new Microsoft.Win32.OpenFileDialog
             { Title = "Select IFC file", Filter = "IFC files (*.ifc)|*.ifc", CheckFileExists = true };
-            if (open.ShowDialog() != true) return Result.Cancelled;
+            if (Sentinel.UI.DialogOwner.ShowFileDialog(open, c.Application) != true) return Result.Cancelled;
             ifcPath = open.FileName;
             Certify(ifcPath, contract);
             return Result.Succeeded;
@@ -62,20 +65,31 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             Filter = "IFC 2x3 (*.ifc)|*.ifc",
             FileName = Path.GetFileNameWithoutExtension(doc.Title) + ".ifc",
         };
-        if (save.ShowDialog() != true) return Result.Cancelled;
+        if (Sentinel.UI.DialogOwner.ShowFileDialog(save, c.Application) != true) return Result.Cancelled;
         ifcPath = save.FileName;
+        var targetViewId = view3d.Id;
 
         App.Events?.Enqueue(uiapp =>
         {
-            var d = uiapp.ActiveUIDocument?.Document;
-            if (d is null) return;
+            // Pin to the document/view captured at command time — the handler runs deferred on the
+            // ExternalEvent queue, and by then focus may have moved to a different open document
+            // (observed live: gate invoked on Project1, ran against a different doc). Never operate
+            // on whichever document merely has focus at event time.
+            var d = uiapp.Application.Documents.Cast<Document>().FirstOrDefault(x =>
+                (!string.IsNullOrEmpty(targetDocPath) && x.PathName == targetDocPath) || x.Title == targetTitle);
+            if (d is null)
+            {
+                TaskDialog.Show("Sentinel — IFC Delivery Gate",
+                    "The document this gate was started from is no longer active — nothing was exported.");
+                return;
+            }
             try
             {
                 var opts = new IFCExportOptions
                 {
                     FileVersion = contract.IfcSchema.StartsWith("IFC4", StringComparison.OrdinalIgnoreCase)
                         ? IFCVersion.IFC4 : IFCVersion.IFC2x3CV2,
-                    FilterViewId = d.ActiveView.Id,
+                    FilterViewId = targetViewId,
                     ExportBaseQuantities = true,
                 };
                 using var t = new Transaction(d, "Sentinel: IFC export (gated)");

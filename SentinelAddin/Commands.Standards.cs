@@ -100,7 +100,7 @@ public sealed class LoadOfficeSystemCommand : IExternalCommand
             InitialDirectory = Directory.Exists(packsDir) ? packsDir : null,
             CheckFileExists = true,
         };
-        if (dlg.ShowDialog() != true) return Result.Cancelled;
+        if (DialogOwner.ShowFileDialog(dlg, uiapp) != true) return Result.Cancelled;
 
         StandardsPack? pack;
         try
@@ -144,7 +144,7 @@ public sealed class IngestDocumentsCommand : IExternalCommand
             Multiselect = true,
             CheckFileExists = true,
         };
-        if (dlg.ShowDialog() != true) return Result.Cancelled;
+        if (DialogOwner.ShowFileDialog(dlg, uiapp) != true) return Result.Cancelled;
         var files = dlg.FileNames.ToList();
 
         var window = StandardsReview.Create(uiapp);

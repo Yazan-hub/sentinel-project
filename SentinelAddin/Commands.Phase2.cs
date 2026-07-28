@@ -17,7 +17,7 @@ public sealed class SanitizeFamilyCommand : IExternalCommand
             Filter = "Revit family (*.rfa)|*.rfa",
             CheckFileExists = true,
         };
-        if (dlg.ShowDialog() != true) return Result.Cancelled;
+        if (Sentinel.UI.DialogOwner.ShowFileDialog(dlg, c.Application) != true) return Result.Cancelled;
 
         Workflow.FamilySanitizer.ScanAndLoad(dlg.FileName, (report, loaded) =>
         {
@@ -63,11 +63,11 @@ public sealed class MepVoidsCommand : IExternalCommand
 
         // Lifecycle pass: reconcile existing tracked voids against the current
         // IFC drop (relocate moved, orphan deleted), then handle new candidates.
-        Sentinel.Engine.MepVoidManager.Reconcile(report => HandleReport(report));
+        Sentinel.Engine.MepVoidManager.Reconcile(report => HandleReport(report, c.Application));
         return Result.Succeeded;
     }
 
-    private static void HandleReport(Sentinel.Engine.MepVoidManager.ReconcileReport report)
+    private static void HandleReport(Sentinel.Engine.MepVoidManager.ReconcileReport report, Autodesk.Revit.UI.UIApplication uiapp)
     {
         var candidates = report.NewCandidates;
         if (candidates.Count == 0 && report.Updated + report.Orphaned == 0)
@@ -111,14 +111,14 @@ public sealed class MepVoidsCommand : IExternalCommand
                 FileName = "SelectFolder",
                 Filter = "Folder selection|*.this",
             };
-            if (folderDlg.ShowDialog() != true) return;
+            if (Sentinel.UI.DialogOwner.ShowFileDialog(folderDlg, uiapp) != true) return;
             var outDir = Path.GetDirectoryName(folderDlg.FileName)!;
 
             // Export ONE topic per host element group (host-side ids only —
             // linked MEP element ids are not addressable in the host doc).
-            App.Events?.Enqueue(uiapp =>
+            App.Events?.Enqueue(evtApp =>
             {
-                var doc2 = uiapp.ActiveUIDocument?.Document;
+                var doc2 = evtApp.ActiveUIDocument?.Document;
                 if (doc2 is null) return;
                 var issue = new Sentinel.Engine.BcfExporter.BcfIssue
                 {
