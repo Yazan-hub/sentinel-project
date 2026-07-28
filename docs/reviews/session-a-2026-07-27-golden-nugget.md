@@ -42,9 +42,36 @@ owner-as-user, ~15 minutes for the harvest half.
    disabled/black laptop display; had to be moved via Win32 to the active
    monitor. Not a Sentinel issue.
 
-## Not yet run (rest of Session A)
+## Second half — completed 2026-07-28
 
-Build-ticked-into-blank-doc (Apply Standard round-trip), Project Setup
-persistence re-check, Ingest Docs with a public PDF, Rule Set display.
-Continue next sitting — the harvested Golden Nugget pack is saved and ready
-to be applied.
+- **Apply Standard round-trip — PASS.** Loaded the saved Golden Nugget pack
+  into a blank `Project1`: "106 created, 65 skipped, 0 failed", with per-item
+  binding detail ("`Filter Tragend / Nichttragend` -> 8 categories (type)").
+  Re-running Build reported **"0 created, 171 skipped, 0 failed"** — the
+  idempotency proof, and it confirms the first run genuinely landed.
+- **Rule Set display — PASS.** `bds-rtg-001 v1.4.1`, 7 active rules with
+  enforcement badges (MONITOR/WARN/REQUEST/BLOCK), doc references, and
+  bilingual English/Arabic rule text. Note: shows the BDS QA ruleset even in
+  the German-pack project — expected, `ruleset.json` is the documented
+  not-yet-swappable piece.
+- **Ingest Docs — PASS.** `sample-spec.pdf` through the local LLM (honest
+  "first run loads the model" status): 6 items proposed — 3 worksets at 0.6,
+  3 naming rules at 0.8-0.9 — **all amber-confidence and unticked by
+  default**; nothing enforced without review. The provenance posture holds
+  in this tool too.
+
+## Additional finding
+
+5. **LOW — build-result skips lack reasons.** "65 skipped" on the first
+   apply and "171 skipped" on the re-run are correct but unexplained in the
+   log (already-exists vs not-applicable are different stories). Same class
+   as finding 1: counts without whys.
+
+## Session A verdict
+
+**PASS across the panel** — harvest, pack save, apply round-trip,
+idempotency, gap analysis, ruleset display, and doc ingestion all work on a
+fully foreign German model with zero code changes. Findings are 1 MEDIUM +
+3 LOW, all reporting/UX clarity, none correctness. Session B (chain) is
+already ✅ from the Snowdon run — next is Session C (Validate panel, planted
+damage).
