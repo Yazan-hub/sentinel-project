@@ -99,7 +99,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// Fix button -> Auto-Remediator on the ExternalEvent queue. On success the
     /// row is removed here immediately; the DMU snapshot update inside
     /// AutoFixExecution prevents the rename from being re-flagged.
-    public void RequestFix(ViolationRow row)
+    public void RequestFix(ViolationRow row, System.IntPtr ownerHandle = default)
     {
         if (!row.CanFix) return;
 
@@ -108,6 +108,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         var suggestion = AutoFixExecution.Suggest(row.ElementName, row.RuleId);
         if (suggestion is null) return;
         var dialog = new FixReviewDialog(row.ElementName, row.RuleId, suggestion);
+        DialogOwner.Attach(dialog, ownerHandle);
         if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
 
         Status = $"⚡ Fixing '{row.ElementName}' ({row.RuleId})…";
