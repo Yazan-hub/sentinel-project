@@ -94,6 +94,10 @@ public sealed class App : IExternalApplication
                 return Result.Failed;
             }
 
+            // 6. Upgrade-ladder queue runner: no-op unless this Revit version is the target
+            // of a pending batch upgrade queue (Sentinel.Upgrader.UpgradeQueueRunner).
+            Sentinel.Upgrader.UpgradeQueueRunner.TryArm(app);
+
             return Result.Succeeded;
         }
         catch (Exception ex)
@@ -236,6 +240,8 @@ public sealed class App : IExternalApplication
             "Create the WIP plan views the guideline's `views` section prescribes: one per plannable entry per level, templated and routed into the office Project Browser structure. Idempotent.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Man-hours and monetary value saved by Sentinel's automated interventions.");
+        Push(st, "Sentinel_Upgrade", "Upgrade\nFiles", "Sentinel.Commands.UpgradeFilesCommand", "preflight",
+            "Batch-upgrade a folder of .rvt/.rfa files to an installed Revit version. Upgraded copies go to an 'upgraded-<version>' subfolder; sources are never modified. Downgrades are refused.");
     }
 
     private static string _asm = "";
