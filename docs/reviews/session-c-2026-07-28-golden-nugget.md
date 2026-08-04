@@ -85,8 +85,38 @@ actionable, does the score move when one is fixed."
    table describes does not exist in the UI. Fix the docs or build the
    report.
 
-Still pending (part 3): planted pset damage → Pre-Flight delta; Heal Loaded
-Families with before/after type-count diff.
+## Part 3 — Heal Loaded Families (2026-08-04, fresh Golden Nugget copy)
+
+- **Heal — PASS on substance.** Fresh-copy baseline matched last week exactly
+  (10.9%, 1,092 elements — pristine victim confirmed). Heal processed the
+  whole model: **"194 families scanned · Auto-healed (shared params injected
+  + reloaded): 194 · Requires human interaction: 0 · Failed: 0"** — a clean
+  sweep on fully foreign German families, with an honest four-bucket report.
+- **Deltas measured, and honestly flat.** Post-heal Scan Now: 10.9%
+  unchanged. Post-heal Pre-Flight: 2,161 issues / 91.4% unchanged. Both
+  CORRECT — the QA score is dominated by view-naming rules and Pre-Flight
+  measures `IfcExportAs`, neither of which family params touch. No metric
+  drifted from unrelated change (a correctness positive), but see finding 9.
+
+9. **MEDIUM — Heal's "silent reload" is not silent.** Revit's native
+   "Constraints between geometry…" warning surfaced repeatedly during the
+   batch (one interactive dialog per affected family; we clicked through
+   ~15). On a large model this makes Heal an attended operation. Suppress
+   via an IFailuresPreprocessor (swallow warnings, keep errors) and count
+   them in the report instead.
+10. **LOW — healing is invisible to every metric.** No current rule or
+   score measures family shared-param compliance, so Heal's 194 fixes move
+   nothing the user can see. Either add an FP domain to the scorecard or
+   have Heal's report say "this work is not reflected in the compliance
+   score."
+11. **VERIFY — params-only claim untested.** The report implies only params
+   changed; a before/after type-count diff wasn't practical via UI. Cheap
+   future check: element/type counts in the Heal report itself.
+
+Pset-damage → Pre-Flight delta drill: deferred — this model/ruleset pairing
+never exercises the mandatory-pset branch (everything is MONITOR default-
+mapping). Needs a contract with required psets configured; roll into
+Session D where the delivery contract is in play anyway.
 
 ## Verdict
 
