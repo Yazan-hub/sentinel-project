@@ -41,7 +41,6 @@ Model: `rac_basic_sample` (small, clean — the friendly first target).
 | Apply Standard | The harvested pack applied to a NEW blank doc reproduces the worksets/params |
 | Ingest Docs | Feed it any PDF standard (even a public CAD manual): reviewable pack out, nothing enforced without review, local-only (watch no network calls) |
 | Rule Set | Shows the effective ruleset incl. overlay; matches the files on disk |
-| Upgrade Files | Mixed-version batch → newest installed: upgraded copies open clean; downgrade row refused with reason; corrupt file fails its row only; report matches disk |
 
 ## Session B — Model-from-Drawings chain (already in flight)
 
