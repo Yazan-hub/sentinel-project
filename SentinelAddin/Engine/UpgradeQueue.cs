@@ -40,6 +40,7 @@ public static class UpgradeQueueStore
     private static string Dir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel");
 
+    // ponytail: single global queue - one upgrade batch at a time; per-request queue files if concurrent upgrades ever matter.
     public static string QueuePath => Path.Combine(Dir, "upgrade-queue.json");
     public static string ResultsPath => Path.Combine(Dir, "upgrade-results.json");
     private static string StaleQueuePath => Path.Combine(Dir, "upgrade-queue.stale.json");

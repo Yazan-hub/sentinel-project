@@ -59,6 +59,11 @@ public sealed class UpgradeFilesCommand : IExternalCommand
             return Result.Cancelled;
 
         string target = win.TargetVersion;
+        if (target == currentVersion)
+        {
+            TaskDialog.Show("Sentinel — Upgrade Files", "Target version must be newer than the current Revit session.");
+            return Result.Cancelled;
+        }
         var queue = new UpgradeQueue
         {
             Target = target,
@@ -74,9 +79,10 @@ public sealed class UpgradeFilesCommand : IExternalCommand
         if (File.Exists(UpgradeQueueStore.ResultsPath)) File.Delete(UpgradeQueueStore.ResultsPath);
         UpgradeQueueStore.SaveQueue(queue);
 
+        Process proc;
         try
         {
-            Process.Start(RevitExe(target));
+            proc = Process.Start(RevitExe(target))!;
         }
         catch (Exception ex)
         {
@@ -84,7 +90,7 @@ public sealed class UpgradeFilesCommand : IExternalCommand
             return Result.Failed;
         }
 
-        var progress = new UpgradeProgressWindow(queue.Jobs.Count);
+        var progress = new UpgradeProgressWindow(queue.Jobs.Count, proc);
         DialogOwner.Attach(progress, c);
         progress.PollAndShow();
 
@@ -133,15 +139,18 @@ public sealed class UpgradeFilesCommand : IExternalCommand
 internal sealed class UpgradeProgressWindow : Window
 {
     private readonly int _total;
+    private readonly Process _proc;
     private readonly TextBlock _status;
     private readonly DispatcherTimer _timer;
     private readonly DateTime _startedAt = DateTime.Now;
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
     private bool _cancelled;
+    private bool _diedEarly;
 
-    public UpgradeProgressWindow(int total)
+    public UpgradeProgressWindow(int total, Process proc)
     {
         _total = total;
+        _proc = proc;
         Title = "Sentinel — Upgrading Files";
         Width = 420; Height = 160; MinWidth = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -183,13 +192,15 @@ internal sealed class UpgradeProgressWindow : Window
             return;
         }
 
-        // Timed out: report completed vs still-pending by name.
+        // Timed out or the target Revit died early: report completed vs still-pending by name.
         var jobs = result?.jobs ?? new List<UpgradeJob>();
         var done = jobs.Where(j => j.Ok.HasValue).Select(j => Path.GetFileName(j.Src)).ToList();
         var pending = jobs.Where(j => !j.Ok.HasValue).Select(j => Path.GetFileName(j.Src)).ToList();
-        var sb = new StringBuilder("Timed out after 10 minutes.\n\n");
+        var sb = new StringBuilder(_diedEarly
+            ? $"The target Revit closed before finishing (exit code {_proc.ExitCode}).\n\n"
+            : "Timed out after 10 minutes.\n\n");
         sb.AppendLine($"Completed ({done.Count}): " + (done.Count > 0 ? string.Join(", ", done) : "none"));
-        sb.AppendLine($"Still pending ({pending.Count}): " + (pending.Count > 0 ? string.Join(", ", pending) : "none"));
+        sb.AppendLine($"Pending ({pending.Count}): " + (pending.Count > 0 ? string.Join(", ", pending) : "none"));
         TaskDialog.Show("Sentinel — Upgrade Files", sb.ToString());
     }
 
@@ -203,7 +214,16 @@ internal sealed class UpgradeProgressWindow : Window
         }
 
         var result = UpgradeQueueStore.LoadResults();
-        if (result == null) return;
+        if (result == null)
+        {
+            if (_proc.HasExited)
+            {
+                _diedEarly = true;
+                DialogResult = false;
+                Close();
+            }
+            return;
+        }
 
         int done = result.Value.jobs.Count(j => j.Ok.HasValue);
         _status.Text = $"{done} of {_total} done…";
@@ -211,6 +231,12 @@ internal sealed class UpgradeProgressWindow : Window
         if (result.Value.done)
         {
             DialogResult = true;
+            Close();
+        }
+        else if (_proc.HasExited)
+        {
+            _diedEarly = true;
+            DialogResult = false;
             Close();
         }
     }

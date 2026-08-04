@@ -56,9 +56,20 @@ public sealed class UpgradeWindow : Window
             cb.Unchecked += (_, __) => UpdateOk();
         }
 
-        foreach (var v in installedVersions) _targetBox.Items.Add(v);
-        _targetBox.SelectedIndex = Math.Max(0, installedVersions.ToList().IndexOf(currentVersion));
+        bool currentIsNum = int.TryParse(currentVersion, out int curNum);
+        var newerVersions = installedVersions
+            .Where(v => int.TryParse(v, out int n) && (!currentIsNum || n > curNum))
+            .OrderBy(v => int.Parse(v))
+            .ToList();
+        foreach (var v in newerVersions) _targetBox.Items.Add(v);
+        if (newerVersions.Count > 0) _targetBox.SelectedIndex = 0;
         _targetBox.SelectionChanged += (_, __) => Recompute();
+
+        if (newerVersions.Count == 0)
+        {
+            header.Text = "No newer Revit installed — nothing to upgrade to.";
+            _targetBox.IsEnabled = false;
+        }
 
         _ok = new Button { Content = "Upgrade 0 file(s) ▶", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 0), IsEnabled = false };
         _ok.Click += (_, __) => Accept();
