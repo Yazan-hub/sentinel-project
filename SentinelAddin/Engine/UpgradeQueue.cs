@@ -43,6 +43,7 @@ public static class UpgradeQueueStore
     public static string QueuePath => Path.Combine(Dir, "upgrade-queue.json");
     public static string ResultsPath => Path.Combine(Dir, "upgrade-results.json");
     private static string StaleQueuePath => Path.Combine(Dir, "upgrade-queue.stale.json");
+    private static string BadQueuePath => Path.Combine(Dir, "upgrade-queue.bad.json");
 
     public static void SaveQueue(UpgradeQueue q)
     {
@@ -55,7 +56,22 @@ public static class UpgradeQueueStore
     public static UpgradeQueue? LoadQueueFor(string version)
     {
         if (!File.Exists(QueuePath)) return null;
-        var q = JsonSerializer.Deserialize<UpgradeQueue>(File.ReadAllText(QueuePath), JsonOpts);
+        UpgradeQueue? q;
+        try
+        {
+            q = JsonSerializer.Deserialize<UpgradeQueue>(File.ReadAllText(QueuePath), JsonOpts);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            Console.WriteLine($"Sentinel: corrupt upgrade queue ({ex.Message}) — setting aside, not running.");
+            try
+            {
+                File.Copy(QueuePath, BadQueuePath, overwrite: true);
+                File.Delete(QueuePath);
+            }
+            catch { /* best-effort; corrupt file staying in place still blocks a re-read next time */ }
+            return null;
+        }
         if (q is null) return null;
 
         if (DateTimeOffset.Now - q.CreatedAt > StaleAfter)
@@ -79,10 +95,18 @@ public static class UpgradeQueueStore
     public static (bool done, List<UpgradeJob> jobs)? LoadResults()
     {
         if (!File.Exists(ResultsPath)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllText(ResultsPath));
-        var root = doc.RootElement;
-        var done = root.GetProperty("done").GetBoolean();
-        var jobs = JsonSerializer.Deserialize<List<UpgradeJob>>(root.GetProperty("jobs").GetRawText(), JsonOpts) ?? new();
-        return (done, jobs);
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(ResultsPath));
+            var root = doc.RootElement;
+            var done = root.GetProperty("done").GetBoolean();
+            var jobs = JsonSerializer.Deserialize<List<UpgradeJob>>(root.GetProperty("jobs").GetRawText(), JsonOpts) ?? new();
+            return (done, jobs);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Sentinel: corrupt upgrade results ({ex.Message}) — ignoring.");
+            return null;
+        }
     }
 }

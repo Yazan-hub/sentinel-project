@@ -65,6 +65,8 @@ void CleanQueueFiles()
     if (File.Exists(UpgradeQueueStore.ResultsPath)) File.Delete(UpgradeQueueStore.ResultsPath);
     var stale = Path.Combine(Path.GetDirectoryName(UpgradeQueueStore.QueuePath)!, "upgrade-queue.stale.json");
     if (File.Exists(stale)) File.Delete(stale);
+    var bad = Path.Combine(Path.GetDirectoryName(UpgradeQueueStore.QueuePath)!, "upgrade-queue.bad.json");
+    if (File.Exists(bad)) File.Delete(bad);
 }
 CleanQueueFiles();
 
@@ -85,7 +87,17 @@ UpgradeQueueStore.SaveResults(q, done: true);
 var r = UpgradeQueueStore.LoadResults();
 Check(r != null && r.Value.done && r.Value.jobs[0].Warnings == 3, "results-roundtrip");
 
+// Corrupt files must never throw at Revit startup (Task 3 runner calls LoadQueueFor in OnStartup).
+File.WriteAllText(UpgradeQueueStore.QueuePath, "{not json");
+Check(UpgradeQueueStore.LoadQueueFor("2093") == null, "corrupt-queue-no-throw");
+var badPath = Path.Combine(Path.GetDirectoryName(UpgradeQueueStore.QueuePath)!, "upgrade-queue.bad.json");
+Check(File.Exists(badPath), "corrupt-queue-set-aside");
+
+File.WriteAllText(UpgradeQueueStore.ResultsPath, "{not json");
+Check(UpgradeQueueStore.LoadResults() == null, "corrupt-results-no-throw");
+
 CleanQueueFiles();
+if (File.Exists(badPath)) File.Delete(badPath);
 
 Console.WriteLine(fail == 0 ? "RVTINFO OK" : $"{fail} FAILURES");
 return fail == 0 ? 0 : 1;
