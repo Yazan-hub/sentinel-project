@@ -30,7 +30,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Referee Sandbox (real engine, client-side) | 🟩 Built | `WebApp/sandbox/` |
 | Shareable explainer page | 🟩 Built | Published artifact |
 | MCP server (agent proposes → gets a verdict) | 🟩 Built | `bridge/mcp-server.mjs` |
-| Upgrade Ladder (batch cross-version upgrades) | 🟩 Built | Queue runner in every deployed Revit; downgrades refused honestly; ✅ after the live drill |
+| Upgrade Ladder (batch cross-version upgrades) | ✅ Verified | **Live 2026-08-04**: Revit 2024 → 2026 batch (`reviews/upgrade-ladder-2026-08-04-drill.md`). 2026 auto-launched, upgraded a 28 MB project + a family (0 warnings), self-exited; sources untouched, queue self-cleaned, unknown-version row excluded, target dropdown correctly hid the running version. Downgrades refused; no cloud. |
 
 ## Security
 
