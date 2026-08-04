@@ -30,6 +30,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Referee Sandbox (real engine, client-side) | 🟩 Built | `WebApp/sandbox/` |
 | Shareable explainer page | 🟩 Built | Published artifact |
 | MCP server (agent proposes → gets a verdict) | 🟩 Built | `bridge/mcp-server.mjs` |
+| Upgrade Ladder (batch cross-version upgrades) | 🟩 Built | Queue runner in every deployed Revit; downgrades refused honestly; ✅ after the live drill |
 
 ## Security
 
