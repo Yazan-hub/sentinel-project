@@ -59,7 +59,18 @@ actionable, does the score move when one is fixed."
 
 ## Part 2 — run same evening
 
-7. **HIGH — Delivery Gate fail path is silent and switches documents.**
+7. **HIGH — Delivery Gate fail path is silent and switches documents. — Fixed, verified live 2026-08-04**
+
+   *Fix (merge 95bf5ca):* every Sentinel dialog now anchors to Revit's window
+   (`DialogOwner` helper — WPF windows and Win32 file dialogs via a
+   self-cleaning anchor), and the gate pins its invoking document + 3D view,
+   aborting loudly if that document is gone. *Retest on the empty `Project1`:*
+   plan view active → visible "Open a 3D view first" on the working monitor;
+   3D view active → export → **"✕ FAIL — DO NOT upload: IFCWALL: 0 found,
+   contract requires ≥ 1 · IFCSLAB: 0 found · Pset_WallCommon not found"**
+   with a FAIL certificate + SHA-256 written. Stayed in `Project1`
+   throughout. The no is now as loud as the yes — and it leaves a record.
+
    Ran the gate on the EMPTY `Project1` (no walls, no slabs — the
    bds-default contract must refuse it). Expected: a loud "rejected" naming
    the missing entities. Got: **no dialog, no export, no certificate, and
@@ -75,8 +86,7 @@ actionable, does the score move when one is fixed."
    report.
 
 Still pending (part 3): planted pset damage → Pre-Flight delta; Heal Loaded
-Families with before/after type-count diff; Delivery Gate fail path RETEST
-after finding 7 is fixed.
+Families with before/after type-count diff.
 
 ## Verdict
 

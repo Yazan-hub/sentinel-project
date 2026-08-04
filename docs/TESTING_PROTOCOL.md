@@ -138,7 +138,7 @@ Update in place; date + reviews-file link on every non-⬜ entry.
 | Base/standard swap | ✅ verified | handbook 05, 2026-07-26 |
 | Auth gate + HTTPS + platform browser session | ✅ verified | 2026-07-26 live debug |
 | Session A — onboard foreign model (Build Office System, Apply Standard, Rule Set, Ingest Docs) | ✅ verified | reviews/session-a-2026-07-27-golden-nugget.md — PASS, 1 med 3 low |
-| Session C — Validate panel (Scan, Fix loop, Scorecard, Pre-Flight, Delivery Gate, Sanitize) | 🟨 ran, issues | reviews/session-c-2026-07-28-golden-nugget.md — substance PASS but **1 HIGH open** (gate fail path silent + doc switch); Heal + retest pending |
+| Session C — Validate panel (Scan, Fix loop, Scorecard, Pre-Flight, Delivery Gate, Sanitize) | 🟨 ran, issues | reviews/session-c-2026-07-28-golden-nugget.md — substance PASS, HIGH fixed + retested 2026-08-04 (loud FAIL cert); Heal + pset delta pending |
 | Everything else above | ⬜ untested | — |
 
 *The gap between the handbook's 🟩 Built rows and this ledger's ⬜ rows is
