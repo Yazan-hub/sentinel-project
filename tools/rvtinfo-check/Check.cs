@@ -6,13 +6,15 @@ using System.IO;
 using System.Linq;
 using Sentinel.Engine;
 
-static byte[] FakeRvt(string marker)
+static byte[] FakeRvt(string marker, bool bigEndian = false)
 {
-    // Minimal fixture: OLE magic + padding + the marker as UTF-16LE, as it
-    // appears inside BasicFileInfo. Parser must find it by byte scan.
+    // Minimal fixture: OLE magic + padding + the marker as UTF-16 (LE by default), as it
+    // appears inside BasicFileInfo. Parser must find it by byte scan. Real sample RVTs were
+    // found to store this text as UTF-16BE, hence the bigEndian option (see task-1 report).
     var head = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
     var pad = new byte[512];
-    var text = System.Text.Encoding.Unicode.GetBytes(marker);
+    var enc = bigEndian ? System.Text.Encoding.BigEndianUnicode : System.Text.Encoding.Unicode;
+    var text = enc.GetBytes(marker);
     return head.Concat(pad).Concat(text).Concat(pad).ToArray();
 }
 
@@ -43,6 +45,16 @@ Check(RvtFileInfo.Read(p3).Flavor == "Template", "flavor-rte");
 
 // 4. Missing file: no throw
 Check(RvtFileInfo.Read(Path.Combine(dir, "missing.rvt")).SavedVersion == "", "missing-no-throw");
+
+// 5. UTF-16BE marker (real sample RVTs store BasicFileInfo text this way, not LE)
+var p4 = Path.Combine(dir, "d.rvt");
+File.WriteAllBytes(p4, FakeRvt("Format: 2022", bigEndian: true));
+Check(RvtFileInfo.Read(p4).SavedVersion == "2022", "format-marker-be");
+
+// 6. Zero-byte file: no throw, no version
+var p5 = Path.Combine(dir, "e.rvt");
+File.WriteAllBytes(p5, Array.Empty<byte>());
+Check(RvtFileInfo.Read(p5).SavedVersion == "", "zero-byte-no-throw");
 
 Console.WriteLine(fail == 0 ? "RVTINFO OK" : $"{fail} FAILURES");
 return fail == 0 ? 0 : 1;
