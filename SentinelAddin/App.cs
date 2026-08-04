@@ -94,6 +94,10 @@ public sealed class App : IExternalApplication
                 return Result.Failed;
             }
 
+            // 6. Upgrade-ladder queue runner: no-op unless this Revit version is the target
+            // of a pending batch upgrade queue (Sentinel.Upgrader.UpgradeQueueRunner).
+            Sentinel.Upgrader.UpgradeQueueRunner.TryArm(app);
+
             return Result.Succeeded;
         }
         catch (Exception ex)
