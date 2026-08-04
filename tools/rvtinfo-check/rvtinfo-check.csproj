@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\RvtFileInfo.cs" Link="RvtFileInfo.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\UpgradeQueue.cs" Link="UpgradeQueue.cs" />
   </ItemGroup>
 </Project>

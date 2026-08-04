@@ -56,5 +56,36 @@ var p5 = Path.Combine(dir, "e.rvt");
 File.WriteAllBytes(p5, Array.Empty<byte>());
 Check(RvtFileInfo.Read(p5).SavedVersion == "", "zero-byte-no-throw");
 
+// ---- UpgradeQueue contract ----
+// Fake target version ("2093") so a leftover file can never be mistaken for a real Revit version
+// by the Task 3 runner, which reads this same %AppData%\Sentinel\ path on a real machine.
+void CleanQueueFiles()
+{
+    if (File.Exists(UpgradeQueueStore.QueuePath)) File.Delete(UpgradeQueueStore.QueuePath);
+    if (File.Exists(UpgradeQueueStore.ResultsPath)) File.Delete(UpgradeQueueStore.ResultsPath);
+    var stale = Path.Combine(Path.GetDirectoryName(UpgradeQueueStore.QueuePath)!, "upgrade-queue.stale.json");
+    if (File.Exists(stale)) File.Delete(stale);
+}
+CleanQueueFiles();
+
+var q = new UpgradeQueue
+{
+    Target = "2093",
+    CreatedAt = DateTimeOffset.Now,
+    Jobs = { new UpgradeJob { Src = @"C:\x\a.rvt", Dest = @"C:\x\upgraded-2093\a.rvt" } }
+};
+UpgradeQueueStore.SaveQueue(q);
+Check(UpgradeQueueStore.LoadQueueFor("2093") != null, "queue-roundtrip");
+Check(UpgradeQueueStore.LoadQueueFor("2092") == null, "queue-target-mismatch");
+q.CreatedAt = DateTimeOffset.Now.AddHours(-2); UpgradeQueueStore.SaveQueue(q);
+Check(UpgradeQueueStore.LoadQueueFor("2093") == null, "queue-stale-rejected");
+Check(!File.Exists(UpgradeQueueStore.QueuePath), "stale-renamed-away");
+q.CreatedAt = DateTimeOffset.Now; q.Jobs[0].Ok = true; q.Jobs[0].Warnings = 3;
+UpgradeQueueStore.SaveResults(q, done: true);
+var r = UpgradeQueueStore.LoadResults();
+Check(r != null && r.Value.done && r.Value.jobs[0].Warnings == 3, "results-roundtrip");
+
+CleanQueueFiles();
+
 Console.WriteLine(fail == 0 ? "RVTINFO OK" : $"{fail} FAILURES");
 return fail == 0 ? 0 : 1;
