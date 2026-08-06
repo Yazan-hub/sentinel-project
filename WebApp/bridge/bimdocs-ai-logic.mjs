@@ -70,28 +70,35 @@ export function buildIntegrityPrompt(grounding, doc) {
   };
 }
 
-/** Tolerant JSON extraction: raw, or the first fenced/brace block. Returns null when hopeless. */
-function extractJson(text) {
+/** Tolerant JSON extraction. Small models often echo the requested schema in one fenced block and
+ *  put the real answer in another, so first-parse-wins would return the echo. Every fenced block
+ *  and the greedy brace span are all candidates; a parse that carries `key` beats one that merely
+ *  parses. Returns null when hopeless. */
+function extractJson(text, key) {
   const raw = String(text ?? "").trim();
   const candidates = [raw];
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) candidates.push(fence[1].trim());
+  for (const m of raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) candidates.push(m[1].trim());
   const brace = raw.match(/\{[\s\S]*\}/);
   if (brace) candidates.push(brace[0]);
+  let fallback = null;
   for (const c of candidates) {
-    try { return JSON.parse(c); } catch { /* next */ }
+    try {
+      const j = JSON.parse(c);
+      if (j && typeof j === "object" && key in j) return j;
+      fallback = fallback ?? j;
+    } catch { /* next */ }
   }
-  return null;
+  return fallback;
 }
 
 export function parseDraft(text) {
-  const j = extractJson(text);
+  const j = extractJson(text, "body");
   if (!j || typeof j.body !== "string" || !j.body.trim()) return { unparsed: true };
   return { body: j.body };
 }
 
 export function parseFindings(text, doc, factCount) {
-  const j = extractJson(text);
+  const j = extractJson(text, "findings");
   if (!j || !Array.isArray(j.findings)) return { unparsed: true };
   const ids = new Set((doc?.sections || []).map((s) => s.id));
   const clip = (v) => String(v).slice(0, MAX_FINDING_CHARS);

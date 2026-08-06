@@ -146,3 +146,21 @@ describe("parseFindings — the gate", () => {
 describe("SEVERITIES", () => {
   it("is the frozen list", () => expect(SEVERITIES).toEqual(["high", "medium", "low"]));
 });
+
+describe("extractJson candidate preference (schema-echo defense)", () => {
+  it("parseDraft picks the candidate with the expected key, not the first parseable fence", () => {
+    const reply = 'The format is:\n```json\n{"example": true}\n```\nHere is my answer:\n```json\n{"body":"Real content."}\n```';
+    expect(parseDraft(reply)).toEqual({ body: "Real content." });
+  });
+
+  it("parseFindings skips a schema-echo fence and finds the real findings block", () => {
+    const echo = '{"schema":"demo"}';
+    const real = JSON.stringify({ findings: [{ section_id: "s1", fact: 1, claim: "c", reality: "r", severity: "low" }] });
+    const r = parseFindings("```json\n" + echo + "\n```\n```json\n" + real + "\n```", DOC, 5);
+    expect(r.findings).toHaveLength(1);
+  });
+
+  it("still falls back to a keyless parse being rejected as unparsed, not crashing", () => {
+    expect(parseDraft('```json\n{"example": true}\n```')).toEqual({ unparsed: true });
+  });
+});
