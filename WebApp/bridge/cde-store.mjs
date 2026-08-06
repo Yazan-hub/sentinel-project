@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { loadEnv } from "./thatopen-client.mjs";
-import { currentUserToken, currentActor } from "./bridge-auth.mjs";
+import { currentUserToken, currentActor, resolveActor } from "./bridge-auth.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -521,7 +521,8 @@ export async function registerFileVersion(key, b = {}) {
 
 /** Run the DB state machine (validates the transition, writes the audit row, enforces immutability). */
 export async function transition(version_id, new_state, actor, note) {
-  return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: actor, p_note: note } });
+  // ISO 19650 state changes are the governed trail's spine — stamp the verified identity, not the claim.
+  return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note } });
 }
 
 export async function listAudit(key) {
@@ -533,8 +534,7 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
   // audit_log has no authed-insert policy (writes bypass RLS by design) → force the service key.
   // A forwarded JWT's verified identity outranks any client-asserted actor (anti audit-trail poisoning, F3);
   // with no JWT (Revit/service path) we keep the supplied actor so the pilot is unaffected.
-  const trustedActor = currentActor() || actor;
-  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: trustedActor, old_value: oldv, new_value: newv }, service: true });
+  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: resolveActor(actor), old_value: oldv, new_value: newv }, service: true });
 }
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). */
@@ -547,7 +547,9 @@ export async function recordAudit(key, b) {
       entity_type: b.entity_type || "event",
       entity_id: b.entity_id ?? null,
       action: b.action || "recorded",
-      actor: b.actor ?? null,
+      // Same anti-poisoning rule as audit(): a signed-in caller's verified identity outranks the claim.
+      // This route (POST /cde/:key/audit) previously wrote the claim raw — the one audit_log sink that did.
+      actor: resolveActor(b.actor),
       old_value: b.old_value ?? null,
       new_value: b.new_value ?? null,
     },
@@ -796,7 +798,7 @@ export async function adjudicateProposal(key, b = {}) {
   const proj = await ensureProject(key);
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
-  const trustedActor = currentActor() ?? b.actor ?? b.source ?? "agent";
+  const trustedActor = resolveActor(b.actor ?? b.source, "agent");
   const audit = (await sb(`audit_log`, {
     method: "POST",
     body: {

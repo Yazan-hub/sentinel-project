@@ -28,3 +28,12 @@ export const currentActor = () => {
     return c.email || c.sub || null;
   } catch { return null; }
 };
+
+/**
+ * The actor to persist on any attribution record (audit_log, state transitions): the JWT-verified
+ * identity when the caller is a signed-in user, else whatever the caller claimed (trusted machine
+ * paths — Revit outbox, MCP, scripts — hold BCF_TOKEN and label themselves), else the fallback.
+ * Every sink that stamps an actor MUST route through this, so a browser caller can never write an
+ * identity other than their own into the governed trail.
+ */
+export const resolveActor = (claimed, fallback = null) => currentActor() || claimed || fallback;
