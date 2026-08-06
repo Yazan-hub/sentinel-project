@@ -53,3 +53,21 @@ describe("actor wiring at the sinks", () => {
     expect(lastBody().p_actor).toBe("web");
   });
 });
+
+describe("BCF topic authorship (spec posture: server-assigned)", () => {
+  it("a signed-in caller's identity overrides the claimed creation_author, in the topic AND its history", async () => {
+    const { newTopicObject } = await import("./cde-store.mjs");
+    await runWithAuth(jwt({ email: "real@x.com" }), async () => {
+      const t = newTopicObject("p1", { title: "T", creation_author: "SPOOFED" });
+      expect(t.creation_author).toBe("real@x.com");
+      expect(t.history[0].author).toBe("real@x.com");
+    });
+  });
+
+  it("the Revit pilot's machine path keeps its self-label", async () => {
+    const { newTopicObject } = await import("./cde-store.mjs");
+    const t = newTopicObject("p1", { title: "T", creation_author: "revit-pilot" });
+    expect(t.creation_author).toBe("revit-pilot");
+    expect(t.history[0].author).toBe("revit-pilot");
+  });
+});

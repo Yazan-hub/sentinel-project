@@ -904,15 +904,19 @@ export async function bcfGetTopic(pid, guid) {
  *  NOT NULL in the database. A caller that hand-rolls a partial object gets a 23502 at insert time.
  *  Lives here, beside bcfCreateTopic, so the AI tool registry and the HTTP routes share one definition. */
 export function newTopicObject(pid, b = {}, now = new Date().toISOString()) {
+  // Server-assigned authorship, as the BCF-API spec intends: a signed-in caller's verified identity
+  // outranks the claimed creation_author; machine callers (BCF_TOKEN — the Revit pilot, Governed
+  // Publish) keep their self-label.
+  const author = resolveActor(b.creation_author, "web");
   return {
     guid: b.guid || randomUUID(), project_id: pid, model: b.model || "",
     title: b.title || "Untitled", topic_type: b.topic_type || "Issue",
     topic_status: b.topic_status || "Open", priority: b.priority || "Normal",
     assigned_to: b.assigned_to || "", due_date: b.due_date || null,
     stage: b.stage || "", description: b.description || "",
-    creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
+    creation_author: author, creation_date: now, modified_date: now,
     labels: b.labels || [], comments: [], viewpoints: [],
-    history: [{ date: now, author: b.creation_author || "web", action: "Created" }],
+    history: [{ date: now, author, action: "Created" }],
   };
 }
 

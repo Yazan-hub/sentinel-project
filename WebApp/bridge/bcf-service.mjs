@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSy
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { runWithAuth } from "./bridge-auth.mjs";
+import { runWithAuth, resolveActor } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt } from "./verify-jwt.mjs";
 
@@ -291,7 +291,7 @@ const loadCore = async () => (_core ??= await import("./sentinel-core.mjs"));
  *  the reject→fix→re-publish loop. Callers reach this only inside the /cde/ block, where CDE is guaranteed
  *  configured, so it goes straight to the Supabase-backed BCF store. Mirrors visibility-panel's raise path. */
 async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
-  const author = opts.author || "Governed Publish";
+  const author = resolveActor(opts.author, "Governed Publish");
   const idsTitle = result?.summary?.ids || "IDS";
   // Which requirements already have an OPEN IDS topic → dedup keys (BCF-title parsing stays here; it's the
   // BCF-shape-specific inverse of the `IDS: <key> (N failing)` subject built below).
@@ -663,8 +663,8 @@ async function handleRequest(req, res) {
           subject: b.subject || "Untitled", question: b.question || "", status: "Open",
           discipline: b.discipline || "", assigned_to: b.assigned_to || "", due_date: b.due_date || null,
           answer: "", model: b.model || "", linked: b.linked || [],
-          creation_author: b.creation_author || "web", creation_date: now, modified_date: now,
-          history: [{ date: now, author: b.creation_author || "web", action: "Raised" }],
+          creation_author: resolveActor(b.creation_author, "web"), creation_date: now, modified_date: now,
+          history: [{ date: now, author: resolveActor(b.creation_author, "web"), action: "Raised" }],
         };
         if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else { rdb.rfis.push(rfi); persistRfi(); }
         return send(res, 201, rfi);
@@ -673,7 +673,7 @@ async function handleRequest(req, res) {
       if (!rfi) return send(res, 404, { message: "RFI not found" });
       rfi.history = rfi.history || [];
       if (req.method === "PUT") {
-        const b = await readBody(req); const who = b.author || "web"; const now = new Date().toISOString();
+        const b = await readBody(req); const who = resolveActor(b.author, "web"); const now = new Date().toISOString();
         if (b.answer !== undefined && b.answer !== rfi.answer) {
           rfi.answer = b.answer; rfi.history.push({ date: now, author: who, action: "Answered" });
           if (rfi.status === "Open") rfi.status = "Answered";
@@ -706,7 +706,7 @@ async function handleRequest(req, res) {
         const existing = packs.find((p) => p.id === id);
         const pack = {
           id, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
-          author: b.author || "anon", tags: b.tags || [], ruleset: b.ruleset || { rules: [] },
+          author: resolveActor(b.author, "anon"), tags: b.tags || [], ruleset: b.ruleset || { rules: [] },
           installs: existing?.installs || 0, forks: existing?.forks || 0,
           forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || now,
         };
@@ -720,7 +720,7 @@ async function handleRequest(req, res) {
       if (req.method === "POST" && ksub === "fork") {
         const b = await readBody(req); const now = new Date().toISOString();
         const nid = `${b.key || pack.key}@${b.version || "fork"}`;
-        const fork = { ...pack, id: nid, key: b.key || pack.key, version: b.version || "fork", name: b.name || pack.name + " (fork)", author: b.author || "anon", installs: 0, forks: 0, forked_from: pack.id, created_at: now };
+        const fork = { ...pack, id: nid, key: b.key || pack.key, version: b.version || "fork", name: b.name || pack.name + " (fork)", author: resolveActor(b.author, "anon"), installs: 0, forks: 0, forked_from: pack.id, created_at: now };
         pack.forks = (pack.forks || 0) + 1;
         if (useCde) { await cde.docUpsert("pack", "", pack.id, pack); await cde.docUpsert("pack", "", fork.id, fork); } else { pkdb.packs.push(fork); persistPack(); }
         return send(res, 201, fork);
@@ -746,7 +746,7 @@ async function handleRequest(req, res) {
           due_date: b.due_date || null, currency: b.currency || "",
           scope: Array.isArray(b.scope) ? b.scope : [], estimate_total: b.estimate_total || 0,
           bids: [], awarded_to: "", creation_date: now, modified_date: now,
-          history: [{ date: now, author: b.author || "web", action: "Tender issued" }],
+          history: [{ date: now, author: resolveActor(b.author, "web"), action: "Tender issued" }],
         };
         if (useCde) await cde.docUpsert("tender", tpid, t.guid, t); else { tndb.tenders.push(t); persistTender(); }
         return send(res, 201, t);
@@ -759,11 +759,11 @@ async function handleRequest(req, res) {
         const b = await readBody(req); const now = new Date().toISOString();
         const rates = b.rates || {};
         const bid = { id: randomUUID(), bidder: b.bidder || "Bidder", submitted_date: now, rates, total: bidTotal(t.scope, rates) };
-        t.bids.push(bid); t.history.push({ date: now, author: b.bidder || "web", action: `Bid received: ${b.bidder || "Bidder"}` });
+        t.bids.push(bid); t.history.push({ date: now, author: resolveActor(b.bidder, "web"), action: `Bid received: ${b.bidder || "Bidder"}` });
         t.modified_date = now; await saveTender(); return send(res, 201, bid);
       }
       if (req.method === "PUT") {
-        const b = await readBody(req); const now = new Date().toISOString(); const who = b.author || "web";
+        const b = await readBody(req); const now = new Date().toISOString(); const who = resolveActor(b.author, "web");
         if (b.status && b.status !== t.status) { t.history.push({ date: now, author: who, action: `Status: ${t.status} → ${b.status}` }); t.status = b.status; }
         if (b.awarded_to !== undefined && b.awarded_to !== t.awarded_to) { t.awarded_to = b.awarded_to; t.status = "Awarded"; t.history.push({ date: now, author: who, action: `Awarded to ${b.awarded_to}` }); }
         t.modified_date = now; await saveTender(); return send(res, 200, t);
@@ -1171,7 +1171,7 @@ async function handleRequest(req, res) {
     // PUT — edit fields (status/priority/assignee/etc.); each change is logged to history.
     if (req.method === "PUT" && guid && !sub) {
       const b = await readBody(req);
-      const who = b.author || "web";
+      const who = resolveActor(b.author, "web");
       const now = new Date().toISOString();
       for (const [k, label] of [["topic_status", "Status"], ["priority", "Priority"], ["assigned_to", "Assignee"], ["due_date", "Due date"], ["title", "Title"], ["description", "Description"]]) {
         if (b[k] !== undefined && b[k] !== topic[k]) {
@@ -1189,7 +1189,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && sub === "comments") {
       const b = await readBody(req);
       const now = new Date().toISOString();
-      const c = { guid: randomUUID(), date: now, author: b.author || "web",
+      const c = { guid: randomUUID(), date: now, author: resolveActor(b.author, "web"),
         comment: b.comment || "", viewpoint_guid: b.viewpoint_guid || null };
       topic.comments.push(c);
       topic.history.push({ date: now, author: c.author, action: "Comment added" });
