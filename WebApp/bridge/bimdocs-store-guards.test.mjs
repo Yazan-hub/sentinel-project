@@ -97,3 +97,25 @@ describe("complianceReport bounds total checks at MAX_COMPLIANCE_CHECKS", () => 
     expect(audit).not.toHaveBeenCalled();
   });
 });
+
+describe("setSectionBindings — missing-wrapper guard", () => {
+  it("rejects a payload with no bindings key (400) instead of silently wiping", async () => {
+    await expect(setSectionBindings("demo", "doc1", "sec1", { updated_at: doc.updated_at }))
+      .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/bindings is required/) });
+    expect(sb).not.toHaveBeenCalled(); // validation-before-network held
+  });
+
+  it("names the common mistake when checks is sent at the top level", async () => {
+    await expect(setSectionBindings("demo", "doc1", "sec1", { checks: [{ id: "naming.ruleset" }] }))
+      .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/missing the 'bindings' wrapper/) });
+    expect(sb).not.toHaveBeenCalled();
+  });
+
+  it("an EXPLICIT empty bindings object still clears (that path must keep working)", async () => {
+    doc.sections[0].bindings = { checks: [{ id: "naming.ruleset", params: {} }] };
+    const result = await setSectionBindings("demo", "doc1", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
+    expect(result).toBeTruthy();
+    const patch = sb.mock.calls.find(([, opts]) => opts?.method === "PATCH");
+    expect(patch[1].body.sections[0].bindings).toEqual({ checks: [] });
+  });
+});

@@ -179,7 +179,15 @@ export function validateBindings(bindings) {
 }
 
 /** Persist one section's bindings. Same guards as patchSection: no editing a published/archived doc. */
-export async function setSectionBindings(key, docId, sectionId, { bindings, updated_at, actor } = {}) {
+export async function setSectionBindings(key, docId, sectionId, payload = {}) {
+  const { bindings, updated_at, actor } = payload;
+  // A missing `bindings` key used to fall through validateBindings' undefined-default and silently
+  // WIPE the section's bindings to empty with a 200. A PUT to this route must say what it means:
+  // {bindings:{checks:[...]}} to set, {bindings:{checks:[]}} to clear explicitly.
+  if (bindings === undefined)
+    throw err(400, payload.checks !== undefined
+      ? "missing the 'bindings' wrapper — send {bindings:{checks:[...]}}, not {checks:[...]}"
+      : "bindings is required — {bindings:{checks:[{id, params?}]}}; send {bindings:{checks:[]}} to clear");
   const next = validateBindings(bindings); // validate BEFORE any network call
   const doc = await getDoc(key, docId);
   if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
