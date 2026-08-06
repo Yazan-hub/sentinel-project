@@ -4,6 +4,10 @@
 -- ({id, heading, guidance, body, state, owner, bindings}); `bindings` is reserved (always {}) for the
 -- enforcement wiring sub-project. Published versions are snapshotted into bim_document_versions, which is
 -- append-only (trigger guard, same philosophy as 0017): a published BEP/EIR is a contractual artifact.
+-- Tradeoff: versions are immutable while their document exists. Deleting the document (or its project)
+-- cascades its version history away — the guard allows DELETE only when the parent document is already
+-- gone (i.e. mid-cascade). The audit_log trail, which has no FK, is what survives — same philosophy as
+-- project deletion in cde-store.
 -- RLS mirrors 0004/0009: service-key bridge open, authenticated users scoped to member projects, no anon.
 
 begin;
@@ -34,8 +38,13 @@ create table if not exists public.bim_document_versions (
 
 -- Append-only guard (style of 0017): published versions can never be rewritten or removed.
 create or replace function public.bim_document_versions_append_only() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 begin
+  if tg_op = 'DELETE' then
+    if not exists (select 1 from public.bim_documents d where d.id = old.document_id) then
+      return old; -- parent already gone: cascade delete, allow it
+    end if;
+  end if;
   raise exception 'bim_document_versions is append-only';
 end $$;
 drop trigger if exists trg_bimdoc_versions_append_only on public.bim_document_versions;
