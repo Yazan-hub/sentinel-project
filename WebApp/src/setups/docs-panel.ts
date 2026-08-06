@@ -14,6 +14,62 @@ type CheckResult = { id: string; label: string; status: "met" | "violations" | "
 type Compliance = { document_id: string; generated_at: string; summary: Record<string, number>; sections: { section_id: string; heading: string; results: CheckResult[] }[] };
 type Suggestion = { section_id: string; heading: string; suggested: { id: string; label: string; params: Record<string, unknown>; confidence: number; why: string; planned: boolean }[] };
 
+type IntegrityFinding = { section_id: string; fact: number; claim: string; reality: string; severity: "high" | "medium" | "low" };
+type IntegrityReport = { findings: IntegrityFinding[]; dropped: number; grounding_used: number; generated_at: string; provider?: string; model?: string; note?: string };
+const SEV_COLOR: Record<string, string> = { high: "#f87171", medium: "#eab308", low: "#9ca3af" };
+
+function renderIntegrity(out: HTMLElement, r: IntegrityReport, doc: { sections: { id: string; heading: string }[] }) {
+  out.replaceChildren();
+  const banner = document.createElement("div");
+  banner.textContent = `AI analysis — suggestions, not compliance facts. ${r.provider ? `${r.provider}/${r.model} · ` : ""}${new Date(r.generated_at).toLocaleString()} · grounded in ${r.grounding_used} fact(s)`;
+  banner.style.cssText = "color:#93c5fd;background:#132038;border-radius:.35rem;padding:.35rem .6rem;font:10.5px system-ui;margin:.4rem 0";
+  out.append(banner);
+
+  if (r.note) {
+    const n = document.createElement("div");
+    n.textContent = r.note;                                // honest empty-document note
+    n.style.cssText = "color:#9ca3af;padding:.3rem .6rem;font:11px system-ui";
+    out.append(n);
+    return;
+  }
+  if (r.dropped > 0) {
+    const d = document.createElement("div");
+    d.textContent = `${r.dropped} finding(s) discarded — the model cited no grounded fact for them.`;
+    d.style.cssText = "color:#fbbf24;padding:.2rem .6rem;font:10.5px system-ui";
+    out.append(d);
+  }
+  if (!r.findings.length) {
+    const okEl = document.createElement("div");
+    okEl.textContent = r.dropped > 0
+      ? "0 usable findings (see discarded above) — this is NOT a clean bill of health."
+      : "No contradictions found between this document and the project's configuration.";
+    okEl.style.cssText = "color:#9ca3af;padding:.3rem .6rem;font:11px system-ui";
+    out.append(okEl);
+    return;
+  }
+  const headingOf = (id: string) => doc.sections.find((s) => s.id === id)?.heading || id;
+  for (const f of r.findings) {
+    const card = document.createElement("div");
+    card.style.cssText = "border:1px solid #2a2a30;background:#1b1b21;border-radius:.35rem;padding:.4rem .6rem;margin:.25rem 0";
+    const head = document.createElement("div");
+    const sev = document.createElement("span");
+    sev.textContent = f.severity.toUpperCase();
+    sev.style.cssText = `color:${SEV_COLOR[f.severity] || "#9ca3af"};font:700 10px system-ui;margin-right:.5rem`;
+    const sec = document.createElement("span");
+    sec.textContent = headingOf(f.section_id);
+    sec.style.cssText = "color:#e5e7eb;font:600 11.5px system-ui";
+    head.append(sev, sec);
+    const claim = document.createElement("div");
+    claim.textContent = `Document: ${f.claim}`;
+    claim.style.cssText = "color:#cbd5e1;font:11px system-ui;margin-top:.2rem";
+    const reality = document.createElement("div");
+    reality.textContent = `Reality: ${f.reality}`;
+    reality.style.cssText = "color:#93c5fd;font:11px system-ui";
+    card.append(head, claim, reality);
+    out.append(card);
+  }
+}
+
 const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
   met: { color: "#22c55e", icon: "✓" },
   violations: { color: "#f87171", icon: "✗" },
@@ -541,6 +597,27 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       const bindingsBtn = btn("Bindings");
       bindingsBtn.onclick = () => showBindings(doc, s, () => showEditor(doc.id));
       rowEl.append(ownerIn, stateSel, save, bindingsBtn);
+      if (editable) {
+        // AI draft — proposal only: fills the editor; nothing is saved until the normal Save.
+        const draftBtn = btn("Draft with AI");
+        draftBtn.onclick = async () => {
+          draftBtn.disabled = true;
+          const prev = draftBtn.textContent;
+          draftBtn.textContent = "Drafting…";
+          try {
+            const r = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/draft`, { method: "POST", body: JSON.stringify({}) });
+            ta.value = r.proposal;                        // model output → .value (XSS-safe)
+            ta.dispatchEvent(new Event("input"));         // fire any dirty-tracking the editor has
+            msg(`AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)) — review before saving.`);
+          } catch (e) {
+            msg(`Draft failed: ${(e as Error).message}`, true);
+          } finally {
+            draftBtn.disabled = false;
+            draftBtn.textContent = prev;
+          }
+        };
+        rowEl.append(draftBtn);
+      }
       inner.append(guide, ta, complianceStrip(resultsFor(s.id)), rowEl);
       sec.append(sum, inner);
       body.append(sec);
@@ -573,8 +650,28 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     bar.replaceChildren();
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); bar.append(back);
     const printBtn = btn("Print / PDF", true);
-    bar.append(printBtn);
+    const integrityBtn = btn("Check integrity");
+    bar.append(printBtn, integrityBtn);
     body.replaceChildren();
+    const integrityOut = document.createElement("div");   // findings render here, transient
+    integrityBtn.onclick = async () => {
+      integrityBtn.disabled = true;
+      integrityBtn.textContent = "Analysing…";
+      integrityOut.replaceChildren();
+      try {
+        const r: IntegrityReport = await api(`/${encodeURIComponent(pid())}/${doc.id}/integrity`, { method: "POST", body: JSON.stringify({}) });
+        renderIntegrity(integrityOut, r, doc);
+      } catch (e) {
+        const d = document.createElement("div");
+        d.textContent = `Integrity analysis failed: ${(e as Error).message}`;
+        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0";
+        integrityOut.append(d);
+      } finally {
+        integrityBtn.disabled = false;
+        integrityBtn.textContent = "Check integrity";
+      }
+    };
+    body.append(integrityOut);
     const page = document.createElement("div");
     page.className = "bimdoc-print";
     page.style.cssText = "max-width:760px;margin:0 auto;background:#fff;color:#111;border-radius:.4rem;padding:2rem;font:13px/1.6 Georgia,serif";
