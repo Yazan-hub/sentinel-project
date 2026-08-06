@@ -97,9 +97,19 @@ export function classifyGate(stage, gate) {
   if (!gate.checks.length) return result(id, label, "not_checkable", { reason: `Stage “${stage}” has no gate defined (it is terminal).` });
   if (gate.checks.every((c) => c.na)) return result(id, label, "not_checkable", { reason: `No data is available for the “${stage}” gate yet — run a model scan from the browser to populate it.` });
   const failing = gate.checks.filter((c) => !c.na && !c.ok).map((c) => ({ label: c.label, detail: c.detail || "not met" }));
-  return failing.length
-    ? result(id, label, "violations", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” gate check(s) not met.` })
-    : result(id, label, "met", { summary: `The “${stage}” stage gate passes.` });
+  if (failing.length) return result(id, label, "violations", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” gate check(s) not met.` });
+  // Partial measurement is not a pass. Some metrics passed but others were never collected — reporting
+  // this as "met" would claim compliance that was never actually measured. That's the exact failure
+  // mode this feature exists to prevent, so an unmeasured metric caps the result at not_checkable.
+  const unmeasured = gate.checks.filter((c) => c.na).map((c) => ({ label: c.label, detail: c.detail || "not measured" }));
+  if (unmeasured.length) {
+    return result(id, label, "not_checkable", {
+      count: unmeasured.length,
+      evidence: unmeasured,
+      reason: `${unmeasured.length} of ${gate.checks.length} gate metrics were never measured (${unmeasured.map((c) => c.label).join(", ")}) — the gate cannot be confirmed. Run a model scan from the browser to populate them.`,
+    });
+  }
+  return result(id, label, "met", { summary: `The “${stage}” stage gate passes.` });
 }
 
 export function classifyPack(packId) {

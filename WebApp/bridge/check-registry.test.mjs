@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   CHECKS, PLANNED_CHECKS, getCheck, listChecks, runCheck,
   classifyNaming, classifyStates, classifySuitability, classifyVersioned,
   classifyGate, classifyPack, classifyVerdicts,
 } from "./check-registry.mjs";
+import { validateContainerName } from "./sentinel-core.mjs";
 
 const RULESET = {
   title: "Test ruleset", separator: "-", enforce: "reject",
@@ -79,6 +82,31 @@ describe("classifyNaming", () => {
   it("names which ruleset was used in the summary", () => {
     expect(classifyNaming([{ iso_name: "PRJ-ARC" }], RULESET, "default").summary).toContain("bridge default");
     expect(classifyNaming([{ iso_name: "PRJ-ARC" }], RULESET, "project").summary).toContain("project");
+  });
+
+  describe("against the real validator and shipped ruleset", () => {
+    const realRuleset = JSON.parse(
+      readFileSync(fileURLToPath(new URL("./naming-ruleset.json", import.meta.url)), "utf8")
+    );
+
+    it("passes a correctly formed container name", () => {
+      const r = classifyNaming(
+        [{ iso_name: "BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03" }],
+        realRuleset, "project", validateContainerName
+      );
+      expect(r.status).toBe("met");
+      expect(r.count).toBe(0);
+    });
+
+    it("flags a malformed container name with the real failing field", () => {
+      const r = classifyNaming(
+        [{ iso_name: "BDS20268-BDS-M3-IFC4-XYZ-ZZ-XX-XX-M001-S2-P03" }],
+        realRuleset, "project", validateContainerName
+      );
+      expect(r.status).toBe("violations");
+      expect(r.count).toBe(1);
+      expect(r.evidence[0].detail).toContain("discipline");
+    });
   });
 });
 
@@ -156,6 +184,44 @@ describe("classifyGate", () => {
 
   it("is not_checkable for a terminal stage with no gate", () => {
     expect(classifyGate("oper", { checks: [], pass: true }).status).toBe("not_checkable");
+  });
+
+  it("is not_checkable, not met, when some metrics pass and others were never measured", () => {
+    const r = classifyGate("design", {
+      checks: [
+        { label: "Model health", ok: true, na: false, detail: "90" },
+        { label: "Model health ≥ 80%", ok: false, na: true, detail: "no data" },
+        { label: "Standards compliance ≥ 70%", ok: false, na: true, detail: "no data" },
+      ],
+      pass: true,
+    });
+    expect(r.status).toBe("not_checkable");
+    expect(r.count).toBe(2);
+    expect(r.reason).toContain("2 of 3");
+    expect(r.reason).toContain("Model health ≥ 80%");
+    expect(r.reason).toContain("Standards compliance ≥ 70%");
+    expect(r.evidence.map((e) => e.label)).toEqual(["Model health ≥ 80%", "Standards compliance ≥ 70%"]);
+  });
+
+  it("reports met only when every check was actually measured and passed", () => {
+    const r = classifyGate("design", {
+      checks: [{ label: "Health", ok: true, na: false, detail: "90" }, { label: "Compliance", ok: true, na: false, detail: "80" }],
+      pass: true,
+    });
+    expect(r.status).toBe("met");
+  });
+
+  it("a real failure outranks an unmeasured caveat — still violations", () => {
+    const r = classifyGate("design", {
+      checks: [
+        { label: "Health", ok: false, na: false, detail: "60" },
+        { label: "Compliance", ok: false, na: true, detail: "no data" },
+      ],
+      pass: false,
+    });
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+    expect(r.evidence[0].label).toBe("Health");
   });
 });
 
