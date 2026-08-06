@@ -14,11 +14,12 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { loadEnv } from "./load-env.mjs";
 
-// Load config/.env into process.env before reading any values (same idiom as bcf-service.mjs)
-for (const [k, v] of Object.entries(loadEnv())) process.env[k] = v;
+// Merge config/.env without mutating process.env (the ai-gateway/cde-store idiom): importing this
+// module from a test must not copy secrets into the test runner's environment.
+const env = { ...process.env, ...loadEnv() };
 
-const BASE = (process.env.BCF_BASE || "http://127.0.0.1:4100").replace(/\/$/, "");
-const BRIDGE_TOKEN = process.env.BCF_TOKEN || "";
+const BASE = (env.BCF_BASE || "http://127.0.0.1:4100").replace(/\/$/, "");
+const BRIDGE_TOKEN = env.BCF_TOKEN || "";
 const authHeaders = BRIDGE_TOKEN ? { Authorization: `Bearer ${BRIDGE_TOKEN}` } : {};
 const PROTO = "2024-11-05";
 const enc = encodeURIComponent;
