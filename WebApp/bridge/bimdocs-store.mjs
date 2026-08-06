@@ -90,18 +90,15 @@ export async function getVersion(key, docId, n) {
  * N stale-write round-trips for what is a single user action. One insert, one audit row.
  * `sections` is [{heading, guidance, body}]; ids and the frozen section shape are assigned here.
  */
-export async function createDocFromIngest(key, { doc_type, title, sections, source, actor } = {}) {
-  const proj = await ensureProject(key);
-  if (!doc_type) throw err(400, "doc_type is required");
+const SOURCE_KEYS = ["file_id", "name", "kind", "pages", "ingested_at"];
+
+/** Validate+normalize the [{heading, guidance, body}] ingestion payload. Throws err(400, ...) naming the bad index. */
+export function validateSections(sections) {
   if (!Array.isArray(sections) || !sections.length) throw err(400, "sections are required");
-  const body = {
-    project_id: proj.id,
-    doc_type,
-    title: title || `Ingested ${doc_type}`,
-    status: "wip",
-    created_by: actor || "web",
-    source: source || null,
-    sections: sections.map((s) => ({
+  return sections.map((s, i) => {
+    if (typeof s !== "object" || s === null || Array.isArray(s)) throw err(400, `sections[${i}] must be an object`);
+    if (!s.heading) throw err(400, `sections[${i}].heading is required`);
+    return {
       id: randomUUID(),
       heading: s.heading,
       guidance: s.guidance || "",
@@ -109,7 +106,32 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
       state: "wip",
       owner: null,
       bindings: {}, // reserved for sub-project 3 — never populated by ingestion
-    })),
+    };
+  });
+}
+
+/** Validate+strip the source descriptor to the documented shape (0021_bim_documents_source.sql), or null. */
+export function normalizeSource(source) {
+  if (source === undefined || source === null) return null;
+  if (typeof source !== "object" || Array.isArray(source)) throw err(400, "source must be an object");
+  const out = {};
+  for (const key of SOURCE_KEYS) if (source[key] !== undefined) out[key] = source[key];
+  return out;
+}
+
+export async function createDocFromIngest(key, { doc_type, title, sections, source, actor } = {}) {
+  if (!doc_type) throw err(400, "doc_type is required");
+  const normalizedSections = validateSections(sections);
+  const normalizedSource = normalizeSource(source);
+  const proj = await ensureProject(key);
+  const body = {
+    project_id: proj.id,
+    doc_type,
+    title: title || `Ingested ${doc_type}`,
+    status: "wip",
+    created_by: actor || "web",
+    source: normalizedSource,
+    sections: normalizedSections,
   };
   const row = one(await sb("bim_documents", { method: "POST", body, prefer: "return=representation" }));
   await audit(proj.id, "bim_document", row.id, "ingested", actor || "web", null, {
