@@ -1013,6 +1013,7 @@ async function handleRequest(req, res) {
   //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, title }
   //   GET  /bimdocs/:key/:docId
   //   PATCH /bimdocs/:key/:docId/section/:sectionId { body?, owner?, state?, updated_at }
+  //   POST /bimdocs/:key/:docId/section/:sectionId/draft { provider?, model? } · POST /bimdocs/:key/:docId/integrity { provider?, model? }
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
   //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
   if (url.pathname.startsWith("/bimdocs")) {
@@ -1073,6 +1074,16 @@ async function handleRequest(req, res) {
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       if (p1 && p2 && !p3 && req.method === "GET") return send(res, 200, await bimdocs.getDoc(p1, p2));
+      // AI proposals — read-only: nothing here writes; an accepted draft is saved via the normal
+      // section PATCH. POST because they trigger slow/paid AI work (mirrors /ingest).
+      if (p1 && p2 && p3 === "section" && p4 && seg[5] === "draft" && req.method === "POST") {
+        const ai = await import("./bimdocs-ai.mjs");
+        return send(res, 200, await ai.draftSection(p1, p2, p4, body || {}));
+      }
+      if (p1 && p2 && p3 === "integrity" && !p4 && req.method === "POST") {
+        const ai = await import("./bimdocs-ai.mjs");
+        return send(res, 200, await ai.integrityReport(p1, p2, body || {}));
+      }
       if (p3 === "section" && p4 && req.method === "PATCH")
         return send(res, 200, await bimdocs.patchSection(p1, p2, p4, { ...body, actor }));
       if (p3 === "transition" && req.method === "POST")
