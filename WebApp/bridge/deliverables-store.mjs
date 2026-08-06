@@ -53,10 +53,13 @@ export async function updateDeliverable(key, id, patch, actor) {
   const proj = await ensureProject(key);
   const before = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}&select=*`));
   if (!before) throw err(404, "deliverable not found");
-  const updated = one(await sb(`deliverables?id=eq.${enc(id)}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
-  await audit(proj.id, "deliverable", id, "updated", actor || "web",
-    { container_name: before.container_name, due_date: before.due_date },
-    { container_name: updated.container_name, due_date: updated.due_date });
+  // project_id in the WRITE filter too, not just the preceding ownership SELECT: sb() runs under the
+  // service role for non-JWT callers, which bypasses RLS, so the tenant scope must be in the query.
+  const updated = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  // Audit every planned field, not just name+date: a changed owner or stage is exactly the kind of
+  // silent plan edit an audit trail exists to reconstruct.
+  const fields = (r) => ({ container_name: r.container_name, title: r.title, responsible_team: r.responsible_team, due_date: r.due_date, stage: r.stage });
+  await audit(proj.id, "deliverable", id, "updated", actor || "web", fields(before), fields(updated));
   return updated;
 }
 
@@ -65,7 +68,7 @@ export async function deleteDeliverable(key, id, actor) {
   const before = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}&select=*`));
   if (!before) throw err(404, "deliverable not found");
   await audit(proj.id, "deliverable", id, "deleted", actor || "web", { container_name: before.container_name, due_date: before.due_date }, null);
-  await sb(`deliverables?id=eq.${enc(id)}`, { method: "DELETE", prefer: "return=minimal" });
+  await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "DELETE", prefer: "return=minimal" });
   return { deleted: true, id };
 }
 
