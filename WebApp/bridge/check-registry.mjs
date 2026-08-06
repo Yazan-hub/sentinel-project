@@ -72,12 +72,15 @@ export function classifySuitability(files, allowed) {
   if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no containers yet — nothing to check." });
   const ok = new Set(allowed && allowed.length ? allowed : ["S3", "S4"]);
   const bad = [];
+  let liveCount = 0;
   for (const f of files) {
     const live = liveOf(f);
     if (!live) continue; // absence of a live version is cde.versioned's job, not this check's
+    liveCount += 1;
     const s = live.suitability;
     if (!s || !ok.has(s)) bad.push({ label: f.iso_name, detail: `suitability is ${s || "(unset)"}, expected one of ${[...ok].join(", ")}`, ref: f.id });
   }
+  if (!liveCount) return result(id, label, "not_checkable", { reason: "No container has a live version yet, so there are no suitability codes to check — see the cde.versioned check for that gap." });
   return bad.length
     ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} live version(s) carry a suitability outside ${[...ok].join(", ")}.` })
     : result(id, label, "met", { summary: `Every live version carries an allowed suitability code.` });
@@ -129,12 +132,25 @@ export function classifyVerdicts(auditRows) {
   }
   if (!newest.size) return result(id, label, "not_checkable", { reason: "No governed verdict has been recorded on this project yet — publish through Governed Publish to produce one." });
   const bad = [];
+  let acceptedCount = 0, recordedCount = 0;
   for (const [vid, r] of newest) {
     if (r.action === "verdict:rejected") bad.push({ label: `version ${String(vid).slice(0, 8)}`, detail: `rejected — ${r.new_value?.summary?.failing ?? "?"} failing requirement(s)`, ref: vid });
+    else if (r.action === "verdict:recorded") recordedCount += 1;
+    else acceptedCount += 1;
   }
-  return bad.length
-    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${newest.size} adjudicated version(s) were rejected.` })
-    : result(id, label, "met", { summary: `All ${newest.size} adjudicated version(s) were accepted.` });
+  if (bad.length) {
+    return result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${newest.size} adjudicated version(s) were rejected.` });
+  }
+  // "recorded" means no IDS spec was configured, so nothing was actually adjudicated — reporting
+  // "met" here would be the exact fabricated pass this feature exists to prevent.
+  if (recordedCount) {
+    return result(id, label, "not_checkable", {
+      reason: acceptedCount
+        ? `${recordedCount} of ${newest.size} version(s) were merely recorded without an IDS spec, not adjudicated — the result cannot be confirmed as met.`
+        : `All ${recordedCount} version(s) were recorded without an IDS spec configured, so nothing was actually checked.`,
+    });
+  }
+  return result(id, label, "met", { summary: `All ${newest.size} adjudicated version(s) were accepted.` });
 }
 
 // ── registry ─────────────────────────────────────────────────────────────────────────────────────

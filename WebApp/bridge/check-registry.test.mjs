@@ -145,6 +145,21 @@ describe("classifySuitability", () => {
     const files = [{ iso_name: "A.ifc", versions: [{ is_live: true }] }];
     expect(classifySuitability(files, ["S3"]).count).toBe(1);
   });
+
+  it("is not_checkable, not met, when no container has a live version", () => {
+    const files = [{ iso_name: "A.ifc", versions: [] }, { iso_name: "B.ifc", versions: [{ is_live: false }] }];
+    const r = classifySuitability(files, ["S3"]);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/live version/i);
+  });
+
+  it("still measures the containers that do have a live version", () => {
+    const files = [
+      { iso_name: "A.ifc", versions: [{ is_live: true, suitability: "S3" }] },
+      { iso_name: "B.ifc", versions: [] },
+    ];
+    expect(classifySuitability(files, ["S3"]).status).toBe("met");
+  });
 });
 
 describe("classifyVersioned", () => {
@@ -268,5 +283,25 @@ describe("classifyVerdicts", () => {
       { entity_type: "file_version", entity_id: "v1", action: "verdict:accepted", at: "2026-01-05", new_value: { summary: { failing: 0 } } },
     ];
     expect(classifyVerdicts(dup).status).toBe("met");
+  });
+
+  it("is not_checkable, not met, when all versions were only recorded (no IDS spec)", () => {
+    const rows2 = [
+      { entity_type: "file_version", entity_id: "v1", action: "verdict:recorded", at: "2026-01-02" },
+      { entity_type: "file_version", entity_id: "v2", action: "verdict:recorded", at: "2026-01-03" },
+    ];
+    const r = classifyVerdicts(rows2);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toContain("2");
+  });
+
+  it("is not_checkable, not met, for a mix of accepted and recorded verdicts", () => {
+    const rows2 = [
+      { entity_type: "file_version", entity_id: "v1", action: "verdict:accepted", at: "2026-01-02", new_value: { summary: { failing: 0 } } },
+      { entity_type: "file_version", entity_id: "v2", action: "verdict:recorded", at: "2026-01-03" },
+    ];
+    const r = classifyVerdicts(rows2);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toContain("1 of 2");
   });
 });

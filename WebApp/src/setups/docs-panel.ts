@@ -367,13 +367,18 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
                   return params ? { id: b.id, params } : { id: b.id };
                 }),
             },
+            updated_at: doc.updated_at,
             actor: await actor(),
           }),
         });
         onDone();
       } catch (e) {
         save.disabled = false;
-        msg(`Couldn't save bindings: ${(e as Error).message}`, true);
+        if ((e as any).status === 409) {
+          msg("This document changed since you opened it — reopen it and set the bindings again.", true);
+        } else {
+          msg(`Couldn't save bindings: ${(e as Error).message}`, true);
+        }
       }
     };
   }
@@ -434,7 +439,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         for (const [sectionId, checks] of sections) {
           await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/bindings`, {
             method: "PUT",
-            body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, actor: await actor() }),
+            body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, updated_at: doc.updated_at, actor: await actor() }),
           });
           appliedCount += 1;
         }
@@ -444,7 +449,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         apply.textContent = "✓ Apply selected";
         const failedSection = sections[appliedCount]?.[0];
         const heading = matched.find((s) => s.section_id === failedSection)?.heading || failedSection || "unknown section";
-        msg(`Applied ${appliedCount}/${sections.length} section(s); failed on "${heading}": ${(e as Error).message}`, true);
+        if ((e as any).status === 409) {
+          msg(`Applied ${appliedCount}/${sections.length} section(s); this document changed since you opened it — reopen it and try again.`, true);
+        } else {
+          msg(`Applied ${appliedCount}/${sections.length} section(s); failed on "${heading}": ${(e as Error).message}`, true);
+        }
       }
     };
   }
