@@ -13,6 +13,7 @@ type Doc = { id: string; doc_type: string; title: string; status: string; sectio
 export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
+  const esc = (s?: string) => (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
   const api = async (path: string, init: RequestInit = {}) => {
     const r = await bfetch(`${base}/bimdocs${path}`, { headers: { "Content-Type": "application/json" }, ...init });
     if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`), { status: r.status });
@@ -60,8 +61,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       for (const d of docs) {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;cursor:pointer";
-        row.innerHTML = `<span style="font:700 10px system-ui;color:#93c5fd;border:1px solid #2c3a55;border-radius:.3rem;padding:.1rem .35rem">${d.doc_type}</span>
-          <span style="flex:1;font:600 12px system-ui;color:#eee">${d.title}</span>
+        row.innerHTML = `<span style="font:700 10px system-ui;color:#93c5fd;border:1px solid #2c3a55;border-radius:.3rem;padding:.1rem .35rem">${esc(d.doc_type)}</span>
+          <span style="flex:1;font:600 12px system-ui;color:#eee">${esc(d.title)}</span>
           ${chip(d.status)}<span style="color:#71717a">v${d.version_count}</span>`;
         row.onclick = () => showEditor(d.id);
         body.append(row);
@@ -100,7 +101,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     bar.replaceChildren();
     const back = btn("← Documents"); back.onclick = showList;
     const title = document.createElement("span");
-    title.innerHTML = `<b style="color:#eee">${doc.title}</b> &nbsp;${chip(doc.status)}`;
+    title.innerHTML = `<b style="color:#eee">${esc(doc.title)}</b> &nbsp;${chip(doc.status)}`;
     title.style.flex = "1";
     const viewBtn = btn("Document view"); viewBtn.onclick = () => showDocView(doc);
     const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
@@ -131,7 +132,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       sec.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;background:#191920";
       const sum = document.createElement("summary");
       sum.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.45rem .6rem;cursor:pointer;list-style:none";
-      sum.innerHTML = `<span style="flex:1;font:600 12px system-ui;color:#eee">${s.heading}</span>${chip(s.state)}<span style="color:#71717a">${s.owner || ""}</span>`;
+      sum.innerHTML = `<span style="flex:1;font:600 12px system-ui;color:#eee">${esc(s.heading)}</span>${chip(s.state)}<span style="color:#71717a">${esc(s.owner || "")}</span>`;
       const inner = document.createElement("div");
       inner.style.cssText = "padding:.5rem .6rem;border-top:1px solid #2a2a30;display:flex;flex-direction:column;gap:.4rem";
       const guide = document.createElement("div");
@@ -187,10 +188,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       for (const v of vs) {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;gap:.6rem;align-items:center;padding:.45rem .6rem;border:1px solid #2a2a30;border-radius:.4rem;margin-top:.4rem;cursor:pointer";
-        row.innerHTML = `<b style="color:#eee">v${v.version_no}</b><span style="flex:1">${v.label || ""}</span><span style="color:#71717a">${v.published_by} · ${new Date(v.published_at).toLocaleString()}</span>`;
+        row.innerHTML = `<b style="color:#eee">v${v.version_no}</b><span style="flex:1">${esc(v.label || "")}</span><span style="color:#71717a">${esc(v.published_by)} · ${new Date(v.published_at).toLocaleString()}</span>`;
         row.onclick = async () => {
           const full = await api(`/${encodeURIComponent(pid())}/${doc.id}/versions/${v.version_no}`);
-          showDocView(full.snapshot as Doc, `v${v.version_no} — ${v.label || ""}`);
+          showDocView(full.snapshot as Doc, `v${v.version_no} — ${esc(v.label || "")}`);
         };
         body.append(row);
       }
@@ -210,19 +211,19 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const stamp = versionLabel || `working copy — ${doc.status}`;
     page.innerHTML =
       `<div style="border-bottom:2px solid #111;padding-bottom:.6rem;margin-bottom:1rem">
-         <div style="font:700 20px system-ui">${doc.title}</div>
-         <div style="font:12px system-ui;color:#555">${doc.doc_type} · Project ${pid()} · ${stamp} · ${new Date().toLocaleDateString()}</div>
+         <div style="font:700 20px system-ui">${esc(doc.title)}</div>
+         <div style="font:12px system-ui;color:#555">${esc(doc.doc_type)} · Project ${pid()} · ${esc(stamp)} · ${new Date().toLocaleDateString()}</div>
        </div>` +
       doc.sections.map((s) =>
         `<section style="page-break-inside:avoid;margin-bottom:1.1rem">
-           <h2 style="font:700 15px system-ui;border-bottom:1px solid #ccc;padding-bottom:.2rem">${s.heading}</h2>
-           <div style="white-space:pre-wrap">${s.body || "<i style='color:#999'>Not yet written.</i>"}</div>
+           <h2 style="font:700 15px system-ui;border-bottom:1px solid #ccc;padding-bottom:.2rem">${esc(s.heading)}</h2>
+           <div style="white-space:pre-wrap">${s.body ? esc(s.body) : "<i style='color:#999'>Not yet written.</i>"}</div>
          </section>`).join("");
     body.append(page);
     printBtn.onclick = () => {
       const w = window.open("", "_blank");
       if (!w) return msg("Popup blocked — allow popups to print", true);
-      w.document.write(`<!doctype html><title>${doc.title}</title>
+      w.document.write(`<!doctype html><title>${esc(doc.title)}</title>
         <style>body{font:13px/1.6 Georgia,serif;color:#111;margin:2rem auto;max-width:720px}
         h2{font:700 15px system-ui;border-bottom:1px solid #ccc;padding-bottom:.2rem}
         section{page-break-inside:avoid;margin-bottom:1.1rem}
