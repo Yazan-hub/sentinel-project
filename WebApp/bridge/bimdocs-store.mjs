@@ -1,7 +1,7 @@
 // BIM Documents store — Supabase-backed structured documents (BEP/EIR) for the bridge.
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 
@@ -82,4 +82,48 @@ export async function getVersion(key, docId, n) {
   const row = one(await sb(`bim_document_versions?document_id=eq.${enc(docId)}&version_no=eq.${enc(n)}`));
   if (!row) throw err(404, "version not found");
   return row;
+}
+
+/**
+ * Create a document with sections already populated — the ingestion commit. Phase 1's createDoc only
+ * instantiates an EMPTY template, and a create-then-N×patchSection loop would spray N audit rows and
+ * N stale-write round-trips for what is a single user action. One insert, one audit row.
+ * `sections` is [{heading, guidance, body}]; ids and the frozen section shape are assigned here.
+ */
+export async function createDocFromIngest(key, { doc_type, title, sections, source, actor } = {}) {
+  const proj = await ensureProject(key);
+  if (!doc_type) throw err(400, "doc_type is required");
+  if (!Array.isArray(sections) || !sections.length) throw err(400, "sections are required");
+  const body = {
+    project_id: proj.id,
+    doc_type,
+    title: title || `Ingested ${doc_type}`,
+    status: "wip",
+    created_by: actor || "web",
+    source: source || null,
+    sections: sections.map((s) => ({
+      id: randomUUID(),
+      heading: s.heading,
+      guidance: s.guidance || "",
+      body: s.body || "",
+      state: "wip",
+      owner: null,
+      bindings: {}, // reserved for sub-project 3 — never populated by ingestion
+    })),
+  };
+  const row = one(await sb("bim_documents", { method: "POST", body, prefer: "return=representation" }));
+  await audit(proj.id, "bim_document", row.id, "ingested", actor || "web", null, {
+    doc_type: row.doc_type,
+    title: row.title,
+    source_file: source?.name || null,
+    sections_populated: body.sections.filter((s) => s.body.trim()).length,
+    sections_total: body.sections.length,
+  });
+  return row;
+}
+
+/** The original uploaded file's descriptor for a document, or null when hand-authored. */
+export async function getSourceRef(key, docId) {
+  const doc = await getDoc(key, docId);
+  return doc.source || null;
 }
