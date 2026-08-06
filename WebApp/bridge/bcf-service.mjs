@@ -989,8 +989,38 @@ async function handleRequest(req, res) {
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['bimdocs', p1, p2, p3, p4]
       const [, p1, p2, p3, p4] = seg;
-      const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const isRawUpload = p2 === "ingest" && !p3;
+      const body = !isRawUpload && ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
       const actor = body.actor || "web";
+
+      // Ingest: raw document bytes -> AI mapping proposal. Writes nothing; /ingest/commit does.
+      if (p2 === "ingest" && !p3 && req.method === "POST") {
+        const len = Number(req.headers["content-length"] || 0);
+        if (len > MAX_UPLOAD) return send(res, 413, { message: `File too large (${(len / 1048576).toFixed(1)} MB, max ${(MAX_UPLOAD / 1048576) | 0} MB)` });
+        const raw = await readRaw(req);
+        if (!raw.length) return send(res, 400, { message: "empty upload" });
+        const ingest = await import("./bimdocs-ingest.mjs");
+        const name = url.searchParams.get("name") || "document.pdf";
+        const docType = url.searchParams.get("doc_type") || "EIR";
+        return send(res, 200, await ingest.ingestDocument(raw, { filename: name, doc_type: docType }));
+      }
+      if (p2 === "ingest" && p3 === "commit" && req.method === "POST") {
+        return send(res, 201, await bimdocs.createDocFromIngest(p1, { ...body, actor }));
+      }
+      if (p3 === "source" && req.method === "GET") {
+        const ref = await bimdocs.getSourceRef(p1, p2);
+        if (!ref) return send(res, 404, { message: "this document has no original file" });
+        const ingest = await import("./bimdocs-ingest.mjs");
+        const { readFileSync } = await import("node:fs");
+        const buf = readFileSync(ingest.sourceFilePath(ref.file_id));
+        res.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(ref.name)}"`,
+          "Cache-Control": "no-cache",
+          ...corsHeaders(res),
+        });
+        return res.end(buf);
+      }
 
       if (p1 === "templates" && req.method === "GET") return send(res, 200, bimdocs.listTemplates());
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
