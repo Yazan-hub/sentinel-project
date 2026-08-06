@@ -25,6 +25,7 @@ import { rfiPanel } from "./setups/rfi-panel";
 import { issuePanel } from "./setups/issue-panel";
 import { cdePanel } from "./setups/cde-panel";
 import { filesPanel } from "./setups/files-panel";
+import { docsPanel } from "./setups/docs-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
@@ -244,12 +245,15 @@ async function main() {
   // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
+  // Documents panel — ISO 19650 project documents (BEP/EIR) with states, versions, print/PDF.
+  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL });
 
   // ── The project space (Forma-style): hub grid ⇄ per-project Dashboard | Project Files | Settings ──
   const projectSettingsEl = projectSettingsPanel({ baseUrl: SERVICE_URL, onDeleted: () => showHub() });
   const spaceTabsEl = tabbed([
     { label: "Dashboard", el: projectEl },
     { label: "Project Files", el: filesEl },
+    { label: "Documents", el: docsEl },
     { label: "Settings", el: projectSettingsEl },
   ]);
   const spaceHeader = document.createElement("div");
