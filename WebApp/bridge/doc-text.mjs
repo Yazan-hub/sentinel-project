@@ -19,7 +19,10 @@ export async function extractText(buffer, filename) {
     const arr = Array.isArray(text) ? text : [String(text || "")];
     out = { kind: "pdf", pages: arr.map((t, i) => ({ page: i + 1, text: String(t || "") })) };
   } else if (ext === "docx") {
-    const mammoth = (await import("mammoth")).default ?? (await import("mammoth"));
+    // One import, then pick whichever shape the CJS/ESM interop gave us (verified: mammoth exposes
+    // extractRawText on BOTH .default and the namespace, so this is robust either way).
+    const mod = await import("mammoth");
+    const mammoth = typeof mod.extractRawText === "function" ? mod : mod.default;
     const { value } = await mammoth.extractRawText({ buffer: Buffer.from(buffer) });
     // Word has no page concept in its XML — the whole document is one logical page.
     out = { kind: "docx", pages: [{ page: 1, text: String(value || "") }] };
