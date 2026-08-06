@@ -26,7 +26,7 @@ export const forwardingConfigured = () => !!ANON;
 // Forward the caller's Supabase JWT (RLS-enforced) when one is present AND forwarding is armed; else use the
 // service key. `service: true` FORCES the service key for privileged writes that RLS blocks for authed users
 // (audit_log inserts, bridge_events) — those must bypass RLS by design.
-async function sb(path, { method = "GET", body, prefer, service = false } = {}) {
+export async function sb(path, { method = "GET", body, prefer, service = false } = {}) {
   if (!cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
   const userToken = service ? null : currentUserToken();
   const useUser = !!(userToken && ANON);
