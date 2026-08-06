@@ -980,6 +980,34 @@ async function handleRequest(req, res) {
     }
   }
 
+  // ── MIDP/TIDP deliverables: planned rows + derived planned-vs-actual status ──
+  //   GET  /deliverables/:key            · GET /deliverables/:key/status (derived, read-only)
+  //   POST /deliverables/:key            · POST /deliverables/:key/import { rows: [...] }
+  //   PATCH/DELETE /deliverables/:key/:id
+  if (url.pathname.startsWith("/deliverables")) {
+    const dl = await import("./deliverables-store.mjs");
+    try {
+      const seg = url.pathname.split("/").filter(Boolean); // ['deliverables', key, p2]
+      const [, key, p2] = seg;
+      const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const actor = body.actor || "web";
+      if (!key) return send(res, 404, { message: "deliverables route not found" });
+
+      if (!p2 && req.method === "GET") return send(res, 200, await dl.listDeliverables(key));
+      if (p2 === "status" && req.method === "GET") return send(res, 200, await dl.deliverableStatus(key));
+      if (!p2 && req.method === "POST") return send(res, 201, await dl.createDeliverable(key, body, actor));
+      if (p2 === "import" && req.method === "POST") return send(res, 201, await dl.importDeliverables(key, body.rows, actor));
+      if (p2 && p2 !== "status" && p2 !== "import" && req.method === "PATCH")
+        return send(res, 200, await dl.updateDeliverable(key, p2, body, actor));
+      if (p2 && p2 !== "status" && p2 !== "import" && req.method === "DELETE")
+        return send(res, 200, await dl.deleteDeliverable(key, p2, actor));
+      return send(res, 404, { message: "deliverables route not found" });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[deliverables] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
   // ── BIM Documents (BEP/EIR) — structured ISO 19650 documents, versioned & audited ──
   //   GET  /bimdocs/templates
   //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, title }
