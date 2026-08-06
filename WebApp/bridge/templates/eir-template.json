@@ -1,0 +1,13 @@
+{
+  "doc_type": "EIR",
+  "title": "Exchange Information Requirements",
+  "sections": [
+    { "heading": "1. Organizational and project context", "guidance": "Why the information is needed: organizational information requirements (OIR) and project information requirements (PIR) this EIR flows from." },
+    { "heading": "2. Information requirements", "guidance": "The information deliverables required from the appointed party, per milestone or decision point." },
+    { "heading": "3. Level of information need", "guidance": "Required geometric and alphanumeric detail per deliverable. Tables per discipline/stage are typical." },
+    { "heading": "4. Standards and methods", "guidance": "Standards the delivery team must follow: ISO 19650 parts, classification, naming convention, units and coordinates." },
+    { "heading": "5. CDE requirements", "guidance": "Which CDE is used, who provides it, required container states and workflows, security requirements." },
+    { "heading": "6. Delivery milestones", "guidance": "Information delivery dates aligned to project milestones; what must be Published at each." },
+    { "heading": "7. Acceptance criteria", "guidance": "How delivered information is checked and accepted or rejected: automated checks, review process, timeframes." }
+  ]
+}

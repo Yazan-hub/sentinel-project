@@ -1,0 +1,16 @@
+{
+  "doc_type": "BEP",
+  "title": "BIM Execution Plan (post-appointment)",
+  "sections": [
+    { "heading": "1. Project information", "guidance": "Project name, number, address, client, appointment, key dates. Mirror the project record — this section is the document's identity page." },
+    { "heading": "2. Roles, responsibilities and authorities", "guidance": "Information management roles per ISO 19650-2 §5.1: appointing party, lead appointed party, task teams. Include a responsibility summary (who produces, who checks, who accepts)." },
+    { "heading": "3. Information delivery strategy", "guidance": "Objectives for information delivery, key decision points, alignment with the client's EIR. State the federation strategy at a high level." },
+    { "heading": "4. Federation strategy and model breakdown", "guidance": "How models are split (by discipline, zone, level), federation frequency, coordination process and clash workflow." },
+    { "heading": "5. CDE and workflow", "guidance": "The common data environment, container states (WIP → Shared → Published → Archived), transitions, approval gates and who authorises them." },
+    { "heading": "6. Container naming and standards", "guidance": "The naming convention every information container must follow (fields, separators, codes). This section binds to Sentinel's naming ruleset in a later release." },
+    { "heading": "7. Level of information need (LOIN)", "guidance": "What geometric/alphanumeric information is required per deliverable and milestone. Reference the LOIN tables from the EIR." },
+    { "heading": "8. Methods and procedures", "guidance": "Modelling methods, shared coordinates, units, classification system, QA checks before sharing." },
+    { "heading": "9. Software and versions", "guidance": "Authoring and checking tools with exact versions, exchange formats (IFC MVDs), and upgrade policy for the appointment." },
+    { "heading": "10. Quality assurance and model checking", "guidance": "Checks run before each state transition (naming, clash, data completeness), who runs them, acceptance criteria." }
+  ]
+}
