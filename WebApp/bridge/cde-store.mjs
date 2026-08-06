@@ -336,7 +336,7 @@ export async function createContainer(key, b) {
   }))[0];
   const v = (await sb(`container_versions`, {
     method: "POST",
-    body: { container_id: c.id, revision: b.revision || "P01", state: "wip", suitability: b.suitability || "S0", author: b.author, file_ref: b.file_ref },
+    body: { container_id: c.id, revision: b.revision || "P01", state: "wip", suitability: b.suitability || "S0", author: resolveActor(b.author), file_ref: b.file_ref },
     prefer: "return=representation",
   }))[0];
   await audit(proj.id, "container", c.id, "created", b.author, null, { iso_name: b.iso_name });
@@ -346,7 +346,7 @@ export async function createContainer(key, b) {
 export async function addVersion(container_id, b) {
   return (await sb(`container_versions`, {
     method: "POST",
-    body: { container_id, revision: b.revision, state: "wip", suitability: b.suitability || "S0", author: b.author, notes: b.notes, file_ref: b.file_ref },
+    body: { container_id, revision: b.revision, state: "wip", suitability: b.suitability || "S0", author: resolveActor(b.author), notes: b.notes, file_ref: b.file_ref },
     prefer: "return=representation",
   }))[0];
 }
@@ -505,7 +505,7 @@ export async function registerFileVersion(key, b = {}) {
     method: "POST",
     body: {
       container_id: container.id, revision, state: b.state || "wip", suitability: b.suitability || "S0",
-      author: b.author || "web", notes: b.notes || null, file_ref: b.file_ref || null,
+      author: resolveActor(b.author, "web"), notes: b.notes || null, file_ref: b.file_ref || null,
       platform_item_id: b.platform_item_id || null,
       size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
       sha256: b.sha256 || null, is_live: false,
@@ -604,7 +604,7 @@ export async function createRevision(key, b = {}) {
       rev_code: b.rev_code || null,
       model_id: b.model_id || null,
       element_count: deduped.length,
-      uploaded_by: b.uploaded_by || null,
+      uploaded_by: resolveActor(b.uploaded_by),
     },
     prefer: "return=representation",
   }))[0];
