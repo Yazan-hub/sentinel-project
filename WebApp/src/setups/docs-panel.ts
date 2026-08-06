@@ -324,7 +324,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     bar.append(title, cancel, save);
 
     body.replaceChildren();
-    const current = new Set(((section.bindings as { checks?: { id: string }[] })?.checks || []).map((c) => c.id));
+    const currentChecks = (section.bindings as { checks?: { id: string; params?: Record<string, unknown> }[] })?.checks || [];
+    const current = new Set(currentChecks.map((c) => c.id));
+    const currentParams = new Map(currentChecks.map((c) => [c.id, c.params]));
     const boxes: { id: string; input: HTMLInputElement }[] = [];
     const addRow = (id: string, label: string, description: string, planned: boolean) => {
       const row = document.createElement("label");
@@ -356,7 +358,17 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       try {
         await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${section.id}/bindings`, {
           method: "PUT",
-          body: JSON.stringify({ bindings: { checks: boxes.filter((b) => b.input.checked).map((b) => ({ id: b.id })) }, actor: await actor() }),
+          body: JSON.stringify({
+            bindings: {
+              checks: boxes
+                .filter((b) => b.input.checked)
+                .map((b) => {
+                  const params = currentParams.get(b.id);
+                  return params ? { id: b.id, params } : { id: b.id };
+                }),
+            },
+            actor: await actor(),
+          }),
         });
         onDone();
       } catch (e) {
@@ -378,7 +390,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     bar.append(title, cancel, apply);
 
     body.replaceChildren();
-    const picks: { section_id: string; id: string; input: HTMLInputElement }[] = [];
+    const picks: { section_id: string; id: string; params: Record<string, unknown>; input: HTMLInputElement }[] = [];
     const matched = suggestions.filter((s) => s.suggested.length);
     if (!matched.length) {
       const none = document.createElement("div");
@@ -407,27 +419,32 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         text.append(t, w);
         row.append(cb, text);
         body.append(row);
-        picks.push({ section_id: s.section_id, id: sg.id, input: cb });
+        picks.push({ section_id: s.section_id, id: sg.id, params: sg.params, input: cb });
       }
     }
 
     apply.onclick = async () => {
       apply.disabled = true;
       apply.textContent = "Applying…";
-      const bySection = new Map<string, string[]>();
-      for (const p of picks) if (p.input.checked) bySection.set(p.section_id, [...(bySection.get(p.section_id) || []), p.id]);
+      const bySection = new Map<string, { id: string; params: Record<string, unknown> }[]>();
+      for (const p of picks) if (p.input.checked) bySection.set(p.section_id, [...(bySection.get(p.section_id) || []), { id: p.id, params: p.params }]);
+      const sections = [...bySection.entries()];
+      let appliedCount = 0;
       try {
-        for (const [sectionId, ids] of bySection) {
+        for (const [sectionId, checks] of sections) {
           await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/bindings`, {
             method: "PUT",
-            body: JSON.stringify({ bindings: { checks: ids.map((id) => ({ id })) }, actor: await actor() }),
+            body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, actor: await actor() }),
           });
+          appliedCount += 1;
         }
         onDone();
       } catch (e) {
         apply.disabled = false;
         apply.textContent = "✓ Apply selected";
-        msg(`Couldn't apply bindings: ${(e as Error).message}`, true);
+        const failedSection = sections[appliedCount]?.[0];
+        const heading = matched.find((s) => s.section_id === failedSection)?.heading || failedSection || "unknown section";
+        msg(`Applied ${appliedCount}/${sections.length} section(s); failed on "${heading}": ${(e as Error).message}`, true);
       }
     };
   }
