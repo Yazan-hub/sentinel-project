@@ -195,21 +195,30 @@ export async function setSectionBindings(key, docId, sectionId, { bindings, upda
   return row;
 }
 
+/** Cap on bound checks evaluated per compliance run — bounds a doc's latency to O(cap), not O(bindings). */
+export const MAX_COMPLIANCE_CHECKS = 100;
+
 /**
  * Evaluate every bound check on a document against live project state. READ-ONLY: no writes, no audit
  * row — a compliance view is a read model, not an event. Unbound sections appear with an empty
  * results list so the UI can show honest coverage (how much of the document is actually wired).
+ * Total checks evaluated across the whole document is capped at MAX_COMPLIANCE_CHECKS; anything beyond
+ * that is reported as not_checkable naming the cap, never silently dropped (honesty over truncation).
  */
 export async function complianceReport(key, docId) {
   const doc = await getDoc(key, docId);
   const sections = [];
   const summary = { sections: doc.sections.length, bound: 0, met: 0, violations: 0, not_checkable: 0, error: 0 };
+  let evaluated = 0;
   for (const s of doc.sections) {
     const bound = s.bindings?.checks || [];
     if (bound.length) summary.bound += 1;
     const results = [];
     for (const b of bound) {
-      const r = await runCheck(b.id, key, b.params || {});
+      const r = evaluated < MAX_COMPLIANCE_CHECKS
+        ? (evaluated += 1, await runCheck(b.id, key, b.params || {}))
+        : { id: b.id, label: b.id, status: "not_checkable", count: 0, summary: "", evidence: [],
+            reason: `Not evaluated: this document exceeds the ${MAX_COMPLIANCE_CHECKS}-check limit for a single compliance run.` };
       summary[r.status] = (summary[r.status] || 0) + 1;
       results.push(r);
     }
