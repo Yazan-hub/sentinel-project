@@ -49,7 +49,11 @@ export async function createDeliverable(key, body, actor) {
 }
 
 export async function updateDeliverable(key, id, patch, actor) {
-  const row = validateRow(patch);
+  // Partial-update semantics: validateRow normalises ALL six fields (nulls for absent ones), so
+  // spreading its full result would silently wipe any field the caller didn't send — the UI's edit
+  // form has no notes input, so every edit would null notes. Only write keys the caller supplied.
+  const validated = validateRow(patch);
+  const row = Object.fromEntries(Object.entries(validated).filter(([k]) => k in patch));
   const proj = await ensureProject(key);
   const before = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}&select=*`));
   if (!before) throw err(404, "deliverable not found");
