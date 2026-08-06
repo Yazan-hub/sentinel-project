@@ -28,6 +28,14 @@ describe("createDocFromIngest input validation (rejects before network)", () => 
   it("rejects a section missing heading", async () => {
     await expect(createDocFromIngest("k", { doc_type: "BEP", sections: [{ body: "x" }] })).rejects.toMatchObject({ status: 400 });
   });
+
+  it("rejects an unknown doc_type", async () => {
+    await expect(createDocFromIngest("k", { doc_type: "NOPE", sections: [{ heading: "A" }] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("a valid doc_type still passes validation (fails later, on the network call, not on doc_type)", async () => {
+    await expect(createDocFromIngest("k", { doc_type: "BEP", sections: [{ heading: "A" }] })).rejects.not.toMatchObject({ status: 400 });
+  });
 });
 
 describe("validateSections", () => {

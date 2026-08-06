@@ -46,6 +46,9 @@ const CORS_WILDCARD = CORS_RAW === "*";
 const CORS_ALLOW = CORS_RAW && !CORS_WILDCARD ? CORS_RAW.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CORS;
 const originAllowed = (origin) => CORS_WILDCARD || (!!origin && CORS_ALLOW.includes(origin));
 const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+// EIR/BEP documents are text, not IFC models — cap far below MAX_UPLOAD so one huge upload can't hold
+// an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
+const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
 // JSON bodies (propose/audit/cde) are parsed fully into memory; cap them well above a large
 // governed-publish payload but far below a memory-exhaustion DoS. Tunable via BCF_MAX_JSON_MB.
 const MAX_JSON = (Number(process.env.BCF_MAX_JSON_MB) || 256) * 1024 * 1024;
@@ -996,7 +999,9 @@ async function handleRequest(req, res) {
       // Ingest: raw document bytes -> AI mapping proposal. Writes nothing; /ingest/commit does.
       if (p2 === "ingest" && !p3 && req.method === "POST") {
         const len = Number(req.headers["content-length"] || 0);
-        if (len > MAX_UPLOAD) return send(res, 413, { message: `File too large (${(len / 1048576).toFixed(1)} MB, max ${(MAX_UPLOAD / 1048576) | 0} MB)` });
+        if (len > MAX_DOC_UPLOAD) return send(res, 413, { message: `File too large (${(len / 1048576).toFixed(1)} MB, max ${(MAX_DOC_UPLOAD / 1048576) | 0} MB)` });
+        const { ensureProject } = await import("./cde-store.mjs");
+        await ensureProject(p1); // cheap existence gate before burning disk/model time on a bad project key
         const raw = await readRaw(req);
         if (!raw.length) return send(res, 400, { message: "empty upload" });
         const ingest = await import("./bimdocs-ingest.mjs");

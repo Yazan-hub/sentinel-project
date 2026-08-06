@@ -12,6 +12,10 @@ import { chat } from "./ai-gateway.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 
+// A local 7B model does one chunk at a time (see ingestDocument below) — past this many chunks a
+// single upload holds the request open too long with no feedback. Named + module-level so it's greppable.
+const MAX_INGEST_CHUNKS = 60;
+
 /** Where original ingested files live. Plaintext on purpose: /cde/files holds client-side
  *  ciphertext the bridge cannot read, and ingestion must read the bytes. */
 export function sourceDir() {
@@ -49,6 +53,11 @@ export async function ingestDocument(buffer, { filename, doc_type } = {}) {
   const source = { file_id, name: basename(String(filename || "document")), kind, pages: pages.length, ingested_at: new Date().toISOString() };
 
   const chunks = chunkPages(pages);
+  // Storing the original above is deliberate: the upload itself succeeded, so the file is kept even
+  // when the document turns out to be too large to map — the check below only stops AI work.
+  if (chunks.length > MAX_INGEST_CHUNKS) {
+    throw err(413, `document produced ${chunks.length} chunks, over the ${MAX_INGEST_CHUNKS} limit — split the document or raise SENTINEL_MAX_DOC_MB/the chunk limit`);
+  }
   const results = [];
   for (const chunk of chunks) {
     const { system, user } = buildMappingPrompt(tpl.sections, chunk);

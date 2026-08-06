@@ -121,6 +121,8 @@ export function normalizeSource(source) {
 
 export async function createDocFromIngest(key, { doc_type, title, sections, source, actor } = {}) {
   if (!doc_type) throw err(400, "doc_type is required");
+  const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
+  if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
   const normalizedSections = validateSections(sections);
   const normalizedSource = normalizeSource(source);
   const proj = await ensureProject(key);

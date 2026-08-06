@@ -6,6 +6,15 @@ import { tmpdir } from "node:os";
 const chat = vi.fn();
 vi.mock("./ai-gateway.mjs", () => ({ chat: (...args) => chat(...args) }));
 
+// Default forwards to the real chunkPages so every existing test is unaffected; the chunk-cap test
+// below overrides it once to simulate a document that produces too many chunks.
+const chunkPages = vi.fn();
+vi.mock("./ingest-logic.mjs", async (importOriginal) => {
+  const actual = await importOriginal();
+  chunkPages.mockImplementation(actual.chunkPages);
+  return { ...actual, chunkPages: (...args) => chunkPages(...args) };
+});
+
 const { ingestDocument } = await import("./bimdocs-ingest.mjs");
 
 let dir;
@@ -45,5 +54,20 @@ describe("ingestDocument chunk-failure handling", () => {
     const result = await ingestDocument(buf, opts);
     expect(result.proposal.unassigned).toHaveLength(1);
     expect(result.proposal.unassigned[0].text).toContain("hello world");
+  });
+});
+
+describe("ingestDocument chunk-count cap", () => {
+  it("rejects with 413 naming the limit when chunking produces too many chunks", async () => {
+    chunkPages.mockReturnValueOnce(Array.from({ length: 61 }, (_, i) => ({ text: `chunk ${i}`, pages: [i + 1] })));
+    await expect(ingestDocument(buf, opts)).rejects.toMatchObject({ status: 413, message: expect.stringMatching(/61.*60|60.*limit/i) });
+    expect(chat).not.toHaveBeenCalled(); // cap is enforced before any AI call
+  });
+
+  it("a small document (well under the cap) still succeeds", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    const result = await ingestDocument(buf, opts);
+    expect(result.doc_type).toBe("EIR");
+    expect(result.proposal).toBeDefined();
   });
 });

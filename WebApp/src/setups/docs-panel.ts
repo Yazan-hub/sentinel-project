@@ -161,11 +161,15 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     accept.onclick = async () => {
       accept.disabled = true;
       accept.textContent = "Creating…";
-      // Fold each assigned passage into the end of its chosen section, in review order.
+      // Fold each assigned passage into the end of its chosen section, in review order — into a LOCAL
+      // copy so a failed commit + retry never folds the same passages in twice (sections is untouched).
+      const foldedBodies = new Map<string, string>();
       for (const u of unassigned) {
         if (!u.target) continue;
         const s = sections.find((x) => x.heading === u.target);
-        if (s) s.body = s.body ? `${s.body}\n\n${u.text}` : u.text;
+        if (!s) continue;
+        const base = foldedBodies.has(s.heading) ? foldedBodies.get(s.heading)! : s.body;
+        foldedBodies.set(s.heading, base ? `${base}\n\n${u.text}` : u.text);
       }
       try {
         const created = await api(`/${encodeURIComponent(pid())}/ingest/commit`, {
@@ -174,7 +178,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
             doc_type: p.doc_type,
             title: p.title,
             source: p.source,
-            sections: sections.map((s) => ({ heading: s.heading, guidance: s.guidance, body: s.body })),
+            sections: sections.map((s) => ({ heading: s.heading, guidance: s.guidance, body: foldedBodies.get(s.heading) ?? s.body })),
             actor: await actor(),
           }),
         });
