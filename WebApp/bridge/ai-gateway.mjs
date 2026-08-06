@@ -231,11 +231,19 @@ async function viaOpenAiCompatible(provider, model, system, messages, tools, for
     ...(tools.length ? { tools: tools.map(toOpenAiTool) } : {}),
     ...(format === "json" ? { response_format: { type: "json_object" } } : {}),
   };
-  const resp = await fetch(`${p.base}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${keyOf(provider)}` },
-    body: JSON.stringify(body),
-  });
+  let resp;
+  try {
+    resp = await fetch(`${p.base}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${keyOf(provider)}` },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw Object.assign(
+      new Error(`${p.label} unreachable. Check your internet connection and ${p.env}.`),
+      { status: 503, cause: err },
+    );
+  }
   if (!resp.ok) {
     const detail = (await resp.text()).slice(0, 300);
     throw Object.assign(new Error(`${p.label} error ${resp.status}: ${detail}`), { status: 502 });
@@ -261,20 +269,28 @@ const toOpenAiTool = (t) => ({
 // /api/chat (not /api/generate) because it is the one that supports tools + roles.
 async function viaOllama(model, system, messages, tools, format) {
   const url = (env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
-  const resp = await fetch(`${url}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      ...(format === "json" ? { format: "json" } : {}),
-      messages: [
-        ...(system ? [{ role: "system", content: system }] : []),
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ],
-      ...(tools.length ? { tools: tools.map(toOpenAiTool) } : {}),
-    }),
-  });
+  let resp;
+  try {
+    resp = await fetch(`${url}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        ...(format === "json" ? { format: "json" } : {}),
+        messages: [
+          ...(system ? [{ role: "system", content: system }] : []),
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+        ...(tools.length ? { tools: tools.map(toOpenAiTool) } : {}),
+      }),
+    });
+  } catch (err) {
+    throw Object.assign(
+      new Error(`Local model unreachable. Is Ollama running, and is "${model}" pulled?`),
+      { status: 503, cause: err },
+    );
+  }
   if (!resp.ok) {
     throw Object.assign(
       new Error(`Local model unreachable (${resp.status}). Is Ollama running, and is "${model}" pulled?`),
