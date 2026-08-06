@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -26,53 +27,138 @@ public static class PlatformExporter
         return dir;
     }
 
+    /// <summary>Append a line to %AppData%\Sentinel\publish.log — the publish path's diagnostic trail.</summary>
+    public static void Log(string line)
+    {
+        try
+        {
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "publish.log");
+            File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {line}\r\n");
+        }
+        catch { /* logging must never break a publish */ }
+    }
+
     /// <summary>
     /// Export <paramref name="doc"/> to IFC in the outbox. When <paramref name="filterViewId"/> is a valid
-    /// view, only that view's content is exported (the manual command passes the active view); otherwise the
-    /// whole model is exported (the auto path passes a 3D view / null). Never throws — returns a result.
+    /// GEOMETRY view, only that view's content is exported; a sheet/schedule/legend active view is swapped
+    /// for the default 3D view (a cover sheet once produced a 6 KB "model"). Never throws — returns a result.
     /// </summary>
     public static (State state, string path, long bytes, string? error) ExportToOutbox(
         Document doc, ElementId? filterViewId = null)
     {
-        string ifcName = Sanitize(Path.GetFileNameWithoutExtension(doc.Title)) + ".ifc";
-        bool includeLinks = SettingsManager.Resolve(doc).PublishLinkedModels;
-        var started = DateTime.Now;
-        var result = ExportToDir(doc, filterViewId, OutboxDir(), ifcName, includeLinks);
-        if (result.state == State.Ok)
+        // Sheets (and schedules etc.) export a near-empty IFC — swap any non-geometry view for default 3D.
+        if (filterViewId is { } fv && doc.GetElement(fv) is View fview &&
+            (fview is ViewSheet || fview.ViewType is ViewType.DrawingSheet or ViewType.Schedule
+             or ViewType.Legend or ViewType.DraftingView))
         {
-            // Sidecar the host IFC AND any link IFCs this export just produced (Revit names those itself),
-            // so every file — links included — registers under the document's web project.
-            WriteOutboxMeta(ifcName, doc);
-            if (includeLinks)
-            {
-                try
-                {
-                    foreach (var f in Directory.GetFiles(OutboxDir(), "*.ifc"))
-                        if (File.GetLastWriteTime(f) >= started && !File.Exists(f + ".meta.json"))
-                            WriteOutboxMeta(Path.GetFileName(f), doc);
-                }
-                catch { /* best-effort */ }
-            }
+            filterViewId = Default3DView(doc);
+        }
+
+        string ifcName = Sanitize(Path.GetFileNameWithoutExtension(doc.Title)) + ".ifc";
+        // Sidecar FIRST: the outbox watcher can win the race on a large export (it saw a 150 MB IFC
+        // stabilize before a post-export sidecar write landed) and then register the version under
+        // the wrong project. Written before the IFC exists, the association can never be missed.
+        WriteOutboxMeta(ifcName, doc);
+        var result = ExportToDir(doc, filterViewId, OutboxDir(), ifcName);
+        if (result.state != State.Ok)
+        {
+            try { File.Delete(Path.Combine(OutboxDir(), ifcName + ".meta.json")); } catch { /* best-effort */ }
         }
         return result;
     }
 
     /// <summary>
     /// Sidecar next to an outbox IFC telling the Bridge which web project the file belongs to
-    /// (the ACC-style association). The watcher reads it, uses the key for the Supabase-side
-    /// registration, and deletes it with the IFC. Best-effort — a missing sidecar just means
-    /// the bridge's configured default project, i.e. today's behavior.
+    /// (the ACC-style association) — and, for a linked model, which HOST file it nests under in the
+    /// web file tree. The watcher reads it, uses it for the Supabase-side registration, and deletes
+    /// it with the IFC. Best-effort — a missing sidecar just means the bridge's default project.
     /// </summary>
-    public static void WriteOutboxMeta(string ifcName, Document doc)
+    public static void WriteOutboxMeta(string ifcName, Document doc, string? hostIfcName = null)
     {
         try
         {
             var key = SettingsManager.WebProjectKeyFor(doc);
             var json = "{\"project\":" + System.Text.Json.JsonSerializer.Serialize(key) +
-                       ",\"docTitle\":" + System.Text.Json.JsonSerializer.Serialize(doc.Title) + "}";
+                       ",\"docTitle\":" + System.Text.Json.JsonSerializer.Serialize(doc.Title) +
+                       (hostIfcName is null ? "" : ",\"host\":" + System.Text.Json.JsonSerializer.Serialize(hostIfcName)) + "}";
             File.WriteAllText(Path.Combine(OutboxDir(), ifcName + ".meta.json"), json);
         }
         catch { /* association is best-effort; the upload itself must never fail on this */ }
+    }
+
+    /// <summary>
+    /// Export each LOADED linked model as its own IFC into the outbox, tagged with the host file so the
+    /// web app nests them under the main model. Revit refuses to export a linked (read-only) document
+    /// ("no open transaction") AND refuses to open a file that is currently loaded as a link — so each
+    /// link is UNLOADED, opened as a real document, exported, closed, and RELOADED. Never throws —
+    /// returns (exported, skipped) counts for the caller's dialog; every step lands in publish.log.
+    /// </summary>
+    public static (int exported, int skipped) ExportLinksToOutbox(Document hostDoc, string hostIfcName)
+    {
+        int done = 0, skipped = 0;
+        var app = hostDoc.Application;
+        var seenTypes = new HashSet<ElementId>();
+        var instances = new FilteredElementCollector(hostDoc)
+            .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>().ToList();
+        Log($"links: {instances.Count} RevitLinkInstance(s) in {hostDoc.Title}");
+
+        foreach (var li in instances)
+        {
+            var typeId = li.GetTypeId();
+            if (!seenTypes.Add(typeId)) continue;                       // one export per link, not per instance
+            if (hostDoc.GetElement(typeId) is not RevitLinkType lt) { skipped++; continue; }
+
+            Document? ldoc = null;
+            try { ldoc = li.GetLinkDocument(); }
+            catch (Exception ex) { Log($"link {li.Name}: GetLinkDocument threw: {ex.Message}"); }
+            if (ldoc is null) { Log($"link {li.Name}: no document (unloaded) — skipped"); skipped++; continue; }
+
+            string title = ldoc.Title;
+            string lpath = ldoc.PathName;
+            string linkIfc = Sanitize(Path.GetFileNameWithoutExtension(title)) + ".ifc";
+            if (string.IsNullOrEmpty(lpath) || !File.Exists(lpath))
+            {
+                Log($"link {title}: file path unavailable ('{lpath}') — skipped (cloud/BIM360 link?)");
+                skipped++;
+                continue;
+            }
+
+            WriteOutboxMeta(linkIfc, hostDoc, hostIfcName);             // sidecar first (same race rule as the host)
+            bool ok = false;
+            try
+            {
+                // Unload frees the file (Revit won't open a model that's loaded as a link), export from a
+                // REAL document, then reload so the host looks untouched.
+                lt.Unload(null);
+                var opened = app.OpenDocumentFile(lpath);
+                try
+                {
+                    var r = ExportToDir(opened, Default3DView(opened), OutboxDir(), linkIfc);
+                    ok = r.state == State.Ok;
+                    Log($"link {title}: unload+open export → {r.state}{(r.error is null ? "" : " (" + r.error + ")")}");
+                }
+                finally
+                {
+                    try { opened.Close(false); } catch (Exception cex) { Log($"link {title}: close failed: {cex.Message}"); }
+                }
+            }
+            catch (Exception ex) { Log($"link {title}: unload/open threw: {ex.Message}"); }
+            finally
+            {
+                try { lt.Reload(); }
+                catch (Exception rex) { Log($"link {title}: RELOAD FAILED: {rex.Message} — reload manually via Manage Links"); }
+            }
+
+            if (ok) done++;
+            else
+            {
+                skipped++;
+                try { File.Delete(Path.Combine(OutboxDir(), linkIfc + ".meta.json")); } catch { /* best-effort */ }
+            }
+        }
+        Log($"links done: {done} exported, {skipped} skipped");
+        return (done, skipped);
     }
 
     /// <summary>
@@ -82,7 +168,7 @@ public static class PlatformExporter
     /// throws — returns a result.
     /// </summary>
     public static (State state, string path, long bytes, string? error) ExportToDir(
-        Document doc, ElementId? filterViewId, string dir, string ifcName, bool includeLinks = false)
+        Document doc, ElementId? filterViewId, string dir, string ifcName)
     {
         Directory.CreateDirectory(dir);
         string ifcPath = Path.Combine(dir, ifcName);
@@ -96,10 +182,6 @@ public static class PlatformExporter
             };
             if (filterViewId is { } vid && vid != ElementId.InvalidElementId)
                 opts.FilterViewId = vid;
-            // Revit's own "export linked files as separate IFCs": each link becomes its own IFC next to
-            // the host's. Outbox path only — Governed Publish stays host-only (the gate certifies one
-            // deliverable at a time).
-            if (includeLinks) opts.AddOption("ExportLinkedFiles", "true");
 
             // Transaction wrapper mirrors the IFC Delivery Gate / manual Publish pattern (proven path).
             using var t = new Transaction(doc, "Sentinel: IFC export");

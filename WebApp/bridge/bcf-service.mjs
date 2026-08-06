@@ -511,7 +511,8 @@ async function handleRequest(req, res) {
         const mf = join(dir, "manifest.json");
         if (!existsSync(mf)) continue;
         try {
-          const m = JSON.parse(readFileSync(mf, "utf8"));
+          // strip the UTF-8 BOM the plugin's Encoding.UTF8 writer prepends — JSON.parse rejects it
+          const m = JSON.parse(readFileSync(mf, "utf8").replace(/^﻿/, ""));
           const sheets = (m.sheets || []).map((s) => ({ ...s, url: `/sheets/img/${encodeURIComponent(set)}/${encodeURIComponent(s.file)}` }));
           sets.push({ set, title: m.title ?? set, project: m.project ?? null, exportedAt: m.exportedAt ?? null, count: sheets.length, sheets });
         } catch { /* skip a malformed manifest */ }
@@ -557,7 +558,8 @@ async function handleRequest(req, res) {
         const mf = join(dir, "manifest.json");
         if (!existsSync(mf)) continue;
         try {
-          const m = JSON.parse(readFileSync(mf, "utf8"));
+          // strip the UTF-8 BOM the plugin's Encoding.UTF8 writer prepends — JSON.parse rejects it
+          const m = JSON.parse(readFileSync(mf, "utf8").replace(/^﻿/, ""));
           const views = (m.views || []).map((v) => ({ ...v, url: `/views/img/${encodeURIComponent(set)}/${encodeURIComponent(v.file)}` }));
           sets.push({ set, title: m.title ?? set, project: m.project ?? null, exportedAt: m.exportedAt ?? null, count: views.length, views });
         } catch { /* skip a malformed manifest */ }

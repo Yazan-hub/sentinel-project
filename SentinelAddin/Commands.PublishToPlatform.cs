@@ -49,6 +49,17 @@ public sealed class PublishToPlatformCommand : IExternalCommand
                 return Result.Cancelled;
         }
 
+        // Linked models (Project Setup toggle): each loaded link exports as its own IFC, tagged with this
+        // host so the web file tree nests them. Manual publish only — auto-publish stays host-only.
+        var linkLine = "";
+        if (Sentinel.Engine.SettingsManager.Resolve(doc).PublishLinkedModels)
+        {
+            var hostIfc = System.IO.Path.GetFileName(path);
+            var (exported, skipped) = Sentinel.Engine.PlatformExporter.ExportLinksToOutbox(doc, hostIfc);
+            if (exported > 0 || skipped > 0)
+                linkLine = $"Linked models: {exported} exported" + (skipped > 0 ? $", {skipped} skipped (see %AppData%\\Sentinel\\publish.log)" : "") + "\n";
+        }
+
         // Governed context (read-only, best-effort): show where this model stands in the web CDE version
         // history so the modeller knows what this publish will do (append the next version, becoming live).
         var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
@@ -60,6 +71,7 @@ public sealed class PublishToPlatformCommand : IExternalCommand
 
         TaskDialog.Show("Sentinel — Publish to Platform",
             $"Exported to the Sentinel outbox ({bytes / 1024:N0} KB):\n{path}\n" +
+            linkLine +
             $"Publishing into web project: {projectKey}\n\n" +
             governed + "\n\n" +
             "The Sentinel Bridge uploads outbox files to That Open Platform. If the Bridge watcher " +

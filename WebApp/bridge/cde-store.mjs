@@ -357,11 +357,12 @@ export async function addVersion(container_id, b) {
 /** List a project's files (containers) with their version history, newest version first, live flagged. */
 export async function listFiles(key) {
   const proj = await ensureProject(key);
-  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,title,discipline,container_type,created_at,container_versions(id,revision,state,suitability,author,notes,size_bytes,sha256,platform_item_id,file_ref,is_live,superseded,created_at)&order=created_at.desc`);
+  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,title,discipline,container_type,parent_id,created_at,container_versions(id,revision,state,suitability,author,notes,size_bytes,sha256,platform_item_id,file_ref,is_live,superseded,created_at)&order=created_at.desc`);
   return (Array.isArray(rows) ? rows : []).map((c) => {
     const versions = (c.container_versions || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     return {
       id: c.id, iso_name: c.iso_name, title: c.title, discipline: c.discipline, container_type: c.container_type,
+      parent_id: c.parent_id ?? null, // linked model → nests under this host container in the file tree
       created_at: c.created_at, version_count: versions.length,
       live_version_id: versions.find((v) => v.is_live)?.id ?? null,
       versions,
@@ -456,8 +457,21 @@ export async function registerFileVersion(key, b = {}) {
   const name = (b.name || b.iso_name || "").trim();
   if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
 
-  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id,container_versions(id,revision,is_live,platform_item_id)`);
+  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id,parent_id,container_versions(id,revision,is_live,platform_item_id)`);
   let container = Array.isArray(existing) ? existing[0] : null;
+
+  // Host→link nesting (0019): a linked model names its host file; resolve it in the same project and
+  // record parent_id so the web file tree nests the link under its host. Best-effort — a host that
+  // hasn't registered yet (upload order isn't guaranteed) just leaves the link top-level.
+  let parentId = null;
+  if (b.parent_name) {
+    const host = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(String(b.parent_name).trim())}&select=id`);
+    parentId = Array.isArray(host) && host[0] ? host[0].id : null;
+  }
+  if (container && parentId && container.parent_id !== parentId) {
+    // Existing file republished as a link (or host registered after the link) — adopt the nesting.
+    await sb(`information_containers?id=eq.${container.id}`, { method: "PATCH", body: { parent_id: parentId }, prefer: "return=minimal" });
+  }
 
   // Geometry link: Governed Publish creates the version at publish time (verdict-badged, but no platform
   // geometry yet); the outbox watcher then uploads the IFC and calls back here with the platform item id. If
@@ -475,10 +489,10 @@ export async function registerFileVersion(key, b = {}) {
   if (!container) {
     container = (await sb(`information_containers`, {
       method: "POST",
-      body: { project_id: proj.id, iso_name: name, title: b.title || name, discipline: b.discipline || null, container_type: "model" },
+      body: { project_id: proj.id, iso_name: name, title: b.title || name, discipline: b.discipline || null, container_type: "model", parent_id: parentId },
       prefer: "return=representation",
     }))[0];
-    await audit(proj.id, "container", container.id, "created", b.author || "web", null, { iso_name: name });
+    await audit(proj.id, "container", container.id, "created", b.author || "web", null, { iso_name: name, ...(parentId ? { link_of: b.parent_name } : {}) });
   }
 
   // Next revision label: honour a supplied one, else v{N+1} across the file's existing versions.

@@ -29,6 +29,7 @@ interface Version {
 }
 interface FileRec {
   id: string; iso_name: string; title?: string; discipline?: string; container_type?: string;
+  parent_id?: string | null; // linked model → nests under its host file (ACC-style tree)
   created_at: string; version_count: number; live_version_id: string | null; versions: Version[];
 }
 // One immutable audit event (audit_log row) — the "who did what, when" behind each version.
@@ -48,6 +49,16 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // iframe (Chrome removed them), so rename uses an inline input and archive/delete a two-click confirm.
   let renaming: string | null = null;
   let armed: { id: string; kind: "archive" | "delete" } | null = null;
+  // Viewer visibility per loaded model (Forma's eye toggle): hide keeps the model loaded, just invisible.
+  const hiddenModels = new Set<string>();
+  const versionsOpen = new Set<string>(); // file ids whose FULL version history is expanded (default: live only)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coreOf = (): any => (_components.get(OBC.FragmentsManager) as any).core;
+  // The fragments core keeps its loaded models at core.models.list (a Map keyed by modelId).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const modelList = (): any => { const c = coreOf(); return c?.models?.list ?? c?.list; };
+  const modelIdOf = (f: FileRec, v: Version) => `${f.iso_name}@${v.revision}`;
+  const isLoaded = (f: FileRec, v: Version) => { try { return !!modelList()?.has?.(modelIdOf(f, v)); } catch { return false; } };
   let revByVersion = new Map<string, string>(); // container_version_id → model_revision id (for compare)
   let auditByEntity = new Map<string, AuditEvent[]>(); // entity_id → its audit events (for the version history)
   const expanded = new Set<string>();
@@ -130,6 +141,22 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
 
   const isArchivedFile = (f: FileRec) => f.versions.length > 0 && f.versions.every((v) => v.state === "archived");
 
+  // Host + its linked models as one tree block (ACC-style). A link whose host isn't in the list
+  // (deleted, archived, other project) renders top-level.
+  function treeBlocks(list: FileRec[]): string {
+    const ids = new Set(list.map((f) => f.id));
+    const roots = list.filter((f) => !f.parent_id || !ids.has(f.parent_id));
+    const childrenOf = (id: string) => list.filter((f) => f.parent_id === id);
+    return roots.map((r) => {
+      const kids = childrenOf(r.id);
+      if (!kids.length) return fileCard(r);
+      return fileCard(r) +
+        `<div style="margin:-.2rem 0 .45rem .95rem;border-left:1px solid #2f2f38;padding-left:.55rem">` +
+        kids.map((k) => fileCard(k, true)).join("") +
+        `</div>`;
+    }).join("");
+  }
+
   function render() {
     if (!files.length) {
       el("fv-body").innerHTML = '<div style="color:#71717a;padding:1rem 0;text-align:center">No versioned files yet.<br><span style="font-size:11px">Upload an IFC to start a version history.</span></div>';
@@ -137,13 +164,15 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     }
     const active = files.filter((f) => !isArchivedFile(f));
     const archived = files.filter(isArchivedFile);
-    let html = active.map(fileCard).join("");
+    let html = treeBlocks(active);
     if (archived.length) {
       html += `<button id="fv-arch-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showArchived ? "▾" : "▸"} Archived (${archived.length})</button>`;
-      if (showArchived) html += `<div style="opacity:.55">${archived.map(fileCard).join("")}</div>`;
+      if (showArchived) html += `<div style="opacity:.55">${archived.map((f) => fileCard(f)).join("")}</div>`;
     }
     el("fv-body").innerHTML = html;
     root.querySelector("#fv-arch-toggle")?.addEventListener("click", () => { showArchived = !showArchived; render(); });
+    root.querySelectorAll<HTMLElement>("[data-vers]").forEach((n) =>
+      n.addEventListener("click", (e) => { e.stopPropagation(); const id = n.dataset.vers!; versionsOpen.has(id) ? versionsOpen.delete(id) : versionsOpen.add(id); render(); }));
     // wire per-file / per-version buttons
     root.querySelectorAll<HTMLElement>("[data-toggle]").forEach((n) =>
       n.addEventListener("click", () => { const id = n.dataset.toggle!; expanded.has(id) ? expanded.delete(id) : expanded.add(id); render(); }));
@@ -155,6 +184,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", () => { const id = n.dataset.hist!; historyOpen.has(id) ? historyOpen.delete(id) : historyOpen.add(id); render(); }));
     root.querySelectorAll<HTMLElement>("[data-open]").forEach((n) =>
       n.addEventListener("click", () => { const f = files.find((x) => x.id === n.dataset.file); const v = f?.versions.find((x) => x.id === n.dataset.open); if (f && v) void openInViewer(f, v); }));
+    root.querySelectorAll<HTMLElement>("[data-vis]").forEach((n) =>
+      n.addEventListener("click", (e) => { e.stopPropagation(); const f = files.find((x) => x.id === n.dataset.file); const v = f?.versions.find((x) => x.id === n.dataset.vis); if (f && v) void toggleModelVisibility(f, v); }));
     root.querySelectorAll<HTMLElement>("[data-frename]").forEach((n) =>
       n.addEventListener("click", (e) => { e.stopPropagation(); renaming = n.dataset.frename!; armed = null; render(); (root.querySelector("#fv-rename-input") as HTMLInputElement)?.focus(); }));
     root.querySelectorAll<HTMLElement>("[data-frenameok]").forEach((n) =>
@@ -187,12 +218,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       }));
   }
 
-  function fileCard(f: FileRec): string {
+  function fileCard(f: FileRec, isLink = false): string {
     const open = expanded.has(f.id);
     const live = f.versions.find((v) => v.is_live);
     const head =
       `<div data-toggle="${f.id}" style="display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem;background:#1b1b21;border:1px solid #2a2a30;border-radius:.4rem;cursor:pointer">` +
       `<span style="color:#9ca3af;width:.8rem">${open ? "▾" : "▸"}</span>` +
+      (isLink ? '<span title="Linked model — published with its host" style="color:#6b7280;font-size:10px;border:1px solid #2f2f38;border-radius:.25rem;padding:0 .3rem">⇄ link</span>' : "") +
       `<span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.iso_name)}</span>` +
       (live ? `<span style="color:#22c55e;font-size:11px;font-family:ui-monospace,Consolas,monospace">● ${esc(live.revision)} live</span>` : "") +
       `<span style="color:#6b7280;font-size:11px">${f.version_count} ver</span></div>`;
@@ -219,7 +251,16 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `<button data-fdelete="${f.id}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Refused if the file has published versions (immutable) — archive those">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` +
         `</div>`;
     }
-    const rows = f.versions.map((v) => versionRow(f, v)).join("");
+    // Only the CURRENT (live, else newest) version shows by default — the full history collapses
+    // behind a per-file toggle, so a 7-version file doesn't become a wall of rows.
+    const current = f.versions.find((v) => v.is_live) ?? f.versions[0];
+    const older = f.versions.filter((v) => v !== current);
+    const allOpen = versionsOpen.has(f.id);
+    let rows = current ? versionRow(f, current) : "";
+    if (older.length) {
+      rows += `<button data-vers="${f.id}" style="display:block;width:100%;text-align:left;border:none;border-top:1px solid #23232a;background:#141418;color:#71717a;font:11px system-ui;cursor:pointer;padding:.3rem .55rem">${allOpen ? "▾ hide" : "▸ show"} ${older.length} older version(s)</button>`;
+      if (allOpen) rows += older.map((v) => versionRow(f, v)).join("");
+    }
     return `<div style="margin-bottom:.45rem">${head}` +
       `<div style="border:1px solid #23232a;border-top:none;border-radius:0 0 .4rem .4rem;overflow:hidden">${actions}${rows}</div></div>`;
   }
@@ -242,6 +283,19 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       (v.is_live ? "" : `<button data-live="${v.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Set live</button>`) +
       `<button data-cmp="${v.id}" data-file="${f.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Compare</button>` +
       `<button data-open="${v.id}" data-file="${f.id}"${v.platform_item_id ? "" : " disabled"} title="${v.platform_item_id ? "Load this version's geometry into the 3D viewer" : "No platform geometry — this version was registered without a platform upload"}" style="border:1px solid #2c2c34;background:${v.platform_item_id ? "#14314a" : "#191920"};color:${v.platform_item_id ? "#7dd3fc" : "#52525b"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:${v.platform_item_id ? "pointer" : "not-allowed"}">Open 3D</button>` +
+      // The eye is ALWAYS there (Forma-style) when the version has geometry: not loaded → click loads
+      // and shows; loaded+visible → hides; hidden → shows again instantly.
+      (v.platform_item_id
+        ? (() => {
+            const loaded = isLoaded(f, v);
+            const hidden = hiddenModels.has(modelIdOf(f, v));
+            const label = !loaded ? "👁 Show" : hidden ? "🙈 Show" : "👁 Hide";
+            const tip = !loaded ? "Load this model into the viewer and show it"
+              : hidden ? "Show this model in the viewer" : "Hide this model in the viewer (stays loaded)";
+            const col = !loaded ? "#9ca3af" : hidden ? "#71717a" : "#a5f3fc";
+            return `<button data-vis="${v.id}" data-file="${f.id}" title="${tip}" style="border:1px solid #2c2c34;background:#1f1f27;color:${col};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">${label}</button>`;
+          })()
+        : "") +
       `<button data-hist="${v.id}" title="Version history — who did what, when (immutable audit)" style="border:1px solid #2c2c34;background:${historyOpen.has(v.id) ? "#2a1e4d" : "#1f1f27"};color:${historyOpen.has(v.id) ? "#c4b5fd" : "#cbd5e1"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">History</button>` +
       "</div>" +
       (historyOpen.has(v.id) ? historyBlock(f, v) : "")
@@ -349,15 +403,36 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const resp = await client.downloadFile(v.platform_item_id);
       if (!resp.ok) throw new Error(`platform download HTTP ${resp.status}`);
       const buf = await resp.arrayBuffer();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const core = (_components.get(OBC.FragmentsManager) as any).core;
-      const modelId = `${f.iso_name}@${v.revision}`;
-      if (core?.list?.has?.(modelId)) await core.disposeModel(modelId); // reloading the same version → replace
+      const core = coreOf();
+      const modelId = modelIdOf(f, v);
+      if (modelList()?.has?.(modelId)) await core.disposeModel(modelId); // reloading the same version → replace
       await core.load(buf, { modelId });
+      hiddenModels.delete(modelId); // a fresh load is always visible
+      render(); // surface the Hide/Show toggle on the row
       status(`Loaded ${esc(v.revision)} into the viewer ✓ (model "${esc(modelId)}").`);
     } catch (e) {
       status(`Couldn't load ${esc(v.revision)}: ${esc((e as Error).message)}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
     }
+  }
+
+  // Hide/show a loaded model in the viewer (Forma's eye toggle). The model stays loaded — only its
+  // scene object is made invisible — so showing again is instant, no re-download.
+  async function toggleModelVisibility(f: FileRec, v: Version) {
+    const modelId = modelIdOf(f, v);
+    try {
+      if (!isLoaded(f, v)) { await openInViewer(f, v); return; } // eye on an unloaded model = load + show
+      const core = coreOf();
+      const model = modelList()?.get?.(modelId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const obj = (model as any)?.object ?? (model as any)?.three;
+      if (!obj) { status(`Model "${esc(modelId)}" isn't loaded — press Open 3D first.`); return; }
+      const nowHidden = !hiddenModels.has(modelId);
+      obj.visible = !nowHidden;
+      if (nowHidden) hiddenModels.add(modelId); else hiddenModels.delete(modelId);
+      await core.update(true);
+      render();
+      status(nowHidden ? `Hid ${esc(modelId)} (still loaded — Show restores it instantly).` : `Showing ${esc(modelId)}.`);
+    } catch (e) { status("Visibility toggle failed: " + ((e as Error)?.message ?? String(e))); }
   }
 
   // ── compare two versions via their element snapshots (reuses the verified sentinel-core diff) ──
