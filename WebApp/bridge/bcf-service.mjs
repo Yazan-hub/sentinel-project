@@ -975,6 +975,40 @@ async function handleRequest(req, res) {
     }
   }
 
+  // ── BIM Documents (BEP/EIR) — structured ISO 19650 documents, versioned & audited ──
+  //   GET  /bimdocs/templates
+  //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, title }
+  //   GET  /bimdocs/:key/:docId
+  //   PATCH /bimdocs/:key/:docId/section/:sectionId { body?, owner?, state?, updated_at }
+  //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
+  //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
+  if (url.pathname.startsWith("/bimdocs")) {
+    const bimdocs = await import("./bimdocs-store.mjs");
+    try {
+      const seg = url.pathname.split("/").filter(Boolean); // ['bimdocs', p1, p2, p3, p4]
+      const [, p1, p2, p3, p4] = seg;
+      const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const actor = body.actor || "web";
+
+      if (p1 === "templates" && req.method === "GET") return send(res, 200, bimdocs.listTemplates());
+      if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
+      if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
+      if (p1 && p2 && !p3 && req.method === "GET") return send(res, 200, await bimdocs.getDoc(p1, p2));
+      if (p3 === "section" && p4 && req.method === "PATCH")
+        return send(res, 200, await bimdocs.patchSection(p1, p2, p4, { ...body, actor }));
+      if (p3 === "transition" && req.method === "POST")
+        return send(res, 200, await bimdocs.transitionDoc(p1, p2, { ...body, actor }));
+      if (p3 === "publish" && req.method === "POST")
+        return send(res, 200, await bimdocs.publishDoc(p1, p2, { ...body, actor }));
+      if (p3 === "versions" && !p4 && req.method === "GET") return send(res, 200, await bimdocs.listVersions(p1, p2));
+      if (p3 === "versions" && p4 && req.method === "GET") return send(res, 200, await bimdocs.getVersion(p1, p2, p4));
+      return send(res, 404, { message: "bimdocs route not found" });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[bimdocs] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
   // ── Clash status: GET/POST/PUT /clash/:pid · POST /clash/:pid/reset ──
   //   GET  → { items:[{signature,status,volume,label,bcf_guid,...}] }  (the team-wide "known" set)
   //   POST → upsert body { items:[...] } (raise-time)   ·   PUT → body { signature, status } (lifecycle)
