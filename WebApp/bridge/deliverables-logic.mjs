@@ -13,7 +13,15 @@ export const STATUSES = ["delivered", "late", "in_wip", "overdue", "pending", "u
 // version can only reach it THROUGH published (the ISO 19650 state machine allows no other route).
 const PUBLISHED_STATES = new Set(["published", "archived"]);
 
-const dayOf = (ts) => String(ts || "").slice(0, 10); // "2026-06-05T09:12:00Z" → "2026-06-05"
+// UTC calendar day for a supplied timestamp. `new Date(ts)` parses both offset timestamps
+// ("...-05:00") and date-only strings ("YYYY-MM-DD") correctly — the latter as UTC midnight,
+// so it round-trips through toISOString() unchanged. Unparseable/missing input returns null
+// (never "") so it can't sort-first and masquerade as the earliest date — see deriveStatus.
+const dayOf = (ts) => {
+  if (ts === null || ts === undefined || ts === "") return null;
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+};
 const daysBetween = (fromIso, toIso) =>
   Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / 86400000);
 
@@ -34,16 +42,23 @@ export function deriveStatus(rows, files, today) {
 
     // Earliest publication is the honest delivery date: a later re-issue does not undo having met
     // the milestone, and the newest version could be an archived supersession.
-    const publishedDays = versions.filter((v) => PUBLISHED_STATES.has(v.state)).map((v) => dayOf(v.created_at)).sort();
-    const arrivedDays = versions.map((v) => dayOf(v.created_at)).sort();
+    const publishedVersions = versions.filter((v) => PUBLISHED_STATES.has(v.state));
+    // Nulls (unusable dates) are dropped before sorting so a date-less version can never
+    // masquerade as the earliest — see dayOf. `publishedVersions.length` (not published_at)
+    // is what proves the container was published; published_at may still legitimately be null.
+    const publishedDays = publishedVersions.map((v) => dayOf(v.created_at)).filter(Boolean).sort();
+    const arrivedDays = versions.map((v) => dayOf(v.created_at)).filter(Boolean).sort();
     const published_at = publishedDays[0] ?? null;
     const first_arrived_at = arrivedDays[0] ?? null;
     const due = r.due_date ? dayOf(r.due_date) : null;
 
     let status;
     let days_late = 0;
-    if (published_at) {
-      const overdue = due && published_at > due;
+    if (publishedVersions.length > 0) {
+      // Published is published regardless of whether we know the date. Only assert "late"
+      // when we have an actual published_at to compare — asserting lateness on unknown
+      // evidence would be exactly the fabrication this feature exists to prevent.
+      const overdue = due && published_at && published_at > due;
       status = overdue ? "late" : "delivered";
       days_late = overdue ? daysBetween(due, published_at) : 0;
     } else if (first_arrived_at) {

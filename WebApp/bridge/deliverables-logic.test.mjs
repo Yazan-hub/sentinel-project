@@ -152,3 +152,58 @@ describe("deriveStatus — summary", () => {
     expect(rows[0].notes).toBe("keep me");
   });
 });
+
+describe("deriveStatus — UTC day normalisation (FIX 2)", () => {
+  it("a negative-offset timestamp that crosses into the next UTC day is late by the UTC day, not the local day", () => {
+    // 2026-06-10T23:30:00-05:00 is 2026-06-11T04:30:00Z — one day past the 2026-06-10 due date.
+    const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001", [ver("published", "2026-06-10T23:30:00-05:00")])], TODAY);
+    expect(rows[0].status).toBe("late");
+    expect(rows[0].published_at).toBe("2026-06-11");
+    expect(rows[0].days_late).toBe(1);
+  });
+
+  it("a positive offset that does NOT cross a day boundary still classifies as the same day", () => {
+    // 2026-06-10T01:00:00+02:00 is 2026-06-09T23:00:00Z — same UTC day as the plain date, before due.
+    const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001", [ver("published", "2026-06-10T01:00:00+02:00")])], TODAY);
+    expect(rows[0].status).toBe("delivered");
+    expect(rows[0].published_at).toBe("2026-06-09");
+    expect(rows[0].days_late).toBe(0);
+  });
+
+  it("a full-timestamp due_date behaves identically to the date-only form", () => {
+    const { rows } = deriveStatus(
+      [row({ due_date: "2026-06-10T00:00:00Z" })],
+      [file("PRJ-ARC-M3-0001", [ver("published", "2026-06-13")])],
+      TODAY,
+    );
+    expect(rows[0].status).toBe("late");
+    expect(rows[0].days_late).toBe(3);
+  });
+});
+
+describe("deriveStatus — unusable dates never fabricate lateness (FIX 1)", () => {
+  it("a published version with a null created_at is still delivered, with published_at null and days_late 0", () => {
+    const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001", [ver("published", null)])], TODAY);
+    expect(rows[0].status).toBe("delivered");
+    expect(rows[0].published_at).toBeNull();
+    expect(rows[0].days_late).toBe(0);
+  });
+
+  it("a container with one date-less published version and one dated one uses the real date", () => {
+    const { rows } = deriveStatus(
+      [row()],
+      [file("PRJ-ARC-M3-0001", [ver("published", null), ver("published", "2026-06-08")])],
+      TODAY,
+    );
+    expect(rows[0].published_at).toBe("2026-06-08");
+    expect(rows[0].status).toBe("delivered");
+  });
+
+  it("an unparseable created_at does not throw and never produces NaN in days_late", () => {
+    const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001", [ver("published", "not a date")])], TODAY);
+    expect(rows[0].status).toBe("delivered");
+    expect(rows[0].published_at).toBeNull();
+    expect(Number.isNaN(rows[0].days_late)).toBe(false);
+    expect(rows[0].days_late).toBe(0);
+  });
+});
