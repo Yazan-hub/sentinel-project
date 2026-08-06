@@ -100,3 +100,15 @@ describe("integrityReport", () => {
     await expect(integrityReport("demo", "d1", {}, deps)).rejects.toMatchObject({ status: 502 });
   });
 });
+
+describe("refusal handling", () => {
+  it("draft: a refused reply surfaces its own 502 message, not 'unusable output'", async () => {
+    const deps = baseDeps(vi.fn(async () => ({ text: "no", refused: true, provider: "local", model: "m" })));
+    await expect(draftSection("demo", "d1", "s2", {}, deps)).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/declined/) });
+  });
+
+  it("integrity: a refused reply surfaces a distinguishable 502", async () => {
+    const deps = baseDeps(vi.fn(async () => ({ text: "no", refused: true, provider: "local", model: "m" })));
+    await expect(integrityReport("demo", "d1", {}, deps)).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/declined/) });
+  });
+});

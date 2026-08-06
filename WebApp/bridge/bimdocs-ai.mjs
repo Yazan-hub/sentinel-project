@@ -51,6 +51,8 @@ export async function draftSection(key, docId, sectionId, { provider, model } = 
   const grounding = await assembleGrounding(key, docId, d);
   const { system, user } = buildDraftPrompt(grounding, doc, section);
   const reply = await d.chat({ provider, model, system, messages: [{ role: "user", content: user }], format: "json" });
+  // A refusal is not a parse failure — surface the real reason, not "unusable output".
+  if (reply.refused) throw err(502, "model declined to draft this section — rephrase the section guidance or switch model");
   const parsed = parseDraft(reply.text);
   if (parsed.unparsed) throw err(502, "model returned unusable output — try again or switch model");
   return { proposal: parsed.body, grounding_used: grounding.facts.length, provider: reply.provider, model: reply.model };
@@ -70,6 +72,7 @@ export async function integrityReport(key, docId, { provider, model } = {}, deps
   const grounding = await assembleGrounding(key, docId, d);
   const { system, user } = buildIntegrityPrompt(grounding, doc);
   const reply = await d.chat({ provider, model, system, messages: [{ role: "user", content: user }], format: "json" });
+  if (reply.refused) throw err(502, "model declined to analyse this document — try again or switch model");
   const parsed = parseFindings(reply.text, doc, grounding.facts.length);
   if (parsed.unparsed) throw err(502, "model returned unusable output — try again or switch model");
   return {
