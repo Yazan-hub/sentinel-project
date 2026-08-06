@@ -20,6 +20,15 @@ const VOCAB = [
   { id: "federation.breakdown", terms: { federation: 1.0, "model breakdown": 1.0, "how models are split": 0.9, clash: 0.5 } },
 ];
 
+// Word-boundary matching: a term matches only when not glued to another alphanumeric char on
+// either side, so "ids" hits "the IDS spec" / "(IDS)" / "MIDP/TIDP" but not "grids" or "provides".
+// Plain substring would false-positive short acronym terms inside unrelated words.
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Trailing "s?" tolerates a plain plural ("approval gates" still matches "approval gate") without
+// reopening the acronym hole: the left-side boundary already blocks "grids" from matching "ids".
+const termRegex = (term) => new RegExp(`(?<![a-z0-9])${escapeRegex(term)}s?(?![a-z0-9])`, "i");
+const TERM_RE = new Map(VOCAB.flatMap((e) => Object.keys(e.terms)).map((term) => [term, termRegex(term)]));
+
 const PLANNED_IDS = new Set(PLANNED_CHECKS.map((p) => p.id));
 const LABELS = new Map([...CHECKS.map((c) => [c.id, c.label]), ...PLANNED_CHECKS.map((p) => [p.id, p.label])]);
 const MIN_CONFIDENCE = 0.7; // below this a match is noise (a bare "shared" or "standard" mention)
@@ -42,7 +51,7 @@ export function suggestBindings(sections) {
       let score = 0;
       const matched = [];
       for (const [term, weight] of Object.entries(entry.terms)) {
-        if (hay.includes(term)) { score += weight; matched.push(term); }
+        if (TERM_RE.get(term).test(hay)) { score += weight; matched.push(term); }
       }
       if (score >= MIN_CONFIDENCE) {
         hits.push({
