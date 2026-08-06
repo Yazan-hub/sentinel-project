@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   CHECKS, PLANNED_CHECKS, getCheck, listChecks, runCheck,
   classifyNaming, classifyStates, classifySuitability, classifyVersioned,
-  classifyGate, classifyPack, classifyVerdicts,
+  classifyGate, classifyPack, classifyVerdicts, classifyDeliverables,
 } from "./check-registry.mjs";
 import { validateContainerName } from "./sentinel-core.mjs";
 
@@ -303,5 +303,51 @@ describe("classifyVerdicts", () => {
     const r = classifyVerdicts(rows2);
     expect(r.status).toBe("not_checkable");
     expect(r.reason).toContain("1 of 2");
+  });
+});
+
+describe("midp.milestones promotion", () => {
+  it("is a REAL check, not a planned gap (the promotion trap)", () => {
+    expect(CHECKS.some((c) => c.id === "midp.milestones")).toBe(true);
+    expect(PLANNED_CHECKS.some((p) => p.id === "midp.milestones")).toBe(false);
+  });
+});
+
+describe("classifyDeliverables", () => {
+  const st = (summary, rows = []) => ({ summary: { total: 0, delivered: 0, late: 0, in_wip: 0, overdue: 0, pending: 0, unscheduled: 0, ...summary }, rows });
+
+  it("is not_checkable with a reason when no deliverables are defined", () => {
+    const r = classifyDeliverables(st({ total: 0 }));
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/no deliverables/i);
+  });
+
+  it("is met when every deliverable was delivered on time", () => {
+    const r = classifyDeliverables(st({ total: 2, delivered: 2 }));
+    expect(r.status).toBe("met");
+    expect(r.summary).toContain("2");
+  });
+
+  it("reports violations for late, overdue and in_wip rows with evidence", () => {
+    const rows = [
+      { container_name: "A", status: "late", days_late: 3, published_at: "2026-06-13", due_date: "2026-06-10" },
+      { container_name: "B", status: "overdue", days_late: 5, due_date: "2026-06-10" },
+      { container_name: "C", status: "in_wip", due_date: "2026-06-10" },
+      { container_name: "D", status: "delivered" },
+    ];
+    const r = classifyDeliverables(st({ total: 4, delivered: 1, late: 1, overdue: 1, in_wip: 1 }, rows));
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(3);
+    expect(r.evidence.map((e) => e.label).sort()).toEqual(["A", "B", "C"]);
+    expect(r.evidence.find((e) => e.label === "C").detail).toMatch(/wip/i);
+  });
+
+  it("does NOT report met while rows are merely pending (unmeasured, not passed)", () => {
+    const r = classifyDeliverables(st({ total: 2, delivered: 1, pending: 1 }, [
+      { container_name: "A", status: "delivered" },
+      { container_name: "B", status: "pending", due_date: "2026-12-01" },
+    ]));
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/not yet due/i);
   });
 });

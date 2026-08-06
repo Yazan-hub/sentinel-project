@@ -153,6 +153,37 @@ export function classifyVerdicts(auditRows) {
   return result(id, label, "met", { summary: `All ${newest.size} adjudicated version(s) were accepted.` });
 }
 
+export function classifyDeliverables(status) {
+  const id = "midp.milestones", label = "Delivery milestones (MIDP/TIDP)";
+  const s = status?.summary || {};
+  if (!s.total) return result(id, label, "not_checkable", { reason: "No deliverables are defined for this project yet — add them in the Deliverables tab to check delivery against plan." });
+
+  const problems = (status.rows || []).filter((r) => r.status === "late" || r.status === "overdue" || r.status === "in_wip");
+  if (problems.length) {
+    const detailOf = (r) =>
+      r.status === "late" ? `published ${r.days_late} day(s) after ${r.due_date}`
+      : r.status === "overdue" ? `nothing delivered — ${r.days_late} day(s) past ${r.due_date}`
+      : `arrived but still WIP — never published${r.due_date ? ` (due ${r.due_date})` : ""}`;
+    return result(id, label, "violations", {
+      count: problems.length,
+      evidence: problems.map((r) => ({ label: r.container_name, detail: detailOf(r) })),
+      summary: `${problems.length} of ${s.total} deliverable(s) are late, overdue or unissued.`,
+    });
+  }
+
+  // Nothing is failing — but a deliverable that is not yet due has not been MEASURED, so reporting
+  // "met" would claim compliance for something that has not happened yet. Same posture as the
+  // partial-na stage gate: unmeasured is not a pass.
+  const outstanding = (s.pending || 0) + (s.unscheduled || 0);
+  if (outstanding) {
+    return result(id, label, "not_checkable", {
+      count: outstanding,
+      reason: `${s.delivered + s.late} of ${s.total} deliverable(s) are in; the remaining ${outstanding} are not yet due, so delivery cannot be confirmed yet.`,
+    });
+  }
+  return result(id, label, "met", { summary: `All ${s.total} deliverable(s) were delivered.` });
+}
+
 // ── registry ─────────────────────────────────────────────────────────────────────────────────────
 
 export const CHECKS = [
@@ -218,6 +249,16 @@ export const CHECKS = [
     params_schema: {},
     async run(key) { return classifyVerdicts(await listAudit(key)); },
   },
+  {
+    id: "midp.milestones",
+    label: "Delivery milestones (MIDP/TIDP)",
+    description: "Every planned deliverable arrived and was published by its due date.",
+    params_schema: {},
+    async run(key) {
+      const dl = await import("./deliverables-store.mjs");
+      return classifyDeliverables(await dl.deliverableStatus(key));
+    },
+  },
 ];
 
 /**
@@ -226,7 +267,6 @@ export const CHECKS = [
  * an honest statement of coverage rather than a silent blank. Each names the phase that will deliver it.
  */
 export const PLANNED_CHECKS = [
-  { id: "midp.milestones", label: "Delivery milestones (MIDP/TIDP)", reason: "Sentinel has no delivery-milestone model yet — planned for the MIDP/TIDP tracker (sub-project 4)." },
   { id: "loin.levels", label: "Level of information need", reason: "Level-of-information-need is not modelled per stage or discipline yet; the IDS spec is bridge-wide, not per-project." },
   { id: "roles.responsibility", label: "Roles and responsibilities", reason: "No task-team or responsibility matrix exists — container authorship is free text." },
   { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted." },

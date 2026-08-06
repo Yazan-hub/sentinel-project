@@ -22,9 +22,9 @@ describe("suggestBindings", () => {
     expect(loin.planned).toBe(true);
   });
 
-  it("suggests the planned MIDP gap for a delivery-milestone section", () => {
+  it("suggests midp.milestones for a delivery-milestone section (now a real check, not planned)", () => {
     const [out] = suggestBindings([sec("s4", "6. Delivery milestones", "Information delivery dates aligned to project milestones.")]);
-    expect(out.suggested.some((s) => s.id === "midp.milestones" && s.planned)).toBe(true);
+    expect(out.suggested.some((s) => s.id === "midp.milestones" && !s.planned)).toBe(true);
   });
 
   it("returns an empty list for a section that matches nothing", () => {
