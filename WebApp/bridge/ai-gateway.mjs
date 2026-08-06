@@ -176,21 +176,21 @@ export async function listModels(id) {
  * Tools are what makes agent mode possible: the model returns a STRUCTURED PROPOSAL (toolCalls)
  * rather than prose, and the caller decides whether to run any of it. Nothing here executes anything.
  */
-export async function chat({ provider = "local", model, system, messages = [], tools = [] }) {
+export async function chat({ provider = "local", model, system, messages = [], tools = [], format } = {}) {
   const blocked = blockedReason(provider);
   if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
 
   const p = PROVIDERS[provider];
   const chosen = model || p.models[0];
   const out =
-    provider === "local"  ? await viaOllama(chosen, system, messages, tools)
-  : provider === "claude" ? await viaClaude(chosen, system, messages, tools)
-                          : await viaOpenAiCompatible(provider, chosen, system, messages, tools);
+    provider === "local"  ? await viaOllama(chosen, system, messages, tools, format)
+  : provider === "claude" ? await viaClaude(chosen, system, messages, tools, format)
+                          : await viaOpenAiCompatible(provider, chosen, system, messages, tools, format);
   return { ...out, provider, model: chosen };
 }
 
 // ── Claude (official SDK — never a compatibility shim) ────────────────────────────────────────────
-async function viaClaude(model, system, messages, tools) {
+async function viaClaude(model, system, messages, tools, format) {
   // Passing apiKey:"" would DEFEAT the account-login path — the SDK resolves the OAuth profile only
   // when no key is supplied. Pass a key when there is one, otherwise let the SDK resolve credentials.
   const key = keyOf("claude");
@@ -200,7 +200,7 @@ async function viaClaude(model, system, messages, tools) {
     max_tokens: 4096,
     // Adaptive thinking is the only supported on-mode on current models; budget_tokens is removed.
     thinking: { type: "adaptive" },
-    ...(system ? { system } : {}),
+    ...(systemWithFormat(system, format) ? { system: systemWithFormat(system, format) } : {}),
     ...(tools.length ? { tools } : {}),
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
   });
@@ -220,7 +220,7 @@ async function viaClaude(model, system, messages, tools) {
 // ── Gemini + Kimi (both expose an OpenAI-compatible chat-completions endpoint) ────────────────────
 // One code path for two providers: the only differences are the base URL, the key, and the model
 // string, so a second bespoke client would be duplication, not clarity.
-async function viaOpenAiCompatible(provider, model, system, messages, tools) {
+async function viaOpenAiCompatible(provider, model, system, messages, tools, format) {
   const p = PROVIDERS[provider];
   const body = {
     model,
@@ -229,6 +229,7 @@ async function viaOpenAiCompatible(provider, model, system, messages, tools) {
       ...messages.map((m) => ({ role: m.role, content: m.content })),
     ],
     ...(tools.length ? { tools: tools.map(toOpenAiTool) } : {}),
+    ...(format === "json" ? { response_format: { type: "json_object" } } : {}),
   };
   const resp = await fetch(`${p.base}/chat/completions`, {
     method: "POST",
@@ -258,7 +259,7 @@ const toOpenAiTool = (t) => ({
 
 // ── Local (Ollama) ───────────────────────────────────────────────────────────────────────────────
 // /api/chat (not /api/generate) because it is the one that supports tools + roles.
-async function viaOllama(model, system, messages, tools) {
+async function viaOllama(model, system, messages, tools, format) {
   const url = (env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
   const resp = await fetch(`${url}/api/chat`, {
     method: "POST",
@@ -266,6 +267,7 @@ async function viaOllama(model, system, messages, tools) {
     body: JSON.stringify({
       model,
       stream: false,
+      ...(format === "json" ? { format: "json" } : {}),
       messages: [
         ...(system ? [{ role: "system", content: system }] : []),
         ...messages.map((m) => ({ role: m.role, content: m.content })),
@@ -293,3 +295,7 @@ async function viaOllama(model, system, messages, tools) {
 function safeJson(s) {
   try { return typeof s === "string" ? JSON.parse(s) : s || {}; } catch { return {}; }
 }
+
+/** Anthropic has no response_format flag — the instruction rides in the system prompt instead. */
+const systemWithFormat = (system, format) =>
+  format === "json" ? `${system || ""}\n\nReply with raw JSON only. No prose, no code fences.`.trim() : system;
