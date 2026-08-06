@@ -52,17 +52,23 @@ export async function ingestDocument(buffer, { filename, doc_type } = {}) {
   const results = [];
   for (const chunk of chunks) {
     const { system, user } = buildMappingPrompt(tpl.sections, chunk);
+    let text;
     try {
-      const { text } = await chat({ system, messages: [{ role: "user", content: user }], format: "json" });
-      const parsed = parseProposal(text, tpl.sections);
-      // Model replied but contributed nothing (blank text / all unknown headings): route the
-      // chunk's own text to `unassigned` rather than letting it silently disappear.
-      const unparsed = parsed.assignments.length === 0 && parsed.malformed.length === 0;
-      results.push({ chunk, ...parsed, ...(unparsed ? { unparsed: true } : {}) });
+      ({ text } = await chat({ system, messages: [{ role: "user", content: user }], format: "json" }));
     } catch (e) {
       if (e?.status === 503 || e?.status === 400) throw e; // model unreachable / provider blocked: real failure
+      // A gateway/model failure carries a recognizable non-{503,400} status (e.g. rate limit, 500).
+      // An error with NO .status at all is not a model hiccup — it's a bug in our own code (a
+      // TypeError etc.), and must propagate instead of being reported to the user as a bad chunk.
+      if (e?.status === undefined) throw e;
       results.push({ chunk, assignments: [], malformed: [], unparsed: true });
+      continue;
     }
+    const parsed = parseProposal(text, tpl.sections);
+    // Model replied but contributed nothing (blank text / all unknown headings): route the
+    // chunk's own text to `unassigned` rather than letting it silently disappear.
+    const unparsed = parsed.assignments.length === 0 && parsed.malformed.length === 0;
+    results.push({ chunk, ...parsed, ...(unparsed ? { unparsed: true } : {}) });
   }
 
   return {
