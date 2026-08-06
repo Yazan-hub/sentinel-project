@@ -112,3 +112,22 @@ describe("refusal handling", () => {
     await expect(integrityReport("demo", "d1", {}, deps)).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/declined/) });
   });
 });
+
+describe("prompt-size cap measures the ASSEMBLED prompt", () => {
+  it("integrity: a small doc with a fact-heavy grounding still 413s before any AI call", async () => {
+    const deps = baseDeps(vi.fn());
+    // tiny doc body, but compliance results push the fact block far past the cap
+    deps.complianceReport = vi.fn(async () => ({
+      sections: [{ section_id: "s1", heading: "Naming", results: [{ id: "c1", label: "L", status: "violations", summary: "x".repeat(MAX_INTEGRITY_CHARS + 1000) }] }],
+    }));
+    await expect(integrityReport("demo", "d1", {}, deps)).rejects.toMatchObject({ status: 413, message: expect.stringMatching(/assembled integrity prompt/) });
+    expect(deps.chat).not.toHaveBeenCalled();
+  });
+
+  it("draft: an oversized assembled prompt 413s before any AI call (the draft path was uncapped)", async () => {
+    const deps = baseDeps(vi.fn());
+    deps.getDoc = vi.fn(async () => ({ ...DOC, sections: [{ ...DOC.sections[1], body: "x".repeat(MAX_INTEGRITY_CHARS + 1000) }] }));
+    await expect(draftSection("demo", "d1", "s2", {}, deps)).rejects.toMatchObject({ status: 413, message: expect.stringMatching(/assembled draft prompt/) });
+    expect(deps.chat).not.toHaveBeenCalled();
+  });
+});
