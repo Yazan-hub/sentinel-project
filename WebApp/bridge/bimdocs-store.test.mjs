@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDocFromIngest, validateSections, normalizeSource } from "./bimdocs-store.mjs";
+import { createDocFromIngest, validateSections, normalizeSource, validateBindings } from "./bimdocs-store.mjs";
 
 // createDocFromIngest hits Supabase (via ensureProject/sb) after validation. These cases must all
 // reject with status 400 before any network call — asserted here by never providing a real `key`/
@@ -82,5 +82,50 @@ describe("normalizeSource", () => {
       pages: 12,
       ingested_at: "2026-08-06T00:00:00Z",
     });
+  });
+});
+
+describe("validateBindings", () => {
+  it("accepts an empty object (unbound)", () => {
+    expect(validateBindings({})).toEqual({ checks: [] });
+  });
+
+  it("accepts a well-formed binding list", () => {
+    const out = validateBindings({ checks: [{ id: "naming.containers" }] });
+    expect(out.checks[0]).toEqual({ id: "naming.containers", params: {} });
+  });
+
+  it("keeps supplied params", () => {
+    const out = validateBindings({ checks: [{ id: "cde.states", params: { expect: ["published"] } }] });
+    expect(out.checks[0].params).toEqual({ expect: ["published"] });
+  });
+
+  it("accepts a planned check id (an honest not-checkable binding)", () => {
+    expect(validateBindings({ checks: [{ id: "midp.milestones" }] }).checks).toHaveLength(1);
+  });
+
+  it("rejects an unknown check id with 400 naming it", () => {
+    expect(() => validateBindings({ checks: [{ id: "made.up" }] })).toThrow(/made\.up/);
+    try { validateBindings({ checks: [{ id: "made.up" }] }); } catch (e) { expect(e.status).toBe(400); }
+  });
+
+  it("rejects a non-object bindings value", () => {
+    for (const bad of [null, "x", 5, []]) {
+      try { validateBindings(bad); throw new Error("should have thrown"); } catch (e) { expect(e.status).toBe(400); }
+    }
+  });
+
+  it("rejects a non-array checks value", () => {
+    try { validateBindings({ checks: "naming" }); throw new Error("should have thrown"); } catch (e) { expect(e.status).toBe(400); }
+  });
+
+  it("rejects a check entry that is not an object with an id", () => {
+    for (const bad of [null, "naming.containers", {}, { id: 5 }]) {
+      try { validateBindings({ checks: [bad] }); throw new Error("should have thrown"); } catch (e) { expect(e.status).toBe(400); }
+    }
+  });
+
+  it("rejects params that are not a plain object", () => {
+    try { validateBindings({ checks: [{ id: "cde.states", params: [1] }] }); throw new Error("should have thrown"); } catch (e) { expect(e.status).toBe(400); }
   });
 });

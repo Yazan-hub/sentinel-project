@@ -107,12 +107,14 @@ const defaultMeta = () => ({
  *  dimensions/snapshot, replace the rest). `name` is handled separately (a real column). */
 function mergeMeta(meta, patch) {
   const out = { ...meta };
-  for (const k of ["stage", "standards_pack", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
+  for (const k of ["stage", "standards_pack", "active_ruleset", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
   if (patch.dimensions) out.dimensions = { ...(meta.dimensions || {}), ...patch.dimensions };
   if (patch.snapshot) out.snapshot = { ...(meta.snapshot || {}), ...patch.snapshot };
   out.updated_at = new Date().toISOString();
   return out;
 }
+/** Test seam: mergeMeta is module-private by design; this exposes it for unit tests only. */
+export const mergeMetaForTest = mergeMeta;
 // Always present the core governance fields (stage/dimensions/gates/snapshot) even if a migrated row's
 // metadata was partial — so consumers never see a null where the local store used to default them.
 const toProjectShape = (row) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}) });
@@ -700,6 +702,20 @@ function defaultNamingRuleset() {
 }
 const resolveNamingRuleset = (inline) =>
   (inline && typeof inline === "object" && Array.isArray(inline.fields)) ? inline : defaultNamingRuleset();
+
+/**
+ * The naming ruleset a PROJECT is actually governed by: its installed standards pack's ruleset when
+ * one survived (see mergeMeta), else the bridge default. `source` lets a caller report which was used
+ * rather than implying the project chose it.
+ */
+export async function projectNamingRuleset(key) {
+  try {
+    const meta = await getProjectMeta(key);
+    const rs = meta?.active_ruleset;
+    if (rs && Array.isArray(rs.fields) && rs.separator) return { ruleset: rs, source: "project" };
+  } catch { /* fall through to the bridge default */ }
+  return { ruleset: defaultNamingRuleset(), source: "default" };
+}
 
 // Server-side IDS custody (SENTINEL_IDS) — when set and valid, the server's spec is authoritative and a
 // client-posted `b.ids` is ignored (but audited). Mirrors defaultNamingRuleset()'s cache/warn idiom.

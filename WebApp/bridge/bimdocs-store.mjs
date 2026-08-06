@@ -4,6 +4,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
+import { getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -150,4 +151,78 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
 export async function getSourceRef(key, docId) {
   const doc = await getDoc(key, docId);
   return doc.source || null;
+}
+
+const PLANNED_BINDABLE = new Set(PLANNED_CHECKS.map((p) => p.id));
+
+/**
+ * Validate and normalise a section's bindings. The ONLY accepted shape is {checks:[{id, params?}]};
+ * `{}` (or omitted) means unbound. A planned (not-yet-implemented) check id is deliberately bindable —
+ * the section then reports "not checkable" with the reason, which is an honest statement of coverage.
+ */
+export function validateBindings(bindings) {
+  if (bindings === undefined) return { checks: [] };
+  if (typeof bindings !== "object" || bindings === null || Array.isArray(bindings)) throw err(400, "bindings must be an object shaped {checks:[{id, params?}]}");
+  const raw = bindings.checks;
+  if (raw === undefined) return { checks: [] };
+  if (!Array.isArray(raw)) throw err(400, "bindings.checks must be an array");
+  const checks = raw.map((c, i) => {
+    if (!c || typeof c !== "object" || Array.isArray(c) || typeof c.id !== "string" || !c.id)
+      throw err(400, `bindings.checks[${i}] must be an object with a string id`);
+    if (!getCheck(c.id) && !PLANNED_BINDABLE.has(c.id))
+      throw err(400, `unknown check id '${c.id}'`);
+    if (c.params !== undefined && (typeof c.params !== "object" || c.params === null || Array.isArray(c.params)))
+      throw err(400, `bindings.checks[${i}].params must be an object`);
+    return { id: c.id, params: c.params || {} };
+  });
+  return { checks };
+}
+
+/** Persist one section's bindings. Same guards as patchSection: no editing a published/archived doc. */
+export async function setSectionBindings(key, docId, sectionId, { bindings, updated_at, actor } = {}) {
+  const next = validateBindings(bindings); // validate BEFORE any network call
+  const doc = await getDoc(key, docId);
+  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
+  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
+  const i = doc.sections.findIndex((s) => s.id === sectionId);
+  if (i < 0) throw err(404, "section not found");
+  const old = doc.sections[i];
+  const sections = doc.sections.map((s, j) => (j === i ? { ...s, bindings: next } : s));
+  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  await audit(doc.project_id, "bim_document", docId, "section_bindings_set", actor || "web",
+    { section: old.heading, checks: (old.bindings?.checks || []).map((c) => c.id) },
+    { section: old.heading, checks: next.checks.map((c) => c.id) });
+  return row;
+}
+
+/** Cap on bound checks evaluated per compliance run — bounds a doc's latency to O(cap), not O(bindings). */
+export const MAX_COMPLIANCE_CHECKS = 100;
+
+/**
+ * Evaluate every bound check on a document against live project state. READ-ONLY: no writes, no audit
+ * row — a compliance view is a read model, not an event. Unbound sections appear with an empty
+ * results list so the UI can show honest coverage (how much of the document is actually wired).
+ * Total checks evaluated across the whole document is capped at MAX_COMPLIANCE_CHECKS; anything beyond
+ * that is reported as not_checkable naming the cap, never silently dropped (honesty over truncation).
+ */
+export async function complianceReport(key, docId) {
+  const doc = await getDoc(key, docId);
+  const sections = [];
+  const summary = { sections: doc.sections.length, bound: 0, met: 0, violations: 0, not_checkable: 0, error: 0 };
+  let evaluated = 0;
+  for (const s of doc.sections) {
+    const bound = s.bindings?.checks || [];
+    if (bound.length) summary.bound += 1;
+    const results = [];
+    for (const b of bound) {
+      const r = evaluated < MAX_COMPLIANCE_CHECKS
+        ? (evaluated += 1, await runCheck(b.id, key, b.params || {}))
+        : { id: b.id, label: b.id, status: "not_checkable", count: 0, summary: "", evidence: [],
+            reason: `Not evaluated: this document exceeds the ${MAX_COMPLIANCE_CHECKS}-check limit for a single compliance run.` };
+      summary[r.status] = (summary[r.status] || 0) + 1;
+      results.push(r);
+    }
+    sections.push({ section_id: s.id, heading: s.heading, results });
+  }
+  return { document_id: doc.id, title: doc.title, doc_type: doc.doc_type, generated_at: new Date().toISOString(), summary, sections };
 }

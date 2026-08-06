@@ -9,6 +9,17 @@ import { activePid, onActiveProjectChange } from "./active-project";
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Section = { id: string; heading: string; guidance: string; body: string; state: string; owner: string | null; bindings: Record<string, unknown> };
 type Doc = { id: string; doc_type: string; title: string; status: string; sections: Section[]; updated_at: string };
+type Evidence = { label: string; detail: string; ref?: string };
+type CheckResult = { id: string; label: string; status: "met" | "violations" | "not_checkable" | "error"; count: number; summary: string; reason?: string; evidence: Evidence[] };
+type Compliance = { document_id: string; generated_at: string; summary: Record<string, number>; sections: { section_id: string; heading: string; results: CheckResult[] }[] };
+type Suggestion = { section_id: string; heading: string; suggested: { id: string; label: string; params: Record<string, unknown>; confidence: number; why: string; planned: boolean }[] };
+
+const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
+  met: { color: "#22c55e", icon: "✓" },
+  violations: { color: "#f87171", icon: "✗" },
+  not_checkable: { color: "#a1a1aa", icon: "—" },
+  error: { color: "#eab308", icon: "!" },
+};
 
 export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
@@ -251,6 +262,202 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     body.append(wrap);
   }
 
+  /** One section's compliance chips + expandable evidence. Plain DOM (no innerHTML with server text). */
+  function complianceStrip(results: CheckResult[]): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:.25rem;margin:.35rem 0 .1rem";
+    if (!results.length) {
+      const none = document.createElement("div");
+      none.textContent = "No checks bound to this section.";
+      none.style.cssText = "color:#52525b;font:10.5px system-ui";
+      wrap.append(none);
+      return wrap;
+    }
+    for (const r of results) {
+      const st = STATUS_STYLE[r.status] || STATUS_STYLE.error;
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;font:11px system-ui";
+      const chipEl = document.createElement("span");
+      chipEl.textContent = `${st.icon} ${r.label}`;
+      chipEl.style.cssText = `color:${st.color};border:1px solid ${st.color}55;border-radius:.25rem;padding:0 .35rem;white-space:nowrap`;
+      const txt = document.createElement("span");
+      txt.textContent = r.status === "not_checkable" ? (r.reason || "not checkable") : r.summary;
+      txt.style.cssText = "color:#9ca3af;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      txt.title = r.status === "not_checkable" ? (r.reason || "") : r.summary;
+      row.append(chipEl, txt);
+      if (r.evidence.length) {
+        const more = btn(`${r.evidence.length} ▾`);
+        more.style.padding = ".05rem .3rem";
+        const list = document.createElement("div");
+        list.style.cssText = "display:none;flex-direction:column;gap:.15rem;margin:.2rem 0 .3rem 1.2rem";
+        for (const e of r.evidence.slice(0, 50)) {
+          const li = document.createElement("div");
+          li.style.cssText = "font:10.5px ui-monospace,Consolas,monospace;color:#cbd5e1";
+          const strong = document.createElement("span");
+          strong.textContent = e.label;
+          strong.style.color = "#e5e7eb";
+          const rest = document.createElement("span");
+          rest.textContent = ` — ${e.detail}`;
+          li.append(strong, rest);
+          list.append(li);
+        }
+        more.onclick = () => { list.style.display = list.style.display === "none" ? "flex" : "none"; };
+        row.append(more);
+        wrap.append(row, list);
+      } else {
+        wrap.append(row);
+      }
+    }
+    return wrap;
+  }
+
+  async function showBindings(doc: Doc, section: Section, onDone: () => void) {
+    const registry: { checks: { id: string; label: string; description: string }[]; planned: { id: string; label: string; reason: string }[] } =
+      await api("/checks");
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = `Bindings — ${section.heading}`;
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const cancel = btn("Cancel");
+    const save = btn("Save bindings", true);
+    cancel.onclick = onDone;
+    bar.append(title, cancel, save);
+
+    body.replaceChildren();
+    const currentChecks = (section.bindings as { checks?: { id: string; params?: Record<string, unknown> }[] })?.checks || [];
+    const current = new Set(currentChecks.map((c) => c.id));
+    const currentParams = new Map(currentChecks.map((c) => [c.id, c.params]));
+    const boxes: { id: string; input: HTMLInputElement }[] = [];
+    const addRow = (id: string, label: string, description: string, planned: boolean) => {
+      const row = document.createElement("label");
+      row.style.cssText = "display:flex;gap:.5rem;align-items:flex-start;padding:.35rem .4rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.3rem;background:#1b1b21;cursor:pointer";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = current.has(id);
+      const text = document.createElement("div");
+      const t = document.createElement("div");
+      t.textContent = planned ? `${label} (not checkable yet)` : label;
+      t.style.cssText = `font:600 12px system-ui;color:${planned ? "#a1a1aa" : "#e5e7eb"}`;
+      const d = document.createElement("div");
+      d.textContent = description;
+      d.style.cssText = "font:10.5px system-ui;color:#9ca3af";
+      text.append(t, d);
+      row.append(cb, text);
+      body.append(row);
+      boxes.push({ id, input: cb });
+    };
+
+    const h = (label: string) => { const x = document.createElement("div"); x.textContent = label; x.style.cssText = "font:600 11px system-ui;color:#9ca3af;margin:.5rem 0 .3rem"; body.append(x); };
+    h("Checks Sentinel can evaluate now");
+    for (const c of registry.checks) addRow(c.id, c.label, c.description, false);
+    h("Planned — binding one records the gap honestly");
+    for (const p of registry.planned) addRow(p.id, p.label, p.reason, true);
+
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${section.id}/bindings`, {
+          method: "PUT",
+          body: JSON.stringify({
+            bindings: {
+              checks: boxes
+                .filter((b) => b.input.checked)
+                .map((b) => {
+                  const params = currentParams.get(b.id);
+                  return params ? { id: b.id, params } : { id: b.id };
+                }),
+            },
+            updated_at: doc.updated_at,
+            actor: await actor(),
+          }),
+        });
+        onDone();
+      } catch (e) {
+        save.disabled = false;
+        if ((e as any).status === 409) {
+          msg("This document changed since you opened it — reopen it and set the bindings again.", true);
+        } else {
+          msg(`Couldn't save bindings: ${(e as Error).message}`, true);
+        }
+      }
+    };
+  }
+
+  async function showSuggestBindings(doc: Doc, onDone: () => void) {
+    const suggestions: Suggestion[] = await api(`/${encodeURIComponent(pid())}/${doc.id}/bindings/suggest`, { method: "POST", body: JSON.stringify({}) });
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = `Suggested bindings — ${doc.title}`;
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const cancel = btn("Cancel");
+    const apply = btn("✓ Apply selected", true);
+    cancel.onclick = onDone;
+    bar.append(title, cancel, apply);
+
+    body.replaceChildren();
+    const picks: { section_id: string; id: string; params: Record<string, unknown>; input: HTMLInputElement }[] = [];
+    const matched = suggestions.filter((s) => s.suggested.length);
+    if (!matched.length) {
+      const none = document.createElement("div");
+      none.textContent = "No sections matched a known check. Bind them manually from each section's Bindings button.";
+      none.style.cssText = "color:#9ca3af;padding:1rem";
+      body.append(none);
+    }
+    for (const s of matched) {
+      const head = document.createElement("div");
+      head.textContent = s.heading;
+      head.style.cssText = "font:600 12px system-ui;color:#e5e7eb;margin:.6rem 0 .25rem";
+      body.append(head);
+      for (const sg of s.suggested) {
+        const row = document.createElement("label");
+        row.style.cssText = "display:flex;gap:.5rem;align-items:flex-start;padding:.3rem .4rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.25rem;background:#1b1b21;cursor:pointer";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !sg.planned && sg.confidence >= 1;
+        const text = document.createElement("div");
+        const t = document.createElement("div");
+        t.textContent = sg.planned ? `${sg.label} (not checkable yet)` : sg.label;
+        t.style.cssText = `font:600 11.5px system-ui;color:${sg.planned ? "#a1a1aa" : "#e5e7eb"}`;
+        const w = document.createElement("div");
+        w.textContent = `${sg.why} · confidence ${sg.confidence}`;
+        w.style.cssText = "font:10px ui-monospace,Consolas,monospace;color:#71717a";
+        text.append(t, w);
+        row.append(cb, text);
+        body.append(row);
+        picks.push({ section_id: s.section_id, id: sg.id, params: sg.params, input: cb });
+      }
+    }
+
+    apply.onclick = async () => {
+      apply.disabled = true;
+      apply.textContent = "Applying…";
+      const bySection = new Map<string, { id: string; params: Record<string, unknown> }[]>();
+      for (const p of picks) if (p.input.checked) bySection.set(p.section_id, [...(bySection.get(p.section_id) || []), { id: p.id, params: p.params }]);
+      const sections = [...bySection.entries()];
+      let appliedCount = 0;
+      try {
+        for (const [sectionId, checks] of sections) {
+          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/bindings`, {
+            method: "PUT",
+            body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, updated_at: doc.updated_at, actor: await actor() }),
+          });
+          appliedCount += 1;
+        }
+        onDone();
+      } catch (e) {
+        apply.disabled = false;
+        apply.textContent = "✓ Apply selected";
+        const failedSection = sections[appliedCount]?.[0];
+        const heading = matched.find((s) => s.section_id === failedSection)?.heading || failedSection || "unknown section";
+        if ((e as any).status === 409) {
+          msg(`Applied ${appliedCount}/${sections.length} section(s); this document changed since you opened it — reopen it and try again.`, true);
+        } else {
+          msg(`Applied ${appliedCount}/${sections.length} section(s); failed on "${heading}": ${(e as Error).message}`, true);
+        }
+      }
+    };
+  }
+
   // ── Editor view ───────────────────────────────────────────────────────────
   async function showEditor(docId: string) {
     let doc: Doc;
@@ -262,7 +469,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     title.style.flex = "1";
     const viewBtn = btn("Document view"); viewBtn.onclick = () => showDocView(doc);
     const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
-    bar.append(back, title, viewBtn, versBtn);
+    const suggestBtn = btn("Suggest bindings"); suggestBtn.onclick = () => showSuggestBindings(doc, () => showEditor(doc.id));
+    bar.append(back, title, viewBtn, versBtn, suggestBtn);
     // document-level transitions
     const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
     for (const to of next[doc.status] || []) {
@@ -284,6 +492,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
 
     body.replaceChildren();
     const editable = doc.status === "wip" || doc.status === "shared";
+    let compliance: Compliance | null = null;
+    try { compliance = await api(`/${encodeURIComponent(pid())}/${doc.id}/compliance`); } catch { /* compliance is optional; the editor must still open */ }
+    const resultsFor = (sid: string) => compliance?.sections.find((s) => s.section_id === sid)?.results ?? [];
     for (const s of doc.sections) {
       const sec = document.createElement("details");
       sec.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;background:#191920";
@@ -327,8 +538,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           else msg(e.message, true);
         }
       };
-      rowEl.append(ownerIn, stateSel, save);
-      inner.append(guide, ta, rowEl);
+      const bindingsBtn = btn("Bindings");
+      bindingsBtn.onclick = () => showBindings(doc, s, () => showEditor(doc.id));
+      rowEl.append(ownerIn, stateSel, save, bindingsBtn);
+      inner.append(guide, ta, complianceStrip(resultsFor(s.id)), rowEl);
       sec.append(sum, inner);
       body.append(sec);
     }
