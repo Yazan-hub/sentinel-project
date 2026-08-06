@@ -46,6 +46,9 @@ const CORS_WILDCARD = CORS_RAW === "*";
 const CORS_ALLOW = CORS_RAW && !CORS_WILDCARD ? CORS_RAW.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CORS;
 const originAllowed = (origin) => CORS_WILDCARD || (!!origin && CORS_ALLOW.includes(origin));
 const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+// EIR/BEP documents are text, not IFC models — cap far below MAX_UPLOAD so one huge upload can't hold
+// an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
+const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
 // JSON bodies (propose/audit/cde) are parsed fully into memory; cap them well above a large
 // governed-publish payload but far below a memory-exhaustion DoS. Tunable via BCF_MAX_JSON_MB.
 const MAX_JSON = (Number(process.env.BCF_MAX_JSON_MB) || 256) * 1024 * 1024;
@@ -989,8 +992,40 @@ async function handleRequest(req, res) {
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['bimdocs', p1, p2, p3, p4]
       const [, p1, p2, p3, p4] = seg;
-      const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const isRawUpload = p2 === "ingest" && !p3;
+      const body = !isRawUpload && ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
       const actor = body.actor || "web";
+
+      // Ingest: raw document bytes -> AI mapping proposal. Writes nothing; /ingest/commit does.
+      if (p2 === "ingest" && !p3 && req.method === "POST") {
+        const len = Number(req.headers["content-length"] || 0);
+        if (len > MAX_DOC_UPLOAD) return send(res, 413, { message: `File too large (${(len / 1048576).toFixed(1)} MB, max ${(MAX_DOC_UPLOAD / 1048576) | 0} MB)` });
+        const { ensureProject } = await import("./cde-store.mjs");
+        await ensureProject(p1); // cheap existence gate before burning disk/model time on a bad project key
+        const raw = await readRaw(req);
+        if (!raw.length) return send(res, 400, { message: "empty upload" });
+        const ingest = await import("./bimdocs-ingest.mjs");
+        const name = url.searchParams.get("name") || "document.pdf";
+        const docType = url.searchParams.get("doc_type") || "EIR";
+        return send(res, 200, await ingest.ingestDocument(raw, { filename: name, doc_type: docType }));
+      }
+      if (p2 === "ingest" && p3 === "commit" && req.method === "POST") {
+        return send(res, 201, await bimdocs.createDocFromIngest(p1, { ...body, actor }));
+      }
+      if (p3 === "source" && req.method === "GET") {
+        const ref = await bimdocs.getSourceRef(p1, p2);
+        if (!ref) return send(res, 404, { message: "this document has no original file" });
+        const ingest = await import("./bimdocs-ingest.mjs");
+        const { readFileSync } = await import("node:fs");
+        const buf = readFileSync(ingest.sourceFilePath(ref.file_id));
+        res.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(ref.name)}"`,
+          "Cache-Control": "no-cache",
+          ...corsHeaders(res),
+        });
+        return res.end(buf);
+      }
 
       if (p1 === "templates" && req.method === "GET") return send(res, 200, bimdocs.listTemplates());
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));

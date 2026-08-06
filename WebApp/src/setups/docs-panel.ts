@@ -45,6 +45,152 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     setTimeout(() => d.remove(), 5000);
   };
 
+  // ── Ingest (upload + review) ─────────────────────────────────────────────
+  type Fragment = { text: string; pages: number[]; confidence: number };
+  type ProposedSection = { heading: string; guidance: string; body: string; fragments: Fragment[] };
+  type Unassigned = { text: string; pages: number[]; suggested_heading: string | null; confidence: number; reason: string };
+  type Proposal = { proposal: { sections: ProposedSection[]; unassigned: Unassigned[] }; source: Record<string, unknown>; doc_type: string; title: string };
+
+  const pageRef = (pages: number[]) => (pages?.length ? `p.${pages.join(", ")}` : "");
+
+  async function runIngest(file: File) {
+    body.replaceChildren();
+    const busy = document.createElement("div");
+    busy.textContent = `Reading ${file.name} and mapping it to the template… (a local model can take a minute)`;
+    busy.style.cssText = "color:#93c5fd;padding:1rem";
+    body.append(busy);
+    try {
+      const docType = /bep/i.test(file.name) ? "BEP" : "EIR";
+      const r = await bfetch(
+        `${base}/bimdocs/${encodeURIComponent(pid())}/ingest?name=${encodeURIComponent(file.name)}&doc_type=${docType}`,
+        { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: await file.arrayBuffer() },
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((j as { message?: string }).message || `HTTP ${r.status}`);
+      showIngestReview(j as Proposal);
+    } catch (e) {
+      body.replaceChildren();
+      msg(`Ingestion failed: ${(e as Error).message}`, true);
+      await showList();
+    }
+  }
+
+  function showIngestReview(p: Proposal) {
+    const sections = p.proposal.sections.map((s) => ({ ...s }));
+    const unassigned = p.proposal.unassigned.map((u) => ({ ...u, target: u.suggested_heading || "" }));
+
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = `Review ingestion — ${p.title}`;
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const cancel = btn("Cancel");
+    cancel.onclick = showList;
+    const accept = btn("✓ Create document", true);
+    bar.append(title, cancel, accept);
+
+    body.replaceChildren();
+    const intro = document.createElement("div");
+    const mapped = sections.filter((s) => s.body.trim()).length;
+    intro.textContent = `${mapped}/${sections.length} sections mapped · ${unassigned.length} passage(s) need a home. Edit anything before creating the document — nothing is saved yet.`;
+    intro.style.cssText = "color:#9ca3af;padding:.2rem 0 .6rem";
+    body.append(intro);
+
+    sections.forEach((s, i) => {
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.5rem;background:#1b1b21";
+      const head = document.createElement("div");
+      head.style.cssText = "padding:.45rem .6rem;border-bottom:1px solid #2a2a30;display:flex;gap:.5rem;align-items:center";
+      const headingSpan = document.createElement("span");
+      headingSpan.textContent = s.heading;
+      headingSpan.style.cssText = "font:600 12px system-ui;color:#eee;flex:1";
+      head.append(headingSpan);
+      const cites = s.fragments.map((f) => pageRef(f.pages)).filter(Boolean).join(" · ");
+      const citesSpan = document.createElement("span");
+      if (cites) {
+        citesSpan.textContent = cites;
+        citesSpan.style.cssText = "color:#6b7280;font:10px ui-monospace,Consolas,monospace";
+      } else {
+        citesSpan.textContent = "empty";
+        citesSpan.style.cssText = "color:#71717a;font-size:10px";
+      }
+      head.append(citesSpan);
+      const ta = document.createElement("textarea");
+      ta.value = s.body;
+      ta.style.cssText = "width:100%;min-height:5rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:0;border-radius:0 0 .4rem .4rem;padding:.5rem .6rem;font:12px ui-monospace,Consolas,monospace;resize:vertical";
+      ta.oninput = () => { sections[i].body = ta.value; };
+      card.append(head, ta);
+      body.append(card);
+    });
+
+    if (unassigned.length) {
+      const uHead = document.createElement("div");
+      uHead.textContent = "Unassigned passages — pick a section or leave as Discard";
+      uHead.style.cssText = "font:600 12px system-ui;color:#eab308;margin:.8rem 0 .4rem";
+      body.append(uHead);
+      unassigned.forEach((u, i) => {
+        const row = document.createElement("div");
+        row.style.cssText = "border:1px solid #3f3f46;border-radius:.4rem;margin-bottom:.4rem;background:#141418;padding:.5rem .6rem";
+        const metaRow = document.createElement("div");
+        metaRow.style.cssText = "display:flex;gap:.5rem;align-items:center;margin-bottom:.35rem";
+        const metaSpan = document.createElement("span");
+        metaSpan.textContent = `${pageRef(u.pages)} · ${u.reason}`;
+        metaSpan.style.cssText = "color:#6b7280;font:10px ui-monospace,Consolas,monospace;flex:1";
+        metaRow.append(metaSpan);
+        const textDiv = document.createElement("div");
+        textDiv.textContent = u.text;
+        textDiv.style.cssText = "color:#cbd5e1;font:12px ui-monospace,Consolas,monospace;white-space:pre-wrap;max-height:7rem;overflow:auto";
+        const sel = document.createElement("select");
+        sel.style.cssText = "margin-top:.4rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui;width:100%";
+        const discardOpt = document.createElement("option");
+        discardOpt.value = "";
+        discardOpt.textContent = "Discard";
+        sel.append(discardOpt);
+        for (const s of sections) {
+          const o = document.createElement("option");
+          o.value = s.heading;
+          o.textContent = s.heading;
+          o.selected = s.heading === u.target;
+          sel.append(o);
+        }
+        sel.onchange = () => { unassigned[i].target = sel.value; };
+        row.append(metaRow, textDiv, sel);
+        body.append(row);
+      });
+    }
+
+    accept.onclick = async () => {
+      accept.disabled = true;
+      accept.textContent = "Creating…";
+      // Fold each assigned passage into the end of its chosen section, in review order — into a LOCAL
+      // copy so a failed commit + retry never folds the same passages in twice (sections is untouched).
+      const foldedBodies = new Map<string, string>();
+      for (const u of unassigned) {
+        if (!u.target) continue;
+        const s = sections.find((x) => x.heading === u.target);
+        if (!s) continue;
+        const base = foldedBodies.has(s.heading) ? foldedBodies.get(s.heading)! : s.body;
+        foldedBodies.set(s.heading, base ? `${base}\n\n${u.text}` : u.text);
+      }
+      try {
+        const created = await api(`/${encodeURIComponent(pid())}/ingest/commit`, {
+          method: "POST",
+          body: JSON.stringify({
+            doc_type: p.doc_type,
+            title: p.title,
+            source: p.source,
+            sections: sections.map((s) => ({ heading: s.heading, guidance: s.guidance, body: foldedBodies.get(s.heading) ?? s.body })),
+            actor: await actor(),
+          }),
+        });
+        await showEditor(created.id);
+      } catch (e) {
+        accept.disabled = false;
+        accept.textContent = "✓ Create document";
+        msg(`Couldn't create the document: ${(e as Error).message}`, true);
+      }
+    };
+  }
+
   // ── List view ─────────────────────────────────────────────────────────────
   async function showList() {
     bar.replaceChildren();
@@ -53,7 +199,18 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
     const newBtn = btn("+ New document", true);
     newBtn.onclick = showCreate;
-    bar.append(title, newBtn);
+    const ingestBtn = btn("⇪ Ingest EIR/BEP");
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = ".pdf,.docx,.txt,.md";
+    fileInput.style.display = "none";
+    ingestBtn.onclick = () => fileInput.click();
+    fileInput.onchange = async () => {
+      const f = fileInput.files?.[0];
+      fileInput.value = "";
+      if (f) await runIngest(f);
+    };
+    bar.append(title, ingestBtn, newBtn, fileInput);
     body.replaceChildren();
     try {
       const docs: (Doc & { version_count: number })[] = await api(`/${encodeURIComponent(pid())}`);
