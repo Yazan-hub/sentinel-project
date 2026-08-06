@@ -29,12 +29,13 @@ import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
 import { clashPanel } from "./setups/clash-panel";
-import { plansPanel } from "./setups/plans-panel";
 import { sheetsPanel } from "./setups/sheets-panel";
 import { viewsPanel } from "./setups/views-panel";
 import { projectsHubPanel } from "./setups/projects-hub-panel";
 import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
+import { projectSettingsPanel } from "./setups/project-settings-panel";
+import { activePid, onActiveProjectChange } from "./setups/active-project";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -221,15 +222,17 @@ async function main() {
   const tenderEl = tenderPanel(components, { baseUrl: SERVICE_URL });
   // RFIs / approvals — coordination objects beside BCF issues (Phase 2).
   const rfiEl = rfiPanel(components, { baseUrl: SERVICE_URL });
-  // Project Shell — the Lifecycle Command Center: aggregates health + issues + 5D cost + stage gates.
-  let projectSpaceEl: HTMLElement;
+  // Project Shell — the Lifecycle Command Center: docked as the "Dashboard" tab INSIDE the project
+  // space (Forma-style: hub → open a project → its own Dashboard | Project Files | Settings tabs).
   const projectEl = projectShell(components, { baseUrl: SERVICE_URL });
   // Projects Hub — the "which project?" landing over the governed Supabase dataset. Opening a card
-  // switches the whole app (active-project.ts) and drops you on the Project dashboard.
+  // switches the whole app (active-project.ts) and enters that project's space.
+  let enterProjectSpace = () => { /* bound after the space is built below */ };
   const projectsHubEl = projectsHubPanel(components, {
     baseUrl: SERVICE_URL,
     onOpen: () => {
-      (projectSpaceEl as unknown as { showTab?: (i: number) => void }).showTab?.(1);
+      app.layout = "Projects";
+      enterProjectSpace();
     },
   });
   // Grounded Copilot — cited answers over the project's live data; optional local LLM for free-form.
@@ -241,7 +244,42 @@ async function main() {
   // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
-  projectSpaceEl = tabbed([{ label: "All Projects", el: projectsHubEl }, { label: "Dashboard", el: projectEl }]);
+
+  // ── The project space (Forma-style): hub grid ⇄ per-project Dashboard | Project Files | Settings ──
+  const projectSettingsEl = projectSettingsPanel({ baseUrl: SERVICE_URL, onDeleted: () => showHub() });
+  const spaceTabsEl = tabbed([
+    { label: "Dashboard", el: projectEl },
+    { label: "Project Files", el: filesEl },
+    { label: "Settings", el: projectSettingsEl },
+  ]);
+  const spaceHeader = document.createElement("div");
+  spaceHeader.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;background:#16161a;flex:0 0 auto";
+  spaceHeader.innerHTML =
+    '<button id="sp-back" style="border:1px solid #2c2c34;background:#1f1f27;color:#c9cfda;border-radius:.35rem;padding:.3rem .6rem;font:600 11px system-ui;cursor:pointer">← All projects</button>' +
+    '<span id="sp-name" style="font:600 13px system-ui;color:#eee"></span>';
+  const spaceView = document.createElement("div");
+  spaceView.style.cssText = "display:none;flex-direction:column;height:100%;min-height:0;overflow:hidden;border-radius:.5rem;background:#16161a";
+  spaceTabsEl.style.flex = "1";
+  spaceTabsEl.style.minHeight = "0";
+  spaceView.append(spaceHeader, spaceTabsEl);
+
+  const projectsRootEl = document.createElement("div");
+  projectsRootEl.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0";
+  projectsHubEl.style.flex = "1";
+  projectsHubEl.style.minHeight = "0";
+  projectsRootEl.append(projectsHubEl, spaceView);
+
+  const showHub = () => { projectsHubEl.style.display = "flex"; spaceView.style.display = "none"; };
+  const showSpace = () => {
+    (spaceHeader.querySelector("#sp-name") as HTMLElement).textContent = activePid();
+    projectsHubEl.style.display = "none";
+    spaceView.style.display = "flex";
+  };
+  enterProjectSpace = showSpace;
+  spaceHeader.querySelector("#sp-back")!.addEventListener("click", showHub);
+  onActiveProjectChange(() => {
+    (spaceHeader.querySelector("#sp-name") as HTMLElement).textContent = activePid();
+  });
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
@@ -250,12 +288,11 @@ async function main() {
   const visEl = visibilityPanel(components, { baseUrl: SERVICE_URL });
   // Clash — headless, dedup.d AABB clash across loaded models -> BCF + CDE audit.
   const clashEl = clashPanel(components, { baseUrl: SERVICE_URL });
-  // Floor Plans — 2D plan view per IFC storey (OBC.Views), generated from the 3D model.
-  const plansEl = plansPanel(components);
   // Revit Sheets — PNGs the plugin renders (sheets aren't in the IFC), served by the Bridge.
   const sheetsEl = sheetsPanel(components, { baseUrl: SERVICE_URL });
-  // Saved named views (Revit) — save/restore camera + zoom-fit.
-  const viewsEl = viewsPanel(components);
+  // Published Revit views — plans/sections/elevations/3D/drafting the user curated in Publish Views,
+  // rendered to PNG by the plugin (Revit views aren't in the IFC either), served by the Bridge.
+  const viewsEl = viewsPanel(components, { baseUrl: SERVICE_URL });
 
   // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
   // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
@@ -267,9 +304,8 @@ async function main() {
     { label: "Browser", el: browserEl },
     { label: "Properties", el: propsEl },
     { label: "Visibility", el: visEl },
-    { label: "Plans", el: plansEl },
-    { label: "Sheets", el: sheetsEl },
     { label: "Views", el: viewsEl },
+    { label: "Sheets", el: sheetsEl },
     { label: "Model", el: modelEl },
   ]);
   const coordEl = tabbed([
@@ -278,9 +314,8 @@ async function main() {
     { label: "Clash", el: clashEl },
     { label: "CDE", el: cdeEl },
   ]);
-  // The governed version history (uploader · when · state · history) lives in the Assets tab, above the
-  // platform model-loader — the project's Forma-style asset+version home. filesEl is a single DOM node, so
-  // it lives here now (moved out of Coordination).
+  // The governed version history (uploader · when · state · history) IS the Project Files space —
+  // the project's Forma-style asset+version home. filesEl is a single DOM node, reused by reference.
   const lifecycleEl = tabbed([
     { label: "Cost 5D", el: costEl },
     { label: "Carbon 6D", el: carbonEl },
@@ -294,14 +329,16 @@ async function main() {
     viewer: () => BUI.html`${viewerEl}`,
     tree: () => BUI.html`<top-model-tree></top-model-tree>`,
     properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
+    // Platform global file pool — kept registered (reality-capture .3tz loader lives on it) but NOT in
+    // any layout: it ignores the active Sentinel project and would show every project's files everywhere.
     files: () =>
       BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
-    // Governed asset/version history (Sentinel) — sits above the model-loader in the Assets tab.
-    assetgov: () => BUI.html`${filesEl}`,
+    // (filesEl — the governed version registry — lives inside the project space's "Project Files" tab,
+    //  not as a layout element: a single DOM node can only be docked in one place.)
     dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
     objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
     settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
-    projects: () => BUI.html`${projectSpaceEl}`,
+    projects: () => BUI.html`${projectsRootEl}`,
     copilot: () => BUI.html`${copilotEl}`,
     guide: () => BUI.html`${guideEl}`,
     qa: () => BUI.html`${qaEl}`,
@@ -345,12 +382,6 @@ async function main() {
       icon: "mdi:file-tree",
       template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
     },
-    Assets: {
-      icon: "mdi:folder-multiple-outline",
-      // Governed version history (assetgov) on top — model version · uploader · when · click-through history —
-      // then the platform model-loader and objects list. The project's asset+version home (Forma-style).
-      template: `"assetgov viewer" 1.3fr "files viewer" 1fr "objects viewer" 0.7fr / 24rem 1fr`,
-    },
     Data: {
       icon: "mdi:table",
       template: `"dataTable viewer" 1fr / 22rem 1fr`,
@@ -378,7 +409,8 @@ async function main() {
     projectSwitcher({
       baseUrl: SERVICE_URL,
       onManage: () => {
-        app.layout = "Projects"; (projectSpaceEl as unknown as { showTab?: (i: number) => void }).showTab?.(0);
+        app.layout = "Projects";
+        showHub();
       },
     }),
   );
@@ -397,8 +429,8 @@ async function main() {
   // Navigation gizmo is now baked into <top-viewer> (setupViewerTools), so the
   // app no longer mounts it. (Cascade: the rest of the overlay tools follow.)
 
-  // No auto-load: the viewer opens empty. Users add models from the Assets
-  // (files) panel — top-models-list loads the .frag they pick into the world.
+  // No auto-load: the viewer opens empty. Users open models from their project's
+  // Project Files panel — "Open 3D" on a version loads its geometry into the world.
 }
 
 /** Resolves with the first world once it exists (top-viewer creates it async). */

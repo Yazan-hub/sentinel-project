@@ -62,12 +62,14 @@ async function sb(path, { method = "GET", body, prefer, service = false } = {}) 
   return data;
 }
 
-/** Map the platform projectId (string key) to a CDE project row, creating it on first use.
+/** Resolve a project KEY to its CDE row. Projects are created ONLY through the web hub's explicit
+ *  "+ New project" (createProject) — an unknown key here is a 404, never an implicit INSERT. (The old
+ *  create-on-first-use left test residue: every script that touched a key spawned a project row.) The
+ *  single exception is "default", the system fallback every unconfigured publish lands in — that one
+ *  self-heals so a wiped database can't brick zero-config publishing.
  *  Multi-user safe: when a caller's JWT is being forwarded (RLS on), existence is checked with the SERVICE
  *  key (authoritative — sees every project regardless of membership), then a forwarded RLS-filtered read
- *  confirms the caller is a member. A non-member gets a 403 instead of accidentally RE-creating an
- *  RLS-hidden project (the old bug: the forwarded SELECT returned empty → INSERT). No JWT (Revit/service /
- *  dormant forwarding) → the membership gate is skipped, behaviour unchanged. */
+ *  confirms the caller is a member. A non-member gets a 403. */
 export async function ensureProject(key) {
   const forwarding = !!(currentUserToken() && ANON);
   const found = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }); // authoritative
@@ -79,9 +81,14 @@ export async function ensureProject(key) {
     }
     return proj;
   }
-  // Doesn't exist → create it. Forwarded (when armed) so the owner-bootstrap trigger makes the caller owner.
-  // return=minimal on purpose: the returning-select policy (is_member) can't yet see the owner membership the
-  // trigger just created, so return=representation would 42501. Re-fetch authoritatively with the service key.
+  if (key !== "default") {
+    const e = new Error(`Project "${key}" does not exist — create it in the web app (Projects → + New project) first.`);
+    e.status = 404;
+    throw e;
+  }
+  // "default" self-heals. return=minimal on purpose: the returning-select policy (is_member) can't yet see
+  // the owner membership the trigger just created, so return=representation would 42501. Re-fetch with the
+  // service key.
   await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal" });
   const created = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true });
   return created[0];
@@ -158,7 +165,7 @@ function slugKey(s) {
 export async function listProjects() {
   // PostgREST embeds an aggregate as information_containers:[{count}].
   const rows = await sb(
-    `projects?select=id,key,name,appointing_party,status_scheme,created_at,information_containers(count)&order=created_at.desc`,
+    `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,information_containers(count)&order=created_at.desc`,
   );
   return (rows || []).map((p) => ({
     id: p.id,
@@ -167,6 +174,7 @@ export async function listProjects() {
     appointing_party: p.appointing_party ?? null,
     status_scheme: p.status_scheme ?? null,
     created_at: p.created_at,
+    settings: p.metadata?.settings ?? null, // Forma-style settings (owner, address, archived, …)
     container_count: Array.isArray(p.information_containers) ? p.information_containers[0]?.count ?? 0 : 0,
   }));
 }
@@ -188,6 +196,66 @@ export async function createProject(b = {}) {
   await ensureFolders(row.id);
   await audit(row.id, "project", row.id, "created", b.actor || "web", null, { key, name: row.name });
   return row;
+}
+
+// Forma-style project settings live under metadata.settings so they never collide with the governance
+// fields (stage/gates/dimensions/snapshot) that share the same jsonb column.
+const SETTINGS_FIELDS = [
+  "address", "location", "owner", "project_number", "project_type",
+  "start_date", "completion_date", "project_value", "archived",
+];
+
+/** Update a project's identity + Forma-style settings (rename, owner, address, dates, archive…).
+ *  The key is never changed — it's the stable identifier every store hangs off. RLS (when a JWT is
+ *  forwarded) requires the 'lead' role via projects_update. */
+export async function updateProject(key, patch = {}, actor) {
+  const proj = await ensureProject(key);
+  const body = {};
+  if (patch.name !== undefined && String(patch.name).trim()) body.name = String(patch.name).trim();
+  if (patch.appointing_party !== undefined) body.appointing_party = patch.appointing_party || null;
+
+  const hasSettings = SETTINGS_FIELDS.some((f) => patch[f] !== undefined);
+  if (hasSettings) {
+    const meta = (proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta();
+    const settings = { ...(meta.settings || {}) };
+    for (const f of SETTINGS_FIELDS) if (patch[f] !== undefined) settings[f] = patch[f];
+    body.metadata = { ...meta, settings, updated_at: new Date().toISOString() };
+  }
+  if (!Object.keys(body).length) return proj;
+
+  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" }))[0];
+  await audit(proj.id, "project", proj.id, "updated", actor || "web", null,
+    { key, ...(body.name ? { name: body.name } : {}), ...(hasSettings ? { settings: body.metadata.settings } : {}) });
+  return row;
+}
+
+/** Delete a project and everything the schema cascades (containers, versions, folders, parties,
+ *  memberships, transmittals, snapshots). Deliberately preserved: the audit_log trail (immutable
+ *  evidence, undeletable by design). Projects with PUBLISHED versions cannot be deleted — the DB's
+ *  trg_protect_published raises, surfaced here as a 409 with an archive-instead message. RLS (when a
+ *  JWT is forwarded) requires the 'owner' role via projects_delete. */
+export async function deleteProject(key, actor) {
+  const proj = await ensureProject(key);
+  // Best-effort cleanup of the text-keyed side stores first (no FK → they'd orphan silently).
+  for (const store of ["clash", "rfi", "tender", "keystore"]) {
+    try { await docDeleteProject(store, key); } catch { /* side store cleanup must not block the delete */ }
+  }
+  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
+  catch { /* best-effort */ }
+
+  // The audit row is written BEFORE the delete (audit_log has no FK, so it survives — the golden thread).
+  await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
+  try {
+    await sb(`projects?id=eq.${proj.id}`, { method: "DELETE", prefer: "return=minimal" });
+  } catch (e) {
+    if (String(e?.message || "").includes("published versions are immutable")) {
+      const err = new Error("This project has PUBLISHED versions, which are immutable by design — the project cannot be hard-deleted. Archive it instead (Settings → Danger zone).");
+      err.status = 409;
+      throw err;
+    }
+    throw e;
+  }
+  return { deleted: true, key };
 }
 
 // ── Folders (ACC/Forma-style "Project Files" tree, per project) ───────────────────────────────────────
@@ -313,6 +381,73 @@ export async function setLiveVersion(version_id, actor) {
   const meta = Array.isArray(c) ? c[0] : null;
   if (meta) await audit(meta.project_id, "file_version", version_id, "set live", actor || "web", null, { file: meta.iso_name, revision: v.revision });
   return { ok: true, version_id, container_id: v.container_id };
+}
+
+/** Resolve a container within a project (404 when absent / not this project's). */
+async function containerOf(key, container_id) {
+  const proj = await ensureProject(key);
+  const rows = await sb(`information_containers?id=eq.${encodeURIComponent(container_id)}&project_id=eq.${proj.id}&select=id,iso_name,container_versions(id,state)`);
+  const c = Array.isArray(rows) ? rows[0] : null;
+  if (!c) { const e = new Error("file not found in this project"); e.status = 404; throw e; }
+  return { proj, c };
+}
+
+/** Rename a file (its ISO container name + title). Audited; versions/history untouched. */
+export async function renameFile(key, container_id, name, actor) {
+  const clean = String(name || "").trim();
+  if (!clean) { const e = new Error("a file name is required"); e.status = 400; throw e; }
+  const { proj, c } = await containerOf(key, container_id);
+  await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=minimal" });
+  await audit(proj.id, "container", c.id, "renamed", actor || "web", { iso_name: c.iso_name }, { iso_name: clean });
+  return { ok: true, iso_name: clean };
+}
+
+/** Archive a file, governance-consistent: PUBLISHED versions transition to 'archived' (the only legal ISO
+ *  move — they stay on the record, immutable); wip/shared drafts are deleted. The file then holds only
+ *  archived versions and the web hides it behind the "archived" toggle. */
+export async function archiveFile(key, container_id, actor) {
+  const { proj, c } = await containerOf(key, container_id);
+  const versions = c.container_versions || [];
+  let archived = 0, discarded = 0;
+  for (const v of versions) {
+    if (v.state === "published") { await transition(v.id, "archived", actor || "web", "file archived"); archived++; }
+    else if (v.state !== "archived") { await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=minimal" }); discarded++; }
+  }
+  await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
+  return { ok: true, archived, discarded };
+}
+
+/** Restore an archived file: archived versions return to 'published' (the state they held before
+ *  archiving — only published versions survive the archive step). Direct state write (the ISO machine
+ *  has no archived→ transition; the immutability trigger only guards published rows), audited. */
+export async function unarchiveFile(key, container_id, actor) {
+  const { proj, c } = await containerOf(key, container_id);
+  let restored = 0;
+  for (const v of c.container_versions || []) {
+    if (v.state !== "archived") continue;
+    await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { state: "published" }, prefer: "return=minimal" });
+    restored++;
+  }
+  await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
+  return { ok: true, restored };
+}
+
+/** Delete a file (container + versions, cascading). PUBLISHED versions are immutable — the DB trigger
+ *  refuses, surfaced as a 409 telling the caller to archive instead. Audit trail survives (no FK). */
+export async function deleteFile(key, container_id, actor) {
+  const { proj, c } = await containerOf(key, container_id);
+  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name }, null);
+  try {
+    await sb(`information_containers?id=eq.${c.id}`, { method: "DELETE", prefer: "return=minimal" });
+  } catch (e) {
+    if (String(e?.message || "").includes("published versions are immutable")) {
+      const err = new Error("This file has PUBLISHED versions, which are immutable by design — it cannot be deleted. Archive it instead.");
+      err.status = 409;
+      throw err;
+    }
+    throw e;
+  }
+  return { deleted: true, iso_name: c.iso_name };
 }
 
 /** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live. */

@@ -22,11 +22,70 @@ public partial class SettingsDialog : Window
         TemplatePathBox.Text = _current.RevitTemplatePath;
         ProjectCodeBox.Text = _current.ProjectCode;
         GhostFolderBox.Text = _current.GhostSourceFolder;
+        WebProjectBox.Text = _current.WebProjectKey;
+        LinkedModelsBox.IsChecked = _current.PublishLinkedModels;
         if (doc is null)
         {
             ScopeProject.IsEnabled = false;      // no document open
             ScopeMachine.IsChecked = true;
         }
+        LoadWebProjects();
+    }
+
+    /// <summary>
+    /// Populate the web-project picker from the bridge (GET /cde/projects). Async and best-effort:
+    /// an unreachable bridge leaves the ComboBox as a plain editable text field (type the key) —
+    /// Project Setup must never block on the network.
+    /// </summary>
+    private async void LoadWebProjects()
+    {
+        try
+        {
+            var cfg = Sentinel.Commands.BcfConfig.Load();
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+            var msg = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get,
+                cfg.ServiceUrl.TrimEnd('/') + "/cde/projects");
+            if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+            var resp = await http.SendAsync(msg);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadAsStringAsync();
+
+            var keys = new System.Collections.Generic.List<(string Key, string Name)>();
+            using var jd = System.Text.Json.JsonDocument.Parse(json);
+            if (jd.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                foreach (var p in jd.RootElement.EnumerateArray())
+                {
+                    var key = p.TryGetProperty("key", out var k) ? k.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(key)) continue;
+                    var name = p.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    keys.Add((key!, name ?? key!));
+                }
+
+            var typed = WebProjectBox.Text; // preserve what was loaded from settings
+            foreach (var (key, name) in keys)
+                WebProjectBox.Items.Add(new System.Windows.Controls.ComboBoxItem
+                {
+                    Content = name == key ? key : $"{name} ({key})",
+                    Tag = key,
+                });
+            WebProjectBox.Text = typed;
+            WebProjectHint.Text = keys.Count > 0
+                ? $"{keys.Count} project(s) on the web app. Pick one, or type a key."
+                : "No projects on the web app yet — create one there, or type a key.";
+        }
+        catch
+        {
+            WebProjectHint.Text = "Bridge unreachable — type the project key (e.g. \"demo\").";
+        }
+    }
+
+    /// <summary>The chosen project KEY: a picked item's Tag, else the typed text.</summary>
+    private string WebProjectKey()
+    {
+        if (WebProjectBox.SelectedItem is System.Windows.Controls.ComboBoxItem it && it.Tag is string key)
+            return key.Trim();
+        return (WebProjectBox.Text ?? "").Trim();
     }
 
     private void OnBrowseRuleset(object sender, RoutedEventArgs e)
@@ -69,6 +128,8 @@ public partial class SettingsDialog : Window
         var template = TemplatePathBox.Text.Trim();
         var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
         var ghostFolder = GhostFolderBox.Text.Trim();
+        var webProject = WebProjectKey();
+        var linkedModels = LinkedModelsBox.IsChecked == true;
 
         if (ScopeMachine.IsChecked == true)
         {
@@ -80,6 +141,8 @@ public partial class SettingsDialog : Window
             settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
+            settings.WebProjectKey = webProject;
+            settings.PublishLinkedModels = linkedModels;
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Engine?.ReloadRuleset(null);
@@ -102,6 +165,8 @@ public partial class SettingsDialog : Window
             settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
+            settings.WebProjectKey = webProject;
+            settings.PublishLinkedModels = linkedModels;
             using var t = new Transaction(doc, "Sentinel: Save project settings");
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);

@@ -44,13 +44,14 @@ namespace Sentinel.Coordination
         /// same "&lt;title&gt;.ifc" key <see cref="GovernedNotify.FileVersion"/> writes). Blocking, ~4s cap,
         /// returns null on any problem.
         /// </summary>
-        public static LiveInfo? LiveVersion(string modelTitle)
+        public static LiveInfo? LiveVersion(string modelTitle, string? projectKey = null)
         {
             try
             {
                 var cfg = BcfConfig.Load();
+                var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
                 var name = modelTitle.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelTitle : modelTitle + ".ifc";
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + "/files";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/files";
                 var json = GetString(url, cfg.ServiceToken);
 
                 using var doc = JsonDocument.Parse(json);

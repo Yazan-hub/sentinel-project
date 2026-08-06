@@ -8,7 +8,6 @@ export * from "./clipper";
 export * from "./measurements";
 export * from "./styles";
 export * from "./clipper-tool";
-export * from "./plans-panel";
 export * from "./navigation-gizmo";
 export * from "./exploded-view";
 export * from "./measurement-tool";

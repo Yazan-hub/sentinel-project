@@ -43,6 +43,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   let files: FileRec[] = [];
+  let showArchived = false; // files whose every version is 'archived' hide behind a toggle (Forma-style)
+  // Inline action states — window.prompt/confirm are silently blocked in the platform's cross-origin
+  // iframe (Chrome removed them), so rename uses an inline input and archive/delete a two-click confirm.
+  let renaming: string | null = null;
+  let armed: { id: string; kind: "archive" | "delete" } | null = null;
   let revByVersion = new Map<string, string>(); // container_version_id → model_revision id (for compare)
   let auditByEntity = new Map<string, AuditEvent[]>(); // entity_id → its audit events (for the version history)
   const expanded = new Set<string>();
@@ -59,7 +64,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const btn = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.35rem .55rem;font:600 12px system-ui;cursor:pointer";
   root.innerHTML =
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
-    '<span style="font-weight:600">⎘ Versions</span><span style="color:#9ca3af;font-size:11px">file & model history</span>' +
+    '<span style="font-weight:600">⎘ <span id="fv-proj"></span> — Files</span><span style="color:#9ca3af;font-size:11px">this project’s models & versions</span>' +
     '<span style="flex:1"></span>' +
     `<button id="fv-upload" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">＋ Upload version</button>` +
     `<button id="fv-refresh" style="${btn}" title="Reload">↻</button>` +
@@ -95,6 +100,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
 
   async function load() {
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
+    el("fv-proj").textContent = pid();
     status("Loading…");
     try {
       files = (await api(`${encodeURIComponent(pid())}/files`)) as FileRec[];
@@ -122,12 +128,22 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     }
   }
 
+  const isArchivedFile = (f: FileRec) => f.versions.length > 0 && f.versions.every((v) => v.state === "archived");
+
   function render() {
     if (!files.length) {
       el("fv-body").innerHTML = '<div style="color:#71717a;padding:1rem 0;text-align:center">No versioned files yet.<br><span style="font-size:11px">Upload an IFC to start a version history.</span></div>';
       return;
     }
-    el("fv-body").innerHTML = files.map(fileCard).join("");
+    const active = files.filter((f) => !isArchivedFile(f));
+    const archived = files.filter(isArchivedFile);
+    let html = active.map(fileCard).join("");
+    if (archived.length) {
+      html += `<button id="fv-arch-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showArchived ? "▾" : "▸"} Archived (${archived.length})</button>`;
+      if (showArchived) html += `<div style="opacity:.55">${archived.map(fileCard).join("")}</div>`;
+    }
+    el("fv-body").innerHTML = html;
+    root.querySelector("#fv-arch-toggle")?.addEventListener("click", () => { showArchived = !showArchived; render(); });
     // wire per-file / per-version buttons
     root.querySelectorAll<HTMLElement>("[data-toggle]").forEach((n) =>
       n.addEventListener("click", () => { const id = n.dataset.toggle!; expanded.has(id) ? expanded.delete(id) : expanded.add(id); render(); }));
@@ -139,6 +155,36 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", () => { const id = n.dataset.hist!; historyOpen.has(id) ? historyOpen.delete(id) : historyOpen.add(id); render(); }));
     root.querySelectorAll<HTMLElement>("[data-open]").forEach((n) =>
       n.addEventListener("click", () => { const f = files.find((x) => x.id === n.dataset.file); const v = f?.versions.find((x) => x.id === n.dataset.open); if (f && v) void openInViewer(f, v); }));
+    root.querySelectorAll<HTMLElement>("[data-frename]").forEach((n) =>
+      n.addEventListener("click", (e) => { e.stopPropagation(); renaming = n.dataset.frename!; armed = null; render(); (root.querySelector("#fv-rename-input") as HTMLInputElement)?.focus(); }));
+    root.querySelectorAll<HTMLElement>("[data-frenameok]").forEach((n) =>
+      n.addEventListener("click", (e) => { e.stopPropagation(); void renameFile(n.dataset.frenameok!); }));
+    root.querySelectorAll<HTMLElement>("[data-fcancel]").forEach((n) =>
+      n.addEventListener("click", (e) => { e.stopPropagation(); renaming = null; armed = null; render(); }));
+    (root.querySelector("#fv-rename-input") as HTMLInputElement | null)?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && renaming) void renameFile(renaming);
+      if (e.key === "Escape") { renaming = null; render(); }
+    });
+    root.querySelectorAll<HTMLElement>("[data-funarchive]").forEach((n) =>
+      n.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const f = files.find((x) => x.id === n.dataset.funarchive);
+        if (f) void fileAction("unarchive", { container_id: f.id }, `✓ Restored ${f.iso_name} from the archive.`);
+      }));
+    root.querySelectorAll<HTMLElement>("[data-farchive]").forEach((n) =>
+      n.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = n.dataset.farchive!;
+        if (armed?.id === id && armed.kind === "archive") { armed = null; void archiveFile(id); }
+        else { armed = { id, kind: "archive" }; render(); }
+      }));
+    root.querySelectorAll<HTMLElement>("[data-fdelete]").forEach((n) =>
+      n.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = n.dataset.fdelete!;
+        if (armed?.id === id && armed.kind === "delete") { armed = null; void deleteFile(id); }
+        else { armed = { id, kind: "delete" }; render(); }
+      }));
   }
 
   function fileCard(f: FileRec): string {
@@ -151,9 +197,31 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       (live ? `<span style="color:#22c55e;font-size:11px;font-family:ui-monospace,Consolas,monospace">● ${esc(live.revision)} live</span>` : "") +
       `<span style="color:#6b7280;font-size:11px">${f.version_count} ver</span></div>`;
     if (!open) return `<div style="margin-bottom:.45rem">${head}</div>`;
+    const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
+    let actions: string;
+    if (renaming === f.id) {
+      actions =
+        `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
+        `<input id="fv-rename-input" value="${esc(f.iso_name)}" style="flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+        `<button data-frenameok="${f.id}" style="${act};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">Save</button>` +
+        `<button data-fcancel="${f.id}" style="${act}">Cancel</button>` +
+        `</div>`;
+    } else {
+      const armKind = armed?.id === f.id ? armed.kind : null;
+      const archBtn = isArchivedFile(f)
+        ? `<button data-funarchive="${f.id}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>`
+        : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts are discarded">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`;
+      actions =
+        `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
+        `<span style="color:#71717a;font-size:10.5px;flex:1">${armKind ? (armKind === "delete" ? "Permanent — audit trail survives. Sure?" : "Published → archive, drafts discarded. Sure?") : "File actions"}</span>` +
+        `<button data-frename="${f.id}" style="${act}">Rename</button>` +
+        archBtn +
+        `<button data-fdelete="${f.id}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Refused if the file has published versions (immutable) — archive those">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` +
+        `</div>`;
+    }
     const rows = f.versions.map((v) => versionRow(f, v)).join("");
     return `<div style="margin-bottom:.45rem">${head}` +
-      `<div style="border:1px solid #23232a;border-top:none;border-radius:0 0 .4rem .4rem;overflow:hidden">${rows}</div></div>`;
+      `<div style="border:1px solid #23232a;border-top:none;border-radius:0 0 .4rem .4rem;overflow:hidden">${actions}${rows}</div></div>`;
   }
 
   function versionRow(f: FileRec, v: Version): string {
@@ -227,6 +295,35 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const scope = r.in_scope != null ? `IDS ${r.ids ?? ""} — ${r.passing}/${r.in_scope} passed${r.failing ? `, ${r.failing} failed` : ""}` : "governed verdict";
     const tip = `${scope} · click for the immutable audit entry`;
     return `<span data-hist="${v.id}" title="${esc(tip)}" style="color:${col};font-size:10px;font-weight:700;border:1px solid ${col}66;border-radius:.25rem;padding:0 .3rem;white-space:nowrap;cursor:pointer">${mark} ${label}</span>`;
+  }
+
+  // ── per-file admin (Forma-style: rename / archive / delete) ──
+  async function fileAction(path: string, body: Record<string, unknown>, okMsg: string) {
+    try {
+      await api(`${encodeURIComponent(pid())}/files/${path}`, "POST", { ...body, actor: await whoami() });
+      status(okMsg);
+      await load();
+    } catch (e) { status(`${path} failed: ${esc((e as Error).message)}`); }
+  }
+
+  async function renameFile(fileId: string) {
+    const f = files.find((x) => x.id === fileId);
+    const name = (root.querySelector("#fv-rename-input") as HTMLInputElement | null)?.value.trim();
+    renaming = null;
+    if (!f || !name || name === f.iso_name) { render(); return; }
+    await fileAction("rename", { container_id: fileId, name }, `✓ Renamed to ${name}.`);
+  }
+
+  async function archiveFile(fileId: string) {
+    const f = files.find((x) => x.id === fileId);
+    if (!f) return;
+    await fileAction("archive", { container_id: fileId }, `✓ Archived ${f.iso_name}.`);
+  }
+
+  async function deleteFile(fileId: string) {
+    const f = files.find((x) => x.id === fileId);
+    if (!f) return;
+    await fileAction("delete", { container_id: fileId }, `✓ Deleted ${f.iso_name}.`);
   }
 
   async function setLive(versionId: string) {

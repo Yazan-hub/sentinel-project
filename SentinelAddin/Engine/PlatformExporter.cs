@@ -35,7 +35,44 @@ public static class PlatformExporter
         Document doc, ElementId? filterViewId = null)
     {
         string ifcName = Sanitize(Path.GetFileNameWithoutExtension(doc.Title)) + ".ifc";
-        return ExportToDir(doc, filterViewId, OutboxDir(), ifcName);
+        bool includeLinks = SettingsManager.Resolve(doc).PublishLinkedModels;
+        var started = DateTime.Now;
+        var result = ExportToDir(doc, filterViewId, OutboxDir(), ifcName, includeLinks);
+        if (result.state == State.Ok)
+        {
+            // Sidecar the host IFC AND any link IFCs this export just produced (Revit names those itself),
+            // so every file — links included — registers under the document's web project.
+            WriteOutboxMeta(ifcName, doc);
+            if (includeLinks)
+            {
+                try
+                {
+                    foreach (var f in Directory.GetFiles(OutboxDir(), "*.ifc"))
+                        if (File.GetLastWriteTime(f) >= started && !File.Exists(f + ".meta.json"))
+                            WriteOutboxMeta(Path.GetFileName(f), doc);
+                }
+                catch { /* best-effort */ }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Sidecar next to an outbox IFC telling the Bridge which web project the file belongs to
+    /// (the ACC-style association). The watcher reads it, uses the key for the Supabase-side
+    /// registration, and deletes it with the IFC. Best-effort — a missing sidecar just means
+    /// the bridge's configured default project, i.e. today's behavior.
+    /// </summary>
+    public static void WriteOutboxMeta(string ifcName, Document doc)
+    {
+        try
+        {
+            var key = SettingsManager.WebProjectKeyFor(doc);
+            var json = "{\"project\":" + System.Text.Json.JsonSerializer.Serialize(key) +
+                       ",\"docTitle\":" + System.Text.Json.JsonSerializer.Serialize(doc.Title) + "}";
+            File.WriteAllText(Path.Combine(OutboxDir(), ifcName + ".meta.json"), json);
+        }
+        catch { /* association is best-effort; the upload itself must never fail on this */ }
     }
 
     /// <summary>
@@ -45,7 +82,7 @@ public static class PlatformExporter
     /// throws — returns a result.
     /// </summary>
     public static (State state, string path, long bytes, string? error) ExportToDir(
-        Document doc, ElementId? filterViewId, string dir, string ifcName)
+        Document doc, ElementId? filterViewId, string dir, string ifcName, bool includeLinks = false)
     {
         Directory.CreateDirectory(dir);
         string ifcPath = Path.Combine(dir, ifcName);
@@ -59,6 +96,10 @@ public static class PlatformExporter
             };
             if (filterViewId is { } vid && vid != ElementId.InvalidElementId)
                 opts.FilterViewId = vid;
+            // Revit's own "export linked files as separate IFCs": each link becomes its own IFC next to
+            // the host's. Outbox path only — Governed Publish stays host-only (the gate certifies one
+            // deliverable at a time).
+            if (includeLinks) opts.AddOption("ExportLinkedFiles", "true");
 
             // Transaction wrapper mirrors the IFC Delivery Gate / manual Publish pattern (proven path).
             using var t = new Transaction(doc, "Sentinel: IFC export");

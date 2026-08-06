@@ -211,6 +211,8 @@ public sealed class App : IExternalApplication
             "Toggle push-on-save: when ON, every save/sync re-exports the model and the Bridge uploads it. Throttled; turn off for very large models.");
         Sub(pub, "Sentinel_PublishSheets", "Publish Sheets", "Sentinel.Commands.PublishSheetsCommand", "sheets",
             "Render all Revit sheets to PNG (sheets never survive IFC export). The Bridge serves them to the web app's Sheets tab.");
+        Sub(pub, "Sentinel_PublishViews", "Publish Views", "Sentinel.Commands.PublishViewsCommand", "views",
+            "Choose which views (plans, sections, elevations, 3D, drafting) to publish. Only checked views appear in the web app's Views tab.");
 
         // ── Standards & Build — office standards + generation ────────────────────────────────
         var st = app.CreateRibbonPanel(tab, "Standards & Build");

@@ -75,6 +75,11 @@ const loadJson = (file, fallback) => {
 // a manifest.json + <number>.png files. Served read-only to the web app's BIM Tools → Sheets tab.
 const SHEETS_ROOT = process.env.SENTINEL_SHEETS
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "sheets");
+// Published-view PNGs the Revit plugin renders (a curated subset the user picks in Publish Views —
+// unlike Sheets, not everything). One sub-folder per model, each with a manifest.json + <type>_<name>.png
+// files. Served read-only to the web app's BIM Tools → Views tab.
+const VIEWS_ROOT = process.env.SENTINEL_VIEWS
+  || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "views");
 const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Bearer <TOKEN>"
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
 const STORE = process.env.BCF_STORE
@@ -217,7 +222,7 @@ const send = (res, code, body) => {
   }
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     ...corsHeaders(res),
   };
@@ -395,7 +400,7 @@ async function handleRequest(req, res) {
 
   // CSRF gate: refuse state-changing requests from a browser origin that isn't allowlisted. A request with no
   // Origin (Revit plugin, curl, server-to-server) is a non-browser caller and is allowed through.
-  if ((req.method === "POST" || req.method === "PUT" || req.method === "DELETE") && origin && !originAllowed(origin)) {
+  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") && origin && !originAllowed(origin)) {
     return send(res, 403, { message: "Origin not allowed" });
   }
   const url = new URL(req.url, "http://localhost");
@@ -508,7 +513,7 @@ async function handleRequest(req, res) {
         try {
           const m = JSON.parse(readFileSync(mf, "utf8"));
           const sheets = (m.sheets || []).map((s) => ({ ...s, url: `/sheets/img/${encodeURIComponent(set)}/${encodeURIComponent(s.file)}` }));
-          sets.push({ set, title: m.title ?? set, exportedAt: m.exportedAt ?? null, count: sheets.length, sheets });
+          sets.push({ set, title: m.title ?? set, project: m.project ?? null, exportedAt: m.exportedAt ?? null, count: sheets.length, sheets });
         } catch { /* skip a malformed manifest */ }
       }
     } catch { /* SHEETS_ROOT doesn't exist yet — no sheets published */ }
@@ -537,6 +542,50 @@ async function handleRequest(req, res) {
       return res.end(buf);
     } catch {
       return send(res, 404, { message: "Sheet image not found" });
+    }
+  }
+
+  // ── Published Revit views (rendered PNGs, curated in Publish Views): GET /views  +  GET /views/img/:set/:file ──
+  // GET /views → all view sets with their manifests (each view carries a ready-to-use image url).
+  if (url.pathname === "/views" && req.method === "GET") {
+    const sets = [];
+    try {
+      for (const set of readdirSync(VIEWS_ROOT)) {
+        const dir = join(VIEWS_ROOT, set);
+        let st; try { st = statSync(dir); } catch { continue; }
+        if (!st.isDirectory()) continue;
+        const mf = join(dir, "manifest.json");
+        if (!existsSync(mf)) continue;
+        try {
+          const m = JSON.parse(readFileSync(mf, "utf8"));
+          const views = (m.views || []).map((v) => ({ ...v, url: `/views/img/${encodeURIComponent(set)}/${encodeURIComponent(v.file)}` }));
+          sets.push({ set, title: m.title ?? set, project: m.project ?? null, exportedAt: m.exportedAt ?? null, count: views.length, views });
+        } catch { /* skip a malformed manifest */ }
+      }
+    } catch { /* VIEWS_ROOT doesn't exist yet — no views published */ }
+    sets.sort((a, b) => String(b.exportedAt).localeCompare(String(a.exportedAt)));
+    return send(res, 200, { root: VIEWS_ROOT, sets });
+  }
+  // GET /views/img/:set/:file → serve one PNG (path-traversal-guarded via basename()).
+  const vimg = url.pathname.match(/^\/views\/img\/([^/]+)\/([^/]+)$/);
+  if (vimg && req.method === "GET") {
+    const set = basename(decodeURIComponent(vimg[1]));
+    const file = basename(decodeURIComponent(vimg[2]));
+    if (extname(file).toLowerCase() !== ".png") return send(res, 404, { message: "Not found" });
+    const path = join(VIEWS_ROOT, set, file);
+    // Defence-in-depth (F14/CWE-22): basename() lets "." and ".." through, so confirm the resolved path
+    // actually stays inside VIEWS_ROOT before reading it.
+    if (!resolve(path).startsWith(resolve(VIEWS_ROOT) + sep)) return send(res, 404, { message: "Not found" });
+    try {
+      const buf = readFileSync(path);
+      res.writeHead(200, {
+        "Content-Type": "image/png",
+        "Cache-Control": "no-cache",
+        ...corsHeaders(res),
+      });
+      return res.end(buf);
+    } catch {
+      return send(res, 404, { message: "View image not found" });
     }
   }
 
@@ -809,6 +858,16 @@ async function handleRequest(req, res) {
         if (req.method === "GET") return send(res, 200, await cde.listProjects());
         if (req.method === "POST") return send(res, 201, await cde.createProject(await readBody(req)));
       }
+      // Project administration (Forma-style): PATCH = rename / settings (metadata.settings), DELETE = hard
+      // delete (cascades; 409 when published versions exist — those are immutable, archive instead).
+      if (p1 === "projects" && p2 && !p3) {
+        const key = decodeURIComponent(p2);
+        if (req.method === "PATCH") {
+          const b = await readBody(req);
+          return send(res, 200, await cde.updateProject(key, b, b?.actor));
+        }
+        if (req.method === "DELETE") return send(res, 200, await cde.deleteProject(key, "web"));
+      }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
         if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
@@ -825,6 +884,24 @@ async function handleRequest(req, res) {
       if (p2 === "files" && p3 === "set-live" && req.method === "POST") {
         const b = await readBody(req);
         return send(res, 200, await cde.setLiveVersion(b.version_id, b.actor));
+      }
+      // Per-file admin (Forma-style): rename · archive (published → 'archived', drafts discarded) ·
+      // delete (409 when published versions exist — immutable, archive instead).
+      if (p2 === "files" && p3 === "rename" && req.method === "POST") {
+        const b = await readBody(req);
+        return send(res, 200, await cde.renameFile(p1, b.container_id, b.name, b.actor));
+      }
+      if (p2 === "files" && p3 === "archive" && req.method === "POST") {
+        const b = await readBody(req);
+        return send(res, 200, await cde.archiveFile(p1, b.container_id, b.actor));
+      }
+      if (p2 === "files" && p3 === "unarchive" && req.method === "POST") {
+        const b = await readBody(req);
+        return send(res, 200, await cde.unarchiveFile(p1, b.container_id, b.actor));
+      }
+      if (p2 === "files" && p3 === "delete" && req.method === "POST") {
+        const b = await readBody(req);
+        return send(res, 200, await cde.deleteFile(p1, b.container_id, b.actor));
       }
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));

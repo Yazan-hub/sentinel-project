@@ -128,6 +128,11 @@ def g_sheets(d):
     d.rounded_rectangle(R(.28,.34,.62,.76), radius=int(S*.04), fill=None, outline=W, width=int(wln*.85))
     # repaint front over back overlap
     d.rounded_rectangle(R(.28,.34,.62,.76), radius=int(S*.04), outline=W, width=int(wln*.85))
+def g_views(d):  # eye — a published view
+    d.arc(R(.24,.30,.76,.82), 205, 335, fill=W, width=wln)   # upper lid
+    d.arc(R(.24,.18,.76,.70), 25, 155, fill=W, width=wln)    # lower lid
+    d.ellipse(R(.42,.42,.58,.58), outline=W, width=int(wln*.85))
+    dot(d,.50,.50,.028)
 def g_standards(d):  # columns / library
     d.polygon(P(.50,.24,.76,.36,.24,.36), fill=W)
     for x in (.30,.47,.64): d.rectangle(R(x,.40,x+.06,.66), fill=W)
@@ -168,7 +173,7 @@ ICONS = [
     ("ifcgate", AMBER, g_ifcgate), ("preflight", AMBER, g_preflight), ("gate", AMBER, g_gate),
     ("family", AMBER, g_family), ("heal", AMBER, g_heal), ("mep", AMBER, g_mep),
     ("govern", EMER, g_govern), ("publish", GREEN, g_publish), ("autopublish", GREEN, g_autopublish),
-    ("sheets", GREEN, g_sheets),
+    ("sheets", GREEN, g_sheets), ("views", GREEN, g_views),
     ("standards", VIOLET, g_standards), ("setup", VIOLET, g_setup), ("office", VIOLET, g_office),
     ("apply", VIOLET, g_apply), ("ingest", VIOLET, g_ingest), ("ghost", VIOLET, g_ghost),
     ("roi", VIOLET, g_roi),

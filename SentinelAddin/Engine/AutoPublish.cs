@@ -62,8 +62,9 @@ public static class AutoPublish
             // the file-version history (so Revit publishes share the web's version timeline). Fire-and-forget.
             if (r.state == PlatformExporter.State.Ok)
             {
-                Sentinel.Coordination.GovernedNotify.ModelPublished(doc.Title, r.bytes);
-                Sentinel.Coordination.GovernedNotify.FileVersion(doc.Title, r.bytes);
+                var projectKey = SettingsManager.WebProjectKeyFor(doc);
+                Sentinel.Coordination.GovernedNotify.ModelPublished(doc.Title, r.bytes, projectKey);
+                Sentinel.Coordination.GovernedNotify.FileVersion(doc.Title, r.bytes, projectKey);
             }
         }
         catch (Exception ex)

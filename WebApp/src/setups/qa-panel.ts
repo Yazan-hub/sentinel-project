@@ -25,7 +25,7 @@ import type { ScanReport, Violation } from "../sentinel-core";
  * rules produce 0 facts and are surfaced as an "authoring-side only" note rather than
  * false passes. level/grid/family/parameter map to IFC and are checked for real.
  *
- * Factory returns the panel element WITHOUT self-mounting (mirrors plansPanel).
+ * Factory returns the panel element WITHOUT self-mounting (mirrors sheetsPanel).
  */
 
 type Status = "idle" | "scanning" | "done" | "empty";

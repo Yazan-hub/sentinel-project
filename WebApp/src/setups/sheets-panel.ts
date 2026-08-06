@@ -3,6 +3,7 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
+import { activePid, onActiveProjectChange } from "./active-project";
 
 /**
  * Sentinel Sheets viewer. Revit sheets (titleblock + viewports + annotations) never survive IFC export, so
@@ -13,7 +14,7 @@ import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
  */
 interface Viewport { view: string; type: string; level: string; fx: number; fy: number; fw: number; fh: number; }
 interface SheetItem { id: string; number: string; name: string; file: string; url: string; viewports?: Viewport[]; }
-interface SheetSet { set: string; title: string; exportedAt: string | null; count: number; sheets: SheetItem[]; }
+interface SheetSet { set: string; title: string; project?: string | null; exportedAt: string | null; count: number; sheets: SheetItem[]; }
 
 export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
@@ -75,7 +76,9 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       const r = await bfetch(`${base}/sheets`);
       if (!r.ok) throw new Error(`Bridge ${r.status}`);
       const data = await r.json() as { sets: SheetSet[] };
-      sets = data.sets ?? [];
+      // Project-scoped: sets published against a specific web project only show inside that project.
+      // Sets without a project field (older plugin) stay visible everywhere — back-compat.
+      sets = (data.sets ?? []).filter((s) => !s.project || s.project === activePid());
       active = 0;
       renderSets(); renderList();
       const total = sets.reduce((a, s) => a + s.count, 0);
@@ -200,6 +203,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
   }
 
   el("sh-refresh").addEventListener("click", refresh);
+  onActiveProjectChange(() => void refresh());
   void refresh();
   return root;
 }

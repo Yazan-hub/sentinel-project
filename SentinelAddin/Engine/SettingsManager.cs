@@ -20,6 +20,15 @@ public sealed class SentinelSettings
     [JsonPropertyName("revit_template_path")] public string RevitTemplatePath { get; set; } = string.Empty;
     [JsonPropertyName("project_code")] public string ProjectCode { get; set; } = string.Empty; // optional, tightens CDE-01
 
+    // The web-app project (Sentinel `projects.key`) this document publishes into — the ACC-style
+    // "which project does this model belong to" link. Empty -> the bridge/BcfConfig default.
+    [JsonPropertyName("web_project_key")] public string WebProjectKey { get; set; } = string.Empty;
+
+    // Quick/Auto publish: also export each linked Revit model as its own IFC (Revit's ExportLinkedFiles).
+    // Off by default — links multiply export time, and Governed Publish stays host-only (the gate
+    // certifies one deliverable at a time).
+    [JsonPropertyName("publish_linked_models")] public bool PublishLinkedModels { get; set; } = false;
+
     // Ghost Builder: DWG -> LOD 200 auto-modeler. Both optional; empty disables preload / uses no schema.
     [JsonPropertyName("ghost_family_library_dir")] public string GhostFamilyLibraryDir { get; set; } = string.Empty; // .rfa library root; empty -> skip preload
     [JsonPropertyName("ghost_mapping_schema_path")] public string GhostMappingSchemaPath { get; set; } = string.Empty; // JSON schema file echoed into the LLM prompt
@@ -44,7 +53,8 @@ public sealed class SentinelSettings
 
     [JsonIgnore] public bool IsEmpty =>
         string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath)
-        && string.IsNullOrWhiteSpace(GhostSourceFolder) && string.IsNullOrWhiteSpace(GhostFamilyLibraryDir);
+        && string.IsNullOrWhiteSpace(GhostSourceFolder) && string.IsNullOrWhiteSpace(GhostFamilyLibraryDir)
+        && string.IsNullOrWhiteSpace(WebProjectKey);
 }
 
 public static class SettingsManager
@@ -123,6 +133,18 @@ public static class SettingsManager
     }
 
     // ---------------- Resolution ----------------
+
+    /// <summary>
+    /// The web-app project key this document publishes into: the document's WebProjectKey when set
+    /// (Project Setup), else the machine-wide BcfConfig ProjectId ("default" out of the box). This is
+    /// the ONE place the ACC-style "Revit document → web project" link is resolved.
+    /// </summary>
+    public static string WebProjectKeyFor(Document? doc)
+    {
+        var k = Resolve(doc).WebProjectKey;
+        return string.IsNullOrWhiteSpace(k) ? Sentinel.Commands.BcfConfig.Load().ProjectId : k.Trim();
+    }
+
     /// <summary>Effective settings: document ES first, machine JSON fallback,
     /// empty settings when neither exists (engine then uses built-in chain).</summary>
     public static SentinelSettings Resolve(Document? doc)

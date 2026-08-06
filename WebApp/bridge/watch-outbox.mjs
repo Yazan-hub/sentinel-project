@@ -12,7 +12,7 @@
 // Config: THATOPEN_API_KEY, THATOPEN_PROJECT_ID (config/.env). Outbox override: SENTINEL_OUTBOX.
 
 import { watch } from "node:fs";
-import { readdir, stat, mkdir, rename } from "node:fs/promises";
+import { readdir, stat, mkdir, rename, readFile, unlink } from "node:fs/promises";
 import { join, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { getConfig, createClient, uploadFile, uploadBytes } from "./thatopen-client.mjs";
@@ -42,18 +42,32 @@ const ts = () => new Date().toISOString();
  * timeline as web uploads and Revit auto-publish. Keys on the .ifc name (not the .frag) for consistent
  * grouping. Best-effort: no-op if the CDE isn't configured, never breaks the upload.
  */
-async function registerVersion(name, sizeBytes, itemId) {
+async function registerVersion(name, sizeBytes, itemId, projectKey) {
   if (DRY) return;
   try {
     const cde = await import("./cde-store.mjs");
     if (!cde.cdeConfigured()) return;
-    await cde.registerFileVersion(cfg.projectId, {
+    const key = projectKey || cfg.projectId;
+    await cde.registerFileVersion(key, {
       name, author: "outbox", size_bytes: sizeBytes, platform_item_id: itemId || null, notes: "uploaded via outbox watcher",
     });
-    console.log(`  📚 versioned ${name} in the CDE`);
+    console.log(`  📚 versioned ${name} in the CDE (project ${key})`);
   } catch (e) {
     console.error(`  ⚠ version register failed for ${name}: ${e?.message || e}`);
   }
+}
+
+/**
+ * Sidecar the Revit plugin writes next to each outbox IFC ("<name>.ifc.meta.json") naming the
+ * Sentinel web project the file belongs to (the ACC-style association). Absent/unreadable →
+ * null, and the registration falls back to the bridge's configured default project.
+ */
+async function readMeta(ifcPath) {
+  try {
+    const m = JSON.parse(await readFile(ifcPath + ".meta.json", "utf8"));
+    const key = typeof m?.project === "string" ? m.project.trim() : "";
+    return key ? { project: key } : null;
+  } catch { return null; }
 }
 
 /** Wait until a file's size stops changing (so we don't upload a half-written export). */
@@ -80,6 +94,8 @@ async function handle(name) {
     if (DRY) { console.log(`[${ts()}] would upload: ${name}`); return; }
 
     console.log(`[${ts()}] uploading ${name} …`);
+    const meta = await readMeta(p); // which Sentinel project this publish targets (sidecar from Revit)
+    if (meta) console.log(`  ↳ target web project: ${meta.project}`);
     // Keep the FULL filename (with .ifc) as the item name — the platform derives fileExtension from
     // it and only auto-converts recognised IFCs to viewable .frag. Stripping it left files unviewable.
     // Convert locally and upload ONLY the .frag (the viewable format). The .ifc upload is skipped —
@@ -91,15 +107,16 @@ async function handle(name) {
       const fragBytes = await ifcToFrag(p);
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
-      await registerVersion(name, size, result?.item?._id);
+      await registerVersion(name, size, result?.item?._id, meta?.project);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      await registerVersion(name, size, result?.item?._id);
+      await registerVersion(name, size, result?.item?._id, meta?.project);
     }
 
     await rename(p, join(SENT, `${Date.now()}_${name}`)); // out of the outbox so it isn't re-sent
+    await unlink(p + ".meta.json").catch(() => {}); // sidecar consumed with its IFC
   } catch (e) {
     console.error(`  ❌ ${name}: ${e?.message || e}`);
   } finally {

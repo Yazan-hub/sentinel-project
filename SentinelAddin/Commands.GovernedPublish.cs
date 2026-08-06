@@ -37,6 +37,9 @@ public sealed class GovernedPublishCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // The web project this document publishes into (Project Setup → Web project; else the config default).
+        var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+
         // 1) Export the active view to a TEMP IFC (not the outbox — we publish only on pass).
         var tempDir = Path.Combine(Path.GetTempPath(), "Sentinel", "governed");
         var ifcName = SafeName(doc.Title) + ".ifc";
@@ -57,7 +60,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
         var gate = Sentinel.Engine.IfcDeliveryGate.Validate(tempPath, contract);
         Sentinel.Coordination.GovernedNotify.DeliveryGate(
             ifcName, gate.Passed, gate.ContractKey, gate.DetectedSchema,
-            gate.TotalEntities, gate.Failures.Count, gate.FileSha256);
+            gate.TotalEntities, gate.Failures.Count, gate.FileSha256, projectKey);
         if (!gate.Passed)
         {
             TaskDialog.Show("Sentinel — Governed Publish",
@@ -70,10 +73,9 @@ public sealed class GovernedPublishCommand : IExternalCommand
         }
 
         // 3) Adjudicate the model against the project IDS (referee). Extract read-only from the live model.
-        var cfg = BcfConfig.Load();
-        var elements = Sentinel.Engine.GovernedElementExtractor.Extract(doc, cfg.ProjectId);
+        var elements = Sentinel.Engine.GovernedElementExtractor.Extract(doc, projectKey);
         var ids = LoadIdsSpec(); // null ⇒ no IDS configured → verdict "recorded" (gate-only publish)
-        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId: null, actor: "Revit", containerName: ifcName);
+        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId: null, actor: "Revit", containerName: ifcName, projectKey: projectKey);
 
         if (!verdict.Reached)
         {
@@ -113,6 +115,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
         {
             var outboxPath = Path.Combine(Sentinel.Engine.PlatformExporter.OutboxDir(), ifcName);
             File.Copy(tempPath, outboxPath, overwrite: true);
+            Sentinel.Engine.PlatformExporter.WriteOutboxMeta(ifcName, doc); // → the right web project
         }
         catch (Exception ex)
         {
@@ -121,18 +124,19 @@ public sealed class GovernedPublishCommand : IExternalCommand
                 "\n\nThe verdict is recorded; upload the file manually if needed.");
         }
 
-        var versionId = Sentinel.Coordination.GovernedNotify.RegisterVersionId(doc.Title, bytes, "Revit");
+        var versionId = Sentinel.Coordination.GovernedNotify.RegisterVersionId(doc.Title, bytes, "Revit", projectKey: projectKey);
         if (versionId != null && ids != null)
-            Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId, actor: "Revit", containerName: ifcName); // stamp the badge
+            Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId, actor: "Revit", containerName: ifcName, projectKey: projectKey); // stamp the badge
 
-        var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title);
+        var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
         var revLine = live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";
         var idsLine = ids == null
             ? "No project IDS configured — published on the delivery-gate pass alone."
             : $"IDS: {verdict.Passing}/{verdict.InScope} in-scope element checks passed.";
 
         TaskDialog.Show("Sentinel — Governed Publish",
-            $"✓ ACCEPTED — {revLine}\n\n" +
+            $"✓ ACCEPTED — {revLine}\n" +
+            $"Project: {projectKey}\n\n" +
             idsLine + "\n" +
             "Delivery gate: PASS · Schema " + gate.DetectedSchema + "\n" +
             "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n\n" +

@@ -1,117 +1,223 @@
-import * as THREE from "three";
-import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
-import { getAppManager } from "../app";
+import { SERVICE_URL } from "../config";
+import { bfetch } from "./bridge-fetch";
+import * as OBF from "@thatopen/components-front";
+import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
+import { activePid, onActiveProjectChange } from "./active-project";
 
 /**
- * Sentinel Saved Views (Phase 2 — Revit "named views"). Save the current camera as a named view and
- * restore it later; plus Zoom-fit. The platform toolbar already covers orbit/pan/zoom/section/walk and
- * the orientation nav-gizmo (Top/Front/…), so this adds the one thing missing: persistent named views
- * per project (localStorage). Uses camera-controls getPosition/getTarget/setLookAt + fitToSphere.
- * Plain-DOM, iframe-safe. Docked as the "Views" tab.
+ * Sentinel Views viewer. Mirrors the Sheets viewer's mechanism (Revit-only content that doesn't survive
+ * IFC export → the plugin renders it to PNG → the Bridge serves it), but for named Revit views instead of
+ * sheets — and curated, not exhaustive: only the views ticked in Revit's Publish Views picker appear here
+ * (unlike Sheets, which always publishes every sheet). Views are grouped like the Project Browser (Floor
+ * Plans, Ceiling Plans, Elevations, Sections, 3D Views, Drafting Views, …). Opening a Floor/Ceiling Plan
+ * offers "isolate this level in 3D" (matched by IfcBuildingStorey name — coordinate-free, so it survives
+ * Revit↔IFC base-point offsets). Plain-DOM, iframe-safe.
  */
-interface SavedView { name: string; pos: [number, number, number]; target: [number, number, number]; }
+interface ViewItem { id: string; name: string; type: string; level: string; file: string; url: string; }
+interface ViewSet { set: string; title: string; project?: string | null; exportedAt: string | null; count: number; views: ViewItem[]; }
 
-export function viewsPanel(components: OBC.Components): HTMLElement {
-  const worlds = components.get(OBC.Worlds);
+const GROUP_ORDER = [
+  "FloorPlan", "CeilingPlan", "Elevation", "Section", "ThreeD",
+  "DraftingView", "Detail", "AreaPlan", "Schedule",
+];
+const GROUP_LABELS: Record<string, string> = {
+  FloorPlan: "Floor Plans", CeilingPlan: "Ceiling Plans", Elevation: "Elevations",
+  Section: "Sections", ThreeD: "3D Views", DraftingView: "Drafting Views",
+  Detail: "Detail Views", AreaPlan: "Area Plans", Schedule: "Schedules",
+};
+const groupLabel = (t: string) => GROUP_LABELS[t] ?? t.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+  const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const fragments = components.get(OBC.FragmentsManager);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const world = (): any => [...worlds.list.values()][0];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const controls = (): any => world()?.camera?.controls;
-  const pid = () => activePid();
-  const key = () => `sentinel:views:${pid()}`;
-
+  const hider = components.get(OBC.Hider);
+  const highlighter = components.get(OBF.Highlighter);
   const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
-  let views: SavedView[] = [];
-  try { views = JSON.parse(localStorage.getItem(key()) || "[]"); } catch { views = []; }
-  const persist = () => { try { localStorage.setItem(key(), JSON.stringify(views)); } catch { /* */ } };
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
-  const btn = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.35rem .55rem;font:600 12px system-ui;cursor:pointer";
+  const btn = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.3rem .55rem;font:600 11px system-ui;cursor:pointer";
   root.innerHTML =
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
-    '<span style="font-weight:600">◳ Views</span><span style="color:#9ca3af;font-size:11px">named cameras</span>' +
+    '<span style="font-weight:600">▥ Views</span><span style="color:#9ca3af;font-size:11px">published from Revit</span>' +
     '<span style="flex:1"></span>' +
-    `<button id="vw-fit" style="${btn}" title="Zoom to fit the model">Fit</button>` +
+    `<button id="vw-refresh" style="${btn}" title="Reload views from the Bridge">↻</button>` +
     "</div>" +
-    '<div style="display:flex;gap:.35rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30">' +
-    `<input id="vw-name" placeholder="View name…" style="flex:1;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px system-ui"/>` +
-    `<button id="vw-save" style="${btn};background:#6528d7;color:#fff;border-color:#6528d7">Save view</button>` +
-    "</div>" +
-    '<div id="vw-list" style="flex:1;overflow:auto;padding:.4rem .6rem;display:flex;flex-direction:column;gap:.3rem"></div>' +
-    '<div id="vw-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">Save the current camera as a named view.</div>';
+    '<div id="vw-sets" style="padding:.4rem .6rem;border-bottom:1px solid #2a2a30;display:none"></div>' +
+    '<div id="vw-list" style="flex:1;overflow:auto;padding:.35rem"></div>' +
+    '<div id="vw-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const status = (t: string) => (el("vw-status").textContent = t);
 
+  let sets: ViewSet[] = [];
+  let active = 0;
+  let flat: ViewItem[] = []; // active set's views, flattened in the order they're rendered — lightbox nav walks this
+
   function renderList() {
     const host = el("vw-list");
-    host.innerHTML = "";
-    if (!views.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.4rem">No saved views yet.</div>'; return; }
-    views.forEach((v, i) => {
-      const row = document.createElement("div");
-      row.style.cssText = "display:flex;align-items:center;gap:.4rem;border:1px solid #26262e;border-radius:.35rem;padding:.35rem .5rem;background:#1b1b21";
-      const name = document.createElement("span");
-      name.style.cssText = "flex:1;font-size:12px;cursor:pointer;color:#e5e7eb";
-      name.textContent = v.name;
-      name.title = "Go to this view";
-      name.addEventListener("click", () => restore(v));
-      const del = document.createElement("button");
-      del.textContent = "✕";
-      del.style.cssText = "border:0;background:transparent;color:#f87171;cursor:pointer";
-      del.addEventListener("click", () => { views.splice(i, 1); persist(); renderList(); });
-      row.append(name, del);
-      host.appendChild(row);
+    const set = sets[active];
+    flat = [];
+    if (!set || !set.views.length) {
+      host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.6">No views published yet.<br><br>In Revit: <b>Sentinel → Publish Views</b> — pick which plans, sections, elevations or 3D views to share, then press ↻ here.</div>';
+      return;
+    }
+    const groups = new Map<string, ViewItem[]>();
+    for (const v of set.views) {
+      if (!groups.has(v.type)) groups.set(v.type, []);
+      groups.get(v.type)!.push(v);
+    }
+    const orderedTypes = [...groups.keys()].sort((a, b) => {
+      const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    let html = "";
+    for (const type of orderedTypes) {
+      const items = groups.get(type)!.sort((a, b) => a.name.localeCompare(b.name));
+      html += `<div style="font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8b8b95;padding:.5rem .35rem .3rem">${esc(groupLabel(type))} · ${items.length}</div>`;
+      for (const v of items) {
+        const i = flat.length;
+        flat.push(v);
+        html +=
+          `<div class="vw-row" data-i="${i}" style="display:flex;gap:.5rem;align-items:center;padding:.4rem .45rem;border:1px solid #2a2a30;background:#1b1b22;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer">` +
+          `<span style="flex:1;color:#e5e7eb;font-size:12px">${esc(v.name)}</span>` +
+          (v.level ? `<span style="color:#a78bfa;font-size:10.5px">${esc(v.level)}</span>` : "") +
+          `<span style="color:#6b7280;font-size:11px">open ⤢</span></div>`;
+      }
+    }
+    host.innerHTML = html;
+    host.querySelectorAll<HTMLElement>(".vw-row").forEach((r) =>
+      r.addEventListener("click", () => openLightbox(Number(r.dataset.i))));
+  }
+
+  function renderSets() {
+    const box = el("vw-sets");
+    if (sets.length <= 1) { box.style.display = "none"; return; }
+    box.style.display = "block";
+    box.innerHTML = `<select id="vw-set" style="width:100%;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.3rem .4rem;font:12px system-ui">` +
+      sets.map((s, i) => `<option value="${i}">${esc(s.title)} · ${s.count} view(s)</option>`).join("") + "</select>";
+    (box.querySelector("#vw-set") as HTMLSelectElement).addEventListener("change", (e) => {
+      active = Number((e.target as HTMLSelectElement).value); renderList();
+      status(`${sets[active].count} view(s) in “${sets[active].title}”.`);
     });
   }
 
-  function saveView() {
-    const c = controls();
-    if (!c?.getPosition) { status("Viewer not ready."); return; }
-    const name = (el("vw-name") as HTMLInputElement).value.trim() || `View ${views.length + 1}`;
-    const p = new THREE.Vector3(), t = new THREE.Vector3();
-    c.getPosition(p); c.getTarget(t);
-    views.push({ name, pos: [p.x, p.y, p.z], target: [t.x, t.y, t.z] });
-    persist();
-    (el("vw-name") as HTMLInputElement).value = "";
-    renderList();
-    status(`Saved “${name}”.`);
-  }
-
-  function restore(v: SavedView) {
-    const c = controls();
-    if (!c?.setLookAt) { status("Viewer not ready."); return; }
-    c.setLookAt(v.pos[0], v.pos[1], v.pos[2], v.target[0], v.target[1], v.target[2], true);
-    status(`→ ${v.name}`);
-  }
-
-  async function fit() {
-    const c = controls();
-    const s: THREE.Scene | undefined = world()?.scene?.three;
-    if (!c || !s) { status("Viewer not ready."); return; }
+  async function refresh() {
+    status("Loading views from the Bridge…");
     try {
-      const box = new THREE.Box3();
-      for (const model of fragments.list.values()) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const obj = (model as any).object ?? (model as any).three;
-        if (obj) box.expandByObject(obj);
-      }
-      if (box.isEmpty()) box.setFromObject(s);
-      if (box.isEmpty()) { status("Nothing to fit."); return; }
-      if (c.fitToBox) await c.fitToBox(box, true);
-      else {
-        const ctr = box.getCenter(new THREE.Vector3());
-        const r = box.getSize(new THREE.Vector3()).length() || 10;
-        c.setLookAt(ctr.x + r, ctr.y + r * 0.8, ctr.z + r, ctr.x, ctr.y, ctr.z, true);
-      }
-      status("Zoomed to fit.");
-    } catch (e) { status("Fit failed: " + ((e as Error)?.message ?? String(e))); }
+      const r = await bfetch(`${base}/views`);
+      if (!r.ok) throw new Error(`Bridge ${r.status}`);
+      const data = await r.json() as { sets: ViewSet[] };
+      // Project-scoped: sets published against a specific web project only show inside that project.
+      // Sets without a project field (older plugin) stay visible everywhere — back-compat.
+      sets = (data.sets ?? []).filter((s) => !s.project || s.project === activePid());
+      active = 0;
+      renderSets(); renderList();
+      const total = sets.reduce((a, s) => a + s.count, 0);
+      status(sets.length
+        ? `${total} view(s) across ${sets.length} model(s). Click a view; plans offer "isolate level in 3D".`
+        : "No views published. Use Revit → Sentinel → Publish Views.");
+    } catch (e) {
+      sets = []; renderList();
+      status("Couldn't reach the Bridge (" + ((e as Error)?.message ?? String(e)) + "). Start it: node bridge/bcf-service.mjs");
+    }
   }
 
-  el("vw-save").addEventListener("click", saveView);
-  el("vw-fit").addEventListener("click", fit);
-  el("vw-name").addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") saveView(); });
-  renderList();
+  async function isolateLevel(level: string, closeLb: () => void) {
+    if (!level) return;
+    if (fragments.list.size === 0) { status("Load the 3D model first, then try again."); return; }
+    status(`Isolating level “${level}” in the 3D model…`);
+    try {
+      const res = await isolateStoreyByName(fragments, level);
+      if (!res.matched || res.count === 0) {
+        const hint = res.storeys.length ? ` Levels in the model: ${[...new Set(res.storeys)].slice(0, 8).join(", ")}.` : "";
+        status(`No level matching “${level}” found in the 3D model.${hint}`);
+        return;
+      }
+      closeLb();
+      await hider.set(true);
+      await hider.isolate(res.map);
+      await fragments.core.update(true);
+      await highlighter.highlightByID("select", res.map, true, true); // zooms to the isolated level
+      status(`Isolated level “${res.matched}” — ${res.count} element(s). Show all in Visibility to restore.`);
+    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+  }
+
+  // ── Full-screen zoom/pan lightbox ──
+  let lb: HTMLElement | null = null;
+  function openLightbox(i: number) {
+    if (!flat.length) return;
+    let idx = i;
+    let scale = 1, tx = 0, ty = 0, dragging = false, lx = 0, ly = 0;
+
+    lb = document.createElement("div");
+    lb.style.cssText = "position:fixed;inset:0;z-index:99999;background:rgba(8,8,10,.94);display:flex;flex-direction:column;font:13px system-ui;color:#eee";
+    lb.innerHTML =
+      '<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem .8rem;border-bottom:1px solid #2a2a30;background:#111">' +
+      '<span id="lb-cap" style="font-weight:600"></span>' +
+      '<span style="flex:1"></span>' +
+      `<button id="lb-isolate" style="${btn};background:#241a3a;border-color:#6d28d9;color:#c4b5fd;display:none">⛶ Isolate level</button>` +
+      `<button id="lb-prev" style="${btn}">◀ Prev</button>` +
+      `<button id="lb-next" style="${btn}">Next ▶</button>` +
+      `<button id="lb-fit" style="${btn}">Fit</button>` +
+      `<button id="lb-close" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5">✕ Close</button>` +
+      "</div>" +
+      '<div id="lb-stage" style="flex:1;overflow:hidden;position:relative;cursor:grab;display:flex;align-items:center;justify-content:center">' +
+      '<img id="lb-img" draggable="false" style="display:block;max-width:none;user-select:none;box-shadow:0 0 40px rgba(0,0,0,.6);background:#fff;transform-origin:center center"/>' +
+      "</div>";
+    document.body.appendChild(lb);
+    const q = (id: string) => lb!.querySelector("#" + id) as HTMLElement;
+    const img = q("lb-img") as HTMLImageElement;
+    const stage = q("lb-stage");
+    const isolateBtn = q("lb-isolate");
+
+    const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+    const fit = () => { scale = 1; tx = 0; ty = 0; apply(); };
+
+    const load = () => {
+      const v = flat[idx];
+      q("lb-cap").textContent = `${v.name}  (${idx + 1}/${flat.length})`;
+      isolateBtn.style.display = v.level ? "inline-block" : "none";
+      img.onload = fit;
+      img.src = `${base}${v.url}`;
+    };
+    load();
+
+    stage.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const f = (e as WheelEvent).deltaY < 0 ? 1.15 : 1 / 1.15;
+      scale = Math.min(12, Math.max(0.2, scale * f));
+      apply();
+    }, { passive: false });
+    stage.addEventListener("mousedown", (e) => { dragging = true; lx = (e as MouseEvent).clientX; ly = (e as MouseEvent).clientY; stage.style.cursor = "grabbing"; });
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    function onMove(e: MouseEvent) { if (!dragging) return; tx += e.clientX - lx; ty += e.clientY - ly; lx = e.clientX; ly = e.clientY; apply(); }
+    function onUp() { dragging = false; if (lb) stage.style.cursor = "grab"; }
+
+    const go = (d: number) => { idx = (idx + d + flat.length) % flat.length; load(); };
+    q("lb-prev").addEventListener("click", () => go(-1));
+    q("lb-next").addEventListener("click", () => go(1));
+    q("lb-fit").addEventListener("click", fit);
+    q("lb-close").addEventListener("click", close);
+    isolateBtn.addEventListener("click", () => void isolateLevel(flat[idx].level, close));
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); };
+    window.addEventListener("keydown", onKey);
+
+    function close() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("keydown", onKey);
+      lb?.remove(); lb = null;
+    }
+  }
+
+  el("vw-refresh").addEventListener("click", refresh);
+  onActiveProjectChange(() => void refresh());
+  void refresh();
   return root;
 }

@@ -38,8 +38,13 @@ namespace Sentinel.Coordination
             return client.SendAsync(msg).GetAwaiter().GetResult();
         }
 
+        /// <summary>The project key a call targets: the caller's per-document key when given, else the
+        /// machine-wide BcfConfig default — so existing call sites keep today's behavior unchanged.</summary>
+        private static string KeyOf(BcfConfig cfg, string? projectKey) =>
+            string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
+
         /// <summary>Record a "model published from Revit" event in the governed audit trail.</summary>
-        public static void ModelPublished(string modelName, long bytes)
+        public static void ModelPublished(string modelName, long bytes, string? projectKey = null)
         {
             Post("/audit", new
             {
@@ -47,7 +52,7 @@ namespace Sentinel.Coordination
                 actor = "Revit",
                 action = "Model published from Revit: " + modelName,
                 new_value = new { model = modelName, kb = bytes / 1024, source = "revit", at = DateTime.UtcNow.ToString("o") },
-            });
+            }, projectKey);
         }
 
         /// <summary>
@@ -56,7 +61,7 @@ namespace Sentinel.Coordination
         /// v1 → v2 → … and the newest becomes the live version — the same version timeline a web upload feeds.
         /// Fire-and-forget; a bridge without the CDE configured just no-ops (503).
         /// </summary>
-        public static void FileVersion(string modelName, long bytes)
+        public static void FileVersion(string modelName, long bytes, string? projectKey = null)
         {
             var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
             Post("/files", new
@@ -65,7 +70,7 @@ namespace Sentinel.Coordination
                 author = "Revit",
                 size_bytes = bytes,
                 notes = "published from Revit",
-            });
+            }, projectKey);
         }
 
         /// <summary>
@@ -75,7 +80,7 @@ namespace Sentinel.Coordination
         /// verdict to the exact bytes that were certified (provenance).
         /// </summary>
         public static void DeliveryGate(string fileName, bool passed, string contractKey, string schema,
-                                        int totalEntities, int failureCount, string sha256)
+                                        int totalEntities, int failureCount, string sha256, string? projectKey = null)
         {
             Post("/audit", new
             {
@@ -94,7 +99,7 @@ namespace Sentinel.Coordination
                     source = "revit",
                     at = DateTime.UtcNow.ToString("o"),
                 },
-            });
+            }, projectKey);
         }
 
         /// <summary>The parsed result of a governed proposal (see <see cref="Propose"/>).</summary>
@@ -118,13 +123,13 @@ namespace Sentinel.Coordination
         /// the verdict — this is the one place Revit needs the answer, not fire-and-forget. Never throws:
         /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
-        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor, string? containerName = null)
+        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor, string? containerName = null, string? projectKey = null)
         {
             var r = new ProposalResult();
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + "/propose";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/propose";
                 var body = new Dictionary<string, object?>
                 {
                     ["source"] = "Governed Publish",
@@ -188,13 +193,13 @@ namespace Sentinel.Coordination
         /// blocking counterpart to <see cref="FileVersion"/>, used by Governed Publish so it can stamp the
         /// verdict badge onto the exact version it just created. <c>POST /cde/:key/files</c> → the new version's id.
         /// </summary>
-        public static string? RegisterVersionId(string modelName, long bytes, string author, string? notes = null)
+        public static string? RegisterVersionId(string modelName, long bytes, string author, string? notes = null, string? projectKey = null)
         {
             try
             {
                 var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + "/files";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/files";
                 var body = new { name, author, size_bytes = bytes, notes = notes ?? "published from Revit (Governed Publish)" };
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
@@ -209,13 +214,13 @@ namespace Sentinel.Coordination
             return null;
         }
 
-        /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{ProjectId}{path}</c>; fire-and-forget, never throws.</summary>
-        private static void Post(string path, object payload)
+        /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{key}{path}</c>; fire-and-forget, never throws.</summary>
+        private static void Post(string path, object payload, string? projectKey = null)
         {
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(cfg.ProjectId) + path;
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + path;
                 var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
                 var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
                 if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))

@@ -29,3 +29,6 @@ Thumbs.db
 
 # Generated knowledge-graph output (regenerable via graphify; huge — never track)
 graphify-out/
+
+# Auto-start service logs (scheduled tasks write these next to the launchers)
+WebApp/*.log

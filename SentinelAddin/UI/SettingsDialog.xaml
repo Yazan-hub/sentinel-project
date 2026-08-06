@@ -36,6 +36,17 @@
                      Margin="0,4,0,16" VerticalContentAlignment="Center" Width="200"
                      HorizontalAlignment="Left"/>
 
+            <TextBlock Text="Web project — where this model publishes (like picking an ACC/Forma project)"
+                       FontSize="11" Foreground="#667"/>
+            <ComboBox x:Name="WebProjectBox" Height="28" FontSize="12" Padding="6,4"
+                      Margin="0,4,0,2" VerticalContentAlignment="Center" Width="280"
+                      HorizontalAlignment="Left" IsEditable="True"/>
+            <TextBlock x:Name="WebProjectHint" Text="Loading projects from the bridge…"
+                       FontSize="10" Foreground="#889" Margin="0,0,0,10"/>
+
+            <CheckBox x:Name="LinkedModelsBox" FontSize="12" Margin="0,0,0,14"
+                      Content="Include linked models when publishing (each link exports as its own IFC — Quick/Auto publish)"/>
+
             <TextBlock Text="Ghost source folder (DWGs, specs, sketches — drives Datum &amp; Ghost Builder)"
                        FontSize="11" Foreground="#667"/>
             <DockPanel Margin="0,4,0,16">

@@ -21,6 +21,7 @@ interface Project {
   status_scheme: string | null;
   created_at: string;
   container_count: number;
+  settings?: { archived?: boolean } | null;
 }
 
 export function projectsHubPanel(
@@ -70,15 +71,22 @@ export function projectsHubPanel(
         '<div style="grid-column:1/-1;color:#6b7280;font-size:12px;padding:1rem .2rem">No projects yet — create one with <b>+ New project</b>.</div>';
       return;
     }
-    el("ph-grid").innerHTML = projects
+    // Archived projects sink to the end of the grid, greyed — still clickable so unarchive
+    // (Settings → Danger zone) stays reachable.
+    const ordered = [...projects].sort((a, b) => Number(!!a.settings?.archived) - Number(!!b.settings?.archived));
+    el("ph-grid").innerHTML = ordered
       .map((p) => {
         const on = p.key === active;
+        const arch = !!p.settings?.archived;
         return (
-          `<button class="ph-card" data-key="${esc(p.key)}" style="text-align:left;cursor:pointer;color:inherit;` +
+          `<button class="ph-card" data-key="${esc(p.key)}" style="text-align:left;cursor:pointer;color:inherit;${arch ? "opacity:.45;" : ""}` +
           `border:1px solid ${on ? "#6528d7" : "#23232a"};background:${on ? "#6528d714" : "#101014"};` +
           `border-radius:12px;padding:.75rem .8rem;display:flex;flex-direction:column;gap:.35rem;min-height:6.5rem">` +
           `<div style="display:flex;align-items:center;gap:.4rem">` +
           `<span style="font:650 14px system-ui;color:#f3f4f6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</span>` +
+          (arch
+            ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#a1a1aa;border:1px solid #3f3f46;border-radius:100px;padding:.1rem .4rem">ARCHIVED</span>'
+            : "") +
           (on
             ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#c4b5fd;border:1px solid #6528d7;border-radius:100px;padding:.1rem .4rem">ACTIVE</span>'
             : "") +
@@ -179,6 +187,9 @@ export function projectsHubPanel(
   // Re-highlight the active card when the switch happens elsewhere (the global switcher).
   // The hub is built once and reused by reference for the app's lifetime, so no unsubscribe needed.
   onActiveProjectChange(() => renderGrid());
+  // Full reload on the broadcast event too — fired by Settings after a rename/archive/delete, so the
+  // card names and archived badges refresh without a manual ↻.
+  window.addEventListener("sentinel:project-changed", () => void load());
 
   load();
   return root;
