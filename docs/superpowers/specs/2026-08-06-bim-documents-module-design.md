@@ -1,7 +1,7 @@
 # BIM Documents Module — Design Spec
 
 **Date:** 2026-08-06
-**Status:** Approved (design confirmed in session)
+**Status:** Implemented (see plan of the same date; UI click-through verification pending user run)
 **Sub-project:** 1 of 6 (roadmap: documents → ingestion → enforcement → MIDP/TIDP → AI drafting → MCP tools)
 
 ## Purpose
