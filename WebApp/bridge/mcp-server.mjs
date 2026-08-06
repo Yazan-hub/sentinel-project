@@ -113,6 +113,9 @@ const need = (args, key) => {
 
 export async function callTool(name, args = {}, deps = {}) {
   const f = deps.fetch || fetch;
+  // DELIBERATE change from v1.0 for list_projects/audit: they previously .json()'d any response with
+  // no ok-check, so a bridge 404/500 surfaced as a confusing parsed error body. All GET tools now
+  // throw the same "bridge <status>: <text>" error the other tools always used.
   const getJson = async (path) => {
     const r = await f(`${BASE}${path}`, { headers: authHeaders });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
