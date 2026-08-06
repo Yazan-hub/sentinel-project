@@ -993,7 +993,7 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['bimdocs', p1, p2, p3, p4]
       const [, p1, p2, p3, p4] = seg;
       const isRawUpload = p2 === "ingest" && !p3;
-      const body = !isRawUpload && ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const body = !isRawUpload && ["POST", "PATCH", "PUT"].includes(req.method) ? await readBody(req) : {};
       const actor = body.actor || "web";
 
       // Ingest: raw document bytes -> AI mapping proposal. Writes nothing; /ingest/commit does.
@@ -1028,6 +1028,20 @@ async function handleRequest(req, res) {
       }
 
       if (p1 === "templates" && req.method === "GET") return send(res, 200, bimdocs.listTemplates());
+      // Enforcement wiring: the check registry, binding suggestions, binding writes, compliance reads.
+      if (p1 === "checks" && !p2 && req.method === "GET") {
+        const { listChecks } = await import("./check-registry.mjs");
+        return send(res, 200, listChecks());
+      }
+      if (p3 === "bindings" && p4 === "suggest" && req.method === "POST") {
+        const { suggestBindings } = await import("./binding-suggest.mjs");
+        const doc = await bimdocs.getDoc(p1, p2);
+        return send(res, 200, suggestBindings(doc.sections));
+      }
+      if (p3 === "section" && p4 && seg[5] === "bindings" && req.method === "PUT")
+        return send(res, 200, await bimdocs.setSectionBindings(p1, p2, p4, { ...body, actor }));
+      if (p3 === "compliance" && !p4 && req.method === "GET")
+        return send(res, 200, await bimdocs.complianceReport(p1, p2));
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       if (p1 && p2 && !p3 && req.method === "GET") return send(res, 200, await bimdocs.getDoc(p1, p2));
