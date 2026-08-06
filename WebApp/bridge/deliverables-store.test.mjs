@@ -43,3 +43,11 @@ describe("validateRow", () => {
     }
   });
 });
+
+describe("non-UUID id guard (was a PostgREST uuid-cast 500)", () => {
+  it("update and delete 404 a malformed id before any network call", async () => {
+    const { updateDeliverable, deleteDeliverable } = await import("./deliverables-store.mjs");
+    await expect(updateDeliverable("demo", "nope", { container_name: "A" })).rejects.toMatchObject({ status: 404 });
+    await expect(deleteDeliverable("demo", "nope")).rejects.toMatchObject({ status: 404 });
+  });
+});

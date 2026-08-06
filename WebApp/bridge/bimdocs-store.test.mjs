@@ -129,3 +129,10 @@ describe("validateBindings", () => {
     try { validateBindings({ checks: [{ id: "cde.states", params: [1] }] }); throw new Error("should have thrown"); } catch (e) { expect(e.status).toBe(400); }
   });
 });
+
+describe("getDoc non-UUID guard (was a PostgREST uuid-cast 500)", () => {
+  it("404s a malformed docId before any network call — covers every /bimdocs consumer incl. the AI routes", async () => {
+    const { getDoc } = await import("./bimdocs-store.mjs");
+    await expect(getDoc("demo", "nope")).rejects.toMatchObject({ status: 404, message: "document not found" });
+  });
+});

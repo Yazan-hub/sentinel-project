@@ -2,7 +2,7 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 
@@ -31,6 +31,9 @@ export async function createDoc(key, { doc_type, title, actor } = {}) {
 }
 
 export async function getDoc(key, docId) {
+  // A non-UUID docId would make PostgREST throw a uuid-cast error (surfaced as a 500). It can never
+  // match a row, so it is the same 404 as a miss — decided before any network call.
+  if (!isUuid(docId)) throw err(404, "document not found");
   const proj = await ensureProject(key);
   const row = one(await sb(`bim_documents?id=eq.${enc(docId)}&project_id=eq.${enc(proj.id)}`));
   if (!row) throw err(404, "document not found");

@@ -19,6 +19,11 @@ const KEY = env.SUPABASE_SERVICE_KEY || "";
 const ANON = env.SUPABASE_ANON_KEY || ""; // enables JWT-forwarding when set; without it the bridge stays service-key only
 
 export const cdeConfigured = () => !!(URL && KEY);
+
+/** Client-supplied ids go into uuid-typed PostgREST filters; a non-UUID makes Postgres throw a cast
+ *  error that surfaces as a 500. Guard at every entry point that takes a caller's id: a malformed id
+ *  can never match a row, so it is a plain 404 — decided before any network call. */
+export const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ""));
 /** True once JWT-forwarding is armed (anon key present). Forwarding still only kicks in per-request when a
  *  caller actually presents a Supabase JWT; otherwise sb() uses the service key. */
 export const forwardingConfigured = () => !!ANON;
@@ -374,6 +379,7 @@ export async function listFiles(key) {
 
 /** Flip the live pointer: mark one version live, all its siblings not-live (partial-unique-safe: clear first). */
 export async function setLiveVersion(version_id, actor) {
+  if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
   const rows = await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}&select=id,container_id,revision`);
   const v = Array.isArray(rows) ? rows[0] : null;
   if (!v) { const e = new Error("version not found"); e.status = 404; throw e; }
@@ -521,6 +527,7 @@ export async function registerFileVersion(key, b = {}) {
 
 /** Run the DB state machine (validates the transition, writes the audit row, enforces immutability). */
 export async function transition(version_id, new_state, actor, note) {
+  if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
   // ISO 19650 state changes are the governed trail's spine — stamp the verified identity, not the claim.
   return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note } });
 }

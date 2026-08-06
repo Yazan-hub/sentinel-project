@@ -11,12 +11,14 @@ vi.mock("./cde-store.mjs", () => ({
   sb: (...args) => sb(...args),
   ensureProject: (...args) => ensureProject(...args),
   audit: (...args) => audit(...args),
+  // real-shape guard: bimdocs-store now imports isUuid to 404 malformed ids before any network call
+  isUuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "")),
 }));
 
 const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
-  id: "doc1",
+  id: "11111111-1111-4111-8111-111111111111",
   project_id: "proj1",
   status: "wip",
   updated_at: "2026-01-01T00:00:00Z",
@@ -41,26 +43,26 @@ beforeEach(() => {
 describe("setSectionBindings guards (409/404, all pre-mocked network)", () => {
   it("refuses a published document with 409", async () => {
     doc.status = "published";
-    await expect(setSectionBindings("k", "doc1", "sec1", { bindings: {} })).rejects.toMatchObject({ status: 409 });
+    await expect(setSectionBindings("k", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: {} })).rejects.toMatchObject({ status: 409 });
   });
 
   it("refuses an archived document with 409", async () => {
     doc.status = "archived";
-    await expect(setSectionBindings("k", "doc1", "sec1", { bindings: {} })).rejects.toMatchObject({ status: 409 });
+    await expect(setSectionBindings("k", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: {} })).rejects.toMatchObject({ status: 409 });
   });
 
   it("refuses a stale write (updated_at mismatch) with 409", async () => {
     await expect(
-      setSectionBindings("k", "doc1", "sec1", { bindings: {}, updated_at: "2020-01-01T00:00:00Z" })
+      setSectionBindings("k", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: {}, updated_at: "2020-01-01T00:00:00Z" })
     ).rejects.toMatchObject({ status: 409 });
   });
 
   it("refuses an unknown sectionId with 404", async () => {
-    await expect(setSectionBindings("k", "doc1", "nope", { bindings: {} })).rejects.toMatchObject({ status: 404 });
+    await expect(setSectionBindings("k", "11111111-1111-4111-8111-111111111111", "nope", { bindings: {} })).rejects.toMatchObject({ status: 404 });
   });
 
   it("a valid wip document + matching updated_at + real section succeeds and persists bindings", async () => {
-    const row = await setSectionBindings("k", "doc1", "sec1", {
+    const row = await setSectionBindings("k", "11111111-1111-4111-8111-111111111111", "sec1", {
       bindings: { checks: [{ id: "midp.milestones" }] },
       updated_at: doc.updated_at,
     });
@@ -72,7 +74,7 @@ describe("setSectionBindings guards (409/404, all pre-mocked network)", () => {
 describe("complianceReport is read-only", () => {
   it("never calls audit and never issues a write method against sb", async () => {
     doc.sections = [{ id: "sec1", heading: "H1", body: "", state: "wip", owner: null, bindings: { checks: [{ id: "midp.milestones" }] } }];
-    const report = await complianceReport("k", "doc1");
+    const report = await complianceReport("k", "11111111-1111-4111-8111-111111111111");
     expect(report.sections[0].results).toHaveLength(1);
     expect(audit).not.toHaveBeenCalled();
     for (const call of sb.mock.calls) {
@@ -89,7 +91,7 @@ describe("complianceReport bounds total checks at MAX_COMPLIANCE_CHECKS", () => 
       id: "sec1", heading: "H1", body: "", state: "wip", owner: null,
       bindings: { checks: Array.from({ length: over }, (_, i) => ({ id: "midp.milestones", params: { i } })) },
     }];
-    const report = await complianceReport("k", "doc1");
+    const report = await complianceReport("k", "11111111-1111-4111-8111-111111111111");
     const results = report.sections[0].results;
     expect(results).toHaveLength(over);
     const uncapped = results.filter((r) => r.status === "not_checkable" && r.reason?.includes(`${MAX_COMPLIANCE_CHECKS}-check limit`));
@@ -100,20 +102,20 @@ describe("complianceReport bounds total checks at MAX_COMPLIANCE_CHECKS", () => 
 
 describe("setSectionBindings — missing-wrapper guard", () => {
   it("rejects a payload with no bindings key (400) instead of silently wiping", async () => {
-    await expect(setSectionBindings("demo", "doc1", "sec1", { updated_at: doc.updated_at }))
+    await expect(setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { updated_at: doc.updated_at }))
       .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/bindings is required/) });
     expect(sb).not.toHaveBeenCalled(); // validation-before-network held
   });
 
   it("names the common mistake when checks is sent at the top level", async () => {
-    await expect(setSectionBindings("demo", "doc1", "sec1", { checks: [{ id: "naming.ruleset" }] }))
+    await expect(setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { checks: [{ id: "naming.ruleset" }] }))
       .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/missing the 'bindings' wrapper/) });
     expect(sb).not.toHaveBeenCalled();
   });
 
   it("an EXPLICIT empty bindings object still clears (that path must keep working)", async () => {
     doc.sections[0].bindings = { checks: [{ id: "naming.ruleset", params: {} }] };
-    const result = await setSectionBindings("demo", "doc1", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
+    const result = await setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
     expect(result).toBeTruthy();
     const patch = sb.mock.calls.find(([, opts]) => opts?.method === "PATCH");
     expect(patch[1].body.sections[0].bindings).toEqual({ checks: [] });

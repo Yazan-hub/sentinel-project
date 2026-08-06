@@ -1,7 +1,7 @@
 // MIDP/TIDP deliverables — CRUD over the planned rows, plus the derived read model.
 // Thin PostgREST wrapper in the idiom of cde-store.mjs / bimdocs-store.mjs. Writes are audited;
 // deliverableStatus writes NOTHING (it is a read model, not an event).
-import { sb, ensureProject, audit, listFiles } from "./cde-store.mjs";
+import { sb, ensureProject, audit, listFiles, isUuid } from "./cde-store.mjs";
 import { deriveStatus } from "./deliverables-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
@@ -49,6 +49,7 @@ export async function createDeliverable(key, body, actor) {
 }
 
 export async function updateDeliverable(key, id, patch, actor) {
+  if (!isUuid(id)) throw err(404, "deliverable not found"); // non-UUID = uuid-cast 500 from PostgREST, and can never match
   // Partial-update semantics: validateRow normalises ALL six fields (nulls for absent ones), so
   // spreading its full result would silently wipe any field the caller didn't send — the UI's edit
   // form has no notes input, so every edit would null notes. Only write keys the caller supplied.
@@ -68,6 +69,7 @@ export async function updateDeliverable(key, id, patch, actor) {
 }
 
 export async function deleteDeliverable(key, id, actor) {
+  if (!isUuid(id)) throw err(404, "deliverable not found");
   const proj = await ensureProject(key);
   const before = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}&select=*`));
   if (!before) throw err(404, "deliverable not found");
