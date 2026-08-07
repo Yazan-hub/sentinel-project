@@ -147,9 +147,16 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       }
       reg.append(head);
       if (!report.exceptions.length) {
+        // The green clean-bill line requires MEASUREMENTS, not merely a plan: with expectations
+        // set but nothing published yet, nothing has been measured — saying "all met" would be
+        // the unmeasured-pass this feature exists to prevent.
+        const s = report.summary as Record<string, number>;
+        const measured = (s.revision_met || 0) + (s.revision_mismatch || 0) + (s.suitability_met || 0) + (s.suitability_mismatch || 0) > 0;
         const okLine = document.createElement("div");
-        okLine.textContent = "No exceptions — all measured expectations met.";
-        okLine.style.cssText = "color:#22c55e;font:11px system-ui";
+        okLine.textContent = measured
+          ? "No exceptions — all measured expectations met."
+          : "Expectations are set, but nothing has published yet — nothing measured.";
+        okLine.style.cssText = `color:${measured ? "#22c55e" : "#9ca3af"};font:11px system-ui`;
         reg.append(okLine);
       }
       const sevColor: Record<string, string> = { high: "#f87171", medium: "#eab308", low: "#9ca3af" };
