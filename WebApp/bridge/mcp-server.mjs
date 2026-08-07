@@ -92,6 +92,30 @@ export const TOOLS = [
       },
     },
   },
+
+  // ── Governed AI modeling: staged element changesets (propose → human ticks in Revit → result) ──
+  {
+    name: "sentinel_propose_changeset",
+    description:
+      "Propose model elements for human review in Revit. Nothing is created by this call: elements are adjudicated against the project's IDS (verdicts attached per element) and STAGED; a person reviews and ticks each element inside Revit before anything enters the model, and the result (created element ids or rejection) is recorded in the audit trail. v1 element kinds: wall, floor, level, grid. Geometry in millimetres, project-internal coordinates: walls/grids need place.LocationCurve {start:[x,y,z], end:[x,y,z]}; floors place.LocationLoop [[x,y,z]×≥3]; levels place.BaseElevation. Each element: {kind, validate:{identity:{Class, Name}, psets:[]}, place:{...}}.",
+    inputSchema: {
+      type: "object", required: ["project", "name", "elements"],
+      properties: {
+        project: { type: "string", description: "the project key" },
+        name: { type: "string", description: "human-readable changeset name (shown to the reviewer in Revit)" },
+        source: { type: "string", description: "agent self-label" },
+        elements: { type: "array", description: "the proposed elements (see tool description for the shape)" },
+      },
+    },
+  },
+  {
+    name: "sentinel_changeset_status",
+    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. Read-only.",
+    inputSchema: {
+      type: "object", required: ["project"],
+      properties: { project: { type: "string" }, changeset: { type: "string" }, status: { type: "string" } },
+    },
+  },
 ];
 
 /** Return a copy of the doc holding only the section matching `sel` (id first, then exact heading).
@@ -155,6 +179,19 @@ export async function callTool(name, args = {}, deps = {}) {
     const r = await f(`${BASE}/bimdocs/${enc(project)}/${enc(document)}/integrity`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
     return await r.json();
+  }
+
+  if (name === "sentinel_propose_changeset") {
+    const project = need(args, "project"), nm = need(args, "name");
+    if (!Array.isArray(args.elements) || !args.elements.length) throw new Error("elements is required (non-empty array)");
+    const r = await f(`${BASE}/changesets/${enc(project)}`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify({ name: nm, source: args.source, elements: args.elements }) });
+    if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
+    return await r.json();
+  }
+  if (name === "sentinel_changeset_status") {
+    const project = need(args, "project");
+    if (args.changeset) return await getJson(`/changesets/${enc(project)}/${enc(need(args, "changeset"))}`);
+    return await getJson(`/changesets/${enc(project)}${args.status ? `?status=${enc(args.status)}` : ""}`);
   }
 
   throw new Error(`unknown tool: ${name}`);
