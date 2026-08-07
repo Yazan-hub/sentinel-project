@@ -32,7 +32,12 @@ export function validateRow(body) {
   }
 
   const str = (v) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
-  return { container_name: name, title: str(body.title), responsible_team: str(body.responsible_team), due_date: due, stage, notes: str(body.notes) };
+  return {
+    container_name: name, title: str(body.title), responsible_team: str(body.responsible_team),
+    due_date: due, stage, notes: str(body.notes),
+    // Free-text by design: revision/suitability coding is convention-specific (BS 8644, project BEP…).
+    expected_revision: str(body.expected_revision), expected_suitability: str(body.expected_suitability),
+  };
 }
 
 export async function listDeliverables(key) {
@@ -44,7 +49,7 @@ export async function createDeliverable(key, body, actor) {
   const row = validateRow(body);
   const proj = await ensureProject(key);
   const created = one(await sb("deliverables", { method: "POST", body: { ...row, project_id: proj.id }, prefer: "return=representation" }));
-  await audit(proj.id, "deliverable", created.id, "created", actor || "web", null, { container_name: created.container_name, due_date: created.due_date });
+  await audit(proj.id, "deliverable", created.id, "created", actor || "web", null, { container_name: created.container_name, due_date: created.due_date, expected_revision: created.expected_revision, expected_suitability: created.expected_suitability });
   return created;
 }
 
@@ -63,7 +68,7 @@ export async function updateDeliverable(key, id, patch, actor) {
   const updated = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
   // Audit every planned field, not just name+date: a changed owner or stage is exactly the kind of
   // silent plan edit an audit trail exists to reconstruct.
-  const fields = (r) => ({ container_name: r.container_name, title: r.title, responsible_team: r.responsible_team, due_date: r.due_date, stage: r.stage });
+  const fields = (r) => ({ container_name: r.container_name, title: r.title, responsible_team: r.responsible_team, due_date: r.due_date, stage: r.stage, expected_revision: r.expected_revision, expected_suitability: r.expected_suitability });
   await audit(proj.id, "deliverable", id, "updated", actor || "web", fields(before), fields(updated));
   return updated;
 }
