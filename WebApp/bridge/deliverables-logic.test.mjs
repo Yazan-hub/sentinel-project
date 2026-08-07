@@ -366,3 +366,15 @@ describe("EVIDENCE vocabulary + phase-4 regression", () => {
     expect(exceptions).toEqual([]);
   });
 });
+
+describe("evidence matching is case-insensitive (casing is not a delivery failure)", () => {
+  const vr = (state, created_at, revision, suitability = "S0") => ({ id: `v-${revision}`, revision, state, suitability, created_at, is_live: true });
+
+  it("expected p03 matches published P03; receipts keep raw values on real mismatches", () => {
+    const met = deriveStatus([row({ expected_revision: "p03" })], [file("PRJ-ARC-M3-0001", [vr("published", "2026-06-09", "P03")])], TODAY);
+    expect(met.rows[0].evidence.revision).toBe("met");
+    const miss = deriveStatus([row({ expected_revision: "P99" })], [file("PRJ-ARC-M3-0001", [vr("published", "2026-06-09", "p03")])], TODAY);
+    expect(miss.rows[0].evidence.revision).toBe("mismatch");
+    expect(miss.rows[0].evidence.actual_revisions).toEqual(["p03@2026-06-09"]);
+  });
+});

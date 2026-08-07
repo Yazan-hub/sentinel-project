@@ -26,7 +26,11 @@ function judgeExpectation(expected, publishedVersions, field, due) {
     const day = dayOf(v.created_at);
     return !!day && day <= due;                    // unknown date cannot PROVE in-time delivery
   };
-  const met = publishedVersions.some((v) => String(v[field] ?? "") === expected && inTime(v));
+  // Case-insensitive: "p03" vs "P03" is keyboard case, not a delivery failure — a fabricated
+  // high-severity mismatch over casing would cut against this feature's own no-fabrication rule.
+  // Receipts below keep the RAW stored values so the display stays honest.
+  const norm = (s) => String(s ?? "").trim().toUpperCase();
+  const met = publishedVersions.some((v) => norm(v[field]) === norm(expected) && inTime(v));
   if (met) return { verdict: "met", actuals: [] };
   const actuals = publishedVersions.map((v) => `${v[field] ?? "?"}@${dayOf(v.created_at) || "unknown"}`);
   return { verdict: "mismatch", actuals };
