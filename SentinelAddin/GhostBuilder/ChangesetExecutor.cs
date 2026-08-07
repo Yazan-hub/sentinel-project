@@ -92,7 +92,11 @@ public sealed class ChangesetExecutor
                 var wt = ResolveWallType(doc, el.Place.TypeName);
                 var baseMm = el.Place.BaseElevation ?? 0;
                 var topMm = el.Place.TopElevation ?? (baseMm + 3000);
-                var heightFt = Math.Max((topMm - baseMm) * MmToFeet, 0.5);
+                // An inverted/zero height is a broken proposal — fail the changeset honestly rather
+                // than silently placing a coerced wall that doesn't match what was reviewed.
+                if (topMm <= baseMm)
+                    throw new InvalidOperationException($"wall \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\": TopElevation ({topMm}mm) must be above BaseElevation ({baseMm}mm)");
+                var heightFt = (topMm - baseMm) * MmToFeet;
                 var offsetFt = baseMm * MmToFeet - level.Elevation;
                 var wall = Wall.Create(doc, Line.CreateBound(Pt(c.Start), Pt(c.End)), wt.Id, level.Id, heightFt, offsetFt, false, false);
                 Collect(result, el, wall);
@@ -103,6 +107,14 @@ public sealed class ChangesetExecutor
                 var level = ResolveLevel(doc, el.Place);
                 var ft2 = ResolveFloorType(doc, el.Place.TypeName);
                 var pts = el.Place.LocationLoop.Select(Pt).ToList();
+                // Agents commonly close the ring explicitly (last point == first) — the wraparound
+                // segment would then be zero-length and Line.CreateBound would throw, declining the
+                // whole changeset over a legitimate polygon convention. Trim closure + consecutive dupes.
+                if (pts.Count > 1 && pts[0].IsAlmostEqualTo(pts[pts.Count - 1])) pts.RemoveAt(pts.Count - 1);
+                for (var i = pts.Count - 1; i > 0; i--)
+                    if (pts[i].IsAlmostEqualTo(pts[i - 1])) pts.RemoveAt(i);
+                if (pts.Count < 3)
+                    throw new InvalidOperationException($"floor \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\": fewer than 3 distinct boundary points after removing duplicates");
                 var loop = new CurveLoop();
                 for (var i = 0; i < pts.Count; i++)
                     loop.Append(Line.CreateBound(pts[i], pts[(i + 1) % pts.Count]));
@@ -116,7 +128,10 @@ public sealed class ChangesetExecutor
                 Collect(result, el, floor);
             }
 
-            t.Commit();
+            // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
+            // the collected ids then would be the "some failed silently" lie this file forbids.
+            if (t.Commit() != TransactionStatus.Committed)
+                return new ExecutionResult { Error = "Revit did not commit the transaction (failure resolution rolled it back)" };
             return result;
         }
         catch (Exception ex)

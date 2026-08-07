@@ -21,7 +21,13 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
     {
         var cs = _cs; var ticked = _ticked;
         _cs = null; _ticked = null;
-        if (cs == null || ticked == null) return;
+        if (cs == null || ticked == null)
+        {
+            // A Raise without a staged request must still complete — a silent return would hang
+            // any caller awaiting the callback.
+            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = "no request staged" });
+            return;
+        }
         var doc = app.ActiveUIDocument?.Document;
         if (doc == null)
         {
