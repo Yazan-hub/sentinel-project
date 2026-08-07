@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures } from "./changesets-logic.mjs";
+import { resolveActor } from "./bridge-auth.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -34,7 +35,7 @@ export async function proposeChangeset(key, body, actor, deps) {
   const now = new Date().toISOString();
   const changeset = {
     id: randomUUID(),
-    name: v.name, source: v.source, actor: actor || "agent",
+    name: v.name, source: v.source, actor: resolveActor(actor, "agent"),
     status: "proposed", created_at: now, updated_at: now,
     adjudication: { verdict: adj.verdict, summary: adj.summary, ids_source: adj.ids_source, audit_id: adj.audit_id ?? null, unattributed: unattributedFailures(v.elements, adj) },
     elements: attachVerdicts(v.elements, adj),
@@ -92,7 +93,7 @@ export async function reportResult(key, id, { applied, rejected, note } = {}, ac
     result: {
       applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
       rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
-      reported_at: new Date().toISOString(), reported_by: actor || "revit",
+      reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
     },
   };
   await d.docUpsert(STORE, proj.id, id, updated);
