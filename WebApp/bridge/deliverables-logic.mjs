@@ -9,6 +9,33 @@
 /** The frozen status vocabulary. The UI and the midp.milestones check both key off these. */
 export const STATUSES = ["delivered", "late", "in_wip", "overdue", "pending", "unscheduled"];
 
+/** Evidence verdicts for expected revision/suitability. pending = expectation set but nothing
+ *  published yet (no evidence, so no fabricated mismatch). not_specified = no expectation —
+ *  never met, never mismatch: unmeasured is not a pass. */
+export const EVIDENCE = ["met", "mismatch", "pending", "not_specified"];
+
+const SEVERITY_RANK = { high: 0, medium: 1, low: 2 };
+
+/** Judge one expectation (revision or suitability) against the published versions.
+ *  Returns {verdict, actuals} — actuals only filled on mismatch (the receipts). */
+function judgeExpectation(expected, publishedVersions, field, due) {
+  if (!expected) return { verdict: "not_specified", actuals: [] };
+  if (!publishedVersions.length) return { verdict: "pending", actuals: [] };
+  const inTime = (v) => {
+    if (!due) return true;                         // no due date: any-time match suffices
+    const day = dayOf(v.created_at);
+    return !!day && day <= due;                    // unknown date cannot PROVE in-time delivery
+  };
+  // Case-insensitive: "p03" vs "P03" is keyboard case, not a delivery failure — a fabricated
+  // high-severity mismatch over casing would cut against this feature's own no-fabrication rule.
+  // Receipts below keep the RAW stored values so the display stays honest.
+  const norm = (s) => String(s ?? "").trim().toUpperCase();
+  const met = publishedVersions.some((v) => norm(v[field]) === norm(expected) && inTime(v));
+  if (met) return { verdict: "met", actuals: [] };
+  const actuals = publishedVersions.map((v) => `${v[field] ?? "?"}@${dayOf(v.created_at) || "unknown"}`);
+  return { verdict: "mismatch", actuals };
+}
+
 // A container counts as DELIVERED only once it reached publication. `archived` qualifies because a
 // version can only reach it THROUGH published (the ISO 19650 state machine allows no other route).
 const PUBLISHED_STATES = new Set(["published", "archived"]);
@@ -33,7 +60,11 @@ const daysBetween = (fromIso, toIso) =>
  */
 export function deriveStatus(rows, files, today) {
   const byName = new Map((files || []).map((f) => [String(f.iso_name || "").trim(), f]));
-  const summary = { total: 0, delivered: 0, late: 0, in_wip: 0, overdue: 0, pending: 0, unscheduled: 0 };
+  const summary = {
+    total: 0, delivered: 0, late: 0, in_wip: 0, overdue: 0, pending: 0, unscheduled: 0,
+    exceptions: 0, revision_met: 0, revision_mismatch: 0, suitability_met: 0, suitability_mismatch: 0,
+  };
+  const exceptions = [];
 
   const out = (rows || []).map((r) => {
     const name = String(r.container_name || "").trim();
@@ -73,10 +104,37 @@ export function deriveStatus(rows, files, today) {
       status = "pending";
     }
 
+    // ── Evidence axis: was the RIGHT thing there when it was due (orthogonal to timing) ──
+    const rev = judgeExpectation(r.expected_revision ? String(r.expected_revision).trim() : null, publishedVersions, "revision", due);
+    const suit = judgeExpectation(r.expected_suitability ? String(r.expected_suitability).trim() : null, publishedVersions, "suitability", due);
+    const evidence = { revision: rev.verdict, suitability: suit.verdict, actual_revisions: rev.actuals, actual_suitabilities: suit.actuals };
+    if (rev.verdict === "met") summary.revision_met += 1;
+    if (rev.verdict === "mismatch") summary.revision_mismatch += 1;
+    if (suit.verdict === "met") summary.suitability_met += 1;
+    if (suit.verdict === "mismatch") summary.suitability_mismatch += 1;
+
+    // ── Exceptions: deterministic severity, receipts included ──
+    const team = r.responsible_team ?? null;
+    const push = (kind, severity, problem, ev) =>
+      exceptions.push({ container_name: name, due_date: due, responsible_team: team, kind, severity, problem, evidence: ev });
+    if (status === "overdue") push("overdue", "high", `nothing delivered — ${days_late} day(s) past ${due}`, `${days_late} day(s) late`);
+    if (status === "late") push("late", "medium", `published ${published_at}, ${days_late} day(s) after ${due}`, `published ${published_at}`);
+    if (status === "in_wip" && due && today > due) push("in_wip", "medium", `arrived but never published (due ${due})`, `first arrived ${first_arrived_at}`);
+    if (status === "in_wip" && !due) push("in_wip", "low", "arrived but never published (no due date)", `first arrived ${first_arrived_at}`);
+    if (rev.verdict === "mismatch")
+      push("revision", due ? "high" : "low", `expected revision ${String(r.expected_revision).trim()}${due ? ` by ${due}` : ""} — published ${rev.actuals.join(", ")}`, rev.actuals.join(", "));
+    if (suit.verdict === "mismatch")
+      push("suitability", due ? "high" : "low", `expected suitability ${String(r.expected_suitability).trim()}${due ? ` by ${due}` : ""} — published ${suit.actuals.join(", ")}`, suit.actuals.join(", "));
+
     summary.total += 1;
     summary[status] += 1;
-    return { ...r, status, first_arrived_at, published_at, days_late };
+    return { ...r, status, first_arrived_at, published_at, days_late, evidence };
   });
 
-  return { rows: out, summary };
+  exceptions.sort((a, b) =>
+    (SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]) ||
+    String(a.due_date || "9999-12-31").localeCompare(String(b.due_date || "9999-12-31")));
+  summary.exceptions = exceptions.length;
+
+  return { rows: out, summary, exceptions };
 }

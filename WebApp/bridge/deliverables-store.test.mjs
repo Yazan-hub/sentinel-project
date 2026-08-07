@@ -11,7 +11,7 @@ describe("validateRow", () => {
 
   it("accepts a row with only a container name", () => {
     const r = validateRow({ container_name: "A" });
-    expect(r).toEqual({ container_name: "A", title: null, responsible_team: null, due_date: null, stage: null, notes: null });
+    expect(r).toEqual({ container_name: "A", title: null, responsible_team: null, due_date: null, stage: null, notes: null, expected_revision: null, expected_suitability: null });
   });
 
   it("rejects a missing container name with 400 (it is the match key)", () => {
@@ -49,5 +49,23 @@ describe("non-UUID id guard (was a PostgREST uuid-cast 500)", () => {
     const { updateDeliverable, deleteDeliverable } = await import("./deliverables-store.mjs");
     await expect(updateDeliverable("demo", "nope", { container_name: "A" })).rejects.toMatchObject({ status: 404 });
     await expect(deleteDeliverable("demo", "nope")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("validateRow — expectations (evidence reconciliation)", () => {
+  it("accepts and trims the two expectation fields", () => {
+    const r = validateRow({ container_name: "A", expected_revision: " P03 ", expected_suitability: " S4 " });
+    expect(r.expected_revision).toBe("P03");
+    expect(r.expected_suitability).toBe("S4");
+  });
+
+  it("defaults them to null when absent or blank (no expectation)", () => {
+    const r = validateRow({ container_name: "A", expected_revision: "  ", notes: "n" });
+    expect(r.expected_revision).toBeNull();
+    expect(r.expected_suitability).toBeNull();
+  });
+
+  it("does NOT police the format — revision codes are convention-specific", () => {
+    expect(validateRow({ container_name: "A", expected_revision: "Rev-7b/final" }).expected_revision).toBe("Rev-7b/final");
   });
 });
