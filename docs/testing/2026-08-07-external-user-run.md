@@ -132,6 +132,29 @@ mean something to them); Sentinel knowledge zero.
     fabricates success, capture the transcript — that's a Critical finding against tool
     descriptions.
 
+## Part H — Governed AI modeling (~10 min; needs Revit + the deployed add-in)
+
+23. Facilitator proposes a changeset via MCP (`sentinel_propose_changeset`: a level, a grid, two
+    walls — mm geometry). *"An AI just proposed model elements for your project. Find where you
+    review them."*
+    **Expect:** the tester finds **Review AI Proposals** in Revit; the window lists each element
+    with its verdict badge; with no IDS configured everything reads "— recorded" and NOTHING is
+    pre-ticked.
+    **Ask:** *"Why do you think nothing is ticked for you?"* (Honesty probe: a green tick must be
+    earned by a spec; "recorded" means nothing was certified.)
+24. *"Approve some of it."* **Expect:** they tick a subset, Create, elements appear; the bridge
+    status becomes `partially_applied` with real ElementIds; the audit trail names THEM.
+25. Facilitator proposes a changeset with a wall type that doesn't exist. *"Approve everything."*
+    **Expect:** transaction fails, WHOLE changeset rolls back (nothing partial in the model),
+    reported `declined` with the reason in the dialog.
+    **Ask:** *"Did anything make it into the model?"* — the answer must be no, verified.
+26. Facilitator withdraws a proposed changeset while the tester's review window is open; tester
+    clicks Create. **Expect:** "Changeset is now \"withdrawn\" — nothing was created."
+27. **Known honest limit (tell the tester, gauge reaction):** Revit's Undo can delete applied
+    elements while the governed record still says `applied` — the trail and the model can drift.
+    **Ask:** *"How much does that bother you?"* (Roadmapped: a DMU watcher flagging deletions of
+    governed elements.)
+
 ## Wrap-up questions (ask verbatim, record verbatim)
 
 - "What were you most unsure about while using it?"
