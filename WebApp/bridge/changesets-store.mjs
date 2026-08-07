@@ -73,7 +73,7 @@ export async function reportResult(key, id, { applied, rejected, note } = {}, ac
   const appliedArr = Array.isArray(applied) ? applied : [];
   const rejectedArr = Array.isArray(rejected) ? rejected : [];
   for (const [i, a] of appliedArr.entries()) {
-    if (!a || typeof a.proposal_guid !== "string" || !Number.isFinite(Number(a.revit_element_id)))
+    if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
       throw err(400, `applied[${i}] must be {proposal_guid, revit_element_id}`);
   }
   const known = new Set(cs.elements.map((e) => e.proposal_guid));
