@@ -16,6 +16,7 @@ const wire = (deps = {}) => ({
   docGet: deps.docGet || cde.docGet,
   docList: deps.docList || cde.docList,
   docUpsert: deps.docUpsert || cde.docUpsert,
+  docReplaceIfStatus: deps.docReplaceIfStatus || cde.docReplaceIfStatus,
   audit: deps.audit || cde.audit,
 });
 
@@ -96,7 +97,13 @@ export async function reportResult(key, id, { applied, rejected, note } = {}, ac
       reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
     },
   };
-  await d.docUpsert(STORE, proj.id, id, updated);
+  // CAS: the write itself re-checks status server-side, so a concurrent withdraw/report can't
+  // both land. The loser re-reads and 409s with the winner's status; no audit row for the loser.
+  const won = await d.docReplaceIfStatus(STORE, proj.id, id, updated, "proposed");
+  if (!won) {
+    const now2 = await d.docGet(STORE, proj.id, id);
+    throw err(409, `changeset is ${now2?.status ?? "gone"} — a result can be reported exactly once, from proposed`);
+  }
   await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note });
@@ -110,7 +117,12 @@ export async function withdrawChangeset(key, id, actor, deps) {
   if (!cs) throw err(404, "changeset not found");
   if (!canWithdraw(cs.status)) throw err(409, `changeset is ${cs.status} — only a proposed changeset can be withdrawn`);
   const updated = { ...cs, status: "withdrawn", updated_at: new Date().toISOString() };
-  await d.docUpsert(STORE, proj.id, id, updated);
+  // CAS: same guard as reportResult — a concurrent report/withdraw can't both land.
+  const won = await d.docReplaceIfStatus(STORE, proj.id, id, updated, "proposed");
+  if (!won) {
+    const now2 = await d.docGet(STORE, proj.id, id);
+    throw err(409, `changeset is ${now2?.status ?? "gone"} — only a proposed changeset can be withdrawn`);
+  }
   await d.audit(proj.id, "changeset", id, "changeset_withdrawn", actor || "agent", { status: "proposed" }, { status: "withdrawn" });
   return updated;
 }
