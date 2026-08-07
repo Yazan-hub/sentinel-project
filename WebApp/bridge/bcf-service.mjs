@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { runWithAuth, resolveActor } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
-import { verifyJwt } from "./verify-jwt.mjs";
+import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -363,6 +363,9 @@ createServer((req, res) => {
   const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
   runWithAuth(userJwt, () => handleRequest(req, res));
 }).listen(PORT, HOST, () => {
+  // Supabase projects on asymmetric signing keys sign USER SESSIONS with ES256 — the JWKS makes
+  // those verifiable at the gate. Without it, arming SUPABASE_JWT_SECRET 401s every signed-in user.
+  initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
   console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; /health + /events exempt)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
