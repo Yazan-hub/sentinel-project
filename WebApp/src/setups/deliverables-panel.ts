@@ -7,13 +7,16 @@ import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 
+type Evidence = { revision: "met" | "mismatch" | "pending" | "not_specified"; suitability: "met" | "mismatch" | "pending" | "not_specified"; actual_revisions: string[]; actual_suitabilities: string[] };
+type Exception = { container_name: string; due_date: string | null; responsible_team: string | null; kind: string; severity: "high" | "medium" | "low"; problem: string; evidence: string };
 type Row = {
   id: string; container_name: string; title: string | null; responsible_team: string | null;
   due_date: string | null; stage: string | null; notes: string | null;
   status: "delivered" | "late" | "in_wip" | "overdue" | "pending" | "unscheduled";
   first_arrived_at: string | null; published_at: string | null; days_late: number;
+  expected_revision: string | null; expected_suitability: string | null; evidence: Evidence;
 };
-type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number> };
+type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number>; exceptions: Exception[] };
 
 const STATUS_STYLE: Record<string, { color: string; icon: string; label: string }> = {
   delivered:   { color: "#22c55e", icon: "✓", label: "delivered" },
@@ -116,6 +119,58 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     note.style.cssText = "color:#71717a;font:10.5px system-ui;margin-bottom:.5rem";
     body.append(note);
 
+    // Exception register: only surfaced once there's something to say — either a real
+    // exception, or the plan set an expectation at all (so "no exceptions" reads as earned).
+    const anyExpectationSet = report.rows.some((r) => r.expected_revision || r.expected_suitability);
+    if (report.exceptions.length || anyExpectationSet) {
+      const reg = document.createElement("div");
+      reg.style.cssText = "margin:.4rem 0 .6rem;border:1px solid #2a2a30;border-radius:.35rem;padding:.4rem .5rem;background:#17171c";
+      const head = document.createElement("div");
+      head.style.cssText = "display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem";
+      const ht = document.createElement("span");
+      ht.textContent = `Exception register (${report.exceptions.length})`;
+      ht.style.cssText = "font:600 12px system-ui;color:#eee;flex:1";
+      head.append(ht);
+      if (report.exceptions.length) {
+        const dl = btn("Download CSV");
+        dl.onclick = () => {
+          const q = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+          const csv = ["container,due_date,severity,kind,problem,responsible_team,evidence",
+            ...report.exceptions.map((e) => [e.container_name, e.due_date, e.severity, e.kind, e.problem, e.responsible_team, e.evidence].map(q).join(","))].join("\r\n");
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+          a.download = `exceptions-${pid()}-${report.today}.csv`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        };
+        head.append(dl);
+      }
+      reg.append(head);
+      if (!report.exceptions.length) {
+        const okLine = document.createElement("div");
+        okLine.textContent = "No exceptions — all measured expectations met.";
+        okLine.style.cssText = "color:#22c55e;font:11px system-ui";
+        reg.append(okLine);
+      }
+      const sevColor: Record<string, string> = { high: "#f87171", medium: "#eab308", low: "#9ca3af" };
+      for (const e of report.exceptions) {
+        const line = document.createElement("div");
+        line.style.cssText = "display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;font:11px system-ui;color:#cbd5e1";
+        const sev = document.createElement("span");
+        sev.textContent = e.severity.toUpperCase();
+        sev.style.cssText = `color:${sevColor[e.severity] || "#9ca3af"};font:700 10px system-ui;min-width:3.6rem`;
+        const nameEl = document.createElement("span");
+        nameEl.textContent = e.container_name;
+        nameEl.style.cssText = "font:600 11px ui-monospace,Consolas,monospace;color:#e5e7eb";
+        const probEl = document.createElement("span");
+        probEl.textContent = e.problem + (e.responsible_team ? ` · owed by ${e.responsible_team}` : "");
+        probEl.style.cssText = "flex:1;min-width:0";
+        line.append(sev, nameEl, probEl);
+        reg.append(line);
+      }
+      body.append(reg);
+    }
+
     // Sort: problems first, then by due date.
     const rank: Record<string, number> = { overdue: 0, late: 1, in_wip: 2, pending: 3, unscheduled: 4, delivered: 5 };
     const rows = [...report.rows].sort((a, b) => (rank[a.status] - rank[b.status]) || String(a.due_date || "9999").localeCompare(String(b.due_date || "9999")));
@@ -131,14 +186,30 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
       const main = document.createElement("div");
       main.style.cssText = "flex:1;min-width:0";
+      const nameRow = document.createElement("div");
+      nameRow.style.cssText = "display:flex;align-items:center;gap:.35rem;min-width:0";
       const name = document.createElement("div");
       name.textContent = r.container_name;
       name.style.cssText = "font:600 12px ui-monospace,Consolas,monospace;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      nameRow.append(name);
+      // Evidence chips: only when the plan actually set an expectation for this axis.
+      const evChip = (axis: "revision" | "suitability", short: string) => {
+        const v = r.evidence?.[axis];
+        if (!v || v === "not_specified") return null;
+        const actual = axis === "revision" ? r.evidence.actual_revisions : r.evidence.actual_suitabilities;
+        const el2 = document.createElement("span");
+        el2.textContent = v === "met" ? `${short} ✓` : v === "pending" ? `${short} …` : `${short} ✗ ${actual.join(",")}`;
+        const color = v === "met" ? "#22c55e" : v === "pending" ? "#9ca3af" : "#f87171";
+        el2.style.cssText = `color:${color};border:1px solid ${color}55;border-radius:.25rem;padding:0 .3rem;font:600 10px ui-monospace,Consolas,monospace;white-space:nowrap;flex:0 0 auto`;
+        el2.title = axis === "revision" ? `expected ${r.expected_revision}` : `expected ${r.expected_suitability}`;
+        return el2;
+      };
+      for (const c2 of [evChip("revision", "rev"), evChip("suitability", "suit")]) if (c2) nameRow.append(c2);
       const sub = document.createElement("div");
       const bits = [r.title, r.responsible_team ? `owed by ${r.responsible_team}` : null, r.stage].filter(Boolean).join(" · ");
       sub.textContent = bits;
       sub.style.cssText = "font:10.5px system-ui;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-      main.append(name, sub);
+      main.append(nameRow, sub);
 
       const dates = document.createElement("div");
       dates.style.cssText = "font:10.5px ui-monospace,Consolas,monospace;color:#9ca3af;text-align:right;white-space:nowrap";
@@ -187,6 +258,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     stageI.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
     stageI.innerHTML = `<option value="">(no stage)</option>` + ["tender", "design", "coord", "constr", "hand", "oper"].map((s) => `<option value="${s}">${s}</option>`).join("");
     stageI.value = existing?.stage || "";
+    const revI = field("Expected revision, e.g. P03 (optional)", "100%", existing?.expected_revision || "");
+    const suitI = field("Expected suitability, e.g. S4 (optional)", "100%", existing?.expected_suitability || "");
     const label = (t: string, el: HTMLElement) => {
       const w = document.createElement("label");
       w.style.cssText = "display:flex;flex-direction:column;gap:.2rem;font:10.5px system-ui;color:#9ca3af";
@@ -201,6 +274,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       label("Responsible team (the plan's expectation; not verified)", teamI),
       label("Due date", dueI),
       label("Stage", stageI),
+      label("Expected revision at this milestone (optional)", revI),
+      label("Expected suitability at this milestone (optional)", suitI),
     );
     body.append(form);
     nameI.focus();
@@ -209,7 +284,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       save.disabled = true;
       const payload = {
         container_name: nameI.value, title: titleI.value, responsible_team: teamI.value,
-        due_date: dueI.value, stage: stageI.value, actor: await actor(),
+        due_date: dueI.value, stage: stageI.value,
+        expected_revision: revI.value, expected_suitability: suitI.value, actor: await actor(),
       };
       try {
         if (existing) await api(`/${encodeURIComponent(pid())}/${existing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -234,7 +310,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     body.replaceChildren();
     const help = document.createElement("div");
-    help.textContent = "One row per line: container name, title, team, due date (YYYY-MM-DD), stage. Tab- or comma-separated. Nothing is saved until you confirm the preview.";
+    help.textContent = "One row per line: container name, title, team, due date (YYYY-MM-DD), stage, expected revision, expected suitability. Tab- or comma-separated; the last two are optional. Nothing is saved until you confirm the preview.";
     help.style.cssText = "color:#9ca3af;font:10.5px system-ui;margin-bottom:.4rem";
     const ta = document.createElement("textarea");
     ta.style.cssText = "width:100%;min-height:9rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.35rem;padding:.5rem;font:11px ui-monospace,Consolas,monospace";
@@ -243,8 +319,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     preview.onclick = () => {
       const parsed = ta.value.split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
-        const [container_name, title2, responsible_team, due_date, stage] = line.split(/\t|,/).map((c) => (c || "").trim());
-        return { container_name, title: title2 || "", responsible_team: responsible_team || "", due_date: due_date || "", stage: stage || "" };
+        const [container_name, title2, responsible_team, due_date, stage, expected_revision, expected_suitability] = line.split(/\t|,/).map((c) => (c || "").trim());
+        return { container_name, title: title2 || "", responsible_team: responsible_team || "", due_date: due_date || "", stage: stage || "", expected_revision: expected_revision || "", expected_suitability: expected_suitability || "" };
       });
       out.replaceChildren();
       if (!parsed.length) { msg("Nothing to import.", true); return; }
@@ -252,7 +328,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       list.style.cssText = "margin-top:.5rem;display:flex;flex-direction:column;gap:.2rem";
       for (const p of parsed) {
         const li = document.createElement("div");
-        li.textContent = `${p.container_name} · ${p.title || "—"} · ${p.responsible_team || "—"} · ${p.due_date || "no date"} · ${p.stage || "—"}`;
+        li.textContent = `${p.container_name} · ${p.title || "—"} · ${p.responsible_team || "—"} · ${p.due_date || "no date"} · ${p.stage || "—"} · ${p.expected_revision || "—"}/${p.expected_suitability || "—"}`;
         li.style.cssText = "font:10.5px ui-monospace,Consolas,monospace;color:#cbd5e1";
         list.append(li);
       }
