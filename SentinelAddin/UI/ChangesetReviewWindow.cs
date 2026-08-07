@@ -63,7 +63,9 @@ public sealed class ChangesetReviewWindow : Window
         var go = new Button { Content = "Create ticked in Revit", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
         all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = r.El.Verdict?.Status == "accepted"; };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
-        go.Click += (_, _) => Decide();
+        // Re-entrancy guard (GhostReviewWindow convention): if a DecideRequested subscriber throws,
+        // Close() is skipped — the button must not allow a second fire with the same snapshot.
+        go.Click += (_, _) => { go.IsEnabled = false; Decide(); };
         buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(go);
         foot.Children.Add(buttons);
         DockPanel.SetDock(foot, Dock.Bottom);
@@ -101,20 +103,35 @@ public sealed class ChangesetReviewWindow : Window
     private static UIElement MakeBadge(ElementVerdictDto v)
     {
         var status = v?.Status ?? "recorded";
-        var (text, fg) = status switch
+        var (text, fg, tip) = status switch
         {
-            "accepted" => ("✓ accepted", Brushes.LightGreen),
-            "rejected" => ($"✗ rejected ({v.Failures?.Count ?? 0})", Brushes.IndianRed),
-            _ => ("— recorded", Brushes.Gray),
+            "accepted" => ("✓ accepted", Brushes.LightGreen, "Passed the project's IDS adjudication."),
+            "rejected" => ($"✗ rejected ({v.Failures?.Count ?? 0})", Brushes.IndianRed,
+                string.Join("\n", (v.Failures ?? new List<JsonElement>()).Take(10).Select(FailureText))),
+            "recorded" => ("— recorded", Brushes.Gray, "No spec to adjudicate against — nothing was certified for this element."),
+            // A status outside the contract is a bridge-contract break — say so, don't dress it as recorded.
+            _ => ($"? {status}", Brushes.Orange, "Unrecognised verdict status — treat as NOT certified."),
         };
         var tb = new TextBlock { Text = text, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold };
-        tb.ToolTip = status switch
-        {
-            "rejected" => string.Join("\n", (v.Failures ?? new List<JsonElement>()).Take(10).Select(f => f.ToString())),
-            "recorded" => "No spec to adjudicate against — nothing was certified for this element.",
-            _ => "Passed the project's IDS adjudication.",
-        };
+        tb.ToolTip = tip;
         return tb;
+    }
+
+    /** A failure as a reviewer reads it: "specification: requirement — reason", not raw JSON. */
+    private static string FailureText(JsonElement f)
+    {
+        try
+        {
+            string Prop(string name) => f.ValueKind == JsonValueKind.Object && f.TryGetProperty(name, out var p) ? p.ToString() : null;
+            var spec = Prop("specification");
+            var req = Prop("requirement");
+            var reason = Prop("reason");
+            var parts = new[] { spec, req }.Where(s => !string.IsNullOrWhiteSpace(s));
+            var head = string.Join(": ", parts);
+            if (!string.IsNullOrWhiteSpace(reason)) head = string.IsNullOrWhiteSpace(head) ? reason : $"{head} — {reason}";
+            return string.IsNullOrWhiteSpace(head) ? f.ToString() : head;
+        }
+        catch { return f.ToString(); }
     }
 
     private void Decide()
