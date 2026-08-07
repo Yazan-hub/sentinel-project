@@ -351,3 +351,56 @@ describe("classifyDeliverables", () => {
     expect(r.reason).toMatch(/not yet due/i);
   });
 });
+
+import { classifyMidpRevision, classifyMidpSuitability } from "./check-registry.mjs";
+
+describe("midp.revision / midp.suitability checks", () => {
+  const st = (rows) => ({ rows, summary: {}, exceptions: [] });
+  const R = (evidence, over = {}) => ({ container_name: "A", due_date: "2026-06-10", evidence: { revision: "not_specified", suitability: "not_specified", actual_revisions: [], actual_suitabilities: [], ...evidence }, ...over });
+
+  it("both are REAL checks; review/distribution are honest planned gaps", () => {
+    for (const id of ["midp.revision", "midp.suitability"]) {
+      expect(CHECKS.some((c) => c.id === id)).toBe(true);
+      expect(PLANNED_CHECKS.some((p) => p.id === id)).toBe(false);
+    }
+    for (const id of ["midp.review", "midp.distribution"]) {
+      expect(PLANNED_CHECKS.some((p) => p.id === id)).toBe(true);
+      expect(CHECKS.some((c) => c.id === id)).toBe(false);
+    }
+  });
+
+  it("not_checkable with a reason when NO row sets the expectation", () => {
+    const r = classifyMidpRevision(st([R({})]));
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/no expected revision/i);
+  });
+
+  it("violations listing each mismatch with its receipt", () => {
+    const r = classifyMidpRevision(st([
+      R({ revision: "mismatch", actual_revisions: ["P01@2026-06-05"] }, { expected_revision: "P03" }),
+      R({ revision: "met" }, { container_name: "B", expected_revision: "P02" }),
+    ]));
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+    expect(r.evidence[0].label).toBe("A");
+    expect(r.evidence[0].detail).toMatch(/P01@2026-06-05/);
+  });
+
+  it("not_checkable naming unmeasured rows when some are still pending and none mismatch", () => {
+    const r = classifyMidpRevision(st([
+      R({ revision: "met" }, { expected_revision: "P01" }),
+      R({ revision: "pending" }, { container_name: "B", expected_revision: "P03" }),
+    ]));
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/1 .*not.*published|unmeasured|pending/i);
+  });
+
+  it("met only when every expectation-bearing row is met", () => {
+    const r = classifyMidpSuitability(st([
+      R({ suitability: "met" }, { expected_suitability: "S4" }),
+      R({ suitability: "met" }, { container_name: "B", expected_suitability: "S2" }),
+    ]));
+    expect(r.status).toBe("met");
+    expect(r.summary).toMatch(/2/);
+  });
+});

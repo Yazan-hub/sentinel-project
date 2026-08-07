@@ -184,6 +184,36 @@ export function classifyDeliverables(status) {
   return result(id, label, "met", { summary: `All ${s.total} deliverable(s) were delivered.` });
 }
 
+/** Shared shape for the two expectation checks — axis is "revision" | "suitability". */
+function classifyMidpExpectation(status, axis, id, label, noun) {
+  const rows = (status?.rows || []).filter((r) => (axis === "revision" ? r.expected_revision : r.expected_suitability));
+  if (!rows.length)
+    return result(id, label, "not_checkable", { reason: `No expected ${noun} is set on any deliverable — add expectations in the Deliverables tab to check delivery evidence.` });
+  const verdictOf = (r) => r.evidence?.[axis];
+  const mismatches = rows.filter((r) => verdictOf(r) === "mismatch");
+  if (mismatches.length) {
+    const actuals = axis === "revision" ? (r) => r.evidence.actual_revisions : (r) => r.evidence.actual_suitabilities;
+    const expected = axis === "revision" ? (r) => r.expected_revision : (r) => r.expected_suitability;
+    return result(id, label, "violations", {
+      count: mismatches.length,
+      evidence: mismatches.map((r) => ({ label: r.container_name, detail: `expected ${expected(r)}${r.due_date ? ` by ${r.due_date}` : ""} — published ${actuals(r).join(", ") || "nothing usable"}` })),
+      summary: `${mismatches.length} of ${rows.length} expectation(s) not met by what published.`,
+    });
+  }
+  const pending = rows.filter((r) => verdictOf(r) === "pending").length;
+  if (pending)
+    return result(id, label, "not_checkable", {
+      count: pending,
+      reason: `${rows.length - pending} of ${rows.length} expectation(s) met; ${pending} deliverable(s) have not published yet, so their ${noun} cannot be judged.`,
+    });
+  return result(id, label, "met", { summary: `All ${rows.length} expected ${noun}(s) were delivered as planned.` });
+}
+
+export const classifyMidpRevision = (status) =>
+  classifyMidpExpectation(status, "revision", "midp.revision", "Delivered revisions (MIDP)", "revision");
+export const classifyMidpSuitability = (status) =>
+  classifyMidpExpectation(status, "suitability", "midp.suitability", "Delivered suitability (MIDP)", "suitability");
+
 // ── registry ─────────────────────────────────────────────────────────────────────────────────────
 
 export const CHECKS = [
@@ -259,6 +289,26 @@ export const CHECKS = [
       return classifyDeliverables(await dl.deliverableStatus(key));
     },
   },
+  {
+    id: "midp.revision",
+    label: "Delivered revisions (MIDP)",
+    description: "Every deliverable with an expected revision had that revision reach published by its due date.",
+    params_schema: {},
+    async run(key) {
+      const dl = await import("./deliverables-store.mjs");
+      return classifyMidpRevision(await dl.deliverableStatus(key));
+    },
+  },
+  {
+    id: "midp.suitability",
+    label: "Delivered suitability (MIDP)",
+    description: "Every deliverable with an expected suitability published at that suitability code by its due date.",
+    params_schema: {},
+    async run(key) {
+      const dl = await import("./deliverables-store.mjs");
+      return classifyMidpSuitability(await dl.deliverableStatus(key));
+    },
+  },
 ];
 
 /**
@@ -271,6 +321,8 @@ export const PLANNED_CHECKS = [
   { id: "roles.responsibility", label: "Roles and responsibilities", reason: "No task-team or responsibility matrix exists — container authorship is free text." },
   { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted." },
   { id: "federation.breakdown", label: "Federation strategy", reason: "There is no declared expected-model list to check the federation against." },
+  { id: "midp.review", label: "Review before issue (MIDP)", reason: "No review/approval workflow model exists — Sentinel cannot evidence that a deliverable passed review before issue." },
+  { id: "midp.distribution", label: "Issue distribution (MIDP)", reason: "No transmittal model — Sentinel cannot evidence who an issue was distributed to." },
 ];
 
 const BY_ID = new Map(CHECKS.map((c) => [c.id, c]));
