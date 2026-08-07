@@ -18,6 +18,7 @@ const baseDeps = (over = {}) => {
     docGet: vi.fn(async (store, pid, id) => saved.get(id) ?? null),
     docList: vi.fn(async () => [...saved.values()]),
     docUpsert: vi.fn(async (store, pid, id, data) => { saved.set(id, data); }),
+    docReplaceIfStatus: vi.fn(async (store, pid, id, data) => { saved.set(id, data); return data; }),
     audit: vi.fn(async () => ({})),
     ...over,
   };
@@ -121,5 +122,66 @@ describe("result + withdraw lifecycle", () => {
     await expect(getChangeset("demo", "missing-id", deps)).rejects.toMatchObject({ status: 404 });
     expect((await listChangesets("demo", { status: "proposed" }, deps))).toHaveLength(1);
     expect((await listChangesets("demo", {}, deps))).toHaveLength(2);
+  });
+});
+
+describe("CAS guard — concurrent result/withdraw cannot both land", () => {
+  const casDeps = () => {
+    const deps = baseDeps();
+    // Simulate the race: the conditional write says "status was no longer proposed" (0 rows),
+    // and the re-read shows a completed changeset written by the concurrent winner.
+    deps.docReplaceIfStatus = vi.fn(async () => null);
+    return deps;
+  };
+
+  it("reportResult: a lost CAS is a 409 carrying the winner's status, and audits NOTHING", async () => {
+    const deps = baseDeps();
+    deps.docReplaceIfStatus = vi.fn(async () => null);
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const guids = cs.elements.map((e) => e.proposal_guid);
+    deps.audit.mockClear();
+    deps.saved.set(cs.id, { ...cs, status: "withdrawn" }); // the concurrent winner
+    await expect(reportResult("demo", cs.id, { applied: [], rejected: guids }, "r", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/withdrawn/) });
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("withdrawChangeset: same — lost CAS is a 409, no audit row", async () => {
+    const deps = baseDeps();
+    deps.docReplaceIfStatus = vi.fn(async () => null);
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    deps.audit.mockClear();
+    deps.saved.set(cs.id, { ...cs, status: "applied" });
+    await expect(withdrawChangeset("demo", cs.id, "agent", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/applied/) });
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("the happy path still works when the CAS wins", async () => {
+    const deps = baseDeps();
+    deps.docReplaceIfStatus = vi.fn(async (store, pid, id, data) => { deps.saved.set(id, data); return data; });
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const guids = cs.elements.map((e) => e.proposal_guid);
+    const out = await reportResult("demo", cs.id, { applied: [], rejected: guids }, "r", deps);
+    expect(out.status).toBe("declined");
+    expect(deps.docReplaceIfStatus.mock.calls[0][4]).toBe("proposed"); // expectedStatus threaded
+  });
+});
+
+describe("CAS — the exact race window: clean first read, then the PATCH loses", () => {
+  it("reportResult passes the status guard, loses the CAS, 409s with the winner's status, audits nothing", async () => {
+    const deps = baseDeps();
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const guids = cs.elements.map((e) => e.proposal_guid);
+    deps.audit.mockClear();
+    // First read sees proposed (the guard passes); the conditional PATCH loses; the re-read sees the winner.
+    deps.docGet = vi.fn()
+      .mockResolvedValueOnce(cs)
+      .mockResolvedValueOnce({ ...cs, status: "withdrawn" });
+    deps.docReplaceIfStatus = vi.fn(async () => null);
+    await expect(reportResult("demo", cs.id, { applied: [], rejected: guids }, "r", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/withdrawn/) });
+    expect(deps.docReplaceIfStatus).toHaveBeenCalledOnce(); // the PATCH genuinely ran and lost
+    expect(deps.audit).not.toHaveBeenCalled();
   });
 });

@@ -860,6 +860,16 @@ export async function docUpsert(store, pid, docId, data) {
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal" });
   return data;
 }
+/** Compare-and-swap replace: overwrite the doc ONLY if its current data->>status equals
+ *  `expectedStatus`. Returns the data on success, null when the condition lost (0 rows patched) —
+ *  the caller re-reads and 409s. Closes the docGet→check→docUpsert race for status transitions. */
+export async function docReplaceIfStatus(store, pid, docId, data, expectedStatus) {
+  const rows = await sb(
+    `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&data->>status=eq.${enc(expectedStatus)}`,
+    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation" },
+  );
+  return Array.isArray(rows) && rows.length ? data : null;
+}
 /** Create-only insert (no merge) → PostgREST 409 on PK conflict. Used for the crypto keystore so a concurrent
  *  first-setup can't clobber a DEK that already encrypted files. */
 export async function docInsert(store, pid, docId, data) {
