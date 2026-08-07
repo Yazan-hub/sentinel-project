@@ -20,11 +20,16 @@ function checkPlace(kind, place, at) {
   if (kind === "wall" || kind === "grid") {
     const c = place.LocationCurve;
     if (!c || !point(c.start) || !point(c.end)) throw err(400, `${at}: ${kind} needs place.LocationCurve with finite [x,y,z] start and end`);
+    // Distinctness is near-free to check here; a zero-length curve would cost a whole-changeset
+    // Revit transaction rollback (up to 200 elements) for trivially detectable garbage.
+    if (c.start.every((v, i) => v === c.end[i])) throw err(400, `${at}: ${kind} LocationCurve start and end are identical (zero-length)`);
     if (kind === "wall" && place.BaseElevation !== undefined && !finite(place.BaseElevation)) throw err(400, `${at}: BaseElevation must be a finite number`);
     if (kind === "wall" && place.TopElevation !== undefined && !finite(place.TopElevation)) throw err(400, `${at}: TopElevation must be a finite number`);
   } else if (kind === "floor") {
     const loop = place.LocationLoop;
     if (!Array.isArray(loop) || loop.length < 3 || !loop.every(point)) throw err(400, `${at}: floor needs place.LocationLoop of at least 3 finite [x,y,z] points`);
+    const distinct = new Set(loop.map((p) => p.join(","))).size;
+    if (distinct < 3) throw err(400, `${at}: floor LocationLoop needs at least 3 DISTINCT points (got ${distinct})`);
   } else if (kind === "level") {
     if (!finite(place.BaseElevation)) throw err(400, `${at}: level needs a finite numeric place.BaseElevation`);
   }
@@ -48,6 +53,8 @@ export function validateChangeset(body) {
     if (!validate.identity || typeof validate.identity.Class !== "string" || !validate.identity.Class)
       throw err(400, `${at}: validate.identity.Class is required (the IFC class adjudication reads)`);
     checkPlace(el.kind, el.place, at);
+    if (validate.psets !== undefined && !Array.isArray(validate.psets)) throw err(400, `${at}: validate.psets must be an array`);
+    if (validate.quantities !== undefined && !Array.isArray(validate.quantities)) throw err(400, `${at}: validate.quantities must be an array`);
     const proposal_guid = randomUUID();
     const identity = { ...validate.identity };
     if (!identity.GlobalId) identity.GlobalId = proposal_guid;
@@ -62,9 +69,20 @@ export function validateChangeset(body) {
   return { name, source: typeof body.source === "string" && body.source.trim() ? body.source.trim() : "agent", elements };
 }
 
+/** Failures the adjudicator could not pin to a specific proposed element (no `element` tag, or a
+ *  tag matching none of them). They belong to the changeset, not to any row — and their existence
+ *  means a clean-looking element has NOT been certified. */
+export function unattributedFailures(elements, adj) {
+  const known = new Set(elements.map((el) => el.validate.identity.GlobalId));
+  return (adj?.failures || []).filter((f) => !f.element || !known.has(f.element));
+}
+
 /** Attach per-element verdicts from an adjudication result. Failures are grouped by the GlobalId
  *  sentinel-core tags them with. HONESTY: with no spec (recorded) every element is "recorded" —
- *  never "accepted"; a green tick must mean a spec actually passed. */
+ *  never "accepted"; a green tick must mean a spec actually passed. And when the model verdict is
+ *  rejected on grounds NOT attributable to a specific element, a clean element cannot claim
+ *  "accepted" either — it drops to "recorded" (nothing was certified for it), with the
+ *  unattributed failures surfaced at changeset level via unattributedFailures(). */
 export function attachVerdicts(elements, adj) {
   const byId = new Map();
   for (const f of adj?.failures || []) {
@@ -73,9 +91,10 @@ export function attachVerdicts(elements, adj) {
     byId.get(k).push(f);
   }
   const recorded = adj?.verdict === "recorded";
+  const tainted = adj?.verdict === "rejected" && unattributedFailures(elements, adj).length > 0;
   return elements.map((el) => {
     const failures = byId.get(el.validate.identity.GlobalId) || [];
-    const status = recorded ? "recorded" : failures.length ? "rejected" : "accepted";
+    const status = recorded ? "recorded" : failures.length ? "rejected" : tainted ? "recorded" : "accepted";
     return { ...el, verdict: { status, failures } };
   });
 }

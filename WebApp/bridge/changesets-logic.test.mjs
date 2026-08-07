@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   VOCABULARY, MAX_CHANGESET_ELEMENTS,
-  validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus,
+  validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 
 const wall = (over = {}) => ({
@@ -131,5 +131,48 @@ describe("lifecycle helpers", () => {
 
   it("throws when the counts don't account for every element", () => {
     expect(() => deriveResultStatus(1, 1, 3)).toThrow(/account/i);
+  });
+});
+
+describe("review fixes — honesty + degenerate geometry", () => {
+  const el2 = () => validateChangeset(CS([wall(), level()])).elements;
+
+  it("an unattributed failure under a rejected verdict taints clean elements to recorded, never accepted", () => {
+    const e = el2();
+    const adj = { verdict: "rejected", ids_source: "server", failures: [{ requirement: "model-level rule" }] };
+    const out = attachVerdicts(e, adj);
+    for (const x of out) expect(x.verdict.status).toBe("recorded");
+    const un = unattributedFailures(e, adj);
+    expect(un).toHaveLength(1);
+  });
+
+  it("attributed failures still pin their own element; siblings stay accepted when nothing is unattributed", () => {
+    const e = el2();
+    const adj = { verdict: "rejected", ids_source: "server", failures: [{ element: e[0].validate.identity.GlobalId, requirement: "R" }] };
+    const out = attachVerdicts(e, adj);
+    expect(out[0].verdict.status).toBe("rejected");
+    expect(out[1].verdict.status).toBe("accepted");
+    expect(unattributedFailures(e, adj)).toHaveLength(0);
+  });
+
+  it("a failure tagged with an UNKNOWN GlobalId counts as unattributed", () => {
+    const e = el2();
+    const adj = { verdict: "rejected", failures: [{ element: "ghost-id", requirement: "R" }] };
+    expect(unattributedFailures(e, adj)).toHaveLength(1);
+    expect(attachVerdicts(e, adj)[0].verdict.status).toBe("recorded");
+  });
+
+  it("zero-length wall curves and sub-3-distinct-point floor loops are 400s", () => {
+    const zero = wall({ place: { ...wall().place, LocationCurve: { start: [1, 2, 3], end: [1, 2, 3] } } });
+    expect(() => validateChangeset(CS([zero]))).toThrow(/zero-length/);
+    const flat = { kind: "floor", validate: { identity: { Class: "IFCSLAB" } }, place: { LocationLoop: [[0, 0, 0], [0, 0, 0], [5, 5, 0]] } };
+    expect(() => validateChangeset(CS([flat]))).toThrow(/DISTINCT/);
+  });
+
+  it("non-array psets/quantities are 400s; exactly MAX elements is accepted (boundary)", () => {
+    const bad = wall(); bad.validate.psets = "nope";
+    expect(() => validateChangeset(CS([bad]))).toThrow(/psets must be an array/);
+    const atCap = Array.from({ length: MAX_CHANGESET_ELEMENTS }, () => wall());
+    expect(validateChangeset(CS(atCap)).elements).toHaveLength(MAX_CHANGESET_ELEMENTS);
   });
 });
