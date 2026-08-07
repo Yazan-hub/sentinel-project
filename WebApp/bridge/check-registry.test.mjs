@@ -404,3 +404,15 @@ describe("midp.revision / midp.suitability checks", () => {
     expect(r.summary).toMatch(/2/);
   });
 });
+
+describe("classifyMidpExpectation — met is positive, never by elimination", () => {
+  it("a row with a MISSING evidence verdict yields not_checkable, not met", () => {
+    const status = { rows: [
+      { container_name: "A", due_date: "2026-06-10", expected_revision: "P01", evidence: { revision: "met", suitability: "not_specified", actual_revisions: [], actual_suitabilities: [] } },
+      { container_name: "B", due_date: "2026-06-10", expected_revision: "P02" }, // no evidence block at all
+    ], summary: {}, exceptions: [] };
+    const r = classifyMidpRevision(status);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/no evidence verdict/i);
+  });
+});

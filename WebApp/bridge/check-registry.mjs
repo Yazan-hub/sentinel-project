@@ -206,6 +206,14 @@ function classifyMidpExpectation(status, axis, id, label, noun) {
       count: pending,
       reason: `${rows.length - pending} of ${rows.length} expectation(s) met; ${pending} deliverable(s) have not published yet, so their ${noun} cannot be judged.`,
     });
+  // "met" must be POSITIVE, never by elimination: a row whose evidence verdict is missing (a shape
+  // drift, a reuse of this exported classifier with foreign data) was never MEASURED — reporting
+  // met for it would be the fabricated pass this registry exists to prevent.
+  const met = rows.filter((r) => verdictOf(r) === "met").length;
+  if (met !== rows.length)
+    return result(id, label, "not_checkable", {
+      reason: `${rows.length - met} expectation-bearing row(s) carry no evidence verdict — cannot confirm ${noun} delivery.`,
+    });
   return result(id, label, "met", { summary: `All ${rows.length} expected ${noun}(s) were delivered as planned.` });
 }
 
