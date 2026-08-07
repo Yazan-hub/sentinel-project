@@ -15,7 +15,6 @@ const wire = (deps = {}) => ({
   docInsert: deps.docInsert || cde.docInsert,
   docGet: deps.docGet || cde.docGet,
   docList: deps.docList || cde.docList,
-  docUpsert: deps.docUpsert || cde.docUpsert,
   docReplaceIfStatus: deps.docReplaceIfStatus || cde.docReplaceIfStatus,
   audit: deps.audit || cde.audit,
 });

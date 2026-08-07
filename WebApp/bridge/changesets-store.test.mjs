@@ -167,3 +167,21 @@ describe("CAS guard — concurrent result/withdraw cannot both land", () => {
     expect(deps.docReplaceIfStatus.mock.calls[0][4]).toBe("proposed"); // expectedStatus threaded
   });
 });
+
+describe("CAS — the exact race window: clean first read, then the PATCH loses", () => {
+  it("reportResult passes the status guard, loses the CAS, 409s with the winner's status, audits nothing", async () => {
+    const deps = baseDeps();
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const guids = cs.elements.map((e) => e.proposal_guid);
+    deps.audit.mockClear();
+    // First read sees proposed (the guard passes); the conditional PATCH loses; the re-read sees the winner.
+    deps.docGet = vi.fn()
+      .mockResolvedValueOnce(cs)
+      .mockResolvedValueOnce({ ...cs, status: "withdrawn" });
+    deps.docReplaceIfStatus = vi.fn(async () => null);
+    await expect(reportResult("demo", cs.id, { applied: [], rejected: guids }, "r", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/withdrawn/) });
+    expect(deps.docReplaceIfStatus).toHaveBeenCalledOnce(); // the PATCH genuinely ran and lost
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+});
