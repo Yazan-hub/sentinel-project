@@ -980,6 +980,31 @@ async function handleRequest(req, res) {
     }
   }
 
+  // ── Governed AI modeling: staged element changesets (propose → human ticks in Revit → result) ──
+  //   POST /changesets/:key            · GET /changesets/:key?status=proposed
+  //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
+  //   POST /changesets/:key/:id/withdraw
+  if (url.pathname.startsWith("/changesets")) {
+    const ch = await import("./changesets-store.mjs");
+    try {
+      const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
+      const [, key, p2, p3] = seg;
+      const body = req.method === "POST" ? await readBody(req) : {};
+      const actor = body.actor || (p3 === "result" ? "revit" : "agent");
+      if (!key) return send(res, 404, { message: "changesets route not found" });
+
+      if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));
+      if (!p2 && req.method === "POST") return send(res, 201, await ch.proposeChangeset(key, body, actor));
+      if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
+      if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
+      if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));
+      return send(res, 404, { message: "changesets route not found" });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[changesets] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
   // ── MIDP/TIDP deliverables: planned rows + derived planned-vs-actual status ──
   //   GET  /deliverables/:key            · GET /deliverables/:key/status (derived, read-only)
   //   POST /deliverables/:key            · POST /deliverables/:key/import { rows: [...] }

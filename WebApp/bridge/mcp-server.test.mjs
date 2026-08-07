@@ -14,7 +14,7 @@ describe("TOOLS registry", () => {
     const names = TOOLS.map((t) => t.name);
     for (const n of ["sentinel_list_projects", "sentinel_propose", "sentinel_audit", ...NEW_TOOLS])
       expect(names).toContain(n);
-    expect(TOOLS).toHaveLength(9);
+    expect(TOOLS).toHaveLength(11);
   });
 
   it("every tool has a description and an object inputSchema", () => {
@@ -117,6 +117,47 @@ describe("callTool — existing tools regression", () => {
     const [url, init] = fetch.mock.calls[0];
     expect(url).toMatch(/\/cde\/demo\/propose$/);
     expect(init.method).toBe("POST");
+  });
+});
+
+describe("changeset tools", () => {
+  it("registry has 11 tools including the two changeset tools", () => {
+    const names = TOOLS.map((t) => t.name);
+    expect(names).toContain("sentinel_propose_changeset");
+    expect(names).toContain("sentinel_changeset_status");
+    expect(TOOLS).toHaveLength(11);
+  });
+
+  it("propose tool description states the referee model and the vocabulary", () => {
+    const t = TOOLS.find((t) => t.name === "sentinel_propose_changeset");
+    expect(t.description).toMatch(/human review in Revit/i);
+    expect(t.description).toMatch(/nothing is created by this call/i);
+    expect(t.description).toMatch(/wall, floor, level, grid/);
+    expect(t.inputSchema.required).toEqual(["project", "name", "elements"]);
+  });
+
+  it("propose POSTs the changeset body", async () => {
+    const fetch = vi.fn(async () => okJson({ id: "c1", status: "proposed" }));
+    await callTool("sentinel_propose_changeset", { project: "demo", name: "N", source: "agent", elements: [{ kind: "level" }] }, { fetch });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toMatch(/\/changesets\/demo$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toMatchObject({ name: "N", source: "agent", elements: [{ kind: "level" }] });
+  });
+
+  it("status tool GETs one changeset by id, or lists by status", async () => {
+    const fetch = vi.fn(async () => okJson({ id: "c1" }));
+    await callTool("sentinel_changeset_status", { project: "demo", changeset: "c1" }, { fetch });
+    expect(fetch.mock.calls[0][0]).toMatch(/\/changesets\/demo\/c1$/);
+    const fetch2 = vi.fn(async () => okJson([]));
+    await callTool("sentinel_changeset_status", { project: "demo", status: "proposed" }, { fetch: fetch2 });
+    expect(fetch2.mock.calls[0][0]).toMatch(/\/changesets\/demo\?status=proposed$/);
+  });
+
+  it("propose requires project, name and elements before any fetch", async () => {
+    const fetch = vi.fn();
+    await expect(callTool("sentinel_propose_changeset", { project: "demo" }, { fetch })).rejects.toThrow(/name is required/);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
