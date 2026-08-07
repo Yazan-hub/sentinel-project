@@ -20,10 +20,20 @@ namespace Sentinel.Commands;
 [Transaction(TransactionMode.Manual)]
 public sealed class ReviewChangesetsCommand : IExternalCommand
 {
+    // One review window at a time: status only flips at REPORT time, so two open windows would
+    // both re-fetch "proposed" and both execute the same changeset — physical duplicates the
+    // bridge's CAS can 409 but not prevent.
+    private static bool _reviewOpen;
+
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
+        if (_reviewOpen)
+        {
+            TaskDialog.Show("Sentinel — AI proposals", "A review window is already open — finish or close it first.");
+            return Result.Cancelled;
+        }
 
         var cfg = BcfConfig.Load();
         var key = SettingsManager.WebProjectKeyFor(doc);
@@ -52,6 +62,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
         var window = new ChangesetReviewWindow(cs);
         DialogOwner.Attach(window, c); // house helper: owned by Revit's main window
+        _reviewOpen = true;
+        window.Closed += (_, _) => _reviewOpen = false;
         window.DecideRequested += (ticked, unticked, note) =>
         {
             // Re-fetch: only a still-proposed changeset may run (an agent may have withdrawn it).
@@ -99,6 +111,15 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         while (true)
         {
             if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, out var err)) return;
+            // Client errors (400 bad payload, 404, 409 already-resolved) won't heal on retry with
+            // an identical payload — show once and stop instead of an unwinnable retry loop.
+            if (err != null && (err.StartsWith("Bridge 400") || err.StartsWith("Bridge 404") || err.StartsWith("Bridge 409")))
+            {
+                TaskDialog.Show("Sentinel — AI proposals",
+                    $"The bridge refused the result (retrying cannot fix this):\n{err}" +
+                    (applied.Count > 0 ? "\n\nElements WERE created in this model. Check the changeset's status in the bridge before any re-review." : ""));
+                return;
+            }
             // When elements WERE created, cancelling leaves the bridge still saying "proposed" —
             // and a later review run would re-execute the same changeset, DUPLICATING the elements.
             // Say so explicitly; an unnamed hazard is a trap.

@@ -29,8 +29,11 @@ public sealed class ChangesetExecutor
         if (!levels.Any()) throw new InvalidOperationException("the model has no levels");
         if (!string.IsNullOrWhiteSpace(place?.LevelName))
         {
-            var byName = levels.FirstOrDefault(l => string.Equals(l.Name, place.LevelName, StringComparison.OrdinalIgnoreCase));
-            if (byName != null) return byName;
+            // A NAMED level that doesn't exist fails honestly (same rule as named types): the
+            // reviewer saw that level name on the row. Nearest-by-elevation applies only when the
+            // proposal names no level.
+            return levels.FirstOrDefault(l => string.Equals(l.Name, place.LevelName, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new InvalidOperationException($"level \"{place.LevelName}\" does not exist in this model — include it in the changeset or re-propose without a LevelName");
         }
         if (place?.BaseElevation is double mm)
         {
@@ -40,21 +43,27 @@ public sealed class ChangesetExecutor
         return levels.OrderBy(l => l.Elevation).First();
     }
 
+    // A named type that doesn't exist FAILS the changeset (named reason → declined) rather than
+    // silently substituting: the human ticked a row showing that TypeName, and the IDS adjudicated
+    // the proposal it labels — placing an arbitrary type would break the governance chain at its
+    // last link. Only a proposal with NO TypeName may take the model's first type.
     private static WallType ResolveWallType(Document doc, string typeName)
     {
         var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
             .Where(t => t.Kind == WallKind.Basic).ToList();
         if (!types.Any()) throw new InvalidOperationException("the model has no basic wall types");
+        if (string.IsNullOrWhiteSpace(typeName)) return types.First();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? types.First(); // fall back to A basic type; the row's TypeName stays on record
+               ?? throw new InvalidOperationException($"wall type \"{typeName}\" does not exist in this model — load or create it, or re-propose without a TypeName");
     }
 
     private static FloorType ResolveFloorType(Document doc, string typeName)
     {
         var types = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
         if (!types.Any()) throw new InvalidOperationException("the model has no floor types");
+        if (string.IsNullOrWhiteSpace(typeName)) return types.First();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? types.First();
+               ?? throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load or create it, or re-propose without a TypeName");
     }
 
     public ExecutionResult Execute(Document doc, ChangesetDto cs, HashSet<string> tickedGuids)
@@ -128,6 +137,11 @@ public sealed class ChangesetExecutor
                 Collect(result, el, floor);
             }
 
+            // Every ticked element must have been handled by a kind loop above — if the bridge's
+            // vocabulary ever grows past the executor's, the mismatch fails the changeset HERE,
+            // inside the transaction, instead of surfacing as a 400 after elements already exist.
+            if (result.Applied.Count != toPlace.Count)
+                throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind were not placed — the add-in is older than the bridge's vocabulary");
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
             // the collected ids then would be the "some failed silently" lie this file forbids.
             if (t.Commit() != TransactionStatus.Committed)
