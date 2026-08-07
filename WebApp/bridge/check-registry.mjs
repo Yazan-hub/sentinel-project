@@ -200,16 +200,16 @@ function classifyMidpExpectation(status, axis, id, label, noun) {
       summary: `${mismatches.length} of ${rows.length} expectation(s) not met by what published.`,
     });
   }
-  const pending = rows.filter((r) => verdictOf(r) === "pending").length;
-  if (pending)
-    return result(id, label, "not_checkable", {
-      count: pending,
-      reason: `${rows.length - pending} of ${rows.length} expectation(s) met; ${pending} deliverable(s) have not published yet, so their ${noun} cannot be judged.`,
-    });
-  // "met" must be POSITIVE, never by elimination: a row whose evidence verdict is missing (a shape
-  // drift, a reuse of this exported classifier with foreign data) was never MEASURED — reporting
-  // met for it would be the fabricated pass this registry exists to prevent.
+  // "met" must be POSITIVE, never by elimination — in the verdict AND in every sentence a human
+  // reads: `rows.length - pending` would count an unjudged row as met, fabricating the number a
+  // delivery manager acts on even when the verdict itself stays not_checkable.
   const met = rows.filter((r) => verdictOf(r) === "met").length;
+  const pendingRows = rows.filter((r) => verdictOf(r) === "pending");
+  if (pendingRows.length)
+    return result(id, label, "not_checkable", {
+      count: pendingRows.length,
+      reason: `${met} of ${rows.length} expectation(s) met; not yet published: ${pendingRows.map((r) => r.container_name).join(", ")} — their ${noun} cannot be judged yet.`,
+    });
   if (met !== rows.length)
     return result(id, label, "not_checkable", {
       reason: `${rows.length - met} expectation-bearing row(s) carry no evidence verdict — cannot confirm ${noun} delivery.`,

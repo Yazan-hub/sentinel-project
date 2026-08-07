@@ -55,7 +55,7 @@ export async function createDeliverable(key, body, actor) {
 
 export async function updateDeliverable(key, id, patch, actor) {
   if (!isUuid(id)) throw err(404, "deliverable not found"); // non-UUID = uuid-cast 500 from PostgREST, and can never match
-  // Partial-update semantics: validateRow normalises ALL six fields (nulls for absent ones), so
+  // Partial-update semantics: validateRow normalises ALL fields (nulls for absent ones), so
   // spreading its full result would silently wipe any field the caller didn't send — the UI's edit
   // form has no notes input, so every edit would null notes. Only write keys the caller supplied.
   const validated = validateRow(patch);
