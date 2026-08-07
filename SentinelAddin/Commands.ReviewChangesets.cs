@@ -7,7 +7,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Windows.Interop;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -21,9 +20,6 @@ namespace Sentinel.Commands;
 [Transaction(TransactionMode.Manual)]
 public sealed class ReviewChangesetsCommand : IExternalCommand
 {
-    private static ChangesetPlacementEvent _handler;
-    private static ExternalEvent _event;
-
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         var uidoc = c.Application.ActiveUIDocument;
@@ -48,11 +44,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         if (pending.Count > 1)
             TaskDialog.Show("Sentinel — AI proposals", $"{pending.Count} proposals pending — reviewing the oldest first ({cs.Name}). Run again for the next.");
 
-        _handler ??= new ChangesetPlacementEvent();
-        _event ??= ExternalEvent.Create(_handler);
+        // Per-invocation handler/event (every sibling command does the same): a static pair would
+        // let a second open review window clobber the staged request and double-fire callbacks.
+        // The closure below keeps both alive for the window's lifetime.
+        var handler = new ChangesetPlacementEvent();
+        var evt = ExternalEvent.Create(handler);
 
         var window = new ChangesetReviewWindow(cs);
-        new WindowInteropHelper(window) { Owner = c.Application.MainWindowHandle }; // module convention: every modeless command window is owned by Revit's main window
+        DialogOwner.Attach(window, c); // house helper: owned by Revit's main window
         window.DecideRequested += (ticked, unticked, note) =>
         {
             // Re-fetch: only a still-proposed changeset may run (an agent may have withdrawn it).
@@ -73,7 +72,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             Action<ChangesetExecutor.ExecutionResult> onDone = null;
             onDone = result =>
             {
-                _handler.Completed -= onDone;
+                handler.Completed -= onDone;
                 if (result.Error != null)
                 {
                     // Whole changeset rolled back: report declined with the reason — honestly.
@@ -87,9 +86,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 TaskDialog.Show("Sentinel — AI proposals",
                     $"Created {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : ""));
             };
-            _handler.Completed += onDone;
-            _handler.SetRequest(fresh, new HashSet<string>(ticked));
-            _event.Raise();
+            handler.Completed += onDone;
+            handler.SetRequest(fresh, new HashSet<string>(ticked));
+            evt.Raise();
         };
         window.Show();
         return Result.Succeeded;
@@ -100,10 +99,16 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         while (true)
         {
             if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, out var err)) return;
+            // When elements WERE created, cancelling leaves the bridge still saying "proposed" —
+            // and a later review run would re-execute the same changeset, DUPLICATING the elements.
+            // Say so explicitly; an unnamed hazard is a trap.
+            var hazard = applied.Count > 0
+                ? $"\n\nWARNING: {applied.Count} element(s) were ALREADY CREATED in this model. If you cancel, the bridge still lists this changeset as \"proposed\" — reviewing it again would create duplicates. Retry until the report succeeds, or have the agent withdraw the changeset before any re-review."
+                : "";
             var d = new TaskDialog("Sentinel — AI proposals")
             {
                 MainInstruction = "The result could not be reported to the bridge.",
-                MainContent = $"{err}\n\nThe governed record does NOT yet reflect what happened in Revit. Retry?",
+                MainContent = $"{err}\n\nThe governed record does NOT yet reflect what happened in Revit.{hazard}\n\nRetry?",
                 CommonButtons = TaskDialogCommonButtons.Retry | TaskDialogCommonButtons.Cancel,
             };
             if (d.Show() != TaskDialogResult.Retry) return;

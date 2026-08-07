@@ -175,7 +175,7 @@ public sealed class App : IExternalApplication
             "View the team-wide clash register recorded on the web (status lifecycle + volume), read-only.");
         Push(co, "Sentinel_ReviewFlag", "Review\nFlag", "Sentinel.Commands.SetupWorkflowCommand", "flag",
             "One-time: creates the ZZZ_ReviewStatus flag parameter (coordinator only).");
-        Push(co, "Sentinel_ReviewChangesets", "Review AI\nProposals", "Sentinel.Commands.ReviewChangesetsCommand", "requests",
+        Push(co, "Sentinel_ReviewChangesets", "Review AI\nProposals", "Sentinel.Commands.ReviewChangesetsCommand", "gate",
             "Review staged AI element proposals: the referee's verdict per element, your tick decides what enters the model. Everything is audit-chained.");
 
         // ── Validate — compliance, IFC readiness, family hygiene ─────────────────────────────
