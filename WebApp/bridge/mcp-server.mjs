@@ -110,7 +110,7 @@ export const TOOLS = [
   },
   {
     name: "sentinel_changeset_status",
-    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. Read-only.",
+    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. If both `changeset` and `status` are passed, `changeset` wins. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. Read-only.",
     inputSchema: {
       type: "object", required: ["project"],
       properties: { project: { type: "string" }, changeset: { type: "string" }, status: { type: "string" } },

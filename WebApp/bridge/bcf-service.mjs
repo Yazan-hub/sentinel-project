@@ -990,7 +990,7 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
       const [, key, p2, p3] = seg;
       const body = req.method === "POST" ? await readBody(req) : {};
-      const actor = body.actor || "agent";
+      const actor = body.actor || (p3 === "result" ? "revit" : "agent");
       if (!key) return send(res, 404, { message: "changesets route not found" });
 
       if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));

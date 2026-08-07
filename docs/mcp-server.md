@@ -18,6 +18,8 @@ onto the document-governance layer (BEP/EIR documents, compliance, deliverables,
 | `sentinel_deliverables_status` | The MIDP/TIDP tracker: every planned deliverable classified delivered / late / in_wip / overdue / pending / unscheduled, derived at read time. Read-only. |
 | `sentinel_list_checks` | The check registry: real checks plus **planned** ones Sentinel honestly cannot evaluate yet (with reasons). |
 | `sentinel_doc_integrity` | AI analysis of a document against the project's configured reality. Findings are **AI suggestions gated to cited facts** — never compliance facts; uncited findings are dropped and counted. Slow (minutes on a local model); needs the AI provider running. Read-only. |
+| `sentinel_propose_changeset` | Stage model elements (v1 vocabulary: wall, floor, level, grid) for human review in Revit — nothing is created by this call; a person ticks each element in Revit before anything enters the model. |
+| `sentinel_changeset_status` | Check a staged changeset by `changeset` (id) or list by `status`. Read-only. |
 
 Document mutation is deliberately **not** exposed: creating, editing, binding, transitioning, publishing and
 deliverable writes stay in the web app's review-before-save flow. The MCP surface can inspect and reason, not

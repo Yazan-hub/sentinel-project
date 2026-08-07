@@ -162,6 +162,17 @@ describe("review fixes — honesty + degenerate geometry", () => {
     expect(attachVerdicts(e, adj)[0].verdict.status).toBe("recorded");
   });
 
+  it("a 200-failure list (cde-store's slice cap) taints a clean sibling to recorded, even fully attributed", () => {
+    const e = el2();
+    const failures = Array.from({ length: 200 }, (_, i) => ({ element: e[0].validate.identity.GlobalId, requirement: `R${i}` }));
+    const adj = { verdict: "rejected", ids_source: "server", failures };
+    expect(unattributedFailures(e, adj)).toHaveLength(0); // every failure IS attributed — old code would accept element 1
+    const out = attachVerdicts(e, adj);
+    expect(out[0].verdict.status).toBe("rejected");
+    expect(out[0].verdict.failures).toHaveLength(200);
+    expect(out[1].verdict.status).toBe("recorded"); // possibly truncated past the cap — cannot be certified clean
+  });
+
   it("zero-length wall curves and sub-3-distinct-point floor loops are 400s", () => {
     const zero = wall({ place: { ...wall().place, LocationCurve: { start: [1, 2, 3], end: [1, 2, 3] } } });
     expect(() => validateChangeset(CS([zero]))).toThrow(/zero-length/);

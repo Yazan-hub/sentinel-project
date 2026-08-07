@@ -91,7 +91,10 @@ export function attachVerdicts(elements, adj) {
     byId.get(k).push(f);
   }
   const recorded = adj?.verdict === "recorded";
-  const tainted = adj?.verdict === "rejected" && unattributedFailures(elements, adj).length > 0;
+  // cde-store's adjudicateProposal caps failures at 200 (slice) — a full list may be truncated,
+  // so a clean-looking element cannot be certified: taint to recorded, same as unattributed.
+  const possiblyTruncated = (adj?.failures || []).length >= 200;
+  const tainted = adj?.verdict === "rejected" && (unattributedFailures(elements, adj).length > 0 || possiblyTruncated);
   return elements.map((el) => {
     const failures = byId.get(el.validate.identity.GlobalId) || [];
     const status = recorded ? "recorded" : failures.length ? "rejected" : tainted ? "recorded" : "accepted";
