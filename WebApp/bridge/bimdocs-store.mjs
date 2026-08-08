@@ -2,7 +2,7 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit, isUuid, docGet, docUpsert } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireMinRole } from "./members-store.mjs";
@@ -229,17 +229,35 @@ export async function addComment(key, docId, sectionId, text, actor) {
   const body = typeof text === "string" ? text.trim() : "";
   if (!body) throw err(400, "comment text is required");
   if (body.length > MAX_COMMENT_CHARS) throw err(400, `comment too long (${body.length}; limit ${MAX_COMMENT_CHARS})`);
-  const bag = (await docGet(COMMENTS_STORE, doc.project_id, docId)) || { comments: [] };
   const comment = {
     id: randomUUID(), section_id: sectionId,
     author: resolveActor(actor, "web"),   // verified identity outranks any claim, as everywhere
     text: body, created_at: new Date().toISOString(),
   };
-  bag.comments.push(comment);
-  await docUpsert(COMMENTS_STORE, doc.project_id, docId, bag);
-  await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
-    { section: section.heading, chars: body.length });
-  return comment;
+  // Optimistic concurrency: two reviewers commenting simultaneously is THE use case, and a plain
+  // read-modify-write would let the last write silently swallow the other's comment. The bag
+  // carries a rev counter; the write is conditional on the rev we read (legacy bags: rev absent →
+  // is.null condition). A lost race just re-reads and retries.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const bag = await docGet(COMMENTS_STORE, doc.project_id, docId);
+    if (!bag) {
+      try {
+        await docInsert(COMMENTS_STORE, doc.project_id, docId, { comments: [comment], rev: 1 });
+      } catch { continue; } // concurrent first-insert won — re-read and CAS onto it
+      await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
+        { section: section.heading, chars: body.length });
+      return comment;
+    }
+    const next = { comments: [...(bag.comments || []), comment], rev: (bag.rev || 0) + 1 };
+    const won = await docReplaceIfField(COMMENTS_STORE, doc.project_id, docId, next, "rev",
+      bag.rev === undefined ? null : String(bag.rev));
+    if (won) {
+      await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
+        { section: section.heading, chars: body.length });
+      return comment;
+    }
+  }
+  throw err(409, "comment store is busy — please retry");
 }
 
 /** Cap on bound checks evaluated per compliance run — bounds a doc's latency to O(cap), not O(bindings). */

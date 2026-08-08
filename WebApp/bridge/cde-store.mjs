@@ -869,8 +869,15 @@ export async function docUpsert(store, pid, docId, data) {
  *  `expectedStatus`. Returns the data on success, null when the condition lost (0 rows patched) —
  *  the caller re-reads and 409s. Closes the docGet→check→docUpsert race for status transitions. */
 export async function docReplaceIfStatus(store, pid, docId, data, expectedStatus) {
+  return docReplaceIfField(store, pid, docId, data, "status", expectedStatus);
+}
+/** Generic CAS replace: overwrite the doc ONLY if data->>field currently equals `expected`
+ *  (pass null for "the key is absent" — legacy rows). Returns data on success, null when the
+ *  condition lost. The concurrency primitive behind changeset transitions and comment appends. */
+export async function docReplaceIfField(store, pid, docId, data, field, expected) {
+  const cond = expected === null ? `data->>${enc(field)}=is.null` : `data->>${enc(field)}=eq.${enc(expected)}`;
   const rows = await sb(
-    `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&data->>status=eq.${enc(expectedStatus)}`,
+    `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&${cond}`,
     { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation" },
   );
   return Array.isArray(rows) && rows.length ? data : null;

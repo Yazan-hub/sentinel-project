@@ -15,7 +15,18 @@ vi.mock("./cde-store.mjs", () => ({
   // real-shape guard: bimdocs-store now imports isUuid to 404 malformed ids before any network call
   isUuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "")),
   docGet: async (s, p, id) => __docs.get(s + id) ?? null,
-  docUpsert: async (s, p, id, data) => { __docs.set(s + id, data); return data; },
+  docInsert: async (s, p, id, data) => {
+    if (__docs.has(s + id)) throw Object.assign(new Error("duplicate"), { status: 409 });
+    __docs.set(s + id, data);
+  },
+  docReplaceIfField: async (s, p, id, data, field, expected) => {
+    const cur = __docs.get(s + id);
+    if (!cur) return null;
+    const actual = cur[field] === undefined ? null : String(cur[field]);
+    if (actual !== expected) return null; // CAS lost
+    __docs.set(s + id, data);
+    return data;
+  },
 }));
 vi.mock("./members-store.mjs", () => ({
   requireMinRole: vi.fn(async (key, min) => {
@@ -175,5 +186,25 @@ describe("section comments — external store, append-only, server-stamped", () 
     await expect(addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "Reviewing the record.", "a")).resolves.toBeTruthy();
     const patched = sb.mock.calls.filter(([p, o]) => p.startsWith("bim_documents") && o?.method === "PATCH");
     expect(patched).toHaveLength(0); // comments never write the document row
+  });
+});
+
+describe("comment concurrency — CAS on the bag's rev", () => {
+  it("a lost CAS re-reads and retries; the comment still lands and rev advances", async () => {
+    const { addComment, listComments } = await import("./bimdocs-store.mjs");
+    // Seed a bag as if another reviewer just wrote rev 5.
+    __docs.set("doc_comments" + "11111111-1111-4111-8111-111111111111", { comments: [{ id: "c0", section_id: "sec1", author: "other@x.com", text: "first", created_at: "t" }], rev: 5 });
+    const c = await addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "second reviewer", "me@x.com");
+    const all = await listComments("demo", "11111111-1111-4111-8111-111111111111");
+    expect(all.map((x) => x.text)).toEqual(["first", "second reviewer"]);
+    expect(__docs.get("doc_comments" + "11111111-1111-4111-8111-111111111111").rev).toBe(6);
+    expect(c.author).toBe("me@x.com");
+  });
+
+  it("a legacy bag without rev (is-null CAS) still accepts appends", async () => {
+    const { addComment, listComments } = await import("./bimdocs-store.mjs");
+    __docs.set("doc_comments" + "11111111-1111-4111-8111-111111111111", { comments: [] }); // pre-rev shape
+    await addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "on legacy bag", "a");
+    expect((await listComments("demo", "11111111-1111-4111-8111-111111111111")).some((x) => x.text === "on legacy bag")).toBe(true);
   });
 });
