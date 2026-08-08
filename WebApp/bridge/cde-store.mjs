@@ -195,11 +195,16 @@ export async function createProject(b = {}) {
     await ensureFolders(existing[0].id);
     return existing[0];
   }
-  const row = (await sb(`projects`, {
+  // return=minimal on purpose (same trap ensureProject documents): under a FORWARDED session the
+  // returning-select runs the is_member policy before the owner-membership row the insert trigger
+  // just created is visible → 42501/403 and the whole insert rolls back. Insert minimal, then
+  // re-fetch with the service key.
+  await sb(`projects`, {
     method: "POST",
     body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null },
-    prefer: "return=representation",
-  }))[0];
+    prefer: "return=minimal",
+  });
+  const row = (await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }))[0];
   await ensureFolders(row.id);
   await audit(row.id, "project", row.id, "created", b.actor || "web", null, { key, name: row.name });
   return row;

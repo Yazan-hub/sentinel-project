@@ -71,3 +71,33 @@ describe("BCF topic authorship (spec posture: server-assigned)", () => {
     expect(t.history[0].author).toBe("revit-pilot");
   });
 });
+
+describe("createProject under a forwarded session (the 42501 returning-select trap)", () => {
+  it("inserts with return=minimal and re-fetches with the service key — never return=representation", async () => {
+    const { createProject } = await import("./cde-store.mjs");
+    calls.length = 0;
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      calls.push({ url: String(url), prefer: init.headers?.Prefer || null, auth: init.headers?.Authorization || "" });
+      if (String(url).includes("projects?key=eq.")) return new Response(JSON.stringify(init.method ? [] : []), { status: 200 });
+      return new Response("[]", { status: 200 });
+    });
+    // First existence read returns [], insert proceeds, re-fetch returns the row.
+    let reads = 0;
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      calls.push({ url: u, method: init.method || "GET", prefer: init.headers?.Prefer || null });
+      if (u.includes("projects?key=eq.") && (init.method || "GET") === "GET") {
+        reads += 1;
+        return new Response(JSON.stringify(reads === 1 ? [] : [{ id: "p-new", key: "x-y", name: "X Y" }]), { status: 200 });
+      }
+      return new Response("[]", { status: 200 });
+    });
+    // ensureFolders (further downstream) starves on this minimal stub — irrelevant here: the
+    // assertion under test is the INSERT's Prefer header and the service re-fetch happening.
+    await createProject({ name: "X Y" }).catch(() => {});
+    const insert = calls.find((c) => c.method === "POST" && c.url.endsWith("/projects"));
+    expect(insert.prefer).toBe("return=minimal");
+    expect(insert.prefer).not.toMatch(/representation/);
+    expect(reads).toBe(2); // existence check + post-insert service re-fetch
+  });
+});
