@@ -14,6 +14,8 @@ type CheckResult = { id: string; label: string; status: "met" | "violations" | "
 type Compliance = { document_id: string; generated_at: string; summary: Record<string, number>; sections: { section_id: string; heading: string; results: CheckResult[] }[] };
 type Suggestion = { section_id: string; heading: string; suggested: { id: string; label: string; params: Record<string, unknown>; confidence: number; why: string; planned: boolean }[] };
 
+type Comment = { id: string; section_id: string; author: string; text: string; created_at: string };
+
 type IntegrityFinding = { section_id: string; fact: number; claim: string; reality: string; severity: "high" | "medium" | "low" };
 type IntegrityReport = { findings: IntegrityFinding[]; dropped: number; grounding_used: number; generated_at: string; provider?: string; model?: string; note?: string };
 const SEV_COLOR: Record<string, string> = { high: "#f87171", medium: "#eab308", low: "#9ca3af" };
@@ -91,6 +93,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   // ── AI provider/model selection — shared by Draft with AI (editor view) and Check integrity
   // (document view). Same rule as the copilot panel: the panel only picks WHICH; every call still
   // goes through the bridge, where the keys live and local-default/cloud-opt-in is enforced.
+  let myRole: string | null = "service";
+  const canEdit = () => myRole === "service" || ["owner", "lead", "contributor"].includes(myRole ?? "");
+  const canGovern = () => myRole === "service" || ["owner", "lead"].includes(myRole ?? "");
+
   let aiProvider = "local";
   let aiModel = ""; // "" = the provider's own default
   let aiProviders: { id: string; label: string; available: boolean; blocked?: string; note?: string }[] | null = null;
@@ -307,24 +313,39 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
 
   // ── List view ─────────────────────────────────────────────────────────────
   async function showList() {
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      const j = await r.json().catch(() => ({}));
+      myRole = (j as { role?: string | null }).role ?? "service";
+    } catch { myRole = "service"; }
+
     bar.replaceChildren();
     const title = document.createElement("span");
     title.textContent = "Project Documents";
     title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
-    const newBtn = btn("+ New document", true);
-    newBtn.onclick = showCreate;
-    const ingestBtn = btn("⇪ Ingest EIR/BEP");
-    const fileInput = document.createElement("input");
-    fileInput.type = "file";
-    fileInput.accept = ".pdf,.docx,.txt,.md";
-    fileInput.style.display = "none";
-    ingestBtn.onclick = () => fileInput.click();
-    fileInput.onchange = async () => {
-      const f = fileInput.files?.[0];
-      fileInput.value = "";
-      if (f) await runIngest(f);
-    };
-    bar.append(title, ingestBtn, newBtn, fileInput);
+    bar.append(title);
+    if (myRole === "viewer") {
+      const chipEl = document.createElement("span");
+      chipEl.textContent = "your role: viewer";
+      chipEl.style.cssText = "color:#a1a1aa;font:600 10.5px system-ui;border:1px solid #2c2c34;border-radius:.3rem;padding:.1rem .4rem";
+      bar.append(chipEl);
+    }
+    if (canEdit()) {
+      const newBtn = btn("+ New document", true);
+      newBtn.onclick = showCreate;
+      const ingestBtn = btn("⇪ Ingest EIR/BEP");
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".pdf,.docx,.txt,.md";
+      fileInput.style.display = "none";
+      ingestBtn.onclick = () => fileInput.click();
+      fileInput.onchange = async () => {
+        const f = fileInput.files?.[0];
+        fileInput.value = "";
+        if (f) await runIngest(f);
+      };
+      bar.append(ingestBtn, newBtn, fileInput);
+    }
     body.replaceChildren();
     try {
       const docs: (Doc & { version_count: number })[] = await api(`/${encodeURIComponent(pid())}`);
@@ -572,32 +593,40 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     title.style.flex = "1";
     const viewBtn = btn("Document view"); viewBtn.onclick = () => showDocView(doc);
     const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
-    const suggestBtn = btn("Suggest bindings"); suggestBtn.onclick = () => showSuggestBindings(doc, () => showEditor(doc.id));
-    bar.append(back, title, viewBtn, versBtn, suggestBtn, aiPicker());
-    // document-level transitions
-    const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
-    for (const to of next[doc.status] || []) {
-      const b = btn(to === "published" ? "Publish…" : `→ ${to}`, to === "published");
-      b.onclick = async () => {
-        try {
-          if (to === "published") {
-            const label = prompt("Version label (e.g. 'P01 — issued for review')") || "";
-            const { version_no } = await api(`/${encodeURIComponent(pid())}/${doc.id}/publish`, { method: "POST", body: JSON.stringify({ label, actor: await actor() }) });
-            msg(`Published v${version_no}`);
-          } else {
-            await api(`/${encodeURIComponent(pid())}/${doc.id}/transition`, { method: "POST", body: JSON.stringify({ to, actor: await actor() }) });
-          }
-          showEditor(doc.id);
-        } catch (e: any) { msg(e.message, true); }
-      };
-      bar.append(b);
+    bar.append(back, title, viewBtn, versBtn);
+    if (canGovern()) {
+      const suggestBtn = btn("Suggest bindings"); suggestBtn.onclick = () => showSuggestBindings(doc, () => showEditor(doc.id));
+      bar.append(suggestBtn);
+    }
+    bar.append(aiPicker());
+    // document-level transitions (governance)
+    if (canGovern()) {
+      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
+      for (const to of next[doc.status] || []) {
+        const b = btn(to === "published" ? "Publish…" : `→ ${to}`, to === "published");
+        b.onclick = async () => {
+          try {
+            if (to === "published") {
+              const label = prompt("Version label (e.g. 'P01 — issued for review')") || "";
+              const { version_no } = await api(`/${encodeURIComponent(pid())}/${doc.id}/publish`, { method: "POST", body: JSON.stringify({ label, actor: await actor() }) });
+              msg(`Published v${version_no}`);
+            } else {
+              await api(`/${encodeURIComponent(pid())}/${doc.id}/transition`, { method: "POST", body: JSON.stringify({ to, actor: await actor() }) });
+            }
+            showEditor(doc.id);
+          } catch (e: any) { msg(e.message, true); }
+        };
+        bar.append(b);
+      }
     }
 
     body.replaceChildren();
-    const editable = doc.status === "wip" || doc.status === "shared";
+    const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
     let compliance: Compliance | null = null;
     try { compliance = await api(`/${encodeURIComponent(pid())}/${doc.id}/compliance`); } catch { /* compliance is optional; the editor must still open */ }
     const resultsFor = (sid: string) => compliance?.sections.find((s) => s.section_id === sid)?.results ?? [];
+    let comments: Comment[] = [];
+    try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* comments are optional; the editor must still open */ }
     for (const s of doc.sections) {
       const sec = document.createElement("details");
       sec.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;background:#191920";
@@ -641,9 +670,13 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           else msg(e.message, true);
         }
       };
-      const bindingsBtn = btn("Bindings");
-      bindingsBtn.onclick = () => showBindings(doc, s, () => showEditor(doc.id));
-      rowEl.append(ownerIn, stateSel, save, bindingsBtn);
+      if (canGovern()) {
+        const bindingsBtn = btn("Bindings");
+        bindingsBtn.onclick = () => showBindings(doc, s, () => showEditor(doc.id));
+        rowEl.append(ownerIn, stateSel, save, bindingsBtn);
+      } else {
+        rowEl.append(ownerIn, stateSel, save);
+      }
       if (editable) {
         // AI draft — proposal only: fills the editor; nothing is saved until the normal Save.
         const draftBtn = btn("Draft with AI");
@@ -665,10 +698,66 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         };
         rowEl.append(draftBtn);
       }
-      inner.append(guide, ta, complianceStrip(resultsFor(s.id)), rowEl);
+      inner.append(guide, ta, complianceStrip(resultsFor(s.id)), rowEl, commentThreadEl(doc, s.id, comments));
       sec.append(sum, inner);
       body.append(sec);
     }
+  }
+
+  // ── Comment threads — always available, viewers included (published docs are commentable) ────
+  function commentThreadEl(doc: Doc, sectionId: string, allComments: Comment[]): HTMLElement {
+    const wrap = document.createElement("div");
+    const list = allComments.filter((c) => c.section_id === sectionId);
+    const toggle = btn(`💬 ${list.length}`);
+    toggle.style.display = myRole === "viewer" || list.length > 0 ? "" : "none";
+    const thread = document.createElement("div");
+    thread.style.cssText = "display:none;flex-direction:column;gap:.35rem;margin-top:.4rem;padding:.4rem .5rem;border:1px solid #2a2a30;border-radius:.35rem;background:#141418";
+
+    const renderThread = () => {
+      thread.replaceChildren();
+      for (const c of list) {
+        const item = document.createElement("div");
+        const meta = document.createElement("div");
+        meta.style.cssText = "font:10.5px system-ui;color:#9ca3af";
+        const authorSpan = document.createElement("span");
+        authorSpan.textContent = c.author;                 // .textContent — XSS-safe
+        const timeSpan = document.createElement("span");
+        timeSpan.textContent = " · " + new Date(c.created_at).toLocaleString();
+        meta.append(authorSpan, timeSpan);
+        const textEl = document.createElement("div");
+        textEl.textContent = c.text;                       // .textContent — XSS-safe
+        textEl.style.cssText = "font:11px system-ui;color:#e5e7eb;white-space:pre-wrap";
+        item.append(meta, textEl);
+        thread.append(item);
+      }
+      const ta = document.createElement("textarea");
+      ta.placeholder = "Add a comment…";
+      ta.style.cssText = "width:100%;min-height:2.4rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.3rem;font:11px system-ui;resize:vertical;margin-top:.3rem";
+      const postBtn = btn("Post");
+      postBtn.style.marginTop = ".3rem";
+      postBtn.onclick = async () => {
+        const text = ta.value.trim();
+        if (!text) return;
+        postBtn.disabled = true;
+        try {
+          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/comments`, { method: "POST", body: JSON.stringify({ text }) });
+          const fresh: Comment[] = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`);
+          list.length = 0;
+          list.push(...fresh.filter((c) => c.section_id === sectionId));
+          toggle.textContent = `💬 ${list.length}`;
+          renderThread();
+        } catch (e) {
+          msg(`Couldn't post comment: ${(e as Error).message}`, true); // draft text is kept — ta is untouched on failure
+        } finally {
+          postBtn.disabled = false;
+        }
+      };
+      thread.append(ta, postBtn);
+    };
+    renderThread();
+    toggle.onclick = () => { thread.style.display = thread.style.display === "none" ? "flex" : "none"; };
+    wrap.append(toggle, thread);
+    return wrap;
   }
 
   // ── Versions view ─────────────────────────────────────────────────────────
@@ -693,7 +782,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   }
 
   // ── Document view (read + print) ──────────────────────────────────────────
-  function showDocView(doc: Doc, versionLabel?: string) {
+  async function showDocView(doc: Doc, versionLabel?: string) {
     bar.replaceChildren();
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); bar.append(back);
     const printBtn = btn("Print / PDF", true);
@@ -734,6 +823,20 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
            <div style="white-space:pre-wrap">${s.body ? esc(s.body) : "<i style='color:#999'>Not yet written.</i>"}</div>
          </section>`).join("");
     body.append(page);
+
+    // Comment threads — only for the live document (versionLabel means a read-only past snapshot
+    // whose section ids may not exist as commentable sections any more).
+    if (!versionLabel) {
+      let comments: Comment[] = [];
+      try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* optional */ }
+      for (const s of doc.sections) {
+        const holder = document.createElement("div");
+        holder.style.cssText = "max-width:760px;margin:.3rem auto 0";
+        holder.append(commentThreadEl(doc, s.id, comments));
+        body.append(holder);
+      }
+    }
+
     printBtn.onclick = () => {
       const w = window.open("", "_blank");
       if (!w) return msg("Popup blocked — allow popups to print", true);

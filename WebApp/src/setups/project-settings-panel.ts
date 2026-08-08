@@ -54,6 +54,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     `<div><label style="${lbl}">Project value</label><input id="ps-value" style="${inp}" placeholder="e.g. SAR 14,000,000"/></div>` +
     `<div><label style="${lbl}">Created</label><input id="ps-created" style="${inp};color:#71717a" disabled/></div>` +
     "</div>" +
+    '<div id="ps-members" style="margin-top:1.2rem"></div>' +
     '<div style="border:1px solid #7f1d1d;border-radius:.45rem;margin-top:1.6rem;padding:.7rem .8rem;background:#1c1214">' +
     '<div style="color:#fca5a5;font-weight:600;font-size:12px">Danger zone</div>' +
     '<div style="display:flex;align-items:center;gap:.6rem;margin-top:.6rem">' +
@@ -81,9 +82,114 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     b.style.color = archived ? "#4ade80" : "#eab308";
   }
 
+  // ── Members section (management is lead+; the DB 403s regardless of what renders here) ────────
+  const ROLES = ["owner", "lead", "contributor", "viewer"];
+  type Member = { user_id: string; role: string; email: string };
+  let membersErrDiv: HTMLElement | null = null;
+
+  function memberErr(text: string) {
+    if (membersErrDiv) membersErrDiv.textContent = text;
+  }
+  function memberErrClear() {
+    if (membersErrDiv) membersErrDiv.textContent = "";
+  }
+
+  async function loadMembers() {
+    const host = el("ps-members");
+    host.replaceChildren();
+    try {
+      const meR = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      const me = await meR.json().catch(() => ({}));
+      const role = (me as { role?: string | null }).role ?? null;
+      if (role !== "lead" && role !== "owner" && role !== "service") return; // not management — leave empty
+      const listR = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`);
+      if (!listR.ok) throw new Error(`HTTP ${listR.status}`);
+      const members = (await listR.json()) as Member[];
+
+      const head = document.createElement("div");
+      head.textContent = "Members";
+      head.style.cssText = "color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem";
+      host.append(head);
+
+      for (const m of members) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.3rem 0";
+        const emailEl = document.createElement("span");
+        emailEl.textContent = m.email;
+        emailEl.style.cssText = "flex:1;color:#e5e7eb;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        const sel = document.createElement("select");
+        sel.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
+        for (const r of ROLES) { const o = new Option(r, r); o.selected = r === m.role; sel.append(o); }
+        sel.addEventListener("change", async () => {
+          try {
+            const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, {
+              method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: sel.value }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+            memberErrClear();
+            await loadMembers();
+          } catch (e) { memberErr((e as Error)?.message ?? String(e)); sel.value = m.role; }
+        });
+        const rm = document.createElement("button");
+        rm.textContent = "Remove";
+        rm.style.cssText = `${btn};color:#fca5a5;border-color:#7f1d1d`;
+        let armed = false;
+        rm.addEventListener("click", async () => {
+          if (!armed) { armed = true; rm.textContent = "Confirm?"; return; }
+          try {
+            const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, { method: "DELETE" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+            memberErrClear();
+            await loadMembers();
+          } catch (e) { memberErr((e as Error)?.message ?? String(e)); armed = false; rm.textContent = "Remove"; }
+        });
+        row.append(emailEl, sel, rm);
+        host.append(row);
+      }
+
+      // Add row
+      const addRow = document.createElement("div");
+      addRow.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.5rem 0;border-top:1px solid #2a2a30;margin-top:.4rem";
+      const emailIn = document.createElement("input");
+      emailIn.type = "email";
+      emailIn.placeholder = "email";
+      emailIn.style.cssText = inp + ";flex:1";
+      const roleSel = document.createElement("select");
+      roleSel.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
+      for (const r of ROLES) roleSel.append(new Option(r, r));
+      roleSel.value = "viewer";
+      const addBtn = document.createElement("button");
+      addBtn.textContent = "Add";
+      addBtn.style.cssText = btn;
+      addBtn.addEventListener("click", async () => {
+        try {
+          const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailIn.value, role: roleSel.value }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+          memberErrClear();
+          emailIn.value = "";
+          await loadMembers();
+        } catch (e) { memberErr((e as Error)?.message ?? String(e)); }
+      });
+      addRow.append(emailIn, roleSel, addBtn);
+      host.append(addRow);
+
+      membersErrDiv = document.createElement("div");
+      membersErrDiv.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0;min-height:1em";
+      host.append(membersErrDiv);
+    } catch (e) {
+      // role fetch/list failed — leave section empty rather than a broken partial render
+    }
+  }
+
   async function load() {
     status("Loading…");
     el("pset-key").textContent = pid();
+    void loadMembers();
     try {
       const r = await bfetch(`${base}/cde/projects`);
       if (!r.ok) throw new Error(`Bridge ${r.status}`);

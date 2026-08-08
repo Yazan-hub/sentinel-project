@@ -37,6 +37,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     if (!r.ok) throw Object.assign(new Error((j as { message?: string }).message || `HTTP ${r.status}`), { status: r.status });
     return j;
   };
+  let myRole: string | null = "service";
+  const canEdit = () => myRole === "service" || ["owner", "lead", "contributor"].includes(myRole ?? "");
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;background:#16161a;color:#c9cfda;font:12px system-ui";
@@ -68,17 +70,27 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
   };
 
   async function showList() {
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      const j = await r.json().catch(() => ({}));
+      myRole = (j as { role?: string | null }).role ?? "service";
+    } catch { myRole = "service"; }
+
     bar.replaceChildren();
     const title = document.createElement("span");
     title.textContent = "Deliverables";
     title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
-    const addBtn = btn("+ Add", true);
-    const importBtn = btn("Paste schedule");
     const refresh = btn("↻");
-    addBtn.onclick = () => showAdd();
-    importBtn.onclick = () => showImport();
     refresh.onclick = () => showList();
-    bar.append(title, addBtn, importBtn, refresh);
+    bar.append(title);
+    if (canEdit()) {
+      const addBtn = btn("+ Add", true);
+      const importBtn = btn("Paste schedule");
+      addBtn.onclick = () => showAdd();
+      importBtn.onclick = () => showImport();
+      bar.append(addBtn, importBtn);
+    }
+    bar.append(refresh);
 
     body.replaceChildren();
     const loading = document.createElement("div");
@@ -226,19 +238,21 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         : "not delivered";
       dates.textContent = `${dueTxt} · ${gotTxt}${r.days_late ? ` · ${r.days_late}d late` : ""}`;
 
-      const edit = btn("Edit");
-      edit.style.padding = ".1rem .35rem";
-      edit.onclick = () => showAdd(r);
-      const del = btn("✕");
-      del.style.cssText += ";color:#fca5a5;border-color:#7f1d1d;padding:.1rem .35rem";
-      let armed = false;
-      del.onclick = async () => {
-        if (!armed) { armed = true; del.textContent = "Confirm?"; return; }
-        try { await api(`/${encodeURIComponent(pid())}/${r.id}`, { method: "DELETE" }); await showList(); }
-        catch (e) { msg(`Delete failed: ${(e as Error).message}`, true); }
-      };
-
-      card.append(chip, main, dates, edit, del);
+      card.append(chip, main, dates);
+      if (canEdit()) {
+        const edit = btn("Edit");
+        edit.style.padding = ".1rem .35rem";
+        edit.onclick = () => showAdd(r);
+        const del = btn("✕");
+        del.style.cssText += ";color:#fca5a5;border-color:#7f1d1d;padding:.1rem .35rem";
+        let armed = false;
+        del.onclick = async () => {
+          if (!armed) { armed = true; del.textContent = "Confirm?"; return; }
+          try { await api(`/${encodeURIComponent(pid())}/${r.id}`, { method: "DELETE" }); await showList(); }
+          catch (e) { msg(`Delete failed: ${(e as Error).message}`, true); }
+        };
+        card.append(edit, del);
+      }
       body.append(card);
     }
   }
