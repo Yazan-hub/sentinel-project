@@ -17,7 +17,7 @@ const baseDeps = (over = {}) => {
       if (path.startsWith("memberships") && (!opts.method || opts.method === "GET")) return rows;
       if (path.startsWith("memberships") && opts.method === "POST") { rows.push(opts.body); return [opts.body]; }
       if (path.startsWith("memberships") && opts.method === "PATCH") return [{}];
-      if (path.startsWith("memberships") && opts.method === "DELETE") return [];
+      if (path.startsWith("memberships") && opts.method === "DELETE") return [{}]; // CAS: non-empty = the row matched the predicate
       return [];
     }),
     audit: vi.fn(async () => ({})),
@@ -111,5 +111,23 @@ describe("myRole / requireMinRole", () => {
     await expect(requireMinRole("demo", "lead", baseDeps({ sub: "u-view" })))
       .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/lead/) });
     await expect(requireMinRole("demo", "contributor", baseDeps({ sub: "u-owner" }))).resolves.toBeUndefined();
+  });
+});
+
+describe("membership CAS — role predicate on writes", () => {
+  it("the write's WHERE carries the pre-read role; a lost race (0 rows) is a 409, no audit", async () => {
+    const deps = baseDeps();
+    deps.rows.push({ project_id: "p1", user_id: "u-owner2", role: "owner" });
+    deps.sb = vi.fn(async (path, opts = {}) => {
+      if (path.startsWith("memberships") && (!opts.method || opts.method === "GET")) return deps.rows;
+      if (opts.method === "PATCH" || opts.method === "DELETE") {
+        expect(path).toMatch(/role=eq\.owner/); // the predicate is on the wire
+        return []; // concurrent winner already changed the row
+      }
+      return [];
+    });
+    await expect(changeRole("demo", "u-owner", "lead", "w", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/concurrently/) });
+    expect(deps.audit).not.toHaveBeenCalled();
   });
 });

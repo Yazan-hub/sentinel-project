@@ -34,7 +34,6 @@ const wire = (deps = {}) => ({
   sub: deps.sub !== undefined ? deps.sub : undefined, // tests override; production reads currentSub()
 });
 const subOf = (d) => (d.sub !== undefined ? d.sub : currentSub());
-const isMachine = (d) => (d.sub !== undefined ? d.sub === null && d.machine === true : !currentUserToken());
 
 /** Rows for a project — service read (the list is member-visible; write RLS is the boundary). */
 async function memberRows(d, projId) {
@@ -92,7 +91,10 @@ export async function changeRole(key, userId, role, actor, deps) {
   if (!before) throw err(404, "not a member of this project");
   if (before.role === "owner" && role !== "owner" && (await ownerCountExcluding(d, proj.id, userId)) === 0)
     throw err(409, "a project must keep at least one owner");
-  await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}`, { method: "PATCH", body: { role }, prefer: "return=minimal" });
+  // CAS: the WHERE re-checks the role the last-owner guard was computed from — two admins
+  // demoting the last two owners concurrently cannot race to zero owners; the loser gets 0 rows.
+  const patched = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}&role=eq.${enc(before.role)}`, { method: "PATCH", body: { role }, prefer: "return=representation" });
+  if (!Array.isArray(patched) || !patched.length) throw err(409, "membership changed concurrently — reload and retry");
   await d.audit(proj.id, "membership", userId, "member_role_changed", actor || "web", { role: before.role }, { role });
   return { user_id: userId, role };
 }
@@ -105,7 +107,8 @@ export async function removeMember(key, userId, actor, deps) {
   if (!before) throw err(404, "not a member of this project");
   if (before.role === "owner" && (await ownerCountExcluding(d, proj.id, userId)) === 0)
     throw err(409, "a project must keep at least one owner");
-  await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}`, { method: "DELETE", prefer: "return=minimal" });
+  const deleted = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}&role=eq.${enc(before.role)}`, { method: "DELETE", prefer: "return=representation" });
+  if (!Array.isArray(deleted) || !deleted.length) throw err(409, "membership changed concurrently — reload and retry");
   await d.audit(proj.id, "membership", userId, "member_removed", actor || "web", { role: before.role }, null);
   return { removed: true, user_id: userId };
 }
