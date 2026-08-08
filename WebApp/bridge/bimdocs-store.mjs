@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit, isUuid } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
+import { requireMinRole } from "./members-store.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -58,6 +59,7 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
 }
 
 export async function transitionDoc(key, docId, { to, actor } = {}) {
+  await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const doc = await getDoc(key, docId);
   if (!validateTransition(doc.status, to)) throw err(400, `invalid transition ${doc.status} → ${to}`);
   const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: to, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
@@ -66,6 +68,7 @@ export async function transitionDoc(key, docId, { to, actor } = {}) {
 }
 
 export async function publishDoc(key, docId, { label, actor } = {}) {
+  await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const doc = await getDoc(key, docId);
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`);
@@ -183,6 +186,7 @@ export function validateBindings(bindings) {
 
 /** Persist one section's bindings. Same guards as patchSection: no editing a published/archived doc. */
 export async function setSectionBindings(key, docId, sectionId, payload = {}) {
+  await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const { bindings, updated_at, actor } = payload;
   // A missing `bindings` key used to fall through validateBindings' undefined-default and silently
   // WIPE the section's bindings to empty with a 200. A PUT to this route must say what it means:

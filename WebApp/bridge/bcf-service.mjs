@@ -876,6 +876,31 @@ async function handleRequest(req, res) {
         }
         if (req.method === "DELETE") return send(res, 200, await cde.deleteProject(key, "web"));
       }
+      // ── Members: add-by-email (sign-up-first), roles, last-owner guard. Writes ride the
+      // forwarded session so 0004's lead-gate RLS decides; /me tells the UI what to render.
+      if (p2 === "members" && !p3 && req.method === "GET") {
+        const members = await import("./members-store.mjs");
+        return send(res, 200, await members.listMembers(p1));
+      }
+      if (p2 === "members" && p3 === "me" && req.method === "GET") {
+        const members = await import("./members-store.mjs");
+        return send(res, 200, { role: await members.myRole(p1) });
+      }
+      if (p2 === "members" && !p3 && req.method === "POST") {
+        const members = await import("./members-store.mjs");
+        const b = await readBody(req);
+        return send(res, 201, await members.addMember(p1, b, b.actor || "web"));
+      }
+      if (p2 === "members" && p3 && p3 !== "me" && req.method === "PATCH") {
+        const members = await import("./members-store.mjs");
+        const b = await readBody(req);
+        return send(res, 200, await members.changeRole(p1, p3, b.role, b.actor || "web"));
+      }
+      if (p2 === "members" && p3 && p3 !== "me" && req.method === "DELETE") {
+        const members = await import("./members-store.mjs");
+        const b = await readBody(req);
+        return send(res, 200, await members.removeMember(p1, p3, b.actor || "web"));
+      }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
         if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));

@@ -14,8 +14,17 @@ vi.mock("./cde-store.mjs", () => ({
   // real-shape guard: bimdocs-store now imports isUuid to 404 malformed ids before any network call
   isUuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "")),
 }));
+vi.mock("./members-store.mjs", () => ({
+  requireMinRole: vi.fn(async (key, min) => {
+    if (globalThis.__testRole && globalThis.__testRole !== "service") {
+      const rank = { owner: 4, lead: 3, contributor: 2, viewer: 1 };
+      if ((rank[globalThis.__testRole] || 0) < rank[min])
+        throw Object.assign(new Error(`this action requires the ${min} role`), { status: 403 });
+    }
+  }),
+}));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -119,5 +128,22 @@ describe("setSectionBindings — missing-wrapper guard", () => {
     expect(result).toBeTruthy();
     const patch = sb.mock.calls.find(([, opts]) => opts?.method === "PATCH");
     expect(patch[1].body.sections[0].bindings).toEqual({ checks: [] });
+  });
+});
+
+describe("lead-gates on governing actions", () => {
+  it("a contributor may NOT transition, publish, or set bindings (403 naming lead)", async () => {
+    globalThis.__testRole = "contributor";
+    await expect(transitionDoc("demo", "11111111-1111-4111-8111-111111111111", { to: "shared" })).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/lead/) });
+    await expect(publishDoc("demo", "11111111-1111-4111-8111-111111111111", {})).rejects.toMatchObject({ status: 403 });
+    await expect(setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] } })).rejects.toMatchObject({ status: 403 });
+    globalThis.__testRole = undefined;
+  });
+
+  it("machine callers (service) pass the gates untouched", async () => {
+    globalThis.__testRole = "service";
+    const result = await setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
+    expect(result).toBeTruthy();
+    globalThis.__testRole = undefined;
   });
 });
