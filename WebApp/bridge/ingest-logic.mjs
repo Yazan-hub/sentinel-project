@@ -8,10 +8,36 @@ export const LOW_CONFIDENCE = 0.5;
 
 /**
  * Pack extracted pages into chunks under a character budget, injecting [page N] markers so the
- * model can cite pages. A single page larger than the budget becomes its own chunk (never split
- * mid-page: a half sentence maps worse than a long one). Blank pages are dropped.
+ * model can cite pages. A page moderately over budget stays whole (never split mid-sentence: a
+ * half sentence maps worse than a long one) — but a page FAR over budget is split at PARAGRAPH
+ * boundaries first. Without that, a docx (which mammoth extracts as ONE page regardless of
+ * length) becomes a single monster chunk that blows the local model's context and maps nothing.
+ * Blank pages are dropped.
  */
 export function chunkPages(pages, budget = 6000) {
+  // A page up to 1.5× budget rides whole; beyond that, split it into paragraph-packed sub-pages.
+  const splitOversized = (p) => {
+    const body = (p.text || "").trim();
+    if (body.length <= budget * 1.5) return [p];
+    const paras = body.split(/\n{2,}/);
+    const out = [];
+    let buf = "";
+    const push = () => { if (buf.trim()) out.push({ page: p.page, text: buf.trim() }); buf = ""; };
+    for (const para of paras) {
+      // A single paragraph beyond the budget is hard-split as a last resort (tables flattened by
+      // extraction can produce these); mid-paragraph beats un-mappable.
+      if (para.length > budget) {
+        push();
+        for (let i = 0; i < para.length; i += budget) out.push({ page: p.page, text: para.slice(i, i + budget) });
+        continue;
+      }
+      if (buf && buf.length + para.length + 2 > budget) push();
+      buf += (buf ? "\n\n" : "") + para;
+    }
+    push();
+    return out;
+  };
+
   const chunks = [];
   let text = "";
   let nums = [];
@@ -20,12 +46,14 @@ export function chunkPages(pages, budget = 6000) {
     text = "";
     nums = [];
   };
-  for (const p of pages) {
-    const marked = `[page ${p.page}]\n${(p.text || "").trim()}`;
-    if (!(p.text || "").trim()) continue;
-    if (text && text.length + marked.length > budget) flush();
-    text += (text ? "\n\n" : "") + marked;
-    nums.push(p.page);
+  for (const page of pages) {
+    for (const p of splitOversized(page)) {
+      const marked = `[page ${p.page}]\n${(p.text || "").trim()}`;
+      if (!(p.text || "").trim()) continue;
+      if (text && text.length + marked.length > budget) flush();
+      text += (text ? "\n\n" : "") + marked;
+      nums.push(p.page);
+    }
   }
   flush();
   return chunks;
