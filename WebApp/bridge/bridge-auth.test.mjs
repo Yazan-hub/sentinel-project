@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runWithAuth, currentUserToken, currentActor, resolveActor } from "./bridge-auth.mjs";
+import { runWithAuth, currentUserToken, currentActor, resolveActor, currentSub } from "./bridge-auth.mjs";
 
 // A syntactically valid JWT with the given payload (signature irrelevant — currentActor only decodes;
 // verification happens at the gate / at PostgREST).
@@ -53,5 +53,14 @@ describe("resolveActor — the anti-poisoning rule", () => {
     expect(resolveActor(undefined)).toBeNull();
     expect(resolveActor(undefined, "web")).toBe("web");
     expect(resolveActor("", "agent")).toBe("agent"); // an empty-string claim is not an identity
+  });
+});
+
+describe("currentSub", () => {
+  it("returns the JWT sub inside a context, null outside", () => {
+    runWithAuth(jwt({ sub: "user-uuid-1", email: "a@x.com" }), () => {
+      expect(currentSub()).toBe("user-uuid-1");
+    });
+    expect(currentSub()).toBeNull();
   });
 });

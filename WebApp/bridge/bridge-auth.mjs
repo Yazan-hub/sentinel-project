@@ -37,3 +37,13 @@ export const currentActor = () => {
  * identity other than their own into the governed trail.
  */
 export const resolveActor = (claimed, fallback = null) => currentActor() || claimed || fallback;
+
+/** The authenticated caller's user id (JWT sub), or null. Memberships key on this. */
+export const currentSub = () => {
+  const t = currentUserToken();
+  if (!t) return null;
+  try {
+    const c = JSON.parse(Buffer.from(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    return c.sub || null;
+  } catch { return null; }
+};
