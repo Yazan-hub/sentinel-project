@@ -99,9 +99,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     host.replaceChildren();
     try {
       const meR = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      if (!meR.ok) throw new Error(`role check failed (HTTP ${meR.status})`); // a broken /me must NOT read as "not management"
       const me = await meR.json().catch(() => ({}));
       const role = (me as { role?: string | null }).role ?? null;
-      if (role !== "lead" && role !== "owner" && role !== "service") return; // not management — leave empty
+      if (role !== "lead" && role !== "owner" && role !== "service") return; // genuinely not management — leave empty
       const listR = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`);
       if (!listR.ok) throw new Error(`HTTP ${listR.status}`);
       const members = (await listR.json()) as Member[];
@@ -182,7 +183,13 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       membersErrDiv.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0;min-height:1em";
       host.append(membersErrDiv);
     } catch (e) {
-      // role fetch/list failed — leave section empty rather than a broken partial render
+      // A FAILED load must not be a silent blank (the same vanishing-error lesson the add row
+      // follows): an admin can't tell "load broke" from "I'm not management". Persistent line.
+      host.replaceChildren();
+      const fail = document.createElement("div");
+      fail.textContent = `Members list couldn't load: ${(e as Error)?.message ?? String(e)} — reload to retry.`;
+      fail.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0";
+      host.append(fail);
     }
   }
 
