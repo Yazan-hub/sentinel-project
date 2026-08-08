@@ -1124,6 +1124,13 @@ async function handleRequest(req, res) {
         return send(res, 200, await bimdocs.setSectionBindings(p1, p2, p4, { ...body, actor }));
       if (p3 === "compliance" && !p4 && req.method === "GET")
         return send(res, 200, await bimdocs.complianceReport(p1, p2));
+      if (p1 && p2 && p3 === "comments" && req.method === "GET")
+        return send(res, 200, await bimdocs.listComments(p1, p2));
+      if (p1 && p2 && p3 === "section" && p4 && seg[5] === "comments" && req.method === "POST") {
+        // Any MEMBER may comment (that's the viewer's whole affordance) — membership is enforced
+        // by getDoc's ensureProject under a forwarded session; machine callers trusted as ever.
+        return send(res, 201, await bimdocs.addComment(p1, p2, p4, body.text, actor));
+      }
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       if (p1 && p2 && !p3 && req.method === "GET") return send(res, 200, await bimdocs.getDoc(p1, p2));

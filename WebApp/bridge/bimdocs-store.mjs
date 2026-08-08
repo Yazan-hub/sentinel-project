@@ -2,10 +2,11 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit, isUuid } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid, docGet, docUpsert } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireMinRole } from "./members-store.mjs";
+import { resolveActor } from "./bridge-auth.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -208,6 +209,37 @@ export async function setSectionBindings(key, docId, sectionId, payload = {}) {
     { section: old.heading, checks: (old.bindings?.checks || []).map((c) => c.id) },
     { section: old.heading, checks: next.checks.map((c) => c.id) });
   return row;
+}
+
+// ── Section comments — OUTSIDE the document (store "doc_comments"): commenting on a PUBLISHED
+// document must not touch its frozen bytes. Append-only; author is ALWAYS the verified identity.
+const COMMENTS_STORE = "doc_comments";
+export const MAX_COMMENT_CHARS = 4000;
+
+export async function listComments(key, docId) {
+  const doc = await getDoc(key, docId); // membership + isUuid + 404 in one place
+  const bag = await docGet(COMMENTS_STORE, doc.project_id, docId);
+  return bag?.comments || [];
+}
+
+export async function addComment(key, docId, sectionId, text, actor) {
+  const doc = await getDoc(key, docId); // published/archived are FINE — we never write the doc row
+  const section = doc.sections.find((s) => s.id === sectionId);
+  if (!section) throw err(404, `section not found — available: ${doc.sections.map((s) => s.id).join(", ")}`);
+  const body = typeof text === "string" ? text.trim() : "";
+  if (!body) throw err(400, "comment text is required");
+  if (body.length > MAX_COMMENT_CHARS) throw err(400, `comment too long (${body.length}; limit ${MAX_COMMENT_CHARS})`);
+  const bag = (await docGet(COMMENTS_STORE, doc.project_id, docId)) || { comments: [] };
+  const comment = {
+    id: randomUUID(), section_id: sectionId,
+    author: resolveActor(actor, "web"),   // verified identity outranks any claim, as everywhere
+    text: body, created_at: new Date().toISOString(),
+  };
+  bag.comments.push(comment);
+  await docUpsert(COMMENTS_STORE, doc.project_id, docId, bag);
+  await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
+    { section: section.heading, chars: body.length });
+  return comment;
 }
 
 /** Cap on bound checks evaluated per compliance run — bounds a doc's latency to O(cap), not O(bindings). */

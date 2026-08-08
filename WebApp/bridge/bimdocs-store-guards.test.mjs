@@ -7,12 +7,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const sb = vi.fn();
 const ensureProject = vi.fn();
 const audit = vi.fn();
+const __docs = new Map();
 vi.mock("./cde-store.mjs", () => ({
   sb: (...args) => sb(...args),
   ensureProject: (...args) => ensureProject(...args),
   audit: (...args) => audit(...args),
   // real-shape guard: bimdocs-store now imports isUuid to 404 malformed ids before any network call
   isUuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "")),
+  docGet: async (s, p, id) => __docs.get(s + id) ?? null,
+  docUpsert: async (s, p, id, data) => { __docs.set(s + id, data); return data; },
 }));
 vi.mock("./members-store.mjs", () => ({
   requireMinRole: vi.fn(async (key, min) => {
@@ -145,5 +148,32 @@ describe("lead-gates on governing actions", () => {
     const result = await setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
     expect(result).toBeTruthy();
     globalThis.__testRole = undefined;
+  });
+});
+
+describe("section comments — external store, append-only, server-stamped", () => {
+  it("adds a comment to a real section, audits, and lists it back", async () => {
+    const { addComment, listComments } = await import("./bimdocs-store.mjs");
+    const c = await addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "Looks thin on QA procedures.", "reviewer@x.com");
+    expect(c).toMatchObject({ section_id: "sec1", author: "reviewer@x.com", text: "Looks thin on QA procedures." });
+    expect(c.id).toBeTruthy();
+    const all = await listComments("demo", "11111111-1111-4111-8111-111111111111");
+    expect(all).toHaveLength(1);
+    expect(audit.mock.calls.some((x) => x[3] === "comment_added")).toBe(true);
+  });
+
+  it("404s an unknown section listing available ids; 400s empty and oversized text", async () => {
+    const { addComment } = await import("./bimdocs-store.mjs");
+    await expect(addComment("demo", "11111111-1111-4111-8111-111111111111", "nope", "x", "a")).rejects.toMatchObject({ status: 404, message: expect.stringMatching(/sec1/) });
+    await expect(addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "   ", "a")).rejects.toMatchObject({ status: 400 });
+    await expect(addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "y".repeat(4001), "a")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("works on a PUBLISHED document — the doc row is never touched", async () => {
+    doc.status = "published";
+    const { addComment } = await import("./bimdocs-store.mjs");
+    await expect(addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "Reviewing the record.", "a")).resolves.toBeTruthy();
+    const patched = sb.mock.calls.filter(([p, o]) => p.startsWith("bim_documents") && o?.method === "PATCH");
+    expect(patched).toHaveLength(0); // comments never write the document row
   });
 });
