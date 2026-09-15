@@ -11,7 +11,7 @@ describe("validateRow", () => {
 
   it("accepts a row with only a container name", () => {
     const r = validateRow({ container_name: "A" });
-    expect(r).toEqual({ container_name: "A", title: null, responsible_team: null, due_date: null, stage: null, notes: null, expected_revision: null, expected_suitability: null });
+    expect(r).toEqual({ container_name: "A", title: null, responsible_team: null, due_date: null, stage: null, notes: null, expected_revision: null, expected_suitability: null, purpose: null });
   });
 
   it("rejects a missing container name with 400 (it is the match key)", () => {

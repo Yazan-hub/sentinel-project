@@ -962,6 +962,10 @@ async function handleRequest(req, res) {
         if (req.method === "GET") return send(res, 200, await cde.listRevisions(p1));
         if (req.method === "POST") return send(res, 201, await cde.createRevision(p1, await readBody(req)));
       }
+      //   GET  /cde/:key/snapshots/delta?from=&to=  → what changed between two revisions, priced and
+      //        carbon-costed by REFERENCE (must precede the :revId read below — "delta" is not an id)
+      if (p2 === "snapshots" && p3 === "delta" && req.method === "GET")
+        return send(res, 200, await cde.revisionDelta(p1, { from: url.searchParams.get("from") || undefined, to: url.searchParams.get("to") || undefined }));
       if (p2 === "snapshots" && p3 && req.method === "GET") return send(res, 200, await cde.getRevisionSnapshots(p3));
       // IFC5-aligned ECS export of the governed element graph: GET /cde/:key/element-graph[?revision=<id>]
       if (p2 === "element-graph" && !p3 && req.method === "GET") return send(res, 200, await cde.getElementGraph(p1, url.searchParams.get("revision") || undefined));
@@ -1033,8 +1037,62 @@ async function handleRequest(req, res) {
     }
   }
 
+  // ── Verdict receipts: the shareable proof that an adjudication is on the ledger ──
+  //   GET  /receipt/:key/:auditId   → the receipt for a recorded adjudication
+  //   POST /receipt/:key/verify { receipt } → { matches, reasons, ledger }
+  //   Both are READ-ONLY. Verification is offered as a service precisely so a client does not have
+  //   to take the receipt-holder's word for it.
+  if (url.pathname.startsWith("/receipt")) {
+    const cde = await import("./cde-store.mjs");
+    try {
+      const seg = url.pathname.split("/").filter(Boolean); // ['receipt', key, idOrVerify]
+      const [, key, tail] = seg;
+      if (!key) return send(res, 404, { message: "receipt route not found" });
+      if (tail === "verify" && req.method === "POST") {
+        const body = await readBody(req);
+        return send(res, 200, await cde.checkReceipt(key, body.receipt ?? body));
+      }
+      if (tail && req.method === "GET") {
+        const receipt = await cde.receiptFor(key, tail);
+        if (!receipt) return send(res, 404, { message: "no ledger entry with that audit id on this project" });
+        return send(res, 200, { receipt });
+      }
+      return send(res, 404, { message: "receipt route not found" });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[receipt] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
+  // ── Task teams: the ISO 19650 responsibility matrix a TIDP belongs to ──
+  //   GET/POST /teams/:key · PATCH/DELETE /teams/:key/:id
+  //   Role gating is RLS's job (0026: members read, leads write) — the bridge forwards the session.
+  if (url.pathname.startsWith("/teams")) {
+    const tt = await import("./task-teams-store.mjs");
+    try {
+      const seg = url.pathname.split("/").filter(Boolean); // ['teams', key, id]
+      const [, key, id] = seg;
+      const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const actor = body.actor || "web";
+      if (!key) return send(res, 404, { message: "teams route not found" });
+
+      if (!id && req.method === "GET") return send(res, 200, await tt.listTeams(key));
+      if (!id && req.method === "POST") return send(res, 201, await tt.createTeam(key, body, actor));
+      if (id && req.method === "PATCH") return send(res, 200, await tt.updateTeam(key, id, body, actor));
+      if (id && req.method === "DELETE") return send(res, 200, await tt.deleteTeam(key, id, actor));
+      return send(res, 404, { message: "teams route not found" });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[teams] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
   // ── MIDP/TIDP deliverables: planned rows + derived planned-vs-actual status ──
   //   GET  /deliverables/:key            · GET /deliverables/:key/status (derived, read-only)
+  //   GET  /deliverables/:key/tidp       (the same rows grouped by task team, rolled into the MIDP)
+  //   GET  /deliverables/:key/report     (the weekly information-delivery status report, markdown)
+  //   POST /deliverables/:key/rebaseline { rows: [{container_name, due_date}], apply?: true }
+  //        — without `apply` this is a read-only preview of what moving the programme would do.
   //   POST /deliverables/:key            · POST /deliverables/:key/import { rows: [...] }
   //   PATCH/DELETE /deliverables/:key/:id
   if (url.pathname.startsWith("/deliverables")) {
@@ -1048,11 +1106,17 @@ async function handleRequest(req, res) {
 
       if (!p2 && req.method === "GET") return send(res, 200, await dl.listDeliverables(key));
       if (p2 === "status" && req.method === "GET") return send(res, 200, await dl.deliverableStatus(key));
+      if (p2 === "tidp" && req.method === "GET") return send(res, 200, await dl.tidpReport(key));
+      if (p2 === "report" && req.method === "GET") return send(res, 200, await dl.weeklyReportMarkdown(key));
+      if (p2 === "rebaseline" && req.method === "POST")
+        return send(res, 200, body.apply
+          ? await dl.rebaselineApply(key, body.rows, actor)
+          : await dl.rebaselinePreview(key, body.rows));
       if (!p2 && req.method === "POST") return send(res, 201, await dl.createDeliverable(key, body, actor));
       if (p2 === "import" && req.method === "POST") return send(res, 201, await dl.importDeliverables(key, body.rows, actor));
-      if (p2 && p2 !== "status" && p2 !== "import" && req.method === "PATCH")
+      if (p2 && !["status", "import", "tidp", "report", "rebaseline"].includes(p2) && req.method === "PATCH")
         return send(res, 200, await dl.updateDeliverable(key, p2, body, actor));
-      if (p2 && p2 !== "status" && p2 !== "import" && req.method === "DELETE")
+      if (p2 && !["status", "import", "tidp", "report", "rebaseline"].includes(p2) && req.method === "DELETE")
         return send(res, 200, await dl.deleteDeliverable(key, p2, actor));
       return send(res, 404, { message: "deliverables route not found" });
     } catch (e) {
@@ -1062,12 +1126,13 @@ async function handleRequest(req, res) {
   }
 
   // ── BIM Documents (BEP/EIR) — structured ISO 19650 documents, versioned & audited ──
-  //   GET  /bimdocs/templates
+  //   GET  /bimdocs/templates · POST /bimdocs/compile-ids { text } (prose → proposed IDS, installs nothing)
   //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, title }
   //   GET  /bimdocs/:key/:docId
   //   PATCH /bimdocs/:key/:docId/section/:sectionId { body?, owner?, state?, updated_at }
   //   POST /bimdocs/:key/:docId/section/:sectionId/draft { provider?, model? } · POST /bimdocs/:key/:docId/integrity { provider?, model? }
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
+  //   GET  /bimdocs/:key/:docId/executability  (the strip test — how much of the doc controls anything)
   //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
   if (url.pathname.startsWith("/bimdocs")) {
     const bimdocs = await import("./bimdocs-store.mjs");
@@ -1110,6 +1175,14 @@ async function handleRequest(req, res) {
       }
 
       if (p1 === "templates" && req.method === "GET") return send(res, 200, bimdocs.listTemplates());
+      // POST /bimdocs/compile-ids { text } → proposed IDS specifications compiled from requirement prose.
+      // Deterministic and READ-ONLY: it installs nothing. The caller reviews `specifications` against
+      // each `source_sentence`, and reads `unmatched` — those requirements are in the document and
+      // are NOT in the spec.
+      if (p1 === "compile-ids" && req.method === "POST") {
+        const { compileIds } = await import("./ids-compile.mjs");
+        return send(res, 200, compileIds(body.text, { title: body.title }));
+      }
       // Enforcement wiring: the check registry, binding suggestions, binding writes, compliance reads.
       if (p1 === "checks" && !p2 && req.method === "GET") {
         const { listChecks } = await import("./check-registry.mjs");
@@ -1124,6 +1197,8 @@ async function handleRequest(req, res) {
         return send(res, 200, await bimdocs.setSectionBindings(p1, p2, p4, { ...body, actor }));
       if (p3 === "compliance" && !p4 && req.method === "GET")
         return send(res, 200, await bimdocs.complianceReport(p1, p2));
+      if (p3 === "executability" && req.method === "GET")
+        return send(res, 200, await bimdocs.executabilityReport(p1, p2));
       if (p1 && p2 && p3 === "comments" && req.method === "GET")
         return send(res, 200, await bimdocs.listComments(p1, p2));
       if (p1 && p2 && p3 === "section" && p4 && seg[5] === "comments" && req.method === "POST") {

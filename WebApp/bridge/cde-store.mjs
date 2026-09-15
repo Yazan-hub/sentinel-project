@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { loadEnv } from "./thatopen-client.mjs";
+import { normalizeAgent, buildReceipt, verifyReceipt } from "./agent-provenance.mjs";
 import { currentUserToken, currentActor, resolveActor } from "./bridge-auth.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
@@ -651,6 +652,55 @@ export async function getElementGraph(key, revisionId) {
   return { revision: rev, graph: c.toElementGraph(snaps, `${key}${rev.rev_code ? "@" + rev.rev_code : ""}`) };
 }
 
+/**
+ * The per-revision delta: what changed between two take-offs, priced and carbon-costed.
+ *
+ * Defaults to the two newest revisions, which is the "what did this publish just do" question.
+ * Returns a `not_comparable` answer rather than a zero when there is only one revision — a single
+ * baseline has nothing to be different from, and reporting "no change" would be a fabricated pass.
+ */
+export async function revisionDelta(key, { from, to } = {}) {
+  const revs = await listRevisions(key);
+  const byId = new Map((revs || []).map((r) => [r.id, r]));
+  const newer = to ? byId.get(to) : revs?.[0];
+  const older = from ? byId.get(from) : revs?.[1];
+  if (!newer || !older) {
+    return {
+      comparable: false,
+      reason: !revs?.length
+        ? "This project has no take-off revisions yet, so there is nothing to compare."
+        : revs.length === 1
+          ? "Only one revision exists — a baseline has nothing to be different from."
+          : "One of the requested revisions does not belong to this project.",
+      revisions: (revs || []).slice(0, 10),
+    };
+  }
+
+  const [oldRows, newRows, c] = await Promise.all([getRevisionSnapshots(older.id), getRevisionSnapshots(newer.id), core()]);
+  const toSnap = (r) => {
+    const quantities = {};
+    for (const m of ["count", "length", "area", "volume", "weight"]) if (r[m] != null) quantities[m] = Number(r[m]);
+    return { guid: r.guid, category: r.category, type_name: r.type_name, quantities };
+  };
+  const diff = c.diffSnapshots(oldRows.map(toSnap), newRows.map(toSnap));
+  const summary = c.summarizeDiff(diff);
+  const rates = c.defaultRates, factors = c.defaultFactors;
+  const cost = c.costDiff(diff, rates);
+  const carbon = c.carbonDiff(diff, factors);
+  const { deltaHeadline } = await import("./revision-delta.mjs");
+  return {
+    comparable: true,
+    from: { id: older.id, rev_code: older.rev_code, uploaded_at: older.uploaded_at, element_count: older.element_count },
+    to: { id: newer.id, rev_code: newer.rev_code, uploaded_at: newer.uploaded_at, element_count: newer.element_count },
+    summary, cost, carbon,
+    ...deltaHeadline(summary, cost, carbon, {
+      currency: rates?.currency ?? null,
+      rates: rates?.title || "bridge default rate table",
+      carbon_factors: factors?.source || "bridge default carbon factors",
+    }),
+  };
+}
+
 /** Fetch one revision's element snapshots (for diffing / rehydrating a baseline). Pages past db-max-rows. */
 export async function getRevisionSnapshots(revisionId) {
   const rid = encodeURIComponent(revisionId);
@@ -757,6 +807,30 @@ function serverIdsSpec() {
  *  Server-side IDS custody: when SENTINEL_IDS is set and valid, that spec is authoritative and any client-posted
  *  `b.ids` is ignored (audited as ids_source: "server", client_ids_ignored: true). Otherwise, current
  *  client-supplied behaviour (ids_source: "client" or "none"). */
+/**
+ * One ledger entry, by id, scoped to the project — the backing read for a receipt check.
+ * Returns null rather than throwing: "no such entry" is an answer a verifier needs to hear.
+ */
+export async function getAuditEntry(key, id) {
+  const n = Number(id);
+  if (!Number.isInteger(n) || n < 0) return null;
+  const proj = await ensureProject(key);
+  const rows = await sb(`audit_log?project_id=eq.${proj.id}&id=eq.${n}&select=*`);
+  return (Array.isArray(rows) ? rows[0] : rows) ?? null;
+}
+
+/** Re-derive the receipt for a recorded adjudication straight from the ledger. */
+export async function receiptFor(key, id) {
+  const row = await getAuditEntry(key, id);
+  return row ? buildReceipt(row, { project_key: key }) : null;
+}
+
+/** Check a receipt a client is holding against the ledger entry it names. */
+export async function checkReceipt(key, receipt) {
+  const row = receipt && receipt.audit_id !== undefined ? await getAuditEntry(key, receipt.audit_id) : null;
+  return verifyReceipt(receipt, row);
+}
+
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
@@ -811,13 +885,16 @@ export async function adjudicateProposal(key, b = {}) {
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
   const trustedActor = resolveActor(b.actor ?? b.source, "agent");
+  // CLAIMED, never verified (see agent-provenance.mjs). Recorded so that "which model proposed this,
+  // from which prompt" is answerable later — the question every AI-authored-BIM thread ends on.
+  const agent = normalizeAgent(b.agent);
   const audit = (await sb(`audit_log`, {
     method: "POST",
     body: {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -831,12 +908,20 @@ export async function adjudicateProposal(key, b = {}) {
       body: {
         project_id: proj.id, entity_type: "file_version", entity_id: b.version_id,
         action: `verdict:${verdict}`, actor: trustedActor, old_value: null,
-        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming, warned },
+        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming, warned, ...(agent ? { agent } : {}) },
       },
       prefer: "return=minimal", service: true,
     });
   }
-  return { verdict, summary, failures: failures.slice(0, 200), naming, warned, ids_enforce: idsEnforce, ids_source: idsSource, client_ids_ignored: clientIdsIgnored, audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null };
+  return {
+    verdict, summary, failures: failures.slice(0, 200), naming, warned,
+    ids_enforce: idsEnforce, ids_source: idsSource, client_ids_ignored: clientIdsIgnored,
+    audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
+    agent,
+    // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
+    // ledger that cannot be rewritten — see POST /receipt/:key/verify.
+    receipt: buildReceipt(audit, { project_key: key }),
+  };
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.

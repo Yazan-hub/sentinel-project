@@ -14,9 +14,12 @@ type Row = {
   due_date: string | null; stage: string | null; notes: string | null;
   status: "delivered" | "late" | "in_wip" | "overdue" | "pending" | "unscheduled";
   first_arrived_at: string | null; published_at: string | null; days_late: number;
-  expected_revision: string | null; expected_suitability: string | null; evidence: Evidence;
+  expected_revision: string | null; expected_suitability: string | null; purpose: string | null; evidence: Evidence;
 };
 type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number>; exceptions: Exception[] };
+type Team = { id: string; code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; notes: string | null };
+type Tidp = { code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; declared: boolean; rows: Row[]; summary: Record<string, number>; next_due: string | null; at_risk: number };
+type TidpReport = { generated_at: string; today: string; tidps: Tidp[]; unassigned: { rows: Row[]; summary: Record<string, number> }; midp: Record<string, number> & { empty_tidps: string[] } };
 
 const STATUS_STYLE: Record<string, { color: string; icon: string; label: string }> = {
   delivered:   { color: "#22c55e", icon: "✓", label: "delivered" },
@@ -83,6 +86,22 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     const refresh = btn("↻");
     refresh.onclick = () => showList();
     bar.append(title);
+    const tidpBtn = btn("By task team");
+    tidpBtn.title = "The MIDP as ISO 19650 defines it — an aggregation of task-team TIDPs";
+    tidpBtn.onclick = () => showTidp();
+    const teamsBtn = btn("Teams");
+    teamsBtn.title = "The responsibility matrix: who the task teams are and who is accountable for each";
+    teamsBtn.onclick = () => showTeams();
+    const reportBtn = btn("Weekly report");
+    reportBtn.title = "The information-delivery status report, derived fresh — nothing carried forward from last week";
+    reportBtn.onclick = () => void downloadReport();
+    bar.append(tidpBtn, teamsBtn, reportBtn);
+    if (canEdit()) {
+      const rebaseBtn = btn("Rebaseline");
+      rebaseBtn.title = "Re-import the programme and see what moving it does to the plan, before anything changes";
+      rebaseBtn.onclick = () => showRebaseline();
+      bar.append(rebaseBtn);
+    }
     if (canEdit()) {
       const addBtn = btn("+ Add", true);
       const importBtn = btn("Paste schedule");
@@ -225,7 +244,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       };
       for (const c2 of [evChip("revision", "rev"), evChip("suitability", "suit")]) if (c2) nameRow.append(c2);
       const sub = document.createElement("div");
-      const bits = [r.title, r.responsible_team ? `owed by ${r.responsible_team}` : null, r.stage].filter(Boolean).join(" · ");
+      const bits = [r.title, r.responsible_team ? `owed by ${r.responsible_team}` : null, r.stage, r.purpose ? `for: ${r.purpose}` : null].filter(Boolean).join(" · ");
       sub.textContent = bits;
       sub.style.cssText = "font:10.5px system-ui;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
       main.append(nameRow, sub);
@@ -281,6 +300,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     stageI.value = existing?.stage || "";
     const revI = field("Expected revision, e.g. P03 (optional)", "100%", existing?.expected_revision || "");
     const suitI = field("Expected suitability, e.g. S4 (optional)", "100%", existing?.expected_suitability || "");
+    const purposeI = field("Which decision does this information support?", "100%", existing?.purpose || "");
     const label = (t: string, el: HTMLElement) => {
       const w = document.createElement("label");
       w.style.cssText = "display:flex;flex-direction:column;gap:.2rem;font:10.5px system-ui;color:#9ca3af";
@@ -297,6 +317,9 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       label("Stage", stageI),
       label("Expected revision at this milestone (optional)", revI),
       label("Expected suitability at this milestone (optional)", suitI),
+      // The third leg of a plan. Without it this row is a document-register entry — which is exactly
+      // what the midp.plan_completeness check reports, so the form must at least ask.
+      label("Purpose — which decision this information supports", purposeI),
     );
     body.append(form);
     nameI.focus();
@@ -306,7 +329,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       const payload = {
         container_name: nameI.value, title: titleI.value, responsible_team: teamI.value,
         due_date: dueI.value, stage: stageI.value,
-        expected_revision: revI.value, expected_suitability: suitI.value, actor: await actor(),
+        expected_revision: revI.value, expected_suitability: suitI.value, purpose: purposeI.value, actor: await actor(),
       };
       try {
         if (existing) await api(`/${encodeURIComponent(pid())}/${existing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -366,6 +389,396 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         }
       };
       out.append(list, confirm);
+    };
+  }
+
+
+  /** Shared chip strip for a status tally (same vocabulary and colours as the flat list). */
+  function statusChips(summary: Record<string, number>): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;gap:.35rem;flex-wrap:wrap";
+    for (const key of ["delivered", "late", "in_wip", "overdue", "pending", "unscheduled"]) {
+      const n = summary[key] || 0;
+      if (!n) continue;
+      const st = STATUS_STYLE[key];
+      const chip = document.createElement("span");
+      chip.textContent = `${st.icon} ${n} ${st.label}`;
+      chip.style.cssText = `color:${st.color};border:1px solid ${st.color}55;border-radius:.3rem;padding:.1rem .4rem;font:600 10.5px system-ui`;
+      wrap.append(chip);
+    }
+    return wrap;
+  }
+
+  /** One compact deliverable line inside a TIDP group (the flat list owns the full card). */
+  function miniRow(r: Row): HTMLElement {
+    const st = STATUS_STYLE[r.status];
+    const line = document.createElement("div");
+    line.style.cssText = "display:flex;gap:.5rem;align-items:baseline;padding:.15rem .1rem;font:11px system-ui;color:#cbd5e1";
+    const chip = document.createElement("span");
+    chip.textContent = st.icon;
+    chip.style.cssText = `color:${st.color};font:700 11px system-ui;min-width:1rem;text-align:center`;
+    const name = document.createElement("span");
+    name.textContent = r.container_name;
+    name.style.cssText = "font:600 11px ui-monospace,Consolas,monospace;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:20rem";
+    const detail = document.createElement("span");
+    detail.textContent = [r.due_date ? `due ${r.due_date}` : "no due date", r.days_late ? `${r.days_late}d late` : null, r.purpose ? `for: ${r.purpose}` : null].filter(Boolean).join(" · ");
+    detail.style.cssText = "flex:1;min-width:0;color:#9ca3af;font:10.5px system-ui;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    line.append(chip, name, detail);
+    return line;
+  }
+
+  /**
+   * The MIDP as an aggregation of TIDPs. Three things are deliberately NOT hidden, because each is
+   * a finding the flat list cannot show: a declared team that planned nothing, a team named by the
+   * plan that nobody declared, and rows owed by no one.
+   */
+  async function showTidp() {
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = "MIDP — by task team";
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const back = btn("← All deliverables");
+    back.onclick = () => showList();
+    const teamsBtn = btn("Teams");
+    teamsBtn.onclick = () => showTeams();
+    const refresh = btn("↻");
+    refresh.onclick = () => showTidp();
+    bar.append(title, back, teamsBtn, refresh);
+
+    body.replaceChildren();
+    const loading = document.createElement("div");
+    loading.textContent = "Loading…";
+    loading.style.cssText = "color:#71717a;padding:1rem";
+    body.append(loading);
+
+    let rep: TidpReport;
+    try { rep = await api(`/${encodeURIComponent(pid())}/tidp`); }
+    catch (e) { body.replaceChildren(); msg(`Couldn't load the TIDP view: ${(e as Error).message}`, true); return; }
+
+    body.replaceChildren();
+    const head = document.createElement("div");
+    head.style.cssText = "border:1px solid #2a2a30;background:#17171c;border-radius:.35rem;padding:.5rem;margin-bottom:.6rem";
+    const ht = document.createElement("div");
+    ht.textContent = `MIDP · ${rep.midp.total} deliverable(s) across ${rep.midp.task_teams_declared} declared task team(s)`;
+    ht.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.35rem";
+    head.append(ht, statusChips(rep.midp));
+    body.append(head);
+
+    const warn = (text: string, color = "#eab308") => {
+      const d = document.createElement("div");
+      d.textContent = text;
+      d.style.cssText = `color:${color};font:10.5px system-ui;margin:.15rem 0`;
+      body.append(d);
+    };
+    if (rep.midp.empty_tidps.length)
+      warn(`${rep.midp.empty_tidps.length} declared team(s) have planned nothing at all: ${rep.midp.empty_tidps.join(", ")} — an empty TIDP, not a finished one.`);
+    if (rep.midp.task_teams_undeclared)
+      warn(`${rep.midp.task_teams_undeclared} team(s) are named by the plan but not declared in the responsibility matrix — nobody is accountable for them.`, "#f87171");
+    if (rep.midp.unassigned)
+      warn(`${rep.midp.unassigned} deliverable(s) name no task team at all.`, "#f87171");
+
+    if (!rep.tidps.length && !rep.unassigned.rows.length) {
+      const empty = document.createElement("div");
+      empty.textContent = "No deliverables and no task teams yet. Declare the teams first, then plan what each one owes.";
+      empty.style.cssText = "color:#71717a;padding:1rem;line-height:1.6";
+      body.append(empty);
+      return;
+    }
+
+    // At-risk teams first — a delivery meeting starts with who is behind, not with the alphabet.
+    const ordered = [...rep.tidps].sort((a, b) => (b.at_risk - a.at_risk) || a.code.localeCompare(b.code));
+    for (const t of ordered) {
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid #2a2a30;background:#1b1b21;border-radius:.35rem;padding:.45rem .55rem;margin-bottom:.4rem";
+      const top = document.createElement("div");
+      top.style.cssText = "display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap;margin-bottom:.25rem";
+      const code = document.createElement("span");
+      code.textContent = t.code;
+      code.style.cssText = "font:700 12px ui-monospace,Consolas,monospace;color:#e5e7eb";
+      const nm = document.createElement("span");
+      nm.textContent = [t.name, t.discipline, t.appointment].filter(Boolean).join(" · ");
+      nm.style.cssText = "font:11px system-ui;color:#9ca3af;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      top.append(code, nm);
+      if (!t.declared) {
+        const und = document.createElement("span");
+        und.textContent = "not declared";
+        und.style.cssText = "color:#f87171;border:1px solid #f8717155;border-radius:.25rem;padding:0 .3rem;font:600 10px system-ui";
+        top.append(und);
+      }
+      const lead = document.createElement("span");
+      lead.textContent = t.lead_email ? `lead ${t.lead_email}` : "no accountable lead";
+      lead.style.cssText = `font:10.5px system-ui;color:${t.lead_email ? "#9ca3af" : "#f87171"}`;
+      top.append(lead);
+      if (t.next_due) {
+        const nd = document.createElement("span");
+        nd.textContent = `next due ${t.next_due}`;
+        nd.style.cssText = "font:10.5px ui-monospace,Consolas,monospace;color:#93c5fd";
+        top.append(nd);
+      }
+      card.append(top, statusChips(t.summary));
+      if (!t.rows.length) {
+        const none = document.createElement("div");
+        none.textContent = "This TIDP is empty — the team has planned no deliverables.";
+        none.style.cssText = "color:#eab308;font:10.5px system-ui;margin-top:.25rem";
+        card.append(none);
+      }
+      const rank: Record<string, number> = { overdue: 0, late: 1, in_wip: 2, pending: 3, unscheduled: 4, delivered: 5 };
+      for (const r of [...t.rows].sort((a, b) => (rank[a.status] - rank[b.status]) || String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))))
+        card.append(miniRow(r));
+      body.append(card);
+    }
+
+    if (rep.unassigned.rows.length) {
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px dashed #7f1d1d;background:#1b1b21;border-radius:.35rem;padding:.45rem .55rem;margin-bottom:.4rem";
+      const t2 = document.createElement("div");
+      t2.textContent = "Owed by no one";
+      t2.style.cssText = "font:700 12px system-ui;color:#fca5a5;margin-bottom:.25rem";
+      card.append(t2, statusChips(rep.unassigned.summary));
+      for (const r of rep.unassigned.rows) card.append(miniRow(r));
+      body.append(card);
+    }
+  }
+
+  /** The responsibility matrix itself: declare the task teams and name who is accountable. */
+  async function showTeams(editing?: Team | null) {
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = "Task teams — responsibility matrix";
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const back = btn("← All deliverables");
+    back.onclick = () => showList();
+    bar.append(title, back);
+    if (canEdit() && !editing) {
+      const add = btn("+ Declare team", true);
+      add.onclick = () => showTeams({ id: "", code: "", name: null, lead_email: null, discipline: null, appointment: null, notes: null });
+      bar.append(add);
+    }
+
+    body.replaceChildren();
+
+    if (editing) {
+      const form = document.createElement("div");
+      form.style.cssText = "display:flex;flex-direction:column;gap:.5rem;max-width:34rem";
+      const codeI = field("Code, e.g. ARC (matches the deliverable's team)", "100%", editing.code || "");
+      const nameI = field("Name, e.g. Architecture — Badran Design Studio", "100%", editing.name || "");
+      const leadI = field("Lead email — the accountable human", "100%", editing.lead_email || "");
+      const discI = field("Discipline (optional)", "100%", editing.discipline || "");
+      const apptI = field("Appointment, e.g. lead / delivery (optional)", "100%", editing.appointment || "");
+      const notesI = field("Notes (optional)", "100%", editing.notes || "");
+      const label = (t: string, el: HTMLElement) => {
+        const w = document.createElement("label");
+        w.style.cssText = "display:flex;flex-direction:column;gap:.2rem;font:10.5px system-ui;color:#9ca3af";
+        const sp = document.createElement("span");
+        sp.textContent = t;
+        w.append(sp, el);
+        return w;
+      };
+      form.append(
+        label("Code — deliverables are matched to this team by it, case-insensitively", codeI),
+        label("Name", nameI),
+        label("Accountable lead — roles.responsibility reports a team without one", leadI),
+        label("Discipline", discI),
+        label("Position in the appointment chain", apptI),
+        label("Notes", notesI),
+      );
+      const save = btn(editing.id ? "Save" : "Declare", true);
+      const cancel = btn("Cancel");
+      cancel.onclick = () => showTeams();
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:.4rem";
+      actions.append(save, cancel);
+      form.append(actions);
+      body.append(form);
+      codeI.focus();
+
+      save.onclick = async () => {
+        save.disabled = true;
+        const payload = {
+          code: codeI.value, name: nameI.value, lead_email: leadI.value,
+          discipline: discI.value, appointment: apptI.value, notes: notesI.value, actor: await actor(),
+        };
+        try {
+          const base = `${SERVICE_URL.replace(/\/$/, "")}/teams/${encodeURIComponent(pid())}`;
+          const r = await bfetch(editing.id ? `${base}/${editing.id}` : base, {
+            method: editing.id ? "PATCH" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error((j as { message?: string }).message || `HTTP ${r.status}`);
+          await showTeams();
+        } catch (e) {
+          save.disabled = false;
+          msg((e as Error).message, true);
+        }
+      };
+      return;
+    }
+
+    let teams: Team[];
+    try {
+      const r = await bfetch(`${SERVICE_URL.replace(/\/$/, "")}/teams/${encodeURIComponent(pid())}`);
+      const j = await r.json().catch(() => ([]));
+      if (!r.ok) throw new Error((j as { message?: string }).message || `HTTP ${r.status}`);
+      teams = j as Team[];
+    } catch (e) { msg(`Couldn't load task teams: ${(e as Error).message}`, true); return; }
+
+    const help = document.createElement("div");
+    help.textContent = "A task team is the ISO 19650 unit of production — it owns a TIDP and names one accountable person. A deliverable pointing at a team that is not declared here is a responsibility gap, and roles.responsibility reports it.";
+    help.style.cssText = "color:#9ca3af;font:10.5px system-ui;margin-bottom:.5rem;line-height:1.5";
+    body.append(help);
+
+    if (!teams.length) {
+      const empty = document.createElement("div");
+      empty.textContent = "No task teams declared yet.";
+      empty.style.cssText = "color:#71717a;padding:1rem";
+      body.append(empty);
+      return;
+    }
+
+    for (const t of teams) {
+      const card = document.createElement("div");
+      card.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;border:1px solid #2a2a30;background:#1b1b21;border-radius:.35rem;margin-bottom:.3rem";
+      const code = document.createElement("span");
+      code.textContent = t.code;
+      code.style.cssText = "font:700 12px ui-monospace,Consolas,monospace;color:#e5e7eb;min-width:4rem";
+      const main = document.createElement("div");
+      main.style.cssText = "flex:1;min-width:0";
+      const nm = document.createElement("div");
+      nm.textContent = t.name || "(unnamed)";
+      nm.style.cssText = "font:600 11.5px system-ui;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      const sub = document.createElement("div");
+      sub.textContent = [t.discipline, t.appointment, t.notes].filter(Boolean).join(" · ");
+      sub.style.cssText = "font:10.5px system-ui;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      main.append(nm, sub);
+      const lead = document.createElement("span");
+      lead.textContent = t.lead_email || "no accountable lead";
+      lead.style.cssText = `font:10.5px system-ui;color:${t.lead_email ? "#9ca3af" : "#f87171"};white-space:nowrap`;
+      card.append(code, main, lead);
+      if (canEdit()) {
+        const edit = btn("Edit");
+        edit.style.padding = ".1rem .35rem";
+        edit.onclick = () => showTeams(t);
+        const del = btn("✕");
+        del.style.cssText += ";color:#fca5a5;border-color:#7f1d1d;padding:.1rem .35rem";
+        let armed = false;
+        del.onclick = async () => {
+          if (!armed) { armed = true; del.textContent = "Confirm?"; return; }
+          try {
+            const r = await bfetch(`${SERVICE_URL.replace(/\/$/, "")}/teams/${encodeURIComponent(pid())}/${t.id}`, { method: "DELETE" });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            await showTeams();
+          } catch (e) { msg(`Delete failed: ${(e as Error).message}`, true); }
+        };
+        card.append(edit, del);
+      }
+      body.append(card);
+    }
+  }
+
+
+  /** The weekly report — fetched as markdown and handed over as a file. */
+  async function downloadReport() {
+    try {
+      const rep = await api(`/${encodeURIComponent(pid())}/report`) as { markdown: string; today: string };
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([rep.markdown], { type: "text/markdown" }));
+      a.download = `information-delivery-status-${pid()}-${rep.today}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      msg("Weekly report downloaded.");
+    } catch (e) { msg(`Couldn't build the report: ${(e as Error).message}`, true); }
+  }
+
+  type Rebaseline = {
+    updates: { id: string; container_name: string; from: string | null; to: string | null; delta_days: number | null }[];
+    unchanged: { container_name: string }[];
+    unmatched: { container_name: string; due_date: string | null }[];
+    malformed: { container_name: string; due_date: string }[];
+    untouched: { container_name: string; due_date: string | null }[];
+    transitions: { container_name: string; from_status: string; to_status: string; from_due: string | null; to_due: string | null; worse: boolean }[];
+    newly_at_risk: number;
+    applied?: number;
+  };
+
+  /**
+   * Re-import the programme. The preview is the point: a date change that quietly turns six pending
+   * rows overdue is the thing a BEP hides, so nothing is written until that consequence is on screen.
+   */
+  function showRebaseline() {
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = "Rebaseline from the programme";
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const cancel = btn("Cancel");
+    const preview = btn("Preview", true);
+    cancel.onclick = () => showList();
+    bar.append(title, cancel, preview);
+
+    body.replaceChildren();
+    const help = document.createElement("div");
+    help.textContent = "One row per line: container name, then the new due date (YYYY-MM-DD). Tab- or comma-separated. Nothing is written until you confirm — the preview shows what the move does to every deliverable's status first.";
+    help.style.cssText = "color:#9ca3af;font:10.5px system-ui;margin-bottom:.4rem;line-height:1.5";
+    const ta = document.createElement("textarea");
+    ta.style.cssText = "width:100%;min-height:9rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.35rem;padding:.5rem;font:11px ui-monospace,Consolas,monospace";
+    const out = document.createElement("div");
+    body.append(help, ta, out);
+
+    const parse = () => ta.value.split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
+      const [container_name, due_date] = line.split(/\t|,/).map((c) => (c || "").trim());
+      return { container_name, due_date: due_date || "" };
+    });
+
+    const section = (heading: string, lines: string[], color = "#cbd5e1") => {
+      if (!lines.length) return;
+      const h = document.createElement("div");
+      h.textContent = heading;
+      h.style.cssText = "font:600 11.5px system-ui;color:#eee;margin:.5rem 0 .2rem";
+      out.append(h);
+      for (const t of lines) {
+        const d = document.createElement("div");
+        d.textContent = t;
+        d.style.cssText = `font:10.5px ui-monospace,Consolas,monospace;color:${color}`;
+        out.append(d);
+      }
+    };
+
+    preview.onclick = async () => {
+      const rows = parse();
+      out.replaceChildren();
+      if (!rows.length) { msg("Nothing to rebaseline.", true); return; }
+      let r: Rebaseline;
+      try { r = await api(`/${encodeURIComponent(pid())}/rebaseline`, { method: "POST", body: JSON.stringify({ rows }) }); }
+      catch (e) { msg((e as Error).message, true); return; }
+
+      const headline = document.createElement("div");
+      headline.textContent = r.newly_at_risk
+        ? `This move puts ${r.newly_at_risk} deliverable(s) into a worse position.`
+        : r.updates.length ? `${r.updates.length} date(s) move; no deliverable ends up worse off.` : "The programme matches the plan — nothing moves.";
+      headline.style.cssText = `font:600 12px system-ui;color:${r.newly_at_risk ? "#f87171" : "#22c55e"};margin-top:.5rem`;
+      out.append(headline);
+
+      section("Status changes", r.transitions.map((t) =>
+        `${t.worse ? "▲" : "▼"} ${t.container_name}: ${t.from_status} → ${t.to_status}  (${t.from_due || "no date"} → ${t.to_due || "no date"})`), "#e5e7eb");
+      section("Dates moving", r.updates.map((u) =>
+        `${u.container_name}: ${u.from || "no date"} → ${u.to || "no date"}${u.delta_days === null ? "" : `  (${u.delta_days > 0 ? "+" : ""}${u.delta_days}d)`}`));
+      section("In the programme but not in the plan (nothing created)", r.unmatched.map((u) => `${u.container_name} · ${u.due_date || "no date"}`), "#eab308");
+      section("Unusable dates (ignored, never blanked)", r.malformed.map((m) => `${m.container_name} · ${m.due_date}`), "#f87171");
+      section("In the plan but not mentioned by this programme", r.untouched.map((u) => `${u.container_name} · ${u.due_date || "no date"}`), "#9ca3af");
+
+      if (!r.updates.length) return;
+      const confirm = btn(`Apply ${r.updates.length} date change(s)`, true);
+      confirm.style.marginTop = ".6rem";
+      confirm.onclick = async () => {
+        confirm.disabled = true;
+        try {
+          const done = await api(`/${encodeURIComponent(pid())}/rebaseline`, { method: "POST", body: JSON.stringify({ rows, apply: true, actor: await actor() }) }) as Rebaseline;
+          msg(`Rebaselined ${done.applied} deliverable(s) — each change is on the ledger.`);
+          await showList();
+        } catch (e) { confirm.disabled = false; msg((e as Error).message, true); }
+      };
+      out.append(confirm);
     };
   }
 

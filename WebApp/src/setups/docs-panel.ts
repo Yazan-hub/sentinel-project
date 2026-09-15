@@ -72,6 +72,62 @@ function renderIntegrity(out: HTMLElement, r: IntegrityReport, doc: { sections: 
   }
 }
 
+type ExecSection = { section_id: string; heading: string; kind: "controlling" | "declared" | "narrative"; controlling_checks: string[]; declared_checks: string[]; unknown_checks: string[]; owner: string | null; has_body: boolean };
+type Executability = { document_id: string; title: string; doc_type: string; generated_at: string; score: number | null; reason?: string; summary: { sections: number; controlling: number; declared: number; narrative: number; unowned: number; empty: number }; strip: string[]; sections: ExecSection[] };
+
+/** The strip test, rendered. Plain DOM — server text never reaches innerHTML. */
+function renderExecutability(out: HTMLElement, r: Executability) {
+  out.replaceChildren();
+  const box = document.createElement("div");
+  box.style.cssText = "border:1px solid #2a2a30;background:#1b1b21;border-radius:.4rem;padding:.6rem .8rem;margin:.4rem 0";
+
+  const head = document.createElement("div");
+  const pct = document.createElement("span");
+  pct.textContent = r.score === null ? "—" : `${r.score}%`;
+  pct.style.cssText = `font:700 22px system-ui;color:${r.score === null ? "#9ca3af" : r.score >= 60 ? "#22c55e" : r.score >= 30 ? "#eab308" : "#f87171"}`;
+  const cap = document.createElement("span");
+  cap.textContent = r.score === null ? (r.reason || "nothing to score") : " of this document actually controls the project";
+  cap.style.cssText = "color:#c9cfda;font:12px system-ui;margin-left:.4rem";
+  head.append(pct, cap);
+  box.append(head);
+
+  const line = (label: string, n: number, color: string, note?: string) => {
+    const d = document.createElement("div");
+    const b = document.createElement("span");
+    b.textContent = `${n}`;
+    b.style.cssText = `color:${color};font:700 12px system-ui;display:inline-block;min-width:1.6rem`;
+    const t = document.createElement("span");
+    t.textContent = note ? `${label} — ${note}` : label;
+    t.style.cssText = "color:#9ca3af;font:11.5px system-ui";
+    d.append(b, t);
+    d.style.cssText = "margin-top:.25rem";
+    return d;
+  };
+  box.append(
+    line("controlling clauses", r.summary.controlling, "#22c55e", "bound to a check that runs today"),
+    line("declared clauses", r.summary.declared, "#eab308", "bound only to a planned check — NOT scored"),
+    line("narrative clauses", r.summary.narrative, "#f87171", "control nothing Sentinel can observe"),
+  );
+  if (r.summary.unowned || r.summary.empty)
+    box.append(line("clauses with no owner", r.summary.unowned, "#9ca3af"), line("clauses with no text", r.summary.empty, "#9ca3af"));
+  out.append(box);
+
+  if (r.strip.length) {
+    const h = document.createElement("div");
+    h.textContent = `What the strip test removes (${r.strip.length}):`;
+    h.style.cssText = "color:#e5e7eb;font:600 11.5px system-ui;margin:.5rem 0 .2rem";
+    out.append(h);
+    const ul = document.createElement("div");
+    for (const heading of r.strip) {
+      const li = document.createElement("div");
+      li.textContent = `· ${heading}`;
+      li.style.cssText = "color:#9ca3af;font:11.5px system-ui;padding:.1rem 0 .1rem .4rem";
+      ul.append(li);
+    }
+    out.append(ul);
+  }
+}
+
 const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
   met: { color: "#22c55e", icon: "✓" },
   violations: { color: "#f87171", icon: "✗" },
@@ -787,7 +843,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); bar.append(back);
     const printBtn = btn("Print / PDF", true);
     const integrityBtn = btn("Check integrity");
-    bar.append(printBtn, aiPicker(), integrityBtn);
+    const stripBtn = btn("Strip test");
+    bar.append(printBtn, aiPicker(), integrityBtn, stripBtn);
     body.replaceChildren();
     const integrityOut = document.createElement("div");   // findings render here, transient
     integrityBtn.onclick = async () => {
@@ -805,6 +862,22 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       } finally {
         integrityBtn.disabled = false;
         integrityBtn.textContent = "Check integrity";
+      }
+    };
+    stripBtn.onclick = async () => {
+      stripBtn.disabled = true;
+      stripBtn.textContent = "Scoring…";
+      integrityOut.replaceChildren();
+      try {
+        renderExecutability(integrityOut, await api(`/${encodeURIComponent(pid())}/${doc.id}/executability`));
+      } catch (e) {
+        const d = document.createElement("div");
+        d.textContent = `Strip test failed: ${(e as Error).message}`;
+        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0";
+        integrityOut.append(d);
+      } finally {
+        stripBtn.disabled = false;
+        stripBtn.textContent = "Strip test";
       }
     };
     body.append(integrityOut);

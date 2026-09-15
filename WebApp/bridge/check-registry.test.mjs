@@ -358,14 +358,10 @@ describe("midp.revision / midp.suitability checks", () => {
   const st = (rows) => ({ rows, summary: {}, exceptions: [] });
   const R = (evidence, over = {}) => ({ container_name: "A", due_date: "2026-06-10", evidence: { revision: "not_specified", suitability: "not_specified", actual_revisions: [], actual_suitabilities: [], ...evidence }, ...over });
 
-  it("both are REAL checks; review/distribution are honest planned gaps", () => {
-    for (const id of ["midp.revision", "midp.suitability"]) {
+  it("the whole midp.* family is REAL now — none of it may sit in PLANNED (the promotion trap)", () => {
+    for (const id of ["midp.revision", "midp.suitability", "midp.distribution", "midp.review"]) {
       expect(CHECKS.some((c) => c.id === id)).toBe(true);
       expect(PLANNED_CHECKS.some((p) => p.id === id)).toBe(false);
-    }
-    for (const id of ["midp.review", "midp.distribution"]) {
-      expect(PLANNED_CHECKS.some((p) => p.id === id)).toBe(true);
-      expect(CHECKS.some((c) => c.id === id)).toBe(false);
     }
   });
 
@@ -414,5 +410,206 @@ describe("classifyMidpExpectation — met is positive, never by elimination", ()
     const r = classifyMidpRevision(status);
     expect(r.status).toBe("not_checkable");
     expect(r.reason).toMatch(/no evidence verdict/i);
+  });
+});
+
+import { classifyDistribution } from "./check-registry.mjs";
+
+describe("classifyDistribution (midp.distribution)", () => {
+  const file = (name, versions) => ({ iso_name: name, versions });
+  const v = (id, state = "published", revision = "P01") => ({ id, state, revision });
+
+  it("not_checkable when nothing is published yet — never a flattering met", () => {
+    const r = classifyDistribution([file("A", [v("v1", "shared"), v("v2", "wip")])], []);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/nothing has reached published/i);
+  });
+
+  it("met when every published version rides a transmittal with a recipient", () => {
+    const r = classifyDistribution(
+      [file("A", [v("v1")]), file("B", [v("v2")])],
+      [{ reference: "TR-001", recipients: ["client@x.com"], version_ids: ["v1", "v2"] }],
+    );
+    expect(r.status).toBe("met");
+    expect(r.count).toBe(0);
+    expect(r.summary).toMatch(/All 2 published version/);
+  });
+
+  it("violations name each unissued version with its container and revision", () => {
+    const r = classifyDistribution(
+      [file("PRJ-ARC-M3-0001", [v("v1", "published", "P02")])],
+      [],
+    );
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+    expect(r.evidence[0].label).toBe("PRJ-ARC-M3-0001 P02");
+    expect(r.evidence[0].detail).toMatch(/no transmittal records issuing it/i);
+    expect(r.evidence[0].ref).toBe("v1");
+  });
+
+  it("a recipient-less transmittal evidences nothing, and says so by name", () => {
+    const r = classifyDistribution(
+      [file("A", [v("v1")])],
+      [{ reference: "TR-009", recipients: [], version_ids: ["v1"] }],
+    );
+    expect(r.status).toBe("violations");
+    expect(r.evidence[0].detail).toMatch(/TR-009 lists no recipients/);
+  });
+
+  it("blank-string recipients do not count as issue", () => {
+    const r = classifyDistribution([file("A", [v("v1")])], [{ reference: "TR-010", recipients: ["  "], version_ids: ["v1"] }]);
+    expect(r.status).toBe("violations");
+  });
+
+  it("superseded published versions still need evidence — issue is per version", () => {
+    const r = classifyDistribution(
+      [file("A", [v("v1", "published", "P01"), v("v2", "published", "P02")])],
+      [{ reference: "TR-001", recipients: ["c@x"], version_ids: ["v2"] }],
+    );
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+    expect(r.evidence[0].label).toBe("A P01");
+  });
+
+  it("tolerates missing arrays without throwing", () => {
+    expect(classifyDistribution(undefined, undefined).status).toBe("not_checkable");
+    expect(classifyDistribution([{ iso_name: "A" }], [{}]).status).toBe("not_checkable");
+  });
+});
+
+import { classifyResponsibility } from "./check-registry.mjs";
+
+describe("classifyResponsibility (roles.responsibility)", () => {
+  const st = (rows) => ({ rows, summary: {}, exceptions: [] });
+  const team = (code, over = {}) => ({ id: `t-${code}`, code, lead_email: "lead@bds.jo", ...over });
+
+  it("is a REAL check now, not a planned gap (the promotion trap)", () => {
+    expect(CHECKS.some((c) => c.id === "roles.responsibility")).toBe(true);
+    expect(PLANNED_CHECKS.some((p) => p.id === "roles.responsibility")).toBe(false);
+  });
+
+  it("not_checkable when there are no deliverables to assign", () => {
+    const r = classifyResponsibility(st([]), [team("ARC")]);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/no production to assign/i);
+  });
+
+  it("met when every row resolves to a declared team with a lead", () => {
+    const r = classifyResponsibility(st([{ container_name: "A", responsible_team: "ARC" }, { container_name: "B", responsible_team: "arc" }]), [team("ARC")]);
+    expect(r.status).toBe("met");
+    expect(r.count).toBe(0);
+  });
+
+  it("matches team codes case-insensitively — 'arc' is not a different team", () => {
+    expect(classifyResponsibility(st([{ container_name: "A", responsible_team: "ARC" }]), [team("arc")]).status).toBe("met");
+  });
+
+  it("flags a deliverable naming an undeclared team, quoting the name as written", () => {
+    const r = classifyResponsibility(st([{ container_name: "A", responsible_team: "MEP" }]), [team("ARC")]);
+    expect(r.status).toBe("violations");
+    expect(r.evidence[0].detail).toMatch(/"MEP", which is not declared/);
+  });
+
+  it("flags a deliverable with no team at all", () => {
+    const r = classifyResponsibility(st([{ container_name: "A", responsible_team: null }]), [team("ARC")]);
+    expect(r.status).toBe("violations");
+    expect(r.evidence[0].detail).toMatch(/names no task team/);
+  });
+
+  it("flags a declared-but-leaderless team ONCE, however many rows point at it", () => {
+    const r = classifyResponsibility(
+      st([{ container_name: "A", responsible_team: "ARC" }, { container_name: "B", responsible_team: "ARC" }]),
+      [team("ARC", { lead_email: null })],
+    );
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+    expect(r.evidence[0].label).toBe("task team ARC");
+    expect(r.evidence[0].detail).toMatch(/no accountable lead/);
+  });
+
+  it("does not flag a leaderless team that no deliverable relies on", () => {
+    const r = classifyResponsibility(st([{ container_name: "A", responsible_team: "ARC" }]), [team("ARC"), team("XXX", { lead_email: null })]);
+    expect(r.status).toBe("met");
+  });
+
+  it("with zero declared teams every row is a gap — measurable, so never a flattering met", () => {
+    const r = classifyResponsibility(st([{ container_name: "A", responsible_team: "ARC" }]), []);
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+  });
+
+  it("tolerates a missing teams array without throwing", () => {
+    expect(classifyResponsibility(st([{ container_name: "A", responsible_team: "ARC" }]), undefined).status).toBe("violations");
+  });
+});
+
+import { classifyReview } from "./check-registry.mjs";
+
+describe("classifyReview (midp.review)", () => {
+  const file = (name, versions) => ({ iso_name: name, versions });
+  const v = (id, state = "published", revision = "P01") => ({ id, state, revision });
+  const sub = (vid, actor) => ({ entity_type: "container_version", entity_id: vid, action: "state:wip->shared", actor });
+  const auth = (vid, actor) => ({ entity_type: "container_version", entity_id: vid, action: "state:shared->published", actor });
+
+  it("is a REAL check now, not a planned gap", () => {
+    expect(CHECKS.some((c) => c.id === "midp.review")).toBe(true);
+    expect(PLANNED_CHECKS.some((p) => p.id === "midp.review")).toBe(false);
+  });
+
+  it("not_checkable when nothing is published", () => {
+    const r = classifyReview([file("A", [v("v1", "shared")])], []);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/nothing has reached published/i);
+  });
+
+  it("met when submitter and authorizer are different people", () => {
+    const r = classifyReview([file("A", [v("v1")])], [auth("v1", "yara@bds.jo"), sub("v1", "modeller@bds.jo")]);
+    expect(r.status).toBe("met");
+  });
+
+  it("violation when the same person submitted and authorized — self-issue", () => {
+    const r = classifyReview([file("A", [v("v1", "published", "P02")])], [auth("v1", "yara@bds.jo"), sub("v1", "Yara@bds.jo")]);
+    expect(r.status).toBe("violations");
+    expect(r.evidence[0].label).toBe("A P02");
+    expect(r.evidence[0].detail).toMatch(/same person \(yara@bds\.jo\)/);
+  });
+
+  it("a generic actor is UNMEASURED, never an independent reviewer", () => {
+    const r = classifyReview([file("A", [v("v1")])], [auth("v1", "yara@bds.jo"), sub("v1", "web")]);
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/cannot be judged/i);
+    expect(r.evidence[0].detail).toMatch(/unresolved identity/);
+  });
+
+  it("missing transitions (outside the audit window) are unmeasured, not a pass", () => {
+    const r = classifyReview([file("A", [v("v1")])], []);
+    expect(r.status).toBe("not_checkable");
+    expect(r.evidence[0].detail).toMatch(/outside the audit window/);
+  });
+
+  it("a real violation outranks unmeasured rows", () => {
+    const r = classifyReview(
+      [file("A", [v("v1")]), file("B", [v("v2")])],
+      [auth("v1", "y@x"), sub("v1", "y@x")],
+    );
+    expect(r.status).toBe("violations");
+    expect(r.count).toBe(1);
+  });
+
+  it("reports how many DID show review in the not_checkable sentence — positive, never by elimination", () => {
+    const r = classifyReview(
+      [file("A", [v("v1")]), file("B", [v("v2")])],
+      [auth("v1", "a@x"), sub("v1", "b@x")],
+    );
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toMatch(/1 of 2 published version\(s\) show independent review/);
+  });
+
+  it("ignores audit rows for other entity types", () => {
+    const r = classifyReview([file("A", [v("v1")])], [
+      { entity_type: "file_version", entity_id: "v1", action: "state:shared->published", actor: "ghost" },
+      auth("v1", "a@x"), sub("v1", "b@x"),
+    ]);
+    expect(r.status).toBe("met");
   });
 });

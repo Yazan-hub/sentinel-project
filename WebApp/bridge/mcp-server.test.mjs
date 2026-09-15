@@ -14,7 +14,7 @@ describe("TOOLS registry", () => {
     const names = TOOLS.map((t) => t.name);
     for (const n of ["sentinel_list_projects", "sentinel_propose", "sentinel_audit", ...NEW_TOOLS])
       expect(names).toContain(n);
-    expect(TOOLS).toHaveLength(11);
+    expect(TOOLS).toHaveLength(12);
   });
 
   it("every tool has a description and an object inputSchema", () => {
@@ -121,11 +121,12 @@ describe("callTool — existing tools regression", () => {
 });
 
 describe("changeset tools", () => {
-  it("registry has 11 tools including the two changeset tools", () => {
+  it("registry has 12 tools including the two changeset tools and receipt verification", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toContain("sentinel_propose_changeset");
     expect(names).toContain("sentinel_changeset_status");
-    expect(TOOLS).toHaveLength(11);
+    expect(names).toContain("sentinel_verify_receipt");
+    expect(TOOLS).toHaveLength(12);
   });
 
   it("propose tool description states the referee model and the vocabulary", () => {
@@ -191,5 +192,29 @@ describe("filterSection", () => {
   it("does not mutate the input document", () => {
     filterSection(doc, "s1");
     expect(doc.sections).toHaveLength(2);
+  });
+});
+
+describe("agent provenance + receipt tools", () => {
+  const tool = (n) => TOOLS.find((t) => t.name === n);
+
+  it("both propose tools invite claimed provenance and say the prompt is hashed", () => {
+    for (const n of ["sentinel_propose", "sentinel_propose_changeset"]) {
+      const a = tool(n).inputSchema.properties.agent;
+      expect(a).toBeTruthy();
+      expect(a.description).toMatch(/CLAIMED/);
+      expect(a.description).toMatch(/HASHED, never stored/);
+    }
+  });
+
+  it("the propose description points at the receipt, so an agent knows proof exists", () => {
+    expect(tool("sentinel_propose").description).toMatch(/sentinel_verify_receipt/);
+  });
+
+  it("verify_receipt takes either a receipt or an audit_id and is described as read-only", () => {
+    const t = tool("sentinel_verify_receipt");
+    expect(Object.keys(t.inputSchema.properties).sort()).toEqual(["audit_id", "project", "receipt"]);
+    expect(t.inputSchema.required).toEqual(["project"]);
+    expect(t.description).toMatch(/Read-only/);
   });
 });

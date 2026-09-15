@@ -20,6 +20,20 @@ onto the document-governance layer (BEP/EIR documents, compliance, deliverables,
 | `sentinel_doc_integrity` | AI analysis of a document against the project's configured reality. Findings are **AI suggestions gated to cited facts** — never compliance facts; uncited findings are dropped and counted. Slow (minutes on a local model); needs the AI provider running. Read-only. |
 | `sentinel_propose_changeset` | Stage model elements (v1 vocabulary: wall, floor, level, grid) for human review in Revit — nothing is created by this call; a person ticks each element in Revit before anything enters the model. |
 | `sentinel_changeset_status` | Check a staged changeset by `changeset` (id) or list by `status`. Read-only. |
+| `sentinel_verify_receipt` | Re-check a verdict receipt against the immutable ledger, or fetch the authoritative receipt for an `audit_id`. Every mismatch is named individually. Read-only. |
+
+### Claimed provenance and the receipt
+
+Both propose tools accept an `agent` block — `{kind, model, tool, prompt}`. It is recorded on the ledger
+under `claimed: true` and **never verified**: Sentinel cannot check that the caller really is the model it
+says it is, and a provenance field that read as verified would be worse than none, because it would be
+believed. The prompt itself is **hashed, never stored** — the ledger is append-only and immutable, which is
+the wrong place to put a client's briefing material, while the digest still ties a verdict to the exact
+instruction that produced it once that instruction is produced.
+
+Every adjudication returns a **receipt** anchored on its audit row's own hash-chain entry (`ledger_hash`),
+not on a digest this code invents. That makes it checkable against a ledger that is truncate-proof at the
+database core: `sentinel_verify_receipt`, or `POST /receipt/:key/verify`.
 
 Document mutation is deliberately **not** exposed: creating, editing, binding, transitioning, publishing and
 deliverable writes stay in the web app's review-before-save flow. The MCP surface can inspect and reason, not

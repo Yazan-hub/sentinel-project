@@ -138,3 +138,236 @@ export function deriveStatus(rows, files, today) {
 
   return { rows: out, summary, exceptions };
 }
+
+/**
+ * The MIDP as what ISO 19650 actually says it is: an aggregation of TIDPs.
+ *
+ * A TIDP belongs to a TASK TEAM — so this groups the derived rows by their responsible team and
+ * rolls each group up, then rolls the groups into the MIDP. Pure, like deriveStatus.
+ *
+ * Three honesty rules, all learned from the checks:
+ *  1. A declared team with no rows still appears (`rows: []`). An empty TIDP is a finding — hiding
+ *     it would let a team look done because it never planned anything.
+ *  2. Rows naming a team nobody declared are NOT quietly folded into a team: they land in
+ *     `undeclared`, keyed by the text as written, because that is a responsibility gap.
+ *  3. Rows naming no team at all land in `unassigned`. Never invented a home for.
+ */
+export function rollUpTidp(status, teams) {
+  const norm = (v) => String(v ?? "").trim().toLowerCase();
+  const blank = () => ({ total: 0, delivered: 0, late: 0, in_wip: 0, overdue: 0, pending: 0, unscheduled: 0 });
+
+  const tally = (rows) => {
+    const s = blank();
+    for (const r of rows) { s.total += 1; if (s[r.status] !== undefined) s[r.status] += 1; }
+    return s;
+  };
+  // The next thing this team owes: the earliest due date not yet delivered. Null when nothing is outstanding.
+  const nextDue = (rows) =>
+    rows.filter((r) => r.status !== "delivered" && r.status !== "late" && r.due_date)
+        .map((r) => r.due_date).sort()[0] ?? null;
+  const atRisk = (s) => s.overdue + s.late + s.in_wip;
+
+  const rows = status?.rows || [];
+  const byTeam = new Map();
+  for (const r of rows) {
+    const k = norm(r.responsible_team);
+    if (!byTeam.has(k)) byTeam.set(k, []);
+    byTeam.get(k).push(r);
+  }
+
+  const declared = (teams || []).map((t) => {
+    const mine = byTeam.get(norm(t.code)) || [];
+    const summary = tally(mine);
+    return {
+      code: t.code, name: t.name ?? null, lead_email: t.lead_email ?? null,
+      discipline: t.discipline ?? null, appointment: t.appointment ?? null,
+      declared: true, rows: mine, summary, next_due: nextDue(mine), at_risk: atRisk(summary),
+    };
+  });
+
+  const declaredKeys = new Set((teams || []).map((t) => norm(t.code)));
+  const undeclared = [];
+  for (const [k, mine] of byTeam) {
+    if (!k || declaredKeys.has(k)) continue;
+    const summary = tally(mine);
+    undeclared.push({
+      code: String(mine[0].responsible_team).trim(), name: null, lead_email: null,
+      discipline: null, appointment: null,
+      declared: false, rows: mine, summary, next_due: nextDue(mine), at_risk: atRisk(summary),
+    });
+  }
+  undeclared.sort((a, b) => a.code.localeCompare(b.code));
+
+  const unassignedRows = byTeam.get("") || [];
+  const unassigned = { rows: unassignedRows, summary: tally(unassignedRows) };
+
+  return {
+    tidps: [...declared, ...undeclared],
+    unassigned,
+    midp: {
+      ...tally(rows),
+      task_teams_declared: (teams || []).length,
+      task_teams_undeclared: undeclared.length,
+      // An empty TIDP is a team that planned nothing — surfaced, never averaged away.
+      empty_tidps: declared.filter((t) => !t.rows.length).map((t) => t.code),
+      unassigned: unassignedRows.length,
+    },
+  };
+}
+
+// ── Programme rebaseline ─────────────────────────────────────────────────────────────────────────
+//
+// "The BEP stays approved on the CDE while the programme it was written against has moved." A plan
+// whose dates have no relationship to the dates the project actually runs on is the failure the
+// whole MIDP feature exists to catch — so re-importing the programme must show the CONSEQUENCE of
+// the move, not just overwrite the dates.
+//
+// Pure. The preview derives status twice (before and after) through the SAME deriveStatus every
+// other view uses, so the "what this move does to you" column cannot drift from the real status.
+
+/** Match a programme (rows of {container_name, due_date}) onto the planned deliverables. */
+export function matchProgramme(rows, programme) {
+  const norm = (v) => String(v ?? "").trim();
+  const byName = new Map();
+  for (const r of rows || []) byName.set(norm(r.container_name), r);
+
+  const updates = [], unchanged = [], unmatched = [], malformed = [];
+  const seen = new Set();
+  for (const p of programme || []) {
+    const name = norm(p.container_name);
+    if (!name) continue;
+    const to = norm(p.due_date) || null;
+    // A date the programme cannot state is not a reason to blank a planned date: it is bad input.
+    if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) { malformed.push({ container_name: name, due_date: to }); continue; }
+    const row = byName.get(name);
+    if (!row) { unmatched.push({ container_name: name, due_date: to }); continue; }
+    seen.add(name);
+    const from = norm(row.due_date) || null;
+    if (from === to) { unchanged.push({ container_name: name, due_date: to }); continue; }
+    updates.push({
+      id: row.id, container_name: name, from, to,
+      delta_days: from && to ? Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) : null,
+    });
+  }
+  // Deliverables the programme never mentioned. Silence is not agreement: an unmentioned row keeps
+  // a date the programme no longer backs, which is exactly how a plan drifts out of contact.
+  const untouched = (rows || []).filter((r) => !seen.has(norm(r.container_name)) && !updates.some((u) => u.id === r.id))
+    .map((r) => ({ container_name: norm(r.container_name), due_date: r.due_date ?? null }));
+
+  return { updates, unchanged, unmatched, malformed, untouched };
+}
+
+/**
+ * What the move actually does: every row's status before and after, plus the ones that change.
+ * READ-ONLY — nothing here writes; the caller decides whether to apply.
+ */
+export function rebaselineImpact(rows, files, today, programme) {
+  const match = matchProgramme(rows, programme);
+  const byId = new Map(match.updates.map((u) => [u.id, u.to]));
+  const proposed = (rows || []).map((r) => (byId.has(r.id) ? { ...r, due_date: byId.get(r.id) } : r));
+
+  const before = deriveStatus(rows, files, today);
+  const after = deriveStatus(proposed, files, today);
+  const beforeById = new Map(before.rows.map((r) => [r.id, r]));
+
+  const transitions = [];
+  for (const a of after.rows) {
+    const b = beforeById.get(a.id);
+    if (!b || b.status === a.status) continue;
+    transitions.push({
+      id: a.id, container_name: a.container_name,
+      from_status: b.status, to_status: a.status,
+      from_due: b.due_date ?? null, to_due: a.due_date ?? null,
+      // Worse = the plan just admitted something it was hiding. Surfaced first in the UI.
+      worse: RISK_RANK[a.status] > RISK_RANK[b.status],
+    });
+  }
+  transitions.sort((x, y) => (Number(y.worse) - Number(x.worse)) || x.container_name.localeCompare(y.container_name));
+
+  return {
+    ...match,
+    transitions,
+    summary_before: before.summary,
+    summary_after: after.summary,
+    newly_at_risk: transitions.filter((t) => t.worse).length,
+  };
+}
+
+// Higher = worse. Used only to say whether a rebaseline made a row's position worse.
+const RISK_RANK = { delivered: 0, pending: 1, unscheduled: 1, in_wip: 2, late: 3, overdue: 4 };
+
+/**
+ * The weekly information-delivery status report, as markdown. Pure.
+ *
+ * Written to be pasted into a coordination meeting, so it opens with what is wrong and who owes it,
+ * not with a total. Every number here is derived — the report can restate the status, never invent
+ * a figure the status did not measure.
+ */
+export function weeklyReport(status, tidp, projectKey = "") {
+  const s = status?.summary || {};
+  const L = [];
+  const n = (k) => s[k] || 0;
+
+  L.push(`# Information delivery status${projectKey ? ` — ${projectKey}` : ""}`);
+  L.push("");
+  L.push(`Generated ${status?.generated_at || "—"} · position as at ${status?.today || "—"}`);
+  L.push("");
+
+  const atRisk = n("overdue") + n("late") + n("in_wip");
+  L.push(atRisk
+    ? `**${atRisk} deliverable(s) need attention this week** — ${n("overdue")} overdue, ${n("late")} delivered late, ${n("in_wip")} arrived but never issued.`
+    : `**Nothing is overdue, late or stuck in WIP.**`);
+  L.push("");
+
+  L.push("## Position");
+  L.push("");
+  L.push("| Status | Count |");
+  L.push("| --- | ---: |");
+  for (const k of ["delivered", "late", "in_wip", "overdue", "pending", "unscheduled"]) L.push(`| ${k.replace("_", " ")} | ${n(k)} |`);
+  L.push(`| **total** | **${n("total")}** |`);
+  L.push("");
+
+  const ex = status?.exceptions || [];
+  L.push("## Exceptions");
+  L.push("");
+  if (!ex.length) {
+    L.push("No exceptions recorded against the plan.");
+  } else {
+    L.push("| Severity | Container | Owed by | Problem |");
+    L.push("| --- | --- | --- | --- |");
+    // The table is the register, in the order the register already decided (severity, then date).
+    for (const e of ex) L.push(`| ${e.severity} | \`${e.container_name}\` | ${e.responsible_team || "—"} | ${e.problem} |`);
+  }
+  L.push("");
+
+  L.push("## By task team (TIDP)");
+  L.push("");
+  const tidps = tidp?.tidps || [];
+  if (!tidps.length) {
+    L.push("No task teams are declared, so there are no TIDPs to report.");
+  } else {
+    L.push("| Team | Lead | At risk | Next due | Planned |");
+    L.push("| --- | --- | ---: | --- | ---: |");
+    for (const t of [...tidps].sort((a, b) => (b.at_risk - a.at_risk) || a.code.localeCompare(b.code)))
+      L.push(`| ${t.code}${t.declared ? "" : " *(undeclared)*"} | ${t.lead_email || "**none**"} | ${t.at_risk} | ${t.next_due || "—"} | ${t.summary.total} |`);
+  }
+  L.push("");
+
+  // The gaps a status table cannot show. Each of these is a plan defect, not a delivery defect.
+  const gaps = [];
+  const empty = tidp?.midp?.empty_tidps || [];
+  if (empty.length) gaps.push(`${empty.length} declared team(s) have planned nothing at all: ${empty.join(", ")}.`);
+  if (tidp?.midp?.task_teams_undeclared) gaps.push(`${tidp.midp.task_teams_undeclared} team(s) named by the plan are not declared in the responsibility matrix.`);
+  if (tidp?.midp?.unassigned) gaps.push(`${tidp.midp.unassigned} deliverable(s) name no task team at all.`);
+  if (gaps.length) {
+    L.push("## Gaps in the plan itself");
+    L.push("");
+    for (const g of gaps) L.push(`- ${g}`);
+    L.push("");
+  }
+
+  L.push("---");
+  L.push("");
+  L.push("Every figure above is derived from the CDE at read time — nothing in this report is stored, ticked or carried forward from last week.");
+  return L.join("\n");
+}

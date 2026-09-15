@@ -378,3 +378,237 @@ describe("evidence matching is case-insensitive (casing is not a delivery failur
     expect(miss.rows[0].evidence.actual_revisions).toEqual(["p03@2026-06-09"]);
   });
 });
+
+import { rollUpTidp } from "./deliverables-logic.mjs";
+
+describe("rollUpTidp — the MIDP as an aggregation of TIDPs", () => {
+  const R = (container_name, responsible_team, status, due_date = null) => ({ container_name, responsible_team, status, due_date });
+  const st = (rows) => ({ rows, summary: {}, exceptions: [] });
+  const T = (code, over = {}) => ({ code, name: `${code} team`, lead_email: `${code}@x.com`, ...over });
+
+  it("groups rows under their declared team, case-insensitively", () => {
+    const r = rollUpTidp(st([R("A", "ARC", "delivered"), R("B", "arc", "pending")]), [T("ARC")]);
+    expect(r.tidps).toHaveLength(1);
+    expect(r.tidps[0].rows).toHaveLength(2);
+    expect(r.tidps[0].summary.total).toBe(2);
+    expect(r.tidps[0].summary.delivered).toBe(1);
+  });
+
+  it("keeps a declared team with no rows visible — an empty TIDP is a finding", () => {
+    const r = rollUpTidp(st([R("A", "ARC", "delivered")]), [T("ARC"), T("STR")]);
+    expect(r.tidps.map((t) => t.code)).toEqual(["ARC", "STR"]);
+    expect(r.tidps[1].rows).toEqual([]);
+    expect(r.midp.empty_tidps).toEqual(["STR"]);
+  });
+
+  it("does not fold an undeclared team into the declared ones", () => {
+    const r = rollUpTidp(st([R("A", "MEP", "pending")]), [T("ARC")]);
+    const mep = r.tidps.find((t) => t.code === "MEP");
+    expect(mep.declared).toBe(false);
+    expect(mep.lead_email).toBeNull();
+    expect(r.midp.task_teams_undeclared).toBe(1);
+  });
+
+  it("puts team-less rows in unassigned, never in a team", () => {
+    const r = rollUpTidp(st([R("A", null, "pending"), R("B", "  ", "overdue")]), [T("ARC")]);
+    expect(r.unassigned.rows).toHaveLength(2);
+    expect(r.midp.unassigned).toBe(2);
+    expect(r.tidps.find((t) => t.code === "ARC").rows).toEqual([]);
+  });
+
+  it("next_due is the earliest outstanding date, ignoring what already landed", () => {
+    const r = rollUpTidp(st([
+      R("A", "ARC", "delivered", "2026-01-01"),
+      R("B", "ARC", "pending", "2026-09-30"),
+      R("C", "ARC", "overdue", "2026-03-15"),
+    ]), [T("ARC")]);
+    expect(r.tidps[0].next_due).toBe("2026-03-15");
+  });
+
+  it("next_due is null when nothing is outstanding", () => {
+    const r = rollUpTidp(st([R("A", "ARC", "delivered", "2026-01-01")]), [T("ARC")]);
+    expect(r.tidps[0].next_due).toBeNull();
+  });
+
+  it("at_risk counts overdue, late and in_wip together", () => {
+    const r = rollUpTidp(st([R("A", "ARC", "overdue"), R("B", "ARC", "late"), R("C", "ARC", "in_wip"), R("D", "ARC", "delivered")]), [T("ARC")]);
+    expect(r.tidps[0].at_risk).toBe(3);
+  });
+
+  it("the MIDP total equals the sum of every row, however it is assigned", () => {
+    const r = rollUpTidp(st([R("A", "ARC", "delivered"), R("B", "MEP", "pending"), R("C", null, "overdue")]), [T("ARC")]);
+    expect(r.midp.total).toBe(3);
+    expect(r.midp.task_teams_declared).toBe(1);
+  });
+
+  it("tolerates empty input without inventing anything", () => {
+    const r = rollUpTidp(undefined, undefined);
+    expect(r.tidps).toEqual([]);
+    expect(r.midp.total).toBe(0);
+    expect(r.unassigned.rows).toEqual([]);
+  });
+});
+
+import { matchProgramme, rebaselineImpact } from "./deliverables-logic.mjs";
+
+describe("matchProgramme", () => {
+  const rows = [
+    { id: "1", container_name: "A", due_date: "2026-06-01" },
+    { id: "2", container_name: "B", due_date: "2026-07-01" },
+    { id: "3", container_name: "C", due_date: null },
+  ];
+
+  it("reports a moved date with its signed delta", () => {
+    const r = matchProgramme(rows, [{ container_name: "A", due_date: "2026-06-22" }]);
+    expect(r.updates).toEqual([{ id: "1", container_name: "A", from: "2026-06-01", to: "2026-06-22", delta_days: 21 }]);
+  });
+
+  it("reports a pull-forward as a negative delta", () => {
+    expect(matchProgramme(rows, [{ container_name: "A", due_date: "2026-05-25" }]).updates[0].delta_days).toBe(-7);
+  });
+
+  it("an unchanged date is not an update", () => {
+    const r = matchProgramme(rows, [{ container_name: "A", due_date: "2026-06-01" }]);
+    expect(r.updates).toEqual([]);
+    expect(r.unchanged).toHaveLength(1);
+  });
+
+  it("a first-ever date has a null delta, not a fabricated zero", () => {
+    const r = matchProgramme(rows, [{ container_name: "C", due_date: "2026-08-01" }]);
+    expect(r.updates[0]).toMatchObject({ from: null, to: "2026-08-01", delta_days: null });
+  });
+
+  it("a programme row matching no deliverable is unmatched, never silently created", () => {
+    const r = matchProgramme(rows, [{ container_name: "ZZZ", due_date: "2026-08-01" }]);
+    expect(r.unmatched).toEqual([{ container_name: "ZZZ", due_date: "2026-08-01" }]);
+    expect(r.updates).toEqual([]);
+  });
+
+  it("a malformed date is rejected, never blanks a planned date", () => {
+    const r = matchProgramme(rows, [{ container_name: "A", due_date: "01/06/2026" }]);
+    expect(r.malformed).toEqual([{ container_name: "A", due_date: "01/06/2026" }]);
+    expect(r.updates).toEqual([]);
+  });
+
+  it("names the deliverables the programme never mentioned — silence is not agreement", () => {
+    const r = matchProgramme(rows, [{ container_name: "A", due_date: "2026-06-22" }]);
+    expect(r.untouched.map((u) => u.container_name).sort()).toEqual(["B", "C"]);
+  });
+
+  it("trims and tolerates empty input", () => {
+    expect(matchProgramme(rows, [{ container_name: "  A  ", due_date: " 2026-06-22 " }]).updates).toHaveLength(1);
+    expect(matchProgramme(undefined, undefined).updates).toEqual([]);
+  });
+});
+
+describe("rebaselineImpact", () => {
+  const files = [];  // nothing delivered — status is driven purely by dates
+  const rows = [
+    { id: "1", container_name: "A", due_date: "2026-09-30" },
+    { id: "2", container_name: "B", due_date: "2026-09-30" },
+  ];
+
+  it("shows a pending row turning overdue when the programme pulls it into the past", () => {
+    const r = rebaselineImpact(rows, files, "2026-09-15", [{ container_name: "A", due_date: "2026-09-01" }]);
+    expect(r.transitions).toHaveLength(1);
+    expect(r.transitions[0]).toMatchObject({ container_name: "A", from_status: "pending", to_status: "overdue", worse: true });
+    expect(r.newly_at_risk).toBe(1);
+  });
+
+  it("a push-out that rescues an overdue row is a transition, but not 'worse'", () => {
+    const late = [{ id: "1", container_name: "A", due_date: "2026-09-01" }];
+    const r = rebaselineImpact(late, files, "2026-09-15", [{ container_name: "A", due_date: "2026-10-30" }]);
+    expect(r.transitions[0]).toMatchObject({ from_status: "overdue", to_status: "pending", worse: false });
+    expect(r.newly_at_risk).toBe(0);
+  });
+
+  it("rows whose status does not move are not reported as transitions", () => {
+    const r = rebaselineImpact(rows, files, "2026-09-15", [{ container_name: "A", due_date: "2026-10-01" }]);
+    expect(r.transitions).toEqual([]);
+    expect(r.updates).toHaveLength(1);
+  });
+
+  it("carries both summaries so the before/after totals are auditable", () => {
+    const r = rebaselineImpact(rows, files, "2026-09-15", [{ container_name: "A", due_date: "2026-09-01" }]);
+    expect(r.summary_before.pending).toBe(2);
+    expect(r.summary_after.pending).toBe(1);
+    expect(r.summary_after.overdue).toBe(1);
+  });
+
+  it("worsened rows sort first", () => {
+    const r = rebaselineImpact(rows, files, "2026-09-15", [
+      { container_name: "A", due_date: "2026-12-01" },
+      { container_name: "B", due_date: "2026-09-01" },
+    ]);
+    expect(r.transitions[0].container_name).toBe("B");
+    expect(r.transitions[0].worse).toBe(true);
+  });
+
+  it("changes nothing when the programme matches the plan", () => {
+    const r = rebaselineImpact(rows, files, "2026-09-15", [{ container_name: "A", due_date: "2026-09-30" }]);
+    expect(r.updates).toEqual([]);
+    expect(r.transitions).toEqual([]);
+  });
+});
+
+import { weeklyReport } from "./deliverables-logic.mjs";
+
+describe("weeklyReport", () => {
+  const status = {
+    generated_at: "2026-09-15T08:00:00.000Z", today: "2026-09-15",
+    summary: { total: 4, delivered: 1, late: 1, in_wip: 0, overdue: 1, pending: 1, unscheduled: 0 },
+    exceptions: [{ severity: "high", container_name: "PRJ-ARC-0001", responsible_team: "ARC", problem: "nothing delivered — 5 day(s) past 2026-09-10" }],
+  };
+  const tidp = {
+    tidps: [
+      { code: "ARC", lead_email: "yara@bds.jo", declared: true, at_risk: 2, next_due: "2026-09-20", summary: { total: 3 } },
+      { code: "MEP", lead_email: null, declared: false, at_risk: 0, next_due: null, summary: { total: 1 } },
+    ],
+    midp: { empty_tidps: ["STR"], task_teams_undeclared: 1, unassigned: 2 },
+  };
+
+  it("leads with what needs attention, not with a total", () => {
+    const md = weeklyReport(status, tidp, "bds");
+    const lead = md.split("\n").find((l) => l.startsWith("**"));
+    expect(lead).toMatch(/2 deliverable\(s\) need attention/);
+  });
+
+  it("says so plainly when nothing is at risk", () => {
+    const md = weeklyReport({ ...status, summary: { total: 1, delivered: 1 } }, tidp);
+    expect(md).toMatch(/Nothing is overdue, late or stuck in WIP/);
+  });
+
+  it("renders the exception register as a table with the owing team", () => {
+    const md = weeklyReport(status, tidp);
+    expect(md).toMatch(/\| high \| `PRJ-ARC-0001` \| ARC \|/);
+  });
+
+  it("marks an undeclared team and a missing lead in the TIDP table", () => {
+    const md = weeklyReport(status, tidp);
+    expect(md).toMatch(/MEP \*\(undeclared\)\*/);
+    expect(md).toMatch(/\*\*none\*\*/);
+  });
+
+  it("sorts teams by risk", () => {
+    const md = weeklyReport(status, tidp);
+    expect(md.indexOf("| ARC ")).toBeLessThan(md.indexOf("| MEP"));
+  });
+
+  it("reports gaps in the plan separately from delivery performance", () => {
+    const md = weeklyReport(status, tidp);
+    expect(md).toMatch(/## Gaps in the plan itself/);
+    expect(md).toMatch(/planned nothing at all: STR/);
+    expect(md).toMatch(/2 deliverable\(s\) name no task team at all/);
+  });
+
+  it("omits the gaps section entirely when there are none", () => {
+    const md = weeklyReport(status, { tidps: [], midp: { empty_tidps: [] } });
+    expect(md).not.toMatch(/Gaps in the plan itself/);
+  });
+
+  it("tolerates empty input without inventing figures", () => {
+    const md = weeklyReport(undefined, undefined);
+    expect(md).toMatch(/\| \*\*total\*\* \| \*\*0\*\* \|/);
+    expect(md).toMatch(/No exceptions recorded/);
+  });
+});

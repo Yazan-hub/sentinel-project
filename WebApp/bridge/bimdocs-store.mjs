@@ -4,9 +4,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
-import { getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
+import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireMinRole } from "./members-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
+import { executability } from "./executability.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -290,4 +291,19 @@ export async function complianceReport(key, docId) {
     sections.push({ section_id: s.id, heading: s.heading, results });
   }
   return { document_id: doc.id, title: doc.title, doc_type: doc.doc_type, generated_at: new Date().toISOString(), summary, sections };
+}
+
+/**
+ * The executability report: how much of this document actually controls information production,
+ * plus the strip test. READ-ONLY — no writes, no audit row, same posture as complianceReport.
+ * Deliberately separate from compliance: this measures WIRING (does the clause govern anything),
+ * compliance measures OUTCOME (does the project satisfy it). Conflating them would let a fully
+ * wired, entirely failing BEP report as healthy.
+ */
+export async function executabilityReport(key, docId) {
+  const doc = await getDoc(key, docId);
+  return {
+    ...executability(doc, CHECKS.map((c) => c.id), PLANNED_CHECKS.map((p) => p.id)),
+    generated_at: new Date().toISOString(),
+  };
 }

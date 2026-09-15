@@ -8,7 +8,7 @@
 //
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
-import { listFiles, getProjectMeta, listAudit, projectNamingRuleset } from "./cde-store.mjs";
+import { listFiles, getProjectMeta, listAudit, projectNamingRuleset, listTransmittals } from "./cde-store.mjs";
 
 let _core;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
@@ -217,6 +217,188 @@ function classifyMidpExpectation(status, axis, id, label, noun) {
   return result(id, label, "met", { summary: `All ${rows.length} expected ${noun}(s) were delivered as planned.` });
 }
 
+
+/**
+ * Karim's test, as a check: does every planned deliverable say WHO produces it, WHEN, and WHICH
+ * DECISION it supports? A plan missing any of the three is a document register, not a plan.
+ * Reports the gap per row — never averages it away, never passes by elimination.
+ */
+export function classifyPlanCompleteness(status) {
+  const id = "midp.plan_completeness", label = "Every deliverable has an owner, a date and a purpose";
+  const rows = status?.rows || [];
+  if (!rows.length) return result(id, label, "not_checkable", { reason: "No deliverables are defined for this project yet — there is no plan to assess." });
+  const bad = [];
+  for (const r of rows) {
+    const missing = [];
+    if (!String(r.responsible_team ?? "").trim()) missing.push("owner (responsible team)");
+    if (!String(r.due_date ?? "").trim()) missing.push("date");
+    if (!String(r.purpose ?? "").trim()) missing.push("purpose (which decision it supports)");
+    if (missing.length) bad.push({ label: r.container_name, detail: `missing ${missing.join(", ")}` });
+  }
+  return bad.length
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${rows.length} deliverable(s) are not a plan yet — owner, date or purpose is missing.` })
+    : result(id, label, "met", { summary: `All ${rows.length} deliverable(s) name an owner, a date and the decision they support.` });
+}
+
+/**
+ * Issue distribution: was every PUBLISHED version actually issued to someone, on the record?
+ *
+ * ISO 19650 "issue" is a transmittal with recipients — not a state change. A transmittal carrying no
+ * recipients evidences nothing, so it never satisfies a version: naming that case explicitly is the
+ * difference between an honest gap and a fabricated pass. Superseded published versions still count:
+ * they were issued at the time, and an unissued one is a real hole in the record.
+ */
+export function classifyDistribution(files, transmittals) {
+  const id = "midp.distribution", label = "Issue distribution (MIDP)";
+  const published = [];
+  for (const f of files || []) {
+    for (const v of f.versions || []) {
+      if (v.state === "published") published.push({ file: f, version: v });
+    }
+  }
+  if (!published.length)
+    return result(id, label, "not_checkable", { reason: "Nothing has reached published on this project yet, so there is no issue to evidence." });
+
+  // A transmittal only evidences distribution when it names at least one recipient.
+  const withRecipients = new Set();
+  const withoutRecipients = new Map(); // version_id -> transmittal reference
+  for (const t of transmittals || []) {
+    const ids = Array.isArray(t.version_ids) ? t.version_ids : [];
+    const hasRecipient = (Array.isArray(t.recipients) ? t.recipients : []).some((r) => String(r ?? "").trim());
+    for (const vid of ids) {
+      if (hasRecipient) withRecipients.add(vid);
+      else if (!withoutRecipients.has(vid)) withoutRecipients.set(vid, t.reference || "(unreferenced)");
+    }
+  }
+
+  const bad = [];
+  for (const { file, version } of published) {
+    if (withRecipients.has(version.id)) continue;
+    const empty = withoutRecipients.get(version.id);
+    bad.push({
+      label: `${file.iso_name} ${version.revision}`,
+      detail: empty
+        ? `transmittal ${empty} lists no recipients, so it evidences no issue`
+        : "published, but no transmittal records issuing it to anyone",
+      ref: version.id,
+    });
+  }
+  return bad.length
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${published.length} published version(s) were never issued to a named recipient.` })
+    : result(id, label, "met", { summary: `All ${published.length} published version(s) were issued to named recipients on a transmittal.` });
+}
+
+/**
+ * Roles and responsibilities: does every planned deliverable resolve to a DECLARED task team, and
+ * does every team it relies on name an accountable human?
+ *
+ * Two distinct failures, never merged: a deliverable pointing at a team nobody declared, and a
+ * declared team with no named lead. Both are "there is no one accountable for this", and a
+ * responsibility matrix that averages them away is the org chart the BEP already had.
+ */
+export function classifyResponsibility(status, teams) {
+  const id = "roles.responsibility", label = "Roles and responsibilities";
+  const rows = status?.rows || [];
+  if (!rows.length)
+    return result(id, label, "not_checkable", { reason: "No deliverables are defined for this project yet, so there is no production to assign to a task team." });
+
+  const norm = (v) => String(v ?? "").trim().toLowerCase();
+  const byCode = new Map((teams || []).map((t) => [norm(t.code), t]));
+  const bad = [];
+  const referenced = new Map(); // code -> team, for the lead check below
+
+  for (const r of rows) {
+    const team = norm(r.responsible_team);
+    if (!team) {
+      bad.push({ label: r.container_name, detail: "names no task team — nobody is accountable for producing it" });
+      continue;
+    }
+    const declared = byCode.get(team);
+    if (!declared) {
+      bad.push({ label: r.container_name, detail: `names task team "${String(r.responsible_team).trim()}", which is not declared in the responsibility matrix` });
+      continue;
+    }
+    referenced.set(team, declared);
+  }
+
+  for (const [, t] of referenced) {
+    if (!String(t.lead_email ?? "").trim())
+      bad.push({ label: `task team ${t.code}`, detail: "is declared but names no accountable lead", ref: t.id });
+  }
+
+  return bad.length
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} responsibility gap(s): ${rows.length} deliverable(s) against ${byCode.size} declared task team(s).` })
+    : result(id, label, "met", { summary: `All ${rows.length} deliverable(s) resolve to a declared task team with a named accountable lead.` });
+}
+
+/**
+ * Review before issue: was the version AUTHORIZED by someone other than the person who submitted it?
+ *
+ * Passing through `shared` proves nothing — 0002's state machine already forbids wip→published, so
+ * every published version has been "shared" by construction. The only evidence of review the ledger
+ * actually carries is segregation of duty: one identity submitted (wip→shared), a different identity
+ * authorized (shared→published). Same person on both ends is self-issue, whatever the states say.
+ *
+ * Generic actors ("web", "service") are identities Sentinel could not resolve. Comparing two of them
+ * would manufacture either a pass or a violation out of nothing, so such a version is UNMEASURED and
+ * caps the result at not_checkable — never at met.
+ */
+const GENERIC_ACTORS = new Set(["", "web", "service", "bridge", "unknown", "null"]);
+
+export function classifyReview(files, auditRows) {
+  const id = "midp.review", label = "Review before issue (MIDP)";
+  const published = [];
+  for (const f of files || []) {
+    for (const v of f.versions || []) {
+      if (v.state === "published") published.push({ file: f, version: v });
+    }
+  }
+  if (!published.length)
+    return result(id, label, "not_checkable", { reason: "Nothing has reached published on this project yet, so there is no issue to have reviewed." });
+
+  // Audit rows arrive newest-first; the first seen of each action is the one that governs.
+  const submitted = new Map(), authorized = new Map();
+  for (const r of auditRows || []) {
+    if (r.entity_type !== "container_version") continue;
+    const map = r.action === "state:wip->shared" ? submitted : r.action === "state:shared->published" ? authorized : null;
+    if (map && !map.has(r.entity_id)) map.set(r.entity_id, r.actor);
+  }
+  const named = (a) => {
+    const v = String(a ?? "").trim();
+    return GENERIC_ACTORS.has(v.toLowerCase()) ? null : v;
+  };
+
+  const bad = [], unmeasured = [];
+  let reviewed = 0;
+  for (const { file, version } of published) {
+    const who = `${file.iso_name} ${version.revision}`;
+    const sub = named(submitted.get(version.id)), auth = named(authorized.get(version.id));
+    if (!sub || !auth) {
+      unmeasured.push({
+        label: who,
+        detail: !submitted.has(version.id) || !authorized.has(version.id)
+          ? "its state transitions are outside the audit window read here, so review cannot be judged"
+          : "submitted or authorized by an unresolved identity, so independence cannot be judged",
+      });
+      continue;
+    }
+    if (sub.toLowerCase() === auth.toLowerCase())
+      bad.push({ label: who, detail: `submitted and authorized by the same person (${auth}) — no independent review before issue`, ref: version.id });
+    else reviewed += 1;
+  }
+
+  if (bad.length)
+    return result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${published.length} published version(s) were issued without independent review.` });
+  // Partial measurement is not a pass — same posture as the stage gate.
+  if (unmeasured.length)
+    return result(id, label, "not_checkable", {
+      count: unmeasured.length,
+      evidence: unmeasured,
+      reason: `${reviewed} of ${published.length} published version(s) show independent review; the remaining ${unmeasured.length} cannot be judged, so review cannot be confirmed.`,
+    });
+  return result(id, label, "met", { summary: `All ${published.length} published version(s) were authorized by someone other than the person who submitted them.` });
+}
+
 export const classifyMidpRevision = (status) =>
   classifyMidpExpectation(status, "revision", "midp.revision", "Delivered revisions (MIDP)", "revision");
 export const classifyMidpSuitability = (status) =>
@@ -298,6 +480,16 @@ export const CHECKS = [
     },
   },
   {
+    id: "midp.plan_completeness",
+    label: "Every deliverable has an owner, a date and a purpose",
+    description: "Every planned deliverable names who produces it, when it is due, and which decision it supports.",
+    params_schema: {},
+    async run(key) {
+      const dl = await import("./deliverables-store.mjs");
+      return classifyPlanCompleteness(await dl.deliverableStatus(key));
+    },
+  },
+  {
     id: "midp.revision",
     label: "Delivered revisions (MIDP)",
     description: "Every deliverable with an expected revision had that revision reach published by its due date.",
@@ -317,6 +509,37 @@ export const CHECKS = [
       return classifyMidpSuitability(await dl.deliverableStatus(key));
     },
   },
+  {
+    id: "roles.responsibility",
+    label: "Roles and responsibilities",
+    description: "Every planned deliverable resolves to a declared task team with a named accountable lead.",
+    params_schema: {},
+    async run(key) {
+      const [dl, tt] = await Promise.all([import("./deliverables-store.mjs"), import("./task-teams-store.mjs")]);
+      const [status, teams] = await Promise.all([dl.deliverableStatus(key), tt.listTeams(key)]);
+      return classifyResponsibility(status, teams);
+    },
+  },
+  {
+    id: "midp.review",
+    label: "Review before issue (MIDP)",
+    description: "Every published version was authorized by someone other than the person who submitted it.",
+    params_schema: {},
+    async run(key) {
+      const [files, rows] = await Promise.all([listFiles(key), listAudit(key)]);
+      return classifyReview(files, rows);
+    },
+  },
+  {
+    id: "midp.distribution",
+    label: "Issue distribution (MIDP)",
+    description: "Every published version was issued to named recipients on a transmittal.",
+    params_schema: {},
+    async run(key) {
+      const [files, transmittals] = await Promise.all([listFiles(key), listTransmittals(key)]);
+      return classifyDistribution(files, transmittals);
+    },
+  },
 ];
 
 /**
@@ -326,11 +549,8 @@ export const CHECKS = [
  */
 export const PLANNED_CHECKS = [
   { id: "loin.levels", label: "Level of information need", reason: "Level-of-information-need is not modelled per stage or discipline yet; the IDS spec is bridge-wide, not per-project." },
-  { id: "roles.responsibility", label: "Roles and responsibilities", reason: "No task-team or responsibility matrix exists — container authorship is free text." },
   { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted." },
   { id: "federation.breakdown", label: "Federation strategy", reason: "There is no declared expected-model list to check the federation against." },
-  { id: "midp.review", label: "Review before issue (MIDP)", reason: "No review/approval workflow model exists — Sentinel cannot evidence that a deliverable passed review before issue." },
-  { id: "midp.distribution", label: "Issue distribution (MIDP)", reason: "No transmittal model — Sentinel cannot evidence who an issue was distributed to." },
 ];
 
 const BY_ID = new Map(CHECKS.map((c) => [c.id, c]));

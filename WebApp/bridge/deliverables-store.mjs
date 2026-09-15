@@ -2,7 +2,7 @@
 // Thin PostgREST wrapper in the idiom of cde-store.mjs / bimdocs-store.mjs. Writes are audited;
 // deliverableStatus writes NOTHING (it is a read model, not an event).
 import { sb, ensureProject, audit, listFiles, isUuid } from "./cde-store.mjs";
-import { deriveStatus } from "./deliverables-logic.mjs";
+import { deriveStatus, rollUpTidp, rebaselineImpact, weeklyReport } from "./deliverables-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -37,6 +37,9 @@ export function validateRow(body) {
     due_date: due, stage, notes: str(body.notes),
     // Free-text by design: revision/suitability coding is convention-specific (BS 8644, project BEP…).
     expected_revision: str(body.expected_revision), expected_suitability: str(body.expected_suitability),
+    // WHICH DECISION this information supports. Free text; its absence is reported by
+    // midp.plan_completeness, never silently tolerated.
+    purpose: str(body.purpose),
   };
 }
 
@@ -49,7 +52,7 @@ export async function createDeliverable(key, body, actor) {
   const row = validateRow(body);
   const proj = await ensureProject(key);
   const created = one(await sb("deliverables", { method: "POST", body: { ...row, project_id: proj.id }, prefer: "return=representation" }));
-  await audit(proj.id, "deliverable", created.id, "created", actor || "web", null, { container_name: created.container_name, due_date: created.due_date, expected_revision: created.expected_revision, expected_suitability: created.expected_suitability });
+  await audit(proj.id, "deliverable", created.id, "created", actor || "web", null, { container_name: created.container_name, due_date: created.due_date, expected_revision: created.expected_revision, expected_suitability: created.expected_suitability, purpose: created.purpose });
   return created;
 }
 
@@ -68,7 +71,7 @@ export async function updateDeliverable(key, id, patch, actor) {
   const updated = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
   // Audit every planned field, not just name+date: a changed owner or stage is exactly the kind of
   // silent plan edit an audit trail exists to reconstruct.
-  const fields = (r) => ({ container_name: r.container_name, title: r.title, responsible_team: r.responsible_team, due_date: r.due_date, stage: r.stage, expected_revision: r.expected_revision, expected_suitability: r.expected_suitability });
+  const fields = (r) => ({ container_name: r.container_name, title: r.title, responsible_team: r.responsible_team, due_date: r.due_date, stage: r.stage, expected_revision: r.expected_revision, expected_suitability: r.expected_suitability, purpose: r.purpose });
   await audit(proj.id, "deliverable", id, "updated", actor || "web", fields(before), fields(updated));
   return updated;
 }
@@ -102,4 +105,46 @@ export async function deliverableStatus(key) {
   const [rows, files] = await Promise.all([listDeliverables(key), listFiles(key)]);
   const today = new Date().toISOString().slice(0, 10);
   return { generated_at: new Date().toISOString(), today, ...deriveStatus(rows, files, today) };
+}
+
+/**
+ * The TIDP view of the same derived rows — grouped by task team, rolled into the MIDP.
+ * READ-ONLY, like deliverableStatus: one derivation, two lenses, nothing stored either way.
+ */
+export async function tidpReport(key) {
+  const tt = await import("./task-teams-store.mjs");
+  const [status, teams] = await Promise.all([deliverableStatus(key), tt.listTeams(key)]);
+  return { generated_at: status.generated_at, today: status.today, ...rollUpTidp(status, teams) };
+}
+
+/** What re-importing the programme would do. READ-ONLY — nothing is written, nothing is audited. */
+export async function rebaselinePreview(key, programme) {
+  if (!Array.isArray(programme)) throw err(400, "programme must be an array of { container_name, due_date } rows");
+  const [rows, files] = await Promise.all([listDeliverables(key), listFiles(key)]);
+  const today = new Date().toISOString().slice(0, 10);
+  return { generated_at: new Date().toISOString(), today, ...rebaselineImpact(rows, files, today, programme) };
+}
+
+/**
+ * Apply the moved dates. Each change is audited as `rebaselined` rather than `updated`: the ledger
+ * should say the PROGRAMME moved this, not that somebody edited a row — that distinction is the
+ * whole point of re-importing rather than hand-editing.
+ */
+export async function rebaselineApply(key, programme, actor) {
+  const preview = await rebaselinePreview(key, programme);
+  const proj = await ensureProject(key);
+  for (const u of preview.updates) {
+    await sb(`deliverables?id=eq.${enc(u.id)}`, {
+      method: "PATCH", body: { due_date: u.to, updated_at: new Date().toISOString() }, prefer: "return=minimal",
+    });
+    await audit(proj.id, "deliverable", u.id, "rebaselined", actor || "web",
+      { due_date: u.from }, { due_date: u.to, delta_days: u.delta_days, container_name: u.container_name });
+  }
+  return { applied: preview.updates.length, ...preview };
+}
+
+/** The weekly information-delivery status report, as markdown. READ-ONLY. */
+export async function weeklyReportMarkdown(key) {
+  const [status, tidp] = await Promise.all([deliverableStatus(key), tidpReport(key)]);
+  return { generated_at: status.generated_at, today: status.today, markdown: weeklyReport(status, tidp, key) };
 }

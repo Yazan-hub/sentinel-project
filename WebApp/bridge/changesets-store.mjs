@@ -29,6 +29,9 @@ export async function proposeChangeset(key, body, actor, deps) {
   const adj = await d.adjudicateProposal(key, {
     source: v.source, actor,
     elements: v.elements.map((e) => e.validate),
+    // Claimed provenance rides through to the ledger unchanged — normalizeAgent sanitises it there,
+    // so a changeset and a bare proposal record the same shape.
+    agent: body?.agent,
     note: `changeset: ${v.name}`,
   });
 

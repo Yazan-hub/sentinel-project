@@ -33,7 +33,7 @@ export const TOOLS = [
   { name: "sentinel_list_projects", description: "List the governed CDE projects (id, key, name).", inputSchema: { type: "object", properties: {} } },
   {
     name: "sentinel_propose",
-    description: "Propose elements to the governed layer. They're validated against an IDS (buildingSMART Information Delivery Specification) and the verdict — accepted / rejected (with per-requirement reasons) — is recorded in the project's immutable, hash-chained audit trail. Use to answer 'are these elements / is this model compliant?'.",
+    description: "Propose elements to the governed layer. They're validated against an IDS (buildingSMART Information Delivery Specification) and the verdict — accepted / rejected (with per-requirement reasons) — is recorded in the project's immutable, hash-chained audit trail. The response carries a RECEIPT anchored on that ledger entry's chain hash, which anyone can re-check with sentinel_verify_receipt. Use to answer 'are these elements / is this model compliant?'.",
     inputSchema: {
       type: "object", required: ["project", "elements"],
       properties: {
@@ -41,6 +41,7 @@ export const TOOLS = [
         source: { type: "string", description: "who/what is proposing (agent or tool name)" },
         ids: { description: "an IDS spec as JSON {title, specifications:[{name, applicability:{entity}, requirements:{properties:[{pset,name,cardinality}], attributes:[…]}}]}. Omit to just record the proposal. (Raw .ids XML is parsed browser-side only — pass JSON here.)" },
         elements: { type: "array", description: "elements in the ElementProperties shape: {identity:{Class:'IFCWALL', GlobalId, Name?}, psets:[{name:'Pset_WallCommon', rows:[{name:'FireRating', value:'REI60'}]}], quantities:[…]}" },
+        agent: { type: "object", description: "CLAIMED provenance, recorded on the ledger and never verified by Sentinel: {kind:'agent'|'human', model, tool, prompt}. The prompt is HASHED, never stored — supply it (or a prompt_sha256) so the verdict can later be tied to the exact instruction that produced the elements." },
         note: { type: "string" },
       },
     },
@@ -105,6 +106,19 @@ export const TOOLS = [
         name: { type: "string", description: "human-readable changeset name (shown to the reviewer in Revit)" },
         source: { type: "string", description: "agent self-label" },
         elements: { type: "array", description: "the proposed elements (see tool description for the shape)" },
+        agent: { type: "object", description: "CLAIMED provenance, recorded on the ledger and never verified by Sentinel: {kind:'agent'|'human', model, tool, prompt}. The prompt is HASHED, never stored — supply it (or a prompt_sha256) so the verdict can later be tied to the exact instruction that produced the elements." },
+      },
+    },
+  },
+  {
+    name: "sentinel_verify_receipt",
+    description: "Check a verdict receipt against the immutable ledger. Pass the whole `receipt` object returned by sentinel_propose, or just an `audit_id` to fetch the authoritative one. Returns {matches, reasons[], ledger} — every mismatch is named, because 'this receipt is forged' and 'this receipt is for a different verdict' are different answers. Read-only.",
+    inputSchema: {
+      type: "object", required: ["project"],
+      properties: {
+        project: { type: "string", description: "the project key" },
+        receipt: { type: "object", description: "a receipt to check against the ledger" },
+        audit_id: { type: "number", description: "instead of a receipt: fetch the authoritative receipt for this ledger entry" },
       },
     },
   },
@@ -152,6 +166,18 @@ export async function callTool(name, args = {}, deps = {}) {
     const { project, ...body } = args;
     if (!project) throw new Error("project is required");
     const r = await f(`${BASE}/cde/${enc(project)}/propose`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
+    return await r.json();
+  }
+  if (name === "sentinel_verify_receipt") {
+    const project = need(args, "project");
+    if (args.receipt) {
+      const r = await f(`${BASE}/receipt/${enc(project)}/verify`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify({ receipt: args.receipt }) });
+      if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
+      return await r.json();
+    }
+    if (args.audit_id === undefined) throw new Error("pass either receipt or audit_id");
+    const r = await f(`${BASE}/receipt/${enc(project)}/${enc(String(args.audit_id))}`, { headers: authHeaders });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
     return await r.json();
   }
