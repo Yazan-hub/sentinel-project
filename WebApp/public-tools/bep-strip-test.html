@@ -1,0 +1,441 @@
+<title>BEP Strip Test</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper:#f3f4f7; --surface:#ffffff; --surface-2:#eceef2;
+    --ink:#14161b; --ink-2:#4a5160; --ink-3:#727a8a;
+    --rule:#d7dbe2; --rule-2:#bcc2cd;
+    --accent:#1d4ed8; --accent-soft:#e3e9fb;
+    --good:#15803d; --good-soft:#e2f2e8;
+    --part:#a35a07; --part-soft:#fbeedd;
+    --none:#6b7280; --none-soft:#e9ebef;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+    --cond:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --paper:#131519; --surface:#1b1e24; --surface-2:#22262e;
+    --ink:#e8eaee; --ink-2:#a8b0bd; --ink-3:#7d8694;
+    --rule:#2d323b; --rule-2:#3b414c;
+    --accent:#7da2ff; --accent-soft:#1b2540;
+    --good:#4ade80; --good-soft:#15291d;
+    --part:#f0b45e; --part-soft:#2e2313;
+    --none:#8b93a1; --none-soft:#23262c;
+  }}
+  :root[data-theme="dark"]{
+    --paper:#131519; --surface:#1b1e24; --surface-2:#22262e;
+    --ink:#e8eaee; --ink-2:#a8b0bd; --ink-3:#7d8694;
+    --rule:#2d323b; --rule-2:#3b414c;
+    --accent:#7da2ff; --accent-soft:#1b2540;
+    --good:#4ade80; --good-soft:#15291d;
+    --part:#f0b45e; --part-soft:#2e2313;
+    --none:#8b93a1; --none-soft:#23262c;
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.55;margin:0}
+  .wrap{max-width:1140px;margin:0 auto;padding-block:clamp(1.75rem,4vw,3rem);padding-left:16px;padding-right:16px}
+  h1,h2,h3{font-family:var(--cond);text-wrap:balance;margin:0;letter-spacing:-.01em}
+  p{margin:0}
+  .lede{color:var(--ink-2);max-width:62ch}
+  .eyebrow{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+
+  header{border-bottom:1px solid var(--rule);padding-bottom:1.4rem;margin-bottom:1.6rem;display:flex;flex-direction:column;gap:.55rem}
+  h1{font-size:clamp(1.9rem,5vw,2.9rem);font-weight:700;line-height:1.05}
+  h1 em{font-style:normal;color:var(--accent)}
+  .quote{border-left:2px solid var(--accent);padding-left:.9rem;color:var(--ink-2);font-size:.93rem;max-width:64ch}
+  .quote cite{display:block;margin-top:.3rem;font-style:normal;font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;color:var(--ink-3)}
+
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:1.5rem;align-items:start}
+  @media (max-width:860px){ .cols{grid-template-columns:minmax(0,1fr)} }
+
+  .panel{background:var(--surface);border:1px solid var(--rule);border-radius:6px}
+  .panel-head{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;padding:.85rem 1rem;border-bottom:1px solid var(--rule)}
+  .panel-head h2{font-size:1.02rem;font-weight:600}
+  .panel-body{padding:1rem}
+
+  textarea{width:100%;min-height:19rem;resize:vertical;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--rule);border-radius:4px;padding:.75rem;font-family:var(--mono);font-size:.78rem;line-height:1.6}
+  textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .controls{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.7rem}
+  button{font-family:var(--sans);font-size:.82rem;font-weight:500;cursor:pointer;
+    border:1px solid var(--rule-2);background:var(--surface);color:var(--ink);border-radius:4px;padding:.4rem .75rem}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{opacity:.9;color:#fff}
+
+  .score-row{display:flex;align-items:flex-end;gap:1.1rem;flex-wrap:wrap}
+  .score{font-family:var(--cond);font-size:clamp(3.2rem,11vw,4.6rem);font-weight:700;line-height:.85;
+    font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+  .score span{font-size:.36em;color:var(--ink-3);margin-left:.1em}
+  .score-note{flex:1;min-width:14rem;color:var(--ink-2);font-size:.88rem}
+
+  .bar{display:flex;height:9px;border-radius:99px;overflow:hidden;margin:1rem 0 .55rem;background:var(--none-soft)}
+  .bar i{display:block;height:100%}
+  .key{display:flex;gap:1rem;flex-wrap:wrap;font-family:var(--mono);font-size:.68rem;letter-spacing:.05em;color:var(--ink-2)}
+  .key b{font-weight:500;color:var(--ink)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:.35rem;vertical-align:baseline}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr));gap:1px;background:var(--rule);
+    border-top:1px solid var(--rule);margin-top:1.1rem}
+  .stat{background:var(--surface);padding:.7rem .2rem .75rem}
+  .stat b{display:block;font-family:var(--cond);font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  .stat span{font-family:var(--mono);font-size:.63rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+
+  ol.clauses{list-style:none;margin:0;padding:0}
+  ol.clauses li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.7rem;
+    padding:.6rem 0;border-top:1px solid var(--rule)}
+  ol.clauses li:first-child{border-top:0}
+  .verdict{font-family:var(--mono);font-size:.6rem;letter-spacing:.09em;text-transform:uppercase;
+    padding:.15rem .4rem;border-radius:3px;height:fit-content;white-space:nowrap}
+  .v-controlling{background:var(--good-soft);color:var(--good)}
+  .v-partial{background:var(--part-soft);color:var(--part)}
+  .v-narrative{background:var(--none-soft);color:var(--none)}
+  .clause-head{font-weight:600;font-size:.9rem;overflow-wrap:anywhere}
+  .clause-meta{font-family:var(--mono);font-size:.68rem;color:var(--ink-3);margin-top:.15rem}
+  .misses{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.3rem}
+  .miss{font-family:var(--mono);font-size:.63rem;letter-spacing:.04em;color:var(--part);
+    border:1px solid var(--part);border-radius:3px;padding:.05rem .32rem;opacity:.85}
+  .hit{font-family:var(--mono);font-size:.63rem;letter-spacing:.04em;color:var(--good);
+    border:1px solid var(--good);border-radius:3px;padding:.05rem .32rem;opacity:.85}
+
+  .strip{margin-top:1.5rem}
+  .strip-inner{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem}
+  .keep li,.cut li{font-size:.85rem;padding:.2rem 0;overflow-wrap:anywhere}
+  .keep ul,.cut ul{margin:.4rem 0 0;padding-left:1.1rem}
+  .cut li{color:var(--ink-3);text-decoration:line-through;text-decoration-color:var(--rule-2)}
+
+  .honesty{margin-top:1.5rem;border:1px solid var(--rule);border-left:3px solid var(--accent);
+    background:var(--surface);border-radius:4px;padding:1rem 1.1rem}
+  .honesty h3{font-size:.95rem;margin-bottom:.4rem}
+  .honesty p{color:var(--ink-2);font-size:.87rem;max-width:70ch}
+  .honesty p + p{margin-top:.6rem}
+
+  footer{margin-top:2.2rem;padding-top:1.1rem;border-top:1px solid var(--rule);
+    color:var(--ink-3);font-size:.8rem;display:flex;gap:.6rem;flex-wrap:wrap;justify-content:space-between}
+  code{font-family:var(--mono);font-size:.85em;background:var(--surface-2);padding:.05rem .25rem;border-radius:3px}
+  .sample-flag{font-family:var(--mono);font-size:.63rem;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--part);border:1px solid var(--part);border-radius:3px;padding:.05rem .35rem}
+  @media (prefers-reduced-motion:no-preference){ .panel{transition:border-color .15s} }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Sentinel · information production plan</p>
+    <h1>How many pages of your BEP<br><em>actually control the project?</em></h1>
+    <div class="quote">
+      Open your BEP and ask of every section: does it say <strong>who</strong> produces the information,
+      <strong>when</strong>, and <strong>which decision</strong> it supports? Strip out everything that doesn't,
+      and see what's left.
+      <cite>— the test this tool mechanises, after Karim L Maghraby on the ISO 19650 rename to <em>Information Production Plan</em></cite>
+    </div>
+  </header>
+
+  <div class="cols">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Your plan</h2>
+        <span class="sample-flag" id="flag">sample loaded</span>
+      </div>
+      <div class="panel-body">
+        <label class="eyebrow" for="src">Paste the BEP — headings and clause text</label>
+        <textarea id="src" spellcheck="false" aria-describedby="privacy"></textarea>
+        <div class="controls">
+          <button class="primary" id="run">Run the strip test</button>
+          <button id="load">Reload sample</button>
+          <button id="clear">Clear</button>
+          <button id="copy">Copy report</button>
+        </div>
+        <p id="privacy" class="clause-meta" style="margin-top:.6rem">
+          Runs entirely in this page. Nothing is uploaded, stored or sent anywhere.
+        </p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Result</h2><span class="eyebrow" id="stamp"></span></div>
+      <div class="panel-body">
+        <div class="score-row">
+          <div class="score" id="score">—<span>%</span></div>
+          <p class="score-note" id="note"></p>
+        </div>
+        <div class="bar" id="bar"></div>
+        <div class="key">
+          <span><i class="dot" style="background:var(--good)"></i><b id="k1">0</b> controlling</span>
+          <span><i class="dot" style="background:var(--part)"></i><b id="k2">0</b> partial</span>
+          <span><i class="dot" style="background:var(--none)"></i><b id="k3">0</b> narrative</span>
+        </div>
+        <div class="stats">
+          <div class="stat"><b id="s1">0</b><span>clauses read</span></div>
+          <div class="stat"><b id="s2">0</b><span>words total</span></div>
+          <div class="stat"><b id="s3">0</b><span>words that control</span></div>
+          <div class="stat"><b id="s4">0</b><span>pages if printed</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel strip">
+    <div class="panel-head"><h2>Clause by clause</h2><span class="eyebrow">who · when · why · enforceable</span></div>
+    <div class="panel-body"><ol class="clauses" id="list"></ol></div>
+  </section>
+
+  <section class="panel strip">
+    <div class="panel-head"><h2>After the strip test</h2><span class="eyebrow">what survives, and what goes</span></div>
+    <div class="panel-body strip-inner">
+      <div class="keep">
+        <p class="eyebrow" style="color:var(--good)">The plan</p>
+        <ul id="keep"></ul>
+      </div>
+      <div class="cut">
+        <p class="eyebrow">Reference material, not plan</p>
+        <ul id="cut"></ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="honesty">
+    <h3>What this tool can and cannot see</h3>
+    <p>
+      This reads <em>words</em>. It looks for a named owner, a date or milestone, a stated purpose, and
+      enforceable language — the four things a clause needs before it can manage anything. A clause that
+      reads well will pass here even if nothing in the world enforces it.
+    </p>
+    <p>
+      That gap is the point. Sentinel's real check binds each clause to live project data — the CDE, the IDS
+      specification, the delivery plan — and returns <strong>met</strong>, <strong>violated</strong> with the
+      failing containers named, or <strong>not checkable</strong> with the reason it cannot be judged. It never
+      reports a pass for something it did not measure. Text can be graded; only a bound clause can be enforced.
+    </p>
+  </div>
+
+  <footer>
+    <span>Sentinel — the governed element graph. A model becomes true here, and it's on the record.</span>
+    <span>Built by Yazan Hijazeen</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ── The four signals a clause needs before it can manage information production ───────────────
+  // Deliberately conservative: each pattern is a phrase a real BEP uses, not a guess at intent.
+  const SIGNALS = {
+    who: { label: "who", re: /\b(responsib\w+|accountab\w+|task team|lead appointed party|appointed party|delivery team|information manager|bim (manager|coordinator|lead)|originator|author(ed|ing)? by|produced by|owner\b|raci|shall be (produced|prepared|issued|reviewed|authorised|authorized) by|discipline lead)\b/i },
+    when: { label: "when", re: /\b(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4}|stage\s*[0-7]\b|riba\b|milestone|deadline|due (date|by)|by (week|month|the end of)|prior to|no later than|programme|schedule of (deliverables|information)|weekly|monthly|at each (stage|gate)|january|february|march|april|may|june|july|august|september|october|november|december)\b/i },
+    why: { label: "why", re: /\b(in order to|so that|to enable|to support|supports? the|informs? the|used to (decide|determine|assess)|purpose of this|for the purpose|required for|to allow|basis for|decision)\b/i },
+    force: { label: "enforceable", re: /\b(shall|must|will be rejected|not permitted|is prohibited|mandatory|required to|no .{0,20}shall be (issued|published|accepted))\b/i },
+  };
+
+  const HEADING = /^(?:#{1,6}\s+.+|(?:\d+(?:\.\d+)*)[.)]?\s+\S.*|[A-Z][A-Z0-9 \-/&(),.']{6,}|.{3,80}\n[=-]{3,})$/;
+
+  /** Split a pasted document into clauses. A clause = a heading and the prose under it. */
+  function parse(text) {
+    const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+    const out = [];
+    let cur = null;
+    const isHeading = (line, next) => {
+      const t = line.trim();
+      if (!t) return false;
+      if (/^#{1,6}\s+\S/.test(t)) return true;
+      if (/^\d+(\.\d+)*[.)]?\s+\S/.test(t) && t.length < 110) return true;
+      if (/^[A-Z][A-Z0-9 \-/&(),.']{6,}$/.test(t) && t.length < 90) return true;
+      if (next !== undefined && /^[=-]{3,}$/.test(String(next).trim()) && t.length < 90) return true;
+      return false;
+    };
+    lines.forEach((line, i) => {
+      if (isHeading(line, lines[i + 1])) {
+        if (cur) out.push(cur);
+        cur = { heading: line.replace(/^#{1,6}\s+/, "").trim(), body: [] };
+      } else if (cur && !/^[=-]{3,}$/.test(line.trim())) {
+        cur.body.push(line);
+      }
+    });
+    if (cur) out.push(cur);
+    // A document with no headings at all is still worth reading — treat each paragraph as a clause.
+    if (!out.length) {
+      String(text).split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).forEach((p, i) => {
+        out.push({ heading: p.split("\n")[0].slice(0, 80), body: [p] });
+      });
+    }
+    return out.map((c) => ({ heading: c.heading, text: c.body.join("\n").trim() }));
+  }
+
+  const words = (s) => (String(s).match(/[A-Za-z؀-ۿ][\w؀-ۿ'-]*/g) || []).length;
+
+  function grade(clause) {
+    const hay = `${clause.heading}\n${clause.text}`;
+    const hits = {};
+    for (const k of Object.keys(SIGNALS)) hits[k] = SIGNALS[k].re.test(hay);
+    // Controlling = who AND when AND (a stated decision OR enforceable language).
+    // Anything less is partial: it may be correct, useful, even contractual — it just cannot,
+    // on its own, tell anyone what to produce, by when, for what.
+    const kind = hits.who && hits.when && (hits.why || hits.force) ? "controlling"
+      : (hits.who || hits.when || hits.why || hits.force) ? "partial" : "narrative";
+    return { ...clause, hits, kind, words: words(hay) };
+  }
+
+  // ── Render (createElement only — a pasted BEP is untrusted text) ──────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+
+  function render(clauses) {
+    const n = clauses.length;
+    const by = (k) => clauses.filter((c) => c.kind === k);
+    const controlling = by("controlling"), partial = by("partial"), narrative = by("narrative");
+    const totalWords = clauses.reduce((a, c) => a + c.words, 0);
+    const ctrlWords = controlling.reduce((a, c) => a + c.words, 0);
+    const score = n ? Math.round((controlling.length / n) * 100) : 0;
+
+    $("score").textContent = n ? String(score) : "—";
+    $("score").append(el("span", null, "%"));
+    $("score").style.color = !n ? "var(--ink-3)" : score >= 50 ? "var(--good)" : score >= 20 ? "var(--part)" : "var(--none)";
+
+    $("note").textContent = !n
+      ? "Paste a BEP, or load the sample, to see how much of it controls information production."
+      : `${controlling.length} of ${n} clauses say who produces the information, when, and what it is for. `
+        + `${ctrlWords.toLocaleString()} of ${totalWords.toLocaleString()} words carry the plan; the rest is reference material.`;
+
+    const bar = $("bar");
+    bar.replaceChildren();
+    [["controlling", controlling.length, "var(--good)"], ["partial", partial.length, "var(--part)"], ["narrative", narrative.length, "var(--none)"]]
+      .forEach(([, count, color]) => {
+        if (!count || !n) return;
+        const i = el("i");
+        i.style.width = `${(count / n) * 100}%`;
+        i.style.background = color;
+        bar.append(i);
+      });
+
+    $("k1").textContent = controlling.length;
+    $("k2").textContent = partial.length;
+    $("k3").textContent = narrative.length;
+    $("s1").textContent = n;
+    $("s2").textContent = totalWords.toLocaleString();
+    $("s3").textContent = ctrlWords.toLocaleString();
+    $("s4").textContent = Math.max(1, Math.round(totalWords / 450));
+    $("stamp").textContent = n ? `${n} clauses read` : "";
+
+    const list = $("list");
+    list.replaceChildren();
+    clauses.forEach((c) => {
+      const li = el("li");
+      li.append(el("span", `verdict v-${c.kind}`, c.kind));
+      const main = el("div");
+      main.append(el("div", "clause-head", c.heading || "(untitled clause)"));
+      main.append(el("div", "clause-meta", `${c.words} words`));
+      const marks = el("div", "misses");
+      Object.keys(SIGNALS).forEach((k) => {
+        const on = c.hits[k];
+        marks.append(el("span", on ? "hit" : "miss", `${on ? "✓" : "✗"} ${SIGNALS[k].label}`));
+      });
+      main.append(marks);
+      li.append(main);
+      list.append(li);
+    });
+
+    const keep = $("keep"), cut = $("cut");
+    keep.replaceChildren(); cut.replaceChildren();
+    controlling.forEach((c) => keep.append(el("li", null, c.heading || "(untitled clause)")));
+    if (!controlling.length) keep.append(el("li", null, "Nothing in this document controls information production."));
+    narrative.concat(partial).forEach((c) => cut.append(el("li", null, c.heading || "(untitled clause)")));
+    if (!narrative.length && !partial.length) cut.append(el("li", null, "Nothing to strip — every clause carries its weight."));
+
+    return { n, score, controlling, partial, narrative, totalWords, ctrlWords };
+  }
+
+  function reportText(r, clauses) {
+    const lines = [
+      `BEP strip test — ${r.score}% of clauses control information production`,
+      `${r.controlling.length} controlling · ${r.partial.length} partial · ${r.narrative.length} narrative (${r.n} clauses, ${r.totalWords} words)`,
+      "",
+      "SURVIVES THE STRIP TEST",
+      ...r.controlling.map((c) => `  + ${c.heading}`),
+      "",
+      "REFERENCE MATERIAL, NOT PLAN",
+      ...r.narrative.concat(r.partial).map((c) => {
+        const missing = Object.keys(SIGNALS).filter((k) => !c.hits[k]).map((k) => SIGNALS[k].label);
+        return `  - ${c.heading}${missing.length ? `  (no ${missing.join(", no ")})` : ""}`;
+      }),
+      "",
+      "Text heuristics only — a clause that reads well passes here even if nothing enforces it.",
+    ];
+    return lines.join("\n");
+  }
+
+  const SAMPLE = [
+    "# BIM Execution Plan — Project Najd, Riyadh",
+    "",
+    "## 1. Introduction",
+    "This BIM Execution Plan has been prepared to describe the approach to building information modelling on the project. It replaces all previous versions and is issued for information.",
+    "",
+    "## 2. Project directory",
+    "Client: Najd Development Company. Lead designer: Badran Design Studio. Structural engineer: to be appointed. MEP: to be appointed.",
+    "",
+    "## 3. Software and versions",
+    "Autodesk Revit 2026, Navisworks Manage 2026, Autodesk Construction Cloud, Solibri Office. All parties are expected to use compatible versions.",
+    "",
+    "## 4. Level of information need",
+    "Models shall reach LOD 300 at Stage 3. The architectural task team shall deliver the coordinated federated model to the information manager no later than the Stage 3 gate on 2026-11-30, so that the client can approve the design intent before tender packages are released.",
+    "",
+    "## 5. Naming convention",
+    "All information containers follow ISO 19650-2 with the eleven-field project form. A container that fails the naming convention will be rejected at upload.",
+    "",
+    "## 6. Common data environment",
+    "Autodesk Construction Cloud is the CDE. Screenshots of the folder structure are included in Appendix B.",
+    "",
+    "## 7. Model federation strategy",
+    "The federated model is assembled from discipline models. Each discipline is responsible for its own origin and shared coordinates.",
+    "",
+    "## 8. Clash detection and resolution",
+    "The BIM coordinator shall run clash detection weekly and issue the report to discipline leads every Monday, so that priority clashes are resolved before the fortnightly design review decides on the structural grid.",
+    "",
+    "## 9. Quality assurance",
+    "Models will be checked for quality before issue. Checks include naming, worksets, parameters and geometry.",
+    "",
+    "## 10. Information delivery milestones",
+    "The MIDP is maintained by the information manager and reviewed at each stage gate. Task team information delivery plans must be submitted by the discipline leads two weeks prior to each milestone, and no container shall be published without an approved suitability code.",
+    "",
+    "## 11. Health and safety",
+    "All parties shall comply with applicable health and safety legislation.",
+    "",
+    "## Appendix A — Glossary",
+    "CDE: Common Data Environment. LOD: Level of Detail. MIDP: Master Information Delivery Plan. TIDP: Task Information Delivery Plan.",
+  ].join("\n");
+
+  let last = null, lastClauses = [];
+  function run() {
+    const clauses = parse($("src").value).map(grade);
+    lastClauses = clauses;
+    last = render(clauses);
+  }
+
+  $("run").addEventListener("click", run);
+  $("load").addEventListener("click", () => { $("src").value = SAMPLE; $("flag").hidden = false; run(); });
+  $("clear").addEventListener("click", () => { $("src").value = ""; $("flag").hidden = true; run(); $("src").focus(); });
+  $("copy").addEventListener("click", async (e) => {
+    if (!last) return;
+    try {
+      await navigator.clipboard.writeText(reportText(last, lastClauses));
+      e.target.textContent = "Copied";
+      setTimeout(() => { e.target.textContent = "Copy report"; }, 1600);
+    } catch { e.target.textContent = "Select the text and copy"; }
+  });
+  let t;
+  $("src").addEventListener("input", () => {
+    $("flag").hidden = $("src").value !== SAMPLE;
+    clearTimeout(t);
+    t = setTimeout(run, 350);
+  });
+
+  // Open in a working state: the sample, already analysed, plainly flagged as a sample.
+  $("src").value = SAMPLE;
+  run();
+})();
+</script>
