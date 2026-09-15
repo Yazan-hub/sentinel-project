@@ -142,3 +142,40 @@ Disabled"* forever on this plan: it is an accepted item, **not an open action**.
 6. **F13–F16** — hardening; `npm audit fix`; enable leaked-password protection; `.thatopen` gitignore.
 
 *Audit performed 2026-07 via three `code-modernization:security-auditor` passes + Supabase advisors + dependency/secret scans, cross-checked against the live database.*
+
+---
+
+## Addendum — 2026-09-15: F1 recurrence on `bim_document_versions` (CRITICAL, fixed)
+
+**Found** by querying `pg_policies` directly during the market-signal upgrade work, *not* by the
+regression guard. **Fixed and verified closed live** by migration `0027_bimdoc_versions_role_gate.sql`.
+
+`0020_bim_documents.sql` created `bim_document_versions_sel` and `_ins` without a `to authenticated`
+clause, so Postgres defaulted both to `PUBLIC` — which includes the `anon` role. Their expression
+then begins `auth.uid() is null or …`, and `auth.uid()` **is** null for the anon key. Combined with
+anon's table-level SELECT/INSERT grants, the public key could:
+
+- read every **published BEP/EIR snapshot in every project** (cross-tenant), and
+- **insert rows** into a table whose whole contract is that it is append-only and immutable.
+
+This is the same class as the original F1 finding. `0024_document_role_gates.sql` fixed exactly this
+on the *parent* table (`bim_documents`) after the external-user run and did not carry the fix to the
+child. `0020`'s own header had always stated the intent — *"service-key bridge open, authenticated
+users scoped to member projects, no anon"* — so the code and its stated contract had disagreed since
+August.
+
+**Verification:** `select … from pg_policies where roles::text like '%anon%' or roles::text = '{public}'`
+now returns **zero rows** across the `public` schema, with RLS enabled on every table.
+
+### Two process failures this exposed, both fixed
+
+1. **The guard did not watch this table.** `GUARDED` in `db/security-check.mjs` listed only the
+   tables audited in July. `bim_documents`, `bim_document_versions`, `deliverables` and `task_teams`
+   all postdate it — and a table added after the audit is precisely the one nobody is watching. The
+   list is now every table holding project data.
+2. **The guard reported unreachable as exposed.** Run from a machine with no egress to Supabase, it
+   printed `✗ FAIL: 7 table(s) exposed to the anon key` when it had checked nothing at all. That
+   output is indistinguishable from a real breach, and a guard that cries wolf stops being read —
+   which is likely part of why this hole survived. Connectivity failures now exit `2` under an
+   explicit `INCONCLUSIVE` heading that says no table was found exposed; a real leak still exits `1`.
+   Unverified is still not a pass.

@@ -41,7 +41,16 @@ function loadEnv() {
 
 // Tables that must NEVER be readable by the anon role. If a browser (anon) needs any of these, it must be
 // through an AUTHENTICATED session (RLS by membership), never the bare anon key.
-const GUARDED = ["element_snapshots", "model_revisions", "bcf_topics", "bridge_docs", "bridge_events", "memberships", "audit_log"];
+// Every table holding project data. bim_document_versions is on this list because it is the one that
+// was ACTUALLY holed (0027): 0020 created its policies without `to authenticated`, so they defaulted
+// to PUBLIC, and 0024 fixed only the parent table. A guard list that stops at the tables audited in
+// July would have missed it — a table added after the audit is exactly the one nobody is watching.
+const GUARDED = [
+  "element_snapshots", "model_revisions", "bcf_topics", "bridge_docs", "bridge_events",
+  "memberships", "audit_log", "projects", "information_containers", "container_versions",
+  "transmittals", "folders", "parties", "bim_documents", "bim_document_versions",
+  "deliverables", "task_teams",
+];
 
 async function anonCanRead(url, anon, table) {
   const res = await fetch(`${url}/rest/v1/${table}?select=*&limit=1`, {
@@ -66,17 +75,32 @@ console.log(`Security regression guard → ${url}`);
 console.log("Asserting the PUBLIC anon key cannot read project data...\n");
 
 let leaks = 0;
+let unreachable = 0;
 for (const table of GUARDED) {
   try {
     const { leaked, detail } = await anonCanRead(url, anon, table);
     if (leaked) { leaks++; console.log(`  ✗ ${table.padEnd(20)} ANON CAN READ — ${detail}  <-- REGRESSION`); }
     else console.log(`  ✓ ${table.padEnd(20)} locked out — ${detail}`);
   } catch (e) {
-    leaks++; console.log(`  ? ${table.padEnd(20)} check failed: ${e.message}`);
+    // A check that never ran is NOT a leak. Reporting it as one made an offline machine print
+    // "7 tables exposed" (seen 2026-09-15 from a sandbox with no egress) — a guard that cries wolf
+    // stops being read, which costs more than the check it replaced. Still fails the run, loudly,
+    // under its own heading: unverified is not a pass either.
+    unreachable++; console.log(`  ? ${table.padEnd(20)} NOT CHECKED — ${e.message}`);
   }
 }
 
 console.log("");
-if (leaks) { console.error(`✗ FAIL: ${leaks} table(s) exposed to the anon key. See docs/SECURITY_AUDIT_2026-07.md (F1).`); process.exit(1); }
+if (leaks) {
+  console.error(`✗ FAIL: ${leaks} table(s) exposed to the anon key. See docs/SECURITY_AUDIT_2026-07.md (F1).`);
+  if (unreachable) console.error(`  (plus ${unreachable} table(s) that could not be checked at all.)`);
+  process.exit(1);
+}
+if (unreachable) {
+  console.error(`✗ INCONCLUSIVE: ${unreachable} of ${GUARDED.length} table(s) could not be reached, so nothing was verified.`);
+  console.error("  This is a connectivity result, not a security result — no table was found exposed.");
+  console.error(`  Check that this machine can reach ${url}, then run again.`);
+  process.exit(2);
+}
 console.log("✓ PASS: the anon key is locked out of all guarded tables.");
 process.exit(0);
