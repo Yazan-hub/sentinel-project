@@ -93,7 +93,7 @@
     {
       "id": "TN-01",
       "target": "type",
-      "mode": "warn",
+      "mode": "monitor",
       "tokens": ["ORG", "LOC", "DISC", "MATERIAL", "SIZE"],
       "token_defs": {
         "ORG": "{org}",
@@ -110,7 +110,7 @@
     {
       "id": "TN-02",
       "target": "type",
-      "mode": "warn",
+      "mode": "monitor",
       "tokens": ["ORG", "LOC", "LEAF", "MATERIAL", "SIZE"],
       "token_defs": {
         "ORG": "{org}",
