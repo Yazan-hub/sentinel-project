@@ -60,6 +60,7 @@ Do **not** edit `ROADMAP.md`, the handbook, or the landscape docs on your own in
 ## 5. Close the loop
 
 - For each GitHub issue: post one comment with the one-sentence summary, the relation + verdict, the top action, and the note path. Then close the issue with reason `completed`. If the link could not be fetched, leave the issue **open**, comment asking for a description, and add the label `needs-description` if you can.
+- If commenting or closing fails with `403 Resource not accessible by integration`, the GitHub App lacks Issues write on this repo. Do not retry. Put `close manually` in the LEDGER's Issue column and list the issue numbers in the final message so the user closes them from the phone.
 - For `docs/research/inbox.md`: move processed lines from `## Unprocessed` to `## Processed` with the date and note path.
 - Commit on the current branch (or `claude/scout-YYYY-MM-DD` if on `master`) with message `research: scout <n> links — <slugs>` and push. Do not open a PR unless asked.
 
