@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -99,6 +100,19 @@ namespace Sentinel.Coordination
                     source = "revit",
                     at = DateTime.UtcNow.ToString("o"),
                 },
+            }, projectKey);
+        }
+
+        /// <summary>Record a Naming Manager batch in the governed audit trail (fire-and-forget).</summary>
+        public static void NamingRenamed(IEnumerable<object> rows, string actor, string? projectKey = null)
+        {
+            var list = rows.ToList();
+            Post("/audit", new
+            {
+                entity_type = "naming",
+                actor,
+                action = $"Naming Manager renamed {list.Count} item(s) in Revit",
+                new_value = new { rows = list, source = "revit", at = DateTime.UtcNow.ToString("o") },
             }, projectKey);
         }
 

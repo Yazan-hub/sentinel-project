@@ -54,6 +54,7 @@ public sealed class RuleEngineHost(Ruleset ruleset)
                 case RuleTarget.View:     checkedCount += ScanElements<View>(doc, rule, violations, v => !v.IsTemplate && IsUserView(v)); break;
                 case RuleTarget.Sheet:    checkedCount += ScanElements<ViewSheet>(doc, rule, violations, _ => true, s => s.SheetNumber); break;
                 case RuleTarget.Family:   checkedCount += ScanFamilies(doc, rule, violations); break;
+                case RuleTarget.Type:     checkedCount += ScanTypes(doc, rule, violations); break;
                 case RuleTarget.Level:    checkedCount += ScanElements<Level>(doc, rule, violations, _ => true); break;
                 case RuleTarget.Grid:     checkedCount += ScanElements<Grid>(doc, rule, violations, _ => true); break;
                 case RuleTarget.Parameter: checkedCount += ScanParameter(doc, rule, violations); break;
@@ -141,6 +142,22 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             if (rule.Categories.Count > 0 && !rule.Categories.Any(cat.MatchesCategoryKey)) continue;
             n++;
             CheckName(f, f.Name, rule, sink);
+        }
+        return n;
+    }
+
+    // Type names (system families included). Locale-safe category scope like ScanFamilies. Not wired to
+    // the DMU delta — scan-on-demand and the Naming Manager are the path for types.
+    private int ScanTypes(Document doc, Rule rule, List<Violation> sink)
+    {
+        int n = 0;
+        foreach (ElementType et in new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>())
+        {
+            var cat = et.Category;
+            if (cat is null) continue;
+            if (rule.Categories.Count > 0 && !rule.Categories.Any(cat.MatchesCategoryKey)) continue;
+            n++;
+            CheckName(et, et.Name, rule, sink);
         }
         return n;
     }
