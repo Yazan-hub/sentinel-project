@@ -32,11 +32,13 @@ Two halves, independent, shipped in order: **fix-in-place first** (it closes the
   `RuleEngineHost.ScanFull`, `RulesetStore` chain, shipped `SentinelAddin/Resources/ruleset.json`
   (`bds-rtg-001 1.4.1`; `FN-01` families = `BDS_BODY`, warn, 7 categories). `Category.MatchesCategoryKey`
   is the locale-safe category match. `AutoFixExecution.Deduplicate` suffixes `_01` on collision.
-- **BDS type convention** (`docs/BDS_TEMPLATE_TYPE_AUDIT.md`): walls/floors follow
-  `BDS_[LOCATION]_[DISCIPLINE]_[MATERIAL]_[THICKNESS] mm` — undocumented in RTG-001, consistent in the
-  template, thickness = real Width on 32/32 conforming types; doors carry a **nominal** size that is NOT
-  the Width/Height parameter; legacy duplicates (`BDS_ARCH_WALL_EXT_MTL_50_mm`, `…_5_CM`,
-  `BDS_EXT_ARC_MTL_50 mm` = one wall), a non-ASCII `Ê`, mixed units.
+- **The pilot office's type convention** (`docs/BDS_TEMPLATE_TYPE_AUDIT.md`): walls/floors follow
+  `<ORG>_[LOCATION]_[DISCIPLINE]_[MATERIAL]_[THICKNESS] mm` where `<ORG>` is the office code (`BDS` for
+  the pilot; written `XXX` everywhere below) — undocumented in RTG-001, consistent in the template,
+  thickness = real Width on 32/32 conforming types; doors carry a **nominal** size that is NOT the
+  Width/Height parameter; legacy duplicates (`BDS_ARCH_WALL_EXT_MTL_50_mm`, `…_5_CM`,
+  `BDS_EXT_ARC_MTL_50 mm` = one wall), a non-ASCII `Ê`, mixed units. The pilot's names stay as **test
+  fixtures**; nothing in code, rule templates or messages carries the literal office code.
 - **Fixtures + test convention.** `TypeNameParse` (GhostBuilder) parses thickness / `W x H` from names;
   `tools/*-check` console projects compile Revit-free `.cs` files directly and assert;
   `demo/bds-pilot/bds-type-catalog.json` holds 1,434 harvested types with category/family/type/system/
@@ -56,6 +58,7 @@ Two halves, independent, shipped in order: **fix-in-place first** (it closes the
 | Collisions | Block, never suffix | Duplicates are the finding, not noise to paper over |
 | DMU for types | Not in v1 | Scan-on-demand + the manager are the path; the updater stays quiet |
 | Type rules | `TN-01` from the audit; `TN-02` inferred, marked to confirm | Rules are data — the user edits the JSON, not the code |
+| Office prefix | One ruleset-level `org` code; rules and messages reference `{org}`; code never names an office | Sentinel is office-agnostic — the pilot's `BDS` is data in its ruleset, `XXX` in every template and example |
 | Checks in CI | Add the two new `tools/*-check` runs to the add-in job | They are net8 + Revit-free; a check that never runs is decoration |
 
 ## Half 1 — Fix-in-place from a BCF issue
@@ -68,14 +71,16 @@ Two halves, independent, shipped in order: **fix-in-place first** (it closes the
   is its inverse and a check pins both directions.
 - **`PsetMap`** — `{ requirementKey → Candidates[], ValueKind }` with candidate kinds
   `Lookup(name)` · `BuiltIn(BIP)` · `WallFunction` · `ElementName`, and `ValueKind ∈ Text | YesNo | Number`.
-  Seed = exactly the extractor's reads today:
-  `Pset_BDS.Discipline → [Lookup BDS_Discipline, Lookup Discipline]` ·
+  Seed = exactly the extractor's reads today, with the office code taken from `Ruleset.Org` (`{org}`),
+  never a literal:
+  `Pset_{org}.Discipline → [Lookup {org}_Discipline, Lookup Discipline]` ·
   `Pset_WallCommon.IsExternal → [Lookup IsExternal (YesNo), WallFunction]` ·
   `Pset_WallCommon.FireRating`, `Pset_DoorCommon.FireRating → [Lookup FireRating, BuiltIn FIRE_RATING]` ·
-  `Pset_WindowCommon.ThermalTransmittance → [Lookup ThermalTransmittance, U-Value, Heat Transfer Coefficient (U), BDS_UValue]` ·
-  `@Name → [ElementName]`. `GovernedElementExtractor.AddCanonicalPsets` is rewritten to iterate the map
-  (identical output; Governed Publish is the regression check). A requirement with no entry → every row is
-  `NotFixable("no parameter mapping for <key>")`.
+  `Pset_WindowCommon.ThermalTransmittance → [Lookup ThermalTransmittance, U-Value, Heat Transfer Coefficient (U), {org}_UValue]` ·
+  `@Name → [ElementName]`. An empty `org` drops the `{org}` entries rather than guessing one.
+  `GovernedElementExtractor.AddCanonicalPsets` is rewritten to iterate the map (identical output for the
+  pilot, whose ruleset says `org: "BDS"`; Governed Publish is the regression check). A requirement with no
+  entry → every row is `NotFixable("no parameter mapping for <key>")`.
 - **`FixRow`** — `{ Target: Instance(elementId) | Type(typeId, instanceIdsOnIssue[], otherInstanceCount),
   ParamName, ResolvedVia, ValueKind, Current, Proposed, Writable, Verdict }` with
   `Verdict ∈ Unchecked | Pass | Fail(reason) | NotFixable(reason)`. Resolution (Revit API, read-only): first
@@ -139,39 +144,49 @@ Two halves, independent, shipped in order: **fix-in-place first** (it closes the
 
 ### Rules (data)
 
-`RuleTarget.Type` (JSON `type`). Ruleset `bds-rtg-001` → `1.5.0` adds:
+`RuleTarget.Type` (JSON `type`). `Ruleset` gains an optional `org` (the office code — one place it lives;
+`{org}` is substituted into token defs and messages at compile time; empty → `{org}` stays unmatched and
+the rule reports itself as unconfigured rather than matching anything). Ruleset `1.5.0` adds:
 
 ```jsonc
+"org": "XXX",   // the pilot's copy says "BDS"; templates and examples say XXX
 { "id": "TN-01", "target": "type", "mode": "warn",
-  "tokens": ["BDS","LOC","DISC","MATERIAL","SIZE"], "separator": "_",
-  "token_defs": { "BDS": "BDS", "LOC": "EXT|INT|FND", "DISC": "ARC|STR|LSE|INT|MEP|CIV",
+  "tokens": ["ORG","LOC","DISC","MATERIAL","SIZE"], "separator": "_",
+  "token_defs": { "ORG": "{org}", "LOC": "EXT|INT|FND", "DISC": "ARC|STR|LSE|INT|MEP|CIV",
                   "MATERIAL": "[A-Z0-9][A-Z0-9 \\-]*", "SIZE": "\\d+(\\.\\d+)? mm" },
   "categories": ["Walls","Floors","Ceilings","Roofs"],
-  "message_en": "Type '{name}' does not match BDS_[LOC]_[DISC]_[MATERIAL]_[SIZE] mm.",
-  "doc_ref": "BDS template convention (BDS_TEMPLATE_TYPE_AUDIT §1) — not in RTG-001" },
+  "message_en": "Type '{name}' does not match {org}_[LOC]_[DISC]_[MATERIAL]_[SIZE] mm.",
+  "doc_ref": "office type convention (see BDS_TEMPLATE_TYPE_AUDIT §1 for the pilot's) — not in RTG-001" },
 { "id": "TN-02", "target": "type", "mode": "warn",
-  "tokens": ["BDS","LOC","LEAF","MATERIAL","SIZE"], "separator": "_",
-  "token_defs": { "BDS": "BDS", "LOC": "EXT|INT", "LEAF": "\\d+ PNL|[A-Z0-9][A-Z0-9 \\-]*",
+  "tokens": ["ORG","LOC","LEAF","MATERIAL","SIZE"], "separator": "_",
+  "token_defs": { "ORG": "{org}", "LOC": "EXT|INT", "LEAF": "\\d+ PNL|[A-Z0-9][A-Z0-9 \\-]*",
                   "MATERIAL": "[A-Z0-9][A-Z0-9 \\-]*", "SIZE": "\\d+ x \\d+ mm" },
   "categories": ["Doors","Windows"],
-  "message_en": "Type '{name}' does not match BDS_[LOC]_[LEAF]_[MATERIAL]_[W x H] mm.",
-  "doc_ref": "INFERRED from the template (BDS_TEMPLATE_TYPE_AUDIT §3) — confirm before enforcing" }
+  "message_en": "Type '{name}' does not match {org}_[LOC]_[LEAF]_[MATERIAL]_[W x H] mm.",
+  "doc_ref": "INFERRED from the pilot template (BDS_TEMPLATE_TYPE_AUDIT §3) — confirm before enforcing" }
 ```
+
+`FN-01`'s token `BDS` is renamed `ORG` with def `{org}` in the same bump (its behaviour for the pilot is
+unchanged); the pilot's message text `BDS_[LOCATION]_…` becomes `{org}_[LOCATION]_…`.
 
 `RuleEngineHost`: `case RuleTarget.Type → ScanTypes` over `WhereElementIsElementType()` filtered by
 `rule.Categories` (`MatchesCategoryKey`), `CheckName(et, et.Name, …)`. `EvaluateSingle` (DMU delta) is
-unchanged. The token→regex compiler moves to a shared static `RuleRegex.For(rule)` so the proposer
-validates with the exact regex the scanner enforces. `ViolationRow.CanFix` returns false for `Type`
-violations (message points to the Naming Manager) — the panel's one-row Fix would suffix on collision.
+unchanged. The token→regex compiler moves to a shared static `RuleRegex.For(rule, org)` — substituting
+`{org}` first — so the proposer validates with the exact regex the scanner enforces; `Make` substitutes
+`{org}` in messages beside `{name}`. `ViolationRow.CanFix` returns false for `Type` violations (message
+points to the Naming Manager) — the panel's one-row Fix would suffix on collision.
 
 ### Proposer (pure, Revit-free — `SentinelAddin/Standards/NamingProposer.cs`)
 
-`Propose(current, rule, ctx)` with `ctx = { Category, FamilyName, IsSystem, WidthMm?, HeightMm?,
+`Propose(current, rule, org, ctx)` with `ctx = { Category, FamilyName, IsSystem, WidthMm?, HeightMm?,
 ExistingNamesInFamily, SiblingProposals }` → `{ Name?, Verdict ∈ Conforming | Proposed | NeedsHuman | Blocked, Notes[] }`.
+The office code is the `org` argument (from `Ruleset.Org`); the proposer contains no office literal, and an
+empty `org` yields `NeedsHuman("ruleset has no org code")` for every row of an `ORG`-bearing rule.
 
 1. **Normalise**: Unicode NFD + strip combining marks (`Ê`→`E`); trim; collapse whitespace;
    `(\d+)\s*_?\s*mm` → `$1 mm`; `(\d+)\s*_?\s*cm` → `$1×10 mm`; a number-`X`/`x`-number → `<w> x <h>`.
-2. **Tokenise** on `_`; drop the `BDS` literal and category-noise words (`WALL FLOOR CEILING ROOF DOOR WINDOW`).
+2. **Tokenise** on `_`; drop the `org` literal (case-insensitively) and category-noise words
+   (`WALL FLOOR CEILING ROOF DOOR WINDOW`).
 3. **Enum tokens** (`LOC`, `DISC`, …): find one segment matching the def, with aliases
    `ARCH→ARC · EXTERNAL→EXT · INTERNAL→INT · FOUNDATION→FND`; consume it. Missing → `NeedsHuman("no LOC in name")`.
    Enum tokens are **never defaulted**.
@@ -226,11 +241,14 @@ Validate panel: push button **Naming Manager** → `NamingManagerCommand` (icon 
 
 - **`tools/fixplace-check`** (net8 console, compiles `IdsIssueRef.cs`, `PsetMap.cs` data half, `FixPlan.cs`):
   title parse round-trip against the exact `groupFailuresForBcf` format (incl. an `@Name` attribute and a
-  title with an em-dash inside the spec name); `PsetMap` seed covers every requirement the extractor reads;
+  title with an em-dash inside the spec name); `PsetMap` seed covers every requirement the extractor reads,
+  `org = "XXX"` yields `Pset_XXX.Discipline ← XXX_Discipline` and an empty `org` yields no `Pset_` office entry;
   `Patch` replaces only the target row and adds it when absent; `Fold`: pass/fail per row, a type row with a
   mixed instance outcome fails, `AllPass` false with one unresolved GUID, `OtherOpen` counted not folded.
 - **`tools/naming-check`** (compiles `NamingProposer.cs`, `RuleRegex.cs`, `RuleModels.cs`, `TypeNameParse.cs`):
-  the audit's cases — `BDS_ÊXT_LSE_CONC_100 mm → BDS_EXT_LSE_CONC_100 mm`;
+  first with `org = "XXX"` on synthetic names (`XXX_ÊXT_ARC_CMU_200 mm → XXX_EXT_ARC_CMU_200 mm`) and with
+  `org = "ACME"` on the same shapes — proving nothing is hardcoded; an empty `org` → `NeedsHuman` for every
+  row. Then with `org = "BDS"` the audit's cases — `BDS_ÊXT_LSE_CONC_100 mm → BDS_EXT_LSE_CONC_100 mm`;
   `BDS_ARCH_WALL_EXT_MTL_50_mm → BDS_EXT_ARC_MTL_50 mm`; its `_5_CM` twin proposes the same and both are
   **Blocked** against the existing `BDS_EXT_ARC_MTL_50 mm`; `BDS_LSE_WALL_CONC_150_mm → NeedsHuman` (LSE is a
   discipline, no LOC); stock `Generic - 200mm → NeedsHuman`; name 50 mm vs Width 200 → NeedsHuman;
