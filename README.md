@@ -57,6 +57,7 @@ Run the **bridge** and the **outbox watcher** side by side. Then in Revit, **Sen
 - [`SENTINEL-USER-GUIDE.md`](SENTINEL-USER-GUIDE.md) — the Revit ribbon, tool by tool.
 
 ### 🟣 Build it / contribute — *how does it fit together?*
+- [`docs/research/README.md`](docs/research/README.md) — the **research inbox**: share a BIM link from your phone → GitHub issue → `/scout` analyses it against the landscape and roadmap and opens the brainstorm.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the real system map (add-in ↔ SPA ↔ bridge :4100 ↔ Supabase).
 - [`docs/CAPABILITY_MAP.md`](docs/CAPABILITY_MAP.md) — a source-verified inventory of every subsystem.
 - [`docs/mcp-server.md`](docs/mcp-server.md) — the referee API + MCP server (how an AI agent proposes and gets a verdict).

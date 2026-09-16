@@ -1,0 +1,46 @@
+name: "💡 Inspiration link"
+description: "Drop a BIM / BIM-software link you found (LinkedIn, Instagram, That Open, GitHub…) into the Sentinel research inbox. Claude's /scout skill picks it up."
+title: "💡 "
+labels: ["inspiration"]
+body:
+  - type: input
+    id: url
+    attributes:
+      label: Link
+      description: The post, tool, plugin, repo or article that caught your eye.
+      placeholder: "https://www.linkedin.com/posts/..."
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Where you saw it
+      options:
+        - LinkedIn
+        - Instagram
+        - That Open Company
+        - GitHub
+        - YouTube
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: note
+    attributes:
+      label: Why it caught your eye
+      description: One or two lines. Especially useful for LinkedIn / Instagram posts, which Claude often cannot open — say what the tool is or does.
+      placeholder: "A pyRevit script that auto-fills IFC psets from a spreadsheet — looks like a cheaper version of our extractor."
+    validations:
+      required: false
+  - type: dropdown
+    id: angle
+    attributes:
+      label: Your first instinct
+      options:
+        - Competes with Sentinel
+        - Complements Sentinel (ally / integration)
+        - Building block we could use
+        - Idea to absorb into Sentinel
+        - Not sure — just interesting
+    validations:
+      required: false
