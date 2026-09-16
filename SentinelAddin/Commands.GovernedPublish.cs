@@ -73,8 +73,15 @@ public sealed class GovernedPublishCommand : IExternalCommand
         }
 
         // 3) Adjudicate the model against the project IDS (referee). Extract read-only from the live model.
+        // Without an office code the Pset_<org>.* rows are dropped from the read table (PsetMap), so the
+        // referee sees them as missing. Say so out loud — the verdict is still honest and still recorded.
+        if (string.IsNullOrWhiteSpace(App.Engine?.Ruleset.Org))
+            TaskDialog.Show("Sentinel — Governed Publish",
+                "The effective ruleset has no \"org\" code — office property sets (Pset_<org>.*) were NOT read " +
+                "for this publish; the referee will report them missing. Upgrade the master ruleset to 1.5.0 " +
+                "(adds \"org\") and retry.");
         var elements = Sentinel.Engine.GovernedElementExtractor.Extract(doc, projectKey);
-        var ids = LoadIdsSpec(); // null ⇒ no IDS configured → verdict "recorded" (gate-only publish)
+        var ids = Sentinel.Engine.IdsSpecFile.Load(); // null ⇒ no IDS configured → verdict "recorded" (gate-only publish)
         var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId: null, actor: "Revit", containerName: ifcName, projectKey: projectKey);
 
         if (!verdict.Reached)
@@ -144,22 +151,6 @@ public sealed class GovernedPublishCommand : IExternalCommand
             "badge and the hash-chained audit entry behind it.");
         TryDelete(tempPath);
         return Result.Succeeded;
-    }
-
-    // The project IDS spec (JSON IdsSpec) the referee adjudicates against, alongside the delivery contract in
-    // %AppData%\Sentinel. Absent ⇒ null (the model is recorded, not judged — a gate-only publish).
-    private static JsonElement? LoadIdsSpec()
-    {
-        try
-        {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Sentinel", "ids.json");
-            if (!File.Exists(path)) return null;
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            return doc.RootElement.Clone();
-        }
-        catch { return null; }
     }
 
     private static string SafeName(string s)

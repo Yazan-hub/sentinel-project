@@ -6,7 +6,7 @@ namespace Sentinel.Engine;
 
 public enum EnforcementMode { Monitor, Warn, Request, Block }
 
-public enum RuleTarget { View, Sheet, Workset, Family, Level, Grid, Parameter }
+public enum RuleTarget { View, Sheet, Workset, Family, Level, Grid, Parameter, Type }
 
 /// <summary>Token-based JSON rule (Decision 9): no raw regex in authored rules;
 /// tokens compile to regex internally. Bilingual messages.</summary>
@@ -34,6 +34,11 @@ public sealed class Ruleset
     [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; } = 1;
     [JsonPropertyName("standard_key")] public string StandardKey { get; set; } = string.Empty;
     [JsonPropertyName("semver")] public string Semver { get; set; } = string.Empty;
+
+    /// The office code (e.g. "XXX"). The ONE place an office name lives: rules reference it as `{org}` in
+    /// token defs and messages (see RuleRegex). Empty ⇒ rules that need it report themselves unconfigured
+    /// instead of matching anything.
+    [JsonPropertyName("org")] public string Org { get; set; } = string.Empty;
     [JsonPropertyName("rules")] public List<Rule> Rules { get; set; } = new List<Rule>();
 }
 

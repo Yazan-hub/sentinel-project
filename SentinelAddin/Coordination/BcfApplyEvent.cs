@@ -149,10 +149,11 @@ public sealed class BcfApplyEvent : IExternalEventHandler
     private static IEnumerable<string> GuidsOf(BcfTopic t) =>
         (t.Viewpoints ?? new List<BcfViewpoint>()).SelectMany(GuidsOf);
 
-    /// <summary>Map a set of IFC GlobalIds to Revit ElementIds (IFC_GUID param, else computed).</summary>
-    private static IList<ElementId> ResolveByIfcGuid(Document doc, HashSet<string> wanted)
+    /// <summary>Map IFC GlobalIds → Revit ElementIds (IFC_GUID param, else computed from the export id).
+    /// Only GUIDs present in this model appear — the caller names the rest as unresolved, it never guesses.</summary>
+    internal static Dictionary<string, ElementId> MapByIfcGuid(Document doc, HashSet<string> wanted)
     {
-        var result = new List<ElementId>();
+        var result = new Dictionary<string, ElementId>(StringComparer.Ordinal);
         if (wanted.Count == 0) return result;
 
         foreach (Element e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
@@ -162,14 +163,18 @@ public sealed class BcfApplyEvent : IExternalEventHandler
             {
                 try { g = ToIfcGuid(ExportUtils.GetExportId(doc, e.Id)); } catch { continue; }
             }
-            if (wanted.Contains(g!))
+            if (wanted.Contains(g!) && !result.ContainsKey(g!))
             {
-                result.Add(e.Id);
+                result[g!] = e.Id;
                 if (result.Count == wanted.Count) break; // found them all — stop scanning
             }
         }
         return result;
     }
+
+    /// <summary>The ids only (viewpoint apply / isolate).</summary>
+    private static IList<ElementId> ResolveByIfcGuid(Document doc, HashSet<string> wanted) =>
+        MapByIfcGuid(doc, wanted).Values.ToList();
 
     // Autodesk's IFC GlobalId encoding (compressed 22-char base64) — the scheme Revit's IFC exporter
     // uses, so a GlobalId from the .frag/IFC maps back to its Revit element.

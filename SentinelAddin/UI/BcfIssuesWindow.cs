@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -26,6 +26,8 @@ public sealed class BcfIssuesWindow : Window
     public event Action? RefreshRequested;
     public event Action? IsolateAllRequested;
     public event Action? IssuesForSelectionRequested;
+    public event Action<BcfTopic>? FixRequested;
+    private readonly Button _fix;
 
     /// <summary>Current topics (for the command's isolate-all / selection-lookup requests).</summary>
     public IReadOnlyList<BcfTopic> Topics => _topics;
@@ -65,6 +67,9 @@ public sealed class BcfIssuesWindow : Window
         var isolateAll = Btn("Isolate ALL issue elements", () => IsolateAllRequested?.Invoke());
         var forSel = Btn("Issues for my Revit selection", () => IssuesForSelectionRequested?.Invoke());
         var refresh = Btn("Refresh", () => RefreshRequested?.Invoke());
+        _fix = Btn("Fix in Revit (referee-raised IDS issues only)", () => { if (_list.SelectedItem is BcfTopic t) FixRequested?.Invoke(t); });
+        _fix.IsEnabled = false;
+        _fix.ToolTip = "Only issues the referee raised (title “IDS: … — … (N failing)”) can be fixed in place.";
 
         _status = new TextBlock { Text = "…", Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
 
@@ -74,7 +79,7 @@ public sealed class BcfIssuesWindow : Window
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (_status, Dock.Bottom), (refresh, Dock.Bottom), (forSel, Dock.Bottom),
+            (_status, Dock.Bottom), (_fix, Dock.Bottom), (refresh, Dock.Bottom), (forSel, Dock.Bottom),
             (isolateAll, Dock.Bottom), (zoom, Dock.Bottom), (detailScroll, Dock.Bottom),
             (listLabel, Dock.Top),
         })
@@ -114,6 +119,7 @@ public sealed class BcfIssuesWindow : Window
 
     private void ShowDetails(BcfTopic? t)
     {
+        _fix.IsEnabled = t != null && IdsIssueRef.TryParse(t.Title) != null;
         if (t is null) { _details.Text = string.Empty; return; }
 
         var sb = new StringBuilder();
@@ -146,6 +152,10 @@ public sealed class BcfIssuesWindow : Window
         }
         _details.Text = sb.ToString();
     }
+
+    /// <summary>Disable the Fix button while a plan build is queued; re-enabling still respects the selection.</summary>
+    public void SetFixEnabled(bool enabled) => Dispatcher.Invoke(() =>
+        _fix.IsEnabled = enabled && _list.SelectedItem is BcfTopic t && IdsIssueRef.TryParse(t.Title) != null);
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;
 

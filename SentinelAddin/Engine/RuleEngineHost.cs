@@ -26,13 +26,7 @@ public sealed class RuleEngineHost(Ruleset ruleset)
     private Regex CompiledPattern(Rule r)
     {
         if (_compiled.TryGetValue(r.Id, out var rx)) return rx;
-        // Tokens -> anchored regex: each token resolves through token_defs,
-        // joined by the separator. Unknown tokens match a safe default.
-        var parts = r.Tokens.Select(t =>
-            r.TokenDefs.TryGetValue(t, out var def) ? $"(?:{def})" : @"[A-Za-z0-9\-]+");
-        rx = new Regex($"^{string.Join(Regex.Escape(r.Separator), parts)}$",
-                       RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        return _compiled[r.Id] = rx;
+        return _compiled[r.Id] = RuleRegex.For(r, Ruleset.Org);
     }
 
     private bool IsExcluded(Rule r, string name) =>
@@ -47,12 +41,23 @@ public sealed class RuleEngineHost(Ruleset ruleset)
 
         foreach (var rule in Ruleset.Rules)
         {
+            // A rule that references the office code cannot be evaluated without one — say so once, per
+            // rule, instead of scanning with a pattern that matches nothing (which would read as "all clean").
+            if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(Ruleset.Org))
+            {
+                // Built directly, not via Make: the rule's own MessageEn would substitute this text into
+                // "{name}" and read as "Family '(ruleset.org is empty…)' does not match…".
+                violations.Add(new Violation(rule.Id, rule.Mode, -1, "(ruleset.org is empty — rule not evaluated)",
+                    $"Rule {rule.Id} needs an office code — ruleset.org is empty; not evaluated", null, rule.DocRef));
+                continue;
+            }
             switch (rule.Target)
             {
                 case RuleTarget.Workset:  checkedCount += ScanWorksets(doc, rule, violations); break;
                 case RuleTarget.View:     checkedCount += ScanElements<View>(doc, rule, violations, v => !v.IsTemplate && IsUserView(v)); break;
                 case RuleTarget.Sheet:    checkedCount += ScanElements<ViewSheet>(doc, rule, violations, _ => true, s => s.SheetNumber); break;
                 case RuleTarget.Family:   checkedCount += ScanFamilies(doc, rule, violations); break;
+                case RuleTarget.Type:     checkedCount += ScanTypes(doc, rule, violations); break;
                 case RuleTarget.Level:    checkedCount += ScanElements<Level>(doc, rule, violations, _ => true); break;
                 case RuleTarget.Grid:     checkedCount += ScanElements<Grid>(doc, rule, violations, _ => true); break;
                 case RuleTarget.Parameter: checkedCount += ScanParameter(doc, rule, violations); break;
@@ -144,6 +149,22 @@ public sealed class RuleEngineHost(Ruleset ruleset)
         return n;
     }
 
+    // Type names (system families included). Locale-safe category scope like ScanFamilies. Not wired to
+    // the DMU delta — scan-on-demand and the Naming Manager are the path for types.
+    private int ScanTypes(Document doc, Rule rule, List<Violation> sink)
+    {
+        int n = 0;
+        foreach (ElementType et in new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>())
+        {
+            var cat = et.Category;
+            if (cat is null) continue;
+            if (rule.Categories.Count > 0 && !rule.Categories.Any(cat.MatchesCategoryKey)) continue;
+            n++;
+            CheckName(et, et.Name, rule, sink);
+        }
+        return n;
+    }
+
     private int ScanParameter(Document doc, Rule rule, List<Violation> sink)
     {
         if (rule.ParameterName is null) return 0;
@@ -174,10 +195,10 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             sink.Add(Make(rule, e.Id.IdValue(), e.Name));
     }
 
-    private static Violation Make(Rule r, long id, string name) =>
+    private Violation Make(Rule r, long id, string name) =>
         new(r.Id, r.Mode, id, name,
-            r.MessageEn.Replace("{name}", name),
-            r.MessageAr?.Replace("{name}", name),
+            RuleRegex.TextWithOrg(r.MessageEn.Replace("{name}", name), Ruleset.Org),
+            r.MessageAr is null ? null : RuleRegex.TextWithOrg(r.MessageAr.Replace("{name}", name), Ruleset.Org),
             r.DocRef);
 
     /// Module 1 amendment: exclude Revit-generated view types globally.

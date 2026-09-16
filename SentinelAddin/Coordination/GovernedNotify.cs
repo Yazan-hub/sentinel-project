@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -102,28 +103,31 @@ namespace Sentinel.Coordination
             }, projectKey);
         }
 
-        /// <summary>The parsed result of a governed proposal (see <see cref="Propose"/>).</summary>
-        public sealed class ProposalResult
+        /// <summary>Record a Naming Manager batch in the governed audit trail (fire-and-forget).</summary>
+        public static void NamingRenamed(IEnumerable<object> rows, string actor, string? projectKey = null)
         {
-            public bool Reached;                       // false ⇒ bridge/CDE unreachable (caller falls back)
-            public string Verdict = "recorded";        // accepted | rejected | recorded (no IDS)
-            public int InScope, Passing, Failing;
-            public int BcfRaised;                      // issues auto-opened on a reject (bridge G2)
-            public List<string> Failures = new();      // "<requirement>: <reason>", capped for the dialog
-            public string? Error;                      // why Reached is false (timeout / refused / status), for the dialog
-            public bool? NamingOk;                     // null = name not checked; false = container name failed the ISO 19650 gate
-            public List<string> NamingFailures = new();// "<field>: <reason>", for the dialog
+            var list = rows.ToList();
+            Post("/audit", new
+            {
+                entity_type = "naming",
+                actor,
+                action = $"Naming Manager renamed {list.Count} item(s) in Revit",
+                new_value = new { rows = list, source = "revit", at = DateTime.UtcNow.ToString("o") },
+            }, projectKey);
         }
 
         /// <summary>
         /// The referee call: POST the extracted <paramref name="elements"/> (+ optional JSON <paramref name="idsSpec"/>)
         /// to <c>/cde/:key/propose</c> and return the deterministic verdict. When <paramref name="versionId"/> is
         /// set, the bridge also stamps the verdict onto that file version (the web verdict badge, G3); on a reject
-        /// it auto-opens a BCF issue per failing requirement (G2). Blocking (~6s cap) so the caller can branch on
-        /// the verdict — this is the one place Revit needs the answer, not fire-and-forget. Never throws:
+        /// it auto-opens a BCF issue per failing requirement (G2) unless <paramref name="raiseBcf"/> is false —
+        /// a fix-in-place check or re-check must never open topics. <paramref name="source"/> and
+        /// <paramref name="note"/> land on the audit row. Blocking (120s cap); never throws:
         /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
-        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor, string? containerName = null, string? projectKey = null)
+        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor,
+                                             string? containerName = null, string? projectKey = null,
+                                             string? source = null, string? note = null, bool raiseBcf = true)
         {
             var r = new ProposalResult();
             try
@@ -132,51 +136,21 @@ namespace Sentinel.Coordination
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/propose";
                 var body = new Dictionary<string, object?>
                 {
-                    ["source"] = "Governed Publish",
+                    ["source"] = source ?? "Governed Publish",
                     ["actor"] = actor,
                     ["elements"] = elements,
                 };
                 if (idsSpec != null) body["ids"] = idsSpec;
                 if (versionId != null) body["version_id"] = versionId;
                 if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
+                if (note != null) body["note"] = note;
+                if (!raiseBcf) body["raise_bcf"] = false;
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (!resp.IsSuccessStatusCode) { r.Error = "bridge returned HTTP " + (int)resp.StatusCode; return r; }
-
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                r.Reached = true;
-                r.Verdict = root.TryGetProperty("verdict", out var v) ? v.GetString() ?? "recorded" : "recorded";
-                if (root.TryGetProperty("summary", out var s))
-                {
-                    if (s.TryGetProperty("in_scope", out var i) && i.TryGetInt32(out var iv)) r.InScope = iv;
-                    if (s.TryGetProperty("passing", out var p) && p.TryGetInt32(out var pv)) r.Passing = pv;
-                    if (s.TryGetProperty("failing", out var f) && f.TryGetInt32(out var fv)) r.Failing = fv;
-                }
-                if (root.TryGetProperty("bcf", out var b) && b.TryGetProperty("raised", out var br) && br.TryGetInt32(out var brv))
-                    r.BcfRaised = brv;
-                if (root.TryGetProperty("failures", out var fl) && fl.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var it in fl.EnumerateArray())
-                    {
-                        if (r.Failures.Count >= 12) break;
-                        var req = it.TryGetProperty("requirement", out var rq) ? rq.GetString() : null;
-                        var reason = it.TryGetProperty("reason", out var rs) ? rs.GetString() : null;
-                        r.Failures.Add((req ?? "requirement") + ": " + (reason ?? "failed"));
-                    }
-                }
-                if (root.TryGetProperty("naming", out var nm) && nm.ValueKind == JsonValueKind.Object)
-                {
-                    r.NamingOk = nm.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
-                    if (nm.TryGetProperty("failures", out var nf) && nf.ValueKind == JsonValueKind.Array)
-                        foreach (var it in nf.EnumerateArray())
-                        {
-                            if (r.NamingFailures.Count >= 12) break;
-                            r.NamingFailures.Add(it.TryGetProperty("reason", out var rn) ? rn.GetString() ?? "invalid" : "invalid");
-                        }
-                }
+                return ProposalResult.Parse(json);
             }
             catch (Exception ex)
             {

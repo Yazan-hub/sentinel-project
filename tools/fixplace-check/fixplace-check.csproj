@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>fixplace-check</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\GovElement.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\IdsIssueRef.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\FixPlan.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\ProposalResult.cs" />
+  </ItemGroup>
+</Project>

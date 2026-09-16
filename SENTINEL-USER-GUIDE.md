@@ -15,6 +15,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 | **Show Panel** | Opens the dockable Live Coordination panel: compliance %, violation rows (color = mode), ⚡Fix buttons, Doctor log. Double-click a row = zoom to element. |
 | **Scan Now** | Full model rescan on demand. |
 | **Rule Set** | Card-based viewer of the effective ruleset: mode badges, token patterns, EN/AR messages, doc references, whitelists. |
+- **BCF Issues → Fix in Revit** — for an issue the referee raised (`IDS: … — … (N failing)`): the failing elements resolve to rows (instance, or TYPE with its blast radius), you enter values, **Check** sends them to the referee *before* anything is written, **Apply ticked** writes in one transaction, a re-check judges the real model, and the issue gets an evidence comment and `Resolved` only when every element passes. Bridge down → *applied, NOT verified*; nothing on the issue changes.
 
 ## Ribbon — Quality panel
 | Tool | What it does |
@@ -27,6 +28,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 | **Heal Loaded Families** | Scans families already in the project. Missing shared params → auto-heals (EditFamily in background, inject, silent reload). Geometry/CAD problems → flagged "requires human interaction", never touched. |
 | **MEP Openings** | Lifecycle void manager. Finds MEP/structure intersections (solid-precise, IFC DirectShape aware), merges candidates within 150 mm, places tracked 'Provision for Void' families (`BDS_Void_ID` GUID, `BDS_Void_Status`=Pending). On re-run with a new IFC drop: relocates voids whose MEP moved, flags deleted ones Orphaned, never touches status=Cut. Can export the set as BCF instead. |
 | **ROI Dashboard** | Man-hours + $ saved from every automated intervention (5 min @ $35/h per fix), 30-day trend, breakdown by type. Log: `%AppData%\Sentinel\roi.json`. |
+- **Naming Manager** — every family/type in scope of a `family`/`type` rule: current → proposed name, why (conforming / proposed / needs a human / BLOCKED duplicate), instance count. Proposals are recovered from the name and the measured width, never guessed; duplicates are blocked, never suffixed. Rename only the ticked rows; each rename lands in the request store, ROI and the ledger. The office code comes from the ruleset's `org`.
 
 ## Ribbon — Workflow panel
 | Tool | What it does |

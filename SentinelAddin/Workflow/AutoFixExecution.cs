@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Sentinel.Engine;
@@ -23,7 +22,7 @@ public static class AutoFixExecution
     public static string? Suggest(string currentName, string ruleId)
     {
         var rule = App.Engine?.Ruleset.Rules.FirstOrDefault(r => r.Id == ruleId);
-        return rule is null || rule.Tokens.Count == 0 ? null : BuildCompliantName(currentName, rule);
+        return rule is null || rule.Tokens.Count == 0 ? null : NameSynth.BuildCompliantName(currentName, rule, App.Engine?.Ruleset.Org);
     }
 
     /// <summary>Queue an auto-fix for a violation. UI-thread safe.
@@ -43,7 +42,7 @@ public static class AutoFixExecution
 
             string oldName = element is ViewSheet sh ? sh.SheetNumber : element.Name;
             string candidate = string.IsNullOrWhiteSpace(finalName)
-                ? BuildCompliantName(oldName, rule)
+                ? NameSynth.BuildCompliantName(oldName, rule, App.Engine?.Ruleset.Org)
                 : finalName!.Trim();
             if (candidate == oldName) { onDone?.Invoke(oldName, null); return; }
 
@@ -86,74 +85,6 @@ public static class AutoFixExecution
                 onDone?.Invoke(oldName, null);
             }
         });
-    }
-
-    // ---------------- Name synthesis ----------------
-    internal static string BuildCompliantName(string current, Rule rule)
-    {
-        var sep = rule.Separator;
-        var segments = current.Split(new[] { sep }, StringSplitOptions.RemoveEmptyEntries);
-        var output = new List<string>(rule.Tokens.Count);
-        int consumed = 0;
-
-        foreach (var token in rule.Tokens)
-        {
-            rule.TokenDefs.TryGetValue(token, out var def);
-            var rx = def is null ? null : new Regex("^(?:" + def + ")$", RegexOptions.CultureInvariant);
-
-            if (consumed < segments.Length && rx is not null && rx.IsMatch(segments[consumed]))
-            {
-                output.Add(segments[consumed]);                   // keep valid segment
-                consumed++;
-            }
-            else if (IsLastFreeTextToken(token, rule) && consumed < segments.Length)
-            {
-                // Fold ALL remaining segments into the trailing description token
-                var rest = Sanitize(string.Join(sep, segments.Skip(consumed)), def);
-                output.Add(rest.Length > 0 ? rest : DefaultFor(def, token));
-                consumed = segments.Length;
-            }
-            else
-            {
-                output.Add(DefaultFor(def, token));               // synthesize
-            }
-        }
-        return string.Join(sep, output);
-    }
-
-    private static bool IsLastFreeTextToken(string token, Rule rule) =>
-        rule.Tokens.Count > 0 && rule.Tokens[rule.Tokens.Count - 1] == token;
-
-    /// First alternative of a top-level alternation is the schema's canonical
-    /// default ("WIP|SH|..." -> "WIP"). Falls back to a literal placeholder.
-    internal static string DefaultFor(string? def, string token)
-    {
-        if (string.IsNullOrEmpty(def)) return token.ToUpperInvariant();
-        int depth = 0; var first = new StringBuilder();
-        foreach (var ch in def!)
-        {
-            if (ch == '(') depth++;
-            else if (ch == ')') depth--;
-            else if (ch == '|' && depth == 0) break;
-            else if (depth == 0) first.Append(ch);
-        }
-        var candidate = Regex.Replace(first.ToString(), @"\\d\{(\d+)(,\d*)?\}", m => new string('0', int.Parse(m.Groups[1].Value)));
-        candidate = Regex.Replace(candidate, @"\\d", "0");
-        candidate = Regex.Replace(candidate, @"\[[^\]]*\][*+?]?(\{[^}]*\})?", "X");
-        candidate = Regex.Replace(candidate, @"[\^\$\?\*\+\\\(\)]", "");
-        return candidate.Length > 0 ? candidate : token.ToUpperInvariant();
-    }
-
-    /// Strip characters the token def cannot accept; collapse whitespace.
-    internal static string Sanitize(string text, string? def)
-    {
-        var cleaned = Regex.Replace(text, @"[^\w /&\+\-]", " ");
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-        if (def is null) return cleaned;
-        var rx = new Regex("^(?:" + def + ")$", RegexOptions.CultureInvariant);
-        if (rx.IsMatch(cleaned)) return cleaned;
-        var upper = cleaned.ToUpperInvariant();
-        return rx.IsMatch(upper) ? upper : cleaned;
     }
 
     /// Revit rejects duplicate names for many classes: probe and suffix.

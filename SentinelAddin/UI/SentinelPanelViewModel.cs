@@ -39,7 +39,8 @@ public sealed class ViolationRow
         if (v.ElementId <= 0) return false;
         if (v.Mode != EnforcementMode.Warn && v.Mode != EnforcementMode.Request) return false;
         var rule = App.Engine?.Ruleset.Rules.FirstOrDefault(r => r.Id == v.RuleId);
-        return rule is not null && rule.Tokens.Count > 0;
+        // Type renames go through the Naming Manager: the one-row Fix would suffix on a collision.
+        return rule is not null && rule.Tokens.Count > 0 && rule.Target != RuleTarget.Type;
     }
 }
 

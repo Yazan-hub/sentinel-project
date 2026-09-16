@@ -200,6 +200,8 @@ public sealed class App : IExternalApplication
             "Scan families already in the project; auto-inject missing shared parameters and reload silently.");
         Push(va, "Sentinel_MepVoids", "MEP\nOpenings", "Sentinel.Commands.MepVoidsCommand", "mep",
             "Find linked MEP vs structure intersections; place provision-for-void families.");
+        Push(va, "Sentinel_NamingManager", "Naming\nManager", "Sentinel.Commands.NamingManagerCommand", "family",
+            "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Everything is audited.");
 
         // ── Publish — governed delivery (flagship) + ungoverned options ──────────────────────
         var pu = app.CreateRibbonPanel(tab, "Publish");
