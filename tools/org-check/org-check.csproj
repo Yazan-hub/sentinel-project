@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the office-code substitution (OrgNames.cs + the Ruleset model). Pins that with
+       org = "BDS" every name Sentinel derives equals the pilot's historical literal, and that with no org
+       the {org}-dependent rules are dropped loudly rather than matched silently. Neither file touches the
+       Revit API, so this runs on plain net8 without Revit installed. Run with `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>org-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\OrgNames.cs" />
+  </ItemGroup>
+</Project>
