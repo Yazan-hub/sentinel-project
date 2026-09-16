@@ -273,7 +273,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         var total = guids.Count;
                         var passed = fold.PassGuids;
                         var receipt = string.IsNullOrEmpty(res.ReceiptHash) ? "" : $" \u00b7 receipt {res.ReceiptHash!.Substring(0, Math.Min(16, res.ReceiptHash.Length))}";
-                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check audit {res.AuditId}{receipt}.";
+                        // A topic lists at most 500 GUIDs (bridge viewpoint cap). When it names more failures than
+                        // it lists, the unlisted ones were never examined — say so, and never resolve on them.
+                        var unlisted = Math.Max(0, req.Failing - total);
+                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check audit {res.AuditId}{receipt}."
+                            + (unlisted > 0 ? $" {unlisted} of the {req.Failing} failing element(s) are not listed on this issue and were NOT examined." : "");
                         // The elements that ACTUALLY still fail — the fold's GUIDs, not every instance of a
                         // row that failed (a type row can fail one of its instances and pass the rest), and
                         // NotFixable rows included. Shown as instance ids where the plan knows one.
@@ -288,6 +292,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (!fold.AllPass)
                         {
                             fix.SetStatus($"Re-check: {passed}/{total} pass. Evidence posted; the issue stays {topic.Status} until every element passes.");
+                            fix.SetBusy(false); return;
+                        }
+                        if (unlisted > 0)
+                        {
+                            fix.SetStatus($"Re-check: {passed}/{total} listed element(s) pass, but the issue names {req.Failing} failing and lists only {total} — {unlisted} were never examined. Evidence posted; the issue stays {topic.Status}. Re-publish to raise a fresh, complete issue.");
                             fix.SetBusy(false); return;
                         }
                         var s = await sync.SetStatusAsync(cfg.ProjectId, topic.Guid, "Resolved", user).ConfigureAwait(false);
