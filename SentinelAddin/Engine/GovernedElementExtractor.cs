@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -5,42 +6,17 @@ using Autodesk.Revit.DB;
 namespace Sentinel.Engine;
 
 /// <summary>
-/// Read a model's exportable elements into the IDS-ready <c>ElementProperties</c> shape the referee core
-/// expects (<c>{ identity:{Class,GlobalId,Name,Tag}, psets:[{name,rows:[{name,value}]}], quantities:[] }</c>).
-/// This is the Revit side of the "propose" contract — the extracted elements are POSTed to
+/// Read a model's exportable elements into the IDS-ready <see cref="GovElement"/> shape the referee core
+/// expects. This is the Revit side of the "propose" contract — the extracted elements are POSTed to
 /// <c>/cde/:key/propose</c> and adjudicated against an IDS server-side by the SAME pure core the web app uses.
 ///
-/// Read-only (no transaction) — safe to call on the API thread. Mirrors <see cref="IfcPreFlightScanner"/>'s
-/// category sweep and locale-invariant parameter reads. The property mapping is deliberately FOCUSED on the
-/// checks a BDS Stage-3 IDS makes (element Name, walls' IsExternal, doors' FireRating) — the canonical IFC
-/// pset names the IDS references — and is easy to extend as the delivery contract grows. Extraction never
-/// throws; a category the model doesn't use simply yields no rows.
+/// Read-only (no transaction) — safe to call on the API thread. The property mapping lives in
+/// <see cref="PsetMap"/> — ONE table shared with the fix-in-place writer, so a value is written exactly where
+/// it is read. The office code comes from the effective ruleset (<c>Ruleset.Org</c>) unless a caller passes
+/// one. Extraction never throws; a category the model doesn't use simply yields no rows.
 /// </summary>
 public static class GovernedElementExtractor
 {
-    // NOTE: these MUST be properties (get/set), not fields — System.Text.Json only serializes properties by
-    // default, so fields here would emit empty {} groups and the referee would see no pset data at all.
-    public sealed class Row { public string name { get; set; } = ""; public string value { get; set; } = ""; }
-    public sealed class Group { public string name { get; set; } = ""; public List<Row> rows { get; set; } = new(); }
-
-    public sealed class Identity
-    {
-        public string? GlobalId { get; set; }
-        public string? Name { get; set; }
-        public string? Class { get; set; }
-        public string? Tag { get; set; }
-    }
-
-    /// <summary>One proposed element, serialized straight into the propose payload's <c>elements[]</c>.</summary>
-    public sealed class GovElement
-    {
-        public string modelId { get; set; } = "";
-        public int localId { get; set; }
-        public Identity identity { get; set; } = new();
-        public List<Group> psets { get; set; } = new();
-        public List<Group> quantities { get; set; } = new();
-    }
-
     // Revit category → canonical IFC class (the subset that materially matters in a coordination deliverable).
     // Mirrors the exporter's default mapping; an explicit "IfcExportAs" on the element/type overrides it.
     private static readonly (BuiltInCategory cat, string ifc)[] CategoryToIfc =
@@ -60,39 +36,51 @@ public static class GovernedElementExtractor
 
     private static readonly BuiltInCategory[] ExportCategories = CategoryToIfc.Select(x => x.cat).ToArray();
 
-    /// <summary>Extract every exportable element as an <see cref="GovElement"/>. Read-only.</summary>
-    public static List<GovElement> Extract(Document doc, string modelId)
+    private static string OrgOrConfigured(string? org) => org ?? App.Engine?.Ruleset.Org ?? "";
+
+    /// <summary>Extract every exportable element. Read-only.</summary>
+    public static List<GovElement> Extract(Document doc, string modelId, string? org = null)
     {
-        var outList = new List<GovElement>();
-        var filter = new ElementMulticategoryFilter(ExportCategories);
+        var o = OrgOrConfigured(org);
         var elements = new FilteredElementCollector(doc)
-            .WherePasses(filter)
+            .WherePasses(new ElementMulticategoryFilter(ExportCategories))
             .WhereElementIsNotElementType()
             .ToElements();
+        return elements.Select(e => ToGovElement(e, doc, modelId, o)).ToList();
+    }
 
-        foreach (var e in elements)
+    /// <summary>Extract exactly these elements (the fix-in-place check / re-check). Ids that no longer
+    /// resolve are skipped — the caller compares what came back against what it asked for.</summary>
+    public static List<GovElement> ExtractByIds(Document doc, string modelId, IEnumerable<ElementId> ids, string? org = null)
+    {
+        var o = OrgOrConfigured(org);
+        var result = new List<GovElement>();
+        foreach (var id in ids)
+            if (doc.GetElement(id) is { } e) result.Add(ToGovElement(e, doc, modelId, o));
+        return result;
+    }
+
+    private static GovElement ToGovElement(Element e, Document doc, string modelId, string org)
+    {
+        var cls = IfcClassOf(e, doc);
+        var el = new GovElement
         {
-            var cls = IfcClassOf(e, doc);
-            var el = new GovElement
+            modelId = modelId,
+            localId = e.Id.IdValue(),
+            identity = new GovIdentity
             {
-                modelId = modelId,
-                localId = (int)e.Id.IdValue(),
-                identity = new Identity
-                {
-                    GlobalId = GlobalIdOf(e),
-                    Name = string.IsNullOrWhiteSpace(e.Name) ? null : e.Name,
-                    Class = cls,
-                    Tag = e.Id.IdValue().ToString(),
-                },
-            };
-            AddCanonicalPsets(e, doc, cls, el);
-            outList.Add(el);
-        }
-        return outList;
+                GlobalId = GlobalIdOf(e),
+                Name = string.IsNullOrWhiteSpace(e.Name) ? null : e.Name,
+                Class = cls,
+                Tag = e.Id.IdValue().ToString(),
+            },
+        };
+        AddCanonicalPsets(e, doc, cls, el, org);
+        return el;
     }
 
     // Explicit IfcExportAs (instance, then type) wins; else the category default; else a generic proxy.
-    private static string IfcClassOf(Element e, Document doc)
+    internal static string IfcClassOf(Element e, Document doc)
     {
         var explicitAs = FirstNonEmpty(e, "IfcExportAs")
             ?? (doc.GetElement(e.GetTypeId()) is { } et ? FirstNonEmpty(et, "IfcExportAs") : null);
@@ -114,38 +102,46 @@ public static class GovernedElementExtractor
         return e.UniqueId;
     }
 
-    // Emit the canonical psets the BDS element IDS references (LOD 300/350), so pset-name matching is exact:
-    //   ALL → Pset_BDS.Discipline · IFCWALL → Pset_WallCommon.{IsExternal,FireRating} ·
-    //   IFCDOOR → Pset_DoorCommon.FireRating · IFCWINDOW → Pset_WindowCommon.ThermalTransmittance
-    private static void AddCanonicalPsets(Element e, Document doc, string cls, GovElement el)
+    // Walk the shared table: every pset entry whose IFC class applies, first candidate with a value wins.
+    private static void AddCanonicalPsets(Element e, Document doc, string cls, GovElement el, string org)
     {
-        // BDS discipline on every governed element — the IDS checks Pset_BDS.Discipline against ARC/INT/STR/MEP/CIV.
-        var disc = ReadInstOrType(e, doc, "BDS_Discipline", "Discipline");
-        if (disc != null)
-            el.psets.Add(new Group { name = "Pset_BDS", rows = { new Row { name = "Discipline", value = disc } } });
+        foreach (var entry in PsetMap.Entries(org))
+        {
+            if (entry.Pset.Length == 0) continue;                                  // attributes live in identity
+            if (entry.Classes.Length > 0 && Array.IndexOf(entry.Classes, cls) < 0) continue;
+            var value = ReadEntry(e, doc, entry);
+            if (value == null) continue;
+            var group = el.psets.Find(g => g.name == entry.Pset);
+            if (group == null) { group = new GovGroup { name = entry.Pset }; el.psets.Add(group); }
+            group.rows.Add(new GovRow { name = entry.Prop, value = value });
+        }
+    }
 
-        if (cls == "IFCWALL")
+    /// <summary>Lookups first — instance pass, then type pass, the order the inline reads always used —
+    /// then the built-in / wall-function candidates in table order. Null when nothing is authored (⇒ the
+    /// IDS reports it missing). Used by the fix-in-place writer to show the current value too.</summary>
+    internal static string? ReadEntry(Element e, Document doc, PsetEntry entry)
+    {
+        var lookups = entry.Candidates.Where(c => c.Kind == ParamKind.Lookup).Select(c => c.Name).ToArray();
+        if (lookups.Length > 0)
         {
-            var rows = new List<Row>();
-            var isExternal = ReadIsExternal(e, doc);
-            if (isExternal != null) rows.Add(new Row { name = "IsExternal", value = isExternal });
-            var fire = ReadInstOrType(e, doc, "FireRating") ?? ReadBip(e, BuiltInParameter.FIRE_RATING);
-            if (fire != null) rows.Add(new Row { name = "FireRating", value = fire });
-            if (rows.Count > 0) el.psets.Add(new Group { name = "Pset_WallCommon", rows = rows });
+            var v = entry.ValueKind == ValueKind.YesNo ? ReadYesNoInstOrType(e, doc, lookups) : ReadInstOrType(e, doc, lookups);
+            if (v != null) return v;
         }
-        else if (cls == "IFCDOOR")
+        foreach (var c in entry.Candidates)
         {
-            var fire = ReadInstOrType(e, doc, "FireRating") ?? ReadBip(e, BuiltInParameter.FIRE_RATING);
-            if (fire != null)
-                el.psets.Add(new Group { name = "Pset_DoorCommon", rows = { new Row { name = "FireRating", value = fire } } });
+            if (c.Kind == ParamKind.BuiltIn && Enum.TryParse<BuiltInParameter>(c.Name, out var bip))
+            {
+                var b = ReadBip(e, bip);
+                if (b != null) return b;
+            }
+            else if (c.Kind == ParamKind.WallFunction)
+            {
+                var w = ReadWallFunction(e, doc);
+                if (w != null) return w;
+            }
         }
-        else if (cls == "IFCWINDOW")
-        {
-            // U-value / thermal transmittance — Revit exposes it under various names depending on the template.
-            var u = ReadInstOrType(e, doc, "ThermalTransmittance", "U-Value", "Heat Transfer Coefficient (U)", "BDS_UValue");
-            if (u != null)
-                el.psets.Add(new Group { name = "Pset_WindowCommon", rows = { new Row { name = "ThermalTransmittance", value = u } } });
-        }
+        return null;
     }
 
     // First non-empty value among the named parameters — instance first, then the element's type.
@@ -157,20 +153,29 @@ public static class GovernedElementExtractor
         return null;
     }
 
-    // IsExternal as IFC expects it ("TRUE"/"FALSE"): an explicit yes/no "IsExternal" param wins; else infer
-    // from the wall type's Function (Exterior ⇒ external). Null when neither is authored (⇒ IDS reports it missing).
-    private static string? ReadIsExternal(Element e, Document doc)
+    // A yes/no parameter as IFC expects it ("TRUE"/"FALSE"): instance first, then type.
+    private static string? ReadYesNoInstOrType(Element e, Document doc, params string[] names)
     {
-        var p = e.LookupParameter("IsExternal");
-        if (p is { HasValue: true } && p.StorageType == StorageType.Integer)
-            return p.AsInteger() == 1 ? "TRUE" : "FALSE";
-
+        foreach (var n in names) { var v = ReadYesNo(e, n); if (v != null) return v; }
         if (doc.GetElement(e.GetTypeId()) is { } type)
-        {
-            var fn = type.get_Parameter(BuiltInParameter.FUNCTION_PARAM);
-            if (fn is { HasValue: true } && fn.StorageType == StorageType.Integer)
-                return fn.AsInteger() == (int)WallFunction.Exterior ? "TRUE" : "FALSE";
-        }
+            foreach (var n in names) { var v = ReadYesNo(type, n); if (v != null) return v; }
+        return null;
+    }
+
+    private static string? ReadYesNo(Element e, string name)
+    {
+        var p = e.LookupParameter(name);
+        if (p is { HasValue: true } && p.StorageType == StorageType.Integer) return p.AsInteger() == 1 ? "TRUE" : "FALSE";
+        return null;
+    }
+
+    // Infer IsExternal from the wall type's Function (Exterior ⇒ external). Null when not a wall / not set.
+    private static string? ReadWallFunction(Element e, Document doc)
+    {
+        if (doc.GetElement(e.GetTypeId()) is not { } type) return null;
+        var fn = type.get_Parameter(BuiltInParameter.FUNCTION_PARAM);
+        if (fn is { HasValue: true } && fn.StorageType == StorageType.Integer)
+            return fn.AsInteger() == (int)WallFunction.Exterior ? "TRUE" : "FALSE";
         return null;
     }
 
