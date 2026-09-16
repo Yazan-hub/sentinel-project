@@ -244,7 +244,12 @@ export async function addComment(key, docId, sectionId, text, actor) {
     if (!bag) {
       try {
         await docInsert(COMMENTS_STORE, doc.project_id, docId, { comments: [comment], rev: 1 });
-      } catch { continue; } // concurrent first-insert won — re-read and CAS onto it
+      } catch (e) {
+        // A permission denial is not a lost race — retrying it four times and calling the store "busy"
+        // hid an RLS mismatch for a whole walkthrough. Say what it is.
+        if (e?.status === 401 || e?.status === 403) throw err(403, "you are not allowed to comment on this project");
+        continue; // concurrent first-insert won — re-read and CAS onto it
+      }
       await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
         { section: section.heading, chars: body.length });
       return comment;

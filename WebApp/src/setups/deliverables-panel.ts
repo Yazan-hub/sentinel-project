@@ -76,8 +76,9 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
       const j = await r.json().catch(() => ({}));
-      myRole = (j as { role?: string | null }).role ?? "service";
-    } catch { myRole = "service"; }
+      // Fail CLOSED (same rule as docs-panel): no answer → read-only; only the machine path is "service".
+      myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
+    } catch { myRole = "viewer"; }
 
     bar.replaceChildren();
     const title = document.createElement("span");

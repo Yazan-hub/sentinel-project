@@ -372,8 +372,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
       const j = await r.json().catch(() => ({}));
-      myRole = (j as { role?: string | null }).role ?? "service";
-    } catch { myRole = "service"; }
+      // Fail CLOSED: an unanswered role question renders read-only. A signed-in non-member gets
+      // `role: null` (viewer here); only the bridge's own machine path answers "service".
+      myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
+    } catch { myRole = "viewer"; }
 
     bar.replaceChildren();
     const title = document.createElement("span");
