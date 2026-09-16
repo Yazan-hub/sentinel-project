@@ -1,13 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using System.Windows.Interop;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Sentinel.Coordination;
+using Sentinel.Engine;
 using Sentinel.UI;
 
 namespace Sentinel.Commands;
@@ -85,6 +88,132 @@ public sealed class BcfIssuesCommand : IExternalCommand
         }, liveCts.Token);
 
         window.Closed += (_, __) => { liveCts.Cancel(); sync.Dispose(); };
+
+        // Fix-in-place: plan on the API thread, check/re-check through the referee off it, apply on the
+        // API thread, and close the loop on the topic only with evidence (every GUID resolved AND passing).
+        var doc = uiapp.ActiveUIDocument.Document;
+        var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+        var org = App.Engine?.Ruleset.Org;
+        var ids = IdsSpecFile.Load();
+        var user = doc.Application.Username;
+        window.FixRequested += topic =>
+        {
+            var req = IdsIssueRef.TryParse(topic.Title);
+            if (req == null) { window.SetStatus("Only referee-raised IDS issues can be fixed here."); return; }
+            var guids = topic.Viewpoints.SelectMany(v => v.Components?.Selection?.Select(s => s.IfcGuid) ?? Enumerable.Empty<string>())
+                             .Where(g => !string.IsNullOrWhiteSpace(g)).Distinct().ToList();
+            if (App.Events == null) { window.SetStatus("Sentinel's event hub is not running — restart Revit."); return; }
+            window.SetStatus("Resolving the issue's elements in this model…");
+            App.Events.Enqueue(ua =>
+            {
+                var d = ua.ActiveUIDocument?.Document;
+                if (d == null) return;
+                var plan = FixInPlaceService.BuildPlan(d, req, guids, org);
+                window.Dispatcher.BeginInvoke(new Action(() => OpenFixWindow(ua, d, topic, req, plan, guids)));
+            });
+        };
+
+        void OpenFixWindow(UIApplication ua, Document d, BcfTopic topic, IdsIssueRef req, FixInPlaceService.Plan plan, List<string> guids)
+        {
+            var fix = new FixInPlaceWindow(topic, req, plan);
+            DialogOwner.Attach(fix, ua);
+            if (ids == null)
+                fix.SetBanner("No IDS available to check against (no %AppData%\\Sentinel\\ids.json; the bridge may still hold a server IDS). Apply is allowed; the issue cannot be resolved from here unless the bridge adjudicates.");
+
+            // Check = dry run: patched payload → referee; verdicts painted per row. raise_bcf:false always.
+            fix.CheckRequested += ticked =>
+            {
+                fix.SetBusy(true); fix.SetStatus("Checking proposed values with the referee…");
+                App.Events!.Enqueue(ua2 =>
+                {
+                    var payload = FixInPlaceService.ExtractPatched(d, projectKey, plan, ticked, req, org);
+                    var keys = new HashSet<string>(ticked.Select(r => r.Key));
+                    Task.Run(() =>
+                    {
+                        var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
+                            source: "revit-fix", note: $"fix-in-place check · BCF {topic.Guid}", raiseBcf: false);
+                        if (!res.Reached)
+                        {
+                            fix.SetStatus($"Could not reach the bridge — nothing was checked ({res.Error}). Applying is unverified.");
+                            fix.SetBusy(false); return;
+                        }
+                        if (res.Verdict == "recorded")
+                        {
+                            fix.SetBanner("The bridge has no IDS to judge against — verdict “recorded”. Apply is allowed; nothing can be certified or resolved.");
+                            fix.SetStatus("Not checkable: no IDS on the bridge or locally."); fix.SetBusy(false); return;
+                        }
+                        var fold = FixPlan.Fold(res.ElementFailures, plan.Rows, keys, guids, req.Requirement);
+                        fix.RefreshRows();
+                        fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(fold.OtherOpen > 0 ? $" · {fold.OtherOpen} failure(s) on other requirements not part of this issue" : "")} · audit {res.AuditId}");
+                        fix.SetBusy(false);
+                    });
+                });
+            };
+
+            // Apply = one transaction on the API thread, then an automatic re-check of the REAL model state.
+            fix.ApplyRequested += ticked =>
+            {
+                fix.SetBusy(true); fix.SetStatus("Applying ticked values…");
+                App.Events!.Enqueue(ua2 =>
+                {
+                    var outcomes = FixInPlaceService.Apply(d, ticked, req, topic.Guid);
+                    var done = outcomes.Count(o => o.Ok);
+                    foreach (var o in outcomes.Where(o => !o.Ok)) { o.Row.Verdict = FixVerdict.Fail; o.Row.Reason = "not written: " + o.Message; }
+                    fix.RefreshRows();
+                    fix.SetStatus($"Applied {done}/{outcomes.Count} row(s). Re-checking the model with the referee…");
+                    Recheck(ua2);
+                });
+            };
+            fix.RecheckRequested += () => { fix.SetBusy(true); fix.SetStatus("Re-checking…"); App.Events!.Enqueue(Recheck); };
+            fix.ZoomRequested += row => App.Events?.SelectAndShow(row.IsType ? row.InstanceIds[0] : row.TargetId);
+
+            // Re-check: extract what the model holds NOW, judge it, and close the loop only on full evidence.
+            void Recheck(UIApplication ua2)
+            {
+                var payload = FixInPlaceService.Extract(d, projectKey, plan, plan.Rows, org);
+                var keys = new HashSet<string>(plan.Rows.Select(r => r.Key));
+                Task.Run(async () =>
+                {
+                    var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
+                        source: "revit-fix", note: $"fix-in-place re-check · BCF {topic.Guid}", raiseBcf: false);
+                    if (!res.Reached)
+                    {
+                        fix.SetStatus($"Applied. NOT verified — the bridge could not be reached ({res.Error}); the issue was not touched. Use Re-check when it is back.");
+                        fix.SetBusy(false); return;
+                    }
+                    if (res.Verdict == "recorded")
+                    {
+                        fix.SetStatus("Applied. NOT verified — the bridge has no IDS to judge against; the issue was not touched.");
+                        fix.SetBusy(false); return;
+                    }
+                    var fold = FixPlan.Fold(res.ElementFailures, plan.Rows, keys, guids, req.Requirement);
+                    fix.RefreshRows();
+                    var total = guids.Count;
+                    var passed = total - fold.Unresolved.Count - plan.Rows.Where(r => r.Verdict == FixVerdict.Fail).Sum(r => r.IssueGuids.Count);
+                    var receipt = string.IsNullOrEmpty(res.ReceiptHash) ? "" : $" · receipt {res.ReceiptHash!.Substring(0, Math.Min(16, res.ReceiptHash.Length))}";
+                    var evidence = $"Fixed in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check audit {res.AuditId}{receipt}.";
+                    var still = plan.Rows.Where(r => r.Verdict == FixVerdict.Fail).SelectMany(r => r.InstanceIds).ToList();
+                    if (still.Count > 0) evidence += $" Still failing: {string.Join(", ", still.Take(20))}{(still.Count > 20 ? ", …" : "")}.";
+                    if (fold.Unresolved.Count > 0) evidence += $" Not in this model: {string.Join(", ", fold.Unresolved.Take(10))}{(fold.Unresolved.Count > 10 ? ", …" : "")}.";
+
+                    var c = await sync.AddCommentAsync(cfg.ProjectId, topic.Guid, evidence, user).ConfigureAwait(false);
+                    if (c < 200 || c >= 300) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted (HTTP {c}); the issue is unchanged."); fix.SetBusy(false); return; }
+                    if (!fold.AllPass)
+                    {
+                        fix.SetStatus($"Re-check: {passed}/{total} pass. Evidence posted; the issue stays {topic.Status} until every element passes.");
+                        fix.SetBusy(false); return;
+                    }
+                    var s = await sync.SetStatusAsync(cfg.ProjectId, topic.Guid, "Resolved", user).ConfigureAwait(false);
+                    fix.SetStatus(s >= 200 && s < 300
+                        ? $"✓ {passed}/{total} pass — evidence posted and the issue is now Resolved (audit {res.AuditId}). Closing it stays a human decision on the web."
+                        : $"Evidence posted; status unchanged (HTTP {s}).");
+                    fix.SetBusy(false);
+                    try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
+                });
+            }
+
+            fix.Show();
+        }
 
         window.Show();
         Refresh(); // initial load
