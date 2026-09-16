@@ -876,6 +876,28 @@ async function handleRequest(req, res) {
         }
         if (req.method === "DELETE") return send(res, 200, await cde.deleteProject(key, "web"));
       }
+      // ── Office intake: the add-in's standards pack + type catalogue ("snapshot") and scan reports.
+      //    Latest wins; each receipt is audited; the readiness checks (office.*) read them.
+      if (p2 === "office" && p3 === "snapshot" && req.method === "POST") {
+        const office = await import("./office-store.mjs");
+        const b = await readBody(req);
+        return send(res, 201, await office.saveSnapshot(p1, b, b.actor || "revit"));
+      }
+      if (p2 === "office" && p3 === "scan" && req.method === "POST") {
+        const office = await import("./office-store.mjs");
+        const b = await readBody(req);
+        return send(res, 201, await office.saveScan(p1, b, b.actor || "revit"));
+      }
+      if (p2 === "office" && p3 === "snapshot" && req.method === "GET") {
+        const office = await import("./office-store.mjs");
+        const s = await office.getSnapshot(p1);
+        return s ? send(res, 200, s) : send(res, 404, { message: "no office snapshot received for this project yet" });
+      }
+      if (p2 === "office" && p3 === "scan" && req.method === "GET") {
+        const office = await import("./office-store.mjs");
+        const s = await office.getScan(p1);
+        return s ? send(res, 200, s) : send(res, 404, { message: "no scan report received for this project yet" });
+      }
       // ── Members: add-by-email (sign-up-first), roles, last-owner guard. Writes ride the
       // forwarded session so 0004's lead-gate RLS decides; /me tells the UI what to render.
       if (p2 === "members" && !p3 && req.method === "GET") {
