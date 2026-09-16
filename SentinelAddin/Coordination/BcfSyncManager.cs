@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -83,6 +84,34 @@ public sealed class BcfSyncManager : IDisposable
         resp.EnsureSuccessStatusCode();
         string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         return JsonSerializer.Deserialize<List<BcfTopic>>(body) ?? new List<BcfTopic>();
+    }
+
+    /// <summary>POST a comment on a topic. Returns the HTTP status (0 = transport failure) — the caller
+    /// shows it; nothing here decides what the failure means.</summary>
+    public Task<int> AddCommentAsync(string projectId, string topicGuid, string comment, string author, CancellationToken ct = default) =>
+        SendJsonAsync(HttpMethod.Post,
+            $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics/{Uri.EscapeDataString(topicGuid)}/comments",
+            new { comment, author }, ct);
+
+    /// <summary>PUT topic_status (Open / Resolved / Closed …); the bridge logs the change to the topic's
+    /// history under <paramref name="author"/>. Returns the HTTP status (0 = transport failure).</summary>
+    public Task<int> SetStatusAsync(string projectId, string topicGuid, string status, string author, CancellationToken ct = default) =>
+        SendJsonAsync(HttpMethod.Put,
+            $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics/{Uri.EscapeDataString(topicGuid)}",
+            new { topic_status = status, author }, ct);
+
+    private async Task<int> SendJsonAsync(HttpMethod method, string url, object body, CancellationToken ct)
+    {
+        try
+        {
+            using var msg = new HttpRequestMessage(method, url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+            };
+            using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
+            return (int)resp.StatusCode;
+        }
+        catch { return 0; }
     }
 
     public void Dispose() { _http.Dispose(); _sse.Dispose(); }

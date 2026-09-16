@@ -86,6 +86,19 @@ static class Check
         var f4 = FixPlan.Fold(Array.Empty<ElementFailure>(), rows, new HashSet<string> { "i:1" }, guids, R);
         Ok(rows[0].Verdict == FixVerdict.Pass && rows[1].Verdict == FixVerdict.Unchecked && !f4.AllPass, "unsent rows stay Unchecked and block AllPass");
 
+        Console.WriteLine("\nProposalResult.Parse — the bridge verdict, every failure kept");
+        var many = string.Join(",", Enumerable.Range(0, 30).Select(i =>
+            $"{{\"element\":\"g{i}\",\"specification\":\"s\",\"requirement\":\"Pset_WallCommon.FireRating\",\"reason\":\"missing\"}}"));
+        var pr = ProposalResult.Parse("{\"verdict\":\"rejected\",\"summary\":{\"in_scope\":30,\"passing\":0,\"failing\":30},\"failures\":[" + many +
+                                      "],\"audit_id\":4711,\"receipt\":{\"ledger_hash\":\"abc123\"},\"bcf\":{\"raised\":0,\"skipped\":1}}");
+        Ok(pr.Reached && pr.Verdict == "rejected" && pr.InScope == 30 && pr.Failing == 30, "verdict + summary");
+        Ok(pr.ElementFailures.Count == 30 && pr.ElementFailures[29].Element == "g29", "ALL element failures kept (not the 12-line dialog cap)");
+        Ok(pr.Failures.Count == 12, "dialog list still capped at 12");
+        Ok(pr.AuditId == "4711" && pr.ReceiptHash == "abc123", "audit id (numeric) and receipt hash");
+        var pr2 = ProposalResult.Parse("{\"verdict\":\"recorded\",\"audit_id\":\"uuid-1\",\"failures\":[{\"element\":42,\"requirement\":\"@Name\",\"reason\":\"x\"}]}");
+        Ok(pr2.AuditId == "uuid-1" && pr2.ElementFailures.Single().Element == "42" && pr2.ReceiptHash == null, "string audit id, numeric element, no receipt → null");
+        Ok(ProposalResult.Parse("{}").Verdict == "recorded" && ProposalResult.Parse("{}").ElementFailures.Count == 0, "an empty object reads as recorded, nothing certified");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
