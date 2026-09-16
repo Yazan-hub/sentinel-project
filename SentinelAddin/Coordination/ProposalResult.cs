@@ -15,7 +15,9 @@ public sealed class ProposalResult
     public int InScope, Passing, Failing;
     public int BcfRaised;                           // issues auto-opened on a reject (bridge G2)
     public List<string> Failures = new();           // "<requirement>: <reason>", capped at 12 for dialogs
-    public List<ElementFailure> ElementFailures = new(); // every failure the bridge returned (≤200), per element
+    public List<ElementFailure> ElementFailures = new(); // every failure the bridge returned, per element
+    public int FailuresTotal = -1;                  // bridge `failures_total` (all requirements, before slicing); −1 = not reported
+    public int FailuresMatched = -1;                // bridge `failures_matched` (after the requirement filter, before slicing); −1 = not reported
     public string? AuditId;                         // the proposal's audit row
     public string? ReceiptHash;                     // receipt.ledger_hash — the row's own chain hash
     public string? Error;                           // why Reached is false (timeout / refused / status)
@@ -47,6 +49,8 @@ public sealed class ProposalResult
                 if (r.Failures.Count < 12) r.Failures.Add(req + ": " + reason);
             }
         }
+        if (root.TryGetProperty("failures_total", out var ft) && ft.TryGetInt32(out var ftv)) r.FailuresTotal = ftv;
+        if (root.TryGetProperty("failures_matched", out var fm) && fm.TryGetInt32(out var fmv)) r.FailuresMatched = fmv;
         r.AuditId = Scalar(root, "audit_id");
         if (root.TryGetProperty("receipt", out var rc) && rc.ValueKind == JsonValueKind.Object) r.ReceiptHash = Str(rc, "ledger_hash");
         if (root.TryGetProperty("naming", out var nm) && nm.ValueKind == JsonValueKind.Object)

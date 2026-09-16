@@ -104,6 +104,11 @@ static class Check
         Ok(FixPlan.Conclusive(30, 30, 3, out var w0) && w0 == "", "everything sent judged, short failure list → conclusive");
         Ok(!FixPlan.Conclusive(30, 28, 3, out var w1) && w1.Contains("2 out of scope"), "fewer in scope than sent → not conclusive, names the count");
         Ok(!FixPlan.Conclusive(30, 30, 200, out var w2) && w2.Contains("failure list truncated at 200"), "a failure list at the cap → not conclusive, names the truncation");
+        Ok(FixPlan.Conclusive(30, 30, 200, 200, out var w3) && w3 == "", "with the bridge's matched count: 200 of 200 returned → conclusive, the cap heuristic is not used");
+        Ok(!FixPlan.Conclusive(30, 30, 1000, 1500, out var w4) && w4.Contains("1000 of 1500 returned"), "with the matched count: fewer returned than matched → truncated, by count");
+        Ok(FixPlan.Conclusive(3, 3, 0, 0, out var w5) && w5 == "", "matched 0, returned 0 → conclusive");
+        var pr3 = ProposalResult.Parse("{\"verdict\":\"rejected\",\"failures\":[],\"failures_total\":264,\"failures_matched\":0}");
+        Ok(pr3.FailuresTotal == 264 && pr3.FailuresMatched == 0 && ProposalResult.Parse("{}").FailuresMatched == -1, "totals parsed; absent → -1 (not reported)");
 
         Console.WriteLine("\nProposalResult.Parse — the bridge verdict, every failure kept");
         var many = string.Join(",", Enumerable.Range(0, 30).Select(i =>

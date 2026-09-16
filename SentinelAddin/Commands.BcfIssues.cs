@@ -109,11 +109,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
 
         // "No failure came back" is only evidence of passing when the referee judged everything that was sent
         // and its failure list was not cut off. Returns the reason the response cannot be trusted, or null.
-        static string? NotConclusive(int expected, int sent, int inScope, int failureCount)
+        static string? NotConclusive(int expected, int sent, int inScope, int failureCount, int matched)
         {
             var parts = new List<string>();
             if (sent < expected) parts.Add($"{expected - sent} element(s) missing from the model");
-            if (!FixPlan.Conclusive(sent, inScope, failureCount, out var why)) parts.Add(why);
+            if (!FixPlan.Conclusive(sent, inScope, failureCount, matched, out var why)) parts.Add(why);
             return parts.Count == 0 ? null : $"referee response is not conclusive: {string.Join(" / ", parts)} \u2014 nothing certified";
         }
 
@@ -177,13 +177,18 @@ public sealed class BcfIssuesCommand : IExternalCommand
                     try
                     {
                         if (!SameDoc(ua2)) return;
+                        // A check judges the values the user typed \u2014 rows without a value are not sent (they
+                        // would only fail for being empty and crowd the response).
+                        ticked = ticked.Where(r => r.Proposed.Trim().Length > 0).ToList();
+                        if (ticked.Count == 0) { fix.SetStatus("Enter a value in at least one ticked row, then Check."); fix.SetBusy(false); return; }
                         var payload = FixInPlaceService.ExtractPatched(d, projectKey, plan, ticked, req, org);
                         var expected = ticked.SelectMany(r => r.InstanceIds).Distinct().Count();
                         var keys = new HashSet<string>(ticked.Select(r => r.Key));
                         Task.Run(() =>
                         {
                             var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
-                                source: "revit-fix", note: $"fix-in-place check \u00b7 BCF {topic.Guid}", raiseBcf: false);
+                                source: "revit-fix", note: $"fix-in-place check \u00b7 BCF {topic.Guid}", raiseBcf: false,
+                                failuresRequirement: req.Requirement);
                             if (!res.Reached)
                             {
                                 fix.SetStatus($"Could not reach the bridge \u2014 nothing was checked ({res.Error}). Applying is unverified.");
@@ -194,11 +199,13 @@ public sealed class BcfIssuesCommand : IExternalCommand
                                 fix.SetBanner("The bridge has no IDS to judge against \u2014 verdict \u201crecorded\u201d. Apply is allowed; nothing can be certified or resolved.");
                                 fix.SetStatus("Not checkable: no IDS on the bridge or locally."); fix.SetBusy(false); return;
                             }
-                            var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count);
+                            var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count, res.FailuresMatched);
                             if (why != null) { fix.SetStatus(why); fix.SetBusy(false); return; }
                             var fold = FixPlan.Fold(res.ElementFailures, plan.Rows, keys, guids, req.Requirement);
                             fix.RefreshRows();
-                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(fold.OtherOpen > 0 ? $" \u00b7 {fold.OtherOpen} failure(s) on other requirements not part of this issue" : "")} \u00b7 audit {res.AuditId}");
+                            // The bridge filtered the list to this requirement; the footnote count comes from its totals.
+                            var other = res.FailuresTotal >= 0 && res.FailuresMatched >= 0 ? res.FailuresTotal - res.FailuresMatched : fold.OtherOpen;
+                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 audit {res.AuditId}");
                             fix.SetBusy(false);
                         });
                     }
@@ -241,7 +248,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                     Task.Run(async () =>
                     {
                         var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
-                            source: "revit-fix", note: $"fix-in-place re-check \u00b7 BCF {topic.Guid}", raiseBcf: false);
+                            source: "revit-fix", note: $"fix-in-place re-check \u00b7 BCF {topic.Guid}", raiseBcf: false,
+                            failuresRequirement: req.Requirement);
                         if (!res.Reached)
                         {
                             fix.SetStatus(applied
@@ -258,7 +266,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         }
                         // Nothing is painted green and no comment is posted off a response that cannot vouch for
                         // every element sent: the rows stay exactly as they were, Unchecked included.
-                        var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count);
+                        var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count, res.FailuresMatched);
                         if (why != null) { fix.SetStatus(why); fix.SetBusy(false); return; }
                         var fold = FixPlan.Fold(res.ElementFailures, plan.Rows, keys, guids, req.Requirement);
                         fix.RefreshRows();

@@ -127,7 +127,8 @@ namespace Sentinel.Coordination
         /// </summary>
         public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor,
                                              string? containerName = null, string? projectKey = null,
-                                             string? source = null, string? note = null, bool raiseBcf = true)
+                                             string? source = null, string? note = null, bool raiseBcf = true,
+                                             string? failuresRequirement = null)
         {
             var r = new ProposalResult();
             try
@@ -145,6 +146,9 @@ namespace Sentinel.Coordination
                 if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
                 if (note != null) body["note"] = note;
                 if (!raiseBcf) body["raise_bcf"] = false;
+                // One requirement's failures only (fix-in-place): the bridge then returns up to 1000 of them
+                // plus failures_total / failures_matched, so truncation is detected by count, not guessed.
+                if (!string.IsNullOrWhiteSpace(failuresRequirement)) body["failures_requirement"] = failuresRequirement;
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);

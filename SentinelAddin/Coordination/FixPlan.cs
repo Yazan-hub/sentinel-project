@@ -145,13 +145,23 @@ public static class FixPlan
     // The cap the bridge itself applies: WebApp/bridge/cde-store.mjs → failures.slice(0, 200).
     public const int FailureCap = 200;
 
-    public static bool Conclusive(int sent, int inScope, int failureCount, out string reason)
+    public static bool Conclusive(int sent, int inScope, int failureCount, out string reason) =>
+        Conclusive(sent, inScope, failureCount, -1, out reason);
+
+    /// <paramref name="matched"/> is the bridge's `failures_matched` — how many failures existed BEFORE it
+    /// sliced the list (−1 when the bridge did not say, which falls back to the cap heuristic). A returned
+    /// list shorter than what matched is a cut-off list, whatever its length.
+    public static bool Conclusive(int sent, int inScope, int failureCount, int matched, out string reason)
     {
         var parts = new List<string>();
         // inScope is whole-payload: the bridge reports one in-scope total, with no per-specification
         // breakdown, so this compares totals rather than per-requirement counts.
         if (inScope < sent) parts.Add($"{sent - inScope} out of scope");
-        if (failureCount >= FailureCap) parts.Add($"failure list truncated at {FailureCap}");
+        if (matched >= 0)
+        {
+            if (failureCount < matched) parts.Add($"failure list truncated ({failureCount} of {matched} returned)");
+        }
+        else if (failureCount >= FailureCap) parts.Add($"failure list truncated at {FailureCap}");
         reason = string.Join(" / ", parts);
         return parts.Count == 0;
     }

@@ -831,6 +831,20 @@ export async function checkReceipt(key, receipt) {
   return verifyReceipt(receipt, row);
 }
 
+/** The failure list a caller gets back, with honest totals. Unfiltered: the first 200 of everything.
+ *  With `requirement` (fix-in-place checks one requirement at a time): only that requirement's failures,
+ *  up to 1000. `failures_total` / `failures_matched` are the counts BEFORE slicing, so a client can tell
+ *  "no failure came back" from "the list was cut off" without guessing at the cap. Pure. */
+export function selectFailures(failures, requirement) {
+  const all = Array.isArray(failures) ? failures : [];
+  const filtered = typeof requirement === "string" && requirement.trim()
+    ? all.filter((f) => String(f?.requirement ?? "").toLowerCase() === requirement.trim().toLowerCase())
+    : null;
+  const chosen = filtered ?? all;
+  const cap = filtered ? 1000 : 200;
+  return { failures: chosen.slice(0, cap), failures_total: all.length, failures_matched: chosen.length };
+}
+
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
@@ -914,7 +928,7 @@ export async function adjudicateProposal(key, b = {}) {
     });
   }
   return {
-    verdict, summary, failures: failures.slice(0, 200), naming, warned,
+    verdict, summary, ...selectFailures(failures, b.failures_requirement), naming, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
     agent,

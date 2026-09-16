@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { mergeMetaForTest } from "./cde-store.mjs";
+import { mergeMetaForTest, selectFailures } from "./cde-store.mjs";
+
+describe("selectFailures — the failure list a proposer gets back, with honest totals", () => {
+  const f = (req, n) => Array.from({ length: n }, (_, i) => ({ element: `g${req}${i}`, requirement: req, reason: "missing" }));
+  const all = [...f("Pset_DoorCommon.FireRating", 132), ...f("Pset_BDS.Discipline", 132)];
+
+  it("unfiltered: first 200 of everything, totals say what was cut", () => {
+    const out = selectFailures(all, undefined);
+    expect(out.failures).toHaveLength(200);
+    expect(out.failures_total).toBe(264);
+    expect(out.failures_matched).toBe(264);
+  });
+
+  it("filtered to one requirement (case-insensitive): only those, up to 1000, matched counted before slicing", () => {
+    const out = selectFailures(all, "pset_doorcommon.firerating");
+    expect(out.failures).toHaveLength(132);
+    expect(out.failures.every((x) => x.requirement === "Pset_DoorCommon.FireRating")).toBe(true);
+    expect(out.failures_total).toBe(264);
+    expect(out.failures_matched).toBe(132);
+    const big = selectFailures(f("@Name", 1500), "@Name");
+    expect(big.failures).toHaveLength(1000);
+    expect(big.failures_matched).toBe(1500); // a client sees 1000 < 1500 ⇒ truncated, no guessing
+  });
+
+  it("a blank filter is no filter; a non-array is empty", () => {
+    expect(selectFailures(all, "  ").failures).toHaveLength(200);
+    expect(selectFailures(null, "x")).toEqual({ failures: [], failures_total: 0, failures_matched: 0 });
+  });
+});
 
 describe("mergeMeta", () => {
   const base = { stage: "design", standards_pack: "", dimensions: { "2d": true }, snapshot: {}, gates: {} };
