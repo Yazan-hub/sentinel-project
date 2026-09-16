@@ -9,5 +9,7 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\GovElement.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\IdsIssueRef.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\FixPlan.cs" />
   </ItemGroup>
 </Project>
