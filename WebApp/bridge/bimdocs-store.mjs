@@ -8,6 +8,7 @@ import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs
 import { requireMinRole } from "./members-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
+import { ANSWERS } from "./readiness-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -209,6 +210,54 @@ export async function setSectionBindings(key, docId, sectionId, payload = {}) {
   await audit(doc.project_id, "bim_document", docId, "section_bindings_set", actor || "web",
     { section: old.heading, checks: (old.bindings?.checks || []).map((c) => c.id) },
     { section: old.heading, checks: next.checks.map((c) => c.id) });
+  return row;
+}
+
+// ── Readiness: declared answers and plan fields live ON the section ──────────────────────────────
+export const MAX_ANSWER_NOTE_CHARS = 2000;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A declared item's answer: yes | partial | no + note. Contributor and above; the author is the verified identity. */
+export async function setSectionAnswer(key, docId, sectionId, { value, note, updated_at, actor } = {}) {
+  await requireMinRole(key, "contributor");
+  if (!ANSWERS.includes(value)) throw err(400, `answer value must be one of ${ANSWERS.join(", ")}`);
+  const text = typeof note === "string" ? note.trim() : "";
+  if (text.length > MAX_ANSWER_NOTE_CHARS) throw err(400, `note too long (${text.length}; limit ${MAX_ANSWER_NOTE_CHARS})`);
+  const doc = await getDoc(key, docId);
+  if (doc.doc_type !== "READINESS") throw err(409, "answers belong to READINESS documents only");
+  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
+  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
+  const i = doc.sections.findIndex((s) => s.id === sectionId);
+  if (i < 0) throw err(404, "section not found");
+  const old = doc.sections[i];
+  if (old.kind !== "declared") throw err(409, "this item is measured by a check — it takes no declared answer");
+  const answer = { value, note: text, by: resolveActor(actor, "web"), at: new Date().toISOString() };
+  const sections = doc.sections.map((s, j) => (j === i ? { ...s, answer } : s));
+  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  await audit(doc.project_id, "bim_document", docId, "declared", actor || "web",
+    { section: old.heading, value: old.answer?.value ?? null },
+    { section: old.heading, value, note_chars: text.length });
+  return row;
+}
+
+/** Plan fields for a readiness item: owner + due (ISO date) — the implementation plan, in place. Lead and above. */
+export async function setSectionPlan(key, docId, sectionId, { owner, due, updated_at, actor } = {}) {
+  await requireMinRole(key, "lead");
+  if (due !== undefined && due !== null && !ISO_DATE.test(String(due))) throw err(400, "due must be an ISO date (YYYY-MM-DD) or null");
+  if (owner !== undefined && owner !== null && typeof owner !== "string") throw err(400, "owner must be a string or null");
+  const doc = await getDoc(key, docId);
+  if (doc.doc_type !== "READINESS") throw err(409, "plan fields belong to READINESS documents only");
+  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
+  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
+  const i = doc.sections.findIndex((s) => s.id === sectionId);
+  if (i < 0) throw err(404, "section not found");
+  const old = doc.sections[i];
+  const next = { ...old, ...(owner !== undefined && { owner: owner === null ? null : owner.trim() || null }), ...(due !== undefined && { due }) };
+  const sections = doc.sections.map((s, j) => (j === i ? next : s));
+  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  await audit(doc.project_id, "bim_document", docId, "plan_set", actor || "web",
+    { section: old.heading, owner: old.owner ?? null, due: old.due ?? null },
+    { section: old.heading, owner: next.owner ?? null, due: next.due ?? null });
   return row;
 }
 

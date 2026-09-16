@@ -1195,6 +1195,10 @@ async function handleRequest(req, res) {
       }
       if (p3 === "section" && p4 && seg[5] === "bindings" && req.method === "PUT")
         return send(res, 200, await bimdocs.setSectionBindings(p1, p2, p4, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "answer" && req.method === "PUT")
+        return send(res, 200, await bimdocs.setSectionAnswer(p1, p2, p4, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "plan" && req.method === "PUT")
+        return send(res, 200, await bimdocs.setSectionPlan(p1, p2, p4, { ...body, actor }));
       if (p3 === "compliance" && !p4 && req.method === "GET")
         return send(res, 200, await bimdocs.complianceReport(p1, p2));
       if (p3 === "executability" && req.method === "GET")

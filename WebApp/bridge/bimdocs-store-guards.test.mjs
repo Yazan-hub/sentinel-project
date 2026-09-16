@@ -38,7 +38,7 @@ vi.mock("./members-store.mjs", () => ({
   }),
 }));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -206,5 +206,57 @@ describe("comment concurrency — CAS on the bag's rev", () => {
     __docs.set("doc_comments" + "11111111-1111-4111-8111-111111111111", { comments: [] }); // pre-rev shape
     await addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "on legacy bag", "a");
     expect((await listComments("demo", "11111111-1111-4111-8111-111111111111")).some((x) => x.text === "on legacy bag")).toBe(true);
+  });
+});
+
+const readinessDoc = (overrides = {}) => makeDoc({
+  doc_type: "READINESS",
+  sections: [
+    { id: "d1", heading: "13. A BIM manager is named", pillar: "people", kind: "declared", question: "Is there…?", body: "", state: "wip", owner: null, due: null, answer: null, bindings: {} },
+    { id: "m1", heading: "4. Worksets", pillar: "standards", kind: "measured", body: "", state: "wip", owner: null, due: null, answer: null, bindings: { checks: [{ id: "office.worksets" }] } },
+  ],
+  ...overrides,
+});
+
+describe("setSectionAnswer — a declared item's answer, by the verified identity", () => {
+  beforeEach(() => { doc = readinessDoc(); sb.mockImplementation(async (path, opts) => opts?.method === "PATCH" ? [{ ...doc, sections: opts.body.sections }] : [doc]); });
+  it("records value/note with author and timestamp and audits 'declared'", async () => {
+    const row = await setSectionAnswer("k", doc.id, "d1", { value: "partial", note: "named, no mandate", actor: "a@x" });
+    const s = row.sections.find((x) => x.id === "d1");
+    expect(s.answer).toMatchObject({ value: "partial", note: "named, no mandate", by: "a@x" });
+    expect(s.answer.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "declared", "a@x", expect.objectContaining({ section: "13. A BIM manager is named" }), expect.objectContaining({ value: "partial" }));
+  });
+  it("400s an invalid value or a note over 2000 chars; 404s a missing section; 409s a measured item", async () => {
+    await expect(setSectionAnswer("k", doc.id, "d1", { value: "maybe" })).rejects.toMatchObject({ status: 400 });
+    await expect(setSectionAnswer("k", doc.id, "d1", { value: "yes", note: "x".repeat(2001) })).rejects.toMatchObject({ status: 400 });
+    await expect(setSectionAnswer("k", doc.id, "nope", { value: "yes" })).rejects.toMatchObject({ status: 404 });
+    await expect(setSectionAnswer("k", doc.id, "m1", { value: "yes" })).rejects.toMatchObject({ status: 409 });
+    expect(sb).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "PATCH" }));
+  });
+  it("refuses on a non-READINESS document and below contributor", async () => {
+    doc = makeDoc(); sb.mockResolvedValue([doc]);
+    await expect(setSectionAnswer("k", doc.id, "sec1", { value: "yes" })).rejects.toMatchObject({ status: 409 });
+    doc = readinessDoc(); sb.mockResolvedValue([doc]);
+    globalThis.__testRole = "viewer";
+    await expect(setSectionAnswer("k", doc.id, "d1", { value: "yes" })).rejects.toMatchObject({ status: 403 });
+    globalThis.__testRole = undefined;
+  });
+});
+
+describe("setSectionPlan — owner + due on the item itself, lead and above", () => {
+  beforeEach(() => { doc = readinessDoc(); sb.mockImplementation(async (path, opts) => opts?.method === "PATCH" ? [{ ...doc, sections: opts.body.sections }] : [doc]); });
+  it("sets owner and due and audits 'plan_set' with old and new", async () => {
+    const row = await setSectionPlan("k", doc.id, "m1", { owner: "lead@x", due: "2026-10-01", actor: "lead@x" });
+    expect(row.sections.find((x) => x.id === "m1")).toMatchObject({ owner: "lead@x", due: "2026-10-01" });
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "plan_set", "lead@x", expect.objectContaining({ owner: null, due: null }), expect.objectContaining({ owner: "lead@x", due: "2026-10-01" }));
+  });
+  it("400s a non-ISO due date; clears with nulls; 403s below lead", async () => {
+    await expect(setSectionPlan("k", doc.id, "m1", { due: "1/10/2026" })).rejects.toMatchObject({ status: 400 });
+    const row = await setSectionPlan("k", doc.id, "m1", { owner: null, due: null, actor: "lead@x" });
+    expect(row.sections.find((x) => x.id === "m1")).toMatchObject({ owner: null, due: null });
+    globalThis.__testRole = "contributor";
+    await expect(setSectionPlan("k", doc.id, "m1", { due: "2026-10-01" })).rejects.toMatchObject({ status: 403 });
+    globalThis.__testRole = undefined;
   });
 });
