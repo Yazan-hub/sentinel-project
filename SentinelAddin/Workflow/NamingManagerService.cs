@@ -47,7 +47,7 @@ public static class NamingManagerService
         {
             if (rule.Target == RuleTarget.Type)
             {
-                var types = new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>()
+                var types = new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>()
                     .Where(et => et.Category is { } c && (rule.Categories.Count == 0 || rule.Categories.Any(c.MatchesCategoryKey)))
                     .ToList();
                 foreach (var fam in types.GroupBy(et => et.Category!.Id.IdValue() + "|" + SafeFamilyName(et)))
@@ -166,7 +166,7 @@ public static class NamingManagerService
     private static bool TakenLive(Document doc, Element el, string name)
     {
         if (el is ElementType et)
-            return new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>()
+            return new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>()
                 .Any(x => x.Id != et.Id && x.Category?.Id == et.Category?.Id && SafeFamilyName(x) == SafeFamilyName(et) && x.Name == name);
         if (el is Family f)
             return new FilteredElementCollector(doc).OfClass(typeof(Family)).Cast<Family>()

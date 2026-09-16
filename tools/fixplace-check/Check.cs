@@ -23,6 +23,9 @@ static class Check
         Ok(PsetMap.Find("XXX", "@Name")?.Candidates.Single().Kind == ParamKind.ElementName, "@Name maps to the element name");
         Ok(PsetMap.Find("XXX", "Pset_WallCommon.IsExternal")?.ValueKind == ValueKind.YesNo, "IsExternal is a yes/no value");
         Ok(PsetMap.Find("XXX", "Pset_WallCommon.IsExternal")?.Candidates.Last().Kind == ParamKind.WallFunction, "IsExternal falls back to the wall Function");
+        Ok(PsetMap.Find("XXX", "Pset_WallCommon.IsExternal")!.Candidates.First(c => c.Kind == ParamKind.Lookup).InstanceOnly
+           && !PsetMap.Find("XXX", "Pset_WallCommon.FireRating")!.Candidates.First(c => c.Kind == ParamKind.Lookup).InstanceOnly,
+           "IsExternal's lookup is instance-only (type pass skipped); FireRating's is not");
         foreach (var key in new[] { "Pset_WallCommon.IsExternal", "Pset_WallCommon.FireRating", "Pset_DoorCommon.FireRating", "Pset_WindowCommon.ThermalTransmittance" })
             Ok(PsetMap.Find("XXX", key) != null, "extractor requirement present: " + key);
         Ok(PsetMap.Find("XXX", "Pset_WindowCommon.ThermalTransmittance")!.Candidates.Any(c => c.Name == "XXX_UValue"), "office U-value alias derives from org");
@@ -90,6 +93,12 @@ static class Check
         var f5 = FixPlan.Fold(new[] { new ElementFailure { Element = "g7", Requirement = R, Reason = "missing" } }, nf, new HashSet<string> { "i:7" }, new[] { "g7" }, R);
         Ok(nf[0].Verdict == FixVerdict.NotFixable && nf[0].Reason == null && f5.Fail == 1 && !f5.AllPass,
            "a NotFixable row keeps its verdict and reason but its elements still count toward fail");
+        Ok(f5.FailedGuids.SequenceEqual(new[] { "g7" }), "a NotFixable row that fails is named in FailedGuids");
+        foreach (var r in rows) { r.Verdict = FixVerdict.Unchecked; r.Reason = null; }
+        var f6 = FixPlan.Fold(new[] { new ElementFailure { Element = "g4", Requirement = R, Reason = "missing" } },
+                              rows, sent, guids, R);
+        Ok(f6.FailedGuids.SequenceEqual(new[] { "g4" }),
+           "FailedGuids names only the failing instance of a mixed type row, not the whole row");
 
         Console.WriteLine("\nFixPlan.Conclusive — \"no failure returned\" is only evidence when everything was judged");
         Ok(FixPlan.Conclusive(30, 30, 3, out var w0) && w0 == "", "everything sent judged, short failure list → conclusive");

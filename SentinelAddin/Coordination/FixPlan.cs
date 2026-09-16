@@ -42,6 +42,9 @@ public sealed class FoldResult
     public int Pass, Fail;
     public int PassGuids;                    // issue GUIDs credited as passing (a type row can pass some, fail others)
     public List<string> Unresolved = new();  // issue GUIDs no row covers — not in this model
+    public List<string> FailedGuids = new(); // the issue GUIDs that ACTUALLY still fail this requirement:
+                                             // NotFixable rows included, and only the failing instances of
+                                             // a type row — never the whole row's instance list
     public int OtherOpen;                    // failures on OTHER requirements: a footnote, never folded in
 }
 
@@ -124,6 +127,7 @@ public static class FixPlan
                         ? $"{bad.Count} of {row.IssueGuids.Count} instance(s) still fail — {failing[bad[0]]}"
                         : failing[bad[0]];
                 }
+                res.FailedGuids.AddRange(bad);
                 foreach (var g in row.IssueGuids.Except(bad)) passGuids.Add(g);
             }
         }
@@ -138,11 +142,14 @@ public static class FixPlan
     /// The bridge truncates its failure list, and judges only what is in scope — so "no failure came back"
     /// is only evidence of passing when everything sent was judged and the list was not cut off. Returns
     /// false (with the reason) whenever the response cannot be read as a verdict on every element sent.
+    // The cap the bridge itself applies: WebApp/bridge/cde-store.mjs → failures.slice(0, 200).
     public const int FailureCap = 200;
 
     public static bool Conclusive(int sent, int inScope, int failureCount, out string reason)
     {
         var parts = new List<string>();
+        // inScope is whole-payload: the bridge reports one in-scope total, with no per-specification
+        // breakdown, so this compares totals rather than per-requirement counts.
         if (inScope < sent) parts.Add($"{sent - inScope} out of scope");
         if (failureCount >= FailureCap) parts.Add($"failure list truncated at {FailureCap}");
         reason = string.Join(" / ", parts);

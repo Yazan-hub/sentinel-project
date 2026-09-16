@@ -53,7 +53,9 @@ public static class NameSynth
         rule.Tokens.Count > 0 && rule.Tokens[rule.Tokens.Count - 1] == token;
 
     /// First alternative of a top-level alternation is the schema's canonical default ("WIP|SH|…" → "WIP").
-    /// Regex escapes are unwrapped so an escaped org ("A\+B") comes back as text ("A+B").
+    /// Regex escapes are unwrapped, but the metacharacter strip that follows still removes the characters it
+    /// covers — an escaped "A\+B" unwraps to "A+B" and then loses the "+" ("AB"). Only escapes outside that
+    /// set (e.g. "\-" → "-") survive.
     public static string DefaultFor(string? def, string token)
     {
         if (string.IsNullOrEmpty(def)) return token.ToUpperInvariant();
@@ -68,8 +70,9 @@ public static class NameSynth
         var candidate = Regex.Replace(first.ToString(), @"\\d\{(\d+)(,\d*)?\}", m => new string('0', int.Parse(m.Groups[1].Value)));
         candidate = Regex.Replace(candidate, @"\\d", "0");
         candidate = Regex.Replace(candidate, @"\[[^\]]*\][*+?]?(\{[^}]*\})?", "X");
-        candidate = Regex.Replace(candidate, @"\\(.)", "$1");                  // unescape (\+ → +, \- → -)
-        candidate = Regex.Replace(candidate, @"[\^\$\?\*\+\(\)]", "");
+        candidate = Regex.Replace(candidate, @"\\(.)", "$1");                  // unescape (\- → -, \. → .)
+        candidate = Regex.Replace(candidate, @"[\^\$\?\*\+\(\)]", "");         // …then strip metacharacters —
+        // this runs AFTER the unescape, so a "+" (escaped or not) does not survive it.
         return candidate.Length > 0 ? candidate : token.ToUpperInvariant();
     }
 

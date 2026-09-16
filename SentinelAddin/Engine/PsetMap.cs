@@ -11,7 +11,9 @@ public sealed class ParamCandidate
 {
     public ParamKind Kind;
     public string Name;   // Lookup: the parameter name · BuiltIn: the BuiltInParameter enum name · else ""
-    public ParamCandidate(ParamKind kind, string name = "") { Kind = kind; Name = name; }
+    public bool InstanceOnly;  // read/write this lookup on the INSTANCE only — never fall through to the type
+    public ParamCandidate(ParamKind kind, string name = "", bool instanceOnly = false)
+    { Kind = kind; Name = name; InstanceOnly = instanceOnly; }
 }
 
 public sealed class PsetEntry
@@ -45,7 +47,8 @@ public static class PsetMap
         list.Add(new PsetEntry
         {
             Pset = "Pset_WallCommon", Prop = "IsExternal", Classes = new[] { "IFCWALL" }, ValueKind = ValueKind.YesNo,
-            Candidates = { new(ParamKind.Lookup, "IsExternal"), new(ParamKind.WallFunction) },
+            // IsExternal is read on the instance only, then the wall type's Function — the pre-table order.
+            Candidates = { new(ParamKind.Lookup, "IsExternal", instanceOnly: true), new(ParamKind.WallFunction) },
         });
         list.Add(new PsetEntry
         {

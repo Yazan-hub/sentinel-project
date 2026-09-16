@@ -122,10 +122,16 @@ public static class GovernedElementExtractor
     /// IDS reports it missing). Used by the fix-in-place writer to show the current value too.</summary>
     internal static string? ReadEntry(Element e, Document doc, PsetEntry entry)
     {
-        var lookups = entry.Candidates.Where(c => c.Kind == ParamKind.Lookup).Select(c => c.Name).ToArray();
+        var lookups = entry.Candidates.Where(c => c.Kind == ParamKind.Lookup).ToArray();
         if (lookups.Length > 0)
         {
-            var v = entry.ValueKind == ValueKind.YesNo ? ReadYesNoInstOrType(e, doc, lookups) : ReadInstOrType(e, doc, lookups);
+            // Instance pass over every lookup; the type pass skips the instance-only ones (e.g. IsExternal,
+            // which falls to the wall type's Function rather than to a same-named type parameter).
+            var all = lookups.Select(c => c.Name).ToArray();
+            var onType = lookups.Where(c => !c.InstanceOnly).Select(c => c.Name).ToArray();
+            var v = entry.ValueKind == ValueKind.YesNo
+                ? ReadYesNoInstOrType(e, doc, all, onType)
+                : ReadInstOrType(e, doc, all, onType);
             if (v != null) return v;
         }
         foreach (var c in entry.Candidates)
@@ -144,21 +150,22 @@ public static class GovernedElementExtractor
         return null;
     }
 
-    // First non-empty value among the named parameters — instance first, then the element's type.
-    private static string? ReadInstOrType(Element e, Document doc, params string[] names)
+    // First non-empty value among the named parameters — instance pass over <paramref name="names"/>,
+    // then a type pass over <paramref name="onType"/> only.
+    private static string? ReadInstOrType(Element e, Document doc, string[] names, string[] onType)
     {
         foreach (var n in names) { var v = ReadString(e, n); if (v != null) return v; }
-        if (doc.GetElement(e.GetTypeId()) is { } type)
-            foreach (var n in names) { var v = ReadString(type, n); if (v != null) return v; }
+        if (onType.Length > 0 && doc.GetElement(e.GetTypeId()) is { } type)
+            foreach (var n in onType) { var v = ReadString(type, n); if (v != null) return v; }
         return null;
     }
 
-    // A yes/no parameter as IFC expects it ("TRUE"/"FALSE"): instance first, then type.
-    private static string? ReadYesNoInstOrType(Element e, Document doc, params string[] names)
+    // A yes/no parameter as IFC expects it ("TRUE"/"FALSE"): instance first, then type (instance-only excluded).
+    private static string? ReadYesNoInstOrType(Element e, Document doc, string[] names, string[] onType)
     {
         foreach (var n in names) { var v = ReadYesNo(e, n); if (v != null) return v; }
-        if (doc.GetElement(e.GetTypeId()) is { } type)
-            foreach (var n in names) { var v = ReadYesNo(type, n); if (v != null) return v; }
+        if (onType.Length > 0 && doc.GetElement(e.GetTypeId()) is { } type)
+            foreach (var n in onType) { var v = ReadYesNo(type, n); if (v != null) return v; }
         return null;
     }
 

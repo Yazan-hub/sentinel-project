@@ -266,7 +266,12 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         var passed = fold.PassGuids;
                         var receipt = string.IsNullOrEmpty(res.ReceiptHash) ? "" : $" \u00b7 receipt {res.ReceiptHash!.Substring(0, Math.Min(16, res.ReceiptHash.Length))}";
                         var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check audit {res.AuditId}{receipt}.";
-                        var still = plan.Rows.Where(r => r.Verdict == FixVerdict.Fail).SelectMany(r => r.InstanceIds).ToList();
+                        // The elements that ACTUALLY still fail — the fold's GUIDs, not every instance of a
+                        // row that failed (a type row can fail one of its instances and pass the rest), and
+                        // NotFixable rows included. Shown as instance ids where the plan knows one.
+                        var idOf = plan.GuidOf.GroupBy(kv => kv.Value).ToDictionary(g => g.Key, g => g.First().Key);
+                        var still = fold.FailedGuids
+                            .Select(g => idOf.TryGetValue(g, out var id) ? id.ToString() : g).ToList();
                         if (still.Count > 0) evidence += $" Still failing: {string.Join(", ", still.Take(20))}{(still.Count > 20 ? ", \u2026" : "")}.";
                         if (fold.Unresolved.Count > 0) evidence += $" Not in this model: {string.Join(", ", fold.Unresolved.Take(10))}{(fold.Unresolved.Count > 10 ? ", \u2026" : "")}.";
 

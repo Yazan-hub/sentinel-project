@@ -45,7 +45,10 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             // rule, instead of scanning with a pattern that matches nothing (which would read as "all clean").
             if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(Ruleset.Org))
             {
-                violations.Add(Make(rule, -1, "(ruleset.org is empty — rule not evaluated)"));
+                // Built directly, not via Make: the rule's own MessageEn would substitute this text into
+                // "{name}" and read as "Family '(ruleset.org is empty…)' does not match…".
+                violations.Add(new Violation(rule.Id, rule.Mode, -1, "(ruleset.org is empty — rule not evaluated)",
+                    $"Rule {rule.Id} needs an office code — ruleset.org is empty; not evaluated", null, rule.DocRef));
                 continue;
             }
             switch (rule.Target)
@@ -151,7 +154,7 @@ public sealed class RuleEngineHost(Ruleset ruleset)
     private int ScanTypes(Document doc, Rule rule, List<Violation> sink)
     {
         int n = 0;
-        foreach (ElementType et in new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>())
+        foreach (ElementType et in new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>())
         {
             var cat = et.Category;
             if (cat is null) continue;

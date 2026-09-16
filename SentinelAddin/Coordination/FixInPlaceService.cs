@@ -144,7 +144,9 @@ public static class FixInPlaceService
                     return t;
                 }
             }
-            if (type != null)
+            // An instance-only candidate is never resolved on the type — the value is read on the instance
+            // only (PsetMap.ParamCandidate.InstanceOnly), so writing it on the type would not be read back.
+            if (type != null && !c.InstanceOnly)
             {
                 Parameter? pType = c.Kind == ParamKind.Lookup
                     ? type.LookupParameter(c.Name)

@@ -52,12 +52,14 @@ public static class NamingProposer
         if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(org)) return Fail(p, "ruleset has no org code");
         // A name can look syntactically compliant yet disagree with the measured geometry — check that
         // BEFORE trusting the regex match, so a stale digit in an otherwise-conforming name still surfaces.
-        if (rule.Target == RuleTarget.Type && ctx.WidthMm != null
-            && rule.TokenDefs.TryGetValue("SIZE", out var sizeDef) && sizeDef != null && !sizeDef.Contains(" x "))
+        // The SIZE token is matched case-insensitively, exactly as Recover matches it.
+        var sizeToken = rule.Tokens.FirstOrDefault(t => t.Equals("SIZE", StringComparison.OrdinalIgnoreCase));
+        if (rule.Target == RuleTarget.Type && ctx.WidthMm != null && sizeToken != null
+            && rule.TokenDefs.TryGetValue(sizeToken, out var sizeDef) && sizeDef != null && !sizeDef.Contains(" x "))
         {
             var named = TypeNameParse.ThicknessMm(Normalize(current));
-            if (named != double.MaxValue && Math.Abs(named - ctx.WidthMm.Value) > 0.5)
-                return Fail(p, $"name says {Mm(named)} mm, Width is {Mm(ctx.WidthMm.Value)} mm");
+            double? namedMm = named == double.MaxValue ? null : named;
+            if (WidthMismatch(namedMm, ctx.WidthMm, out var why)) return Fail(p, why!);
         }
 
         var rx = RuleRegex.For(rule, org);
@@ -128,6 +130,16 @@ public static class NamingProposer
         return string.Join(rule.Separator, rule.Tokens.Select(t => values[t]));
     }
 
+    /// The one width-mismatch test, shared by the early guard and RecoverSize: a size in the name that
+    /// disagrees with the measured Width by more than 0.5 mm is a human decision, never a silent rewrite.
+    private static bool WidthMismatch(double? named, double? widthMm, out string? why)
+    {
+        why = null;
+        if (named == null || widthMm == null || Math.Abs(named.Value - widthMm.Value) <= 0.5) return false;
+        why = $"name says {Mm(named.Value)} mm, Width is {Mm(widthMm.Value)} mm";
+        return true;
+    }
+
     private static string Canon(string segment) => Aliases.TryGetValue(segment, out var a) ? a : segment.ToUpperInvariant();
 
     private static string? RecoverSize(string norm, string def, NamingContext ctx, List<string> segments, NameProposal p)
@@ -146,8 +158,7 @@ public static class NamingProposer
         {
             var fromName = TypeNameParse.ThicknessMm(norm);
             double? named = fromName == double.MaxValue ? null : fromName;
-            if (named != null && ctx.WidthMm != null && Math.Abs(named.Value - ctx.WidthMm.Value) > 0.5)
-            { Fail(p, $"name says {Mm(named.Value)} mm, Width is {Mm(ctx.WidthMm.Value)} mm"); return null; }
+            if (WidthMismatch(named, ctx.WidthMm, out var why)) { Fail(p, why!); return null; }
             var v = ctx.WidthMm ?? named;
             if (v == null) { Fail(p, "no size in name and no measured Width"); return null; }
             value = $"{Mm(v.Value)} mm";
