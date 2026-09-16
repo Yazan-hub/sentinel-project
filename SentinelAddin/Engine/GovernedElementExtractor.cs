@@ -138,7 +138,11 @@ public static class GovernedElementExtractor
         {
             if (c.Kind == ParamKind.BuiltIn && Enum.TryParse<BuiltInParameter>(c.Name, out var bip))
             {
-                var b = ReadBip(e, bip);
+                // Instance, then TYPE — a door's Fire Rating is a type parameter in stock templates. The
+                // inline read this replaced looked at the instance only, so the referee never saw a type-level
+                // value and reported every such door as missing (found live, 2026-09-16). The fix-in-place
+                // writer resolves instance-then-type too; read and write now agree.
+                var b = ReadBip(e, bip) ?? (doc.GetElement(e.GetTypeId()) is { } bt ? ReadBip(bt, bip) : null);
                 if (b != null) return b;
             }
             else if (c.Kind == ParamKind.WallFunction)
