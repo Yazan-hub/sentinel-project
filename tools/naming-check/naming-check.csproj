@@ -10,5 +10,8 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleRegex.cs" />
+    <Compile Include="..\..\SentinelAddin\Workflow\NameSynth.cs" />
+    <Compile Include="..\..\SentinelAddin\Standards\NamingProposer.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
   </ItemGroup>
 </Project>
