@@ -40,6 +40,7 @@ public sealed class FoldResult
 {
     public bool AllPass;
     public int Pass, Fail;
+    public int PassGuids;                    // issue GUIDs credited as passing (a type row can pass some, fail others)
     public List<string> Unresolved = new();  // issue GUIDs no row covers — not in this model
     public int OtherOpen;                    // failures on OTHER requirements: a footnote, never folded in
 }
@@ -103,25 +104,48 @@ public static class FixPlan
         foreach (var row in allRows)
         {
             if (!sentKeys.Contains(row.Key)) continue;
+            // A row the planner already judged unfixable keeps its verdict and reason — its elements are real
+            // and the referee's word on them still counts, but "not fixable here" must not be painted over.
+            bool keep = row.Verdict == FixVerdict.NotFixable;
             var bad = row.IssueGuids.Where(failing.ContainsKey).ToList();
             if (bad.Count == 0)
             {
-                row.Verdict = FixVerdict.Pass; row.Reason = null; res.Pass++;
+                if (!keep) { row.Verdict = FixVerdict.Pass; row.Reason = null; }
+                res.Pass++;
                 foreach (var g in row.IssueGuids) passGuids.Add(g);
             }
             else
             {
-                row.Verdict = FixVerdict.Fail; res.Fail++;
-                row.Reason = row.IsType && bad.Count < row.IssueGuids.Count
-                    ? $"{bad.Count} of {row.IssueGuids.Count} instance(s) still fail — {failing[bad[0]]}"
-                    : failing[bad[0]];
+                res.Fail++;
+                if (!keep)
+                {
+                    row.Verdict = FixVerdict.Fail;
+                    row.Reason = row.IsType && bad.Count < row.IssueGuids.Count
+                        ? $"{bad.Count} of {row.IssueGuids.Count} instance(s) still fail — {failing[bad[0]]}"
+                        : failing[bad[0]];
+                }
                 foreach (var g in row.IssueGuids.Except(bad)) passGuids.Add(g);
             }
         }
 
         var covered = new HashSet<string>(allRows.SelectMany(r => r.IssueGuids), StringComparer.Ordinal);
         res.Unresolved = issueGuids.Where(g => !covered.Contains(g)).ToList();
+        res.PassGuids = passGuids.Count;
         res.AllPass = issueGuids.Count > 0 && issueGuids.All(passGuids.Contains);
         return res;
+    }
+
+    /// The bridge truncates its failure list, and judges only what is in scope — so "no failure came back"
+    /// is only evidence of passing when everything sent was judged and the list was not cut off. Returns
+    /// false (with the reason) whenever the response cannot be read as a verdict on every element sent.
+    public const int FailureCap = 200;
+
+    public static bool Conclusive(int sent, int inScope, int failureCount, out string reason)
+    {
+        var parts = new List<string>();
+        if (inScope < sent) parts.Add($"{sent - inScope} out of scope");
+        if (failureCount >= FailureCap) parts.Add($"failure list truncated at {FailureCap}");
+        reason = string.Join(" / ", parts);
+        return parts.Count == 0;
     }
 }

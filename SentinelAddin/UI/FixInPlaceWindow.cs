@@ -1,4 +1,4 @@
-// Fix-in-place: the human gate between a referee-raised BCF issue and the model. One row per instance (or
+﻿// Fix-in-place: the human gate between a referee-raised BCF issue and the model. One row per instance (or
 // per TYPE, with its blast radius spelled out), the current and proposed value, and the referee's verdict
 // for the proposed value BEFORE anything is written. Modeless, code-only WPF, in ChangesetReviewWindow's
 // visual family. The window never touches the Revit API or the network — it raises events.
@@ -20,7 +20,6 @@ public sealed class FixInPlaceWindow : Window
     public event Action? RecheckRequested;
     public event Action<FixRow>? ZoomRequested;
 
-    private readonly FixInPlaceService.Plan _plan;
     private readonly StackPanel _list = new();
     private readonly TextBlock _status = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private readonly Border _banner = new() { Visibility = Visibility.Collapsed, Background = new SolidColorBrush(Color.FromRgb(0x5c, 0x45, 0x00)), CornerRadius = new CornerRadius(3), Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 6, 0, 0) };
@@ -31,7 +30,6 @@ public sealed class FixInPlaceWindow : Window
 
     public FixInPlaceWindow(BcfTopic topic, IdsIssueRef req, FixInPlaceService.Plan plan)
     {
-        _plan = plan;
         Title = $"Sentinel — Fix in Revit: {req.Requirement}";
         Width = 860; Height = 600; WindowStartupLocation = WindowStartupLocation.CenterScreen;
 

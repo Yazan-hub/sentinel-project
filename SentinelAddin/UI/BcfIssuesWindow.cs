@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -152,6 +152,10 @@ public sealed class BcfIssuesWindow : Window
         }
         _details.Text = sb.ToString();
     }
+
+    /// <summary>Disable the Fix button while a plan build is queued; re-enabling still respects the selection.</summary>
+    public void SetFixEnabled(bool enabled) => Dispatcher.Invoke(() =>
+        _fix.IsEnabled = enabled && _list.SelectedItem is BcfTopic t && IdsIssueRef.TryParse(t.Title) != null);
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;
 

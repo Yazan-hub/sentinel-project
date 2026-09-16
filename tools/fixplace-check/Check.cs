@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Collections.Generic;
 using Sentinel.Engine;
@@ -78,6 +78,7 @@ static class Check
         Ok(rows[0].Verdict == FixVerdict.Pass && rows[1].Verdict == FixVerdict.Fail && rows[1].Reason == "missing", "instance rows: pass / fail with the referee's reason");
         Ok(rows[2].Verdict == FixVerdict.Fail && rows[2].Reason!.StartsWith("1 of 2 instance(s) still fail"), "a type row with a mixed outcome FAILS and names the count");
         Ok(!f1.AllPass && f1.Pass == 1 && f1.Fail == 2 && f1.OtherOpen == 1, "AllPass false; other-requirement failures counted, not folded");
+        Ok(f1.PassGuids == 2, "PassGuids credits g1 and the passing instance of the mixed type row, not the row");
         var f2 = FixPlan.Fold(Array.Empty<ElementFailure>(), rows, sent, guids, R);
         Ok(f2.AllPass && rows.All(r => r.Verdict == FixVerdict.Pass), "no failures on this requirement → all pass");
         var f3 = FixPlan.Fold(Array.Empty<ElementFailure>(), rows, sent, new[] { "g1", "g2", "g3", "g4", "g5" }, R);
@@ -85,6 +86,15 @@ static class Check
         foreach (var r in rows) r.Verdict = FixVerdict.Unchecked;
         var f4 = FixPlan.Fold(Array.Empty<ElementFailure>(), rows, new HashSet<string> { "i:1" }, guids, R);
         Ok(rows[0].Verdict == FixVerdict.Pass && rows[1].Verdict == FixVerdict.Unchecked && !f4.AllPass, "unsent rows stay Unchecked and block AllPass");
+        var nf = new List<FixRow> { new FixRow { Key = "i:7", TargetId = 7, InstanceIds = { 7 }, IssueGuids = { "g7" }, Verdict = FixVerdict.NotFixable, NotFixableReason = "read-only parameter" } };
+        var f5 = FixPlan.Fold(new[] { new ElementFailure { Element = "g7", Requirement = R, Reason = "missing" } }, nf, new HashSet<string> { "i:7" }, new[] { "g7" }, R);
+        Ok(nf[0].Verdict == FixVerdict.NotFixable && nf[0].Reason == null && f5.Fail == 1 && !f5.AllPass,
+           "a NotFixable row keeps its verdict and reason but its elements still count toward fail");
+
+        Console.WriteLine("\nFixPlan.Conclusive — \"no failure returned\" is only evidence when everything was judged");
+        Ok(FixPlan.Conclusive(30, 30, 3, out var w0) && w0 == "", "everything sent judged, short failure list → conclusive");
+        Ok(!FixPlan.Conclusive(30, 28, 3, out var w1) && w1.Contains("2 out of scope"), "fewer in scope than sent → not conclusive, names the count");
+        Ok(!FixPlan.Conclusive(30, 30, 200, out var w2) && w2.Contains("failure list truncated at 200"), "a failure list at the cap → not conclusive, names the truncation");
 
         Console.WriteLine("\nProposalResult.Parse — the bridge verdict, every failure kept");
         var many = string.Join(",", Enumerable.Range(0, 30).Select(i =>
