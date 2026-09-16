@@ -26,13 +26,7 @@ public sealed class RuleEngineHost(Ruleset ruleset)
     private Regex CompiledPattern(Rule r)
     {
         if (_compiled.TryGetValue(r.Id, out var rx)) return rx;
-        // Tokens -> anchored regex: each token resolves through token_defs,
-        // joined by the separator. Unknown tokens match a safe default.
-        var parts = r.Tokens.Select(t =>
-            r.TokenDefs.TryGetValue(t, out var def) ? $"(?:{def})" : @"[A-Za-z0-9\-]+");
-        rx = new Regex($"^{string.Join(Regex.Escape(r.Separator), parts)}$",
-                       RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        return _compiled[r.Id] = rx;
+        return _compiled[r.Id] = RuleRegex.For(r, Ruleset.Org);
     }
 
     private bool IsExcluded(Rule r, string name) =>
@@ -47,6 +41,13 @@ public sealed class RuleEngineHost(Ruleset ruleset)
 
         foreach (var rule in Ruleset.Rules)
         {
+            // A rule that references the office code cannot be evaluated without one — say so once, per
+            // rule, instead of scanning with a pattern that matches nothing (which would read as "all clean").
+            if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(Ruleset.Org))
+            {
+                violations.Add(Make(rule, -1, "(ruleset.org is empty — rule not evaluated)"));
+                continue;
+            }
             switch (rule.Target)
             {
                 case RuleTarget.Workset:  checkedCount += ScanWorksets(doc, rule, violations); break;
@@ -174,10 +175,10 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             sink.Add(Make(rule, e.Id.IdValue(), e.Name));
     }
 
-    private static Violation Make(Rule r, long id, string name) =>
+    private Violation Make(Rule r, long id, string name) =>
         new(r.Id, r.Mode, id, name,
-            r.MessageEn.Replace("{name}", name),
-            r.MessageAr?.Replace("{name}", name),
+            RuleRegex.TextWithOrg(r.MessageEn.Replace("{name}", name), Ruleset.Org),
+            r.MessageAr is null ? null : RuleRegex.TextWithOrg(r.MessageAr.Replace("{name}", name), Ruleset.Org),
             r.DocRef);
 
     /// Module 1 amendment: exclude Revit-generated view types globally.

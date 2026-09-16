@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "standard_key": "bds-rtg-001",
-  "semver": "1.4.1",
+  "semver": "1.5.0",
+  "org": "BDS",
   "rules": [
     {
       "id": "WS-01",
@@ -44,8 +45,8 @@
       "mode": "warn",
       "parameter_name": "BDS_View Status",
       "exclusions": ["^<.*>", "^\\{3D"],
-      "message_en": "View '{name}': 'BDS_View Status' is empty.",
-      "message_ar": "العرض '{name}': حقل 'BDS_View Status' فارغ.",
+      "message_en": "View '{name}': 'View Status' parameter is empty.",
+      "message_ar": "العرض '{name}': حقل 'حالة العرض' فارغ.",
       "doc_ref": "BDS-RTG-001 §4.2"
     },
     {
@@ -74,16 +75,50 @@
       "id": "FN-01",
       "target": "family",
       "mode": "warn",
-      "tokens": ["BDS", "BODY"],
+      "tokens": ["ORG", "BODY"],
       "token_defs": {
-        "BDS": "BDS",
+        "ORG": "{org}",
         "BODY": "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+"
       },
       "separator": "_",
       "categories": ["Doors", "Windows", "Furniture", "Casework", "Plumbing Fixtures", "Specialty Equipment", "Generic Models"],
-      "message_en": "Family '{name}' does not match BDS_[LOCATION]_[TYPE]_[VARIANT].",
-      "message_ar": "العائلة '{name}' لا تطابق نمط تسمية BDS.",
+      "message_en": "Family '{name}' does not match {org}_[LOCATION]_[TYPE]_[VARIANT].",
+      "message_ar": "العائلة '{name}' لا تطابق نمط تسمية {org}.",
       "doc_ref": "BDS-RTG-001 §8.1"
+    },
+    {
+      "id": "TN-01",
+      "target": "type",
+      "mode": "warn",
+      "tokens": ["ORG", "LOC", "DISC", "MATERIAL", "SIZE"],
+      "token_defs": {
+        "ORG": "{org}",
+        "LOC": "EXT|INT|FND",
+        "DISC": "ARC|STR|LSE|INT|MEP|CIV",
+        "MATERIAL": "[A-Z0-9][A-Z0-9 \\-]*",
+        "SIZE": "\\d+(\\.\\d+)? mm"
+      },
+      "separator": "_",
+      "categories": ["Walls", "Floors", "Ceilings", "Roofs"],
+      "message_en": "Type '{name}' does not match {org}_[LOC]_[DISC]_[MATERIAL]_[SIZE] mm.",
+      "doc_ref": "office type convention (pilot: BDS_TEMPLATE_TYPE_AUDIT §1) — not in RTG-001"
+    },
+    {
+      "id": "TN-02",
+      "target": "type",
+      "mode": "warn",
+      "tokens": ["ORG", "LOC", "LEAF", "MATERIAL", "SIZE"],
+      "token_defs": {
+        "ORG": "{org}",
+        "LOC": "EXT|INT",
+        "LEAF": "\\d+ PNL|[A-Z0-9][A-Z0-9 \\-]*",
+        "MATERIAL": "[A-Z0-9][A-Z0-9 \\-]*",
+        "SIZE": "\\d+ x \\d+ mm"
+      },
+      "separator": "_",
+      "categories": ["Doors", "Windows"],
+      "message_en": "Type '{name}' does not match {org}_[LOC]_[LEAF]_[MATERIAL]_[W x H] mm.",
+      "doc_ref": "INFERRED from the pilot template (BDS_TEMPLATE_TYPE_AUDIT §3) — confirm before enforcing"
     },
     {
       "id": "LV-01",
