@@ -89,7 +89,10 @@ public sealed class MepVoidsCommand : IExternalCommand
         };
         confirm.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
             "Place tracked provision-for-void families",
-            "One instance per merged candidate, with BDS_Void_ID + BDS_Void_Status = Pending.");
+            Sentinel.Engine.MepVoidManager.TrackingConfigured
+                ? "One instance per merged candidate, with " + Sentinel.Engine.MepVoidManager.PVoidId + " + " +
+                  Sentinel.Engine.MepVoidManager.PVoidStatus + " = Pending."
+                : "Unavailable: " + Sentinel.Engine.MepVoidManager.NoOrgMessage);
         confirm.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
             "Export to BCF (send to MEP engineers)",
             "Isolates the affected hosts, captures camera + snapshot, writes a .bcfzip.");
@@ -97,6 +100,11 @@ public sealed class MepVoidsCommand : IExternalCommand
 
         if (choice == TaskDialogResult.CommandLink1)
         {
+            if (!Sentinel.Engine.MepVoidManager.TrackingConfigured)
+            {
+                TaskDialog.Show("Sentinel — MEP Openings", Sentinel.Engine.MepVoidManager.NoOrgMessage);
+                return;
+            }
             Sentinel.Engine.MepVoidManager.PlaceVoids(candidates, (placed, failed) =>
                 TaskDialog.Show("Sentinel — MEP Openings",
                     placed + " tracked void(s) placed" + (failed > 0 ? ", " + failed + " skipped (no symbol or bad point)." : ".")));

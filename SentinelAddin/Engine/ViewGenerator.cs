@@ -3,7 +3,7 @@ using Autodesk.Revit.DB;
 namespace Sentinel.Engine;
 
 /// <summary>
-/// Generates the MEP clash coordination 3D view, routes it into the BDS
+/// Generates the MEP clash coordination 3D view, routes it into the office
 /// Project Browser structure (05_COORDINATION & QA/QC -> 05.3_MEP COORDINATION
 /// -> MEP Clashes via the three browser parameters), section-boxes it around
 /// the clashes and applies ISO-style severity color overrides:
@@ -16,14 +16,8 @@ public static class ViewGenerator
     private static readonly Color Orange = new Color(235, 140, 30);
     private static readonly Color Yellow = new Color(245, 210, 60);
 
-    // BDS-RTG-001 §4: browser routing parameters. Offices vary — each slot
-    // tries a list of candidate names, first match wins (strict routing, #1).
-    internal static readonly string[] MainGroupParams =
-        { "BDS_View Status", "View_Group", "BDS_Discipline", "View Group" };
-    internal static readonly string[] SubGroupParams =
-        { "BDS_View Type", "BDS_Sub-Discipline", "View_SubGroup", "Sub Discipline" };
-    internal static readonly string[] SubSubGroupParams =
-        { "BDS_View Sub Type", "View_Detail_Group" };
+    // Office RTG §4: browser routing parameters. Offices vary — each slot tries a list of
+    // candidate names (office-prefixed first, see OrgNames), first match wins (strict routing, #1).
 
     public static View3D? CreateClashView(Document doc, List<ClashManager.ClashItem> clashes)
     {
@@ -42,9 +36,13 @@ public static class ViewGenerator
         view.DisplayStyle = DisplayStyle.ShadingWithEdges;
 
         // Browser routing (strict, with fallback — fix #1):
-        bool mainOk = SetFirstMatch(view, MainGroupParams, "05_COORDINATION & QA/QC");
-        bool subOk = SetFirstMatch(view, SubGroupParams, "05.3_MEP COORDINATION");
-        SetFirstMatch(view, SubSubGroupParams, "MEP Clashes");
+        string org = App.Org;
+        string[] mainParams = OrgNames.MainGroupParams(org), subParams = OrgNames.SubGroupParams(org);
+        if (!OrgNames.Configured(org))
+            App.PanelVm?.LogDoctor("Clash view: no office code configured (ruleset 'org') — office browser parameters not tried.");
+        bool mainOk = SetFirstMatch(view, mainParams, "05_COORDINATION & QA/QC");
+        bool subOk = SetFirstMatch(view, subParams, "05.3_MEP COORDINATION");
+        SetFirstMatch(view, OrgNames.SubSubGroupParams(org), "MEP Clashes");
         if (!mainOk)
         {
             // No custom grouping parameter in this document: fall back to the
@@ -53,13 +51,13 @@ public static class ViewGenerator
             if (disc is not null && !disc.IsReadOnly) disc.Set((int)ViewDiscipline.Coordination);
             App.PanelVm?.LogDoctor(
                 "Clash view: no browser grouping parameter found (tried: " +
-                string.Join(", ", MainGroupParams) + ") — used native VIEW_DISCIPLINE fallback. " +
+                string.Join(", ", mainParams) + ") — used native VIEW_DISCIPLINE fallback. " +
                 "The view may appear under '???' until the parameter exists.");
         }
         else if (!subOk)
         {
             App.PanelVm?.LogDoctor("Clash view: main group set, but no sub-group parameter found (tried: " +
-                string.Join(", ", SubGroupParams) + ").");
+                string.Join(", ", subParams) + ").");
         }
 
         // Section box: envelope of all clash points + 1m margin

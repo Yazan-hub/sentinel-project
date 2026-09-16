@@ -17,11 +17,11 @@ public static class IfcPreFlightScanner
     public const string RuleIdExportAs = "IFC-01";
     public const string RuleIdPset = "IFC-02";
 
-    /// Mandatory shared parameters for BDS deliverable exports (extend via
-    /// ruleset overlay in Phase 3; kept code-side until then).
-    public static readonly string[] MandatoryPsetParams = { "BDS_View Status" };
+    /// Mandatory office shared parameters for deliverable exports, named from the
+    /// configured office code (extend via ruleset overlay in Phase 3).
+    public static string[] MandatoryPsetParams(string org) => new[] { OrgNames.ViewStatus(org) };
 
-    /// Categories that materially matter in a BDS IFC deliverable.
+    /// Categories that materially matter in an IFC deliverable.
     private static readonly BuiltInCategory[] ExportCategories =
     {
         BuiltInCategory.OST_Walls, BuiltInCategory.OST_Floors, BuiltInCategory.OST_Roofs,
@@ -37,6 +37,20 @@ public static class IfcPreFlightScanner
         var sw = Stopwatch.StartNew();
         var violations = new List<Violation>();
         int checkedCount = 0;
+
+        var rs = App.Engine?.Ruleset;
+        string org = rs?.Org ?? string.Empty;
+        string? bep = OrgNames.DocRef(rs, "bep");
+        string exportAsRef = bep is null ? "ISO 16739" : "ISO 16739 / " + bep;
+        string[] psetParams;
+        if (OrgNames.Configured(org)) psetParams = MandatoryPsetParams(org);
+        else
+        {
+            psetParams = Array.Empty<string>();
+            violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
+                "No office code configured (ruleset 'org' is empty) — office parameter checks skipped.",
+                "لم يتم تكوين رمز المكتب — تم تخطي فحص معاملات المكتب.", null));
+        }
 
         var catFilter = new ElementMulticategoryFilter(ExportCategories);
         var elements = new FilteredElementCollector(doc)
@@ -103,17 +117,17 @@ public static class IfcPreFlightScanner
                         ? "No IFC mapping — will export as IfcBuildingElementProxy. Set 'Export to IFC As' on the type."
                         : "No explicit IFC mapping — default category mapping will be used.",
                     "معامل 'IfcExportAs' غير محدد — سيتم استخدام التعيين الافتراضي.",
-                    "ISO 16739 / BDS-BEP-001"));
+                    exportAsRef));
             }
 
-            foreach (var pName in MandatoryPsetParams)
+            foreach (var pName in psetParams)
             {
                 var p = e.LookupParameter(pName);
                 if (p is not null && (!p.HasValue || string.IsNullOrWhiteSpace(p.AsString())))
                     violations.Add(new Violation(RuleIdPset, EnforcementMode.Warn,
                         e.Id.IdValue(), Describe(e),
                         "Mandatory property '" + pName + "' is empty for IFC export.",
-                        null, "BDS-BEP-001"));
+                        null, bep));
             }
         }
 
