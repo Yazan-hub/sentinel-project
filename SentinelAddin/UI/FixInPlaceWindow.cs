@@ -26,6 +26,8 @@ public sealed class FixInPlaceWindow : Window
     private readonly TextBlock _bannerText = new() { Foreground = Brushes.Khaki, TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _setAll = new() { Width = 160, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly List<(CheckBox Box, TextBox Value, TextBlock Verdict, FixRow Row)> _rows = new();
+    private readonly Dictionary<CheckBox, UIElement> _rowElement = new();   // for the ticked-only filter
+    private bool _onlyTicked;
     private readonly List<Button> _actions = new();
 
     public FixInPlaceWindow(BcfTopic topic, IdsIssueRef req, FixInPlaceService.Plan plan)
@@ -61,6 +63,15 @@ public sealed class FixInPlaceWindow : Window
         line.Children.Add(_setAll);
         line.Children.Add(Btn("Set", () => { foreach (var r in _rows.Where(r => r.Box.IsChecked == true && r.Row.Writable)) r.Value.Text = _setAll.Text; }));
         line.Children.Add(Btn("Zoom", () => { var r = _rows.FirstOrDefault(x => x.Box.IsChecked == true); if (r.Row != null) ZoomRequested?.Invoke(r.Row); }));
+        line.Children.Add(Btn("Untick all", () => { foreach (var r in _rows) r.Box.IsChecked = false; ApplyFilter(); }));
+        Button? onlyTicked = null;
+        onlyTicked = Btn("Show only ticked", () =>
+        {
+            _onlyTicked = !_onlyTicked;
+            onlyTicked!.Content = _onlyTicked ? "Show all" : "Show only ticked";
+            ApplyFilter();
+        });
+        line.Children.Add(onlyTicked);
         line.Children.Add(Btn("Check", () => Fire(CheckRequested), bold: true));
         line.Children.Add(Btn("Apply ticked", () => Fire(ApplyRequested), bold: true));
         line.Children.Add(Btn("Re-check", () => RecheckRequested?.Invoke()));
@@ -122,6 +133,9 @@ public sealed class FixInPlaceWindow : Window
         Grid.SetColumn(verdict, 4); grid.Children.Add(verdict);
 
         _rows.Add((box, value, verdict, row));
+        _rowElement[box] = grid;
+        // With the ticked-only filter on, unticking a row hides it — that is what the filter means.
+        box.Unchecked += (_, _) => { if (_onlyTicked) ApplyFilter(); };
         Paint(verdict, row);
         return grid;
     }
@@ -138,6 +152,18 @@ public sealed class FixInPlaceWindow : Window
     }
 
     // ---- called from the command (marshalled via the dispatcher) ----
+    private void ApplyFilter()
+    {
+        var shown = 0;
+        foreach (var kv in _rowElement)
+        {
+            var visible = !_onlyTicked || kv.Key.IsChecked == true;
+            kv.Value.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            if (visible) shown++;
+        }
+        if (_onlyTicked) SetStatus($"Showing {shown} ticked row(s) of {_rows.Count}.");
+    }
+
     public void RefreshRows() => Dispatcher.Invoke(() => { foreach (var r in _rows) Paint(r.Verdict, r.Row); });
     public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
     public void SetBanner(string? text) => Dispatcher.Invoke(() => { _bannerText.Text = text ?? ""; _banner.Visibility = text == null ? Visibility.Collapsed : Visibility.Visible; });
