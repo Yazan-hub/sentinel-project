@@ -24,8 +24,8 @@ public static class FamilySanitizer
 
     /// Geometry budget: beyond this the family will hurt model performance.
     public const int MaxSolids = 150;
-    /// Shared parameters every BDS library family must carry.
-    public static readonly string[] RequiredSharedParams = { "BDS_Description" };
+    /// Shared parameters every office library family must carry, named from the office code.
+    public static string[] RequiredSharedParams(string org) => new[] { Engine.OrgNames.Description(org) };
 
     /// <summary>Scan an .rfa on disk without touching the active project.
     /// Runs on the EventHub (needs the Application context to open docs).</summary>
@@ -91,16 +91,23 @@ public static class FamilySanitizer
         // 3. Required shared parameters (by definition name on the family manager —
         //    shared param names are user-defined, not localized by Revit).
         var fm = famDoc.FamilyManager;
-        var present = new HashSet<string>(
-            fm.Parameters.Cast<FamilyParameter>()
-              .Where(p => p.IsShared)
-              .Select(p => p.Definition.Name));
-        foreach (var required in RequiredSharedParams)
-            if (!present.Contains(required))
-            {
-                report.MissingSharedParams.Add(required);
-                report.Issues.Add("Missing shared parameter: " + required);
-            }
+        string org = App.Org;
+        if (!Engine.OrgNames.Configured(org))
+            App.PanelVm?.LogDoctor("Family sanitizer: no office code configured (ruleset 'org') — required shared-parameter check skipped for " +
+                Path.GetFileName(report.FamilyPath.Length > 0 ? report.FamilyPath : famDoc.Title));
+        else
+        {
+            var present = new HashSet<string>(
+                fm.Parameters.Cast<FamilyParameter>()
+                  .Where(p => p.IsShared)
+                  .Select(p => p.Definition.Name));
+            foreach (var required in RequiredSharedParams(org))
+                if (!present.Contains(required))
+                {
+                    report.MissingSharedParams.Add(required);
+                    report.Issues.Add("Missing shared parameter: " + required);
+                }
+        }
 
         // 4. Type sanity: every family type must have a non-default name.
         //    Locale-safe: FamilyManager types, not localized display strings.

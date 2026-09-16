@@ -114,15 +114,18 @@ public static class GovernedElementExtractor
         return e.UniqueId;
     }
 
-    // Emit the canonical psets the BDS element IDS references (LOD 300/350), so pset-name matching is exact:
-    //   ALL → Pset_BDS.Discipline · IFCWALL → Pset_WallCommon.{IsExternal,FireRating} ·
+    // Emit the canonical psets the office element IDS references (LOD 300/350), so pset-name matching is exact:
+    //   ALL → Pset_{org}.Discipline · IFCWALL → Pset_WallCommon.{IsExternal,FireRating} ·
     //   IFCDOOR → Pset_DoorCommon.FireRating · IFCWINDOW → Pset_WindowCommon.ThermalTransmittance
     private static void AddCanonicalPsets(Element e, Document doc, string cls, GovElement el)
     {
-        // BDS discipline on every governed element — the IDS checks Pset_BDS.Discipline against ARC/INT/STR/MEP/CIV.
-        var disc = ReadInstOrType(e, doc, "BDS_Discipline", "Discipline");
-        if (disc != null)
-            el.psets.Add(new Group { name = "Pset_BDS", rows = { new Row { name = "Discipline", value = disc } } });
+        // Office discipline on every governed element — the IDS checks Pset_{org}.Discipline against ARC/INT/STR/MEP/CIV.
+        // No org configured -> the office pset cannot be named, so it is not emitted; an IDS that names it then
+        // fails visibly on the missing pset instead of matching a made-up name.
+        string org = App.Org;
+        var disc = ReadInstOrType(e, doc, OrgNames.DisciplineParams(org));
+        if (disc != null && OrgNames.Configured(org))
+            el.psets.Add(new Group { name = OrgNames.Pset(org), rows = { new Row { name = "Discipline", value = disc } } });
 
         if (cls == "IFCWALL")
         {
@@ -142,7 +145,7 @@ public static class GovernedElementExtractor
         else if (cls == "IFCWINDOW")
         {
             // U-value / thermal transmittance — Revit exposes it under various names depending on the template.
-            var u = ReadInstOrType(e, doc, "ThermalTransmittance", "U-Value", "Heat Transfer Coefficient (U)", "BDS_UValue");
+            var u = ReadInstOrType(e, doc, OrgNames.UValueParams(org));
             if (u != null)
                 el.psets.Add(new Group { name = "Pset_WindowCommon", rows = { new Row { name = "ThermalTransmittance", value = u } } });
         }
