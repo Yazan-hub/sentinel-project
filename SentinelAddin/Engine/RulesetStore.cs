@@ -45,42 +45,31 @@ public static class RulesetStore
             try
             {
                 var rs = JsonSerializer.Deserialize<Ruleset>(File.ReadAllText(path), JsonOpts);
-                if (rs is not null) return rs;
+                if (rs is not null) return Resolve(rs);
             }
             catch (JsonException) { /* fall through to next source */ }
         }
-        return EmbeddedFallback();
+        return Resolve(EmbeddedFallback());
     }
 
-    /// Minimal safety net so the add-in never starts rule-less.
-    private static Ruleset EmbeddedFallback() => new()
+    /// Expand "{org}" once at load; rules that need an office when none is configured are dropped LOUDLY.
+    private static Ruleset Resolve(Ruleset rs)
     {
-        StandardKey = "bds-rtg-001",
-        Semver = "0.0.0-fallback",
-        Rules =
-        [
-            new Rule
-            {
-                Id = "WS-01", Target = RuleTarget.Workset, Mode = EnforcementMode.Warn,
-                Whitelist =
-                [
-                    "ARC_Sheets","ARC_Walls","ARC_Floors","ARC_Facade","ARC_Doors","ARC_Furniture",
-                    "ARC_Interior","ARC_Links","INT_Walls","INT_Floors","INT_Ceilings",
-                    "Shared_Levels & Grids Model","XX_Landscape","XX_MEP Modell","XX_STR Model"
-                ],
-                MessageEn = "Workset '{name}' is not in the BDS 15-name whitelist.",
-                MessageAr = "مجموعة العمل '{name}' غير مدرجة في قائمة BDS المعتمدة.",
-                DocRef = "BDS-RTG-001 §3.1"
-            },
-            new Rule
-            {
-                Id = "VP-01", Target = RuleTarget.Parameter, Mode = EnforcementMode.Warn,
-                ParameterName = "BDS_View Status",
-                Exclusions = [@"^<.*>$", @"^\{3D"],
-                MessageEn = "View '{name}': 'BDS_View Status' is empty.",
-                MessageAr = "العرض '{name}': حقل 'BDS_View Status' فارغ.",
-                DocRef = "BDS-RTG-001 §4.2"
-            },
-        ],
-    };
+        var skipped = OrgNames.Apply(rs);
+        if (skipped.Count > 0)
+            App.PanelVm?.LogDoctor("Ruleset: no office code configured ('org' is empty) — " +
+                skipped.Count + " rule(s) that need one skipped: " + string.Join(", ", skipped));
+        return rs;
+    }
+
+    /// Safety net so the add-in never starts rule-less: the shipped Resources/ruleset.json, compiled
+    /// into the DLL (csproj EmbeddedResource). It is the pilot's ruleset by design — a reference
+    /// profile, not a fixed standard — and keeping it as DATA means the office code lives in one
+    /// place; a neutral "XXX" ruleset would flag every workset and view in every office instead.
+    private static Ruleset EmbeddedFallback()
+    {
+        using var stream = typeof(RulesetStore).Assembly.GetManifestResourceStream("ruleset.json");
+        var rs = stream is null ? null : JsonSerializer.Deserialize<Ruleset>(stream, JsonOpts);
+        return rs ?? new Ruleset { StandardKey = "none", Semver = "0.0.0-fallback" };
+    }
 }

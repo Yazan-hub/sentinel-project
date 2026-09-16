@@ -24,7 +24,7 @@ public sealed class Rule
     [JsonPropertyName("categories")] public List<string> Categories { get; set; } = new List<string>(); // family scope (Module 1 amendment)
     [JsonPropertyName("message_en")] public string MessageEn { get; set; } = string.Empty;
     [JsonPropertyName("message_ar")] public string? MessageAr { get; set; }
-    [JsonPropertyName("doc_ref")] public string? DocRef { get; set; }                   // "BDS-RTG-001 §5"
+    [JsonPropertyName("doc_ref")] public string? DocRef { get; set; }                   // "{org}-RTG-001 §5"
 }
 
 public sealed class Ruleset
@@ -34,6 +34,12 @@ public sealed class Ruleset
     [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; } = 1;
     [JsonPropertyName("standard_key")] public string StandardKey { get; set; } = string.Empty;
     [JsonPropertyName("semver")] public string Semver { get; set; } = string.Empty;
+    /// Office code ("BDS" for the pilot). Optional; empty means no office is configured and every
+    /// "{org}" placeholder (token defs, parameter names, messages, doc refs) is left unresolved —
+    /// see OrgNames.Apply. Sentinel itself never hardcodes an office.
+    [JsonPropertyName("org")] public string Org { get; set; } = string.Empty;
+    /// Office standards the code-side checks cite, keyed by role ("rtg", "bep"); values may use "{org}".
+    [JsonPropertyName("doc_refs")] public Dictionary<string, string> DocRefs { get; set; } = new Dictionary<string, string>();
     [JsonPropertyName("rules")] public List<Rule> Rules { get; set; } = new List<Rule>();
 }
 

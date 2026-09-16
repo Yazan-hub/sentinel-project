@@ -1,7 +1,12 @@
 {
   "schema_version": 1,
   "standard_key": "bds-rtg-001",
-  "semver": "1.4.1",
+  "semver": "1.4.2",
+  "org": "BDS",
+  "doc_refs": {
+    "rtg": "{org}-RTG-001",
+    "bep": "{org}-BEP-001"
+  },
   "rules": [
     {
       "id": "WS-01",
@@ -13,9 +18,9 @@
         "INT_Ceilings", "Shared_Levels & Grids Model", "XX_Landscape",
         "XX_MEP Modell", "XX_STR Model"
       ],
-      "message_en": "Workset '{name}' is not in the BDS 15-name whitelist.",
-      "message_ar": "مجموعة العمل '{name}' غير مدرجة في قائمة BDS المعتمدة.",
-      "doc_ref": "BDS-RTG-001 §3.1"
+      "message_en": "Workset '{name}' is not in the {org} 15-name whitelist.",
+      "message_ar": "مجموعة العمل '{name}' غير مدرجة في قائمة {org} المعتمدة.",
+      "doc_ref": "{org}-RTG-001 §3.1"
     },
     {
       "id": "VN-01",
@@ -36,17 +41,17 @@
       "exclusions": ["^<.*>", "^\\{3D"],
       "message_en": "View '{name}' does not match [PREFIX]_[TYPE]_[LEVEL]_[DESC].",
       "message_ar": "اسم العرض '{name}' لا يطابق نمط التسمية المعتمد.",
-      "doc_ref": "BDS-RTG-001 §5"
+      "doc_ref": "{org}-RTG-001 §5"
     },
     {
       "id": "VP-01",
       "target": "parameter",
       "mode": "warn",
-      "parameter_name": "BDS_View Status",
+      "parameter_name": "{org}_View Status",
       "exclusions": ["^<.*>", "^\\{3D"],
-      "message_en": "View '{name}': 'BDS_View Status' is empty.",
-      "message_ar": "العرض '{name}': حقل 'BDS_View Status' فارغ.",
-      "doc_ref": "BDS-RTG-001 §4.2"
+      "message_en": "View '{name}': '{org}_View Status' is empty.",
+      "message_ar": "العرض '{name}': حقل '{org}_View Status' فارغ.",
+      "doc_ref": "{org}-RTG-001 §4.2"
     },
     {
       "id": "SN-01",
@@ -68,22 +73,22 @@
       "separator": "-",
       "message_en": "Sheet '{name}' does not match the 11-field ISO 19650 container string.",
       "message_ar": "رقم اللوحة '{name}' لا يطابق سلسلة ISO 19650.",
-      "doc_ref": "BDS-BIM-001 §4.1"
+      "doc_ref": "{org}-BIM-001 §4.1"
     },
     {
       "id": "FN-01",
       "target": "family",
       "mode": "warn",
-      "tokens": ["BDS", "BODY"],
+      "tokens": ["ORG", "BODY"],
       "token_defs": {
-        "BDS": "BDS",
+        "ORG": "{org}",
         "BODY": "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+"
       },
       "separator": "_",
       "categories": ["Doors", "Windows", "Furniture", "Casework", "Plumbing Fixtures", "Specialty Equipment", "Generic Models"],
-      "message_en": "Family '{name}' does not match BDS_[LOCATION]_[TYPE]_[VARIANT].",
-      "message_ar": "العائلة '{name}' لا تطابق نمط تسمية BDS.",
-      "doc_ref": "BDS-RTG-001 §8.1"
+      "message_en": "Family '{name}' does not match {org}_[LOCATION]_[TYPE]_[VARIANT].",
+      "message_ar": "العائلة '{name}' لا تطابق نمط تسمية {org}.",
+      "doc_ref": "{org}-RTG-001 §8.1"
     },
     {
       "id": "LV-01",
