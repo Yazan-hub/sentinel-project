@@ -54,7 +54,7 @@ public sealed class NamingManagerWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(Btn("Tick all proposed", () => { foreach (var v in _visible.Where(v => v.Row.Verdict == NameVerdict.Proposed)) v.Box.IsChecked = true; }));
         buttons.Children.Add(Btn("Untick all", () => { foreach (var v in _visible) v.Box.IsChecked = false; }));
-        buttons.Children.Add(Btn("Select instances", () => { var v = _visible.FirstOrDefault(x => x.Box.IsChecked == true); if (v.Row != null) SelectRequested?.Invoke(v.Row); }));
+        buttons.Children.Add(Btn("Select instances", () => { var v = _visible.FirstOrDefault(x => x.Box.IsChecked == true); if (v.Row != null) SelectRequested?.Invoke(v.Row); else SetStatus("Tick a row first."); }));
         buttons.Children.Add(Btn("Rescan", () => RescanRequested?.Invoke()));
         buttons.Children.Add(Btn("Rename ticked", Rename, bold: true));
         foot.Children.Add(buttons);
@@ -82,7 +82,7 @@ public sealed class NamingManagerWindow : Window
         {
             var keep = cb.SelectedItem as string;
             cb.ItemsSource = new[] { "(all)" }.Concat(items.Distinct().OrderBy(s => s)).ToList();
-            cb.SelectedItem = keep != null && ((List<string>)cb.ItemsSource).Contains(keep) ? keep : "(all)";
+            cb.SelectedItem = keep != null && cb.Items.Contains(keep) ? keep : "(all)";
         }
         Fill(_rule, _rows.Select(r => r.RuleId));
         Fill(_category, _rows.Select(r => r.Category));
@@ -151,7 +151,19 @@ public sealed class NamingManagerWindow : Window
         RenameRequested?.Invoke(ticked);
     }
 
-    public void SetRows(List<NamingRow> rows) => Dispatcher.Invoke(() => { _rows = rows; FillFilters(); Render(); });
+    public void SetRows(List<NamingRow> rows) => Dispatcher.Invoke(() =>
+    {
+        _visible.Clear();
+        _rows = rows;
+        FillFilters();
+        Render();
+        SetStatus(_status.Text + " — rows rescanned — unsaved edits were discarded");
+    });
     public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
-    public void SetBusy(bool busy) => Dispatcher.Invoke(() => { foreach (var b in _actions) b.IsEnabled = !busy; });
+    public void SetBusy(bool busy) => Dispatcher.Invoke(() =>
+    {
+        foreach (var b in _actions) b.IsEnabled = !busy;
+        _list.IsEnabled = !busy;
+        _rule.IsEnabled = !busy; _category.IsEnabled = !busy; _verdict.IsEnabled = !busy; _search.IsEnabled = !busy;
+    });
 }

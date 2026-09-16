@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -36,7 +37,6 @@ public sealed class NamingManagerCommand : IExternalCommand
         var rows = NamingManagerService.BuildRows(doc, rs);           // read-only, on this command's API thread
         var window = new NamingManagerWindow(rows);
         DialogOwner.Attach(window, c);
-        _open = true;
         window.Closed += (_, _) => _open = false;
 
         window.RescanRequested += () =>
@@ -61,13 +61,13 @@ public sealed class NamingManagerCommand : IExternalCommand
                 var d = ua.ActiveUIDocument;
                 if (d?.Document != doc) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
                 var typeIds = row.IsType
-                    ? new[] { row.ElementId.ToElementId() }
-                    : (d.Document.GetElement(row.ElementId.ToElementId()) as Family)?.GetFamilySymbolIds().ToArray() ?? Array.Empty<ElementId>();
+                    ? new HashSet<ElementId>(new[] { row.ElementId.ToElementId() })
+                    : new HashSet<ElementId>((d.Document.GetElement(row.ElementId.ToElementId()) as Family)?.GetFamilySymbolIds() ?? Enumerable.Empty<ElementId>());
                 var ids = new FilteredElementCollector(d.Document).WhereElementIsNotElementType().Where(e => typeIds.Contains(e.GetTypeId())).Select(e => e.Id).ToList();
                 if (ids.Count == 0) { window.SetStatus("No instances of that type in the model."); return; }
                 d.Selection.SetElementIds(ids); d.ShowElements(ids);
             }
-            catch (Exception ex) { window.SetStatus("Revit refused: " + ex.Message); window.SetBusy(false); }
+            catch (Exception ex) { window.SetStatus("Revit refused: " + ex.Message); }
         });
         window.RenameRequested += ticked =>
         {
@@ -88,7 +88,9 @@ public sealed class NamingManagerCommand : IExternalCommand
                 catch (Exception ex) { window.SetStatus("Revit refused: " + ex.Message); window.SetBusy(false); }
             });
         };
-        window.Show();
+        try { window.Show(); }
+        catch { _open = false; throw; }
+        _open = true;
         return Result.Succeeded;
     }
 }
