@@ -2,6 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { myRole, canGovernRole } from "./my-role";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
@@ -80,8 +81,12 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   };
 
   // ── recompute KPIs from the live sources ─────────────────────────────────────
+  // Who may run the stage gate: lead and up. null until the bridge has answered — the button is not
+  // offered on a guess (fail closed), and the answer is re-asked on every refresh.
+  let gateRole: string | null = null;
   const refresh = async () => {
     msg("Aggregating health, issues and cost…");
+    gateRole = await myRole(base, pid());
     // QA health + compliance (only if a model is loaded)
     if (fragments.list.size > 0) {
       try {
@@ -225,8 +230,10 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       const vcol = g.pass ? "#22c55e" : "#eab308";
       h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${g.pass ? "GATE PASS" : "GATE HOLD"}</div>`;
     }
-    if (isCurrent && next) {
+    if (isCurrent && next && gateRole !== null && canGovernRole(gateRole)) {
       h += `<button id="ps-advance" style="${btn};background:#6528d7;color:#fff;width:100%;margin-top:.6rem">Run gate → advance to ${esc(next.nm)}</button>`;
+    } else if (isCurrent && next && gateRole !== null) {
+      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">your role: ${esc(gateRole)} — a lead or owner runs the gate.</div>`;
     }
     el("ps-gate").innerHTML = h;
     const adv = root.querySelector("#ps-advance");

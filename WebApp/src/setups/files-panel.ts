@@ -4,6 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { getAppManager } from "../app";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { myRole, canEditRole } from "./my-role";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 
@@ -522,12 +523,20 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
 
   el("fv-refresh").addEventListener("click", load);
   el("fv-upload").addEventListener("click", () => (el("fv-file") as HTMLInputElement).click());
+  // Upload is a write: contributor and up. Re-asked on every load so a demotion takes effect on reload.
+  const gateUpload = async () => {
+    const role = await myRole(base, pid());
+    const btn = el("fv-upload") as HTMLElement;
+    btn.style.display = canEditRole(role) ? "" : "none";
+    btn.title = canEditRole(role) ? "" : `your role: ${role} — uploads need contributor or above`;
+  };
+  void gateUpload();
   (el("fv-file") as HTMLInputElement).addEventListener("change", (ev) => {
     const f = (ev.target as HTMLInputElement).files?.[0];
     if (f) uploadNewVersion(f);
     (ev.target as HTMLInputElement).value = "";
   });
-  onActiveProjectChange(() => load());
+  onActiveProjectChange(() => { void gateUpload(); load(); });
   void load();
   return root;
 }

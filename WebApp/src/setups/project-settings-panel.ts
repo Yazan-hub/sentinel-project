@@ -1,6 +1,7 @@
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
+import { myRole, canGovernRole } from "./my-role";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -218,6 +219,15 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       renderArchiveBtn();
       updateDeleteEnabled();
       status(`${current.container_count} file container(s) · key "${current.key}" (keys are permanent).`);
+      // Read-only below lead: the database refuses the writes anyway (projects update needs lead, delete
+      // needs owner) — the panel must not offer controls the server will reject.
+      const role = await myRole(base, pid());
+      if (!canGovernRole(role)) {
+        for (const id of ["ps-name", "ps-owner", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"])
+          (el(id) as HTMLInputElement).disabled = true;
+        for (const id of ["pset-save", "ps-archive", "ps-delete"]) (el(id) as HTMLElement).style.display = "none";
+        status(`your role: ${role} — project settings are read-only (a lead or owner can edit them).`);
+      }
     } catch (e) {
       status("Couldn't load settings: " + ((e as Error)?.message ?? String(e)));
     }
