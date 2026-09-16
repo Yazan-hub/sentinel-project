@@ -137,7 +137,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 {
                     var d = ua.ActiveUIDocument?.Document;
                     // The plan, projectKey and user all belong to the document this command opened on.
-                    if (d == null || !ReferenceEquals(d, doc))
+                    if (d == null || !d.Equals(doc))
                     { PlanFailed("switch back to the model this issue belongs to \u2014 nothing was done"); return; }
                     var plan = FixInPlaceService.BuildPlan(d, req, guids, org);
                     window.Dispatcher.BeginInvoke(new Action(() => OpenFixWindow(d, topic, req, plan, guids)));
@@ -162,7 +162,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
             bool SameDoc(UIApplication u)
             {
                 var d2 = u.ActiveUIDocument?.Document;
-                if (d2 != null && ReferenceEquals(d2, d)) return true;
+                if (d2 != null && d2.Equals(d)) return true;
                 fix.SetStatus("switch back to the model this issue belongs to \u2014 nothing was done");
                 fix.SetBusy(false);
                 return false;

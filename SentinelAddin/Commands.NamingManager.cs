@@ -47,7 +47,7 @@ public sealed class NamingManagerCommand : IExternalCommand
                 try
                 {
                     var d = ua.ActiveUIDocument?.Document;
-                    if (d != doc) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
+                    if (d == null || !d.Equals(doc)) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
                     window.SetRows(NamingManagerService.BuildRows(d, App.Engine!.Ruleset));
                     window.SetBusy(false);
                 }
@@ -59,7 +59,7 @@ public sealed class NamingManagerCommand : IExternalCommand
             try
             {
                 var d = ua.ActiveUIDocument;
-                if (d?.Document != doc) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
+                if (d?.Document is not { } dd || !dd.Equals(doc)) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
                 var typeIds = row.IsType
                     ? new HashSet<ElementId>(new[] { row.ElementId.ToElementId() })
                     : new HashSet<ElementId>((d.Document.GetElement(row.ElementId.ToElementId()) as Family)?.GetFamilySymbolIds() ?? Enumerable.Empty<ElementId>());
@@ -77,7 +77,7 @@ public sealed class NamingManagerCommand : IExternalCommand
                 try
                 {
                     var d = ua.ActiveUIDocument?.Document;
-                    if (d != doc) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
+                    if (d == null || !d.Equals(doc)) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
                     var results = NamingManagerService.Apply(d, ticked, App.Engine!.Ruleset, projectKey);
                     var ok = results.Count(r => r.Ok);
                     var failed = results.Where(r => !r.Ok).Select(r => $"{r.Row.Current}: {r.Message}").ToList();
