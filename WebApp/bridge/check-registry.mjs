@@ -9,6 +9,7 @@
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
 import { listFiles, getProjectMeta, listAudit, projectNamingRuleset, listTransmittals } from "./cde-store.mjs";
+import { OFFICE_CHECKS } from "./office-checks.mjs";
 
 let _core;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
@@ -540,6 +541,7 @@ export const CHECKS = [
       return classifyDistribution(files, transmittals);
     },
   },
+  ...OFFICE_CHECKS,
 ];
 
 /**
@@ -551,16 +553,6 @@ export const PLANNED_CHECKS = [
   { id: "loin.levels", label: "Level of information need", reason: "Level-of-information-need is not modelled per stage or discipline yet; the IDS spec is bridge-wide, not per-project." },
   { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted." },
   { id: "federation.breakdown", label: "Federation strategy", reason: "There is no declared expected-model list to check the federation against." },
-  { id: "office.snapshot_present", label: "Office snapshot received", reason: "Office snapshot checks are not yet implemented." },
-  { id: "office.naming_rules", label: "Naming rules exist", reason: "Office naming rule checks are not yet implemented." },
-  { id: "office.template_types", label: "Template types follow the type convention", reason: "Office template type checks are not yet implemented." },
-  { id: "office.worksets", label: "Worksets follow the office whitelist", reason: "Office workset checks are not yet implemented." },
-  { id: "office.shared_params", label: "Required shared parameters exist", reason: "Office shared parameter checks are not yet implemented." },
-  { id: "office.model_health", label: "Live model health", reason: "Office model health checks are not yet implemented." },
-  { id: "office.naming_standard", label: "Container naming standard installed", reason: "Office naming standard checks are not yet implemented." },
-  { id: "office.roles", label: "Project roles present", reason: "Office role checks are not yet implemented." },
-  { id: "office.task_teams", label: "Task teams declared", reason: "Office task team checks are not yet implemented." },
-  { id: "office.bep", label: "A BEP exists and is executable", reason: "Office BEP checks are not yet implemented." },
 ];
 
 const BY_ID = new Map(CHECKS.map((c) => [c.id, c]));
