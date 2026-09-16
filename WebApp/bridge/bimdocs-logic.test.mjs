@@ -5,7 +5,7 @@ describe("loadTemplates", () => {
   it("loads BEP and EIR templates with sections", () => {
     const ts = loadTemplates();
     const types = ts.map((t) => t.doc_type).sort();
-    expect(types).toEqual(["BEP", "EIR"]);
+    expect(types).toEqual(["BEP", "EIR", "READINESS"]);
     for (const t of ts) expect(t.sections.length).toBeGreaterThan(4);
   });
 });

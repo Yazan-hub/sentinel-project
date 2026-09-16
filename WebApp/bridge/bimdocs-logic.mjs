@@ -28,7 +28,14 @@ export function instantiateTemplate(template, { title, actor } = {}) {
       body: s.body || "",
       state: "wip",
       owner: null,
-      bindings: {},
+      // Template bindings are carried (READINESS pre-binds measured items); BEP/EIR templates have none.
+      bindings: s.bindings?.checks?.length
+        ? { checks: s.bindings.checks.map((c) => ({ id: c.id, params: c.params || {} })) }
+        : {},
+      // Readiness-only fields, present only when the template declares them — BEP/EIR sections stay as they were.
+      ...(s.pillar ? { pillar: s.pillar } : {}),
+      ...(s.kind ? { kind: s.kind, answer: null, due: null } : {}),
+      ...(s.question ? { question: s.question, answer_hint: s.answer_hint || "" } : {}),
     })),
   };
 }
