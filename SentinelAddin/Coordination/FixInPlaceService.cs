@@ -133,7 +133,8 @@ public static class FixInPlaceService
                 : Enum.TryParse<BuiltInParameter>(c.Name, out var bipInst) ? e.get_Parameter(bipInst) : null;
             if (pInst != null)
             {
-                if (pInst.IsReadOnly) { whyNot ??= $"{pInst.Definition.Name} is read-only on the instance"; }
+                if (!IsReal(e, pInst)) { whyNot ??= $"{pInst.Definition.Name} on the instance is a phantom (not in its parameter set) — writes to it do not persist"; }
+                else if (pInst.IsReadOnly) { whyNot ??= $"{pInst.Definition.Name} is read-only on the instance"; }
                 else if (!StorageFits(pInst, entry.ValueKind, out var whyInst)) { whyNot ??= whyInst; }
                 else
                 {
@@ -153,7 +154,8 @@ public static class FixInPlaceService
                     : Enum.TryParse<BuiltInParameter>(c.Name, out var bipType) ? type.get_Parameter(bipType) : null;
                 if (pType != null)
                 {
-                    if (pType.IsReadOnly) { whyNot ??= $"{pType.Definition.Name} is read-only on the type"; }
+                    if (!IsReal(type, pType)) { whyNot ??= $"{pType.Definition.Name} on the type is a phantom (not in its parameter set) — writes to it do not persist"; }
+                    else if (pType.IsReadOnly) { whyNot ??= $"{pType.Definition.Name} is read-only on the type"; }
                     else if (!StorageFits(pType, entry.ValueKind, out var whyType)) { whyNot ??= whyType; }
                     else
                     {
@@ -169,6 +171,15 @@ public static class FixInPlaceService
         var names = string.Join(" / ", entry.Candidates.Where(c => c.Name.Length > 0).Select(c => c.Name));
         t.Reason = whyNot ?? $"no parameter for {req.Requirement} on the element or its type ({names}) — add it before fixing here";
         return t;
+    }
+
+    /// `get_Parameter(BuiltInParameter)` can hand back a parameter the element does not actually own — a door
+    /// instance answers FIRE_RATING with a writable String parameter whose Set() returns true and whose value
+    /// then reads back empty (found live, 2026-09-16). A real parameter is one in the element's own set.
+    private static bool IsReal(Element holder, Parameter p)
+    {
+        foreach (Parameter x in holder.Parameters) if (x.Id == p.Id) return true;
+        return false;
     }
 
     /// The chosen parameter's own value becomes the row's Current — read holder and write holder agree.
@@ -283,6 +294,15 @@ public static class FixInPlaceService
                 }
                 else set = p.Set(value);
                 if (!set) { o.Message = "Revit refused the value"; continue; }
+                // Read it back before calling it done: Set() returning true is not evidence the value is in
+                // the model (phantom parameters accept and forget). A mismatch is reported, never audited.
+                var back = ValueOf(p, row.ValueKind == ValueKind.YesNo && row.BuiltIn == "FUNCTION_PARAM"
+                    && row.ResolvedVia.StartsWith("wall type Function", StringComparison.Ordinal));
+                if (!string.Equals(back, value, StringComparison.Ordinal))
+                {
+                    o.Message = $"Revit accepted '{value}' but it reads back '{back}' — NOT written (phantom parameter)";
+                    continue;
+                }
 
                 audits.Add((new ChangeRequest
                 {

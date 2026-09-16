@@ -26,6 +26,8 @@ static class Check
         Ok(PsetMap.Find("XXX", "Pset_WallCommon.IsExternal")!.Candidates.First(c => c.Kind == ParamKind.Lookup).InstanceOnly
            && !PsetMap.Find("XXX", "Pset_WallCommon.FireRating")!.Candidates.First(c => c.Kind == ParamKind.Lookup).InstanceOnly,
            "IsExternal's lookup is instance-only (type pass skipped); FireRating's is not");
+        var doorCands = PsetMap.Find("XXX", "Pset_DoorCommon.FireRating")!.Candidates.Where(c => c.Kind == ParamKind.BuiltIn).Select(c => c.Name).ToList();
+        Ok(doorCands.SequenceEqual(new[] { "DOOR_FIRE_RATING", "FIRE_RATING" }), "door FireRating reads the door-specific built-in before the generic one (found live: the type's rating was invisible)");
         foreach (var key in new[] { "Pset_WallCommon.IsExternal", "Pset_WallCommon.FireRating", "Pset_DoorCommon.FireRating", "Pset_WindowCommon.ThermalTransmittance" })
             Ok(PsetMap.Find("XXX", key) != null, "extractor requirement present: " + key);
         Ok(PsetMap.Find("XXX", "Pset_WindowCommon.ThermalTransmittance")!.Candidates.Any(c => c.Name == "XXX_UValue"), "office U-value alias derives from org");

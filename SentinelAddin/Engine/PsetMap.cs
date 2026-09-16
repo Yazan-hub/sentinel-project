@@ -58,7 +58,9 @@ public static class PsetMap
         list.Add(new PsetEntry
         {
             Pset = "Pset_DoorCommon", Prop = "FireRating", Classes = new[] { "IFCDOOR" },
-            Candidates = { new(ParamKind.Lookup, "FireRating"), new(ParamKind.BuiltIn, "FIRE_RATING") },
+            // A door's rating is the type's DOOR_FIRE_RATING ("Fire Rating" under Identity Data). FIRE_RATING
+            // stays as a fallback for templates that map it, but it comes AFTER the door-specific one.
+            Candidates = { new(ParamKind.Lookup, "FireRating"), new(ParamKind.BuiltIn, "DOOR_FIRE_RATING"), new(ParamKind.BuiltIn, "FIRE_RATING") },
         });
         var u = new PsetEntry
         {
