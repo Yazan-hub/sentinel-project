@@ -81,6 +81,22 @@ public static class RequestStore
         Save(doc, p);
     }
 
+    /// Same semantics as calling <see cref="Upsert"/> per item, but loads and saves the blob ONCE
+    /// (per-item Upsert is O(n²): each call reloads and reserializes the whole store). Transaction required.
+    public static void UpsertMany(Document doc, IEnumerable<(ChangeRequest Request, AuditEntry Audit)> items)
+    {
+        var list = items as IList<(ChangeRequest Request, AuditEntry Audit)> ?? items.ToList();
+        if (list.Count == 0) return;
+        var p = Load(doc);
+        foreach (var (request, audit) in list)
+        {
+            var i = p.Requests.FindIndex(r => r.Id == request.Id);
+            if (i >= 0) p.Requests[i] = request; else p.Requests.Add(request);
+            p.Audit.Add(audit);
+        }
+        Save(doc, p);
+    }
+
     public static ChangeRequest? Find(Document doc, Guid id) =>
         Load(doc).Requests.FirstOrDefault(r => r.Id == id);
 

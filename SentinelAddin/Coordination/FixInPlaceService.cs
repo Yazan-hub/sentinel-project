@@ -64,11 +64,20 @@ public static class FixInPlaceService
         }
 
         // Type rows: how many OTHER instances of that type exist in the model — the blast radius, on screen.
-        foreach (var row in plan.Rows.Where(r => r.IsType))
+        // One model pass for all type rows, not one per row.
+        if (plan.Rows.Any(r => r.IsType))
         {
-            var typeId = row.TargetId.ToElementId();
-            var total = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == typeId);
-            row.OtherInstanceCount = Math.Max(0, total - row.InstanceIds.Count);
+            var perType = new Dictionary<long, int>();
+            foreach (var x in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+            {
+                var tid = x.GetTypeId().IdValue();
+                perType[tid] = perType.TryGetValue(tid, out var n) ? n + 1 : 1;
+            }
+            foreach (var row in plan.Rows.Where(r => r.IsType))
+            {
+                perType.TryGetValue(row.TargetId, out var total);
+                row.OtherInstanceCount = Math.Max(0, total - row.InstanceIds.Count);
+            }
         }
         return plan;
     }
@@ -85,6 +94,9 @@ public static class FixInPlaceService
 
     /// First candidate that exists and is writable — instance first, then type. The storage must fit the
     /// value kind (text → String, yes/no → Integer); a unit-bearing number is refused rather than mis-set.
+    /// <c>Current</c> is read from the parameter actually CHOSEN (so the row's old value and the write target
+    /// are the same holder). The extractor's read value only stands in for rows with nowhere to write; when the
+    /// two disagree, the disagreement is spelled out in <c>Via</c> rather than hidden.
     private static Target Resolve(Element e, Document doc, PsetEntry? entry, IdsIssueRef req)
     {
         var t = new Target { Elem = e, ValueKind = entry?.ValueKind ?? ValueKind.Text };
@@ -93,7 +105,8 @@ public static class FixInPlaceService
             t.Reason = $"no parameter mapping for {req.Requirement} — Sentinel does not know where this value lives";
             return t;
         }
-        t.Current = GovernedElementExtractor.ReadEntry(e, doc, entry) ?? "";
+        var read = GovernedElementExtractor.ReadEntry(e, doc, entry) ?? "";
+        t.Current = read;   // display value for NotFixable rows — what the referee reads today
         var type = doc.GetElement(e.GetTypeId());
         string? whyNot = null;
 
@@ -110,10 +123,11 @@ public static class FixInPlaceService
                 if (fn == null || fn.IsReadOnly) continue;
                 t.Elem = type!; t.IsType = true; t.ParamName = fn.Definition.Name; t.BuiltIn = "FUNCTION_PARAM";
                 t.Via = "wall type Function (Exterior = TRUE)"; t.ValueKind = ValueKind.YesNo; t.Writable = true;
+                Agree(t, fn, read, wallFunction: true);
                 return t;
             }
 
-            // Instance first, then type (net48/2023 rejects a tuple-array foreach here — two explicit passes).
+            // Two explicit passes, instance before type.
             Parameter? pInst = c.Kind == ParamKind.Lookup
                 ? e.LookupParameter(c.Name)
                 : Enum.TryParse<BuiltInParameter>(c.Name, out var bipInst) ? e.get_Parameter(bipInst) : null;
@@ -126,6 +140,7 @@ public static class FixInPlaceService
                     t.Elem = e; t.IsType = false; t.ParamName = pInst.Definition.Name;
                     t.BuiltIn = c.Kind == ParamKind.BuiltIn ? c.Name : "";
                     t.Via = "instance parameter"; t.Writable = true;
+                    Agree(t, pInst, read, wallFunction: false);
                     return t;
                 }
             }
@@ -143,6 +158,7 @@ public static class FixInPlaceService
                         t.Elem = type; t.IsType = true; t.ParamName = pType.Definition.Name;
                         t.BuiltIn = c.Kind == ParamKind.BuiltIn ? c.Name : "";
                         t.Via = "type parameter"; t.Writable = true;
+                        Agree(t, pType, read, wallFunction: false);
                         return t;
                     }
                 }
@@ -151,6 +167,28 @@ public static class FixInPlaceService
         var names = string.Join(" / ", entry.Candidates.Where(c => c.Name.Length > 0).Select(c => c.Name));
         t.Reason = whyNot ?? $"no parameter for {req.Requirement} on the element or its type ({names}) — add it before fixing here";
         return t;
+    }
+
+    /// The chosen parameter's own value becomes the row's Current — read holder and write holder agree.
+    /// If the extractor reads something else (a different candidate answered first), say so in the Via text:
+    /// the referee's view and the write target differ, and the user has to see that.
+    private static void Agree(Target t, Parameter p, string read, bool wallFunction)
+    {
+        t.Current = ValueOf(p, wallFunction);
+        if (read.Length > 0 && !string.Equals(read, t.Current, StringComparison.Ordinal))
+            t.Via += $" — NOTE: the referee currently reads '{read}' from another parameter";
+    }
+
+    private static string ValueOf(Parameter p, bool wallFunction)
+    {
+        if (!p.HasValue) return "";
+        if (wallFunction) return p.AsInteger() == (int)WallFunction.Exterior ? "TRUE" : "FALSE";
+        switch (p.StorageType)
+        {
+            case StorageType.String: return p.AsString() ?? "";
+            case StorageType.Integer: return p.AsInteger() != 0 ? "TRUE" : "FALSE";
+            default: return "";
+        }
     }
 
     private static bool StorageFits(Parameter p, ValueKind kind, out string why)
@@ -200,11 +238,14 @@ public static class FixInPlaceService
     }
 
     /// <summary>ONE transaction; each write independent; every row gets its own outcome. Successes are audited
-    /// to the model's request store (Approved, VerdictNote names the BCF guid) + ROI. If the transaction does
-    /// not commit, every "done" becomes "nothing was written" — the outcome list never overstates.</summary>
+    /// to the model's request store (Approved, VerdictNote names the BCF guid) in one batched write, then ROI.
+    /// If the transaction does not commit — or the store write throws — every "done" is demoted and no row's
+    /// <c>Current</c> is touched: the grid and the outcome list never claim a write that did not land.</summary>
     public static List<RowOutcome> Apply(Document doc, IEnumerable<FixRow> rows, IdsIssueRef req, string bcfGuid)
     {
         var outcomes = new List<RowOutcome>();
+        var written = new Dictionary<FixRow, string>();   // row → value written; applied only after a commit
+        var audits = new List<(ChangeRequest Request, AuditEntry Audit)>();
         var user = doc.Application.Username;
         using var t = new Transaction(doc, $"Sentinel: fix-in-place {req.Requirement}");
         t.Start();
@@ -229,7 +270,11 @@ public static class FixInPlaceService
                 {
                     var yn = FixPlan.NormalizeYesNo(value);
                     if (yn == null) { o.Message = $"'{value}' is not a yes/no value"; continue; }
-                    set = row.BuiltIn == "FUNCTION_PARAM"
+                    // The wall-Function enum write belongs ONLY to the wall-Function resolution — a future
+                    // BuiltIn candidate named FUNCTION_PARAM cannot inherit it by accident.
+                    var isWallFn = row.BuiltIn == "FUNCTION_PARAM"
+                        && row.ResolvedVia.StartsWith("wall type Function", StringComparison.Ordinal);
+                    set = isWallFn
                         ? p.Set((int)(yn == "TRUE" ? WallFunction.Exterior : WallFunction.Interior))
                         : p.Set(yn == "TRUE" ? 1 : 0);
                     value = yn;
@@ -237,7 +282,7 @@ public static class FixInPlaceService
                 else set = p.Set(value);
                 if (!set) { o.Message = "Revit refused the value"; continue; }
 
-                RequestStore.Upsert(doc, new ChangeRequest
+                audits.Add((new ChangeRequest
                 {
                     RuleId = req.Requirement, ElementId = row.TargetId,
                     ElementCategory = holder.Category?.Name ?? holder.GetType().Name,
@@ -248,19 +293,34 @@ public static class FixInPlaceService
                 {
                     Actor = user, Action = "fix.applied",
                     Detail = $"{req.Requirement}: '{row.Current}' -> '{value}' ({row.ScopeText})",
-                });
-                row.Current = value;
+                }));
+                written[row] = value;
                 o.Ok = true; o.Message = "done";
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex) { o.Message = "Revit refused: " + ex.Message; }
         }
+
+        // One load + one save for the whole batch. If the store cannot take it, nothing is written at all.
+        try { RequestStore.UpsertMany(doc, audits); }
+        catch (Exception ex)
+        {
+            if (!t.HasEnded()) t.RollBack();
+            foreach (var o in outcomes.Where(x => x.Ok)) { o.Ok = false; o.Message = "not written: audit store failed — " + ex.Message; }
+            return outcomes;
+        }
+
         if (t.Commit() != TransactionStatus.Committed)
         {
             foreach (var o in outcomes.Where(x => x.Ok)) { o.Ok = false; o.Message = "transaction did not commit — nothing was written"; }
             return outcomes;
         }
+        // Committed: only now does the row's old value become the new one.
         foreach (var o in outcomes.Where(x => x.Ok))
-            RoiTracker.Log("fix", $"{req.Requirement}: '{o.Row.Current}' via {o.Row.ResolvedVia} (BCF {bcfGuid})");
+        {
+            var value = written[o.Row];
+            RoiTracker.Log("fix", $"{req.Requirement}: '{o.Row.Current}' -> '{value}' via {o.Row.ResolvedVia} (BCF {bcfGuid})");
+            o.Row.Current = value;
+        }
         return outcomes;
     }
 }
