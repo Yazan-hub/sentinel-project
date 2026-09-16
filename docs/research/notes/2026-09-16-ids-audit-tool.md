@@ -4,7 +4,7 @@
 |---|---|
 | **Link** | https://github.com/buildingSMART/IDS-Audit-tool |
 | **Seen on** | GitHub — pipeline smoke test (first item through the research inbox) |
-| **Collected** | 2026-09-16 · `inbox.md` (the GitHub-issue route returned 403 for the Claude app — see README §1) |
+| **Collected** | 2026-09-16 · `inbox.md`, then issue #1 once the Claude GitHub App got repo access |
 | **Fetched** | ✅ repository README read via WebFetch |
 | **Relation to Sentinel** | BUILDING BLOCK |
 | **Verdict** | ADAPT — Sentinel already checks *models* against IDS; nothing checks the *rulesets* before they drive a reject. Use the tool where it fits (.NET / real `.ids` files) and add a small lint for our JSON dialect. |

@@ -65,7 +65,7 @@ A working body template for either platform:
 }
 ```
 
-> **Permission check (as of 2026-09-16).** From a Claude Code on the web session, the Claude GitHub App on this repo can **read** issues but got `403 Resource not accessible by integration` when **creating** one. Capturing links is unaffected — your phone shortcut uses your own token. For `/scout` to comment on and close issues, the app needs *Issues: Read and write* on `sentinel-project` (GitHub → Settings → Applications → Claude → Repository permissions). Until then `/scout` still analyses every open issue and lists the numbers for you to close from the phone.
+> **Permission note.** `/scout` comments on and closes issues through the Claude GitHub App. That app must have access to `sentinel-project` with *Issues: Read and write* (https://github.com/apps/claude/installations/select_target). Verified working 2026-09-16 on issue #1. If it ever returns `403 Resource not accessible by integration`, `/scout` still analyses every open issue and lists the numbers for you to close from the phone.
 
 ### B. GitHub app or github.com (no setup)
 Repo → Issues → New issue → **💡 Inspiration link**. The form asks for the link, where you saw it, why it caught your eye, and your first instinct. Especially fill in *why* for LinkedIn / Instagram posts — Claude usually cannot open those.
