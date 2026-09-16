@@ -40,3 +40,4 @@ jobs:
         run: |
           dotnet run --project tools/fixplace-check
           dotnet run --project tools/naming-check
+          dotnet run --project tools/org-check
