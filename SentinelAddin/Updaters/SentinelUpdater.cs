@@ -116,5 +116,5 @@ public sealed class SentinelUpdater : IUpdater
     public ChangePriority GetChangePriority() => ChangePriority.Views;
     public string GetUpdaterName() => "Sentinel Live Compliance";
     public string GetAdditionalInformation() =>
-        "Evaluates BDS/office standards on changed elements in real time.";
+        "Evaluates office standards on changed elements in real time.";
 }

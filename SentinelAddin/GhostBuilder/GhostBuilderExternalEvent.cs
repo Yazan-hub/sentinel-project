@@ -66,6 +66,6 @@ namespace Sentinel.GhostBuilder
             }
         }
 
-        public string GetName() => "BDS Ghost Builder - Placement";
+        public string GetName() => Sentinel.Engine.OrgNames.GhostEventName(App.Org);
     }
 }

@@ -22,6 +22,8 @@ public sealed class App : IExternalApplication
     internal static SentinelPanelViewModel? PanelVm { get; private set; }
     internal static RuleEngineHost? Engine { get; private set; }
     internal static RevitEventHub? Events { get; private set; }
+    /// The configured office code (ruleset "org"); empty when none — callers must say so, not guess.
+    internal static string Org => Engine?.Ruleset.Org ?? string.Empty;
 
     public Result OnStartup(UIControlledApplication app)
     {
@@ -133,7 +135,7 @@ public sealed class App : IExternalApplication
         Workflow.RequestManager.RefreshSnapshot(e.Document);
         var report = Engine!.ScanFull(e.Document);
 
-        // CDE Sync Guard: central file name vs ISO 19650 / BDS convention.
+        // CDE Sync Guard: central file name vs ISO 19650 / office convention.
         // Sync cannot be vetoed by the API, so a mismatch reports loudly.
         var cde = Sentinel.Engine.CdeSyncGuard.Check(e);
         if (cde is not null)
@@ -235,7 +237,7 @@ public sealed class App : IExternalApplication
         Sub(chain, "Sentinel_Datum", "1 · Datum from Drawings", "Sentinel.Commands.DatumFromDrawingsCommand", "ghost",
             "Datum first: read the levels from an imported section's levels layer and the grids from an imported plan's grid layer, then create them — real floor-to-floor heights and a real column grid, measured off the drawings, before any element is modelled.");
         Sub(chain, "Sentinel_GhostBuilder", "2 · Ghost Builder", "Sentinel.Commands.GhostBuilderCommand", "ghost",
-            "Build LOD 200 Revit geometry from a 2D DWG import: local LLM maps CAD layers to BDS families, then places walls and instances.");
+            "Build LOD 200 Revit geometry from a 2D DWG import: local LLM maps CAD layers to office families, then places walls and instances.");
         Sub(chain, "Sentinel_Massing", "2b · Photo Massing", "Sentinel.Commands.MassingFromImagesCommand", "ghost",
             "Estimate a building's massing from the project images (photos/renders/elevations) in the scoped folder, review and correct the numbers, then build it through the same governed placement + guideline.");
         Sub(chain, "Sentinel_Annotate", "3 · Annotate Views", "Sentinel.Commands.AnnotateViewsCommand", "ghost",

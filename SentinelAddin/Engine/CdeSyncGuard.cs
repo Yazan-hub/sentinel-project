@@ -6,7 +6,7 @@ using Autodesk.Revit.DB.Events;
 namespace Sentinel.Engine;
 
 /// <summary>
-/// CDE Sync Guard: validates the central file name against the BDS/ISO 19650
+/// CDE Sync Guard: validates the central file name against the office/ISO 19650
 /// container conventions when a sync completes. Revit's API cannot veto a
 /// sync (DocumentSynchronizedWithCentral is post-event and the Synchronizing
 /// pre-event is not cancellable), so the guard reports loudly instead of
@@ -17,9 +17,8 @@ public static class CdeSyncGuard
 {
     public const string RuleId = "CDE-01";
 
-    // BDS-RTG-001 §2.1: BDS_[ProjectCode]_[ProjectName].rvt (central)
-    private static readonly Regex CentralRx = new(
-        @"^BDS_[A-Z0-9]{4,10}_[\w \-]+$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Office RTG §2.1: {org}_[ProjectCode]_[ProjectName].rvt (central) — pattern built from the
+    // configured office code (OrgNames.CentralFilePattern); no org -> only the ISO string is checked.
 
     // Full ISO 19650 container string (project-level deliverable copies)
     private static readonly Regex IsoContainerRx = new(
@@ -47,7 +46,12 @@ public static class CdeSyncGuard
         bool codeOk = string.IsNullOrEmpty(projectCode) ||
                       fileName.IndexOf(projectCode, StringComparison.OrdinalIgnoreCase) >= 0;
 
-        if ((CentralRx.IsMatch(fileName) || IsoContainerRx.IsMatch(fileName)) && codeOk)
+        var rs = App.Engine?.Ruleset;
+        string org = rs?.Org ?? string.Empty;
+        bool orgConfigured = OrgNames.Configured(org);
+        bool centralOk = orgConfigured && Regex.IsMatch(fileName, OrgNames.CentralFilePattern(org), RegexOptions.CultureInvariant);
+
+        if ((centralOk || IsoContainerRx.IsMatch(fileName)) && codeOk)
             return null;
 
         if (!codeOk)
@@ -57,10 +61,16 @@ public static class CdeSyncGuard
                 "اسم الملف لا يحتوي على رمز المشروع المحدد.",
                 "ISO 19650-2 / Project Setup");
 
+        string? rtg = OrgNames.DocRef(rs, "rtg");
+        string docRef = rtg is null ? "ISO 19650-2" : rtg + " §2.1 / ISO 19650-2";
         return new Violation(RuleId, EnforcementMode.Warn, -1, fileName,
-            "Central file '" + fileName + "' does not match BDS_[ProjectCode]_[ProjectName] " +
-            "or the ISO 19650 container string. Rename via BIM Manager before the next issue.",
+            orgConfigured
+                ? "Central file '" + fileName + "' does not match " + OrgNames.CentralFileHint(org) + " " +
+                  "or the ISO 19650 container string. Rename via BIM Manager before the next issue."
+                : "Central file '" + fileName + "' does not match the ISO 19650 container string " +
+                  "(no office code configured — the office central-file pattern was not checked). " +
+                  "Rename via BIM Manager before the next issue.",
             "اسم الملف المركزي لا يطابق اتفاقية التسمية المعتمدة.",
-            "BDS-RTG-001 §2.1 / ISO 19650-2");
+            docRef);
     }
 }

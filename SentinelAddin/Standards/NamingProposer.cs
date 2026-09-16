@@ -101,7 +101,10 @@ public static class NamingProposer
         {
             rule.TokenDefs.TryGetValue(token, out var rawDef);
             var def = rawDef ?? "";
-            if (def == RuleRegex.OrgPlaceholder) { values[token] = o; continue; }
+            // The ORG token: still "{org}" in a raw ruleset, or the office code itself (regex-escaped) once
+            // OrgNames.Apply expanded the ruleset at load — both spell the same literal.
+            if (def == RuleRegex.OrgPlaceholder || (o.Length > 0 && (def == o || def == Regex.Escape(o))))
+            { values[token] = o; continue; }
             if (token.Equals("SIZE", StringComparison.OrdinalIgnoreCase))
             {
                 var size = RecoverSize(norm, def, ctx, segments, p);

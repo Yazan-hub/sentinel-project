@@ -7,7 +7,7 @@ namespace Sentinel.Engine;
 /// (linked RVT containing DirectShape elements) — the engine intersects those
 /// solids (precise solid-solid boolean, BB pre-filter) with native walls/
 /// floors, merges candidates within 150 mm on the same host, places tracked
-/// 'Provision for Void' instances (BDS_Void_ID guid + BDS_Void_Status), and on
+/// 'Provision for Void' instances ({org}_Void_ID guid + {org}_Void_Status), and on
 /// every re-scan reconciles existing voids against the new IFC drop:
 /// moved MEP -> void coordinates updated; deleted MEP -> status 'Orphaned'.
 /// Statuses: Pending -> Approved -> Cut, or Orphaned. All model writes run
@@ -15,8 +15,12 @@ namespace Sentinel.Engine;
 /// </summary>
 public static class MepVoidManager
 {
-    public const string PVoidId = "BDS_Void_ID";
-    public const string PVoidStatus = "BDS_Void_Status";
+    // Tracking parameters, named from the configured office code (empty org -> tracking impossible;
+    // Reconcile/PlaceVoids say so instead of silently placing untracked instances).
+    public static string PVoidId => OrgNames.VoidId(App.Org);
+    public static string PVoidStatus => OrgNames.VoidStatus(App.Org);
+    public static bool TrackingConfigured => OrgNames.Configured(App.Org);
+    public const string NoOrgMessage = "No office code configured (ruleset 'org' is empty), so the void tracking parameters cannot be named.";
     private const double MergeToleranceFt = 0.150 / 0.3048;   // 150 mm
     private const double MatchToleranceFt = 0.500 / 0.3048;   // re-scan pairing radius
 
@@ -172,6 +176,15 @@ public static class MepVoidManager
             if (doc is null) { onDone(report); return; }
 
             var fresh = FindIntersections(doc);
+            if (!TrackingConfigured)
+            {
+                // Existing voids cannot be recognised without the tracking parameter: report every
+                // intersection as new and say why, rather than pretend the model has no voids.
+                App.PanelVm?.LogDoctor("MEP voids: " + NoOrgMessage + " Existing voids were not reconciled.");
+                report.NewCandidates.AddRange(fresh);
+                onDone(report);
+                return;
+            }
 
             var existing = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_GenericModel)
@@ -232,6 +245,12 @@ public static class MepVoidManager
         {
             var doc = uiapp.ActiveUIDocument?.Document;
             if (doc is null) { onDone(0, candidates.Count); return; }
+            if (!TrackingConfigured)
+            {
+                App.PanelVm?.LogDoctor("MEP voids: " + NoOrgMessage + " Nothing placed.");
+                onDone(0, candidates.Count);
+                return;
+            }
 
             var symbol = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_GenericModel)

@@ -87,7 +87,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
             }
 
             if (!string.IsNullOrWhiteSpace(p.BrowserStatus))
-                ViewGenerator.SetFirstMatch(view, ViewGenerator.MainGroupParams, p.BrowserStatus);
+                ViewGenerator.SetFirstMatch(view, OrgNames.MainGroupParams(App.Org), p.BrowserStatus);
 
             created++;
         }
