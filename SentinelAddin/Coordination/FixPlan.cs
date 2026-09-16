@@ -19,6 +19,7 @@ public sealed class FixRow
     public string Label = "";                // "Walls · Basic Wall: XXX_EXT_ARC_CMU_200 mm · 123456"
     public string ParamName = "";
     public string ResolvedVia = "";          // "instance parameter" / "type parameter" / "wall Function" / …
+    public string BuiltIn = "";              // BuiltInParameter enum name when resolved via a built-in ("" = by name)
     public ValueKind ValueKind = ValueKind.Text;
     public string Current = "";
     public string Proposed = "";
