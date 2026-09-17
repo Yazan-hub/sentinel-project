@@ -81,7 +81,7 @@ manager finds the same problems every time."
 ## The per-tool matrix
 Status ∈ `pass` (evidence linked) · `fail` (finding #) · `not run`. Fill from evidence only.
 
-**Revit ribbon** (from `App.cs BuildRibbon`, one row each): Scan Now · Health Scorecard · Rule Set · Change Requests · Review Flag ·
+**Revit ribbon** (from `App.cs BuildRibbon`, one row each): Show Panel · Scan Now · Health Scorecard · Rule Set · Change Requests · Review Flag ·
 Project Setup · Build Office System · Apply Standard · Ingest Docs · Naming Manager · Sanitize .rfa · Heal Loaded Families ·
 IFC Pre-Flight · IFC Delivery Gate · Governed Publish · Quick Publish (ungoverned) · Auto-Publish on save · Publish Views ·
 Publish Sheets · BCF Issues (incl. Fix in Revit) · Clash Manager · Clash Register · MEP Openings · 1 · Datum from Drawings ·
@@ -89,6 +89,7 @@ Publish Sheets · BCF Issues (incl. Fix in Revit) · Clash Manager · Clash Regi
 
 | Tool | Act/step | Status | Evidence / finding |
 |---|---|---|---|
+| Show Panel | 1.5 | | |
 | Scan Now | 1.5 | | |
 | Health Scorecard | 1.5 | | |
 | Rule Set | 2.1 | | |
