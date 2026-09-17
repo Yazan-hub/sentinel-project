@@ -79,3 +79,39 @@ export function readinessPlan(doc, score, today) {
   }
   return rows;
 }
+
+const TITLES = { standards: "Standards", people: "People", process: "Process" };
+const cell = (v) => String(v ?? "").replaceAll("|", "\\|").replaceAll("\n", " ");
+const three = (p) => [
+  `Measured: ${p.measured.met} met · ${p.measured.violation} violation · ${p.measured.not_checkable} not checkable${p.measured.unbound ? ` · ${p.measured.unbound} unbound` : ""}`,
+  `Declared: ${p.declared.yes} yes · ${p.declared.partial} partial · ${p.declared.no} no${p.declared.unanswered ? ` · ${p.declared.unanswered} unanswered` : ""}`,
+  `Missing: ${p.missing.length}`,
+];
+
+/** The handover report. Three numbers per pillar, every item with its verdict and reason, the plan. Never a blended %. */
+export function readinessMarkdown(report) {
+  const { title, generated_at, evidence, score, plan } = report;
+  const lines = [`# ${title}`, "", `Generated ${generated_at}.`, "", "## Evidence basis", ""];
+  lines.push(evidence?.snapshot
+    ? `- Office snapshot: ${evidence.snapshot.source?.title || evidence.snapshot.source?.kind} taken ${String(evidence.snapshot.at).slice(0, 10)}, received ${String(evidence.snapshot.received_at).slice(0, 10)}.`
+    : "- Office snapshot: none received.");
+  lines.push(evidence?.scan
+    ? `- Model scan: ${evidence.scan.doc_title} scanned ${String(evidence.scan.at).slice(0, 10)}.`
+    : "- Model scan: no scan report received.");
+  lines.push("", "## Overall", "", ...three(score.overall).map((t) => `- ${t}`));
+  for (const p of PILLARS) {
+    const pil = score.pillars[p];
+    lines.push("", `## ${TITLES[p]}`, "", ...three(pil).map((t) => `- ${t}`), "", "| Item | Kind | Verdict | Reason / evidence |", "|---|---|---|---|");
+    for (const it of [...pil.measured.items, ...pil.declared.items]) {
+      const ev = (it.evidence || []).slice(0, 5).map((e) => `${e.label}: ${e.detail}`).join("; ");
+      lines.push(`| ${cell(it.heading)} | ${it.kind} | ${it.verdict.replace("_", " ")} | ${cell([it.reason, ev].filter(Boolean).join(" — "))} |`);
+    }
+  }
+  lines.push("", "## Plan", "");
+  if (!plan.length) lines.push("Nothing open.");
+  else {
+    lines.push("| Item | Owner | Due | Status | Closes when |", "|---|---|---|---|---|");
+    for (const r of plan) lines.push(`| ${cell(r.heading)} | ${cell(r.owner) || "—"} | ${r.due || "—"} | ${r.status} | ${cell(r.closes_when)} |`);
+  }
+  return lines.join("\n") + "\n";
+}

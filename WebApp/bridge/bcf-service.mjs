@@ -1225,6 +1225,15 @@ async function handleRequest(req, res) {
         return send(res, 200, await bimdocs.complianceReport(p1, p2));
       if (p3 === "executability" && req.method === "GET")
         return send(res, 200, await bimdocs.executabilityReport(p1, p2));
+      if (p3 === "readiness" && req.method === "GET") {
+        const rep = await bimdocs.readinessReport(p1, p2);
+        if (url.searchParams.get("format") === "md") {
+          const { readinessMarkdown } = await import("./readiness-logic.mjs");
+          res.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8", "Content-Disposition": `attachment; filename="readiness-${p2.slice(0, 8)}.md"`, ...corsHeaders(res) });
+          return res.end(readinessMarkdown(rep));
+        }
+        return send(res, 200, rep);
+      }
       if (p1 && p2 && p3 === "comments" && req.method === "GET")
         return send(res, 200, await bimdocs.listComments(p1, p2));
       if (p1 && p2 && p3 === "section" && p4 && seg[5] === "comments" && req.method === "POST") {

@@ -27,6 +27,7 @@ vi.mock("./cde-store.mjs", () => ({
     __docs.set(s + id, data);
     return data;
   },
+  getProjectMeta: vi.fn(async () => ({})),
 }));
 vi.mock("./members-store.mjs", () => ({
   requireMinRole: vi.fn(async (key, min) => {
@@ -36,9 +37,14 @@ vi.mock("./members-store.mjs", () => ({
         throw Object.assign(new Error(`this action requires the ${min} role`), { status: 403 });
     }
   }),
+  listMembers: vi.fn(async () => []),
+}));
+vi.mock("./office-store.mjs", () => ({
+  getSnapshot: vi.fn(async () => ({ source: { kind: "template", title: "T.rte" }, at: "2026-09-10T08:00:00Z", received_at: "2026-09-10T08:00:01Z", pack: { worksets: [] }, catalog: { count: 0, types: [] }, ruleset: null })),
+  getScan: vi.fn(async () => null),
 }));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -258,5 +264,21 @@ describe("setSectionPlan — owner + due on the item itself, lead and above", ()
     globalThis.__testRole = "contributor";
     await expect(setSectionPlan("k", doc.id, "m1", { due: "2026-10-01" })).rejects.toMatchObject({ status: 403 });
     globalThis.__testRole = undefined;
+  });
+});
+
+describe("readinessReport — runs the bound checks, scores, derives the plan, names the evidence", () => {
+  beforeEach(() => { doc = readinessDoc(); sb.mockResolvedValue([doc]); });
+  it("returns score + plan + evidence and refuses a non-READINESS document", async () => {
+    const rep = await readinessReport("k", doc.id);
+    expect(rep.doc_type).toBe("READINESS");
+    expect(rep.evidence.snapshot.source.title).toBe("T.rte");
+    expect(rep.evidence.scan).toBeNull();
+    expect(rep.score.overall.measured.items.map((i) => i.section_id)).toEqual(["m1"]);
+    expect(rep.score.overall.declared.unanswered).toBe(1);
+    expect(rep.plan.map((r) => r.section_id).sort()).toEqual(["d1", "m1"]);
+    expect(rep.sections.find((s) => s.section_id === "m1").results[0].id).toBe("office.worksets");
+    doc = makeDoc(); sb.mockResolvedValue([doc]);
+    await expect(readinessReport("k", doc.id)).rejects.toMatchObject({ status: 409 });
   });
 });

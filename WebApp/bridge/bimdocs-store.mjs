@@ -8,7 +8,8 @@ import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs
 import { requireMinRole } from "./members-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
-import { ANSWERS } from "./readiness-logic.mjs";
+import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
+import { getSnapshot, getScan } from "./office-store.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -359,5 +360,40 @@ export async function executabilityReport(key, docId) {
   return {
     ...executability(doc, CHECKS.map((c) => c.id), PLANNED_CHECKS.map((p) => p.id)),
     generated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * The readiness report: bound checks run per measured item (same cap and honesty as complianceReport),
+ * scored three ways, plan derived, evidence basis named. READ-ONLY.
+ */
+export async function readinessReport(key, docId) {
+  const doc = await getDoc(key, docId);
+  if (doc.doc_type !== "READINESS") throw err(409, "readiness reports are for READINESS documents only");
+  const resultsBySection = {};
+  const sections = [];
+  let evaluated = 0;
+  for (const s of doc.sections) {
+    const bound = s.kind === "measured" ? (s.bindings?.checks || []) : [];
+    const results = [];
+    for (const b of bound) {
+      results.push(evaluated < MAX_COMPLIANCE_CHECKS
+        ? (evaluated += 1, await runCheck(b.id, key, b.params || {}))
+        : { id: b.id, label: b.id, status: "not_checkable", count: 0, summary: "", evidence: [],
+            reason: `Not evaluated: this document exceeds the ${MAX_COMPLIANCE_CHECKS}-check limit for a single run.` });
+    }
+    resultsBySection[s.id] = results;
+    sections.push({ section_id: s.id, heading: s.heading, pillar: s.pillar ?? null, kind: s.kind ?? null, results });
+  }
+  const [snap, scan] = await Promise.all([getSnapshot(key).catch(() => null), getScan(key).catch(() => null)]);
+  const score = readiness(doc, resultsBySection);
+  const plan = readinessPlan(doc, score, new Date().toISOString().slice(0, 10));
+  return {
+    document_id: doc.id, title: doc.title, doc_type: doc.doc_type, generated_at: new Date().toISOString(),
+    evidence: {
+      snapshot: snap ? { source: snap.source, at: snap.at, received_at: snap.received_at } : null,
+      scan: scan ? { doc_title: scan.doc_title, at: scan.at, received_at: scan.received_at } : null,
+    },
+    score, plan, sections,
   };
 }

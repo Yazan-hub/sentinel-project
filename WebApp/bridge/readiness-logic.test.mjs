@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { loadTemplates, instantiateTemplate } from "./bimdocs-logic.mjs";
 import { CHECKS, PLANNED_CHECKS } from "./check-registry.mjs";
-import { readiness, readinessPlan, PILLARS, ANSWERS } from "./readiness-logic.mjs";
+import { readiness, readinessPlan, readinessMarkdown, PILLARS, ANSWERS } from "./readiness-logic.mjs";
 
 const tpl = () => loadTemplates().find((t) => t.doc_type === "READINESS");
 const known = new Set([...CHECKS.map((c) => c.id), ...PLANNED_CHECKS.map((p) => p.id)]);
@@ -129,5 +129,34 @@ describe("constants", () => {
   it("pillars and answers are the spec's", () => {
     expect(PILLARS).toEqual(["standards", "people", "process"]);
     expect(ANSWERS).toEqual(["yes", "partial", "no"]);
+  });
+});
+
+describe("readinessMarkdown — the report a consultant hands over, three numbers never blended", () => {
+  const report = () => {
+    const doc = { id: "doc1", title: "Aster Studio readiness", sections: [
+      { id: "m1", heading: "4. Worksets", pillar: "standards", kind: "measured", owner: "lead@x", due: "2026-10-01", bindings: { checks: [{ id: "office.worksets" }] } },
+      { id: "d1", heading: "13. BIM manager named", pillar: "people", kind: "declared", owner: null, due: null, answer: { value: "partial", note: "named, no mandate", by: "a@x", at: "2026-09-17T00:00:00Z" } },
+      { id: "d2", heading: "21. Weekly review", pillar: "process", kind: "declared", owner: null, due: null, answer: null },
+    ] };
+    const results = { m1: [{ id: "office.worksets", label: "Worksets", status: "violations", count: 2, summary: "1 missing, 1 extra", evidence: [{ label: "missing", detail: "ARC_Doors" }] }] };
+    const score = readiness(doc, results);
+    return { document_id: "doc1", title: doc.title, doc_type: "READINESS", generated_at: "2026-09-17T12:00:00Z",
+      evidence: { snapshot: { source: { kind: "template", title: "AST_Template.rte" }, at: "2026-09-10T08:00:00Z", received_at: "2026-09-10T08:00:01Z" }, scan: null },
+      score, plan: readinessPlan(doc, score, "2026-09-17"), sections: [] };
+  };
+  it("prints the three numbers per pillar, the evidence basis, every item with its verdict, and the plan", () => {
+    const md = readinessMarkdown(report());
+    expect(md).toMatch(/^# Aster Studio readiness/);
+    expect(md).toContain("Measured: 0 met · 1 violation · 0 not checkable");
+    expect(md).toContain("Declared: 0 yes · 1 partial · 0 no");
+    expect(md).toContain("Missing: 1");
+    expect(md).toContain("AST_Template.rte");
+    expect(md).toContain("no scan report");
+    expect(md).toMatch(/4\. Worksets.*violation/);
+    expect(md).toContain("ARC_Doors");
+    expect(md).toMatch(/13\. BIM manager named.*partial/);
+    expect(md).toMatch(/\| 4\. Worksets \| lead@x \| 2026-10-01 \| open \|/);
+    expect(md).not.toMatch(/\d+ ?%/);   // no blended percentage anywhere
   });
 });
