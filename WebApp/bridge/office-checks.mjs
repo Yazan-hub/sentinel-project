@@ -28,7 +28,7 @@ export function expandOrg(rule, org) {
   const code = String(org || "");
   const defs = Object.fromEntries(Object.entries(rule.token_defs || {}).map(([k, v]) => [k, String(v).replaceAll("{org}", escapeRegex(code))]));
   const parameter_name = rule.parameter_name ? String(rule.parameter_name).replaceAll("{org}", code) : rule.parameter_name;
-  return { ...rule, token_defs: defs, ...(parameter_name !== undefined && { parameter_name }) };
+  return { ...rule, token_defs: defs, message_en: String(rule.message_en ?? ""), ...(parameter_name !== undefined && { parameter_name }) };
 }
 
 // ── pure classifiers ─────────────────────────────────────────────────────────────────────────────

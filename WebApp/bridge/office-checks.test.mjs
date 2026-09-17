@@ -103,6 +103,11 @@ describe("office.template_types — ≥ 90 % of governed-category types match a 
     const withExclusion = classifyTemplateTypes(catalog, { org: "XXX", rules: [{ ...tnRule(), exclusions: ["^Generic"] }] });
     expect(withExclusion.status).toBe("met"); expect(withExclusion.summary).toMatch(/2 of 2/);
   });
+  it("a rule with no message_en does not throw — reports violations instead", () => {
+    const { message_en, ...ruleWithoutMessage } = tnRule();
+    const r = classifyTemplateTypes({ count: 1, types: types(["Wall 1"]) }, { org: "XXX", rules: [ruleWithoutMessage] });
+    expect(r.status).toBe("violations");
+  });
   it("the pilot catalogue against the shipped TN rules reports honestly (it does not match TN-01's token order)", () => {
     const r = classifyTemplateTypes(pilotCatalog(), shipped());
     expect(["met", "violations"]).toContain(r.status);
