@@ -192,6 +192,53 @@ namespace Sentinel.Coordination
             return null;
         }
 
+        /// <summary>
+        /// Send the office snapshot (standards pack + type catalogue + ruleset) to <c>POST /cde/{key}/office/snapshot</c>.
+        /// Blocking (120 s cap — a 20k-type catalogue is megabytes); returns null on success, else a short reason.
+        /// Deliberate, interactive (a button) — so it reports instead of no-op'ing like the fire-and-forget calls.
+        /// </summary>
+        public static string? OfficeSnapshot(OfficeSnapshotDto dto, string? projectKey)
+        {
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/office/snapshot";
+                var content = new StringContent(dto.ToJson(), Encoding.UTF8, "application/json");
+                var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
+                var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (resp.IsSuccessStatusCode) return null;
+                try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("message", out var m)) return $"HTTP {(int)resp.StatusCode}: {m.GetString()}"; } catch { }
+                return "bridge returned HTTP " + (int)resp.StatusCode;
+            }
+            catch (Exception ex)
+            {
+                return ex is TaskCanceledException or OperationCanceledException ? "timed out after 120s" : (ex.InnerException?.Message ?? ex.Message);
+            }
+        }
+
+        private static DateTime _lastScanPost = DateTime.MinValue;
+        private static readonly TimeSpan ScanThrottle = TimeSpan.FromSeconds(60);
+
+        /// <summary>Post a scan report to <c>POST /cde/{key}/office/scan</c> (the Phase-3 seam). Fire-and-forget,
+        /// at most one per minute per process — sync storms must not become request storms.</summary>
+        public static void OfficeScan(Sentinel.Engine.ScanReport report, string? projectKey)
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastScanPost < ScanThrottle) return;
+            _lastScanPost = now;
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/office/scan";
+                var content = new StringContent(ScanReportDto.From(report).ToJson(), Encoding.UTF8, "application/json");
+                var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                    msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+                _ = Http.SendAsync(msg).ContinueWith(t => { _ = t.Exception; msg.Dispose(); }, TaskScheduler.Default);
+            }
+            catch { /* never throw into Revit */ }
+        }
+
         /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{key}{path}</c>; fire-and-forget, never throws.</summary>
         private static void Post(string path, object payload, string? projectKey = null)
         {

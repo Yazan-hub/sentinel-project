@@ -147,7 +147,8 @@ public sealed class App : IExternalApplication
         }
         PanelVm!.PublishReport(report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
-        // TODO Phase 3: queue report -> backend scan_reports (offline-safe queue)
+        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled, fire-and-forget.
+        Sentinel.Coordination.GovernedNotify.OfficeScan(report, Sentinel.Engine.SettingsManager.WebProjectKeyFor(e.Document));
     }
 
     // Local save (non-workshared, or a local save before sync) → push the latest model to the web.

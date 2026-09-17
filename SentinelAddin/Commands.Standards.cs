@@ -2,11 +2,13 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Interop;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Microsoft.Win32;
+using Sentinel.Coordination;
 using Sentinel.Standards;
 using Sentinel.UI;
 
@@ -200,6 +202,32 @@ internal static class StandardsReview
         build.Built += report => window.ShowReport(report);
         window.BuildRequested += ticked => { build.Request(ticked); externalEvent.Raise(); };
         window.SaveRequested += ticked => SavePack(ticked, window);
+
+        // Captured on the API thread (Create is called from the command); the click handler touches no Revit API.
+        var doc = uiapp.ActiveUIDocument?.Document;
+        string sourceTitle = doc?.Title ?? "";
+        string projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+        string revitVersion = uiapp.Application.VersionNumber;
+        var ruleset = App.Engine?.Ruleset;
+        window.SnapshotRequested += () =>
+        {
+            var pack = window.Source;
+            var dto = OfficeSnapshotDto.Build(
+                kind: sourceTitle.EndsWith(".rte", StringComparison.OrdinalIgnoreCase) || sourceTitle.Contains("Template", StringComparison.OrdinalIgnoreCase) ? "template" : "model",
+                title: sourceTitle, revitVersion: revitVersion,
+                worksets: pack.Provision.Worksets.Select(w => w.Name),
+                sharedParams: pack.Provision.SharedParameters.Select(p => (p.Name, p.Binding)),
+                types: pack.Provision.TypeCatalog.Select(t => new OfficeSnapshotDto.TypeDto { Category = t.Category, Family = t.Family, Type = t.Type, System = t.IsSystem, WidthMm = t.WidthMm, HeightMm = t.HeightMm }),
+                ruleset: ruleset);
+            window.SetStatus($"Sending office snapshot to Sentinel ({dto.Catalog.Count} types, {dto.Pack.Worksets.Count} worksets) → project {projectKey}…");
+            Task.Run(() =>
+            {
+                var error = GovernedNotify.OfficeSnapshot(dto, projectKey);
+                window.SetStatus(error is null
+                    ? $"Office snapshot received by Sentinel — project {projectKey}. Open the web app → Documents → READINESS to see it measured."
+                    : $"Snapshot NOT sent: {error}");
+            });
+        };
         return window;
     }
 

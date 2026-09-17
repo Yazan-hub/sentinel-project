@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the office snapshot / scan report wire shapes (OfficeSnapshotDto.cs). Pins that the
+       JSON the add-in posts to /cde/:key/office/snapshot and /office/scan carries exactly the property names
+       the bridge's office-store validates, and that enums travel as snake_case strings. No Revit API; runs on
+       plain net8 with `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>snapshot-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\OrgNames.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\OfficeSnapshotDto.cs" />
+  </ItemGroup>
+</Project>
