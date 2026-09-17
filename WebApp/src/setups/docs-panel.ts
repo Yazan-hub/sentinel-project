@@ -834,8 +834,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       } catch (e: any) { msg(`Report failed: ${e.message}`, true); }
     };
     let showPlan = false;
+    const planBox = document.createElement("div"); // dedicated container — toggling Plan must never rebuild itemEl() and lose in-progress input
     const planBtn = btn("Plan");
-    planBtn.onclick = () => { showPlan = !showPlan; render(); };
+    planBtn.onclick = () => { showPlan = !showPlan; renderPlan(); };
     bar.append(back, title, versBtn, reportBtn, planBtn);
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
@@ -866,6 +867,27 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const resultsFor = (sid: string) => rep?.sections.find((s) => s.section_id === sid)?.results ?? [];
     const itemFor = (sid: string) => rep ? [...rep.score.overall.measured.items, ...rep.score.overall.declared.items].find((i) => i.section_id === sid) : undefined;
 
+    const renderPlan = () => {
+      planBox.replaceChildren();
+      if (!showPlan || !rep) return;
+      const tbl = document.createElement("table");
+      tbl.style.cssText = "width:100%;border-collapse:collapse;font:11.5px system-ui;color:#c9cfda;margin-bottom:.6rem";
+      tbl.innerHTML = `<thead><tr style="color:#9ca3af;text-align:left"><th>Item</th><th>Pillar</th><th>Owner</th><th>Due</th><th>Status</th><th>Closes when</th></tr></thead>`;
+      const tb = document.createElement("tbody");
+      for (const r of rep.plan) {
+        const tr = document.createElement("tr");
+        tr.style.borderTop = "1px solid #2a2a30";
+        for (const v of [r.heading, r.pillar, r.owner || "—", r.due || "—", r.status, r.closes_when]) {
+          const td = document.createElement("td"); td.textContent = v; td.style.padding = ".25rem .3rem";
+          if (v === "overdue") td.style.color = "#f87171"; if (v === "closed") td.style.color = "#22c55e";
+          tr.append(td);
+        }
+        tb.append(tr);
+      }
+      if (!rep.plan.length) tb.innerHTML = `<tr><td colspan="6" style="padding:.4rem;color:#9ca3af">Nothing open.</td></tr>`;
+      tbl.append(tb); planBox.append(tbl);
+    };
+
     const render = () => {
       body.replaceChildren();
       if (rep) {
@@ -880,24 +902,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         head.append(Object.assign(document.createElement("div"), { textContent: "Overall", style: "font:600 12px system-ui;color:#eee" }), threeNumbers(rep.score.overall), ev);
         body.append(head);
       }
-      if (showPlan && rep) {
-        const tbl = document.createElement("table");
-        tbl.style.cssText = "width:100%;border-collapse:collapse;font:11.5px system-ui;color:#c9cfda;margin-bottom:.6rem";
-        tbl.innerHTML = `<thead><tr style="color:#9ca3af;text-align:left"><th>Item</th><th>Pillar</th><th>Owner</th><th>Due</th><th>Status</th><th>Closes when</th></tr></thead>`;
-        const tb = document.createElement("tbody");
-        for (const r of rep.plan) {
-          const tr = document.createElement("tr");
-          tr.style.borderTop = "1px solid #2a2a30";
-          for (const v of [r.heading, r.pillar, r.owner || "—", r.due || "—", r.status, r.closes_when]) {
-            const td = document.createElement("td"); td.textContent = v; td.style.padding = ".25rem .3rem";
-            if (v === "overdue") td.style.color = "#f87171"; if (v === "closed") td.style.color = "#22c55e";
-            tr.append(td);
-          }
-          tb.append(tr);
-        }
-        if (!rep.plan.length) tb.innerHTML = `<tr><td colspan="6" style="padding:.4rem;color:#9ca3af">Nothing open.</td></tr>`;
-        tbl.append(tb); body.append(tbl);
-      }
+      body.append(planBox);
+      renderPlan();
       for (const p of PILLARS) {
         const group = document.createElement("details");
         group.open = true;
