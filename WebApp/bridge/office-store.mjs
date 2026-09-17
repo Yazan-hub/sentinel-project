@@ -72,14 +72,19 @@ export function validateSnapshot(body) {
   };
 }
 
-/** Validate + normalise a scan report body. Pure. Violations are capped; the true count is kept. */
+/** Validate + normalise a scan report body. Pure. Violations are capped; the true count and the
+ * true per-mode totals (over ALL violations, not just the kept slice) are kept — a scan with more
+ * than MAX_SCAN_VIOLATIONS entries must not under-report block/warn counts by truncation. */
 export function validateScan(body) {
   const b = obj(body, "body");
   const violations = arr(b.violations ?? [], "violations");
-  const kept = violations.slice(0, MAX_SCAN_VIOLATIONS).map((v, i) => {
+  const by_mode = { monitor: 0, warn: 0, request: 0, block: 0 };
+  const kept = violations.map((v, i) => {
     const o = obj(v, `violations[${i}]`);
     const mode = str(o.mode, `violations[${i}].mode`).toLowerCase();
     if (!MODES.includes(mode)) throw err(400, `violations[${i}].mode must be one of ${MODES.join(", ")}`);
+    by_mode[mode]++;
+    if (i >= MAX_SCAN_VIOLATIONS) return null;
     return {
       rule_id: str(o.rule_id, `violations[${i}].rule_id`, { max: 40 }),
       mode,
@@ -87,7 +92,7 @@ export function validateScan(body) {
       element_name: str(o.element_name, `violations[${i}].element_name`, { optional: true }),
       message: str(o.message, `violations[${i}].message`, { optional: true, max: 1000 }),
     };
-  });
+  }).filter((v) => v !== null);
   return {
     doc_title: str(b.doc_title, "doc_title"),
     at: isoTs(b.at, "at"),
@@ -95,6 +100,7 @@ export function validateScan(body) {
     elements_checked: Number.isInteger(b.elements_checked) ? b.elements_checked : 0,
     violations: kept,
     violations_total: violations.length,
+    by_mode,
   };
 }
 

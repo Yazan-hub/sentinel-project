@@ -153,6 +153,15 @@ describe("office.model_health — 0 block, warn ≤ 25, fresh scan", () => {
     expect(r.status).toBe("violations"); expect(r.count).toBe(27);
     expect(r.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ label: "WS-01", detail: expect.stringContaining("1 block") }), expect.objectContaining({ label: "VN-01", detail: expect.stringContaining("26 warn") })]));
   });
+  it("a truncated scan reports violations (not met) from the full by_mode totals and flags the truncation in the summary", () => {
+    const kept = Array.from({ length: 5000 }, (_, i) => ({ rule_id: "WS-01", mode: "warn", element_id: i }));
+    const truncatedScan = scan(kept, "2026-09-15T08:00:00Z");
+    truncatedScan.violations_total = 5003;
+    truncatedScan.by_mode = { monitor: 0, warn: 5000, request: 0, block: 3 };
+    const r = classifyModelHealth(truncatedScan, NOW);
+    expect(r.status).toBe("violations");
+    expect(r.summary).toMatch(/first 5000 of 5003/);
+  });
 });
 
 describe("office.bep — a BEP exists with executability ≥ 50 %", () => {

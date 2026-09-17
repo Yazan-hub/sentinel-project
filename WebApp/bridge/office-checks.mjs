@@ -102,9 +102,15 @@ export function classifyModelHealth(scan, now = new Date()) {
   if (!(ageDays(scan.at, now) <= SNAPSHOT_MAX_AGE_DAYS)) return result(id, label, "not_checkable", { reason: `Last scan is from ${day(scan.at)} (older than ${SNAPSHOT_MAX_AGE_DAYS} days).` });
   const byRule = new Map();
   for (const v of scan.violations || []) { const m = byRule.get(v.rule_id) || { block: 0, warn: 0, request: 0, monitor: 0 }; m[v.mode] = (m[v.mode] || 0) + 1; byRule.set(v.rule_id, m); }
-  const block = [...byRule.values()].reduce((n, m) => n + m.block, 0), warn = [...byRule.values()].reduce((n, m) => n + m.warn, 0);
+  // Prefer the scan's own per-mode totals (computed over ALL violations before truncation); fall back to
+  // counting scan.violations for older stored scans saved before by_mode existed.
+  const block = scan.by_mode ? scan.by_mode.block : [...byRule.values()].reduce((n, m) => n + m.block, 0);
+  const warn = scan.by_mode ? scan.by_mode.warn : [...byRule.values()].reduce((n, m) => n + m.warn, 0);
   const evidence = [...byRule].map(([rule, m]) => ({ label: rule, detail: Object.entries(m).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ") }));
-  const summary = `${scan.doc_title}, scanned ${day(scan.at)}: ${block} block, ${warn} warn across ${scan.elements_checked} elements (limits: 0 block, ≤ ${MODEL_HEALTH_MAX_WARN} warn).`;
+  const kept = (scan.violations || []).length;
+  const truncated = scan.violations_total > kept;
+  const summary = `${scan.doc_title}, scanned ${day(scan.at)}: ${block} block, ${warn} warn across ${scan.elements_checked} elements (limits: 0 block, ≤ ${MODEL_HEALTH_MAX_WARN} warn).`
+    + (truncated ? ` Evidence covers the first ${kept} of ${scan.violations_total} violations.` : "");
   return block === 0 && warn <= MODEL_HEALTH_MAX_WARN
     ? result(id, label, "met", { summary, evidence })
     : result(id, label, "violations", { count: block + warn, summary, evidence });

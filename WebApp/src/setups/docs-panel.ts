@@ -934,7 +934,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       const guide = document.createElement("div"); guide.style.cssText = "color:#8b93a3;font-style:italic"; guide.textContent = s.guidance; inner.append(guide);
 
       if (s.kind === "measured") {
-        inner.append(complianceStrip(resultsFor(s.id)));
+        if (rep === null) {
+          inner.append(Object.assign(document.createElement("div"), { textContent: "Readiness could not be computed — see the message above.", style: "color:#9ca3af" }));
+        } else {
+          inner.append(complianceStrip(resultsFor(s.id)));
+        }
       } else {
         const q = document.createElement("div"); q.style.cssText = "color:#e5e7eb;font:12px system-ui"; q.textContent = s.question || ""; inner.append(q);
         const row = document.createElement("div"); row.style.cssText = "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap";

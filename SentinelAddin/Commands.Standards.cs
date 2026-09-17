@@ -205,19 +205,26 @@ internal static class StandardsReview
 
         // Captured on the API thread (Create is called from the command); the click handler touches no Revit API.
         var doc = uiapp.ActiveUIDocument?.Document;
-        string sourceTitle = doc?.Title ?? "";
-        // Document.Title carries no extension — the kind must come from the file path, not the title.
-        // An unsaved document (empty PathName) is reported as "model": an honest default, never guessed from the name.
-        string kind = string.Equals(System.IO.Path.GetExtension(doc?.PathName ?? ""), ".rte", StringComparison.OrdinalIgnoreCase) ? "template" : "model";
         string projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
         string revitVersion = uiapp.Application.VersionNumber;
         var ruleset = App.Engine?.Ruleset;
         window.SnapshotRequested += () =>
         {
             var pack = window.Source;
+            // Provenance must come from the PACK, not the active document: Create() also serves "Load pack
+            // from disk" and async document-ingest (window created empty, Load called later), where the
+            // active document has nothing to do with what's in the pack.
+            var src = pack.SourceModel;
+            if (src is null || string.IsNullOrWhiteSpace(src.Title))
+            {
+                window.SetStatus("Snapshot NOT sent: this pack has no source model — extract from a template first (Build Office System).");
+                return;
+            }
+            string title = src.Title;
+            string kind = string.Equals(System.IO.Path.GetExtension(src.Path ?? ""), ".rte", StringComparison.OrdinalIgnoreCase) ? "template" : "model";
             var dto = OfficeSnapshotDto.Build(
                 kind: kind,
-                title: sourceTitle, revitVersion: revitVersion,
+                title: title, revitVersion: revitVersion,
                 worksets: pack.Provision.Worksets.Select(w => w.Name),
                 sharedParams: pack.Provision.SharedParameters.Select(p => (p.Name, p.Binding)),
                 types: pack.Provision.TypeCatalog.Select(t => new OfficeSnapshotDto.TypeDto { Category = t.Category, Family = t.Family, Type = t.Type, System = t.IsSystem, WidthMm = t.WidthMm, HeightMm = t.HeightMm }),

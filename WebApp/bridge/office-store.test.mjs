@@ -57,4 +57,13 @@ describe("validateScan", () => {
     const c = good(); delete c.doc_title;
     expect(() => validateScan(c)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining("doc_title") }));
   });
+  it("by_mode totals cover ALL violations, not just the kept 5000", () => {
+    const big = good();
+    big.violations = Array.from({ length: 4998 }, (_, i) => ({ rule_id: "WS-01", mode: "warn", element_id: i }))
+      .concat(Array(3).fill({ rule_id: "WS-01", mode: "block", element_id: 9999 }));
+    const t = validateScan(big);
+    expect(t.violations).toHaveLength(5000);
+    expect(t.violations_total).toBe(5001);
+    expect(t.by_mode).toEqual({ monitor: 0, warn: 4998, request: 0, block: 3 });
+  });
 });

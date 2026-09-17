@@ -159,4 +159,14 @@ describe("readinessMarkdown — the report a consultant hands over, three number
     expect(md).toMatch(/\| 4\. Worksets \| lead@x \| 2026-10-01 \| open \|/);
     expect(md).not.toMatch(/\d+ ?%/);   // no blended percentage anywhere
   });
+  it("lists unclassified sections (no pillar, not scored) under Overall", () => {
+    const doc = { id: "doc1", title: "Aster Studio readiness", sections: [
+      { id: "np", heading: "99. Unclassified thing", pillar: undefined, kind: "measured", owner: null, due: null, bindings: {} },
+    ] };
+    const score = readiness(doc, {});
+    const md = readinessMarkdown({ document_id: "doc1", title: doc.title, doc_type: "READINESS", generated_at: "2026-09-17T12:00:00Z",
+      evidence: { snapshot: null, scan: null }, score, plan: readinessPlan(doc, score, "2026-09-17"), sections: [] });
+    expect(md).toContain("Unclassified");
+    expect(md).toContain("np");
+  });
 });

@@ -99,6 +99,9 @@ export function readinessMarkdown(report) {
     ? `- Model scan: ${evidence.scan.doc_title} scanned ${String(evidence.scan.at).slice(0, 10)}.`
     : "- Model scan: no scan report received.");
   lines.push("", "## Overall", "", ...three(score.overall).map((t) => `- ${t}`));
+  if (score.unclassified.length) {
+    lines.push(`- Unclassified (no pillar, not scored): ${score.unclassified.length} section(s): ${score.unclassified.join(", ")}`);
+  }
   for (const p of PILLARS) {
     const pil = score.pillars[p];
     lines.push("", `## ${TITLES[p]}`, "", ...three(pil).map((t) => `- ${t}`), "", "| Item | Kind | Verdict | Reason / evidence |", "|---|---|---|---|");

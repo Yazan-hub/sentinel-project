@@ -20,7 +20,7 @@ assessment re-run is the proof. Context: `docs/SENTINEL_ASSESSMENT_2026-09.md` P
 
 | Decision | Choice | Why |
 |---|---|---|
-| Office entity | None — an office is a project key (`<office>-office`) | Nothing needs a parent; YAGNI |
+| Office entity | None — an office is a project key (`<office>-office`) | Nothing needs a parent; YAGNI. The office template and every live model whose scans should count must carry the same web project key; an office with several live projects needs one key per office for the readiness view (revisit when a second project appears). |
 | Assessment | A governed document, `doc_type: READINESS`, from a template | Sections, owners, states, comments, versions, ledger, roles for free |
 | Measured vs declared | Template `kind` per item; measured items pre-bound to `office.*` checks; declared items carry a question and an answer | The executability roll-up already separates the two; a "yes" is never counted as measured |
 | Score | Three numbers per pillar and overall: measured / declared / missing | One blended number would be a lie about what was checked |
