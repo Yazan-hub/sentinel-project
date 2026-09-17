@@ -216,6 +216,8 @@ namespace Sentinel.Coordination
             }
         }
 
+        // ponytail: throttle is per process, not per document — two models synced within 60 s post one scan;
+        // per-document map if that matters
         private static DateTime _lastScanPost = DateTime.MinValue;
         private static readonly TimeSpan ScanThrottle = TimeSpan.FromSeconds(60);
 

@@ -206,6 +206,9 @@ internal static class StandardsReview
         // Captured on the API thread (Create is called from the command); the click handler touches no Revit API.
         var doc = uiapp.ActiveUIDocument?.Document;
         string sourceTitle = doc?.Title ?? "";
+        // Document.Title carries no extension — the kind must come from the file path, not the title.
+        // An unsaved document (empty PathName) is reported as "model": an honest default, never guessed from the name.
+        string kind = string.Equals(System.IO.Path.GetExtension(doc?.PathName ?? ""), ".rte", StringComparison.OrdinalIgnoreCase) ? "template" : "model";
         string projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
         string revitVersion = uiapp.Application.VersionNumber;
         var ruleset = App.Engine?.Ruleset;
@@ -213,7 +216,7 @@ internal static class StandardsReview
         {
             var pack = window.Source;
             var dto = OfficeSnapshotDto.Build(
-                kind: sourceTitle.EndsWith(".rte", StringComparison.OrdinalIgnoreCase) || sourceTitle.Contains("Template", StringComparison.OrdinalIgnoreCase) ? "template" : "model",
+                kind: kind,
                 title: sourceTitle, revitVersion: revitVersion,
                 worksets: pack.Provision.Worksets.Select(w => w.Name),
                 sharedParams: pack.Provision.SharedParameters.Select(p => (p.Name, p.Binding)),
