@@ -1,6 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+vi.mock("./office-store.mjs", () => ({ getSnapshot: vi.fn(async () => null), getScan: vi.fn(async () => null) }));
+
 import {
   classifySnapshotPresent, classifyNamingRules, classifyTemplateTypes, classifyWorksets, classifySharedParams,
   classifyModelHealth, classifyBep, classifyRoles, classifyTaskTeams, expandOrg, OFFICE_CHECKS,
@@ -21,9 +24,9 @@ const snapshot = (over = {}) => ({
   at: "2026-09-10T08:00:00Z", received_at: "2026-09-10T08:00:01Z", received_by: "revit",
   ...over,
 });
-const tnRule = () => ({ id: "TN-01", target: "type", tokens: ["ORG", "LOC", "DISC", "MATERIAL", "SIZE"],
+const tnRule = () => ({ id: "TN-01", target: "type", mode: "monitor", tokens: ["ORG", "LOC", "DISC", "MATERIAL", "SIZE"],
   token_defs: { ORG: "{org}", LOC: "EXT|INT|FND", DISC: "ARC|STR", MATERIAL: "[A-Z0-9][A-Z0-9 \\-]*", SIZE: "\\d+(\\.\\d+)? mm" },
-  separator: "_", categories: ["Walls", "Floors"] });
+  separator: "_", categories: ["Walls", "Floors"], message_en: "Type '{name}' does not match the convention." });
 
 describe("constants match the spec", () => {
   it("thresholds", () => {
@@ -93,6 +96,13 @@ describe("office.template_types — ≥ 90 % of governed-category types match a 
     const r = classifyTemplateTypes({ count: 2, types: [...types(["XXX_EXT_ARC_CMU_200 mm"]), { category: "Furniture", family: "Chair", type: "junk", system: false }] }, { org: "XXX", rules: [tnRule()] });
     expect(r.status).toBe("met"); expect(r.summary).toMatch(/1 of 1/);
   });
+  it("honours the rule engine's exclusions — a name matching an exclusion pattern is not flagged, proving the RuleEngine reuse", () => {
+    const catalog = { count: 2, types: types(["XXX_EXT_ARC_CMU_200 mm", "Generic - 200mm"]) };
+    const withoutExclusion = classifyTemplateTypes(catalog, { org: "XXX", rules: [tnRule()] });
+    expect(withoutExclusion.status).toBe("violations"); // "Generic - 200mm" does not match the token pattern
+    const withExclusion = classifyTemplateTypes(catalog, { org: "XXX", rules: [{ ...tnRule(), exclusions: ["^Generic"] }] });
+    expect(withExclusion.status).toBe("met"); expect(withExclusion.summary).toMatch(/2 of 2/);
+  });
   it("the pilot catalogue against the shipped TN rules reports honestly (it does not match TN-01's token order)", () => {
     const r = classifyTemplateTypes(pilotCatalog(), shipped());
     expect(["met", "violations"]).toContain(r.status);
@@ -146,6 +156,18 @@ describe("office.bep — a BEP exists with executability ≥ 50 %", () => {
     expect(classifyBep({ title: "BEP" }, 20)).toMatchObject({ status: "violations", summary: expect.stringContaining("20") });
     expect(classifyBep({ title: "BEP" }, 50).status).toBe("met");
     expect(classifyBep({ title: "BEP" }, null).status).toBe("not_checkable");   // a BEP with no sections has no score
+  });
+});
+
+describe("office.naming_rules / template_types / worksets / shared_params — run() with no snapshot", () => {
+  const ids = ["office.naming_rules", "office.template_types", "office.worksets", "office.shared_params"];
+  it.each(ids)("%s resolves not_checkable under its own id and label, reason mentions the snapshot", async (id) => {
+    const check = OFFICE_CHECKS.find((c) => c.id === id);
+    const r = await check.run("k");
+    expect(r.status).toBe("not_checkable");
+    expect(r.id).toBe(check.id);
+    expect(r.label).toBe(check.label);
+    expect(r.reason).toMatch(/snapshot/i);
   });
 });
 

@@ -6,6 +6,7 @@ import { getProjectMeta, sb, ensureProject } from "./cde-store.mjs";
 import { listMembers } from "./members-store.mjs";
 import { listTeams } from "./task-teams-store.mjs";
 import { executability } from "./executability.mjs";
+import { RuleEngine } from "./sentinel-core.mjs";
 
 export const SNAPSHOT_MAX_AGE_DAYS = 30;
 export const TEMPLATE_TYPES_MIN_PCT = 90;
@@ -21,8 +22,6 @@ const enc = encodeURIComponent;
 const day = (iso) => String(iso || "").slice(0, 10);
 const ageDays = (iso, now) => (now.getTime() - new Date(iso).getTime()) / 86_400_000;
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-let _core;
-const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 
 /** `{org}` in token defs → the escaped office code (as the add-in's OrgNames.Apply does); verbatim elsewhere. */
 export function expandOrg(rule, org) {
@@ -41,6 +40,10 @@ export function classifySnapshotPresent(snap, now = new Date()) {
   if (!(age <= SNAPSHOT_MAX_AGE_DAYS)) return result(id, label, "not_checkable", { reason: `Snapshot is from ${day(snap.at)} (older than ${SNAPSHOT_MAX_AGE_DAYS} days) — send a fresh one.` });
   return result(id, label, "met", { summary: `Snapshot of ${snap.source?.title || snap.source?.kind || "the office"} taken ${day(snap.at)}: ${snap.catalog?.count ?? 0} types, ${snap.pack?.worksets?.length ?? 0} worksets, ${snap.pack?.shared_parameters?.length ?? 0} shared parameters.` });
 }
+
+/** Same not_checkable reason as an absent snapshot, but attributed to the calling check's own id/label
+ *  (so a document points at the requirement that actually failed, not at office.snapshot_present). */
+const noSnapshot = (id, label) => ({ ...classifySnapshotPresent(null), id, label });
 
 export function classifyNamingRules(ruleset) {
   const id = "office.naming_rules", label = "Naming rules for families, types, views, sheets";
@@ -62,9 +65,8 @@ export function classifyTemplateTypes(catalog, ruleset) {
   for (const r of engineRules) for (const c of r.categories || []) byCat.set(c, r);
   const governed = (catalog?.types || []).filter((t) => byCat.has(t.category));
   if (!governed.length) return result(id, label, "not_checkable", { reason: `The catalogue has no types in the governed categories (${[...byCat.keys()].join(", ")}).` });
-  const compile = (r) => new RegExp("^" + (r.tokens || []).map((t) => (r.token_defs?.[t] !== undefined ? `(?:${r.token_defs[t]})` : "[A-Za-z0-9\\-]+")).join(escapeRegex(r.separator ?? "_")) + "$");
-  const rx = new Map(engineRules.map((r) => [r.id, compile(r)]));
-  const bad = governed.filter((t) => !rx.get(byCat.get(t.category).id).test(t.type));
+  const engine = new RuleEngine();
+  const bad = governed.filter((t) => engine.checkName(byCat.get(t.category), 0, t.type) !== null);
   const pct = Math.round(((governed.length - bad.length) / governed.length) * 100);
   const summary = `${governed.length - bad.length} of ${governed.length} governed types (${pct} %) match the type convention; threshold ${TEMPLATE_TYPES_MIN_PCT} %.`;
   return pct >= TEMPLATE_TYPES_MIN_PCT
@@ -143,13 +145,13 @@ export const OFFICE_CHECKS = [
   { id: "office.snapshot_present", label: "Office snapshot received", description: "The add-in has sent this office's standards pack and type catalogue within the last 30 days.", params_schema: {},
     async run(key) { return classifySnapshotPresent(await getSnapshot(key)); } },
   { id: "office.naming_rules", label: "Naming rules for families, types, views, sheets", description: "The office ruleset carries naming rules for all four targets and a non-empty office code.", params_schema: {},
-    async run(key) { return snapshotOr(key, (s) => s ? classifyNamingRules(s.ruleset) : classifySnapshotPresent(null)); } },
+    async run(key) { return snapshotOr(key, (s) => s ? classifyNamingRules(s.ruleset) : noSnapshot("office.naming_rules", "Naming rules for families, types, views, sheets")); } },
   { id: "office.template_types", label: "Template types follow the type convention", description: "At least 90 % of the template's wall/floor/ceiling/roof/door/window types match the office's TN rules.", params_schema: {},
-    async run(key) { return snapshotOr(key, (s) => s ? classifyTemplateTypes(s.catalog, s.ruleset) : classifySnapshotPresent(null)); } },
+    async run(key) { return snapshotOr(key, (s) => s ? classifyTemplateTypes(s.catalog, s.ruleset) : noSnapshot("office.template_types", "Template types follow the type convention")); } },
   { id: "office.worksets", label: "Worksets follow the office whitelist", description: "Every whitelisted workset exists in the template and no others do.", params_schema: {},
-    async run(key) { return snapshotOr(key, (s) => s ? classifyWorksets(s.pack?.worksets, s.ruleset) : classifySnapshotPresent(null)); } },
+    async run(key) { return snapshotOr(key, (s) => s ? classifyWorksets(s.pack?.worksets, s.ruleset) : noSnapshot("office.worksets", "Worksets follow the office whitelist")); } },
   { id: "office.shared_params", label: "Required shared parameters exist", description: "Every parameter the ruleset requires is bound in the template.", params_schema: {},
-    async run(key) { return snapshotOr(key, (s) => s ? classifySharedParams(s.pack?.shared_parameters, s.ruleset) : classifySnapshotPresent(null)); } },
+    async run(key) { return snapshotOr(key, (s) => s ? classifySharedParams(s.pack?.shared_parameters, s.ruleset) : noSnapshot("office.shared_params", "Required shared parameters exist")); } },
   { id: "office.model_health", label: "Live model health", description: "The latest scan shows no blocking violations and at most 25 warnings.", params_schema: {},
     async run(key) { return classifyModelHealth(await getScan(key)); } },
   { id: "office.bep", label: "A BEP exists and is executable", description: "The project has a BEP whose executability score is at least 50 %.", params_schema: {},
@@ -162,7 +164,7 @@ export const OFFICE_CHECKS = [
       return classifyBep(bep, executability(bep, reg.CHECKS.map((c) => c.id), reg.PLANNED_CHECKS.map((p) => p.id)).score);
     } },
   { id: "office.naming_standard", label: "Container naming standard installed", description: "A standards pack is selected for the project (delegates to project.standards_pack).", params_schema: {},
-    async run(key) { const reg = await import("./check-registry.mjs"); const r = reg.classifyPack((await getProjectMeta(key)).standards_pack); return { ...r, id: "office.naming_standard" }; } },
+    async run(key) { const reg = await import("./check-registry.mjs"); const r = reg.classifyPack((await getProjectMeta(key)).standards_pack); return { ...r, id: "office.naming_standard", label: "Container naming standard installed" }; } },
   { id: "office.roles", label: "Project roles: owner and lead present", description: "At least one owner and one lead are members of the project.", params_schema: {},
     async run(key) { return classifyRoles(await listMembers(key)); } },
   { id: "office.task_teams", label: "Task teams per discipline, each with a lead", description: "Task teams are declared and each names a lead.", params_schema: {},
