@@ -7,7 +7,13 @@ import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
-type Section = { id: string; heading: string; guidance: string; body: string; state: string; owner: string | null; bindings: Record<string, unknown> };
+type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
+type Section = {
+  id: string; heading: string; guidance: string; body: string; state: string; owner: string | null; bindings: Record<string, unknown>;
+  // READINESS documents only (readiness-template.json)
+  pillar?: "standards" | "people" | "process"; kind?: "measured" | "declared"; question?: string; answer_hint?: string;
+  answer?: Answer | null; due?: string | null;
+};
 type Doc = { id: string; doc_type: string; title: string; status: string; sections: Section[]; updated_at: string };
 type Evidence = { label: string; detail: string; ref?: string };
 type CheckResult = { id: string; label: string; status: "met" | "violations" | "not_checkable" | "error"; count: number; summary: string; reason?: string; evidence: Evidence[] };
@@ -74,6 +80,21 @@ function renderIntegrity(out: HTMLElement, r: IntegrityReport, doc: { sections: 
 
 type ExecSection = { section_id: string; heading: string; kind: "controlling" | "declared" | "narrative"; controlling_checks: string[]; declared_checks: string[]; unknown_checks: string[]; owner: string | null; has_body: boolean };
 type Executability = { document_id: string; title: string; doc_type: string; generated_at: string; score: number | null; reason?: string; summary: { sections: number; controlling: number; declared: number; narrative: number; unowned: number; empty: number }; strip: string[]; sections: ExecSection[] };
+
+type PillarScore = {
+  measured: { met: number; violation: number; not_checkable: number; unbound: number; items: ReadinessItem[] };
+  declared: { yes: number; partial: number; no: number; unanswered: number; items: ReadinessItem[] };
+  missing: ReadinessItem[];
+};
+type ReadinessItem = { section_id: string; heading: string; pillar: string; kind: string; verdict: string; reason: string; evidence: Evidence[]; answer: Answer | null; owner: string | null; due: string | null };
+type PlanRow = { section_id: string; heading: string; pillar: string; kind: string; owner: string | null; due: string | null; closes_when: string; status: "open" | "overdue" | "closed" };
+type Readiness = {
+  document_id: string; title: string; generated_at: string;
+  evidence: { snapshot: { source: { kind: string; title: string }; at: string; received_at: string } | null; scan: { doc_title: string; at: string; received_at: string } | null };
+  score: { overall: PillarScore; pillars: Record<"standards" | "people" | "process", PillarScore>; unclassified: string[] };
+  plan: PlanRow[];
+  sections: { section_id: string; heading: string; pillar: string | null; kind: string | null; results: CheckResult[] }[];
+};
 
 /** The strip test, rendered. Plain DOM — server text never reaches innerHTML. */
 function renderExecutability(out: HTMLElement, r: Executability) {
@@ -644,6 +665,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   async function showEditor(docId: string) {
     let doc: Doc;
     try { doc = await api(`/${encodeURIComponent(pid())}/${docId}`); } catch (e: any) { msg(e.message, true); return showList(); }
+    if (doc.doc_type === "READINESS") return showReadinessEditor(doc);
     bar.replaceChildren();
     const back = btn("← Documents"); back.onclick = showList;
     const title = document.createElement("span");
@@ -760,6 +782,202 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       sec.append(sum, inner);
       body.append(sec);
     }
+  }
+
+  // ── READINESS documents: three numbers per pillar, measured items with their check, declared items with a
+  //    yes/partial/no answer, owner + due on the item, the plan derived. Never a blended percentage. ────
+  const PILLARS: ("standards" | "people" | "process")[] = ["standards", "people", "process"];
+  const PILLAR_TITLE = { standards: "Standards", people: "People", process: "Process" };
+  const VERDICT_STYLE: Record<string, string> = { met: "#22c55e", yes: "#22c55e", partial: "#eab308", violation: "#f87171", no: "#f87171", not_checkable: "#a1a1aa", unbound: "#a1a1aa", unanswered: "#a1a1aa" };
+
+  function threeNumbers(p: PillarScore): HTMLElement {
+    const box = document.createElement("div");
+    box.style.cssText = "display:flex;flex-wrap:wrap;gap:.8rem;font:12px system-ui;color:#c9cfda;padding:.35rem 0";
+    const line = (label: string, parts: [string, number, string][]) => {
+      const d = document.createElement("span");
+      d.append(Object.assign(document.createElement("b"), { textContent: `${label}: ` }));
+      parts.forEach(([name, n, color], i) => {
+        const s = document.createElement("span"); s.style.color = color; s.textContent = `${n} ${name}`; d.append(s);
+        if (i < parts.length - 1) d.append(" · ");
+      });
+      return d;
+    };
+    box.append(
+      line("Measured", [["met", p.measured.met, "#22c55e"], ["violation", p.measured.violation, "#f87171"], ["not checkable", p.measured.not_checkable, "#a1a1aa"]]),
+      line("Declared", [["yes", p.declared.yes, "#22c55e"], ["partial", p.declared.partial, "#eab308"], ["no", p.declared.no, "#f87171"]]),
+      line("Missing", [["", p.missing.length, "#93c5fd"]]),
+    );
+    return box;
+  }
+
+  function verdictChip(v: string): HTMLElement {
+    const s = document.createElement("span");
+    s.textContent = v.replace("_", " ");
+    s.style.cssText = `font:700 10px system-ui;color:${VERDICT_STYLE[v] || "#a1a1aa"};border:1px solid ${VERDICT_STYLE[v] || "#a1a1aa"};border-radius:.3rem;padding:.1rem .35rem`;
+    return s;
+  }
+
+  async function showReadinessEditor(doc: Doc) {
+    bar.replaceChildren();
+    const back = btn("← Documents"); back.onclick = showList;
+    const title = document.createElement("span");
+    title.innerHTML = `<b style="color:#eee">${esc(doc.title)}</b> &nbsp;${chip(doc.status)}`;
+    title.style.flex = "1";
+    const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
+    const reportBtn = btn("Download report (.md)");
+    reportBtn.onclick = async () => {
+      try {
+        const r = await bfetch(`${base}/bimdocs/${encodeURIComponent(pid())}/${doc.id}/readiness?format=md`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await r.blob()), download: `readiness-${doc.title.replace(/[^\w-]+/g, "_")}.md` });
+        a.click(); URL.revokeObjectURL(a.href);
+      } catch (e: any) { msg(`Report failed: ${e.message}`, true); }
+    };
+    let showPlan = false;
+    const planBtn = btn("Plan");
+    planBtn.onclick = () => { showPlan = !showPlan; render(); };
+    bar.append(back, title, versBtn, reportBtn, planBtn);
+    if (canGovern()) {
+      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
+      for (const to of next[doc.status] || []) {
+        const b = btn(to === "published" ? "Publish…" : `→ ${to}`, to === "published");
+        b.onclick = async () => {
+          try {
+            if (to === "published") {
+              const label = prompt("Version label (e.g. 'Assessment 1 — September')") || "";
+              const { version_no } = await api(`/${encodeURIComponent(pid())}/${doc.id}/publish`, { method: "POST", body: JSON.stringify({ label, actor: await actor() }) });
+              msg(`Published v${version_no}`);
+            } else {
+              await api(`/${encodeURIComponent(pid())}/${doc.id}/transition`, { method: "POST", body: JSON.stringify({ to, actor: await actor() }) });
+            }
+            showEditor(doc.id);
+          } catch (e: any) { msg(e.message, true); }
+        };
+        bar.append(b);
+      }
+    }
+
+    body.replaceChildren();
+    const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
+    let rep: Readiness | null = null;
+    try { rep = await api(`/${encodeURIComponent(pid())}/${doc.id}/readiness`); } catch (e: any) { msg(`Readiness could not be computed: ${e.message}`, true); }
+    let comments: Comment[] = [];
+    try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* optional */ }
+    const resultsFor = (sid: string) => rep?.sections.find((s) => s.section_id === sid)?.results ?? [];
+    const itemFor = (sid: string) => rep ? [...rep.score.overall.measured.items, ...rep.score.overall.declared.items].find((i) => i.section_id === sid) : undefined;
+
+    const render = () => {
+      body.replaceChildren();
+      if (rep) {
+        const head = document.createElement("div");
+        head.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.5rem .6rem;margin-bottom:.5rem;background:#141418";
+        const ev = document.createElement("div");
+        ev.style.cssText = "font:11.5px system-ui;color:#9ca3af";
+        ev.textContent = [
+          rep.evidence.snapshot ? `Office snapshot: ${rep.evidence.snapshot.source.title} (${rep.evidence.snapshot.at.slice(0, 10)})` : "Office snapshot: none received — in Revit: Build Office System → Send office snapshot",
+          rep.evidence.scan ? `Model scan: ${rep.evidence.scan.doc_title} (${rep.evidence.scan.at.slice(0, 10)})` : "Model scan: none received — synchronise a model with the add-in",
+        ].join("  ·  ");
+        head.append(Object.assign(document.createElement("div"), { textContent: "Overall", style: "font:600 12px system-ui;color:#eee" }), threeNumbers(rep.score.overall), ev);
+        body.append(head);
+      }
+      if (showPlan && rep) {
+        const tbl = document.createElement("table");
+        tbl.style.cssText = "width:100%;border-collapse:collapse;font:11.5px system-ui;color:#c9cfda;margin-bottom:.6rem";
+        tbl.innerHTML = `<thead><tr style="color:#9ca3af;text-align:left"><th>Item</th><th>Pillar</th><th>Owner</th><th>Due</th><th>Status</th><th>Closes when</th></tr></thead>`;
+        const tb = document.createElement("tbody");
+        for (const r of rep.plan) {
+          const tr = document.createElement("tr");
+          tr.style.borderTop = "1px solid #2a2a30";
+          for (const v of [r.heading, r.pillar, r.owner || "—", r.due || "—", r.status, r.closes_when]) {
+            const td = document.createElement("td"); td.textContent = v; td.style.padding = ".25rem .3rem";
+            if (v === "overdue") td.style.color = "#f87171"; if (v === "closed") td.style.color = "#22c55e";
+            tr.append(td);
+          }
+          tb.append(tr);
+        }
+        if (!rep.plan.length) tb.innerHTML = `<tr><td colspan="6" style="padding:.4rem;color:#9ca3af">Nothing open.</td></tr>`;
+        tbl.append(tb); body.append(tbl);
+      }
+      for (const p of PILLARS) {
+        const group = document.createElement("details");
+        group.open = true;
+        group.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.5rem;background:#141418";
+        const gs = document.createElement("summary");
+        gs.style.cssText = "padding:.45rem .6rem;cursor:pointer;list-style:none;font:600 12px system-ui;color:#eee";
+        gs.textContent = PILLAR_TITLE[p];
+        group.append(gs);
+        if (rep) group.append(Object.assign(threeNumbers(rep.score.pillars[p]), { style: "padding:.2rem .6rem .4rem;font:12px system-ui;color:#c9cfda;display:flex;flex-wrap:wrap;gap:.8rem" }));
+        for (const s of doc.sections.filter((x) => x.pillar === p)) group.append(itemEl(s));
+        body.append(group);
+      }
+      const rest = doc.sections.filter((x) => !PILLARS.includes(x.pillar as any));
+      for (const s of rest) body.append(itemEl(s));
+    };
+
+    const itemEl = (s: Section): HTMLElement => {
+      const it = itemFor(s.id);
+      const sec = document.createElement("details");
+      sec.style.cssText = "border-top:1px solid #2a2a30;background:#191920";
+      const sum = document.createElement("summary");
+      sum.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;cursor:pointer;list-style:none";
+      const h = document.createElement("span"); h.style.cssText = "flex:1;font:600 12px system-ui;color:#eee"; h.textContent = s.heading;
+      sum.append(h, verdictChip(it?.verdict ?? (s.kind === "measured" ? "not_checkable" : "unanswered")));
+      const who = document.createElement("span"); who.style.color = "#71717a"; who.textContent = [s.owner, s.due].filter(Boolean).join(" · "); sum.append(who);
+      const inner = document.createElement("div");
+      inner.style.cssText = "padding:.5rem .6rem;display:flex;flex-direction:column;gap:.4rem";
+      const guide = document.createElement("div"); guide.style.cssText = "color:#8b93a3;font-style:italic"; guide.textContent = s.guidance; inner.append(guide);
+
+      if (s.kind === "measured") {
+        inner.append(complianceStrip(resultsFor(s.id)));
+      } else {
+        const q = document.createElement("div"); q.style.cssText = "color:#e5e7eb;font:12px system-ui"; q.textContent = s.question || ""; inner.append(q);
+        const row = document.createElement("div"); row.style.cssText = "display:flex;gap:.6rem;align-items:center;flex-wrap:wrap";
+        let value = s.answer?.value ?? "";
+        for (const v of ["yes", "partial", "no"] as const) {
+          const lab = document.createElement("label"); lab.style.cssText = `color:${VERDICT_STYLE[v]};font:12px system-ui;display:flex;gap:.25rem;align-items:center`;
+          const rb = document.createElement("input"); rb.type = "radio"; rb.name = `ans-${s.id}`; rb.value = v; rb.checked = value === v; rb.disabled = !editable;
+          rb.onchange = () => { value = v; };
+          lab.append(rb, v); row.append(lab);
+        }
+        const note = document.createElement("input"); note.placeholder = s.answer_hint || "note (who, what, since when)"; note.value = s.answer?.note ?? ""; note.disabled = !editable;
+        note.style.cssText = "flex:1;min-width:220px;background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem";
+        const saveA = btn("Save answer", true); saveA.disabled = !editable;
+        saveA.onclick = async (ev) => {
+          ev.preventDefault();
+          if (!value) return msg("Pick yes, partial or no first.", true);
+          try {
+            await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/answer`, { method: "PUT", body: JSON.stringify({ value, note: note.value, updated_at: doc.updated_at, actor: await actor() }) });
+            showEditor(doc.id);
+          } catch (e: any) { msg(e.message, true); }
+        };
+        row.append(note, saveA);
+        if (s.answer) { const by = document.createElement("div"); by.style.cssText = "font:10.5px system-ui;color:#9ca3af"; by.textContent = `answered ${s.answer.value} by ${s.answer.by} on ${s.answer.at.slice(0, 10)}`; inner.append(by); }
+        inner.append(row);
+      }
+
+      // plan fields — lead and above
+      const plan = document.createElement("div"); plan.style.cssText = "display:flex;gap:.4rem;align-items:center;flex-wrap:wrap";
+      const ownerIn = document.createElement("input"); ownerIn.placeholder = "owner (email)"; ownerIn.value = s.owner || ""; ownerIn.disabled = !(editable && canGovern());
+      ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:180px";
+      const dueIn = document.createElement("input"); dueIn.type = "date"; dueIn.value = s.due || ""; dueIn.disabled = !(editable && canGovern());
+      dueIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem";
+      const saveP = btn("Save plan"); saveP.disabled = !(editable && canGovern());
+      saveP.onclick = async (ev) => {
+        ev.preventDefault();
+        try {
+          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/plan`, { method: "PUT", body: JSON.stringify({ owner: ownerIn.value || null, due: dueIn.value || null, updated_at: doc.updated_at, actor: await actor() }) });
+          showEditor(doc.id);
+        } catch (e: any) { msg(e.message, true); }
+      };
+      const closes = document.createElement("span"); closes.style.cssText = "font:11px system-ui;color:#9ca3af";
+      closes.textContent = rep?.plan.find((r) => r.section_id === s.id)?.closes_when ?? "";
+      plan.append(ownerIn, dueIn, saveP, closes);
+      inner.append(plan, commentThreadEl(doc, s.id, comments));
+      sec.append(sum, inner);
+      return sec;
+    };
+
+    render();
   }
 
   // ── Comment threads — always available, viewers included (published docs are commentable) ────
