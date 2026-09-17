@@ -110,7 +110,8 @@ export async function saveSnapshot(key, body, actor) {
   const proj = await ensureProject(key);
   const stored = { ...snap, received_at: new Date().toISOString(), received_by: resolveActor(actor, "revit") };
   await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored);
-  await audit(proj.id, "office", LATEST, "office_snapshot_received", actor || "revit", null,
+  // audit_log.entity_id is a uuid: the office IS the project, so the project id is the entity (doc_id "latest" is not a uuid).
+  await audit(proj.id, "office", proj.id, "office_snapshot_received", actor || "revit", null,
     { source: stored.source, worksets: stored.pack.worksets.length, shared_parameters: stored.pack.shared_parameters.length, types: stored.catalog.count, org: stored.ruleset?.org ?? null, at: stored.at });
   return { ok: true, received_at: stored.received_at, types: stored.catalog.count, worksets: stored.pack.worksets.length };
 }
@@ -122,7 +123,7 @@ export async function saveScan(key, body, actor) {
   const stored = { ...scan, received_at: new Date().toISOString(), received_by: resolveActor(actor, "revit") };
   await docUpsert(SCAN_STORE, proj.id, LATEST, stored);
   const byMode = stored.violations.reduce((m, v) => ((m[v.mode] = (m[v.mode] || 0) + 1), m), {});
-  await audit(proj.id, "office", LATEST, "office_scan_received", actor || "revit", null,
+  await audit(proj.id, "office", proj.id, "office_scan_received", actor || "revit", null,
     { doc_title: stored.doc_title, elements_checked: stored.elements_checked, violations: stored.violations_total, by_mode: byMode, at: stored.at });
   return { ok: true, received_at: stored.received_at, violations: stored.violations_total };
 }
