@@ -58,9 +58,14 @@ export function readiness(doc, resultsBySection = {}) {
 }
 
 const passing = (item) => item.verdict === "met" || item.verdict === "yes";
-const closesWhen = (item, section) => item.kind === "measured"
-  ? `check ${(section.bindings?.checks || []).map((c) => c.id).join(", ")} reports met`
-  : "answer becomes yes";
+// A not-checkable item cannot simply "report met": say what has to happen first, using the check's own reason.
+const closesWhen = (item, section) => {
+  if (item.kind !== "measured") return "answer becomes yes";
+  const ids = (section.bindings?.checks || []).map((c) => c.id).join(", ");
+  return item.verdict === "not_checkable" && item.reason
+    ? `check ${ids} becomes checkable, then reports met — ${item.reason}`
+    : `check ${ids} reports met`;
+};
 
 /**
  * The implementation plan, derived on read: every item that is not passing, plus every item that once had

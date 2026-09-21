@@ -123,6 +123,12 @@ describe("readinessPlan — derived, never stored", () => {
     expect(plan.find((r) => r.section_id === "m1").closes_when).toMatch(/office\.worksets/);
     expect(plan.find((r) => r.section_id === "d1").closes_when).toMatch(/answer.*yes/i);
   });
+  it("a not-checkable row says what must happen first, in the check's own words", () => {
+    const nc = { m1: [{ id: "office.worksets", label: "w", status: "not_checkable", count: 0, summary: "", reason: "Revit templates cannot carry worksets", evidence: [] }], m2: [R("met")] };
+    const row = readinessPlan(doc, readiness(doc, nc), today).find((r) => r.section_id === "m1");
+    expect(row.closes_when).toMatch(/becomes checkable/);
+    expect(row.closes_when).toContain("Revit templates cannot carry worksets");
+  });
 });
 
 describe("constants", () => {
