@@ -221,9 +221,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;background:#16161a;color:#c9cfda;font:12px system-ui";
   const bar = document.createElement("div");
-  bar.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;flex:0 0 auto";
+  bar.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;flex:0 0 auto;min-width:0";
   const body = document.createElement("div");
-  body.style.cssText = "flex:1;min-height:0;overflow:auto;padding:.6rem";
+  body.style.cssText = "flex:1;min-height:0;min-width:0;overflow:auto;padding:.6rem";
   root.append(bar, body);
 
   const chip = (state: string) =>
@@ -813,7 +813,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   function verdictChip(v: string): HTMLElement {
     const s = document.createElement("span");
     s.textContent = v.replace("_", " ");
-    s.style.cssText = `font:700 10px system-ui;color:${VERDICT_STYLE[v] || "#a1a1aa"};border:1px solid ${VERDICT_STYLE[v] || "#a1a1aa"};border-radius:.3rem;padding:.1rem .35rem`;
+    s.style.cssText = `font:700 10px system-ui;color:${VERDICT_STYLE[v] || "#a1a1aa"};border:1px solid ${VERDICT_STYLE[v] || "#a1a1aa"};border-radius:.3rem;padding:.1rem .35rem;flex-shrink:0;white-space:nowrap`;
     return s;
   }
 
