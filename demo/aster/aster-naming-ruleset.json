@@ -1,0 +1,76 @@
+{
+  "title": "Aster Studio container naming (AST-STD-001, 7-field)",
+  "separator": "-",
+  "strip_extensions": [
+    ".ifc",
+    ".ifczip",
+    ".rvt",
+    ".nwc",
+    ".nwd",
+    ".pdf"
+  ],
+  "enforce": "reject",
+  "_note": "Simulation-room ruleset. Form: Project-Originator-Volume-Level-Type-Role-Number. Example: ASTR26-AST-ZZ-XX-M3-A-0001",
+  "fields": [
+    {
+      "key": "project",
+      "label": "Project",
+      "pattern": "[A-Za-z0-9]{3,}",
+      "description": "Project code, e.g. ASTR26"
+    },
+    {
+      "key": "originator",
+      "label": "Originator",
+      "enum": [
+        "AST",
+        "STR",
+        "MEP"
+      ]
+    },
+    {
+      "key": "volume",
+      "label": "Volume",
+      "placeholders": [
+        "ZZ"
+      ],
+      "pattern": "Z[0-9]{1,2}",
+      "description": "ZZ = whole building"
+    },
+    {
+      "key": "level",
+      "label": "Level",
+      "placeholders": [
+        "XX",
+        "ZZ"
+      ],
+      "pattern": "[0-9]{1,2}",
+      "description": "00, 01… XX = not level-specific"
+    },
+    {
+      "key": "type",
+      "label": "Type",
+      "enum": [
+        "M3",
+        "DR",
+        "SH",
+        "SP"
+      ]
+    },
+    {
+      "key": "role",
+      "label": "Role",
+      "enum": [
+        "A",
+        "I",
+        "S",
+        "M"
+      ]
+    },
+    {
+      "key": "number",
+      "label": "Number",
+      "pattern": "[0-9]{4}",
+      "description": "Four-digit sequence"
+    }
+  ]
+}

@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "standard_key": "ast-std-001",
+  "semver": "1.5.0",
+  "org": "AST",
+  "doc_refs": {
+    "rtg": "{org}-STD-001",
+    "bep": "{org}-BEP-001"
+  },
+  "rules": [
+    {
+      "id": "WS-01",
+      "target": "workset",
+      "mode": "warn",
+      "whitelist": [
+        "ARC_Walls",
+        "ARC_Doors",
+        "INT_Finishes",
+        "STR_Frame",
+        "Shared Levels and Grids"
+      ],
+      "message_en": "Workset '{name}' is not in the {org} 15-name whitelist.",
+      "message_ar": "مجموعة العمل '{name}' غير مدرجة في قائمة {org} المعتمدة.",
+      "doc_ref": "{org}-RTG-001 §3.1"
+    },
+    {
+      "id": "VN-01",
+      "target": "view",
+      "mode": "request",
+      "tokens": [
+        "PREFIX",
+        "BODY"
+      ],
+      "token_defs": {
+        "PREFIX": "WIP|SH|SHEET|EXPORT|CO|ARC|INT|XX|STR|MEP",
+        "BODY": "[A-Za-z0-9/&\\- ]+(_[A-Za-z0-9/&\\- ]+)*"
+      },
+      "separator": "_",
+      "whitelist": [
+        "NAVISWORKS",
+        "ARC_Sheets",
+        "ARC_Walls",
+        "ARC_Floors",
+        "ARC_Facade",
+        "ARC_Doors",
+        "ARC_Furniture",
+        "ARC_Interior",
+        "ARC_Links",
+        "INT_Walls",
+        "INT_Floors",
+        "INT_Ceilings",
+        "XX_Landscape",
+        "XX_MEP Modell",
+        "XX_STR Model"
+      ],
+      "exclusions": [
+        "^<.*>",
+        "^\\{3D"
+      ],
+      "message_en": "View '{name}' does not match [PREFIX]_[TYPE]_[LEVEL]_[DESC].",
+      "message_ar": "اسم العرض '{name}' لا يطابق نمط التسمية المعتمد.",
+      "doc_ref": "{org}-RTG-001 §5"
+    },
+    {
+      "id": "VP-01",
+      "target": "parameter",
+      "mode": "warn",
+      "parameter_name": "{org}_View Status",
+      "exclusions": [
+        "^<.*>",
+        "^\\{3D"
+      ],
+      "message_en": "View '{name}': '{org}_View Status' is empty.",
+      "message_ar": "العرض '{name}': حقل '{org}_View Status' فارغ.",
+      "doc_ref": "{org}-RTG-001 §4.2"
+    },
+    {
+      "id": "SN-01",
+      "target": "sheet",
+      "mode": "request",
+      "tokens": [
+        "PROJECT",
+        "ORIGINATOR",
+        "TYPE",
+        "DISCIPLINE",
+        "ZONE",
+        "VENUE",
+        "LEVEL",
+        "NUMBER",
+        "SUITABILITY",
+        "REVISION"
+      ],
+      "token_defs": {
+        "PROJECT": "[A-Z]{2,5}\\d{4,6}",
+        "ORIGINATOR": "[A-Z]{2,5}",
+        "TYPE": "[A-Z]{2}(-[A-Z]{2})?",
+        "DISCIPLINE": "[A-Z]{2,4}",
+        "ZONE": "ZZ|Z\\d|XX|\\d{2}",
+        "VENUE": "[A-Z0-9]{2}",
+        "LEVEL": "XX|\\d{2}|B\\d",
+        "NUMBER": "\\d{4}",
+        "SUITABILITY": "S\\d|A\\d|B\\d|CR",
+        "REVISION": "[PC]\\d{2}"
+      },
+      "separator": "-",
+      "message_en": "Sheet '{name}' does not match the 11-field ISO 19650 container string.",
+      "message_ar": "رقم اللوحة '{name}' لا يطابق سلسلة ISO 19650.",
+      "doc_ref": "{org}-BIM-001 §4.1"
+    },
+    {
+      "id": "FN-01",
+      "target": "family",
+      "mode": "warn",
+      "tokens": [
+        "ORG",
+        "BODY"
+      ],
+      "token_defs": {
+        "ORG": "{org}",
+        "BODY": "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+"
+      },
+      "separator": "_",
+      "categories": [
+        "Doors",
+        "Windows",
+        "Furniture",
+        "Casework",
+        "Plumbing Fixtures",
+        "Specialty Equipment",
+        "Generic Models"
+      ],
+      "message_en": "Family '{name}' does not match {org}_[LOCATION]_[TYPE]_[VARIANT].",
+      "message_ar": "العائلة '{name}' لا تطابق نمط تسمية {org}.",
+      "doc_ref": "{org}-RTG-001 §8.1"
+    },
+    {
+      "id": "TN-01",
+      "target": "type",
+      "mode": "monitor",
+      "tokens": [
+        "ORG",
+        "LOC",
+        "DISC",
+        "MATERIAL",
+        "SIZE"
+      ],
+      "token_defs": {
+        "ORG": "{org}",
+        "LOC": "EXT|INT|FND",
+        "DISC": "ARC|STR|LSE|INT|MEP|CIV",
+        "MATERIAL": "[A-Z0-9][A-Z0-9 \\-]*",
+        "SIZE": "\\d+(\\.\\d+)? mm"
+      },
+      "separator": "_",
+      "categories": [
+        "Walls",
+        "Floors",
+        "Ceilings",
+        "Roofs"
+      ],
+      "message_en": "Type '{name}' does not match {org}_[LOC]_[DISC]_[MATERIAL]_[SIZE] mm.",
+      "doc_ref": "{org}-STD-001 §3 (system family types)"
+    },
+    {
+      "id": "TN-02",
+      "target": "type",
+      "mode": "monitor",
+      "tokens": [
+        "ORG",
+        "LOC",
+        "LEAF",
+        "MATERIAL",
+        "SIZE"
+      ],
+      "token_defs": {
+        "ORG": "{org}",
+        "LOC": "EXT|INT",
+        "LEAF": "\\d+ PNL|[A-Z0-9][A-Z0-9 \\-]*",
+        "MATERIAL": "[A-Z0-9][A-Z0-9 \\-]*",
+        "SIZE": "\\d+ x \\d+ mm"
+      },
+      "separator": "_",
+      "categories": [
+        "Doors",
+        "Windows"
+      ],
+      "message_en": "Type '{name}' does not match {org}_[LOC]_[LEAF]_[MATERIAL]_[W x H] mm.",
+      "doc_ref": "{org}-STD-001 §3 (doors and windows)"
+    },
+    {
+      "id": "LV-01",
+      "target": "level",
+      "mode": "monitor",
+      "tokens": [
+        "LEVEL"
+      ],
+      "token_defs": {
+        "LEVEL": "(L\\d{2}|LB\\d|LMZ|LRF)_(FFL|SSL)|STREET LEVEL"
+      },
+      "separator": "_",
+      "message_en": "Level '{name}' not in proposed pattern LXX_FFL/SSL (V1.5 contribution).",
+      "doc_ref": "Proposed V1.5"
+    },
+    {
+      "id": "GR-01",
+      "target": "grid",
+      "mode": "monitor",
+      "tokens": [
+        "GRID"
+      ],
+      "token_defs": {
+        "GRID": "[A-Z]{1,2}|\\d{1,3}"
+      },
+      "separator": "_",
+      "message_en": "Grid '{name}' is not letters-or-numbers (V1.5 contribution).",
+      "doc_ref": "Proposed V1.5"
+    }
+  ]
+}

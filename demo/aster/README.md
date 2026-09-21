@@ -4,24 +4,39 @@ Everything the room needs, prepared once. Nothing here is a real office; `AST` i
 (the pilot's fixtures under `demo/bds-pilot/` stay BDS). Large binaries are **not** committed — build them
 from the recipes below and keep them in this folder locally (`*.rvt`, `*.rte`, `*.dwg`, `*.jpg` are gitignored here).
 
-## Files
-| File | How to make it | Used in |
+The script for the run itself is `docs/testing/SIMULATION_ROOM.md`.
+
+## Ready (committed, verified against the real parsers on 2026-09-21)
+
+| File | What it is | Verified how | Used in |
+|---|---|---|---|
+| `client-eir.docx` | Meridian Estates' EIR for Aster Tower (`ASTR26`). Five requirement sentences the prose→IDS compiler understands (door fire rating, wall IsExternal, wall load-bearing, window U-value, room reference) and one it cannot (IFC 4 exchange format). | `compileIds` → 5 specifications + 1 honest `unmatched` with its reason | 3.1 |
+| `inherited-bep.docx` | The client's Word BEP, adopted unchanged: prose under the template's ten headings, controlling nothing. The strip test should remove most of it. | docx text extraction, all ten headings present | 1.2, 2.6 |
+| `naming-standard.pdf` (+ `.docx` source) | `AST-STD-001`: container pattern `Project-Originator-Volume-Level-Type-Role-Number`, view/sheet/family/type patterns, the five permitted worksets. Written by "a former BIM coordinator", never adopted. | pdf text extraction finds the container example | 1.2 |
+| `aster-naming-ruleset.json` | The container naming ruleset of `AST-STD-001`, same shape as `WebApp/bridge/naming-ruleset.json` (7 fields, enforce `reject`). | all 12 MIDP names pass; `Aster_Tower_final_v2` is rejected | 2.7 |
+| `programme.csv` | 12 tasks, `name,start,finish,categories` — the 4D importer's format (categories are IFC classes without the `IFC` prefix, `;`-separated). | `csvToSchedule` → 12 tasks | 3.3 |
+| `programme-midp.json` | 12 deliverables as `[{container_name, due_date}]` — the rebaseline importer's format; names follow the Aster ruleset. Shift the dates by two weeks for the slip in 3.10. | names validated against the ruleset | 3.3, 3.10 |
+| `ruleset-AST.json` | The shipped add-in ruleset with `org: "AST"`, WS-01 whitelist = the five worksets of the standard, doc refs `{org}-STD-001`. No pilot literal anywhere. Install to `%AppData%\Sentinel\ruleset.json` for act 2 (back up the pilot's first). | asserted free of `BDS` | 2.1 |
+| `dwg/aster-levels-section.dxf` | 15 level lines with labels `L00_FFL +0.00` … `LRF_FFL +47.40` (mm). DXF, not DWG — Revit links/imports it the same way. | hand-written R12 ASCII | 3.9 |
+| `dwg/aster-grid-plan.dxf` | 5 × 6 grid at 7.5 m, labels A–E and 1–6. | hand-written R12 ASCII | 3.9 |
+
+## To build in Revit 2024 (not committed)
+
+| File | Recipe | Used in |
 |---|---|---|
-| `AST_Template.rte` | Start from Revit's default architectural template (metric). Seed the type-catalogue mess the pilot audit found: duplicate a wall type as `Basic Wall 1` and `Basic Wall 1 (2)`; rename three walls to unit-mixed names (`EXT_CMU_20 cm`, `Ext Wall 200`, `AST_EXT_ARC_CMU_200 mm` — only the last conforms); add one door type with a non-ASCII name (`Tür 900×2100`); leave floors default. Worksets: `ARC_Walls`, `Workset1`, `Shared Levels and Grids`, `misc` (two of the pilot whitelist present, two extras). Bind one shared parameter `AST_View Status` (instance, Views); do **not** bind `AST_Discipline`. | 1.3–1.4, 2.2–2.3 |
-| `Aster_Tower.rvt` | Workshared model from `AST_Template.rte`, 14 levels, ~400 elements. Seed IDS failures: 40 doors with no Fire Rating (type param), 30 exterior walls with `IsExternal` unset, 12 unnamed views, 5 sheets off-convention, 1 workset `temp`. Central file named `AST_ASTR26_Aster Tower.rvt` (matches the CDE guard). | 1.5, 3.4–3.9 |
-| `client-eir.docx` | Six requirement sentences, one per paragraph: fire rating on every door; IsExternal on every wall; room names on every room; level naming `Lnn_FFL`; sheet naming `AST-ARC-ZZ-nn`; IFC 4 RV export. | 3.1 |
-| `inherited-bep.docx` | The client's BEP as prose (12 headings, no checks). Copy the headings from `WebApp/bridge/templates/bep-template.json` and write two narrative paragraphs under each. | 1.2, 2.6 |
-| `naming-standard.pdf` | Three pages: file/container naming (`AST-<proj>-<orig>-<zone>-<level>-<type>-<role>-<num>`), view naming (`DISC_LEVEL_TYPE_DESC`), type naming (`AST_[LOC]_[DISC]_[MATERIAL]_[SIZE] mm`). Export from any editor. | 1.2 |
-| `programme.csv` | 12 rows `milestone,date,stage`: Concept Freeze 2026-10-15 … Handover 2027-09-30, monthly. | 3.3 |
-| `aster-ids.json` | The IDS the EIR compiles to; keep the compiled output from 3.1 here as the reference. | 3.1, 3.4 |
-| `dwg/` | Three DWGs: a level section (levels as text), a grid plan, a site plan — any small CAD set with text labels works. | 3.9 |
-| `photos/` | Four site photos of a plain block building for Photo Massing. | 3.9 |
-| `ruleset-AST.json` | Copy `SentinelAddin/Resources/ruleset.json`, set `org: "AST"`, `doc_refs: {"rtg": "{org}-RTG-001", "bep": "{org}-BEP-001"}`, WS-01 whitelist = `ARC_Walls, ARC_Doors, INT_Finishes, STR_Frame, Shared Levels and Grids`. Install to `%AppData%\Sentinel\ruleset.json` for act 2 (keep a backup of the pilot's). | 2.1 |
+| `AST_Template.rte` | Start from Revit's default architectural template (metric) and save as a template. Seed the mess the pilot audit found: duplicate a wall type as `Basic Wall 1` and `Basic Wall 1 (2)`; rename three walls to `EXT_CMU_20 cm`, `Ext Wall 200` and `AST_EXT_ARC_CMU_200 mm` (only the last conforms); add one door type named `Tür 900×2100`; leave floors default. Enable worksharing and create worksets `ARC_Walls`, `misc` (plus Revit's `Workset1` and `Shared Levels and Grids`: two from the standard present, two extras, three missing). Bind one shared parameter `AST_View Status` (instance, Views); do **not** bind `AST_Discipline`. | 1.3–1.4, 2.2–2.3 |
+| `Aster_Tower.rvt` | Workshared model from `AST_Template.rte`: link both DXFs and run the datum chain, or place 15 levels by hand; ~400 elements. Seed IDS failures: 40 doors whose type has no Fire Rating, 30 exterior walls with Function not set to Exterior, 12 views with default names, 5 sheets off the `AST-ARC-ZZ-nn` pattern, 1 workset `temp`. Save the central as `AST_ASTR26_Aster Tower.rvt` (matches the CDE guard). Project Setup → Web project = `aster-office`. | 1.5, 3.4–3.9 |
+| `photos/*.jpg` | Four photos of a plain block building, for Photo Massing. | 3.9 |
+
+`aster-ids.json` is produced by step 3.1 (compile the EIR); keep the compiled output here as the reference afterwards.
 
 ## Accounts (Supabase dashboard → Authentication → Users → Add user)
 `aster.owner@example.test` (owner) · `aster.bim@example.test` (lead) · `aster.arch@example.test` (contributor) · `client.reviewer@example.test` (viewer).
-Roles are granted in the web app Settings by the owner after the project exists.
+Roles are granted in the web app Settings by the owner after the project exists. Do not delete and recreate an
+account that already holds memberships — memberships point at the user id, and a recreated account gets a new one
+(found live on 2026-09-21).
 
 ## Bridge / add-in wiring
 - `%AppData%\Sentinel\bcf-config.json`: `serviceUrl` = the bridge, `projectId` = `aster-office`, `serviceToken` = the bridge token.
-- In Revit: Project Setup → Web project = `aster-office` (template) and `aster-tower` (the tower model).
+- In Revit: Project Setup → Web project = `aster-office` on **both** the template and the tower — an office is one project key, and a model's scan only counts for the readiness view if it carries the same key.
+- Check the bridge is the current one before starting: `netstat -ano | findstr :4100` should show one process, and `GET /bimdocs/templates` should list `READINESS`.

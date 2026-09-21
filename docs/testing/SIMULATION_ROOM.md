@@ -53,7 +53,7 @@ manager finds the same problems every time."
 |---|---|---|---|---|
 | 3.1 | Create `aster-tower`; ingest the client EIR; compile IDS | web | Documents (EIR → compile-ids) | 6 requirement sentences → IDS specs |
 | 3.2 | BEP clauses bound to the compiled checks | web | Documents | compliance strip per clause |
-| 3.3 | MIDP/TIDP: deliverables with purpose; import the 12-milestone programme CSV | web | Deliverables, 4D Sequence | derived status per deliverable; milestones on the timeline |
+| 3.3 | MIDP/TIDP: deliverables with purpose; import `programme.csv` (4D) and `programme-midp.json` (rebaseline rows) | web | Deliverables, 4D Sequence | derived status per deliverable; milestones on the timeline |
 | 3.4 | Governed Publish the tower model → rejected on IDS | Revit | Governed Publish, IFC Pre-Flight, IFC Delivery Gate | BCF topics `IDS: …`; receipt hash; verdict badge on the version |
 | 3.5 | BCF Issues → Fix in Revit → Check → Apply → Resolve | Revit | BCF Issues (Fix in Revit) | `✓ N/N pass … Resolved (audit id)`; re-publish accepted |
 | 3.6 | Publish Views / Publish Sheets / Quick Publish (ungoverned) / Auto-Publish on save | Revit | those four | web Project Files shows versions; ungoverned ones marked so |

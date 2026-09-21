@@ -1,0 +1,10 @@
+# Large binaries are built locally from the README recipes
+*.rvt
+*.rte
+*.dwg
+*.jpg
+*.jpeg
+*.png
+*.0*.rvt
+*.0*.rte
+*_backup/
