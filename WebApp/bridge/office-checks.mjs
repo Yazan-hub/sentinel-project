@@ -74,8 +74,12 @@ export function classifyTemplateTypes(catalog, ruleset) {
     : result(id, label, "violations", { count: bad.length, summary, evidence: bad.slice(0, EVIDENCE_CAP).map((t) => ({ label: t.category, detail: t.type })) });
 }
 
-export function classifyWorksets(worksets, ruleset) {
+export function classifyWorksets(worksets, ruleset, source) {
   const id = "office.worksets", label = "Worksets follow the office whitelist";
+  // A Revit template (.rte) cannot be workshared, so it can never carry worksets: judging one against the
+  // whitelist would be a violation the office cannot close. Measured only from a workshared model snapshot.
+  if (source?.kind === "template")
+    return result(id, label, "not_checkable", { reason: "Revit templates (.rte) cannot carry worksets — send the office snapshot from a workshared starter model to measure this; a live model's workset names are also judged by the scan (office.model_health, rule WS-01)." });
   const rule = (ruleset?.rules || []).find((r) => String(r.target).toLowerCase() === "workset" && (r.whitelist || []).length);
   if (!rule) return result(id, label, "not_checkable", { reason: "No workset whitelist rule in the office ruleset." });
   const want = new Set(rule.whitelist), have = new Set((worksets || []).map((w) => w.name));
@@ -155,7 +159,7 @@ export const OFFICE_CHECKS = [
   { id: "office.template_types", label: "Template types follow the type convention", description: "At least 90 % of the template's wall/floor/ceiling/roof/door/window types match the office's TN rules.", params_schema: {},
     async run(key) { return snapshotOr(key, (s) => s ? classifyTemplateTypes(s.catalog, s.ruleset) : noSnapshot("office.template_types", "Template types follow the type convention")); } },
   { id: "office.worksets", label: "Worksets follow the office whitelist", description: "Every whitelisted workset exists in the template and no others do.", params_schema: {},
-    async run(key) { return snapshotOr(key, (s) => s ? classifyWorksets(s.pack?.worksets, s.ruleset) : noSnapshot("office.worksets", "Worksets follow the office whitelist")); } },
+    async run(key) { return snapshotOr(key, (s) => s ? classifyWorksets(s.pack?.worksets, s.ruleset, s.source) : noSnapshot("office.worksets", "Worksets follow the office whitelist")); } },
   { id: "office.shared_params", label: "Required shared parameters exist", description: "Every parameter the ruleset requires is bound in the template.", params_schema: {},
     async run(key) { return snapshotOr(key, (s) => s ? classifySharedParams(s.pack?.shared_parameters, s.ruleset) : noSnapshot("office.shared_params", "Required shared parameters exist")); } },
   { id: "office.model_health", label: "Live model health", description: "The latest scan shows no blocking violations and at most 25 warnings.", params_schema: {},

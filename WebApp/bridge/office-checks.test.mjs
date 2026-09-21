@@ -127,6 +127,11 @@ describe("office.worksets — whitelist present, no extras", () => {
     expect(r.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ label: "missing", detail: "ARC_Doors" }), expect.objectContaining({ label: "extra", detail: "Workset1" })]));
   });
   it("no workset rule → not_checkable", () => { expect(classifyWorksets([], { org: "XXX", rules: [] }).status).toBe("not_checkable"); });
+  it("a template snapshot is not checkable — a .rte cannot carry worksets; a model snapshot is still judged", () => {
+    const r = classifyWorksets([], { org: "XXX", rules: [ws] }, { kind: "template", title: "XXX_Template" });
+    expect(r.status).toBe("not_checkable"); expect(r.reason).toMatch(/cannot carry worksets/);
+    expect(classifyWorksets([], { org: "XXX", rules: [ws] }, { kind: "model", title: "Starter" }).status).toBe("violations");
+  });
 });
 
 describe("office.shared_params — every parameter rule's parameter exists in the pack", () => {
