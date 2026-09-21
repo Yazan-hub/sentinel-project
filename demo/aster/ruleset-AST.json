@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "standard_key": "ast-std-001",
-  "semver": "1.5.0",
+  "semver": "1.0.0",
   "org": "AST",
   "doc_refs": {
     "rtg": "{org}-STD-001",
@@ -19,47 +19,35 @@
         "STR_Frame",
         "Shared Levels and Grids"
       ],
-      "message_en": "Workset '{name}' is not in the {org} 15-name whitelist.",
+      "message_en": "Workset '{name}' is not in the {org} workset whitelist.",
       "message_ar": "مجموعة العمل '{name}' غير مدرجة في قائمة {org} المعتمدة.",
-      "doc_ref": "{org}-RTG-001 §3.1"
+      "doc_ref": "{org}-STD-001 §4"
     },
     {
       "id": "VN-01",
       "target": "view",
       "mode": "request",
       "tokens": [
-        "PREFIX",
-        "BODY"
+        "DISC",
+        "LEVEL",
+        "TYPE",
+        "DESC"
       ],
       "token_defs": {
-        "PREFIX": "WIP|SH|SHEET|EXPORT|CO|ARC|INT|XX|STR|MEP",
-        "BODY": "[A-Za-z0-9/&\\- ]+(_[A-Za-z0-9/&\\- ]+)*"
+        "DISC": "ARC|INT|STR|MEP",
+        "LEVEL": "L\\d{2}|LRF|XX",
+        "TYPE": "PLAN|RCP|SEC|ELEV|DET|3D|SCH",
+        "DESC": "[A-Za-z0-9/&\\- ]+"
       },
       "separator": "_",
-      "whitelist": [
-        "NAVISWORKS",
-        "ARC_Sheets",
-        "ARC_Walls",
-        "ARC_Floors",
-        "ARC_Facade",
-        "ARC_Doors",
-        "ARC_Furniture",
-        "ARC_Interior",
-        "ARC_Links",
-        "INT_Walls",
-        "INT_Floors",
-        "INT_Ceilings",
-        "XX_Landscape",
-        "XX_MEP Modell",
-        "XX_STR Model"
-      ],
+      "whitelist": [],
       "exclusions": [
         "^<.*>",
         "^\\{3D"
       ],
-      "message_en": "View '{name}' does not match [PREFIX]_[TYPE]_[LEVEL]_[DESC].",
+      "message_en": "View '{name}' does not match [DISCIPLINE]_[LEVEL]_[TYPE]_[DESCRIPTION].",
       "message_ar": "اسم العرض '{name}' لا يطابق نمط التسمية المعتمد.",
-      "doc_ref": "{org}-RTG-001 §5"
+      "doc_ref": "{org}-STD-001 §2"
     },
     {
       "id": "VP-01",
@@ -72,40 +60,28 @@
       ],
       "message_en": "View '{name}': '{org}_View Status' is empty.",
       "message_ar": "العرض '{name}': حقل '{org}_View Status' فارغ.",
-      "doc_ref": "{org}-RTG-001 §4.2"
+      "doc_ref": "{org}-STD-001 §2"
     },
     {
       "id": "SN-01",
       "target": "sheet",
       "mode": "request",
       "tokens": [
-        "PROJECT",
-        "ORIGINATOR",
-        "TYPE",
-        "DISCIPLINE",
+        "ORG",
+        "DISC",
         "ZONE",
-        "VENUE",
-        "LEVEL",
-        "NUMBER",
-        "SUITABILITY",
-        "REVISION"
+        "NUM"
       ],
       "token_defs": {
-        "PROJECT": "[A-Z]{2,5}\\d{4,6}",
-        "ORIGINATOR": "[A-Z]{2,5}",
-        "TYPE": "[A-Z]{2}(-[A-Z]{2})?",
-        "DISCIPLINE": "[A-Z]{2,4}",
-        "ZONE": "ZZ|Z\\d|XX|\\d{2}",
-        "VENUE": "[A-Z0-9]{2}",
-        "LEVEL": "XX|\\d{2}|B\\d",
-        "NUMBER": "\\d{4}",
-        "SUITABILITY": "S\\d|A\\d|B\\d|CR",
-        "REVISION": "[PC]\\d{2}"
+        "ORG": "{org}",
+        "DISC": "ARC|INT|STR|MEP",
+        "ZONE": "ZZ|Z\\d{1,2}",
+        "NUM": "\\d{2}"
       },
       "separator": "-",
-      "message_en": "Sheet '{name}' does not match the 11-field ISO 19650 container string.",
+      "message_en": "Sheet '{name}' does not match {org}-[DISCIPLINE]-[ZONE]-[nn].",
       "message_ar": "رقم اللوحة '{name}' لا يطابق سلسلة ISO 19650.",
-      "doc_ref": "{org}-BIM-001 §4.1"
+      "doc_ref": "{org}-STD-001 §2"
     },
     {
       "id": "FN-01",
@@ -131,7 +107,7 @@
       ],
       "message_en": "Family '{name}' does not match {org}_[LOCATION]_[TYPE]_[VARIANT].",
       "message_ar": "العائلة '{name}' لا تطابق نمط تسمية {org}.",
-      "doc_ref": "{org}-RTG-001 §8.1"
+      "doc_ref": "{org}-STD-001 §3"
     },
     {
       "id": "TN-01",
@@ -198,8 +174,8 @@
         "LEVEL": "(L\\d{2}|LB\\d|LMZ|LRF)_(FFL|SSL)|STREET LEVEL"
       },
       "separator": "_",
-      "message_en": "Level '{name}' not in proposed pattern LXX_FFL/SSL (V1.5 contribution).",
-      "doc_ref": "Proposed V1.5"
+      "message_en": "Level '{name}' does not match Lnn_FFL / Lnn_SSL.",
+      "doc_ref": "{org}-STD-001 (proposed)"
     },
     {
       "id": "GR-01",
@@ -212,8 +188,8 @@
         "GRID": "[A-Z]{1,2}|\\d{1,3}"
       },
       "separator": "_",
-      "message_en": "Grid '{name}' is not letters-or-numbers (V1.5 contribution).",
-      "doc_ref": "Proposed V1.5"
+      "message_en": "Grid '{name}' is not letters-or-numbers.",
+      "doc_ref": "{org}-STD-001 (proposed)"
     }
   ]
 }
