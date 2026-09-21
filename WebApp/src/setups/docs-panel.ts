@@ -858,12 +858,19 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       }
     }
 
-    body.replaceChildren();
+    body.replaceChildren(Object.assign(document.createElement("div"), { textContent: "Computing readiness — running the measured checks…", style: "color:#9ca3af;font:12px system-ui;padding:.6rem" }));
     const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
     let rep: Readiness | null = null;
     try { rep = await api(`/${encodeURIComponent(pid())}/${doc.id}/readiness`); } catch (e: any) { msg(`Readiness could not be computed: ${e.message}`, true); }
     let comments: Comment[] = [];
     try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* optional */ }
+    let members: { email: string; role: string }[] = [];
+    if (canGovern()) {
+      try {
+        const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`);
+        if (r.ok) members = ((await r.json()) as { email: string; role: string }[]).filter((m) => String(m.email || "").includes("@"));
+      } catch { /* the owner picker then offers the current value only */ }
+    }
     const resultsFor = (sid: string) => rep?.sections.find((s) => s.section_id === sid)?.results ?? [];
     const itemFor = (sid: string) => rep ? [...rep.score.overall.measured.items, ...rep.score.overall.declared.items].find((i) => i.section_id === sid) : undefined;
 
@@ -888,8 +895,47 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       tbl.append(tb); planBox.append(tbl);
     };
 
+    // In-place updates: a save must never blank the page. Each item registers the bits that change; the scores
+    // refresh in the background (the measured checks take seconds) and only numbers, chips and the plan are touched.
+    const ui = new Map<string, { chip: HTMLElement; who: HTMLElement; by: HTMLElement; closes: HTMLElement }>();
+    const overallStrip = document.createElement("div");
+    const pillarStrip = Object.fromEntries(PILLARS.map((p) => [p, document.createElement("div")])) as unknown as Record<(typeof PILLARS)[number], HTMLElement>;
+    const scoreNote = document.createElement("span");
+    scoreNote.style.cssText = "font:400 11px system-ui;color:#9ca3af;margin-left:.5rem";
+    const paintScores = () => {
+      const r0 = rep;
+      if (!r0) return;
+      overallStrip.replaceChildren(threeNumbers(r0.score.overall));
+      for (const p of PILLARS) pillarStrip[p].replaceChildren(threeNumbers(r0.score.pillars[p]));
+      for (const [sid, u] of ui) {
+        const it = itemFor(sid);
+        if (!it) continue;
+        const fresh = verdictChip(it.verdict); u.chip.replaceWith(fresh); u.chip = fresh;
+        u.closes.textContent = r0.plan.find((row) => row.section_id === sid)?.closes_when ?? "";
+      }
+      renderPlan();
+    };
+    const refreshScores = async () => {
+      scoreNote.textContent = "updating…";
+      try { rep = await api(`/${encodeURIComponent(pid())}/${doc.id}/readiness`); paintScores(); scoreNote.textContent = ""; }
+      catch (e: any) { scoreNote.textContent = "numbers not refreshed"; msg(`Readiness could not be refreshed: ${e.message}`, true); }
+    };
+    const applyRow = (row: Doc, s: Section) => {
+      doc.updated_at = row.updated_at;
+      const ns = row.sections.find((x) => x.id === s.id);
+      if (ns) Object.assign(s, ns);
+      const u = ui.get(s.id);
+      if (!u) return;
+      u.who.textContent = [s.owner, s.due].filter(Boolean).join(" · ");
+      if (s.kind === "declared") {
+        const fresh = verdictChip(s.answer?.value ?? "unanswered"); u.chip.replaceWith(fresh); u.chip = fresh;
+        u.by.textContent = s.answer ? `answered ${s.answer.value} by ${s.answer.by} on ${s.answer.at.slice(0, 10)}` : "";
+      }
+    };
+
     const render = () => {
       body.replaceChildren();
+      ui.clear();
       if (rep) {
         const head = document.createElement("div");
         head.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.5rem .6rem;margin-bottom:.5rem;background:#141418";
@@ -899,7 +945,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           rep.evidence.snapshot ? `Office snapshot: ${rep.evidence.snapshot.source.title} (${rep.evidence.snapshot.at.slice(0, 10)})` : "Office snapshot: none received — in Revit: Build Office System → Send office snapshot",
           rep.evidence.scan ? `Model scan: ${rep.evidence.scan.doc_title} (${rep.evidence.scan.at.slice(0, 10)})` : "Model scan: none received — synchronise a model with the add-in",
         ].join("  ·  ");
-        head.append(Object.assign(document.createElement("div"), { textContent: "Overall", style: "font:600 12px system-ui;color:#eee" }), threeNumbers(rep.score.overall), ev);
+        const headTitle = Object.assign(document.createElement("div"), { textContent: "Overall", style: "font:600 12px system-ui;color:#eee" });
+        headTitle.append(scoreNote);
+        head.append(headTitle, overallStrip, ev);
         body.append(head);
       }
       body.append(planBox);
@@ -912,12 +960,14 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         gs.style.cssText = "padding:.45rem .6rem;cursor:pointer;list-style:none;font:600 12px system-ui;color:#eee";
         gs.textContent = PILLAR_TITLE[p];
         group.append(gs);
-        if (rep) group.append(Object.assign(threeNumbers(rep.score.pillars[p]), { style: "padding:.2rem .6rem .4rem;font:12px system-ui;color:#c9cfda;display:flex;flex-wrap:wrap;gap:.8rem" }));
+        pillarStrip[p].style.cssText = "padding:0 .6rem .2rem";
+        if (rep) group.append(pillarStrip[p]);
         for (const s of doc.sections.filter((x) => x.pillar === p)) group.append(itemEl(s));
         body.append(group);
       }
       const rest = doc.sections.filter((x) => !PILLARS.includes(x.pillar as any));
       for (const s of rest) body.append(itemEl(s));
+      paintScores();
     };
 
     const itemEl = (s: Section): HTMLElement => {
@@ -927,7 +977,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       const sum = document.createElement("summary");
       sum.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;cursor:pointer;list-style:none";
       const h = document.createElement("span"); h.style.cssText = "flex:1;font:600 12px system-ui;color:#eee"; h.textContent = s.heading;
-      sum.append(h, verdictChip(it?.verdict ?? (s.kind === "measured" ? "not_checkable" : "unanswered")));
+      const chipEl = verdictChip(it?.verdict ?? (s.kind === "measured" ? "not_checkable" : "unanswered"));
+      sum.append(h, chipEl);
+      const by = document.createElement("div"); by.style.cssText = "font:10.5px system-ui;color:#9ca3af";
       const who = document.createElement("span"); who.style.color = "#71717a"; who.textContent = [s.owner, s.due].filter(Boolean).join(" · "); sum.append(who);
       const inner = document.createElement("div");
       inner.style.cssText = "padding:.5rem .6rem;display:flex;flex-direction:column;gap:.4rem";
@@ -956,32 +1008,39 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           ev.preventDefault();
           if (!value) return msg("Pick yes, partial or no first.", true);
           try {
-            await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/answer`, { method: "PUT", body: JSON.stringify({ value, note: note.value, updated_at: doc.updated_at, actor: await actor() }) });
-            showEditor(doc.id);
+            const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/answer`, { method: "PUT", body: JSON.stringify({ value, note: note.value, updated_at: doc.updated_at, actor: await actor() }) });
+            applyRow(row, s); msg("Answer saved."); void refreshScores();
           } catch (e: any) { msg(e.message, true); }
         };
         row.append(note, saveA);
-        if (s.answer) { const by = document.createElement("div"); by.style.cssText = "font:10.5px system-ui;color:#9ca3af"; by.textContent = `answered ${s.answer.value} by ${s.answer.by} on ${s.answer.at.slice(0, 10)}`; inner.append(by); }
-        inner.append(row);
+        by.textContent = s.answer ? `answered ${s.answer.value} by ${s.answer.by} on ${s.answer.at.slice(0, 10)}` : "";
+        inner.append(by, row);
       }
 
       // plan fields — lead and above
       const plan = document.createElement("div"); plan.style.cssText = "display:flex;gap:.4rem;align-items:center;flex-wrap:wrap";
-      const ownerIn = document.createElement("input"); ownerIn.placeholder = "owner (email)"; ownerIn.value = s.owner || ""; ownerIn.disabled = !(editable && canGovern());
-      ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:180px";
+      const ownerIn = document.createElement("select"); ownerIn.disabled = !(editable && canGovern());
+      ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:240px";
+      ownerIn.append(new Option("— owner —", ""));
+      for (const e of [...new Set([...(s.owner ? [s.owner] : []), ...members.map((m) => m.email)])]) {
+        const m = members.find((x) => x.email === e);
+        ownerIn.append(new Option(m ? `${e} (${m.role})` : e, e));
+      }
+      ownerIn.value = s.owner || "";
       const dueIn = document.createElement("input"); dueIn.type = "date"; dueIn.value = s.due || ""; dueIn.disabled = !(editable && canGovern());
       dueIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem";
       const saveP = btn("Save plan"); saveP.disabled = !(editable && canGovern());
       saveP.onclick = async (ev) => {
         ev.preventDefault();
         try {
-          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/plan`, { method: "PUT", body: JSON.stringify({ owner: ownerIn.value || null, due: dueIn.value || null, updated_at: doc.updated_at, actor: await actor() }) });
-          showEditor(doc.id);
+          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/plan`, { method: "PUT", body: JSON.stringify({ owner: ownerIn.value || null, due: dueIn.value || null, updated_at: doc.updated_at, actor: await actor() }) });
+          applyRow(row, s); msg("Plan saved."); void refreshScores();
         } catch (e: any) { msg(e.message, true); }
       };
       const closes = document.createElement("span"); closes.style.cssText = "font:11px system-ui;color:#9ca3af";
       closes.textContent = rep?.plan.find((r) => r.section_id === s.id)?.closes_when ?? "";
       plan.append(ownerIn, dueIn, saveP, closes);
+      ui.set(s.id, { chip: chipEl, who, by, closes });
       inner.append(plan, commentThreadEl(doc, s.id, comments));
       sec.append(sum, inner);
       return sec;
