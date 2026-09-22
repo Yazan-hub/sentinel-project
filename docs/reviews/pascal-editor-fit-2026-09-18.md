@@ -1,5 +1,7 @@
 # Pascal Editor — fit assessment for Sentinel (2026-09-18)
 
+> Consolidated into the plan: [`docs/FEATURES_UPDATE_2026-09.md`](../FEATURES_UPDATE_2026-09.md).
+
 Inspiration: <https://editor.pascal.app/> (source: `github.com/pascalorg/editor`).
 The site itself is unreachable from the analysis environment; everything below
 comes from the repository README, the `packages/mcp`, `packages/ifc-converter`

@@ -1,5 +1,7 @@
 # LinkedIn inspiration review — 2026-09-18
 
+> Consolidated into the plan: [`docs/FEATURES_UPDATE_2026-09.md`](../FEATURES_UPDATE_2026-09.md).
+
 Two posts were handed in as inspiration. This note records what they show, how
 each fits Sentinel's thesis, and what is worth building. Written while a live
 test session was running, so it deliberately touches no code and adds no test
