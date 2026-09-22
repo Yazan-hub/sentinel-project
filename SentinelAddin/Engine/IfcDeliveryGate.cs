@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -94,7 +96,7 @@ public static class IfcDeliveryGate
 
         foreach (var req in contract.RequiredEntities)
         {
-            r.EntityCounts.TryGetValue(req.Entity.ToUpperInvariant(), out var count);
+            int count = CountWithSubtypes(r.EntityCounts, req.Entity);
             if (count < req.MinCount)
                 r.Failures.Add($"{req.Entity}: {count} found, contract requires ≥ {req.MinCount}.");
         }
@@ -150,6 +152,30 @@ public static class IfcDeliveryGate
 
         RoiTracker.Log("cde", "IFC gate " + (r.Passed ? "PASS" : "FAIL") + ": " + Path.GetFileName(ifcPath));
         return r;
+    }
+
+    /// <summary>IFC subtypes that satisfy a contract's required entity. Revit's IFC2x3 export writes every
+    /// basic wall as IFCWALLSTANDARDCASE, so a contract asking for IFCWALL saw 0 walls in a 196-wall model
+    /// (found live in the simulation room). The subtype IS the supertype for a "≥ N" requirement.</summary>
+    private static readonly Dictionary<string, string[]> Subtypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["IFCWALL"]   = new[] { "IFCWALLSTANDARDCASE", "IFCWALLELEMENTEDCASE" },
+        ["IFCSLAB"]   = new[] { "IFCSLABSTANDARDCASE", "IFCSLABELEMENTEDCASE" },
+        ["IFCBEAM"]   = new[] { "IFCBEAMSTANDARDCASE" },
+        ["IFCCOLUMN"] = new[] { "IFCCOLUMNSTANDARDCASE" },
+        ["IFCDOOR"]   = new[] { "IFCDOORSTANDARDCASE" },
+        ["IFCWINDOW"] = new[] { "IFCWINDOWSTANDARDCASE" },
+        ["IFCMEMBER"] = new[] { "IFCMEMBERSTANDARDCASE" },
+        ["IFCPLATE"]  = new[] { "IFCPLATESTANDARDCASE" },
+    };
+
+    internal static int CountWithSubtypes(IReadOnlyDictionary<string, int> counts, string entity)
+    {
+        string key = entity.ToUpperInvariant();
+        counts.TryGetValue(key, out int n);
+        if (Subtypes.TryGetValue(key, out var subs))
+            foreach (var sub in subs) if (counts.TryGetValue(sub, out int m)) n += m;
+        return n;
     }
 
     private static bool IsBuildingElement(string entity) => entity switch
