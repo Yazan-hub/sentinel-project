@@ -572,7 +572,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         if (r.ok) for (const m of (await r.json()) as { email: string; role: string }[])
           if (String(m.email || "").includes("@")) leadList.append(new Option(`${m.role}`, m.email));
       } catch { /* free text still works */ }
-      leadI.after(leadList);
+      form.append(leadList);   // the input is not in the DOM yet — a datalist only works once it is attached
       const discI = field("Discipline (optional)", "100%", editing.discipline || "");
       const apptI = field("Appointment, e.g. lead / delivery (optional)", "100%", editing.appointment || "");
       const notesI = field("Notes (optional)", "100%", editing.notes || "");
