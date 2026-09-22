@@ -29,6 +29,8 @@ The script for the run itself is `docs/testing/SIMULATION_ROOM.md`.
 | `Aster_Tower.rvt` | New project from `AST_Template.rte`, then Collaborate → Worksets to enable worksharing; create worksets `ARC_Walls` and `misc` beside Revit's `Workset1` and `Shared Levels and Grids` (two from the standard present, two extras, three missing): link both DXFs and run the datum chain, or place 15 levels by hand; ~400 elements. Seed IDS failures: 40 doors whose type has no Fire Rating, 30 exterior walls with Function not set to Exterior, 12 views with default names, 5 sheets off the `AST-ARC-ZZ-nn` pattern, 1 workset `temp`. Save the central as `AST_ASTR26_Aster Tower.rvt` (matches the CDE guard). Project Setup → Web project = `aster-office`. | 1.5, 3.4–3.9 |
 | `photos/seagram-01…04.jpg` | Four whole-building views of the Seagram Building, New York (a plain box on a plaza), from Wikimedia Commons — one public domain, three CC BY-SA. Not committed; authors, licences and source links are in `photos/CREDITS.md`, which must travel with the images. | 3.9 |
 
+`assessment-1.md`, `assessment-2.md`, `assessment-3.md` are the three published readiness reports from the first run (2026-09-21/22); the run record is `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md`.
+
 `aster-ids.json` is produced by step 3.1 (compile the EIR); keep the compiled output here as the reference afterwards.
 
 ## Accounts (Supabase dashboard → Authentication → Users → Add user)
