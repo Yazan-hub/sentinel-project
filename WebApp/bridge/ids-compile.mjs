@@ -45,6 +45,25 @@ export const PROPERTY_VOCAB = [
   [/\breference\b/i, "Reference"],
 ];
 
+/** The buildingSMART common pset a property lives in for a given entity. When the prose names a
+ *  property but no pset (the normal case in an EIR), the standard pset is the only honest inference —
+ *  an adjudicator cannot look up "FireRating" without knowing where. Unknown pairs stay null and are
+ *  reported as such, never guessed. */
+export const STANDARD_PSETS = {
+  IFCDOOR: { FireRating: "Pset_DoorCommon", IsExternal: "Pset_DoorCommon", Reference: "Pset_DoorCommon", AcousticRating: "Pset_DoorCommon", ThermalTransmittance: "Pset_DoorCommon" },
+  IFCWINDOW: { ThermalTransmittance: "Pset_WindowCommon", IsExternal: "Pset_WindowCommon", Reference: "Pset_WindowCommon", FireRating: "Pset_WindowCommon", AcousticRating: "Pset_WindowCommon" },
+  IFCWALL: { IsExternal: "Pset_WallCommon", LoadBearing: "Pset_WallCommon", FireRating: "Pset_WallCommon", Reference: "Pset_WallCommon", ThermalTransmittance: "Pset_WallCommon", AcousticRating: "Pset_WallCommon", Combustible: "Pset_WallCommon", SurfaceSpreadOfFlame: "Pset_WallCommon" },
+  IFCSLAB: { IsExternal: "Pset_SlabCommon", LoadBearing: "Pset_SlabCommon", FireRating: "Pset_SlabCommon", Reference: "Pset_SlabCommon", ThermalTransmittance: "Pset_SlabCommon" },
+  IFCROOF: { IsExternal: "Pset_RoofCommon", FireRating: "Pset_RoofCommon", Reference: "Pset_RoofCommon", ThermalTransmittance: "Pset_RoofCommon" },
+  IFCCOLUMN: { LoadBearing: "Pset_ColumnCommon", FireRating: "Pset_ColumnCommon", Reference: "Pset_ColumnCommon", IsExternal: "Pset_ColumnCommon" },
+  IFCBEAM: { LoadBearing: "Pset_BeamCommon", FireRating: "Pset_BeamCommon", Reference: "Pset_BeamCommon", IsExternal: "Pset_BeamCommon" },
+  IFCSPACE: { Reference: "Pset_SpaceCommon", IsExternal: "Pset_SpaceCommon" },
+  IFCSTAIR: { FireRating: "Pset_StairCommon", Reference: "Pset_StairCommon", IsExternal: "Pset_StairCommon" },
+  IFCRAILING: { Reference: "Pset_RailingCommon", IsExternal: "Pset_RailingCommon" },
+  IFCCURTAINWALL: { IsExternal: "Pset_CurtainWallCommon", FireRating: "Pset_CurtainWallCommon", Reference: "Pset_CurtainWallCommon", ThermalTransmittance: "Pset_CurtainWallCommon" },
+};
+export const standardPset = (entity, property) => STANDARD_PSETS[entity]?.[property] ?? null;
+
 const REQUIREMENT = /\b(shall|must|is required to|are required to|mandatory)\b/i;
 const CARDINALITY_PROHIBITED = /\b(shall not|must not|is prohibited|are prohibited|no .{0,30} shall)\b/i;
 
@@ -128,7 +147,7 @@ export function compileIds(text, { title = "Compiled from requirements" } = {}) 
       applicability: { entity },
       requirements: {
         properties: [{
-          pset: psetHit?.pset || null,
+          pset: psetHit?.pset || standardPset(entity, property),
           name: property,
           cardinality: prohibited ? "prohibited" : "required",
           ...(value ? { value } : {}),

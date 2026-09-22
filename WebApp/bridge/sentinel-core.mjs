@@ -1201,9 +1201,14 @@ function attrValue(el, name) {
 }
 function propValue(el, pset, name) {
   const groups = [...el.psets ?? [], ...el.quantities ?? []];
-  const g = groups.find((x) => (x?.name ?? "").toLowerCase() === pset.toLowerCase());
-  const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
-  return row?.value;
+  // No pset named (a compiled requirement the prose did not locate): the property is searched in every
+  // group rather than throwing on null — a requirement must yield a verdict or a reason, never a crash.
+  const candidates = pset ? groups.filter((x) => (x?.name ?? "").toLowerCase() === String(pset).toLowerCase()) : groups;
+  for (const g of candidates) {
+    const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
+    if (row) return row.value;
+  }
+  return void 0;
 }
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -97,4 +97,17 @@ describe("compileIds", () => {
   it("tolerates empty and non-string input", () => {
     for (const bad of ["", null, undefined, 7]) expect(compileIds(bad).specifications).toEqual([]);
   });
+
+  it("infers the buildingSMART common pset when the prose names only the property (an EIR never says Pset_DoorCommon)", () => {
+    const r = compileIds("Every door shall carry a fire rating. All walls shall state whether the wall is external. Every window shall carry a thermal transmittance (U-value). Every room shall carry a reference.");
+    const by = Object.fromEntries(r.specifications.map((s) => [s.applicability.entity, s.requirements.properties[0]]));
+    expect(by.IFCDOOR).toMatchObject({ pset: "Pset_DoorCommon", name: "FireRating" });
+    expect(by.IFCWALL).toMatchObject({ pset: "Pset_WallCommon", name: "IsExternal" });
+    expect(by.IFCWINDOW).toMatchObject({ pset: "Pset_WindowCommon", name: "ThermalTransmittance" });
+    expect(by.IFCSPACE).toMatchObject({ pset: "Pset_SpaceCommon", name: "Reference" });
+  });
+  it("keeps pset null when no standard pset is known, never guesses", () => {
+    const r = compileIds("Every pipe shall carry a fire rating.");
+    expect(r.specifications[0].requirements.properties[0].pset).toBeNull();
+  });
 });
