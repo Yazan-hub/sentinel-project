@@ -51,6 +51,19 @@ describe("deriveStatus — delivered vs late", () => {
   });
 });
 
+describe("deriveStatus — the CDE stores file names, the plan stores container names", () => {
+  it("matches ignoring the file extension and case (a Revit publish arrives as NAME.ifc)", () => {
+    const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001.ifc", [ver("published", "2026-06-01")])], TODAY);
+    expect(rows[0].status).toBe("delivered");
+    const { rows: r2 } = deriveStatus([row({ container_name: "prj-arc-m3-0001" })], [file("PRJ-ARC-M3-0001.IFC", [ver("wip", "2026-06-01")])], TODAY);
+    expect(r2[0].status).toBe("in_wip");
+  });
+  it("does not strip a non-file suffix", () => {
+    const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001.rev", [ver("published", "2026-06-01")])], TODAY);
+    expect(rows[0].status).toBe("overdue");
+  });
+});
+
 describe("deriveStatus — arrived but not published", () => {
   it("a container with only WIP versions is in_wip, never delivered", () => {
     const { rows } = deriveStatus([row()], [file("PRJ-ARC-M3-0001", [ver("wip", "2026-06-01")])], TODAY);

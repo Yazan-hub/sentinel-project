@@ -58,8 +58,13 @@ const daysBetween = (fromIso, toIso) =>
  * @param files listFiles() output (versions newest-first)
  * @param today "YYYY-MM-DD" — injected so results are deterministic and testable
  */
+/** A deliverable is planned by container name; the CDE stores the file name. Match ignoring a file
+ *  extension and case — found live: a governed publish of "ASTR26-AST-ZZ-XX-M3-A-0001.ifc" never matched
+ *  the planned "ASTR26-AST-ZZ-XX-M3-A-0001", so the milestone stayed "pending" after delivery. */
+export const containerKey = (name) => String(name || "").trim().replace(/\.(ifc|ifczip|rvt|nwc|nwd|pdf|dwg|zip)$/i, "").toLowerCase();
+
 export function deriveStatus(rows, files, today) {
-  const byName = new Map((files || []).map((f) => [String(f.iso_name || "").trim(), f]));
+  const byName = new Map((files || []).map((f) => [containerKey(f.iso_name), f]));
   const summary = {
     total: 0, delivered: 0, late: 0, in_wip: 0, overdue: 0, pending: 0, unscheduled: 0,
     exceptions: 0, revision_met: 0, revision_mismatch: 0, suitability_met: 0, suitability_mismatch: 0,
@@ -68,7 +73,7 @@ export function deriveStatus(rows, files, today) {
 
   const out = (rows || []).map((r) => {
     const name = String(r.container_name || "").trim();
-    const f = byName.get(name);
+    const f = byName.get(containerKey(name));
     const versions = f?.versions || [];
 
     // Earliest publication is the honest delivery date: a later re-issue does not undo having met
