@@ -16,6 +16,7 @@ The script for the run itself is `docs/testing/SIMULATION_ROOM.md`.
 | `aster-naming-ruleset.json` | The container naming ruleset of `AST-STD-001`, same shape as `WebApp/bridge/naming-ruleset.json` (7 fields, enforce `reject`). | all 12 MIDP names pass; `Aster_Tower_final_v2` is rejected | 2.7 |
 | `programme.csv` | 12 tasks, `name,start,finish,categories` — the 4D importer's format (categories are IFC classes without the `IFC` prefix, `;`-separated). | `csvToSchedule` → 12 tasks | 3.3 |
 | `programme-midp.json` | 12 deliverables as `[{container_name, due_date}]` — the rebaseline importer's format; names follow the Aster ruleset. Shift the dates by two weeks for the slip in 3.10. | names validated against the ruleset | 3.3, 3.10 |
+| `programme-midp.txt` | The same 12 deliverables as tab-separated rows (`container, title, team, due, stage, revision, suitability`) — paste into Deliverables → **Paste schedule**. | matches the panel's parser | 3.3 |
 | `ruleset-AST.json` | The shipped add-in ruleset with `org: "AST"`, WS-01 whitelist = the five worksets of the standard, doc refs `{org}-STD-001`. No pilot literal anywhere. Install to `%AppData%\Sentinel\ruleset.json` for act 2 (back up the pilot's first). | asserted free of `BDS` | 2.1 |
 | `dwg/aster-levels-section.dxf` | 15 level lines with labels `L00_FFL +0.00` … `LRF_FFL +47.40` (mm). DXF, not DWG — Revit links/imports it the same way. | hand-written R12 ASCII | 3.9 |
 | `dwg/aster-grid-plan.dxf` | 5 × 6 grid at 7.5 m, labels A–E and 1–6. | hand-written R12 ASCII | 3.9 |
