@@ -683,9 +683,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     bar.append(aiPicker());
     // document-level transitions (governance)
     if (canGovern()) {
-      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
+      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
       for (const to of next[doc.status] || []) {
-        const b = btn(to === "published" ? "Publish…" : `→ ${to}`, to === "published");
+        const b = btn(to === "published" ? "Publish…" : doc.status === "published" && to === "wip" ? "→ wip (next revision)" : `→ ${to}`, to === "published");
         b.onclick = async () => {
           try {
             if (to === "published") {
@@ -841,9 +841,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     planBtn.onclick = () => { showPlan = !showPlan; renderPlan(); };
     bar.append(back, title, versBtn, reportBtn, planBtn);
     if (canGovern()) {
-      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["archived"], archived: ["wip"] };
+      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
       for (const to of next[doc.status] || []) {
-        const b = btn(to === "published" ? "Publish…" : `→ ${to}`, to === "published");
+        const b = btn(to === "published" ? "Publish…" : doc.status === "published" && to === "wip" ? "→ wip (next revision)" : `→ ${to}`, to === "published");
         b.onclick = async () => {
           try {
             if (to === "published") {

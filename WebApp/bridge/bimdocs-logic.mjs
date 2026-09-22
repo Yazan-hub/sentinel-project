@@ -45,7 +45,9 @@ export function instantiateTemplate(template, { title, actor } = {}) {
 export const ALLOWED_TRANSITIONS = {
   wip: ["shared", "archived"],
   shared: ["wip", "published", "archived"],
-  published: ["archived"],
+  // published → wip starts the NEXT revision: the published version row is append-only and stays frozen;
+  // only the working copy moves. Found live: an office re-assessing itself had to go via archived first.
+  published: ["wip", "archived"],
   archived: ["wip"],
 };
 

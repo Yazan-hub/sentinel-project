@@ -39,7 +39,8 @@ describe("validateTransition", () => {
     expect(validateTransition("published", "archived")).toBe(true);
     expect(validateTransition("archived", "wip")).toBe(true);
     expect(validateTransition("wip", "published")).toBe(false); // must go through shared
-    expect(validateTransition("published", "wip")).toBe(false); // published is immutable
+    expect(validateTransition("published", "wip")).toBe(true);  // next revision — the published VERSION row stays immutable
+    expect(validateTransition("published", "shared")).toBe(false);
     expect(validateTransition("nope", "wip")).toBe(false);
   });
   it("exposes the transition table", () => {
