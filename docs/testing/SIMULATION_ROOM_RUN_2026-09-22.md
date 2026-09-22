@@ -1,4 +1,4 @@
-# Simulation room — run record, 2026-09-21 → 22 (Aster Studio)
+# Simulation room — run record, 2026-09-21 → 23 (Aster Studio)
 
 The first run of `SIMULATION_ROOM.md`. The operator played Aster Studio; Claude drove the bridge, the
 Revit MCP for seeding, and the fixes. Every pass below is backed by a bridge audit id, a downloaded file or
@@ -7,8 +7,10 @@ a screenshot; every tool not exercised is marked **not run**, never assumed.
 **Headline:** the office readiness assessment moved from **3 met / 8 violation** (Assessment 1) to
 **8 met / 3 violation** (Assessment 2 and 3) using only Sentinel's own tools plus one honest workaround,
 and the first project ran the full referee loop: governed publish rejected → fixed in Revit → re-judged →
-accepted with a verifiable receipt (audits 640 → 643 → 657). Thirty-five findings were logged; nineteen
-were fixed during the run.
+accepted with a verifiable receipt (audits 640 → 643 → 657). Forty-six findings were logged; twenty-one
+were fixed during the run. The governed-AI act ran end to end (grid applied, wall declined, level
+withdrawn, each with a note in the ledger). The datum → ghost → annotate → massing chain ran on the
+Aster template and exposed the pilot's guideline as the machine's only office profile (F43/F44).
 
 ## Acts
 
@@ -16,8 +18,8 @@ were fixed during the run.
 |---|---|---|
 | 1 Assessment | 1.1–1.10 all | READINESS v1 (audit 514): measured 3/8/2, 17 declared answers by the lead, 21 plan rows, report md |
 | 2 Setup | 2.1–2.8 all | v2: 8/3/2. Ruleset `org: AST` (item 5 met), bulk type rename 109/115 = 95 % (item 3 met, done outside the tool — audit 526 says so), worksets built from the PDF, 212 families healed, 3 task teams (item 12), BEP 5/10 controlling (item 19), pack `ast-std-001` (item 7) |
-| 3 First project | 3.1–3.7, 3.10 | EIR ingested + compiled (5 specs, 1 unmatched); BEP bound; 12 deliverables; gate PASS after trims; IDS rejected 42 doors (bd320d2c) → Fix in Revit 42/42 → Resolved with receipt; renamed central → ACCEPTED, published v2, deliverable **delivered** with 2 honest exceptions (v2/S0 vs P01/S2); weekly report; rebaseline +14 d applied |
-| 4 Governed AI | 4.3 only | Receipt 657 verifies; a tampered copy is refused with the reason. 4.1/4.2/4.4 **not run** |
+| 3 First project | 3.1–3.7, 3.9, 3.10 | EIR ingested + compiled (5 specs, 1 unmatched); BEP bound; 12 deliverables; gate PASS after trims; IDS rejected 42 doors (bd320d2c) → Fix in Revit 42/42 → Resolved with receipt; renamed central → ACCEPTED, published v2, deliverable **delivered** with 2 honest exceptions (v2/S0 vs P01/S2); weekly report; rebaseline +14 d applied. 3.9 on a fresh project from the template: 11 grids + 14 levels from the two DXFs (F40 "(2)" names, F41 inches ×25.4 — both fixed), Ghost Builder empty/ceiling proposal (F45), Annotate 96 views with the pilot's names and templates (F44), Photo Massing placed 0 (F43/F46). 3.8 **not run** (no MEP link) |
+| 4 Governed AI | 4.1–4.4 | 4.1 the agent posted three changesets (grid, wall, level) via the API; 4.2 Review AI Proposals: grid **applied** 11/11 with a note (c85e6da9), wall **declined** with the note "Cuts through the core — rejected" (f2fc0969), level **withdrawn** by the agent (f61222c4, audit 685); 4.3 receipt 657 verifies, a tampered copy is refused; 4.4 ROI Dashboard opens (F39) |
 | 5 Handover | 5.2, 5.3 | Assessment 3 published (v3); matrix below |
 
 Assessment 1 → 3, measured items: template types 0 → 109/115 · shared params missing → met · naming standard none → `ast-std-001` · task teams none → 3 · BEP 0 % → 50 % · roles met throughout · worksets honestly *not checkable* from a `.rte` · model health 103 → 85 warn (still > 25) · CDE states and container names remain violations on the office key (the delivered container lives on `aster-tower` — see F23).
@@ -31,10 +33,10 @@ Status: **pass** (evidence) · **fail** (finding) · **not run**.
 |---|---|---|
 | Show Panel | pass | scan panel populated on open (1.5) |
 | Scan Now | pass | scan received, audits 466/516/533 |
-| Health Scorecard | not run | |
+| Health Scorecard | pass | 18.3 % F, 277 issues — consistent with the scan |
 | Rule Set | pass, F8 | showed `AST` after swap; pilot wording leaked from ruleset data |
-| Change Requests | not run | |
-| Review Flag | not run | |
+| Change Requests | pass | opens, 0 pending — nothing tracked changed since the snapshot |
+| Review Flag | pass | creates `ZZZ_ReviewStatus`; names the one Browser Organization step the API cannot do |
 | Project Setup | pass | web project per document; F23 (office vs project key) |
 | Build Office System | pass | snapshot button + refusal guard for document packs |
 | Send office snapshot | pass, F13 | audits 434/465/515/532; first post 500ed (fixed 0a2b09d) |
@@ -43,7 +45,7 @@ Status: **pass** (evidence) · **fail** (finding) · **not run**.
 | Naming Manager | pass, F9/F10/F11 | auto 5/5 + manual 2/2 with receipts (524/525); 140 "needs a human" on a stock template |
 | Sanitize .rfa | not run | |
 | Heal Loaded Families | pass, F16 | 212/212 healed (one gate: `AST_Description`); no ledger row |
-| IFC Pre-Flight | not run | |
+| IFC Pre-Flight | pass | 826 issues under IFC-01/IFC-02, listed in the panel |
 | IFC Delivery Gate | pass, F25 (fixed) | FAIL 627/628 → PASS 635/639/653; walls counted as 0 until subtype fix; trims = real proxies |
 | Governed Publish | pass, F26/F27/F29/F31 (fixed/open) | rejected 640 → accepted 657; judged by pilot IDS/contract/ruleset until swapped |
 | Quick Publish (ungoverned) | pass, F12/F23/F24 | went to the office key first; duplicate containers per user |
@@ -52,12 +54,12 @@ Status: **pass** (evidence) · **fail** (finding) · **not run**.
 | BCF Issues (Fix in Revit) | pass, F30 (fixed)/F32 | 42/42 → Resolved, receipt; panel listed the machine project until fixed |
 | Clash Manager / Register | not run | |
 | MEP Openings | not run | |
-| 1 · Datum from Drawings | not run | DXFs prepared |
-| 2 · Ghost Builder | not run | |
-| 2b · Photo Massing | not run | photos prepared |
-| 3 · Annotate Views | not run | |
-| Review AI Proposals | not run | |
-| ROI Dashboard | not run | |
+| 1 · Datum from Drawings | pass, F40/F41 (fixed)/F42 | 11 grids + 14 levels from the two DXFs; names "(2)", heights ×25.4 until fixed |
+| 2 · Ghost Builder | pass, F45 | honest empty proposal on the grid plan; A-LEVELS → Generic Ceiling (LLM 0.8, unticked) on the section |
+| 2b · Photo Massing | fail, F43/F46 | llava estimate 2 m × 2 m × 23 storeys; Placed 0 — wall type from the pilot guideline, floor type empty |
+| 3 · Annotate Views | fail, F44 | 96 views created with the pilot's names, all without their (pilot) templates |
+| Review AI Proposals | pass, F36/F37/F38 | applied / declined with notes; withdrawn one gone; judged with no project IDS |
+| ROI Dashboard | fail, F39 | machine-wide counter at a flat rate, not a project figure |
 
 ### Web panels
 | Panel | Status | Evidence / finding |
@@ -114,10 +116,21 @@ Fixed during the run are marked with the commit. "Product" = a real gap worth a 
 | F33 | Deliverables matched `NAME` ≠ `NAME.ifc` | fixed e203f8b |
 | F34 | Kit doc mislabelled the rebaseline body shape | doc |
 | F35 | Receipt verification requires a bearer — no public verify | product |
+| F36 | Changesets are judged against the server's `SENTINEL_IDS` only; the project's compiled IDS is not used, so nothing can be pre-ticked | **product** |
+| F37 | Declining with zero ticked rows closes the review window silently | minor |
+| F38 | Review AI Proposals opens the oldest pending changeset — no picker | minor |
+| F39 | ROI Dashboard sums every intervention ever logged on the machine (`roi.json`, no project field, 940 entries since July) at a flat 5 min × $35/h; 31 entries of two kinds are not shown by type | **product** |
+| F40 | Datum named every level after the first "Level N (2)" — the uniqueness check counted the level just created | fixed ecb2691 |
+| F41 | Kit DXFs had no `$INSUNITS` header → Revit imported them as inches (Level 1 at 114 300 mm, grids 190 m apart) | kit fixed ecb2691 + confirm-dialog warning above 250 m |
+| F42 | README claimed the DXF labels name the levels; the tool reads lines only and names `Level 0…N` | doc fixed ecb2691 |
+| F43 | Photo Massing resolved the wall type by the shipped pilot guideline (`BDS_EXT_ARC_CMU_200 mm`, ×92) and found "no comparable type" although `AST_EXT_ARC_CMU_200 mm` exists; floor type empty (×23) → Placed 0 | **product** (class of F8/F26/F29: `ghost_guideline_path` blank = pilot profile) |
+| F44 | Annotate Views created 96 views with the pilot's names (`WIP_FP_…`) and templates (`01.100_WIP_…`) from the same guideline, not Aster's `DISC_LEVEL_TYPE_DESC` from the installed ruleset | **product** (two view standards in two files) |
+| F45 | Ghost Builder proposes the datum layer (`A-LEVELS → Generic Ceiling`) that Datum already consumed | minor |
+| F46 | Vision estimate from four whole-building photos: 2 m footprint, 23 storeys, 2.1 m storey for a 38-storey tower — the amber confirm is the only guard | observation |
 | — | Orphaned memberships after an account was recreated (data) | data fixed; product: FK + flag unknown users |
 
 ## Still owed (needs the user at Revit or the browser)
-Act 3: 3.8 MEP Openings/Change Requests, 3.9 datum chain + Photo Massing, 3.11 the viewer panels. Act 4: 4.1 MCP changeset, 4.2 Review AI Proposals, 4.4 ROI/Ingest. Act 5.1 COBie/cost/carbon exports.
+Deploy ecb2691 to 2024 (Revit closed) and re-run Datum on a fresh project to close F40/F41 live. 3.8 MEP Openings (no MEP link in the kit — likely stays not run), 3.11 the viewer panels, 5.1 COBie/cost/carbon exports. The 3.9 scratch project (`Project1`: 1.2 km datum, 96 pilot-named views) is not worth saving.
 
 ## Restore after the simulation (machine-global files under `%AppData%\Sentinel`)
 `ruleset.json` ← `ruleset.json.bak-BDS-pilot-1.5.0` · `ids.json` ← `ids.json.bak-BDS-pilot` · `delivery-contract.json` untouched. Redeploy is not needed for these.
