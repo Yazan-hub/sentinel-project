@@ -113,9 +113,16 @@ public partial class SettingsDialog : Window
     private void OnBrowseGhostFolder(object sender, RoutedEventArgs e)
     {
 #if NET48
-        // net48 WPF has no folder dialog; the TextBox accepts a pasted path.
-        MessageBox.Show(this, "Paste the folder path into the box (network drives and ACC Desktop Connector paths work).",
-            "Sentinel", MessageBoxButton.OK, MessageBoxImage.Information);
+        // net48 WPF has no OpenFolderDialog; WinForms' FolderBrowserDialog does the job (network drives and
+        // ACC Desktop Connector paths are ordinary paths to it). Revit 2024 users got a "paste the path"
+        // message here instead of a picker (simulation 3.9, F47).
+        using var dlg = new System.Windows.Forms.FolderBrowserDialog
+        {
+            Description = "Select the Ghost source folder (DWGs, specs, sketches)",
+            SelectedPath = GhostFolderBox.Text,
+            ShowNewFolderButton = false,
+        };
+        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) GhostFolderBox.Text = dlg.SelectedPath;
 #else
         var dlg = new OpenFolderDialog { Title = "Select the Ghost source folder" };
         if (dlg.ShowDialog(this) == true) GhostFolderBox.Text = dlg.FolderName;
