@@ -640,10 +640,12 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       let appliedCount = 0;
       try {
         for (const [sectionId, checks] of sections) {
-          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/bindings`, {
+          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/bindings`, {
             method: "PUT",
             body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, updated_at: doc.updated_at, actor: await actor() }),
           });
+          // Each write bumps the document's updated_at; carry it forward or every section after the first is a stale write (409).
+          if (row?.updated_at) doc.updated_at = row.updated_at;
           appliedCount += 1;
         }
         onDone();
