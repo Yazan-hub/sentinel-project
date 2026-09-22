@@ -34,6 +34,9 @@ public sealed class BcfIssuesCommand : IExternalCommand
 
         var mainHandle = uiapp.MainWindowHandle;   // captured here: the UIApplication is only valid inside Execute
         BcfConfig cfg = BcfConfig.Load();
+        // The OPEN model's web project governs which issues are listed, commented and resolved — not the
+        // machine-wide default. Found live: a model on its own project listed another project's issues.
+        var bcfKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(uiapp.ActiveUIDocument.Document);
         var apply = new BcfApplyEvent();
         var externalEvent = ExternalEvent.Create(apply);
         var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
@@ -63,7 +66,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
             window.SetStatus("Fetching open issues…");
             try
             {
-                var topics = await sync.FetchActiveAsync(cfg.ProjectId, cfg.ModelId).ConfigureAwait(false);
+                var topics = await sync.FetchActiveAsync(bcfKey, cfg.ModelId).ConfigureAwait(false);
                 window.SetTopics(topics);
                 window.SetStatus(topics.Count == 0
                     ? "No open issues. (Raise one from the web viewer.)"
@@ -80,7 +83,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         // issue raised on the web appears in this active Revit session within seconds — no manual refresh.
         var liveCts = new System.Threading.CancellationTokenSource();
         var lastLive = DateTime.MinValue;
-        _ = sync.StartLiveSyncAsync(cfg.ProjectId, () =>
+        _ = sync.StartLiveSyncAsync(bcfKey, () =>
         {
             var now = DateTime.UtcNow;
             if ((now - lastLive).TotalMilliseconds < 500) return; // debounce bursts
@@ -287,7 +290,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (still.Count > 0) evidence += $" Still failing: {string.Join(", ", still.Take(20))}{(still.Count > 20 ? ", \u2026" : "")}.";
                         if (fold.Unresolved.Count > 0) evidence += $" Not in this model: {string.Join(", ", fold.Unresolved.Take(10))}{(fold.Unresolved.Count > 10 ? ", \u2026" : "")}.";
 
-                        var c = await sync.AddCommentAsync(cfg.ProjectId, topic.Guid, evidence, user).ConfigureAwait(false);
+                        var c = await sync.AddCommentAsync(bcfKey, topic.Guid, evidence, user).ConfigureAwait(false);
                         if (c < 200 || c >= 300) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted (HTTP {c}); the issue is unchanged."); fix.SetBusy(false); return; }
                         if (!fold.AllPass)
                         {
@@ -299,7 +302,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             fix.SetStatus($"Re-check: {passed}/{total} listed element(s) pass, but the issue names {req.Failing} failing and lists only {total} — {unlisted} were never examined. Evidence posted; the issue stays {topic.Status}. Re-publish to raise a fresh, complete issue.");
                             fix.SetBusy(false); return;
                         }
-                        var s = await sync.SetStatusAsync(cfg.ProjectId, topic.Guid, "Resolved", user).ConfigureAwait(false);
+                        var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", user).ConfigureAwait(false);
                         fix.SetStatus(s >= 200 && s < 300
                             ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved (audit {res.AuditId}). Closing it stays a human decision on the web."
                             : $"Evidence posted; status unchanged (HTTP {s}).");
