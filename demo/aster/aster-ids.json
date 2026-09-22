@@ -1,0 +1,102 @@
+{
+  "title": "Aster Tower — compiled from client EIR (ASTR26)",
+  "specifications": [
+    {
+      "name": "DOOR — FireRating",
+      "applicability": {
+        "entity": "IFCDOOR"
+      },
+      "requirements": {
+        "properties": [
+          {
+            "pset": "Pset_DoorCommon",
+            "name": "FireRating",
+            "cardinality": "required"
+          }
+        ]
+      },
+      "confidence": "low",
+      "source_sentence": "Every door shall carry a fire rating."
+    },
+    {
+      "name": "WALL — IsExternal",
+      "applicability": {
+        "entity": "IFCWALL"
+      },
+      "requirements": {
+        "properties": [
+          {
+            "pset": "Pset_WallCommon",
+            "name": "IsExternal",
+            "cardinality": "required"
+          }
+        ]
+      },
+      "confidence": "low",
+      "source_sentence": "All walls shall state whether the wall is external."
+    },
+    {
+      "name": "WALL — LoadBearing",
+      "applicability": {
+        "entity": "IFCWALL"
+      },
+      "requirements": {
+        "properties": [
+          {
+            "pset": "Pset_WallCommon",
+            "name": "LoadBearing",
+            "cardinality": "required"
+          }
+        ]
+      },
+      "confidence": "low",
+      "source_sentence": "All walls shall state whether they are load-bearing."
+    },
+    {
+      "name": "WINDOW — ThermalTransmittance",
+      "applicability": {
+        "entity": "IFCWINDOW"
+      },
+      "requirements": {
+        "properties": [
+          {
+            "pset": "Pset_WindowCommon",
+            "name": "ThermalTransmittance",
+            "cardinality": "required"
+          }
+        ]
+      },
+      "confidence": "low",
+      "source_sentence": "Every window shall carry a thermal transmittance (U-value)."
+    },
+    {
+      "name": "SPACE — Reference",
+      "applicability": {
+        "entity": "IFCSPACE"
+      },
+      "requirements": {
+        "properties": [
+          {
+            "pset": "Pset_SpaceCommon",
+            "name": "Reference",
+            "cardinality": "required"
+          }
+        ]
+      },
+      "confidence": "low",
+      "source_sentence": "Every room shall carry a reference."
+    }
+  ],
+  "unmatched": [
+    {
+      "sentence": "Models must be exchanged as IFC 4 Reference View at every milestone, named to the agreed container naming standard.",
+      "reason": "no IFC entity could be identified — name the element type the requirement applies to"
+    }
+  ],
+  "stats": {
+    "requirement_sentences": 6,
+    "compiled": 5,
+    "unmatched": 1
+  },
+  "note": "A PROPOSAL, not a ruleset. Review every specification against its source_sentence, and read `unmatched` — those requirements are in the document and are NOT in this spec."
+}
