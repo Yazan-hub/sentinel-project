@@ -1136,8 +1136,48 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const integrityBtn = btn("Check integrity");
     const stripBtn = btn("Strip test");
     bar.append(printBtn, aiPicker(), integrityBtn, stripBtn);
+    // EIR only: compile the requirement prose into a PROPOSED IDS (deterministic, installs nothing).
+    // The compiler existed as a bridge route with no way to reach it from the app (found in the simulation room).
+    const compileBtn = doc.doc_type === "EIR" ? btn("Compile to IDS") : null;
+    if (compileBtn) bar.append(compileBtn);
     body.replaceChildren();
     const integrityOut = document.createElement("div");   // findings render here, transient
+    if (compileBtn) compileBtn.onclick = async () => {
+      compileBtn.disabled = true; compileBtn.textContent = "Compiling…"; integrityOut.replaceChildren();
+      try {
+        const text = doc.sections.map((s) => s.body || "").filter(Boolean).join("\n\n");
+        const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>; note: string } =
+          await api(`/compile-ids`, { method: "POST", body: JSON.stringify({ text, title: `${doc.title} — compiled IDS` }) });
+        const box = document.createElement("div");
+        box.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:#141418;color:#c9cfda;font:12px system-ui";
+        const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
+        h.textContent = `Proposed IDS — ${r.stats.compiled} specification(s) from ${r.stats.requirement_sentences} requirement sentence(s), ${r.stats.unmatched} not compiled`;
+        const note = document.createElement("div"); note.style.cssText = "color:#eab308;font:11px system-ui;margin-bottom:.4rem"; note.textContent = r.note;
+        box.append(h, note);
+        for (const sp of r.specifications) {
+          const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
+          const t = document.createElement("div"); t.textContent = sp.name || `${sp.entity || "?"} — ${sp.property || "?"}`; t.style.color = "#22c55e";
+          const src = document.createElement("div"); src.textContent = sp.source_sentence ? `from: “${sp.source_sentence}”` : ""; src.style.cssText = "color:#9ca3af;font:11px system-ui";
+          row.append(t, src); box.append(row);
+        }
+        for (const u of r.unmatched) {
+          const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
+          const t = document.createElement("div"); t.textContent = `NOT compiled: “${u.sentence}”`; t.style.color = "#f87171";
+          const why = document.createElement("div"); why.textContent = u.reason; why.style.cssText = "color:#9ca3af;font:11px system-ui";
+          row.append(t, why); box.append(row);
+        }
+        const dl = btn("Download IDS (.json)", true);
+        dl.onclick = () => {
+          const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: "application/json" })), download: `${doc.title.replace(/[^\w-]+/g, "_")}-ids.json` });
+          a.click(); URL.revokeObjectURL(a.href);
+        };
+        dl.style.marginTop = ".5rem"; box.append(dl);
+        integrityOut.append(box);
+      } catch (e) {
+        const d = document.createElement("div"); d.textContent = `Compile failed: ${(e as Error).message}`;
+        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0"; integrityOut.append(d);
+      } finally { compileBtn.disabled = false; compileBtn.textContent = "Compile to IDS"; }
+    };
     integrityBtn.onclick = async () => {
       integrityBtn.disabled = true;
       integrityBtn.textContent = "Analysing…";
