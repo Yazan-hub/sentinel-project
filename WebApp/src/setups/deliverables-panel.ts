@@ -563,7 +563,16 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       form.style.cssText = "display:flex;flex-direction:column;gap:.5rem;max-width:34rem";
       const codeI = field("Code, e.g. ARC (matches the deliverable's team)", "100%", editing.code || "");
       const nameI = field("Name, e.g. Architecture — Badran Design Studio", "100%", editing.name || "");
+      // Lead is picked from the project's members (a datalist keeps free text for a consultant not yet registered).
       const leadI = field("Lead email — the accountable human", "100%", editing.lead_email || "");
+      const leadList = document.createElement("datalist"); leadList.id = `team-leads-${pid()}`;
+      leadI.setAttribute("list", leadList.id); leadI.type = "email"; leadI.autocomplete = "off";
+      try {
+        const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`);
+        if (r.ok) for (const m of (await r.json()) as { email: string; role: string }[])
+          if (String(m.email || "").includes("@")) leadList.append(new Option(`${m.role}`, m.email));
+      } catch { /* free text still works */ }
+      leadI.after(leadList);
       const discI = field("Discipline (optional)", "100%", editing.discipline || "");
       const apptI = field("Appointment, e.g. lead / delivery (optional)", "100%", editing.appointment || "");
       const notesI = field("Notes (optional)", "100%", editing.notes || "");
