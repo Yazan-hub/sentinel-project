@@ -130,6 +130,11 @@ namespace Sentinel.GhostBuilder
                 res.Warnings.Add($"No level lines found on a '*{levelKw}*' layer in the drawing(s) read — levels come from a section export.");
             if (res.Grids.Count == 0)
                 res.Warnings.Add($"No grid lines found on a '*{gridKw}*' layer in the drawing(s) read — grids come from a plan export.");
+            // A DXF without a $INSUNITS header is imported as inches, so every mm height comes out 25.4x too
+            // big (a 47 m tower became 1.2 km, simulation 3.9, F41). No building has a 250 m top level: say so.
+            double top = res.Levels.Count == 0 ? 0 : res.Levels.Max(l => l.ElevationMm);
+            if (top > 250_000)
+                res.Warnings.Add($"Top level at {top / 1000:0} m — the drawing's units look wrong (a DXF with no $INSUNITS header is read as inches, x25.4). Check the file's units before building.");
             return res;
         }
 
@@ -234,13 +239,17 @@ namespace Sentinel.GhostBuilder
                 return false;
             }
             var level = Level.Create(_doc, elevFt);
-            try { level.Name = UniqueLevelName(lv.Name); } catch { /* name clash/illegal — leave default */ }
+            try { level.Name = UniqueLevelName(lv.Name, level.Id); } catch { /* name clash/illegal — leave default */ }
             return true;
         }
 
-        private string UniqueLevelName(string want)
+        // Revit auto-names a new level by incrementing the last one ("Level 1" -> "Level 2"), so the level
+        // just created can already hold the wanted name; exclude it, or every level after the first comes
+        // out as "Level N (2)" (simulation 3.9, F40).
+        private string UniqueLevelName(string want, ElementId self)
         {
             var taken = new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>()
+                .Where(l => l.Id != self)
                 .Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (!taken.Contains(want)) return want;
             for (int i = 2; ; i++) if (!taken.Contains($"{want} ({i})")) return $"{want} ({i})";

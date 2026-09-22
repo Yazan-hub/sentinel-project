@@ -61,5 +61,17 @@ var many = Enumerable.Range(0, 28).Select(i => new Seg(-1, i * 1000, 1, i * 1000
 var lettered = DatumFromDrawing.Grids(many).Where(g => !g.Vertical).Select(g => g.Name).ToList();
 Check("27th letter is AA", lettered.Count == 28 && lettered[26] == "AA" && lettered[27] == "AB");
 
+// ---- KIT DXFs ----------------------------------------------------------------------------------------
+// Revit imports a DXF with no $INSUNITS header as inches — every mm height x25.4 (simulation 3.9, F41).
+// The kit's hand-written drawings must declare millimetres.
+string kit = null;
+for (var d = new System.IO.DirectoryInfo(Environment.CurrentDirectory); d != null && kit == null; d = d.Parent)
+    if (System.IO.Directory.Exists(System.IO.Path.Combine(d.FullName, "demo", "aster", "dwg")))
+        kit = System.IO.Path.Combine(d.FullName, "demo", "aster", "dwg");
+if (kit == null) Console.WriteLine("  skip  demo/aster/dwg not found above " + Environment.CurrentDirectory);
+else foreach (var f in System.IO.Directory.GetFiles(kit, "*.dxf"))
+    Check(System.IO.Path.GetFileName(f) + " declares $INSUNITS 4 (mm)",
+          System.Text.RegularExpressions.Regex.IsMatch(System.IO.File.ReadAllText(f), @"\$INSUNITS\s+70\s+4\s"));
+
 Console.WriteLine(failed == 0 ? "\nDATUM OK" : $"\n{failed} FAILED");
 return failed;

@@ -112,6 +112,8 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             var h = d.Grids.Where(g => !g.Vertical).Select(g => g.Name);
             sb.AppendLine($"Grids:  {string.Join(", ", v)}  /  {string.Join(", ", h)}");
         }
+        // The read's notes (which file, a units doubt) belong BEFORE the Yes, not in the report after it.
+        if (d.Warnings.Count > 0) sb.AppendLine().AppendLine(string.Join("\n", d.Warnings.Select(w => "• " + w)));
         return sb.ToString().TrimEnd();
     }
 }
