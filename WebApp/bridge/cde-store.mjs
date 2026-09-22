@@ -887,7 +887,10 @@ export async function adjudicateProposal(key, b = {}) {
   // fails the whole publish (even if the IDS passed); `warn` → recorded but doesn't block; `off`/absent → skip.
   let naming = null;
   if (b.container_name) {
-    const rs = resolveNamingRuleset(b.naming);
+    // The PROJECT's ruleset (its installed standards pack) governs the name — the same source the
+    // naming.containers check reads — unless the caller sends one inline. Found live: Governed Publish
+    // judged an office's model by the bridge default while its documents were judged by the office's pack.
+    const rs = (b.naming && typeof b.naming === "object" && Array.isArray(b.naming.fields)) ? b.naming : (await projectNamingRuleset(key)).ruleset;
     if (rs && rs.enforce !== "off") {
       naming = c.validateContainerName(b.container_name, rs);
       naming.enforce = rs.enforce;
