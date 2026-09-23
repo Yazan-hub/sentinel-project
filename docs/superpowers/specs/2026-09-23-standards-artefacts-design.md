@@ -1,6 +1,6 @@
 # Standards as artefacts — design (cohesion phase 3)
 
-Status: draft for review, 2026-09-23. Source: `docs/reviews/cohesion-review-2026-09-23.md` §5–6 (phase 3),
+Status: approved 2026-09-23 (amended after plan drafting: mode vocabulary, naming-candidate source, two item statuses). Source: `docs/reviews/cohesion-review-2026-09-23.md` §5–6 (phase 3),
 seams D2 (ruleset in six unlinked places), D4 (bridge half: the bridge naming default), D6 ("ruleset" is
 three shapes in one slot); findings F8, F13, F15, F19, F51 in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md`.
 Builds on phase 1 (artefact store, `2026-09-23-governed-intake-design.md` §3) and phase 2 (office entity,
@@ -45,7 +45,7 @@ All three are written into `projects.metadata.active_ruleset`; the Aster row car
 
 - `ruleset`: `standard_key` (non-empty string), `semver` (`x.y.z`), `rules` a non-empty array whose
   every item has `id`, `target` in `workset | view | parameter | sheet | family | type | level | grid`,
-  `mode` in `warn | request | monitor | reject`. `org` optional string. Anything else → 400 naming the
+  `mode` in `monitor | warn | request | block` (the real `EnforcementMode`). `org` optional string. Anything else → 400 naming the
   path (`rules[3].mode`).
 - `naming`: `standard_key`, `semver`, `title`, `separator` (one character), `fields` a non-empty array
   whose every item has `key` and `label` and either `pattern` or `enum[]`; `enforce` in
@@ -72,7 +72,8 @@ project → office → 404; unchanged.
   "ruleset")` (rule `TN-01` family) and the container-name shape from `naming`; the check result names
   both refs. No artefact → the existing "naming shapes only" path, with the reason.
 - `bimdocs-ai` grounding: `rulesetSource` becomes the ref string (`naming@2 · office`) or `none`.
-- `office.naming_standard` (`office-checks.mjs:176`): met when `resolveArtefact(key, "naming")` finds
+- `office.naming_standard` (`office-checks.mjs:176`): these two items ask whether a standard is installed at all, so
+  absence is a measured fact and stays `violations` naming the install route (not `not_checkable`); met when `resolveArtefact(key, "naming")` finds
   one, evidence `naming@n · source · sha[0:12]`; `project.standards_pack` (`check-registry.mjs:120`)
   is re-pointed the same way at the `ruleset` kind, label unchanged. `metadata.standards_pack` stays
   as a display name only.
@@ -111,7 +112,8 @@ project → office → 404; unchanged.
 
 ### 5. Document-sourced naming pack (F15 product side)
 
-When the bimdocs standards extraction produces a naming ruleset from a document, the result is offered
+No extraction produces a naming ruleset today; the smallest honest source is a fenced ```json block holding a
+`NamingRuleset` inside a document section (`findNamingCandidate`). When one is found, the result is offered
 as a candidate `naming@n+1`: the panel shows a field-by-field diff against the version in force
 (added, removed, changed pattern/enum) and the install writes the candidate whole. There is no merge
 into the installed version; a candidate that removes fields says so before install. The candidate body
@@ -119,8 +121,8 @@ carries `source: { document_id, section }` in its pointer provenance.
 
 ### 6. Superseded IDS topics (F51)
 
-Topics raised by the IDS today carry no version (`bcf-service.mjs:297-330` writes the spec title, the
-requirement and the count). `raiseIdsTopics` gains `ids_ref` in the topic's custom fields and the audit row.
+Topics raised by the IDS today carry no version (`raiseGovernedFailureTopics`, `bcf-service.mjs:293`, writes the
+spec title, the requirement and the count). It gains `ids_ref` in the topic's custom fields and the audit row.
 When `ids@n` is installed and open `IDS:` topics exist whose `ids_ref` is `ids@m`, m < n, or is absent
 (raised before this phase), the install marks each with
 `superseded_by: "ids@n"` in the topic's custom fields and the audit row lists their ids. The Issues
