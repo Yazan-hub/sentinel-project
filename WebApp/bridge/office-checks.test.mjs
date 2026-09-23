@@ -230,4 +230,13 @@ describe("runCheck over an office scope", () => {
     const out = await runCheckScoped(def, "ghost", {}, { projectScope: async () => { throw Object.assign(new Error("nope"), { status: 404 }); } });
     expect(out.summary).toBe("one");
   });
+  it("a childless office (no children, no data of its own) reports the honesty-rule reason, naming the office as evidence", async () => {
+    const { runCheckScoped } = await import("./check-registry.mjs");
+    const def = { id: "office.roles", label: "Roles", run: async (key) => ({ id: "office.roles", label: "Roles", status: "not_checkable", count: 0, summary: "", reason: "no roles recorded", evidence: [] }) };
+    const scope = { projectScope: async (key) => ({ key, kind: "office", office_key: null, keys: [key] }) };
+    const out = await runCheckScoped(def, "empty-office", {}, scope);
+    expect(out.status).toBe("not_checkable");
+    expect(out.reason).toBe("no projects belong to this office");
+    expect(out.evidence).toContainEqual({ label: "[empty-office]", detail: "no roles recorded" });
+  });
 });

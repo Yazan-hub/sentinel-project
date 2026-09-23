@@ -590,7 +590,11 @@ export async function runCheckScoped(def, projectKey, params = {}, deps = {}) {
         try { per.push({ key: k, result: await def.run(k, params) }); }
         catch (e) { per.push({ key: k, result: result(def.id, def.label, "error", { summary: `Check failed: ${String(e?.message || e)}` }) }); }
       }
-      return scope.rollupResults(def.id, def.label, per);
+      const rolled = scope.rollupResults(def.id, def.label, per);
+      if (sc.keys.length === 1 && rolled.status === "not_checkable") {
+        rolled.reason = "no projects belong to this office";
+      }
+      return rolled;
     }
   }
   return def.run(projectKey, params);

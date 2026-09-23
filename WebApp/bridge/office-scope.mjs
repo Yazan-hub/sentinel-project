@@ -60,6 +60,7 @@ export function rollupResults(id, label, perProject) {
   for (const p of perProject) {
     for (const e of p.result.evidence || []) evidence.push({ ...e, label: `[${p.key}] ${e.label}` });
     if (p.result.status === "not_checkable") evidence.push({ label: `[${p.key}]`, detail: p.result.reason || "not checkable" });
+    if (p.result.status === "error") evidence.push({ label: `[${p.key}]`, detail: p.result.summary || "error" });
   }
   const summary = perProject.map((p) => `${p.key}: ${p.result.status}${p.result.summary ? " — " + p.result.summary : p.result.reason ? " — " + p.result.reason : ""}`).join(" | ");
   const out = { id, label, status, count: perProject.reduce((n, p) => n + (p.result.count || 0), 0), summary, evidence };

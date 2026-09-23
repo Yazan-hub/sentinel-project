@@ -220,12 +220,15 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       setVal("ps-created", (current.created_at || "").slice(0, 10));
       (el("ps-confirm") as HTMLInputElement).value = "";
       const officeSel = el("ps-office") as HTMLSelectElement;
+      const officeRows = rows.filter((p) => p.kind === "office" && p.key !== pid());
+      // If the current office isn't visible to this viewer (RLS-scoped list), keep an option for it
+      // so the select still shows it and a save doesn't silently detach the project (finding IMPORTANT-2).
+      const knownKey = current.office_key && officeRows.some((o) => o.key === current.office_key);
+      const extraOpt = current.office_key && !knownKey
+        ? `<option value="${esc(current.office_key)}">${esc(current.office_key)}</option>` : "";
       officeSel.innerHTML =
-        '<option value="">No office</option>' +
-        rows
-          .filter((p) => p.kind === "office" && p.key !== pid())
-          .map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`)
-          .join("");
+        '<option value="">No office</option>' + extraOpt +
+        officeRows.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
       officeSel.value = current.office_key ?? "";
       const isOffice = current.kind === "office";
       officeSel.disabled = isOffice;
@@ -264,7 +267,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   }
 
   function save() {
-    void patch({
+    const body: Record<string, unknown> = {
       name: val("ps-name"),
       appointing_party: val("ps-owner") || null,
       owner: val("ps-owner"),
@@ -275,9 +278,14 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       start_date: val("ps-start"),
       completion_date: val("ps-end"),
       project_value: val("ps-value"),
-      office_key: val("ps-office") || null,
       actor: "web",
-    }, "✓ Settings saved.");
+    };
+    // Only send office_key when it actually changed — otherwise an office invisible to this viewer's
+    // RLS-scoped project list (a lead not a member of it) falls back to "" and every save silently
+    // detaches the project, audited as this user's action (finding IMPORTANT-2).
+    const newOffice = val("ps-office") || null;
+    if (newOffice !== (current?.office_key ?? null)) body.office_key = newOffice;
+    void patch(body, "✓ Settings saved.");
   }
 
   function updateDeleteEnabled() {
