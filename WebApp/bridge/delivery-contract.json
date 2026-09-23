@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "contract_key": "bridge-default",
+  "ifc_schema": "",
+  "required_entities": [
+    { "entity": "IFCPROJECT", "min_count": 1 },
+    { "entity": "IFCBUILDINGSTOREY", "min_count": 1 }
+  ],
+  "required_psets": [],
+  "required_properties": [],
+  "forbidden_entities": [
+    { "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 2147483647, "max_ratio": 0.25 }
+  ],
+  "require_georeference": false
+}
