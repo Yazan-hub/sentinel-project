@@ -62,6 +62,22 @@ async function registerVersion(name, sizeBytes, itemId, projectKey, hostName) {
 }
 
 /**
+ * Manifest capture after a successful version register (Federation Gate input). Best-effort: logs
+ * and swallows any failure so a manifest problem never breaks the outbox upload itself. Shared by
+ * both handle() call sites (frag success + .ifc fallback) so the capture/logging logic lives once.
+ */
+async function captureAfterRegister(reg, name, filePath) {
+  if (!reg?.version?.id) return;
+  try {
+    const { captureManifest } = await import("./manifest-store.mjs");
+    const mf = await captureManifest(reg.key, reg.version.id, await readFile(filePath), { actor: "outbox", source: "outbox", rev_code: reg.version.revision });
+    console.log(`  🧭 manifest: ${mf.elements} element(s), ${mf.levels} level(s), ${mf.grids} grid(s)${mf.has_site ? ", georeferenced" : ""}`);
+  } catch (e) {
+    console.error(`  ⚠ manifest capture failed for ${name} (version ${reg.version.id}): ${e?.message || e}`);
+  }
+}
+
+/**
  * Sidecar the Revit plugin writes next to each outbox IFC ("<name>.ifc.meta.json") naming the
  * Sentinel web project the file belongs to (the ACC-style association). Absent/unreadable →
  * null, and the registration falls back to the bridge's configured default project.
@@ -117,25 +133,13 @@ async function handle(name) {
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
       const reg = await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
-      if (reg?.version?.id) {
-        try {
-          const { captureManifest } = await import("./manifest-store.mjs");
-          const mf = await captureManifest(reg.key, reg.version.id, await readFile(p), { actor: "outbox", source: "outbox", rev_code: reg.version.revision });
-          console.log(`  🧭 manifest: ${mf.elements} element(s), ${mf.levels} level(s), ${mf.grids} grid(s)${mf.has_site ? ", georeferenced" : ""}`);
-        } catch (e) { console.error(`  ⚠ manifest capture failed for ${name} (version ${reg.version.id}): ${e?.message || e}`); }
-      }
+      await captureAfterRegister(reg, name, p);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
       const reg = await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
-      if (reg?.version?.id) {
-        try {
-          const { captureManifest } = await import("./manifest-store.mjs");
-          const mf = await captureManifest(reg.key, reg.version.id, await readFile(p), { actor: "outbox", source: "outbox", rev_code: reg.version.revision });
-          console.log(`  🧭 manifest: ${mf.elements} element(s), ${mf.levels} level(s), ${mf.grids} grid(s)${mf.has_site ? ", georeferenced" : ""}`);
-        } catch (e) { console.error(`  ⚠ manifest capture failed for ${name} (version ${reg.version.id}): ${e?.message || e}`); }
-      }
+      await captureAfterRegister(reg, name, p);
     }
 
     await rename(p, join(SENT, `${Date.now()}_${name}`)); // out of the outbox so it isn't re-sent
