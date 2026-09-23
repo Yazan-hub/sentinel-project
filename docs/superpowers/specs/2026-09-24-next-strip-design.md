@@ -1,6 +1,7 @@
 # The Next strip — design (cohesion graft after phase 3)
 
-Status: approved 2026-09-24. Source: `docs/reviews/cohesion-review-2026-09-23.md` §5 ("Grafts from the other
+Status: approved 2026-09-24; amended after the plan cross-check (stale federation is todo, the Revit scan line reads
+`App.Engine.Ruleset`, failed standards reads and no-screen steps have their own wording). Source: `docs/reviews/cohesion-review-2026-09-23.md` §5 ("Grafts from the other
 two proposals": the Engagement Spine's Next strip — "a pure `journey-logic.mjs` over stored facts, with a step
 'done' only when an evidence id exists, rendered atop the dockable pane and the web project space with a
 'standard in force' line … it replaces the static Guide layout"), `docs/CAPABILITY_MAP.md` ("guide panel is built
@@ -56,7 +57,7 @@ step list depends on `facts.project.kind` (phase 2's `projects.kind`).
 | `model` | Model connected | a Revit scan report exists for the key (`office-store.getScan`) | `scan · <model title> · <at>` |
 | `verdict` | First governed verdict | any `verdict:*` audit row on a `file_version` (`cde.versionVerdicts` / audit) | the audit id and version id |
 | `published` | Accepted and published | a live version in state `published` whose latest verdict is `accepted` | version id + verdict audit id |
-| `federated` | Federated | `federation/latest` exists with `result.verdict === "pass"` | `federation · pass · <at>` |
+| `federated` | Federated | `federation/latest` exists with `result.verdict === "pass"` and is not stale (a stale pass is todo: "the live set changed since; re-run the gate") | `federation · pass · <at>` |
 | `issued` | Issued | at least one transmittal (`cde.listTransmittals`) | the transmittal id |
 
 Statuses: `done` (the predicate holds **and** an evidence object with a non-empty `ref` exists), `todo`,
@@ -95,7 +96,8 @@ any member of the project (the same `ensureProject` membership check every `/cde
 
 - **Strip** (`WebApp/src/setups/next-strip.ts`, `nextStrip({ baseUrl, onOpenTab })`): mounted in `main.ts`
   between the project-space header and the tabs, so it shows on every project tab. Line 1: `Standards in force:
-  IDS <label> · Rules <label> · Naming <label>` (a `none` kind reads "none — install from Settings/Packs").
+  IDS <label> · Rules <label> · Naming <label>` (a `none` kind reads "none — install from Settings/Packs"; a failed read shows its `unavailable — …` label, never
+  the install hint; a step with no screen reads "no screen for this step yet").
   Line 2: `Next: <label> — <hint>` with an **Open** button when `how.web` names a project-space tab (switches
   via the existing `tabbed()` `showTab(i)`), plus `<done> of <total> ▸ Journey` which opens the Guide sidebar tab.
   Refreshes on `onActiveProjectChange` and on a ↻ button. On a bridge failure it shows "Journey unavailable —
@@ -117,7 +119,7 @@ any member of the project (the same `ensureProject` membership check every `/cde
   phase 4 the pane's violations are judged by the machine's ruleset, not the project's artefact; the strip must not
   imply otherwise.
 - Callers read the key and the local ruleset **on the Revit API thread** (`SettingsManager.WebProjectKeyFor(doc)`,
-  `RulesetStore.LoadEffective(doc)`) and pass strings to `RefreshJourney`: after every `PublishReport` call site in
+  `App.Engine.Ruleset`, the ruleset that actually judged the pane's rows) and pass strings to `RefreshJourney`: after every `PublishReport` call site in
   `App.cs` (document opened, full scan) and from the ↻ button through the existing external-event path the pane
   already uses for Select/Fix. No Run buttons; nothing is written.
 
