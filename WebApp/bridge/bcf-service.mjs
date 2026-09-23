@@ -1006,7 +1006,28 @@ async function handleRequest(req, res) {
           audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); await cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
         };
         const result = await runIntake(deps, { key: p1, name: q("name"), bytes, source: q("source"), actor: q("actor"), revision: q("revision"), note: q("note"), agent, raise_bcf: q("raise_bcf") !== "false" });
+        // A published version gets its manifest for the Federation Gate. Never fails the publish.
+        if (result.version?.version_id) {
+          try {
+            const { captureManifest } = await import("./manifest-store.mjs");
+            result.manifest = await captureManifest(p1, result.version.version_id, bytes, { actor: q("actor") || q("source"), source: "intake", rev_code: result.version.revision });
+          } catch (e) {
+            console.warn(`[intake] manifest capture failed for version ${result.version.version_id}: ${e?.message || e}`);
+            result.manifest = { error: String(e?.message || e) };
+          }
+        }
         return send(res, 200, result);
+      }
+      // Manifests (Federation Gate inputs): GET /cde/:key/manifests · POST /cde/:key/manifests/:versionId (body = IFC bytes, backfill)
+      if (p2 === "manifests") {
+        const ms = await import("./manifest-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await ms.listManifests(p1));
+        if (p3 && req.method === "POST") {
+          if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+          const bytes = await readRaw(req);
+          if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
+          return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
+        }
       }
       // Element snapshots (revision tracking, migration 0005):
       //   POST /cde/:key/snapshots  { rev_code?, model_id?, uploaded_by?, container_version_id?, snapshots:[{guid,category,type_name,count,length,area,volume,weight}] }
