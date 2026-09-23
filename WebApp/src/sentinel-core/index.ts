@@ -72,3 +72,4 @@ import type { Ruleset } from "./types";
 export const bdsRuleset = rulesetJson as Ruleset;
 export * from "./guideline";
 export * from "./massing";
+export * from "./federation";
