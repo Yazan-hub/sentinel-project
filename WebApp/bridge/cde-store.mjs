@@ -169,12 +169,35 @@ function slugKey(s) {
   return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+/** Every project's identity and office relation, service-key read (the office helpers need to see rows the
+ *  caller is not a member of, e.g. a project's office). Rows from before migration 0029 have no kind/office_key. */
+export async function listProjectRows() {
+  let rows;
+  try {
+    rows = await sb(`projects?select=id,key,name,kind,office_key&order=created_at.asc`, { service: true });
+  } catch (e) {
+    if (!/column .* does not exist|42703/.test(String(e?.message || e))) throw e;
+    rows = await sb(`projects?select=id,key,name&order=created_at.asc`, { service: true });
+  }
+  return (rows || []).map((r) => ({ id: r.id, key: r.key, name: r.name, kind: r.kind ?? "project", office_key: r.office_key ?? null }));
+}
+export { officeKeyOf, listOfficeProjects, projectScope } from "./office-scope.mjs";
+
 /** List every CDE project (newest first) with a container count — the hub's card data. */
 export async function listProjects() {
   // PostgREST embeds an aggregate as information_containers:[{count}].
-  const rows = await sb(
-    `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,information_containers(count)&order=created_at.desc`,
-  );
+  let rows;
+  try {
+    rows = await sb(
+      `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,kind,office_key,information_containers(count)&order=created_at.desc`,
+    );
+  } catch (e) {
+    if (!/column .* does not exist|42703/.test(String(e?.message || e))) throw e;
+    rows = await sb(
+      `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,information_containers(count)&order=created_at.desc`,
+    );
+  }
+  const byKey = new Map(rows.map((p) => [p.key, p.name]));
   return (rows || []).map((p) => ({
     id: p.id,
     key: p.key,
@@ -184,6 +207,9 @@ export async function listProjects() {
     created_at: p.created_at,
     settings: p.metadata?.settings ?? null, // Forma-style settings (owner, address, archived, …)
     container_count: Array.isArray(p.information_containers) ? p.information_containers[0]?.count ?? 0 : 0,
+    kind: p.kind ?? "project",
+    office_key: p.office_key ?? null,
+    office_name: p.office_key ? byKey.get(p.office_key) ?? null : null,
   }));
 }
 
@@ -202,12 +228,16 @@ export async function createProject(b = {}) {
   // re-fetch with the service key.
   await sb(`projects`, {
     method: "POST",
-    body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null },
+    body: {
+      key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null,
+      kind: b.kind === "office" ? "office" : "project", office_key: b.office_key || null,
+    },
     prefer: "return=minimal",
   });
   const row = (await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }))[0];
   await ensureFolders(row.id);
-  await audit(row.id, "project", row.id, "created", b.actor || "web", null, { key, name: row.name });
+  await audit(row.id, "project", row.id, "created", b.actor || "web", null,
+    { key, name: row.name, kind: row.kind, office_key: row.office_key ?? null });
   return row;
 }
 
@@ -226,6 +256,11 @@ export async function updateProject(key, patch = {}, actor) {
   const body = {};
   if (patch.name !== undefined && String(patch.name).trim()) body.name = String(patch.name).trim();
   if (patch.appointing_party !== undefined) body.appointing_party = patch.appointing_party || null;
+  if (patch.office_key !== undefined) body.office_key = patch.office_key ? String(patch.office_key).trim() : null;
+  if (patch.kind !== undefined) {
+    if (!["project", "office"].includes(patch.kind)) { const e = new Error("kind must be project or office"); e.status = 400; throw e; }
+    body.kind = patch.kind;
+  }
 
   const hasSettings = SETTINGS_FIELDS.some((f) => patch[f] !== undefined);
   if (hasSettings) {
@@ -238,7 +273,11 @@ export async function updateProject(key, patch = {}, actor) {
 
   const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" }))[0];
   await audit(proj.id, "project", proj.id, "updated", actor || "web", null,
-    { key, ...(body.name ? { name: body.name } : {}), ...(hasSettings ? { settings: body.metadata.settings } : {}) });
+    {
+      key, ...(body.name ? { name: body.name } : {}), ...(hasSettings ? { settings: body.metadata.settings } : {}),
+      ...(body.office_key !== undefined ? { office_key: { from: proj.office_key ?? null, to: body.office_key } } : {}),
+      ...(body.kind !== undefined ? { kind: { from: proj.kind ?? "project", to: body.kind } } : {}),
+    });
   return row;
 }
 

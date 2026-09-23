@@ -18,6 +18,8 @@ interface ProjectRow {
   settings?: { address?: string; location?: string; owner?: string; project_number?: string;
     project_type?: string; start_date?: string; completion_date?: string; project_value?: string;
     archived?: boolean } | null;
+  kind?: "project" | "office";
+  office_key?: string | null;
 }
 
 export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () => void } = {}): HTMLElement {
@@ -44,6 +46,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-top:.3rem">General</div>' +
     `<label style="${lbl}">Project name</label><input id="ps-name" style="${inp}"/>` +
     `<label style="${lbl}">Owner / appointing party</label><input id="ps-owner" style="${inp}" placeholder="e.g. Badran Design Studio"/>` +
+    `<label style="${lbl}">Office</label><select id="ps-office" style="${inp}"><option value="">No office</option></select>` +
     `<label style="${lbl}">Address</label><input id="ps-address" style="${inp}"/>` +
     `<label style="${lbl}">Location</label><input id="ps-location" style="${inp}" placeholder="City, Country"/>` +
     '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-top:1.2rem">Advanced</div>' +
@@ -216,14 +219,31 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       setVal("ps-value", s.project_value);
       setVal("ps-created", (current.created_at || "").slice(0, 10));
       (el("ps-confirm") as HTMLInputElement).value = "";
+      const officeSel = el("ps-office") as HTMLSelectElement;
+      const officeRows = rows.filter((p) => p.kind === "office" && p.key !== pid());
+      // If the current office isn't visible to this viewer (RLS-scoped list), keep an option for it
+      // so the select still shows it and a save doesn't silently detach the project (finding IMPORTANT-2).
+      const officeKey = current.office_key ?? null;
+      const knownKey = officeKey && officeRows.some((o) => o.key === officeKey);
+      const extraOpt = officeKey && !knownKey
+        ? `<option value="${esc(officeKey)}">${esc(officeKey)}</option>` : "";
+      officeSel.innerHTML =
+        '<option value="">No office</option>' + extraOpt +
+        officeRows.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
+      officeSel.value = current.office_key ?? "";
+      const isOffice = current.kind === "office";
+      officeSel.disabled = isOffice;
       renderArchiveBtn();
       updateDeleteEnabled();
-      status(`${current.container_count} file container(s) · key "${current.key}" (keys are permanent).`);
+      const officeNote = isOffice
+        ? ` · this project is an office (${rows.filter((p) => p.office_key === pid()).length} project(s))`
+        : "";
+      status(`${current.container_count} file container(s) · key "${current.key}" (keys are permanent).${officeNote}`);
       // Read-only below lead: the database refuses the writes anyway (projects update needs lead, delete
       // needs owner) — the panel must not offer controls the server will reject.
       const role = await myRole(base, pid());
       if (!canGovernRole(role)) {
-        for (const id of ["ps-name", "ps-owner", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"])
+        for (const id of ["ps-name", "ps-owner", "ps-office", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"])
           (el(id) as HTMLInputElement).disabled = true;
         for (const id of ["pset-save", "ps-archive", "ps-delete"]) (el(id) as HTMLElement).style.display = "none";
         status(`your role: ${role} — project settings are read-only (a lead or owner can edit them).`);
@@ -248,7 +268,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   }
 
   function save() {
-    void patch({
+    const body: Record<string, unknown> = {
       name: val("ps-name"),
       appointing_party: val("ps-owner") || null,
       owner: val("ps-owner"),
@@ -260,7 +280,13 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       completion_date: val("ps-end"),
       project_value: val("ps-value"),
       actor: "web",
-    }, "✓ Settings saved.");
+    };
+    // Only send office_key when it actually changed — otherwise an office invisible to this viewer's
+    // RLS-scoped project list (a lead not a member of it) falls back to "" and every save silently
+    // detaches the project, audited as this user's action (finding IMPORTANT-2).
+    const newOffice = val("ps-office") || null;
+    if (newOffice !== (current?.office_key ?? null)) body.office_key = newOffice;
+    void patch(body, "✓ Settings saved.");
   }
 
   function updateDeleteEnabled() {

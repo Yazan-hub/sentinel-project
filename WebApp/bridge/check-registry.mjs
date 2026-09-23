@@ -569,8 +569,33 @@ export async function runCheck(id, projectKey, params = {}) {
   const def = BY_ID.get(id);
   if (!def) return result(id, id, "not_checkable", { reason: `Unknown check “${id}” — it may have been removed or renamed.` });
   try {
-    return await def.run(projectKey, params);
+    return await runCheckScoped(def, projectKey, params);
   } catch (e) {
     return result(id, def.label, "error", { summary: `Check failed: ${String(e?.message || e)}` });
   }
+}
+
+/** Run one check definition for a key. For an OFFICE key and a rollup-eligible check, run it for the
+ *  office and each of its projects and roll the results up (worst wins, evidence per project). Template
+ *  items and plain projects run once, exactly as before. A scope that cannot be resolved (unknown key,
+ *  bridge without the office migration) degrades to the single run. */
+export async function runCheckScoped(def, projectKey, params = {}, deps = {}) {
+  const scope = await import("./office-scope.mjs");
+  if (scope.ROLLUP_CHECK_IDS.has(def.id)) {
+    let sc = null;
+    try { sc = await (deps.projectScope || scope.projectScope)(projectKey); } catch { sc = null; }
+    if (sc && sc.kind === "office") {
+      const per = [];
+      for (const k of sc.keys) {
+        try { per.push({ key: k, result: await def.run(k, params) }); }
+        catch (e) { per.push({ key: k, result: result(def.id, def.label, "error", { summary: `Check failed: ${String(e?.message || e)}` }) }); }
+      }
+      const rolled = scope.rollupResults(def.id, def.label, per);
+      if (sc.keys.length === 1 && rolled.status === "not_checkable") {
+        rolled.reason = "no projects belong to this office";
+      }
+      return rolled;
+    }
+  }
+  return def.run(projectKey, params);
 }
