@@ -47,17 +47,44 @@ export function loadDefaultContract() {
   return JSON.parse(readFileSync(resolve(here, "delivery-contract.json"), "utf8"));
 }
 
-/** Percentage the way C# `{x:F0}`/`{x:P0}` prints it — .NET's numeric formatting rounds an exact
- *  half to the nearest EVEN digit (banker's rounding), not away from zero: (2.5).ToString("F0") →
- *  "2", (12.5) → "12", (0.125).ToString("P0") → "12%". No decimals. */
-const pct0 = (x) => {
-  const floor = Math.floor(x);
-  const frac = x - floor;
-  const EPS = 1e-9;
-  if (frac > 0.5 + EPS) return String(floor + 1);
-  if (frac < 0.5 - EPS) return String(floor);
-  return String(floor % 2 === 0 ? floor : floor + 1); // exact .5 → round to even
-};
+/**
+ * Rounds x*scale to the nearest integer, ties to even, using x's EXACT binary64 value (its real
+ * mantissa/exponent bits) rather than `x * scale` computed in double precision first. That naive
+ * multiply loses exactly the sub-ULP information a genuine .5 case needs: 0.025's true double value
+ * sits fractionally ABOVE 2.5, but `100 * 0.025` rounds to the double nearest 2.5 and erases that,
+ * so a naive `pct0(100 * x)` gave "2%" where C# gives "3%". .NET's F0/P0 formatting (since .NET
+ * Core 3.0's IEEE-correct formatter) rounds the double's true value, not a re-multiplied one — so
+ * we do the scaling exactly too, with BigInt, instead of with float math.
+ * Verified against a real `double.ToString("F0"/"P0")` (dotnet SDK) across a 0.0001-step sweep of
+ * [0,1] (ratios), a 0-100 sweep of count/buildingElements percentages up to 200/200, and the
+ * specific values the review flagged (0.025, 0.015, 0.075, 0.005, 0.0125) — 0 mismatches.
+ */
+function roundHalfEvenExact(x, scale) {
+  const neg = x < 0;
+  const buf = new DataView(new ArrayBuffer(8));
+  buf.setFloat64(0, Math.abs(x));
+  const hi = buf.getUint32(0), lo = buf.getUint32(4);
+  const biased = (hi >>> 20) & 0x7ff;
+  let mantissa = (BigInt(hi & 0xfffff) << 32n) | BigInt(lo);
+  let exp2 = biased - 1075;
+  if (biased === 0) exp2 = -1074; // subnormal (and zero)
+  else mantissa |= 1n << 52n; // implicit leading bit
+  const s = BigInt(scale);
+  let num = mantissa * s, den = 1n;
+  if (exp2 >= 0) num <<= BigInt(exp2);
+  else den <<= BigInt(-exp2);
+  let q = num / den;
+  const rem = num % den, twice = rem * 2n;
+  if (twice > den || (twice === den && (q & 1n) === 1n)) q += 1n; // > half, or exact half → even
+  const result = Number(q);
+  return neg ? -result : result;
+}
+
+/** C# `{100.0*count/buildingElements:F0}` — x is already the scaled-by-100 double; just round it. */
+const pctF0 = (x) => String(roundHalfEvenExact(x, 1));
+/** C# `{lim.MaxRatio:P0}` — ratio is the raw 0..1 double; P0 scales it by 100 as an exact decimal
+ *  operation internally, so we do too (never pre-multiply ratio * 100 in float first). */
+const pctP0 = (ratio) => String(roundHalfEvenExact(ratio, 100));
 
 /**
  * Check IFC bytes (or text) against a delivery contract. Never throws on a bad file — an unparsable
@@ -113,7 +140,7 @@ export function checkDelivery(input, contract) {
     const maxCount = lim.max_count ?? 0, maxRatio = lim.max_ratio ?? 1;
     if (count > maxCount) r.failures.push(`${lim.entity}: ${count} exceeds max ${maxCount}.`);
     else if (buildingElements > 0 && count / buildingElements > maxRatio)
-      r.failures.push(`${lim.entity}: ${count}/${buildingElements} building elements (${pct0(100 * count / buildingElements)}%) exceeds ${pct0(100 * maxRatio)}% — semantics are being lost to proxies.`);
+      r.failures.push(`${lim.entity}: ${count}/${buildingElements} building elements (${pctF0(100 * count / buildingElements)}%) exceeds ${pctP0(maxRatio)}% — semantics are being lost to proxies.`);
   }
 
   for (const p of contract?.required_psets || []) if (!psets.has(String(p).toLowerCase())) r.failures.push(`Required property set '${p}' not found in the file.`);

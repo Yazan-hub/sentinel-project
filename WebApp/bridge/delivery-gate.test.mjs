@@ -57,6 +57,21 @@ describe("checkDelivery", () => {
     const r = checkDelivery(eightBuildingElements, contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 2147483647, max_ratio: 0.1 }] }));
     expect(r.failures).toContain("IFCBUILDINGELEMENTPROXY: 1/8 building elements (12%) exceeds 10% — semantics are being lost to proxies.");
   });
+  it("formats the max_ratio ceiling the way C#'s :P0 does for 'round' contract thresholds, not naive double multiply-then-round (1/4 = 25% fixture)", () => {
+    // These max_ratio values are exact doubles whose true value sits just above or below the .5
+    // boundary once scaled by 100 — a naive `Math.round(100 * maxRatio)` gives the wrong side for
+    // some of them (verified against a real `double.ToString("P0")` via the dotnet SDK).
+    const cases = [
+      [0.025, "3%"],
+      [0.015, "1%"],
+      [0.075, "7%"],
+      [0.005, "1%"],
+    ];
+    for (const [max_ratio, expected] of cases) {
+      const r = checkDelivery(ifc, contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 2147483647, max_ratio }] }));
+      expect(r.failures).toContain(`IFCBUILDINGELEMENTPROXY: 1/4 building elements (25%) exceeds ${expected} — semantics are being lost to proxies.`);
+    }
+  });
   it("fails a hard max_count with the C# sentence", () => {
     const r = checkDelivery(ifc, contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 0, max_ratio: 1 }] }));
     expect(r.failures).toContain("IFCBUILDINGELEMENTPROXY: 1 exceeds max 0.");
