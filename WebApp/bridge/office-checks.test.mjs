@@ -204,3 +204,30 @@ describe("office.roles / office.task_teams", () => {
     expect(classifyTaskTeams([]).status).toBe("violations");
   });
 });
+
+describe("runCheck over an office scope", () => {
+  it("runs a rollup-eligible check per project and rolls it up; template items and plain projects run once", async () => {
+    const { runCheckScoped } = await import("./check-registry.mjs");
+    const calls = [];
+    const def = { id: "office.roles", label: "Roles", run: async (key) => { calls.push(key); return { id: "office.roles", label: "Roles", status: key === "aster-tower" ? "violations" : "met", count: key === "aster-tower" ? 1 : 0, summary: `${key} roles`, evidence: key === "aster-tower" ? [{ label: "missing role", detail: "lead" }] : [] }; } };
+    const scope = { projectScope: async (key) => key === "aster-office" ? { key, kind: "office", office_key: null, keys: ["aster-office", "aster-tower"] } : { key, kind: "project", office_key: null, keys: [key] } };
+    const out = await runCheckScoped(def, "aster-office", {}, scope);
+    expect(calls).toEqual(["aster-office", "aster-tower"]);
+    expect(out.status).toBe("violations");
+    expect(out.evidence).toContainEqual({ label: "[aster-tower] missing role", detail: "lead" });
+    calls.length = 0;
+    const single = await runCheckScoped(def, "aster-tower", {}, scope);
+    expect(calls).toEqual(["aster-tower"]);
+    expect(single.summary).toBe("aster-tower roles");
+    calls.length = 0;
+    const tpl = { id: "office.worksets", label: "Worksets", run: async (key) => { calls.push(key); return { id: "office.worksets", label: "Worksets", status: "met", count: 0, summary: "", evidence: [] }; } };
+    await runCheckScoped(tpl, "aster-office", {}, scope);
+    expect(calls).toEqual(["aster-office"]);              // template item: the office's own snapshot only
+  });
+  it("falls back to a single run when the scope cannot be resolved", async () => {
+    const { runCheckScoped } = await import("./check-registry.mjs");
+    const def = { id: "cde.states", label: "States", run: async () => ({ id: "cde.states", label: "States", status: "met", count: 0, summary: "one", evidence: [] }) };
+    const out = await runCheckScoped(def, "ghost", {}, { projectScope: async () => { throw Object.assign(new Error("nope"), { status: 404 }); } });
+    expect(out.summary).toBe("one");
+  });
+});
