@@ -105,6 +105,10 @@ describe("checkFederation", () => {
     expect(r4.status).toBe("fail");
     expect(r4.evidence[0]).toMatchObject({ model_a: "A-0101.ifc", model_b: "B-0102.ifc" });
     expect((r4.evidence[0] as { delta_deg: number }).delta_deg).toBeCloseTo(1, 3);
+    const deg = (d: number) => ({ x_axis_abscissa: Math.cos((d * Math.PI) / 180), x_axis_ordinate: Math.sin((d * Math.PI) / 180) });
+    const straddleA = model("A-0101.ifc", manifest({ site: site(51.5, -0.1, deg(179.97)) }));
+    const straddleB = model("B-0102.ifc", manifest({ site: site(51.5, -0.1, deg(-179.98)) }));
+    expect(check(checkFederation([straddleA, straddleB], { verdicts: okVerdicts }), "FG-05").status).toBe("pass");
     const noneAtAll = checkFederation([model("A-0101.ifc", manifest({ site: null })), noGeo], { verdicts: okVerdicts });
     expect(check(noneAtAll, "FG-05").status).toBe("not_checkable");
   });

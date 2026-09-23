@@ -144,6 +144,8 @@ function fg05(ms: { container: string; m: Manifest }[], georefM: number, angleDe
     return Math.hypot(dx, dy);
   };
   const rot = (mc: MapConversion) => (Math.atan2(mc.x_axis_ordinate, mc.x_axis_abscissa) * 180) / Math.PI;
+  // angles wrap at ±180°: 179.97° and -179.98° are 0.05° apart, not ~360° apart — normalize before abs.
+  const angleDelta = (a: number, b: number) => Math.abs((((a - b + 180) % 360) + 360) % 360 - 180);
   for (let i = 0; i < withGeo.length; i++) for (let j = i + 1; j < withGeo.length; j++) {
     const a = withGeo[i], b = withGeo[j];
     const sa = a.m.site!, sb = b.m.site!;
@@ -152,7 +154,7 @@ function fg05(ms: { container: string; m: Manifest }[], georefM: number, angleDe
     if (sa.map_conversion && sb.map_conversion) {
       const ma = sa.map_conversion, mb = sb.map_conversion;
       deltaM = Math.max(deltaM ?? 0, Math.hypot(ma.eastings - mb.eastings, ma.northings - mb.northings, ma.height - mb.height));
-      deltaDeg = Math.abs(rot(ma) - rot(mb));
+      deltaDeg = angleDelta(rot(ma), rot(mb));
     }
     if ((deltaM != null && deltaM > georefM) || (deltaDeg != null && deltaDeg > angleDeg))
       c.evidence.push({ model_a: a.container, model_b: b.container, delta_m: deltaM == null ? null : Number(deltaM.toFixed(3)), delta_deg: deltaDeg == null ? null : Number(deltaDeg.toFixed(4)) });
