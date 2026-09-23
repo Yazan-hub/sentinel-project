@@ -1173,6 +1173,12 @@ async function handleRequest(req, res) {
           return send(res, 200, run);
         }
       }
+      // The Next strip (spec 2026-09-24 §2): GET /cde/:key/journey — read-only; any member (getJourney's
+      // ensureProject gate, the same check every /cde/:key read has). Standards in force, steps with evidence, next.
+      if (p2 === "journey" && !p3 && req.method === "GET") {
+        const { getJourney } = await import("./journey-store.mjs");
+        return send(res, 200, await getJourney(p1));
+      }
       // Element snapshots (revision tracking, migration 0005):
       //   POST /cde/:key/snapshots  { rev_code?, model_id?, uploaded_by?, container_version_id?, snapshots:[{guid,category,type_name,count,length,area,volume,weight}] }
       //   GET  /cde/:key/snapshots            → revision metadata (newest first, the baseline picker)

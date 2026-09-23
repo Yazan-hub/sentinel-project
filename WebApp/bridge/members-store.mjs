@@ -54,6 +54,14 @@ export async function listMembers(key, deps) {
   }));
 }
 
+/** The membership rows alone ({ user_id, role }) — no GoTrue e-mail lookup per member (listMembers does one
+ *  each). The journey reads this on every strip refresh (Next strip spec §2). */
+export async function listMemberRows(key, deps) {
+  const d = wire(deps);
+  const proj = await d.ensureProject(key);
+  return memberRows(d, proj.id);
+}
+
 export async function findUserByEmail(email, deps) {
   const d = wire(deps);
   const res = await d.adminFetch(`/admin/users?email=${enc(email)}`);

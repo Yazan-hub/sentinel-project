@@ -949,6 +949,16 @@ export async function versionVerdicts(key, versionIds = []) {
   return out;
 }
 
+/** Every governed verdict row of a project, newest first: [{ id, version_id, verdict }]. One read answers both
+ *  "any verdict yet" and "the latest verdict of each live version", with the audit id each one needs as
+ *  evidence (the journey, Next strip spec §1 — versionVerdicts keeps only the verdict word). */
+export async function listVersionVerdictRows(key) {
+  const proj = await ensureProject(key);
+  // ponytail: unbounded read of the verdict rows; filter by the live version ids if a project's verdict history grows large.
+  const rows = await sb(`audit_log?project_id=eq.${proj.id}&entity_type=eq.file_version&action=like.verdict:*&select=id,entity_id,action&order=id.desc`);
+  return (rows || []).map((r) => ({ id: r.id, version_id: r.entity_id, verdict: String(r.action).replace(/^verdict:/, "") }));
+}
+
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
 const enc = encodeURIComponent;
 const DOC_CONFLICT = "on_conflict=store,project_id,doc_id";

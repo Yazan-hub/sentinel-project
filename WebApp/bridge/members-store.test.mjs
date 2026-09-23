@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runWithAuth } from "./bridge-auth.mjs";
-import { ROLES, ROLE_RANK, listMembers, addMember, changeRole, removeMember, myRole, requireMinRole } from "./members-store.mjs";
+import { ROLES, ROLE_RANK, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole } from "./members-store.mjs";
 
 const jwt = (payload) =>
   "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify(payload)).toString("base64url") + ".sig";
@@ -51,6 +51,15 @@ describe("listMembers", () => {
     const deps = baseDeps({ adminFetch: vi.fn(async () => { throw new Error("gotrue down"); }) });
     const m = await listMembers("demo", deps);
     expect(m[0].email).toBe("u-owner");
+  });
+});
+
+describe("listMemberRows", () => {
+  it("returns the rows without a single e-mail lookup", async () => {
+    const deps = baseDeps();
+    expect(await listMemberRows("demo", deps)).toEqual(deps.rows);
+    expect(deps.adminFetch).not.toHaveBeenCalled();
+    expect(deps.sb).toHaveBeenCalledWith("memberships?project_id=eq.p1&select=user_id,role", { service: true });
   });
 });
 
