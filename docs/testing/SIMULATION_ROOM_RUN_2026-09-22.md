@@ -143,3 +143,26 @@ Deploy 22670e4 (folder picker) at the next Revit close. 3.8 MEP Openings (no MEP
 
 ## Restore after the simulation (machine-global files under `%AppData%\Sentinel`)
 `ruleset.json` ← `ruleset.json.bak-BDS-pilot-1.5.0` · `ids.json` ← `ids.json.bak-BDS-pilot` · `delivery-contract.json` untouched. Redeploy is not needed for these.
+
+## Governed Intake drill (Session D2), 2026-09-23
+
+Feature `feature/governed-intake` (Features Update 1.1, cohesion phase 1), run from the CLI against the
+branch's bridge; every line below is a bridge response or an audit id.
+
+| Step | Result | Evidence |
+|---|---|---|
+| Install the project IDS | `ids@3` on `aster-tower` (the compiled Aster EIR), `ids@1` on `aster-office` (a one-spec wall FireRating IDS for the pass path) | `artefact_installed` rows; `GET /cde/aster-tower/artefacts` |
+| Fail path first — Golden Nugget IFC (25.3 MB, IFC2X3, 457 821 entities) with a non-conforming name | **REJECTED (ids)**: gate PASS on `bridge-default`; naming ✗ "expected 7 '-'-separated fields …, got 1"; 811 elements read, 0 skipped; 4 IDS failures (2 walls without `Pset_WallCommon.LoadBearing`, 2 windows without `Pset_WindowCommon.ThermalTransmittance`); 2 BCF topics raised; no version | audit 695, receipt `1b0f8c6d…` |
+| Same file, conforming name `ASTR26-AST-ZZ-XX-M3-A-0003.ifc` | **REJECTED (ids)**: naming ok, the same 4 failures, 0 new topics (de-duplicated against the open ones), no version | audit 699 |
+| Pass path — the test fixture as `ASTR26-AST-ZZ-XX-M3-A-0009.ifc` on `aster-office` | **ACCEPTED (published)**: gate PASS (IFC4, 32 entities), naming ok, `ids@1` in scope 1 / passing 1, fragments uploaded (platform item `6ab3636f…`), version **P01 wip live** registered with sha, verdict stamped on the version | audits 701 (gate PASS) · 702 (proposal accepted) · 703 (container) · 704 (set live) · 705 (uploaded) · 706 (`verdict:accepted`); every `entity_id` a uuid or null |
+| Receipt | `GET /receipt/aster-office/702` → `POST …/verify` → `matches: true`; the same receipt with the verdict flipped → `matches: false`, "verdict does not match the ledger (receipt: rejected, ledger: accepted)" | — |
+| Bridge log | no errors during the drill | managed server log |
+
+Not exercised: the web **Install on this project** button (the platform viewer is blocked, F49, and
+the button lives in the Documents panel which needs the founder signed in) — the same route was
+exercised through the import CLI and a direct PUT. Left in place from the drill: `ids@1` on
+`aster-office`, the fixture container on `aster-office`, two open IDS topics on `aster-tower` from the
+Golden Nugget run, `ids@1..3` on `aster-tower` (same content, three installs). Reviewer follow-up
+recorded for phase 1: exclude `store = 'artefact'` from the `bridge_docs` authenticated write policy
+so only the bridge (service role) writes artefacts; until then a rewritten document is exposed by the
+verdict's `ids_sha256` and the `pointer_sha_mismatch` flag, not prevented.

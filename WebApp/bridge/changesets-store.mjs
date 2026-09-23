@@ -24,7 +24,7 @@ export async function proposeChangeset(key, body, actor, deps) {
   const v = validateChangeset(body);                      // 400/413 before any network call
   const proj = await d.ensureProject(key);
 
-  // Reuse the referee as-is: it honours the SENTINEL_IDS server override and writes its own
+  // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
   const adj = await d.adjudicateProposal(key, {
     source: v.source, actor,

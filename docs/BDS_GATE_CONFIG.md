@@ -65,10 +65,10 @@ The ruleset defines each field as data — a list of allowed values (`enum`), a 
 
 ## 2. Element gate (Phase B)
 
-**Active config:** None server-side by default; the gate uses the client-supplied IDS spec (from the Revit publish).
+**Active config:** the project's installed IDS artefact when one exists (Documents → Compile to IDS → Install on this project, or `artefact-import.mjs`); else the office's, once the office entity exists; else the client-supplied IDS spec from the publish/propose body; else none. A project or office artefact outranks whatever the client sends — see "Override a spec per-request" below.
 **What it checks:** each exported **element** against BDS's LOD-300 data requirements (from the LOD Matrix).
 
-**To enforce a server-side spec:** set `SENTINEL_IDS=/path/to/ids.json` in `config/.env`; restart the bridge. When set, the server-side spec is authoritative and the client-supplied spec is ignored (audited). Example: to use the Base template, point to `config/base-standard/ids.json`.
+**To install the project IDS:** Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids`.
 
 ```jsonc
 {
@@ -113,13 +113,13 @@ A parameter that isn't authored is simply *absent* → the IDS reports it (as a 
 | Action | How |
 |---|---|
 | **Swap naming ruleset to Base template** | set `SENTINEL_NAMING_RULESET=config/base-standard/naming-ruleset.json` in `config/.env`; restart the bridge |
-| **Add server-side IDS enforcement** | set `SENTINEL_IDS=config/base-standard/ids.json` (or any other spec) in `config/.env`; restart the bridge |
+| **Install the project IDS** | Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids` |
 | **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in `WebApp/bridge/naming-ruleset.json` (or the env-var-pointed file), restart |
-| **Tighten element data at DD/CD** | set `"enforce": "reject"` in the server-side IDS file pointed to by `SENTINEL_IDS`, restart |
-| **Override a spec per-request** | a caller may pass an inline `naming` ruleset and/or `ids` spec in the propose body to override the on-disk defaults for that request only |
+| **Tighten element data at DD/CD** | set `"enforce": "reject"` in the IDS source, then Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids` |
+| **Override a spec per-request** | a caller may pass an inline `naming` ruleset in the propose body to override the on-disk default for that request only. An inline `ids` spec does the same, but **only when the project has no installed IDS artefact** (and no office one) — once a project or office IDS is installed, resolution stops there and the client's `ids` is ignored (`client_ids_ignored: true` in the response) |
 | **Reload after any edit** | restart the bridge (`npm run bcf:serve`); rulesets are cached at first use |
 
-Per-request override (agents/tools): a caller may pass an inline `naming` ruleset and/or `ids` spec in the propose body to override the on-disk defaults for that request.
+Per-request override (agents/tools): a caller may pass an inline `naming` ruleset in the propose body to override the on-disk default for that request. An inline `ids` spec only takes effect when no project or office IDS artefact is installed — resolution order is project → office → client `ids` → none, and a project/office artefact always outranks a client-supplied spec.
 
 ---
 

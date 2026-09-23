@@ -5,9 +5,8 @@ using System.Text.Json;
 namespace Sentinel.Engine;
 
 /// <summary>
-/// The project IDS spec (JSON IdsSpec) the referee adjudicates against, beside the delivery contract in
-/// <c>%AppData%\Sentinel</c>. Absent ⇒ null (the model is recorded, not judged). The bridge's
-/// <c>SENTINEL_IDS</c> override still wins over whatever the client sends.
+/// The project's installed IDS artefact that the bridge judges against. This file is only what Revit reports
+/// in its dialog until cohesion phase 4; the bridge resolves project IDS first, then office, then client, then none.
 /// </summary>
 public static class IdsSpecFile
 {

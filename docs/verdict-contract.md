@@ -35,21 +35,21 @@ rulebook is private is just an opinion.
 }
 ```
 
-**Server-side IDS wins.** If the bridge has `SENTINEL_IDS` configured, a client-supplied `ids` is
-ignored and the response says so (`client_ids_ignored: true`, `ids_source: "server"`). A referee that
-let the proposer bring its own rulebook would not be a referee.
+**The project's installed IDS wins.** If the project (or its office) has an `ids` artefact, a client-supplied `ids` is ignored and `client_ids_ignored: true` is recorded; `ids_source` is `project | office | client | none` and `ids_ref` names the version.
 
 ## 2. Verdict
 
 ```jsonc
 {
-  "verdict": "accepted" | "rejected",
-  "summary": { /* per-requirement counts */ },
+  "verdict": "accepted" | "rejected" | "recorded",   // recorded = nothing was adjudicated (no IDS, or nothing in scope)
+  "summary": { "elements": 412, "in_scope": 96, "passing": 96, "failing": 0, "ids": "Aster IDS" },
   "failures": [ /* up to 200, each naming the requirement it failed */ ],
   "naming":  { "ok": false, "failures": [ … ] } | null,
   "warned": false,                    // failed, but the ruleset's enforce level is "warn"
   "ids_enforce": "reject" | "warn" | "off",
-  "ids_source": "server" | "client" | "none" | "server-invalid",
+  "ids_source": "project" | "office" | "client" | "none",
+  "ids_ref": "ids@3" | null,          // the installed artefact version that judged
+  "ids_sha256": "4c1e…" | null,       // hash of the spec body that judged (computed, never copied)
   "audit_id": 412,
   "agent": { "claimed": true, … } | null,
   "receipt": { /* §4 */ }
@@ -80,7 +80,7 @@ ledger is append-only and immutable — the wrong place to discover that. The di
   "recorded_at": "2026-09-15T10:00:00.000Z",
   "actor": "agent",
   "verdict": "accepted",
-  "ids_source": "server",
+  "ids_source": "project",
   "summary": { … },
   "agent": { "claimed": true, … } | null,
   "ledger_hash": "9f2c…",             // the audit row's OWN hash-chain entry

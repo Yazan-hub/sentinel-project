@@ -10,7 +10,7 @@ onto the document-governance layer (BEP/EIR documents, compliance, deliverables,
 | Tool | What it does |
 |---|---|
 | `sentinel_list_projects` | List the governed CDE projects. |
-| `sentinel_propose` | Validate proposed elements against an IDS (buildingSMART Information Delivery Specification); returns **accepted / rejected** with per-requirement reasons and records the verdict in the hash-chained audit trail. |
+| `sentinel_propose` | Validate proposed elements against an IDS (buildingSMART Information Delivery Specification); returns **accepted / rejected** with per-requirement reasons and records the verdict in the hash-chained audit trail. The referee judges by the project's installed IDS artefact; `sentinel_propose` needs no `ids` argument when one is installed. |
 | `sentinel_audit` | Read a project's immutable audit trail (proposals, clashes, ISO 19650 state transitions). |
 | `sentinel_list_documents` | List a project's governed BIM documents (BEP, EIR): id, title, type, status. Read-only. |
 | `sentinel_get_document` | Read one document with its sections; pass `section` (id or exact heading) to fetch just that section. Read-only. |

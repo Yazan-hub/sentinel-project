@@ -1,7 +1,7 @@
 {
   "title": "Base element data requirements (generic)",
   "enforce": "warn",
-  "_note": "Office-agnostic starter. Server-side custody: set SENTINEL_IDS to this file's path on the bridge to make it authoritative.",
+  "_note": "Office-agnostic starter. Server-side custody: install it as the project's IDS artefact (Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs config/base-standard/ids.json --project <key> --kind ids`) to make it authoritative.",
   "specifications": [
     {
       "name": "Walls carry fire rating",
