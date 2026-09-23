@@ -333,6 +333,32 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   return { raised: raised.length, skipped: openReqs.length, topics: raised };
 }
 
+/** One BCF topic per failing Federation Gate check, de-duplicated by title against open ones. The
+ *  description quotes the evidence rows — the coordinator gets the models and values, not a summary. */
+async function raiseFederationTopics(cde, pid, run, opts = {}) {
+  const author = resolveActor(opts.author, "Federation Gate");
+  let existing = [];
+  try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  const open = new Set((existing || [])
+    .filter((t) => /^Federation:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+    .map((t) => String(t.title).replace(/\s*\(\d+\)\s*$/, "")));
+  const failing = run.result.checks.filter((c) => c.status === "fail");
+  const now = new Date().toISOString();
+  const raised = [];
+  for (const c of failing) {
+    const base = `Federation: ${c.id} ${c.title}`;
+    if (open.has(base)) continue;
+    const topic = cde.newTopicObject(pid, {
+      title: `${base} (${c.evidence.length})`, topic_type: "Issue", priority: "High", creation_author: author,
+      description: `${c.reason || c.title}. Models: ${run.set.map((s) => s.container).join(", ")}.\n` + c.evidence.slice(0, 20).map((e) => JSON.stringify(e)).join("\n"),
+    }, now);
+    await cde.bcfCreateTopic(topic);
+    broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+    raised.push(topic.guid);
+  }
+  return { raised: raised.length, skipped: failing.length - raised.length, topics: raised };
+}
+
 /** Poll the shared event feed and re-broadcast other bridges' events to our local clients (near-real-time). */
 async function startEventPoll() {
   if (EVENT_POLL_MS <= 0) return;
@@ -1027,6 +1053,21 @@ async function handleRequest(req, res) {
           const bytes = await readRaw(req);
           if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
           return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
+        }
+      }
+      // Federation Gate: GET /cde/:key/federation · POST /cde/:key/federation/run { versions?, raise_bcf? }
+      if (p2 === "federation") {
+        const fed = await import("./federation-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await fed.getFederation(p1));
+        if (p3 === "run" && !p4 && req.method === "POST") {
+          const body = (await readBody(req)) || {};
+          const actor = url.searchParams.get("actor") || body.actor || "web";
+          const run = await fed.runFederation(p1, { versions: body.versions }, { actor });
+          if (run.result.verdict === "fail" && body.raise_bcf !== false) {
+            try { run.bcf = await raiseFederationTopics(cde, p1, run, { author: actor }); }
+            catch (e) { run.bcf = { raised: 0, error: String(e?.message || e) }; }
+          }
+          return send(res, 200, run);
         }
       }
       // Element snapshots (revision tracking, migration 0005):
