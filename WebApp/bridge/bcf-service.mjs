@@ -345,18 +345,26 @@ async function raiseFederationTopics(cde, pid, run, opts = {}) {
   const failing = run.result.checks.filter((c) => c.status === "fail");
   const now = new Date().toISOString();
   const raised = [];
+  let dedup = 0, error = null;
   for (const c of failing) {
     const base = `Federation: ${c.id} ${c.title}`;
-    if (open.has(base)) continue;
+    if (open.has(base)) { dedup++; continue; }
     const topic = cde.newTopicObject(pid, {
       title: `${base} (${c.evidence.length})`, topic_type: "Issue", priority: "High", creation_author: author,
       description: `${c.reason || c.title}. Models: ${run.set.map((s) => s.container).join(", ")}.\n` + c.evidence.slice(0, 20).map((e) => JSON.stringify(e)).join("\n"),
     }, now);
-    await cde.bcfCreateTopic(topic);
-    broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
-    raised.push(topic.guid);
+    // Keep whatever raised before a failure — a topic already created must still be counted and
+    // reported, not lost behind an exception that aborts the whole call (the caller only sees {raised: 0}).
+    try {
+      await cde.bcfCreateTopic(topic);
+      broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+      raised.push(topic.guid);
+    } catch (e) {
+      error = String(e?.message || e);
+      break;
+    }
   }
-  return { raised: raised.length, skipped: failing.length - raised.length, topics: raised };
+  return { raised: raised.length, skipped: dedup, topics: raised, ...(error ? { error } : {}) };
 }
 
 /** Poll the shared event feed and re-broadcast other bridges' events to our local clients (near-real-time). */
@@ -1049,6 +1057,7 @@ async function handleRequest(req, res) {
         const ms = await import("./manifest-store.mjs");
         if (!p3 && req.method === "GET") return send(res, 200, await ms.listManifests(p1));
         if (p3 && req.method === "POST") {
+          if (!cde.isUuid(p3)) return send(res, 400, { message: "not a version id" });
           if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
           const bytes = await readRaw(req);
           if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
