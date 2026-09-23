@@ -38,6 +38,7 @@ import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
 import { activePid, onActiveProjectChange } from "./setups/active-project";
+import { nextStrip, tabIndex } from "./setups/next-strip";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -253,13 +254,24 @@ async function main() {
 
   // ── The project space (Forma-style): hub grid ⇄ per-project Dashboard | Project Files | Settings ──
   const projectSettingsEl = projectSettingsPanel({ baseUrl: SERVICE_URL, onDeleted: () => showHub() });
-  const spaceTabsEl = tabbed([
+  const spaceTabs = [
     { label: "Dashboard", el: projectEl },
     { label: "Project Files", el: filesEl },
     { label: "Documents", el: docsEl },
     { label: "Deliverables", el: deliverablesEl },
     { label: "Settings", el: projectSettingsEl },
-  ]);
+  ];
+  const spaceTabsEl = tabbed(spaceTabs);
+  // The Next strip (spec 2026-09-24): standards in force + the next journey step, on every project tab.
+  // "Open" maps the step's tab label to its index in spaceTabs; "▸ Journey" opens the Guide sidebar layout.
+  const nextStripEl = nextStrip({
+    baseUrl: SERVICE_URL,
+    onOpenTab: (label) => {
+      const i = tabIndex(spaceTabs.map((t) => t.label), label);
+      if (i >= 0) (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(i);
+    },
+    onOpenGuide: () => { app.layout = "Guide"; },
+  });
   const spaceHeader = document.createElement("div");
   spaceHeader.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;background:#16161a;flex:0 0 auto";
   spaceHeader.innerHTML =
@@ -269,7 +281,7 @@ async function main() {
   spaceView.style.cssText = "display:none;flex-direction:column;height:100%;min-height:0;overflow:hidden;border-radius:.5rem;background:#16161a";
   spaceTabsEl.style.flex = "1";
   spaceTabsEl.style.minHeight = "0";
-  spaceView.append(spaceHeader, spaceTabsEl);
+  spaceView.append(spaceHeader, nextStripEl, spaceTabsEl);
 
   const projectsRootEl = document.createElement("div");
   projectsRootEl.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0";

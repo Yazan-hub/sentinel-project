@@ -42,8 +42,10 @@ describe("the step lists", () => {
     expect(OFFICE_STEPS.map((s) => s.id)).toEqual(["team", "standards", "snapshot", "readiness", "projects"]);
     expect(PROJECT_STEPS.map((s) => s.id)).toEqual(["team", "standards", "bep", "model", "verdict", "published", "federated", "issued"]);
     // A3: read real tab labels from main.ts itself rather than a hand-copied list.
+    // Task 3 named the literal `spaceTabs` (reused for tabIndex()); anchor on that instead of the
+    // `tabbed([...])` call it used to be inlined into.
     const src = readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8");
-    const block = src.slice(src.indexOf("const spaceTabsEl"), src.indexOf("]);", src.indexOf("const spaceTabsEl")));
+    const block = src.slice(src.indexOf("const spaceTabs ="), src.indexOf("];", src.indexOf("const spaceTabs =")));
     const tabs = [...block.matchAll(/label: "([^"]+)", el:/g)].map((m) => m[1]);
     expect(tabs.length).toBeGreaterThan(0);
     for (const s of [...OFFICE_STEPS, ...PROJECT_STEPS]) {
