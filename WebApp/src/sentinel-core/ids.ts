@@ -9,7 +9,7 @@ export type Cardinality = "required" | "optional" | "prohibited";
 
 /** A required/prohibited PROPERTY in a property set (Pset_ or Qto_). */
 export interface IdsPropertyFacet {
-  pset: string; // property-set name, e.g. "Pset_WallCommon"
+  pset: string | null; // property-set name, e.g. "Pset_WallCommon"; null = search every group (a compiled requirement that named none)
   name: string; // property name, e.g. "IsExternal"
   datatype?: string; // e.g. "IFCBOOLEAN" (informational for now)
   value?: string; // exact required value (case-insensitive)
@@ -121,11 +121,17 @@ function attrValue(el: ElementProperties, name: string): string | undefined {
 // Null-safe throughout: a proposed element from any producer may carry a malformed pset/quantity group (no
 // name, no rows) — the referee must treat that as "property absent", never throw. A crash here would 500 the
 // whole propose call on one bad element (which is exactly what a real Revit payload did).
-function propValue(el: ElementProperties, pset: string, name: string): string | undefined {
+function propValue(el: ElementProperties, pset: string | null | undefined, name: string): string | undefined {
   const groups = [...(el.psets ?? []), ...(el.quantities ?? [])];
-  const g = groups.find((x) => (x?.name ?? "").toLowerCase() === pset.toLowerCase());
-  const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
-  return row?.value;
+  // No pset named (a compiled requirement the prose did not locate): the property is searched in every
+  // group rather than throwing on null — a requirement must yield a verdict or a reason, never a crash.
+  // (Ported from the bridge bundle, fix a738e1d, which had been applied to the bundle only — F27.)
+  const candidates = pset ? groups.filter((x) => (x?.name ?? "").toLowerCase() === String(pset).toLowerCase()) : groups;
+  for (const g of candidates) {
+    const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
+    if (row) return row.value;
+  }
+  return undefined;
 }
 
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

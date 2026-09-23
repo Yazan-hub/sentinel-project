@@ -189,11 +189,11 @@ function buildScorecard(report) {
   for (const v of report.violations) {
     const w = weight(v.mode);
     penalty += w;
-    const key = v.rule_id.split("-")[0];
-    let d = byDomain.get(key);
+    const key2 = v.rule_id.split("-")[0];
+    let d = byDomain.get(key2);
     if (!d) {
-      d = { domain: key, violations: 0, weighted_penalty: 0 };
-      byDomain.set(key, d);
+      d = { domain: key2, violations: 0, weighted_penalty: 0 };
+      byDomain.set(key2, d);
     }
     d.violations++;
     d.weighted_penalty += w;
@@ -238,8 +238,8 @@ var defaultRates = rates_default;
 function resolveRate(e, rates) {
   const cat = (e.category || "").toUpperCase();
   if (e.type_name) {
-    const key = `${cat}:${e.type_name}`.toUpperCase();
-    const hit = rates.rules.find((r) => r.match.toUpperCase() === key);
+    const key2 = `${cat}:${e.type_name}`.toUpperCase();
+    const hit = rates.rules.find((r) => r.match.toUpperCase() === key2);
     if (hit) return hit;
   }
   return rates.rules.find((r) => r.match.toUpperCase() === cat);
@@ -309,8 +309,8 @@ function buildBoQ(quantities, rates) {
 }
 function describe(match) {
   const [cat, type] = match.split(":");
-  const key = cat.toUpperCase().replace(/^IFC/, "");
-  const base = FRIENDLY[key] ?? titleCase(key);
+  const key2 = cat.toUpperCase().replace(/^IFC/, "");
+  const base = FRIENDLY[key2] ?? titleCase(key2);
   return type ? `${base} \u2014 ${type}` : base;
 }
 var FRIENDLY = {
@@ -512,8 +512,8 @@ var defaultFactors = carbon_factors_default;
 function resolveFactor(e, f) {
   const cat = (e.category || "").toUpperCase();
   if (e.type_name) {
-    const key = `${cat}:${e.type_name}`.toUpperCase();
-    const hit = f.factors.find((x) => x.match.toUpperCase() === key);
+    const key2 = `${cat}:${e.type_name}`.toUpperCase();
+    const hit = f.factors.find((x) => x.match.toUpperCase() === key2);
     if (hit) return hit;
   }
   return f.factors.find((x) => x.match.toUpperCase() === cat);
@@ -910,9 +910,9 @@ function matches(when, input) {
     hit.push("discipline");
   }
   for (const [k, v] of Object.entries(when.params ?? {})) {
-    const key = Object.keys(input.params ?? {}).find((n) => norm(n).replace(/\s+/g, "") === norm(k).replace(/\s+/g, ""));
-    if (key === void 0) return null;
-    if (!norm((input.params ?? {})[key]).includes(norm(v))) return null;
+    const key2 = Object.keys(input.params ?? {}).find((n) => norm(n).replace(/\s+/g, "") === norm(k).replace(/\s+/g, ""));
+    if (key2 === void 0) return null;
+    if (!norm((input.params ?? {})[key2]).includes(norm(v))) return null;
     hit.push(`param:${k}`);
   }
   return hit;
@@ -1135,6 +1135,227 @@ function valueSchema() {
   };
 }
 
+// src/sentinel-core/naming.ts
+function stripExt(name, exts) {
+  for (const e of exts ?? []) {
+    if (name.toLowerCase().endsWith(e.toLowerCase())) return name.slice(0, -e.length);
+  }
+  return name;
+}
+function validateContainerName(rawName, rs) {
+  const name = stripExt((rawName ?? "").trim(), rs.strip_extensions);
+  const failures = [];
+  const parts = name.length ? name.split(rs.separator) : [];
+  if (parts.length !== rs.fields.length) {
+    failures.push({
+      field: "*",
+      reason: `expected ${rs.fields.length} '${rs.separator}'-separated fields (${rs.fields.map((f) => f.label).join(rs.separator)}), got ${parts.length}`
+    });
+    return { ok: false, name, ruleset: rs.title, failures };
+  }
+  const fields = {};
+  rs.fields.forEach((f, i) => {
+    const v = parts[i];
+    fields[f.key] = v;
+    if (f.placeholders?.includes(v)) return;
+    if (f.enum && f.enum.includes(v)) return;
+    if (f.pattern) {
+      let ok = false;
+      try {
+        ok = new RegExp(`^(?:${f.pattern})$`).test(v);
+      } catch {
+        ok = false;
+      }
+      if (ok) return;
+    }
+    if (!f.enum && !f.pattern && v.length > 0) return;
+    const allowed = f.enum ? ` (allowed: ${f.enum.slice(0, 12).join(", ")}${f.enum.length > 12 ? ", \u2026" : ""})` : f.pattern ? ` (must match /${f.pattern}/)` : "";
+    failures.push({ field: f.key, value: v, reason: `'${v}' is not a valid ${f.label}${allowed}` });
+  });
+  return { ok: failures.length === 0, name, ruleset: rs.title, fields, failures };
+}
+
+// src/sentinel-core/federation.ts
+var SEPS = [["_", "underscore"], ["-", "hyphen"], [" ", "space"], [".", "dot"]];
+function nameShape(name) {
+  const s = String(name ?? "").trim();
+  if (!s) return "none\xB70";
+  let best = null, bestCount = 0;
+  for (const sep of SEPS) {
+    const n = s.split(sep[0]).length - 1;
+    if (n > bestCount) {
+      best = sep;
+      bestCount = n;
+    }
+  }
+  if (!best) return "none\xB71";
+  return `${best[1]}\xB7${s.split(best[0]).filter(Boolean).length}`;
+}
+var key = (s) => s.trim().toLowerCase();
+var uniq = (xs) => [...new Set(xs)];
+var dominant = (shapes) => {
+  const counts = /* @__PURE__ */ new Map();
+  for (const s of shapes) counts.set(s, (counts.get(s) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "none\xB70";
+};
+var mk = (id, title) => ({ id, title, status: "pass", evidence: [], warnings: [] });
+var fail = (c, reason) => {
+  c.status = "fail";
+  if (reason) c.reason = reason;
+  return c;
+};
+var nc = (c, reason) => {
+  c.status = "not_checkable";
+  c.reason = reason;
+  return c;
+};
+function fg01(ms) {
+  const c = mk("FG-01", "No GlobalId appears in two models");
+  const seen = /* @__PURE__ */ new Map();
+  for (const { container, m } of ms) for (const e of uniq(m.elements.map((x) => x.guid).filter(Boolean))) seen.set(e, [...seen.get(e) ?? [], container]);
+  for (const [guid, models] of seen) if (models.length > 1) c.evidence.push({ guid, models });
+  return c.evidence.length ? fail(c, `${c.evidence.length} GlobalId(s) shared between models`) : c;
+}
+function resolveOrg(rule, org) {
+  const escaped = (org ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const defs = {};
+  for (const [k, v] of Object.entries(rule.token_defs ?? {})) defs[k] = v.replaceAll("{org}", escaped);
+  return { ...rule, token_defs: defs };
+}
+function fg02(ms, opts) {
+  const c = mk("FG-02", "Type naming is one convention per category");
+  const byCat = /* @__PURE__ */ new Map();
+  for (const { container, m } of ms) {
+    const per = /* @__PURE__ */ new Map();
+    for (const e of m.elements) if (e.type_name) per.set(e.class, [...per.get(e.class) ?? [], e.type_name]);
+    for (const [cat, names] of per) byCat.set(cat, [...byCat.get(cat) ?? [], { container, names: uniq(names) }]);
+  }
+  for (const [category, rows] of byCat) {
+    if (rows.length < 2) continue;
+    const shaped = rows.map((r) => ({ category, model: r.container, shape: dominant(r.names.map(nameShape)), examples: r.names.slice(0, 5) }));
+    if (uniq(shaped.map((s) => s.shape)).length > 1) {
+      c.evidence.push(...shaped);
+      c.status = "fail";
+    }
+  }
+  if (opts.type_rule) {
+    const engine = new RuleEngine();
+    const rule = resolveOrg(opts.type_rule, opts.org);
+    for (const { container, m } of ms)
+      for (const name of uniq(m.elements.map((e) => e.type_name).filter((x) => !!x)))
+        if (engine.checkName(rule, 0, name)) {
+          c.evidence.push({ model: container, type_name: name, rule: rule.id });
+          c.status = "fail";
+        }
+  } else {
+    c.reason = "no type rule installed \u2014 naming shapes compared only";
+  }
+  if (c.status === "fail") c.reason = (c.reason ? c.reason + "; " : "") + "type naming differs between models";
+  return c;
+}
+function fg03(ms, tolMm) {
+  const c = mk("FG-03", "Levels align by name and elevation");
+  const withLevels = ms.filter((x) => x.m.levels.length);
+  if (withLevels.length < 2) return nc(c, "fewer than two models carry levels");
+  const byName = /* @__PURE__ */ new Map();
+  for (const { container, m } of withLevels) for (const l of m.levels) {
+    const k = key(l.name);
+    const row = byName.get(k) ?? { name: l.name, values: [] };
+    row.values.push({ model: container, elevation_mm: l.elevation_mm });
+    byName.set(k, row);
+  }
+  let shared = 0;
+  for (const row of byName.values()) {
+    if (row.values.length === withLevels.length) shared++;
+    if (row.values.length >= 2) {
+      const el = row.values.map((v) => v.elevation_mm);
+      if (Math.max(...el) - Math.min(...el) > tolMm) c.evidence.push({ name: row.name, values: row.values });
+    }
+    for (const { container } of withLevels) if (!row.values.some((v) => v.model === container)) c.warnings.push(`${row.name}: missing in ${container}`);
+  }
+  if (c.evidence.length) return fail(c, `${c.evidence.length} level(s) at different elevations`);
+  if (shared === 0) return fail(c, "no level name is shared by every model that has levels");
+  return c;
+}
+function fg04(ms) {
+  const c = mk("FG-04", "Grid tags match");
+  const withGrids = ms.filter((x) => x.m.grids.length);
+  if (withGrids.length < 2) return nc(c, "fewer than two models carry grids");
+  const union = uniq(withGrids.flatMap((x) => x.m.grids)).sort();
+  for (const { container, m } of withGrids) {
+    const mine = new Set(m.grids);
+    const missing = union.filter((g) => !mine.has(g));
+    if (missing.length) c.evidence.push({ model: container, missing, extra: [] });
+  }
+  return c.evidence.length ? fail(c, "grid tag sets differ between models") : c;
+}
+function fg05(ms, georefM, angleDeg) {
+  const c = mk("FG-05", "Georeference agrees");
+  const has = (m) => !!m.site && (m.site.lat != null && m.site.lon != null || !!m.site.map_conversion);
+  const withGeo = ms.filter((x) => has(x.m));
+  if (withGeo.length === 0) return nc(c, "no model carries a georeference");
+  for (const { container, m } of ms) if (!has(m)) c.evidence.push({ model: container, georeference: "none" });
+  const metres = (a, b) => {
+    if (a.lat == null || b.lat == null || a.lon == null || b.lon == null) return null;
+    const dy = (b.lat - a.lat) * 111320, dx = (b.lon - a.lon) * 111320 * Math.cos(a.lat * Math.PI / 180);
+    return Math.hypot(dx, dy);
+  };
+  const rot = (mc) => Math.atan2(mc.x_axis_ordinate, mc.x_axis_abscissa) * 180 / Math.PI;
+  for (let i = 0; i < withGeo.length; i++) for (let j = i + 1; j < withGeo.length; j++) {
+    const a = withGeo[i], b = withGeo[j];
+    const sa = a.m.site, sb = b.m.site;
+    let deltaM = metres(sa, sb);
+    let deltaDeg = null;
+    if (sa.map_conversion && sb.map_conversion) {
+      const ma = sa.map_conversion, mb = sb.map_conversion;
+      deltaM = Math.max(deltaM ?? 0, Math.hypot(ma.eastings - mb.eastings, ma.northings - mb.northings, ma.height - mb.height));
+      deltaDeg = Math.abs(rot(ma) - rot(mb));
+    }
+    if (deltaM != null && deltaM > georefM || deltaDeg != null && deltaDeg > angleDeg)
+      c.evidence.push({ model_a: a.container, model_b: b.container, delta_m: deltaM == null ? null : Number(deltaM.toFixed(3)), delta_deg: deltaDeg == null ? null : Number(deltaDeg.toFixed(4)) });
+  }
+  return c.evidence.length ? fail(c, "models are not placed together") : c;
+}
+function fg06(models, opts) {
+  const c = mk("FG-06", "Every model is named to the rule and judged");
+  const rs = opts.naming_ruleset;
+  for (const m of models) {
+    let naming = null;
+    if (rs && rs.enforce !== "off") {
+      naming = validateContainerName(m.container, rs);
+      if (!naming.ok) {
+        if (rs.enforce === "reject") {
+          c.status = "fail";
+          c.evidence.push({ model: m.container, naming, verdict: opts.verdicts?.[m.version_id] ?? null });
+          continue;
+        }
+        c.warnings.push(`${m.container}: name does not meet '${rs.title}' (warn level)`);
+      }
+    }
+    const verdict = opts.verdicts?.[m.version_id] ?? null;
+    if (verdict !== "accepted" && verdict !== "recorded") {
+      c.status = "fail";
+      c.evidence.push({ model: m.container, naming, verdict });
+    }
+  }
+  if (c.status === "fail") c.reason = "a model is misnamed, rejected or not judged";
+  if (!rs) c.warnings.push("no naming ruleset installed \u2014 names not checked");
+  return c;
+}
+function checkFederation(models, opts = {}) {
+  const tol = { level_mm: 1, georef_m: 0.5, angle_deg: 0.1, ...opts.tolerance ?? {} };
+  const withManifest = models.filter((m) => !!m.manifest).map((m) => ({ container: m.container, m: m.manifest }));
+  const out = { verdict: "pass", models: models.map((m) => ({ container: m.container, version_id: m.version_id, has_manifest: !!m.manifest })), checks: [] };
+  if (withManifest.length < 2) {
+    out.verdict = "not_checkable";
+    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, ""), `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`));
+    return out;
+  }
+  out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];
+  out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : "pass";
+  return out;
+}
+
 // src/sentinel-core/index.ts
 var bdsRuleset = ruleset_default;
 
@@ -1196,13 +1417,11 @@ function checkFacet(card, wantValue, wantPattern, actual, specName, label, out) 
   }
 }
 function attrValue(el, name) {
-  const key = name;
-  return el.identity?.[key];
+  const key2 = name;
+  return el.identity?.[key2];
 }
 function propValue(el, pset, name) {
   const groups = [...el.psets ?? [], ...el.quantities ?? []];
-  // No pset named (a compiled requirement the prose did not locate): the property is searched in every
-  // group rather than throwing on null — a requirement must yield a verdict or a reason, never a crash.
   const candidates = pset ? groups.filter((x) => (x?.name ?? "").toLowerCase() === String(pset).toLowerCase()) : groups;
   for (const g of candidates) {
     const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
@@ -1235,11 +1454,11 @@ function groupFailuresForBcf(failures, openRequirements = []) {
   const open = new Set(typeof openRequirements === "string" ? [openRequirements] : openRequirements);
   const groups = /* @__PURE__ */ new Map();
   for (const f of failures) {
-    const key = `${f.specification} \u2014 ${f.requirement}`;
-    let g = groups.get(key);
+    const key2 = `${f.specification} \u2014 ${f.requirement}`;
+    let g = groups.get(key2);
     if (!g) {
-      g = { key, count: 0, guids: [] };
-      groups.set(key, g);
+      g = { key: key2, count: 0, guids: [] };
+      groups.set(key2, g);
     }
     g.count++;
     if (f.element != null && f.element !== "") g.guids.push(String(f.element));
@@ -1332,46 +1551,6 @@ function parseIds(xml) {
     specifications.push({ name, applicability: { entity, predefinedType }, requirements: { properties, attributes } });
   }
   return { title, specifications };
-}
-
-// src/sentinel-core/naming.ts
-function stripExt(name, exts) {
-  for (const e of exts ?? []) {
-    if (name.toLowerCase().endsWith(e.toLowerCase())) return name.slice(0, -e.length);
-  }
-  return name;
-}
-function validateContainerName(rawName, rs) {
-  const name = stripExt((rawName ?? "").trim(), rs.strip_extensions);
-  const failures = [];
-  const parts = name.length ? name.split(rs.separator) : [];
-  if (parts.length !== rs.fields.length) {
-    failures.push({
-      field: "*",
-      reason: `expected ${rs.fields.length} '${rs.separator}'-separated fields (${rs.fields.map((f) => f.label).join(rs.separator)}), got ${parts.length}`
-    });
-    return { ok: false, name, ruleset: rs.title, failures };
-  }
-  const fields = {};
-  rs.fields.forEach((f, i) => {
-    const v = parts[i];
-    fields[f.key] = v;
-    if (f.placeholders?.includes(v)) return;
-    if (f.enum && f.enum.includes(v)) return;
-    if (f.pattern) {
-      let ok = false;
-      try {
-        ok = new RegExp(`^(?:${f.pattern})$`).test(v);
-      } catch {
-        ok = false;
-      }
-      if (ok) return;
-    }
-    if (!f.enum && !f.pattern && v.length > 0) return;
-    const allowed = f.enum ? ` (allowed: ${f.enum.slice(0, 12).join(", ")}${f.enum.length > 12 ? ", \u2026" : ""})` : f.pattern ? ` (must match /${f.pattern}/)` : "";
-    failures.push({ field: f.key, value: v, reason: `'${v}' is not a valid ${f.label}${allowed}` });
-  });
-  return { ok: failures.length === 0, name, ruleset: rs.title, fields, failures };
 }
 
 // src/sentinel-core/layers.ts
@@ -1494,6 +1673,7 @@ export {
   buildScorecard,
   carbonDiff,
   carbonOfSnapshot,
+  checkFederation,
   costDiff,
   coverageGaps,
   csvToSchedule,
@@ -1508,6 +1688,7 @@ export {
   levelSequence,
   mapLayer,
   missingFields,
+  nameShape,
   netDelta,
   parseIds,
   planViews,
