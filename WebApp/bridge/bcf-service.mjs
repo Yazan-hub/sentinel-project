@@ -787,29 +787,8 @@ async function handleRequest(req, res) {
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
       const versionTag = url.searchParams.get("version") || "v1";
 
-      // Lazy-load the upload deps so the BCF service still boots if they're absent.
-      const { getConfig, createClient, uploadBytes } = await import("./thatopen-client.mjs");
-      let cfg;
-      try { cfg = getConfig(); }
-      catch (e) { return send(res, 503, { message: String(e?.message || e) }); } // not configured → clear message
-      // Platform uploads ALWAYS target the configured platform project (the only one this API token can write
-      // to). Callers pass the SENTINEL project KEY as ?projectId (e.g. "demo") for the CDE registration that
-      // follows — but that key is NOT a That Open platform project id, so using it here 401s ("Token not
-      // found"). The Sentinel↔file association is done separately by POST /cde/:key/files.
-      const projectId = cfg.projectId;
-      const client = createClient(cfg);
-
-      // Convert IFC → fragments locally and upload the viewable .frag; fall back to the raw .ifc.
-      try {
-        const { ifcBytesToFrag } = await import("./ifc-to-frag.mjs");
-        const frag = await ifcBytesToFrag(new Uint8Array(bytes));
-        const fragName = name.replace(/\.ifc$/i, ".frag");
-        const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
-        return send(res, 200, { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size });
-      } catch (convErr) {
-        const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
-        return send(res, 200, { ok: true, format: "ifc", name, itemId: result?.item?._id, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` });
-      }
+      const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
+      return send(res, 200, await uploadIfcAsFrag(bytes, name, versionTag));
     } catch (e) {
       const msg = String(e?.message || e);
       // A revoked/rotated platform token 401s "Token not found" here — turn that into an actionable message.
@@ -859,7 +838,7 @@ async function handleRequest(req, res) {
     }
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['cde', p1, p2, p3]
-      const p1 = seg[1], p2 = seg[2], p3 = seg[3];
+      const p1 = seg[1], p2 = seg[2], p3 = seg[3]; const p4 = seg[4];
       // Projects hub: GET/POST /cde/projects — reserved key, safe because every per-project
       // route carries a p2 segment (/cde/:key/containers…), so a bare /cde/projects can't collide.
       if (p1 === "projects" && !p2) {
@@ -974,6 +953,54 @@ async function handleRequest(req, res) {
           try { result.bcf = await raiseGovernedFailureTopics(cde, p1, result, { author: b.actor || b.source }); }
           catch (e) { result.bcf = { raised: 0, error: String(e?.message || e) }; }
         }
+        return send(res, 200, result);
+      }
+      // Project artefacts (standards in force): the store every judge reads through (cohesion phase 1).
+      //   GET /cde/:key/artefacts · GET /cde/:key/artefacts/:kind · GET /cde/:key/artefacts/:kind/:version
+      //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?})
+      if (p2 === "artefacts") {
+        const art = await import("./artefact-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
+        if (p3 && !p4 && req.method === "GET") {
+          const a = await art.getArtefact(p1, p3);
+          return a ? send(res, 200, a) : send(res, 404, { message: `no ${p3} artefact installed for ${p1} or its office` });
+        }
+        if (p3 && p4 && req.method === "GET") {
+          const a = await art.getArtefactVersion(p1, p3, p4);
+          return a ? send(res, 200, a) : send(res, 404, { message: `no ${p3}@${p4} for ${p1}` });
+        }
+        if (p3 && !p4 && req.method === "PUT") {
+          const body = await readBody(req);
+          const actor = url.searchParams.get("actor") || body?.installed_by || "web";
+          const source = body?.source && typeof body.source === "object" ? body.source : undefined;
+          const { source: _s, installed_by: _i, ...artefact } = body || {};
+          return send(res, 201, await art.putArtefact(p1, p3, artefact, { actor, source }));
+        }
+      }
+      // Governed Intake: the whole Governed Publish loop for an IFC from any source (no Revit).
+      //   POST /cde/:key/intake?name=<ISO name.ifc>&source=<who>[&actor=&revision=&note=&raise_bcf=false
+      //        &agent_model=&agent_tool=&agent_prompt_sha256=]   body = raw .ifc bytes
+      if (p2 === "intake" && !p3 && req.method === "POST") {
+        if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+        const bytes = await readRaw(req);
+        const q = (k) => url.searchParams.get(k) || undefined;
+        const agent = (q("agent_model") || q("agent_tool") || q("agent_prompt_sha256")) ? { kind: "agent", model: q("agent_model"), tool: q("agent_tool"), prompt_sha256: q("agent_prompt_sha256") } : undefined;
+        const { runIntake } = await import("./intake-logic.mjs");
+        const { checkDelivery, loadDefaultContract } = await import("./delivery-gate.mjs");
+        const { extractElements } = await import("./ifc-extract.mjs");
+        const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
+        const art = await import("./artefact-store.mjs");
+        const deps = {
+          loadContract: async (key) => (await art.getArtefact(key, "contract"))?.body || loadDefaultContract(),
+          checkDelivery, extractElements,
+          adjudicate: (key, body) => cde.adjudicateProposal(key, body),
+          raiseBcf: (key, result, opts) => raiseGovernedFailureTopics(cde, key, result, opts),
+          uploadIfc: uploadIfcAsFrag,
+          registerFileVersion: (key, body) => cde.registerFileVersion(key, body),
+          recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
+          audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); await cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
+        };
+        const result = await runIntake(deps, { key: p1, name: q("name"), bytes, source: q("source"), actor: q("actor"), revision: q("revision"), note: q("note"), agent, raise_bcf: q("raise_bcf") !== "false" });
         return send(res, 200, result);
       }
       // Element snapshots (revision tracking, migration 0005):
