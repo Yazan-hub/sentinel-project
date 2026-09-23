@@ -1,6 +1,7 @@
 // Per-project standards as immutable, hashed artefacts: kind@n documents plus one pointer per kind.
 // Tested against an in-memory doc store so the sequencing (insert → pointer → audit) is exact.
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, KINDS } from "./artefact-store.mjs";
 
 function memDeps({ role = "lead", parentKey = null } = {}) {
@@ -60,6 +61,18 @@ describe("resolveIdsSpec", () => {
     expect(r.ref).toBe("ids@1");
     expect(r.spec.title).toBe("Aster IDS");
     expect(r.client_ids_ignored).toBe(true);
+    expect(r.sha256).toBe(createHash("sha256").update(JSON.stringify(spec)).digest("hex"));
+    expect(r.pointer_sha_mismatch).toBe(false);
+  });
+  it("hashes the body that judges — a document rewritten behind the bridge changes the sha and flags the pointer", async () => {
+    const d = memDeps();
+    await putArtefact("p", "ids", spec, { actor: "x" }, d);
+    const stored = d.docs.get("artefact|uuid-p|ids@1");
+    stored.body = { ...spec, specifications: [] };            // tampered through PostgREST, pointer untouched
+    const r = await resolveIdsSpec("p", {}, d);
+    expect(r.sha256).toBe(createHash("sha256").update(JSON.stringify(stored.body)).digest("hex"));
+    expect(r.sha256).not.toBe(stored.sha256);
+    expect(r.pointer_sha_mismatch).toBe(true);
   });
   it("falls back to the client spec, then to none — never to a server file", async () => {
     const d = memDeps();

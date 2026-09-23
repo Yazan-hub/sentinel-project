@@ -57,8 +57,13 @@ export async function runIntake(deps, rawInput) {
   }
 
   // G4 — publish on pass: fragments + platform upload, then the CDE version with the verdict badge.
-  const verdict = result.verdict; // "accepted" or "recorded"
-  const noteLine = verdict === "recorded" ? "No project IDS installed — published on the delivery-gate pass alone." : undefined;
+  // An installed IDS that found NO element in its scope has checked nothing: that is a gate-only pass
+  // and is published as "recorded", never "accepted" (honesty rule; final review of 2026-09-23).
+  const nothingInScope = result.verdict === "accepted" && result.summary && result.summary.in_scope === 0;
+  const verdict = nothingInScope ? "recorded" : result.verdict; // "accepted" or "recorded"
+  const noteLine = nothingInScope
+    ? `IDS ${result.ids_ref ?? ""} is installed but no element was in its scope (${extracted.counts?.elements ?? 0} read, ${extracted.counts?.skipped ?? 0} skipped) — published on the delivery-gate pass alone.`.replace("IDS  is", "IDS is")
+    : verdict === "recorded" ? "No project IDS installed — published on the delivery-gate pass alone." : undefined;
   const bcf = shouldRaiseBcf ? await deps.raiseBcf(key, result, { author: actor }) : undefined;
   let upload;
   try { upload = await deps.uploadIfc(bytes, name, revision || "v1"); }

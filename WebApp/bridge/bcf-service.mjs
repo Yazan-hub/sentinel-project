@@ -244,7 +244,7 @@ const readRaw = (req) => new Promise((resolve, reject) => {
   const chunks = []; let total = 0;
   req.on("data", (c) => {
     total += c.length;
-    if (total > MAX_UPLOAD) { req.destroy(); reject(new Error(`payload exceeds ${Math.round(MAX_UPLOAD / 1048576)} MB cap`)); return; }
+    if (total > MAX_UPLOAD) { req.destroy(); reject(Object.assign(new Error(`payload exceeds ${Math.round(MAX_UPLOAD / 1048576)} MB cap`), { status: 413 })); return; }
     chunks.push(c);
   });
   req.on("end", () => resolve(Buffer.concat(chunks)));

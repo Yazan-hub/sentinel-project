@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
 
 const bytes = Buffer.from("ISO-10303-21;");
-function stubs({ gatePass = true, verdict = "accepted", uploadFails = false, warned = false } = {}) {
+function stubs({ gatePass = true, verdict = "accepted", uploadFails = false, warned = false, inScope = 1 } = {}) {
   const calls = [];
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
   const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
@@ -13,7 +13,7 @@ function stubs({ gatePass = true, verdict = "accepted", uploadFails = false, war
     loadContract: rec("loadContract", { contract_key: "bridge-default" }),
     checkDelivery: rec("checkDelivery", { passed: gatePass, contract_key: "bridge-default", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
     extractElements: rec("extractElements", { elements: [{ identity: { Class: "IFCDOOR", GlobalId: "g1" }, psets: [], quantities: [] }], schema: "IFC4", counts: { elements: 1, skipped: 0, by_class: { IFCDOOR: 1 } } }),
-    adjudicate: rec("adjudicate", { verdict, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1 }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
+    adjudicate: rec("adjudicate", { verdict, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
     uploadIfc: uploadFails ? rec("uploadIfc", () => { throw new Error("platform 401"); }) : rec("uploadIfc", { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9 }),
     registerFileVersion: rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: "item-1", is_live: true } }),
@@ -71,6 +71,14 @@ describe("runIntake", () => {
     const r = await runIntake(d, input);
     expect(r).toMatchObject({ verdict: "recorded", stage: "published", published: true, ids_source: "none" });
     expect(r.note).toBe("No project IDS installed — published on the delivery-gate pass alone.");
+  });
+  it("an installed IDS with no element in scope publishes as recorded, not accepted", async () => {
+    const d = stubs({ inScope: 0 });
+    const r = await runIntake(d, input);
+    expect(r).toMatchObject({ verdict: "recorded", stage: "published", published: true, ids_source: "project", ids_ref: "ids@1" });
+    expect(r.note).toMatch(/no element was in its scope/);
+    expect(names(d)).not.toContain("raiseBcf");
+    expect(d.calls.find((c) => c[0] === "recordVersionVerdict")).toBeTruthy();
   });
   it("an upload failure after acceptance keeps the verdict and reports the failure honestly", async () => {
     const d = stubs({ uploadFails: true });

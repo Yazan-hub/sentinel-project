@@ -19,7 +19,7 @@ describe("extractElements", () => {
     expect(counts.elements).toBe(3); // wall, slab, door — the fixture's proxy is outside DEFAULT_CLASSES (Revit parity, GovernedElementExtractor.CategoryToIfc never exports proxy in bulk)
     expect(counts.skipped).toBe(0);
     const wall = elements.find((e) => e.identity.Class === "IFCWALLSTANDARDCASE");
-    expect(wall.identity).toMatchObject({ GlobalId: "7YvctVUKr0kugbFTf53O9L", Name: "Wall-1", ObjectType: "AST_EXT_ARC_CMU_200 mm", Tag: "W1", PredefinedType: "STANDARD" });
+    expect(wall.identity).toMatchObject({ GlobalId: "7YvctVUKr0kugbFTf53O9L", Name: "Wall-1", ObjectType: "Generic_EXT_CMU_200 mm", Tag: "W1", PredefinedType: "STANDARD" });
     expect(row(wall, "Pset_WallCommon", "FireRating")).toBe("REI 60");      // instance wins over the type's REI 30
     expect(row(wall, "Pset_WallCommon", "IsExternal")).toBe("true");
     expect(row(wall, "Pset_WallCommon", "LoadBearing")).toBe("false");      // only on the type — still present

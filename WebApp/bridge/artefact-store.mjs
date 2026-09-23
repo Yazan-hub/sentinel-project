@@ -91,12 +91,19 @@ export async function listArtefacts(key, deps) {
 export async function resolveIdsSpec(key, body = {}, deps) {
   const d = await wire(deps);
   const clientSent = body.ids !== undefined && body.ids !== null;
+  // The sha the ledger records is computed from the BODY that judges, not copied from the pointer:
+  // bridge_docs is member-writable through PostgREST (migration 0028), so a rewritten document must
+  // show up as a different hash on every later verdict, and a pointer that disagrees is flagged.
+  const stamp = (doc, source) => {
+    const bodySha = sha256(doc.body);
+    return { spec: doc.body, source, ref: `ids@${doc.version}`, sha256: bodySha, pointer_sha_mismatch: bodySha !== doc.sha256, client_ids_ignored: clientSent };
+  };
   const own = await getArtefact(key, "ids", deps);
-  if (own) return { spec: own.body, source: "project", ref: `ids@${own.version}`, sha256: own.sha256, client_ids_ignored: clientSent };
+  if (own) return stamp(own, "project");
   const officeKey = await d.officeKeyOf(key);
   if (officeKey) {
     const office = await getArtefact(officeKey, "ids", deps);
-    if (office) return { spec: office.body, source: "office", ref: `ids@${office.version}`, sha256: office.sha256, client_ids_ignored: clientSent };
+    if (office) return stamp(office, "office");
   }
   if (clientSent) {
     if (typeof body.ids === "string") throw err(400, "Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only.");

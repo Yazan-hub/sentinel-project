@@ -1190,7 +1190,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
             msg(`✓ ids@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — Governed Publish, intake and AI proposals now judge by it.`);
           } catch (e) {
             install.disabled = false; install.textContent = "Install on this project";
-            msg(`Install failed: ${esc((e as Error).message)}`, true);
+            msg(`Install failed: ${(e as Error).message}`, true);
           }
         };
         // A zero-spec compile has nothing for an installed IDS to check (adjudicate() would pass every
