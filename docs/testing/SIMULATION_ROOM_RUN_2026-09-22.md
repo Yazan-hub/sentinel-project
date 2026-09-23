@@ -166,3 +166,23 @@ Golden Nugget run, `ids@1..3` on `aster-tower` (same content, three installs). R
 recorded for phase 1: exclude `store = 'artefact'` from the `bridge_docs` authenticated write policy
 so only the bridge (service role) writes artefacts; until then a rewritten document is exposed by the
 verdict's `ids_sha256` and the `pointer_sha_mismatch` flag, not prevented.
+
+## Federation Gate drill (Session D3), 2026-09-23
+
+Feature `feature/federation-gate` (Features Update 3.0), run from the CLI against the branch's bridge on
+`aster-office` (Aster naming pack with the `TN-01` type rule, drill IDS requiring `Pset_WallCommon.FireRating`).
+Every line is a bridge response or an audit id.
+
+| Step | Result | Evidence |
+|---|---|---|
+| Manifests on publish | five fixtures taken in through Governed Intake (`fed-a` → `…-0101`, `fed-b` → `…-0102`, `fed-c` → `…-0103`, two drill copies with type names that satisfy `TN-01` → `…-0104`, `…-0105`); each `ACCEPTED (published)` with a manifest captured; `GET /cde/aster-office/manifests` lists them `has_manifest: true` and the five older Revit/quick-published models `false` | audits 709, 716, 723, 732, 739 |
+| Fail path first — the planted pair `0101` + `0102` | **FAIL**: FG-01 `7YvctVUKr0kugbFTf53O9L` in both; FG-02 `space·2` (`Wall 1`, `Wall 2`) against `hyphen·3` (`W-A1-Fin`, `W-A2-Fin`) and every type name failing `TN-01`; FG-03 `Level 1` at 0 vs 20 mm; FG-04 `B` vs `C`; FG-05 `…-0102` carries no georeference; FG-06 pass (both named to the rule, both accepted) | audit row `Federation gate FAIL: 2 model(s)`; BCF topics one per failing check (raised on the first run, "0 raised, 5 already open" on the second) |
+| Pass path — the consistent pair `0104` + `0105` | **PASS**: all six checks `✓`, FG-02 with the type rule applied (`rule TN-01`) | audit row `Federation gate PASS: 2 model(s)` |
+| Not checkable — `0101` alone | **NOT CHECKABLE** (1 of 1 manifests), every check carrying the reason; `GET …/federation` → `scope: explicit`, `stale: false` | audit row `Federation gate NOT CHECKABLE: 1 model(s)` |
+| Full run (all ten live models, no explicit list) | **FAIL**: the four quick-published Revit containers fail FG-06 (names not in the 7-field pattern, no verdict) and are listed "no manifest"; the planted checks fail as above | audit row `Federation gate FAIL: 8 model(s)` (run before `0104`/`0105` existed) |
+| Bridge log | the only errors are the fragments importer throwing on the fixtures' placement-less `IfcGrid` during conversion; the upload helper fell back to the raw IFC as designed and every version registered | managed server log |
+
+Not exercised: the web clash-panel banner (platform viewer blocked, F49) and the Revit Clash Manager line
+(compiled, deploy pending at the next Revit close). Left in place on `aster-office`: five fixture
+containers, their manifests and revisions, and six open `Federation:` topics. Product note carried from the
+final review: manifest capture is not idempotent (a repeated backfill orphans the earlier revision rows).

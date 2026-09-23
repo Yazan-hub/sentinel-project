@@ -75,6 +75,10 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     '<span style="flex:1"></span>' +
     `<button id="cl-run" style="${btn};background:#22303a;border-color:#2f6d8a;color:#bfe3f2">Run clash</button>` +
     "</div>" +
+    '<div id="cl-fed" style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px;color:#9ca3af">' +
+    '<span id="cl-fed-text">Federation Gate: …</span><span style="flex:1"></span>' +
+    `<button id="cl-fed-run" style="${btn};padding:.2rem .45rem;font-size:11px" title="Cross-model data check before any clash run: GlobalIds, type naming, levels, grids, georeference, container names and verdicts">Run gate</button>` +
+    "</div>" +
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.45rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px;color:#9ca3af">' +
     'tolerance <input id="cl-tol" type="number" step="0.005" min="0" value="0.02" style="width:4rem;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .3rem;font:12px system-ui"/> m' +
     '<span style="flex:1"></span>' +
@@ -86,6 +90,45 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     '<div id="cl-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">Load 2+ models (e.g. ARC + STR), then Run clash.</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const status = (t: string) => (el("cl-status").textContent = t);
+
+  // Federation Gate banner (decision D-01): the data checks a clash run should not start without. A
+  // warning, not a lock — the lock is the review-workflow item. Reads the latest run; Run gate posts one.
+  type FedCheck = { id: string; title: string; status: string };
+  type FedModel = { has_manifest: boolean };
+  type FedState = { latest: { at: string; set: unknown[]; result: { verdict: string; checks: FedCheck[]; models: FedModel[] } } | null; stale: boolean; live_set: { has_manifest: boolean }[] };
+  const fedColour: Record<string, string> = { pass: "#22c55e", fail: "#f87171", not_checkable: "#eab308" };
+  async function loadFederation() {
+    const text = el("cl-fed-text");
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation`);
+      if (!r.ok) { text.style.color = "#9ca3af"; text.textContent = "Federation Gate: not available on this bridge"; return; }
+      const f = (await r.json()) as FedState;
+      if (!f.latest) {
+        text.style.color = fedColour.not_checkable;
+        text.textContent = `Federation Gate: NOT RUN · ${f.live_set.length} live model(s), ${f.live_set.filter((m) => m.has_manifest).length} with a manifest`;
+        return;
+      }
+      const v = f.latest.result.verdict;
+      const failing = f.latest.result.checks.filter((c) => c.status === "fail").map((c) => c.id);
+      const models = f.latest.result.models ?? [];
+      const read = models.filter((m) => m.has_manifest).length;
+      text.style.color = f.stale ? fedColour.not_checkable : (fedColour[v] ?? "#9ca3af");
+      text.textContent = `Federation Gate: ${v === "not_checkable" ? "NOT CHECKABLE" : v.toUpperCase()}` +
+        (failing.length ? ` · ${failing.join(", ")} — see Issues` : "") +
+        ` · ${f.latest.set.length} model(s) · ${String(f.latest.at).slice(0, 10)}` +
+        (models.length && read < models.length ? ` · ${read} of ${models.length} read` : "") +
+        (f.stale ? " · STALE — a live version changed" : "");
+    } catch { el("cl-fed-text").textContent = "Federation Gate: bridge unreachable"; }
+  }
+  el("cl-fed-run").onclick = async () => {
+    const b = el("cl-fed-run") as HTMLButtonElement;
+    b.disabled = true; b.textContent = "Running…";
+    try { await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
+    catch { /* the reload below reports the state */ }
+    await loadFederation();
+    b.disabled = false; b.textContent = "Run gate";
+  };
+  void loadFederation();
 
   const label = (c: Clash, side: "a" | "b") => `${c[side].modelId.slice(0, 6)} #${c[side].localId}`;
   const mapOfClash = (c: Clash): OBC.ModelIdMap => {

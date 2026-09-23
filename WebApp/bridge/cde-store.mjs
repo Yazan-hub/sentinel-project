@@ -913,6 +913,19 @@ export async function recordVersionVerdict(key, version_id, r, actor) {
   });
 }
 
+/** Latest governed verdict per version id (from the "verdict:<v>" rows recordVersionVerdict writes);
+ *  null when a version was never judged — the Federation Gate treats that as not judged, never as a pass. */
+export async function versionVerdicts(key, versionIds = []) {
+  const out = {};
+  for (const id of versionIds) out[id] = null;
+  const ids = versionIds.filter(isUuid);
+  if (!ids.length) return out;
+  const proj = await ensureProject(key);
+  const rows = await sb(`audit_log?project_id=eq.${proj.id}&entity_type=eq.file_version&action=like.verdict:*&entity_id=in.(${ids.map(encodeURIComponent).join(",")})&select=id,entity_id,action&order=id.desc`);
+  for (const r of rows || []) if (out[r.entity_id] === null) out[r.entity_id] = String(r.action).replace(/^verdict:/, "");
+  return out;
+}
+
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.
 const enc = encodeURIComponent;
 const DOC_CONFLICT = "on_conflict=store,project_id,doc_id";

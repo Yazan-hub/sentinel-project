@@ -43,19 +43,37 @@ const ts = () => new Date().toISOString();
  * grouping. Best-effort: no-op if the CDE isn't configured, never breaks the upload.
  */
 async function registerVersion(name, sizeBytes, itemId, projectKey, hostName) {
-  if (DRY) return;
+  if (DRY) return null;
   try {
     const cde = await import("./cde-store.mjs");
-    if (!cde.cdeConfigured()) return;
+    if (!cde.cdeConfigured()) return null;
     const key = projectKey || cfg.projectId;
-    await cde.registerFileVersion(key, {
+    const r = await cde.registerFileVersion(key, {
       name, author: "outbox", size_bytes: sizeBytes, platform_item_id: itemId || null,
       parent_name: hostName || null, // linked model → nests under its host in the file tree
       notes: hostName ? `linked model of ${hostName} (outbox watcher)` : "uploaded via outbox watcher",
     });
     console.log(`  📚 versioned ${name} in the CDE (project ${key}${hostName ? `, link of ${hostName}` : ""})`);
+    return { key, ...r };
   } catch (e) {
     console.error(`  ⚠ version register failed for ${name}: ${e?.message || e}`);
+    return null;
+  }
+}
+
+/**
+ * Manifest capture after a successful version register (Federation Gate input). Best-effort: logs
+ * and swallows any failure so a manifest problem never breaks the outbox upload itself. Shared by
+ * both handle() call sites (frag success + .ifc fallback) so the capture/logging logic lives once.
+ */
+async function captureAfterRegister(reg, name, filePath) {
+  if (!reg?.version?.id) return;
+  try {
+    const { captureManifest } = await import("./manifest-store.mjs");
+    const mf = await captureManifest(reg.key, reg.version.id, await readFile(filePath), { actor: "outbox", source: "outbox", rev_code: reg.version.revision });
+    console.log(`  🧭 manifest: ${mf.elements} element(s), ${mf.levels} level(s), ${mf.grids} grid(s)${mf.has_site ? ", georeferenced" : ""}`);
+  } catch (e) {
+    console.error(`  ⚠ manifest capture failed for ${name} (version ${reg.version.id}): ${e?.message || e}`);
   }
 }
 
@@ -114,12 +132,14 @@ async function handle(name) {
       const fragBytes = await ifcToFrag(p);
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
-      await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
+      const reg = await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
+      await captureAfterRegister(reg, name, p);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
+      const reg = await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
+      await captureAfterRegister(reg, name, p);
     }
 
     await rename(p, join(SENT, `${Date.now()}_${name}`)); // out of the outbox so it isn't re-sent

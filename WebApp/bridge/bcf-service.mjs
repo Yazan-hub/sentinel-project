@@ -333,6 +333,40 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   return { raised: raised.length, skipped: openReqs.length, topics: raised };
 }
 
+/** One BCF topic per failing Federation Gate check, de-duplicated by title against open ones. The
+ *  description quotes the evidence rows — the coordinator gets the models and values, not a summary. */
+async function raiseFederationTopics(cde, pid, run, opts = {}) {
+  const author = resolveActor(opts.author, "Federation Gate");
+  let existing = [];
+  try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  const open = new Set((existing || [])
+    .filter((t) => /^Federation:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+    .map((t) => String(t.title).replace(/\s*\(\d+\)\s*$/, "")));
+  const failing = run.result.checks.filter((c) => c.status === "fail");
+  const now = new Date().toISOString();
+  const raised = [];
+  let dedup = 0, error = null;
+  for (const c of failing) {
+    const base = `Federation: ${c.id} ${c.title}`;
+    if (open.has(base)) { dedup++; continue; }
+    const topic = cde.newTopicObject(pid, {
+      title: `${base} (${c.evidence.length})`, topic_type: "Issue", priority: "High", creation_author: author,
+      description: `${c.reason || c.title}. Models: ${run.set.map((s) => s.container).join(", ")}.\n` + c.evidence.slice(0, 20).map((e) => JSON.stringify(e)).join("\n"),
+    }, now);
+    // Keep whatever raised before a failure — a topic already created must still be counted and
+    // reported, not lost behind an exception that aborts the whole call (the caller only sees {raised: 0}).
+    try {
+      await cde.bcfCreateTopic(topic);
+      broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+      raised.push(topic.guid);
+    } catch (e) {
+      error = String(e?.message || e);
+      break;
+    }
+  }
+  return { raised: raised.length, skipped: dedup, topics: raised, ...(error ? { error } : {}) };
+}
+
 /** Poll the shared event feed and re-broadcast other bridges' events to our local clients (near-real-time). */
 async function startEventPoll() {
   if (EVENT_POLL_MS <= 0) return;
@@ -1006,7 +1040,44 @@ async function handleRequest(req, res) {
           audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); await cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
         };
         const result = await runIntake(deps, { key: p1, name: q("name"), bytes, source: q("source"), actor: q("actor"), revision: q("revision"), note: q("note"), agent, raise_bcf: q("raise_bcf") !== "false" });
+        // A published version gets its manifest for the Federation Gate. Never fails the publish.
+        if (result.version?.version_id) {
+          try {
+            const { captureManifest } = await import("./manifest-store.mjs");
+            result.manifest = await captureManifest(p1, result.version.version_id, bytes, { actor: q("actor") || q("source"), source: "intake", rev_code: result.version.revision });
+          } catch (e) {
+            console.warn(`[intake] manifest capture failed for version ${result.version.version_id}: ${e?.message || e}`);
+            result.manifest = { error: String(e?.message || e) };
+          }
+        }
         return send(res, 200, result);
+      }
+      // Manifests (Federation Gate inputs): GET /cde/:key/manifests · POST /cde/:key/manifests/:versionId (body = IFC bytes, backfill)
+      if (p2 === "manifests") {
+        const ms = await import("./manifest-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await ms.listManifests(p1));
+        if (p3 && req.method === "POST") {
+          if (!cde.isUuid(p3)) return send(res, 400, { message: "not a version id" });
+          if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+          const bytes = await readRaw(req);
+          if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
+          return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
+        }
+      }
+      // Federation Gate: GET /cde/:key/federation · POST /cde/:key/federation/run { versions?, raise_bcf? }
+      if (p2 === "federation") {
+        const fed = await import("./federation-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await fed.getFederation(p1));
+        if (p3 === "run" && !p4 && req.method === "POST") {
+          const body = (await readBody(req)) || {};
+          const actor = url.searchParams.get("actor") || body.actor || "web";
+          const run = await fed.runFederation(p1, { versions: body.versions }, { actor });
+          if (run.result.verdict === "fail" && body.raise_bcf !== false) {
+            try { run.bcf = await raiseFederationTopics(cde, p1, run, { author: actor }); }
+            catch (e) { run.bcf = { raised: 0, error: String(e?.message || e) }; }
+          }
+          return send(res, 200, run);
+        }
       }
       // Element snapshots (revision tracking, migration 0005):
       //   POST /cde/:key/snapshots  { rev_code?, model_id?, uploaded_by?, container_version_id?, snapshots:[{guid,category,type_name,count,length,area,volume,weight}] }

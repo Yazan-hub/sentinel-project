@@ -84,6 +84,16 @@ workset, strip a param from 5 doors, import a junk CAD block into a family).
 | Pass path | a conforming name and a model that meets the installed IDS → `ACCEPTED (published)`; version in Project Files with the ✓ badge; `POST /receipt/:key/verify` matches; `ids_ref` names the artefact |
 | Recorded | with no IDS installed on a fresh project → `RECORDED (published)` and the note "published on the delivery-gate pass alone" |
 
+## Session D3 — Federation Gate (data clash before geometric clash)
+
+| Step | Pass criteria |
+|---|---|
+| Manifests | Every model published through Governed Intake or the outbox watcher shows `has_manifest: true` in `GET /cde/:key/manifests`; an older version is backfilled with `node bridge/manifest.mjs <file.ifc> --project <key> --version <id>` |
+| Fail path FIRST | Two models planted with the S11 mismatch (a shared GlobalId, `Wall 1` against `W-A1-Fin`, a level 20 mm off, a grid tag missing, one model without a georeference) → `node bridge/federation.mjs --project <key> --versions <a>,<b>` prints **FAIL** with FG-01, FG-02, FG-03, FG-04 and FG-05 each naming the models and values; one BCF topic per failing check on the web Issues panel; audit row `Federation gate FAIL: 2 model(s)` |
+| Pass path | Two consistent models → **PASS**, every check `✓`, FG-02 says "no type rule installed — naming shapes compared only" when none is; audit row `Federation gate PASS` |
+| Not checkable | One manifest only → **NOT CHECKABLE** with the reason and the model that lacks a manifest named |
+| Surfaces | The web clash panel banner shows the same verdict and goes STALE after a new version is published; the Revit Clash Manager header shows the same line for the document's project |
+
 ## Session E — Coordinate panel (needs two machines or two sessions)
 
 Prereq: Session D published a version. Second seat = the browser on another
