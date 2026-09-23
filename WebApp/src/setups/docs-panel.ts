@@ -5,6 +5,8 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
+import type { NamingRuleset } from "../sentinel-core/naming";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -166,6 +168,17 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     return r.json();
   };
   const actor = async () => { try { return (await currentUser())?.email || "web"; } catch { return "web"; } };
+  /** The one install path for every artefact a document offers (ids from the EIR compile, naming from a
+   *  section): PUT /cde/:key/artefacts/:kind — lead/owner only on the bridge, which also validates the body. */
+  const installArtefact = async (kind: "ids" | "naming", payload: Record<string, unknown>): Promise<{ version: number; sha256: string }> => {
+    const who = await actor();
+    const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/${kind}?actor=${encodeURIComponent(who)}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const p = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(p.message || `HTTP ${res.status}`);
+    return p;
+  };
 
   // ── AI provider/model selection — shared by Draft with AI (editor view) and Check integrity
   // (document view). Same rule as the copilot panel: the panel only picks WHICH; every call still
@@ -1140,6 +1153,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     // The compiler existed as a bridge route with no way to reach it from the app (found in the simulation room).
     const compileBtn = doc.doc_type === "EIR" ? btn("Compile to IDS") : null;
     if (compileBtn) bar.append(compileBtn);
+    // F15: a section carrying the naming standard as a ```json block is offered as the next naming@n —
+    // diffed field by field against the one in force, installed whole or not at all (no merge).
+    const namingCand = findNamingCandidate(doc.sections);
+    const namingBtn = namingCand ? btn("Naming candidate") : null;
+    if (namingBtn) bar.append(namingBtn);
     body.replaceChildren();
     const integrityOut = document.createElement("div");   // findings render here, transient
     if (compileBtn) compileBtn.onclick = async () => {
@@ -1179,13 +1197,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         install.onclick = async () => {
           install.disabled = true; install.textContent = "Installing…";
           try {
-            const who = await actor();
-            const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids?actor=${encodeURIComponent(who)}`, {
-              method: "PUT", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ title: r.title, specifications: r.specifications, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }),
-            });
-            const p = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(p.message || `HTTP ${res.status}`);
+            const p = await installArtefact("ids", { title: r.title, specifications: r.specifications, source: { document_id: doc.id, compiled_at: new Date().toISOString() } });
             install.textContent = `Installed ids@${p.version}`;
             msg(`✓ ids@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — Governed Publish, intake and AI proposals now judge by it.`);
           } catch (e) {
@@ -1201,6 +1213,53 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         const d = document.createElement("div"); d.textContent = `Compile failed: ${(e as Error).message}`;
         d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0"; integrityOut.append(d);
       } finally { compileBtn.disabled = false; compileBtn.textContent = "Compile to IDS"; }
+    };
+    if (namingBtn && namingCand) namingBtn.onclick = async () => {
+      namingBtn.disabled = true; integrityOut.replaceChildren();
+      const box = document.createElement("div");
+      box.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:#141418;color:#c9cfda;font:12px system-ui";
+      const line = (text: string, color = "#c9cfda") => { const d = document.createElement("div"); d.textContent = text; d.style.cssText = `padding:.15rem 0;color:${color}`; box.append(d); };
+      try {
+        const key = encodeURIComponent(pid());
+        // In force = what judges this project today (project → office). The install lands on THIS project,
+        // so the candidate's number is this project's own next version, not the office's.
+        const curRes = await bfetch(`${base}/cde/${key}/artefacts/naming`);
+        if (!curRes.ok && curRes.status !== 404) throw new Error(`HTTP ${curRes.status}`);
+        const cur: { version: number; sha256: string; body: NamingRuleset } | null = curRes.ok ? await curRes.json() : null;
+        const ownRes = await bfetch(`${base}/cde/${key}/artefacts`);
+        const own: { naming?: { version: number } | null } = ownRes.ok ? await ownRes.json() : {};
+        const next = (own.naming?.version || 0) + 1;
+        const d = diffNaming(cur?.body ?? null, namingCand.ruleset);
+        const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
+        h.textContent = `Candidate naming@${next} from “${namingCand.heading}” — against ${cur ? `naming@${cur.version} (sha ${String(cur.sha256).slice(0, 12)}…)` : "no naming standard in force"}`;
+        box.append(h);
+        if (d.removed.length) line(`Removes ${d.removed.length} field(s): ${d.removed.map((f) => f.label).join(", ")} — names built with them will stop conforming.`, "#f87171");
+        for (const x of d.header) line(x, "#eab308");
+        for (const f of d.added) line(`+ ${f.label} (${f.key})`, "#22c55e");
+        for (const f of d.changed) line(`~ ${f.label}: ${f.changes.join("; ")}`, "#eab308");
+        const same = !!cur && !d.added.length && !d.removed.length && !d.changed.length && !d.header.length;
+        if (same) line("Identical to the version in force — nothing to install.", "#9ca3af");
+        if (canGovern() && !same) {
+          const install = btn(`Install naming@${next} on this project`, true);
+          install.style.marginTop = ".5rem";
+          install.onclick = async () => {
+            install.disabled = true; install.textContent = "Installing…";
+            try {
+              const p = await installArtefact("naming", { ...namingCand.ruleset, source: { document_id: doc.id, section: namingCand.section_id } });
+              install.textContent = `Installed naming@${p.version}`;
+              msg(`✓ naming@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — the naming gate, readiness and federation now judge by it.`);
+            } catch (e) {
+              install.disabled = false; install.textContent = `Install naming@${next} on this project`;
+              msg(`Install failed: ${(e as Error).message}`, true);
+            }
+          };
+          box.append(install);
+        }
+        integrityOut.append(box);
+      } catch (e) {
+        const d = document.createElement("div"); d.textContent = `Naming candidate failed: ${(e as Error).message}`;
+        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0"; integrityOut.append(d);
+      } finally { namingBtn.disabled = false; }
     };
     integrityBtn.onclick = async () => {
       integrityBtn.disabled = true;
