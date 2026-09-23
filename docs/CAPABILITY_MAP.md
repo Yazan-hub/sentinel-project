@@ -112,7 +112,7 @@ The "referee" layer, where a model becomes *true* and agents can ask. `sentinel-
 
 ## The honest short list (all ~5% of the system)
 
-- **Orphaned / dead:** `DependencyMapper` (addin) + `styles` / `measurement` / `helper` panels + local `toolbar.ts` + `setups/index.ts` barrel — complete but unreachable. `guide` panel is built but static (no live-data wiring). *(Pruned in the same change as this doc; `guide` left as static content.)*
+- **Orphaned / dead:** `DependencyMapper` (addin) + `styles` / `measurement` / `helper` panels + local `toolbar.ts` + `setups/index.ts` barrel — complete but unreachable. *(Pruned in the same change as this doc.)* The `guide` panel is live since the Next strip (spec 2026-09-24): its top section is the active project's journey from `GET /cde/:key/journey` — every step with its status, evidence and where it is done — and the static feature topics stay below under "All features".
 - **Runtime dependency:** GhostBuilder, Document Extractor, and the Copilot fallback need a **local Ollama** running — gate the UI on availability before shipping.
 - **Untested cores:** `cobie`, `schedule`, `ifc-writer`, `scanner`, `scorecard` lack unit tests. Add coverage before demoing 7D/4D.
 - **Deployment gate:** the Cloud-Hub trio needs `SUPABASE_SERVICE_KEY`; degrades to a setup hint. Largely handled (RLS/JWT armed).
