@@ -114,7 +114,7 @@ namespace Sentinel.GhostBuilder
             {
                 FootprintWidthMm = Clamp(raw.FootprintWidthMm ?? Assumed(FootprintW.lo), FootprintW),
                 FootprintDepthMm = Clamp(raw.FootprintDepthMm ?? Assumed(FootprintD.lo), FootprintD),
-                Storeys = Clamp(raw.Storeys ?? Assumed(1, unit: ""), Storeys),
+                Storeys = Clamp(raw.Storeys ?? Assumed(1), Storeys, unit: ""),
                 StoreyHeightMm = Clamp(raw.StoreyHeightMm ?? Assumed(3000), StoreyH),
                 Openings = openings,
                 FacadesSeen = seen,
