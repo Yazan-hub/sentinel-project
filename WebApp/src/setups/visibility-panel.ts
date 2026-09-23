@@ -147,11 +147,20 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
 
   // ── B1: IDS validation (logic only — logs to console; colour-coding is B2) ──
   let idsSpec: IdsSpec = DEMO_IDS;
+  let idsFrom = "built-in demo IDS";
+  /** The project's installed IDS (artefact ids@n) outranks the demo spec; a hand-loaded .ids outranks both. */
+  async function loadProjectIds() {
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids`);
+      if (r.ok) { const a = await r.json(); if (Array.isArray(a?.body?.specifications)) { idsSpec = a.body as IdsSpec; idsFrom = `project ids@${a.version}`; } }
+    } catch { /* bridge offline — the demo spec stays and the status says so */ }
+  }
+  void loadProjectIds();
   let lastRes: ModelValidation[] = [];
 
   async function runIds() {
     if (fragments.list.size === 0) { status("Load a model first."); return; }
-    status(`Running IDS “${idsSpec.title}”…`);
+    status(`Using ${idsFrom} · Running IDS “${idsSpec.title}”…`);
     try {
       lastRes = await validateModels(fragments, idsSpec);
       // eslint-disable-next-line no-console
@@ -282,7 +291,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
   el("vg-idsfile").addEventListener("change", async (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
-    try { idsSpec = parseIds(await f.text()); status(`Loaded IDS “${idsSpec.title}” (${idsSpec.specifications.length} spec). Press “IDS ✓” to run.`); }
+    try { idsSpec = parseIds(await f.text()); idsFrom = `file ${f.name}`; status(`Loaded IDS “${idsSpec.title}” (${idsSpec.specifications.length} spec). Press “IDS ✓” to run.`); }
     catch (err) { status("IDS parse failed: " + ((err as Error)?.message ?? String(err))); }
   });
 

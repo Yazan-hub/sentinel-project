@@ -1172,6 +1172,28 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           a.click(); URL.revokeObjectURL(a.href);
         };
         dl.style.marginTop = ".5rem"; box.append(dl);
+        // Close the loop: the compiled spec becomes the PROJECT's IDS (artefact ids@n), which Governed
+        // Publish, Governed Intake and the AI-proposal referee all read. Lead/owner only, like the bridge.
+        const install = btn("Install on this project", true);
+        install.style.marginTop = ".5rem"; install.style.marginLeft = ".5rem";
+        install.onclick = async () => {
+          install.disabled = true; install.textContent = "Installing…";
+          try {
+            const who = await actor();
+            const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids?actor=${encodeURIComponent(who)}`, {
+              method: "PUT", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ title: r.title, specifications: r.specifications, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }),
+            });
+            const p = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(p.message || `HTTP ${res.status}`);
+            install.textContent = `Installed ids@${p.version}`;
+            msg(`✓ ids@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — Governed Publish, intake and AI proposals now judge by it.`);
+          } catch (e) {
+            install.disabled = false; install.textContent = "Install on this project";
+            msg(`Install failed: ${esc((e as Error).message)}`, true);
+          }
+        };
+        if (canGovern()) box.append(install);
         integrityOut.append(box);
       } catch (e) {
         const d = document.createElement("div"); d.textContent = `Compile failed: ${(e as Error).message}`;
