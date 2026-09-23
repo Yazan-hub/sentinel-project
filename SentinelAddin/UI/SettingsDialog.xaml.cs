@@ -51,7 +51,7 @@ public partial class SettingsDialog : Window
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadAsStringAsync();
 
-            var keys = new System.Collections.Generic.List<(string Key, string Name)>();
+            var keys = new System.Collections.Generic.List<(string Key, string Name, string? Office, bool IsOffice)>();
             using var jd = System.Text.Json.JsonDocument.Parse(json);
             if (jd.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
                 foreach (var p in jd.RootElement.EnumerateArray())
@@ -59,16 +59,19 @@ public partial class SettingsDialog : Window
                     var key = p.TryGetProperty("key", out var k) ? k.GetString() : null;
                     if (string.IsNullOrWhiteSpace(key)) continue;
                     var name = p.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    keys.Add((key!, name ?? key!));
+                    var office = p.TryGetProperty("office_name", out var o) && o.ValueKind == System.Text.Json.JsonValueKind.String ? o.GetString() : null;
+                    var isOffice = p.TryGetProperty("kind", out var kd) && kd.ValueKind == System.Text.Json.JsonValueKind.String && kd.GetString() == "office";
+                    keys.Add((key!, name ?? key!, office, isOffice));
                 }
 
             var typed = WebProjectBox.Text; // preserve what was loaded from settings
-            foreach (var (key, name) in keys)
-                WebProjectBox.Items.Add(new System.Windows.Controls.ComboBoxItem
-                {
-                    Content = name == key ? key : $"{name} ({key})",
-                    Tag = key,
-                });
+            foreach (var (key, name, office, isOffice) in keys)
+            {
+                var label = name == key ? key : $"{name} ({key})";
+                if (isOffice) label += " · office";
+                else if (!string.IsNullOrWhiteSpace(office)) label += " · " + office;
+                WebProjectBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = label, Tag = key });
+            }
             WebProjectBox.Text = typed;
             WebProjectHint.Text = keys.Count > 0
                 ? $"{keys.Count} project(s) on the web app. Pick one, or type a key."
