@@ -705,8 +705,15 @@ async function handleRequest(req, res) {
         const remote = await cde.listProjectMeta();
         const known = new Set(remote.map((r) => r.project_id));
         const missing = pdb.projects.filter((l) => !known.has(l.project_id));
-        for (const l of missing) { const { project_id, name, ...meta } = l; await cde.getProjectMeta(project_id, meta); }
-        return send(res, 200, missing.length ? await cde.listProjectMeta() : remote);
+        // A local row whose project no longer exists in the CDE (a deleted smoke project) must not fail the
+        // whole list: skip it and say so, once per request.
+        let migrated = 0;
+        for (const l of missing) {
+          const { project_id, name, ...meta } = l;
+          try { await cde.getProjectMeta(project_id, meta); migrated++; }
+          catch (e) { if (e?.status === 404) console.warn(`[projects] local row '${project_id}' has no CDE project — skipped`); else throw e; }
+        }
+        return send(res, 200, migrated ? await cde.listProjectMeta() : remote);
       }
       if (req.method === "GET" && ppid && !gateStage) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, localSeed(ppid)) : getProject(ppid));
       if (req.method === "PUT" && ppid && !gateStage) {
