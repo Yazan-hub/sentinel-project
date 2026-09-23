@@ -491,7 +491,11 @@ export async function registerFileVersion(key, b = {}) {
   // geometry yet); the outbox watcher then uploads the IFC and calls back here with the platform item id. If
   // the file's live version has no geometry yet, ATTACH the item to it rather than appending a second,
   // unbadged version — so the badged version gets its geometry and "Open 3D" lights up.
-  if (container && b.platform_item_id) {
+  // `attach_geometry: false` (Governed Intake) skips this: intake always carries its own sha256/size/revision
+  // and must land as its own version, never silently attached onto an unrelated stale liveNoGeom row left by
+  // an outbox publish that's still waiting on its callback (found live — the intake's verdict landed on the
+  // wrong version).
+  if (container && b.platform_item_id && b.attach_geometry !== false) {
     const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id);
     if (liveNoGeom) {
       await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=minimal" });

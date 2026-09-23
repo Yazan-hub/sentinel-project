@@ -3,15 +3,17 @@ import { describe, it, expect } from "vitest";
 import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
 
 const bytes = Buffer.from("ISO-10303-21;");
-function stubs({ gatePass = true, verdict = "accepted", uploadFails = false } = {}) {
+function stubs({ gatePass = true, verdict = "accepted", uploadFails = false, warned = false } = {}) {
   const calls = [];
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
+  const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
+  const idsEnforce = verdict === "recorded" ? null : warned ? "warn" : "reject";
   return {
     calls,
     loadContract: rec("loadContract", { contract_key: "bridge-default" }),
     checkDelivery: rec("checkDelivery", { passed: gatePass, contract_key: "bridge-default", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
     extractElements: rec("extractElements", { elements: [{ identity: { Class: "IFCDOOR", GlobalId: "g1" }, psets: [], quantities: [] }], schema: "IFC4", counts: { elements: 1, skipped: 0, by_class: { IFCDOOR: 1 } } }),
-    adjudicate: rec("adjudicate", { verdict, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1 }, failures: verdict === "rejected" ? [{ element: "g1", requirement: "FireRating" }] : [], naming: { ok: true }, warned: false, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", audit_id: 901, receipt: { ledger_hash: "h" } }),
+    adjudicate: rec("adjudicate", { verdict, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1 }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
     uploadIfc: uploadFails ? rec("uploadIfc", () => { throw new Error("platform 401"); }) : rec("uploadIfc", { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9 }),
     registerFileVersion: rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: "item-1", is_live: true } }),
@@ -54,8 +56,15 @@ describe("runIntake", () => {
     expect(r.version).toMatchObject({ container_id: "c-1", version_id: "v-1", revision: "P01", platform_item_id: "item-1", format: "frag" });
     expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "uploadIfc", "registerFileVersion", "recordVersionVerdict"]);
     const reg = d.calls.find((c) => c[0] === "registerFileVersion")[2];
-    expect(reg).toMatchObject({ name: input.name, revision: "P01", sha256: "ab".repeat(32), size_bytes: 13, platform_item_id: "item-1", author: "agent:astra" });
+    expect(reg).toMatchObject({ name: input.name, revision: "P01", sha256: "ab".repeat(32), size_bytes: 13, platform_item_id: "item-1", author: "agent:astra", attach_geometry: false });
     expect(d.calls.find((c) => c[0] === "recordVersionVerdict").slice(1, 3)).toEqual(["aster-tower", "v-1"]);
+  });
+  it("accepted with warnings (ids enforce:warn): still raises BCF for the tracked failures, reports warned + ids_enforce", async () => {
+    const d = stubs({ warned: true });
+    const r = await runIntake(d, input);
+    expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true, warned: true, ids_enforce: "warn" });
+    expect(r.bcf).toEqual({ raised: 1 });
+    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "raiseBcf", "uploadIfc", "registerFileVersion", "recordVersionVerdict"]);
   });
   it("recorded (no IDS anywhere) publishes on the gate pass alone and says so", async () => {
     const d = stubs({ verdict: "recorded" });

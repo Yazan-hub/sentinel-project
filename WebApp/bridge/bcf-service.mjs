@@ -994,7 +994,12 @@ async function handleRequest(req, res) {
           loadContract: async (key) => (await art.getArtefact(key, "contract"))?.body || loadDefaultContract(),
           checkDelivery, extractElements,
           adjudicate: (key, body) => cde.adjudicateProposal(key, body),
-          raiseBcf: (key, result, opts) => raiseGovernedFailureTopics(cde, key, result, opts),
+          // Best-effort, same as the /propose route: a BCF hiccup after the verdict is already on the
+          // ledger must not 500 the whole intake and drop the caller's audit_id/receipt.
+          raiseBcf: async (key, result, opts) => {
+            try { return await raiseGovernedFailureTopics(cde, key, result, opts); }
+            catch (e) { return { raised: 0, error: String(e?.message || e) }; }
+          },
           uploadIfc: uploadIfcAsFrag,
           registerFileVersion: (key, body) => cde.registerFileVersion(key, body),
           recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
