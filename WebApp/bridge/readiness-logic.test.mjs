@@ -165,6 +165,13 @@ describe("readinessMarkdown — the report a consultant hands over, three number
     expect(md).toMatch(/\| 4\. Worksets \| lead@x \| 2026-10-01 \| open \|/);
     expect(md).not.toMatch(/\d+ ?%/);   // no blended percentage anywhere
   });
+  it("names the snapshot's ruleset and the artefact it was taken against on the evidence line", () => {
+    const r = report();
+    r.evidence.snapshot.ruleset = { standard_key: "house-std", semver: "1.4.1", ref: "ruleset@3", sha256: "3f07376abcdef0123456789" };
+    expect(readinessMarkdown(r)).toContain("ruleset house-std 1.4.1 · ruleset@3 · snapshot · 3f07376abcde");
+    const plain = readinessMarkdown(report());
+    expect(plain).not.toContain("ruleset ");
+  });
   it("lists unclassified sections (no pillar, not scored) under Overall", () => {
     const doc = { id: "doc1", title: "Aster Studio readiness", sections: [
       { id: "np", heading: "99. Unclassified thing", pillar: undefined, kind: "measured", owner: null, due: null, bindings: {} },

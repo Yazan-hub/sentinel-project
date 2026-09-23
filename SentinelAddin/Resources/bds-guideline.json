@@ -9,7 +9,7 @@
   "references": {
     "layers": "bds-layers.json",
     "ids": "demo/bds-pilot/bds-ids.json",
-    "naming": "WebApp/bridge/naming-ruleset.json"
+    "naming": "demo/bds-pilot/bds-naming-ruleset.json"
   },
   "elements": [
     {

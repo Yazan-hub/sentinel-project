@@ -140,6 +140,19 @@ const PACK_STORE = process.env.SENTINEL_PACK_STORE
 /** @type {{packs: any[]}} */
 let pkdb = loadJson(PACK_STORE, { packs: [] });
 const persistPack = () => writeJsonAtomic(PACK_STORE, pkdb);
+/** A registry record from a publish body (or a seed file). `naming` rides along so an install can put it on the project. */
+const packRecord = (b, existing, author) => ({
+  id: `${b.key}@${b.version}`, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
+  author, tags: b.tags || [], ruleset: b.ruleset || { rules: [] }, naming: b.naming || null,
+  installs: existing?.installs || 0, forks: existing?.forks || 0,
+  forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || new Date().toISOString(),
+});
+/** Seed packs are data (WebApp/packs/*.json): offered in an empty marketplace, enforced only once installed. */
+const SEED_PACK_DIR = join(import.meta.dirname, "..", "packs");
+const readSeedPacks = () => {
+  try { return readdirSync(SEED_PACK_DIR).filter((f) => f.endsWith(".json")).sort().map((f) => JSON.parse(readFileSync(join(SEED_PACK_DIR, f), "utf8"))); }
+  catch (e) { console.warn(`[packs] no seed packs read from ${SEED_PACK_DIR}: ${e?.message || e}`); return []; }
+};
 
 // ── Clash status store (Coordination): server-side dedup + a status lifecycle, replacing the per-browser
 // localStorage "known" set so a resolved/raised clash stays hidden for the whole team, not just one machine.
@@ -298,7 +311,7 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
   const openReqs = (existing || [])
-    .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+    .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved" && !t?.superseded_by)
     .map((t) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, ""));
   // Pure, unit-tested grouping + dedup (sentinel-core) — one issue per still-open failing requirement.
   const core = await loadCore();
@@ -311,8 +324,13 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
       title: `IDS: ${g.key} (${g.count} failing)`, topic_type: "Issue", priority: "High",
       creation_author: author,
       description: `IDS “${idsTitle}” — ${g.count} element(s) fail: ${g.key}.` +
+        (result.ids_ref ? ` Judged by ${result.ids_ref} (${result.ids_source}).` : "") +
         (g.guids.length ? ` Sample GUIDs: ${g.guids.slice(0, 10).join(", ")}` : ""),
     }, now);
+    // F51: which IDS raised this topic, so a later install can mark it superseded. ids_source matters:
+    // project and office versions are separate counters.
+    topic.ids_ref = result.ids_ref ?? null;
+    topic.ids_source = result.ids_source ?? null;
     if (g.guids.length) {
       topic.viewpoints.push({
         guid: randomUUID(), perspective_camera: null,
@@ -325,12 +343,50 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
     try {
       await cde.recordAudit(pid, {
         entity_type: "ids_validation", actor: author, action: `Issue raised: ${g.key}`,
-        new_value: { spec: idsTitle, requirement: g.key, failing: g.count, bcf_guid: topic.guid },
+        new_value: { spec: idsTitle, requirement: g.key, failing: g.count, bcf_guid: topic.guid, ids_ref: topic.ids_ref, ids_source: topic.ids_source },
       });
     } catch { /* audit is best-effort — the topic is already live */ }
     raised.push({ guid: topic.guid, title: topic.title });
   }
   return { raised: raised.length, skipped: openReqs.length, topics: raised };
+}
+
+/** F51: installing ids@n MARKS the open IDS topics it supersedes (superseded_by = the new ref) and never
+ *  closes them — a superseded topic may still be a real defect. One audit row lists the guids. */
+async function markSupersededIdsTopics(cde, pid, newRef, actor, pick = "supersededBy") {
+  const hits = (await import("./ids-supersede.mjs"))[pick](await cde.bcfListTopics(pid, { status: "all" }), newRef);
+  if (!hits.length) return [];
+  const now = new Date().toISOString();
+  for (const t of hits) {
+    t.superseded_by = newRef;
+    t.history = t.history || [];
+    t.history.push({ date: now, author: actor, action: `Superseded by ${newRef}` });
+    t.modified_date = now;
+    await cde.bcfSaveTopic(t);
+    broadcast(pid, { type: "topic", action: "updated", guid: t.guid, status: t.topic_status });
+  }
+  const guids = hits.map((t) => t.guid);
+  await cde.recordAudit(pid, { entity_type: "ids_validation", actor, action: `IDS topics superseded by ${newRef}`, new_value: { superseded_by: newRef, topics: guids } });
+  return guids;
+}
+
+/** The lead's one-click "close all as superseded": every open IDS topic carrying a superseded_by mark is
+ *  closed with a history line naming the IDS that superseded it; one audit row lists them. */
+async function closeSupersededIdsTopics(cde, pid, actor) {
+  const { closableSuperseded } = await import("./ids-supersede.mjs");
+  const hits = closableSuperseded(await cde.bcfListTopics(pid, { status: "all" }));
+  const now = new Date().toISOString();
+  for (const t of hits) {
+    t.history = t.history || [];
+    t.history.push({ date: now, author: actor, action: `Status: ${t.topic_status || "—"} → Closed (superseded by ${t.superseded_by})` });
+    t.topic_status = "Closed";
+    t.modified_date = now;
+    await cde.bcfSaveTopic(t);
+    broadcast(pid, { type: "topic", action: "updated", guid: t.guid, status: t.topic_status });
+  }
+  const closed = hits.map((t) => ({ guid: t.guid, superseded_by: t.superseded_by }));
+  if (closed.length) await cde.recordAudit(pid, { entity_type: "ids_validation", actor, action: `Superseded IDS topics closed (${closed.length})`, new_value: { closed } });
+  return { closed: closed.length, topics: closed };
 }
 
 /** One BCF topic per failing Federation Gate check, de-duplicated by title against open ones. The
@@ -649,8 +705,15 @@ async function handleRequest(req, res) {
         const remote = await cde.listProjectMeta();
         const known = new Set(remote.map((r) => r.project_id));
         const missing = pdb.projects.filter((l) => !known.has(l.project_id));
-        for (const l of missing) { const { project_id, name, ...meta } = l; await cde.getProjectMeta(project_id, meta); }
-        return send(res, 200, missing.length ? await cde.listProjectMeta() : remote);
+        // A local row whose project no longer exists in the CDE (a deleted smoke project) must not fail the
+        // whole list: skip it and say so, once per request.
+        let migrated = 0;
+        for (const l of missing) {
+          const { project_id, name, ...meta } = l;
+          try { await cde.getProjectMeta(project_id, meta); migrated++; }
+          catch (e) { if (e?.status === 404) console.warn(`[projects] local row '${project_id}' has no CDE project — skipped`); else throw e; }
+        }
+        return send(res, 200, migrated ? await cde.listProjectMeta() : remote);
       }
       if (req.method === "GET" && ppid && !gateStage) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, localSeed(ppid)) : getProject(ppid));
       if (req.method === "PUT" && ppid && !gateStage) {
@@ -736,17 +799,21 @@ async function handleRequest(req, res) {
       // Global store (project_id=""). One list call (which also lazy-migrates) gives the current set to find in.
       const packs = useCde ? await cde.docListLazy("pack", "", pkdb.packs, (p) => p.id) : pkdb.packs;
       const savePack = async (pk) => { if (useCde) await cde.docUpsert("pack", "", pk.id, pk); else persistPack(); };
-      if (req.method === "GET" && !kid) return send(res, 200, packs);
+      if (req.method === "GET" && !kid) {
+        if (!packs.length) { // first run: seed from the data files (was the panel's job, with the pilot's ruleset in code)
+          for (const b of readSeedPacks()) {
+            const pk = packRecord(b, null, b.author || "seed");
+            if (useCde) { await cde.docUpsert("pack", "", pk.id, pk); packs.push(pk); } else pkdb.packs.push(pk);
+          }
+          if (!useCde) persistPack();
+        }
+        return send(res, 200, packs);
+      }
       if (req.method === "POST" && !kid) { // publish (create or update)
-        const b = await readBody(req); const now = new Date().toISOString();
+        const b = await readBody(req);
         const id = `${b.key}@${b.version}`;
         const existing = packs.find((p) => p.id === id);
-        const pack = {
-          id, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
-          author: resolveActor(b.author, "anon"), tags: b.tags || [], ruleset: b.ruleset || { rules: [] },
-          installs: existing?.installs || 0, forks: existing?.forks || 0,
-          forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || now,
-        };
+        const pack = packRecord(b, existing, resolveActor(b.author, "anon"));
         if (useCde) await cde.docUpsert("pack", "", id, pack); else { if (existing) Object.assign(existing, pack); else pkdb.packs.push(pack); persistPack(); }
         return send(res, 201, pack);
       }
@@ -991,15 +1058,26 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, result);
       }
-      // Project artefacts (standards in force): the store every judge reads through (cohesion phase 1).
-      //   GET /cde/:key/artefacts · GET /cde/:key/artefacts/:kind · GET /cde/:key/artefacts/:kind/:version
-      //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?})
+      // Project artefacts (standards in force): the store every judge reads through (cohesion phases 1 and 3).
+      //   GET /cde/:key/artefacts (this project's own pointers) · GET /cde/:key/artefacts/:kind (project → office → 404;
+      //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version
+      //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?};
+      //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields})
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
+        // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so
+        // the p4 segment is never read as a version.
+        if (p3 === "ids" && p4 === "close-superseded" && req.method === "POST") {
+          const { requireMinRole } = await import("./members-store.mjs");
+          await requireMinRole(p1, "lead");
+          const b = await readBody(req);
+          return send(res, 200, await closeSupersededIdsTopics(cde, p1, resolveActor(b?.actor || url.searchParams.get("actor"), "web")));
+        }
         if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
         if (p3 && !p4 && req.method === "GET") {
-          const a = await art.getArtefact(p1, p3);
-          return a ? send(res, 200, a) : send(res, 404, { message: `no ${p3} artefact installed for ${p1} or its office` });
+          const a = await art.resolveArtefact(p1, p3);
+          if (a.source === "none") return send(res, 404, { message: `no ${p3} artefact installed for ${p1} or its office (PUT /cde/${p1}/artefacts/${p3})` });
+          return send(res, 200, { kind: p3, version: Number(a.ref.split("@")[1]), ...a });
         }
         if (p3 && p4 && req.method === "GET") {
           const a = await art.getArtefactVersion(p1, p3, p4);
@@ -1010,7 +1088,21 @@ async function handleRequest(req, res) {
           const actor = url.searchParams.get("actor") || body?.installed_by || "web";
           const source = body?.source && typeof body.source === "object" ? body.source : undefined;
           const { source: _s, installed_by: _i, ...artefact } = body || {};
-          return send(res, 201, await art.putArtefact(p1, p3, artefact, { actor, source }));
+          const pointer = await art.putArtefact(p1, p3, artefact, { actor, source });
+          // F51: a new IDS marks the open IDS topics it supersedes. Best-effort — the install already stands.
+          if (p3 === "ids") {
+            try {
+              const ref = `ids@${pointer.version}`, who = resolveActor(actor, "web");
+              pointer.superseded_topics = await markSupersededIdsTopics(cde, p1, ref, who);
+              // An office install also supersedes the office-raised topics of every project in its scope.
+              const { projectScope } = await import("./office-scope.mjs");
+              const scope = await projectScope(p1);
+              if (scope.kind === "office")
+                for (const k of scope.keys.slice(1)) pointer.superseded_topics.push(...await markSupersededIdsTopics(cde, k, ref, who, "supersededByOffice"));
+            }
+            catch (e) { pointer.superseded_error = String(e?.message || e); }
+          }
+          return send(res, 201, pointer);
         }
       }
       // Governed Intake: the whole Governed Publish loop for an IFC from any source (no Revit).

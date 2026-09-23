@@ -29,10 +29,10 @@ Reasoning: a wrong file name is cheap to fix and pollutes the CDE, so block it. 
 
 ## 1. Naming gate (Phase A)
 
-**Active config file:** `WebApp/bridge/naming-ruleset.json` (the BDS pilot ruleset, bundled with the bridge)
+**Source:** the project's `naming` artefact, else its office's (`GET /cde/:key/artefacts/naming`); none installed → the naming checks are not checkable. The pilot's pack is data at `demo/bds-pilot/bds-naming-ruleset.json`.
 **What it checks:** the published model / IFC **file name** against BDS's ISO 19650 11-field form.
 
-**To use a different ruleset:** set `SENTINEL_NAMING_RULESET=/path/to/ruleset.json` in `config/.env`; restart the bridge. Example: to use the Base template, point to `config/base-standard/naming-ruleset.json`.
+**To use a different ruleset:** install it: `node bridge/artefact-import.mjs <naming.json> --project <key> --kind naming` (a new `naming@n`; no restart). Example: the Base template is `config/base-standard/naming-ruleset.json`.
 
 ```
 Project-Originator-DocType-SubType-Discipline-Zone-Venue-Level-Number-Suit-Rev
@@ -112,14 +112,14 @@ A parameter that isn't authored is simply *absent* → the IDS reports it (as a 
 
 | Action | How |
 |---|---|
-| **Swap naming ruleset to Base template** | set `SENTINEL_NAMING_RULESET=config/base-standard/naming-ruleset.json` in `config/.env`; restart the bridge |
+| **Swap naming ruleset to Base template** | `node bridge/artefact-import.mjs config/base-standard/naming-ruleset.json --project <key> --kind naming` |
 | **Install the project IDS** | Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids` |
-| **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in `WebApp/bridge/naming-ruleset.json` (or the env-var-pointed file), restart |
+| **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in the naming JSON and install it again (`--kind naming`) |
 | **Tighten element data at DD/CD** | set `"enforce": "reject"` in the IDS source, then Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids` |
-| **Override a spec per-request** | a caller may pass an inline `naming` ruleset in the propose body to override the on-disk default for that request only. An inline `ids` spec does the same, but **only when the project has no installed IDS artefact** (and no office one) — once a project or office IDS is installed, resolution stops there and the client's `ids` is ignored (`client_ids_ignored: true` in the response) |
-| **Reload after any edit** | restart the bridge (`npm run bcf:serve`); rulesets are cached at first use |
+| **Override a spec per-request** | a caller may pass an inline `naming` ruleset in the propose body; it judges that request and the verdict records `naming_ref: "client"`. An inline `ids` spec does the same, but **only when the project has no installed IDS artefact** (and no office one) — once a project or office IDS is installed, resolution stops there and the client's `ids` is ignored (`client_ids_ignored: true` in the response) |
+| **Reload after any edit** | no restart: each install is a new artefact version, read on every judgement |
 
-Per-request override (agents/tools): a caller may pass an inline `naming` ruleset in the propose body to override the on-disk default for that request. An inline `ids` spec only takes effect when no project or office IDS artefact is installed — resolution order is project → office → client `ids` → none, and a project/office artefact always outranks a client-supplied spec.
+Per-request override (agents/tools): a caller may pass an inline `naming` ruleset in the propose body (recorded as client-supplied); it is honoured for that request over the installed artefact. An inline `ids` spec only takes effect when no project or office IDS artefact is installed — resolution order is project → office → client `ids` → none, and a project/office artefact always outranks a client-supplied spec.
 
 ---
 

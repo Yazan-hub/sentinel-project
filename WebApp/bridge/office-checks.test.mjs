@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 vi.mock("./office-store.mjs", () => ({ getSnapshot: vi.fn(async () => null), getScan: vi.fn(async () => null) }));
+const { resolveArtefact } = vi.hoisted(() => ({ resolveArtefact: vi.fn() }));
+vi.mock("./artefact-store.mjs", async (importOriginal) => ({ ...(await importOriginal()), resolveArtefact }));
 
 import {
   classifySnapshotPresent, classifyNamingRules, classifyTemplateTypes, classifyWorksets, classifySharedParams,
@@ -202,6 +204,23 @@ describe("office.roles / office.task_teams", () => {
     const r = classifyTaskTeams([{ code: "ARC", discipline: "Architecture", lead_email: "" }]);
     expect(r.status).toBe("violations"); expect(r.evidence[0]).toMatchObject({ label: "ARC", detail: expect.stringMatching(/no lead/i) });
     expect(classifyTaskTeams([]).status).toBe("violations");
+  });
+});
+
+describe("office.naming_standard — judged by the naming artefact (project → office)", () => {
+  const check = () => OFFICE_CHECKS.find((c) => c.id === "office.naming_standard");
+  it("met with evidence naming@n · source · sha when the office has one", async () => {
+    resolveArtefact.mockResolvedValueOnce({ body: { title: "T" }, source: "office", ref: "naming@1", sha256: "3f07376abcdef0123456789", pointer_sha_mismatch: false });
+    const r = await check().run("aster-villa");
+    expect(resolveArtefact).toHaveBeenCalledWith("aster-villa", "naming");
+    expect(r).toMatchObject({ id: "office.naming_standard", label: "Container naming standard installed", status: "met" });
+    expect(r.evidence[0].detail).toContain("naming@1 · office · 3f07376abcde");
+  });
+  it("violations naming the install route when nothing is installed", async () => {
+    resolveArtefact.mockResolvedValueOnce({ body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false });
+    const r = await check().run("aster-villa");
+    expect(r.status).toBe("violations");
+    expect(r.evidence[0].detail).toBe("not installed — PUT /cde/:key/artefacts/naming");
   });
 });
 

@@ -1,4 +1,6 @@
 {
+  "standard_key": "bds-iso19650-naming",
+  "semver": "1.4.0",
   "title": "BDS ISO 19650 container naming (V1.4, 11-field)",
   "separator": "-",
   "strip_extensions": [".ifc", ".ifczip", ".rvt", ".nwc", ".nwd", ".pdf"],

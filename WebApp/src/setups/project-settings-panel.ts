@@ -2,6 +2,7 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
 import { myRole, canGovernRole } from "./my-role";
+import { artefactInForce, refLabel, type InForce } from "./active-ruleset";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -58,6 +59,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     `<div><label style="${lbl}">Project value</label><input id="ps-value" style="${inp}" placeholder="e.g. SAR 14,000,000"/></div>` +
     `<div><label style="${lbl}">Created</label><input id="ps-created" style="${inp};color:#71717a" disabled/></div>` +
     "</div>" +
+    '<div id="ps-standards" style="margin-top:1.2rem"></div>' +
     '<div id="ps-members" style="margin-top:1.2rem"></div>' +
     '<div style="border:1px solid #7f1d1d;border-radius:.45rem;margin-top:1.6rem;padding:.7rem .8rem;background:#1c1214">' +
     '<div style="color:#fca5a5;font-weight:600;font-size:12px">Danger zone</div>' +
@@ -197,10 +199,37 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     }
   }
 
+  // ── Standards in force (read-only): each artefact kind's ref · source · sha · installer · date. The list
+  // route answers the project's own pointers; a kind it lacks is asked of the resolving route, which falls
+  // back to the office — so an inherited standard shows as `· office`, and "none" means none anywhere.
+  async function loadStandards() {
+    const host = el("ps-standards");
+    host.innerHTML = '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem">Standards in force</div>';
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+      const pointers = j as Record<string, { version: number; sha256: string; installed_by?: string; installed_at?: string } | null>;
+      const rows = await Promise.all(Object.entries(pointers).map(async ([kind, p]): Promise<[string, InForce | null]> =>
+        [kind, p ? { body: null, ref: `${kind}@${p.version}`, source: "project", sha256: p.sha256, installed_by: p.installed_by, installed_at: p.installed_at }
+                 : await artefactInForce(base, pid(), kind)]));
+      host.innerHTML += rows.map(([kind, a]) =>
+        `<div style="display:flex;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
+        `<span style="width:6.5rem;color:#9ca3af">${esc(kind)}</span>` +
+        (a ? `<span style="flex:1;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:11px">${esc(refLabel(a))}</span>` +
+             `<span style="color:#71717a;font-size:11px">${esc(a.installed_by ?? "—")} · ${esc((a.installed_at ?? "").slice(0, 10) || "—")}</span>`
+           : `<span style="flex:1;color:#71717a">none installed</span>`) +
+        "</div>").join("");
+    } catch (e) {
+      host.innerHTML += `<div style="color:#fca5a5;font-size:11px">Standards in force couldn't load: ${esc((e as Error)?.message ?? String(e))}</div>`;
+    }
+  }
+
   async function load() {
     status("Loading…");
     el("pset-key").textContent = pid();
     void loadMembers();
+    void loadStandards();
     try {
       const r = await bfetch(`${base}/cde/projects`);
       if (!r.ok) throw new Error(`Bridge ${r.status}`);

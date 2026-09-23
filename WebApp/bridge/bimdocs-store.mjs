@@ -391,7 +391,8 @@ export async function readinessReport(key, docId) {
   return {
     document_id: doc.id, title: doc.title, doc_type: doc.doc_type, generated_at: new Date().toISOString(),
     evidence: {
-      snapshot: snap ? { source: snap.source, at: snap.at, received_at: snap.received_at } : null,
+      snapshot: snap ? { source: snap.source, at: snap.at, received_at: snap.received_at,
+        ruleset: snap.ruleset ? { standard_key: snap.ruleset.standard_key ?? null, semver: snap.ruleset.semver ?? null, ref: snap.ruleset.ref ?? null, sha256: snap.ruleset.sha256 ?? null } : null } : null,
       scan: scan ? { doc_title: scan.doc_title, at: scan.at, received_at: scan.received_at } : null,
     },
     score, plan, sections,

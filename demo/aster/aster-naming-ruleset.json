@@ -1,4 +1,6 @@
 {
+  "standard_key": "AST-STD-001",
+  "semver": "1.0.0",
   "title": "Aster Studio container naming (AST-STD-001, 7-field)",
   "separator": "-",
   "strip_extensions": [

@@ -6,8 +6,8 @@ that the pack is swappable.
 
 ## Files
 
-- **naming-ruleset.json** — container naming fields, read by the bridge
-  (`SENTINEL_NAMING_RULESET`) to validate delivered file names.
+- **naming-ruleset.json** — container naming fields, installed as the project's
+  (or office's) `naming` artefact; every naming judge reads it from there.
 - **ids.json** — element data requirements (IDS-style specs), installed on the
   project via `Documents → EIR → Compile to IDS → Install on this project`.
 - **layers.json** — DWG layer → family/category mapping, read by the addin
@@ -22,11 +22,11 @@ that the pack is swappable.
 2. Rename naming fields, layer names, and IDS specs to the office's
    convention.
 3. Install the IDS on the project: `Documents → EIR → Compile to IDS → Install on this project`, or `node bridge/artefact-import.mjs config/<office>-standard/ids.json --project <key> --kind ids`.
-4. For the naming ruleset, point the bridge: `SENTINEL_NAMING_RULESET=config/<office>-standard/naming-ruleset.json` in `config/.env`.
+4. Install the naming ruleset on the office (its projects inherit it) or on a project: `node bridge/artefact-import.mjs config/<office>-standard/naming-ruleset.json --project <key> --kind naming`. With nothing installed, naming checks report not checkable — there is no bridge default.
 5. Copy `layers.json` and `delivery-contract.json` to
    `%AppData%\Sentinel\` on each workstation.
 
 ## Scope note
 
-QA-scan `ruleset.json` and stage gates are not yet swappable — those are
-build-time / code, not config, and are out of scope for this pack.
+The QA-scan ruleset is the project's `ruleset` artefact (install it like any other
+kind; see Packs). Stage gates are code, not config, and are out of scope for this pack.

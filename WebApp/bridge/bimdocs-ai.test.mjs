@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { draftSection, integrityReport, MAX_INTEGRITY_CHARS } from "./bimdocs-ai.mjs";
+import { refLabel } from "./artefact-store.mjs";
 
 // Fake stores via deps injection — no network, no Supabase.
 const DOC = {
@@ -56,6 +57,26 @@ describe("draftSection", () => {
     const chat = vi.fn(async () => ({ text: '{"body":"x"}', provider: "claude", model: "sonnet" }));
     await draftSection("demo", "d1", "s2", { provider: "claude", model: "sonnet" }, baseDeps(chat));
     expect(chat.mock.calls[0][0]).toMatchObject({ provider: "claude", model: "sonnet" });
+  });
+
+  it("grounds the naming fact on the artefact that is in force — ref · source · sha — and its field keys", async () => {
+    const chat = vi.fn(async () => ({ text: '{"body":"x"}', provider: "local", model: "m" }));
+    const deps = baseDeps(chat);
+    const named = { ruleset: { title: "T", separator: "-", fields: [{ key: "project", label: "Project" }, { key: "originator", label: "Originator" }] }, source: "office", ref: "naming@2", sha256: "3f07376abcdef0123456789" };
+    deps.projectNamingRuleset = vi.fn(async () => named);
+    await draftSection("demo", "d1", "s2", {}, deps);
+    const prompt = chat.mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain(`The active naming ruleset (${refLabel(named)})`);
+    expect(prompt).toContain("naming@2 · office");
+    expect(prompt).toContain("fields: project-originator");
+  });
+
+  it("states no naming fact when none is installed", async () => {
+    const chat = vi.fn(async () => ({ text: '{"body":"x"}', provider: "local", model: "m" }));
+    const deps = baseDeps(chat);
+    deps.projectNamingRuleset = vi.fn(async () => ({ ruleset: null, source: "none", ref: null, sha256: null }));
+    await draftSection("demo", "d1", "s2", {}, deps);
+    expect(chat.mock.calls[0][0].messages[0].content).not.toMatch(/naming ruleset/i);
   });
 });
 

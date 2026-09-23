@@ -8,8 +8,6 @@ import { randomUUID } from "node:crypto";
 //   SUPABASE_URL=https://<ref>.supabase.co
 //   SUPABASE_SERVICE_KEY=<service_role secret from Supabase → Project Settings → API>
 
-import { readFileSync } from "node:fs";
-import { resolve, isAbsolute } from "node:path";
 import { loadEnv } from "./thatopen-client.mjs";
 import { normalizeAgent, buildReceipt, verifyReceipt } from "./agent-provenance.mjs";
 import { currentUserToken, currentActor, resolveActor } from "./bridge-auth.mjs";
@@ -113,7 +111,9 @@ const defaultMeta = () => ({
  *  dimensions/snapshot, replace the rest). `name` is handled separately (a real column). */
 function mergeMeta(meta, patch) {
   const out = { ...meta };
-  for (const k of ["stage", "standards_pack", "active_ruleset", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
+  // active_ruleset is retired (cohesion phase 3): the scan ruleset and the naming pack are artefacts
+  // (PUT /cde/:key/artefacts/:kind). A value already in the column is left in place and read by nothing.
+  for (const k of ["stage", "standards_pack", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
   if (patch.dimensions) out.dimensions = { ...(meta.dimensions || {}), ...patch.dimensions };
   if (patch.snapshot) out.snapshot = { ...(meta.snapshot || {}), ...patch.snapshot };
   out.updated_at = new Date().toISOString();
@@ -143,6 +143,8 @@ export async function listProjectMeta() {
 
 /** Patch a project's metadata (stage/dims/snapshot/rate_pack/boq_baseline/carbon_baseline/name). */
 export async function patchProjectMeta(key, patch = {}) {
+  // Refuse rather than silently drop: a stale client that still "installs" a pack this way must see it failed.
+  if (patch.active_ruleset !== undefined) throw Object.assign(new Error("active_ruleset is retired — install the scan ruleset with PUT /cde/:key/artefacts/ruleset and the naming pack with PUT /cde/:key/artefacts/naming"), { status: 400 });
   const proj = await ensureProject(key);
   const metadata = mergeMeta((proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta(), patch);
   const body = { metadata };
@@ -783,45 +785,19 @@ export async function pruneEvents(olderThanMs = 600000) {
 let _core = null;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 
-// Repo root (WebApp/bridge is two levels below it: WebApp/bridge → WebApp → root). The bridge runs with cwd
-// WebApp/ (see server.mjs), so a repo-relative operator path like "config/base-standard/naming-ruleset.json"
-// resolves wrong against cwd — anchor non-absolute SENTINEL_* paths here instead.
-const REPO_ROOT = resolve(import.meta.dirname, "../..");
-const resolveConfigPath = (p) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
-
-// Swappable container-naming ruleset (bridge/naming-ruleset.json) — the office's ISO 19650 naming convention
-// as DATA, not code. Cached; missing/invalid → null (naming gate simply off). A caller may also pass an inline
-// ruleset in the propose body to override per-request.
-let _naming; // undefined = not yet loaded, null = absent/invalid
-function defaultNamingRuleset() {
-  if (_naming !== undefined) return _naming;
-  // NOTE: `URL` is shadowed in this module (const URL = SUPABASE_URL), so use import.meta.dirname, not new URL().
-  const raw = env.SENTINEL_NAMING_RULESET || `${import.meta.dirname}/naming-ruleset.json`;
-  const p = env.SENTINEL_NAMING_RULESET ? resolveConfigPath(raw) : raw;
-  try {
-    const rs = JSON.parse(readFileSync(p, "utf8"));
-    _naming = Array.isArray(rs?.fields) && rs.separator ? rs : null;
-    if (_naming) console.error("[naming] ruleset:", _naming.title, "| enforce:", _naming.enforce);
-  } catch (e) { _naming = null; }
-  if (_naming === null)
-    console.warn(`[bridge] WARNING: naming ruleset invalid or unreadable (resolved path: ${p}) — naming gate is OFF`);
-  return _naming;
-}
-const resolveNamingRuleset = (inline) =>
-  (inline && typeof inline === "object" && Array.isArray(inline.fields)) ? inline : defaultNamingRuleset();
+/** The one sentence every naming judge gives when nothing is installed — the install route included. */
+export const NO_NAMING_REASON = "no naming standard installed for this project or its office (PUT /cde/:key/artefacts/naming)";
 
 /**
- * The naming ruleset a PROJECT is actually governed by: its installed standards pack's ruleset when
- * one survived (see mergeMeta), else the bridge default. `source` lets a caller report which was used
- * rather than implying the project chose it.
+ * The naming ruleset a PROJECT is governed by: its `naming` artefact, else its office's, else none.
+ * There is no bridge default and no env-var file (cohesion phase 3): `none` is an answer the judges
+ * report as not_checkable, never a pilot's pack. `ref`/`sha256` say exactly which version judged.
+ * Errors propagate — a resolver failure is an `error`, not a silent "none" (runCheck reports it).
  */
-export async function projectNamingRuleset(key) {
-  try {
-    const meta = await getProjectMeta(key);
-    const rs = meta?.active_ruleset;
-    if (rs && Array.isArray(rs.fields) && rs.separator) return { ruleset: rs, source: "project" };
-  } catch { /* fall through to the bridge default */ }
-  return { ruleset: defaultNamingRuleset(), source: "default" };
+export async function projectNamingRuleset(key, deps = {}) {
+  const resolveArtefact = deps.resolveArtefact || (await import("./artefact-store.mjs")).resolveArtefact;
+  const r = await resolveArtefact(key, "naming");
+  return { ruleset: r.body ?? null, source: r.source, ref: r.ref, sha256: r.sha256 };
 }
 
 /** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
@@ -867,6 +843,14 @@ export function selectFailures(failures, requirement) {
   return { failures: chosen.slice(0, cap), failures_total: all.length, failures_matched: chosen.length };
 }
 
+/** Judge a container name by a naming ruleset; null when none is in force or it is off. A missing
+ *  enforce is reject (plan constraint) and the result records the enforce actually applied. */
+export function judgeContainerName(validate, name, rs) {
+  const enforce = rs?.enforce ?? "reject";
+  if (!rs || enforce === "off") return null;
+  return { ...validate(name, rs), enforce };
+}
+
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
@@ -891,17 +875,17 @@ export async function adjudicateProposal(key, b = {}) {
   // Naming gate: if the caller supplies the container/file name, validate it against the (swappable) naming
   // ruleset and fold the result into the verdict per the ruleset's enforcement level. `reject` → a bad name
   // fails the whole publish (even if the IDS passed); `warn` → recorded but doesn't block; `off`/absent → skip.
-  let naming = null;
+  let naming = null, namingProv = { naming_ref: null };
   if (b.container_name) {
-    // The PROJECT's ruleset (its installed standards pack) governs the name — the same source the
-    // naming.containers check reads — unless the caller sends one inline. Found live: Governed Publish
-    // judged an office's model by the bridge default while its documents were judged by the office's pack.
-    const rs = (b.naming && typeof b.naming === "object" && Array.isArray(b.naming.fields)) ? b.naming : (await projectNamingRuleset(key)).ruleset;
-    if (rs && rs.enforce !== "off") {
-      naming = c.validateContainerName(b.container_name, rs);
-      naming.enforce = rs.enforce;
-      if (!naming.ok && rs.enforce === "reject") verdict = "rejected";
-    }
+    // The project's naming artefact (project → office) governs the name — the same source naming.containers
+    // reads. A client-sent ruleset is still honoured (it is the model's own name check) and recorded as
+    // "client". Nothing installed → the name is not judged and the verdict row says so (naming_ref null).
+    const client = b.naming && typeof b.naming === "object" && Array.isArray(b.naming.fields);
+    const named = client ? { ruleset: b.naming, source: "client", ref: "client", sha256: null } : await projectNamingRuleset(key);
+    namingProv = { naming_ref: named.ref ?? null, naming_source: named.source, naming_sha256: named.sha256 ?? null, ...(named.ruleset ? {} : { naming_reason: NO_NAMING_REASON }) };
+    const rs = named.ruleset;
+    naming = judgeContainerName(c.validateContainerName, b.container_name, rs);
+    if (naming && !naming.ok && naming.enforce === "reject") verdict = "rejected";
   }
 
   const proj = await ensureProject(key);
@@ -917,7 +901,7 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -925,9 +909,9 @@ export async function adjudicateProposal(key, b = {}) {
   // against that version's id so the Versions panel can show a ✓/✗ badge on the row (entity_id = version id,
   // action "verdict:<verdict>"). Kept separate from the proposal record above so the agent/propose surface is
   // unchanged when no version is in play.
-  if (b.version_id) await recordVersionVerdict(key, b.version_id, { verdict, summary, failures, naming, warned, agent, ids_ref: resolved.ref }, trustedActor);
+  if (b.version_id) await recordVersionVerdict(key, b.version_id, { verdict, summary, failures, naming, warned, agent, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref }, trustedActor);
   return {
-    verdict, summary, ...selectFailures(failures, b.failures_requirement), naming, warned,
+    verdict, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
     agent,
@@ -946,7 +930,7 @@ export async function recordVersionVerdict(key, version_id, r, actor) {
     body: {
       project_id: proj.id, entity_type: "file_version", entity_id: version_id,
       action: `verdict:${r.verdict}`, actor: resolveActor(actor, "web"), old_value: null,
-      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, ...(r.agent ? { agent: r.agent } : {}) },
+      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, naming_ref: r.naming_ref ?? null, ...(r.agent ? { agent: r.agent } : {}) },
     },
     prefer: "return=minimal", service: true,
   });

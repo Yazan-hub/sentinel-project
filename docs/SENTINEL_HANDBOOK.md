@@ -226,7 +226,7 @@ The behaviour of the generation + validation tools is driven by editable data fi
 | `SentinelAddin/Resources/bds-layers.json` | **DWG Layer Standard** — which CAD layer maps to which Revit category/family, aliases, what to ignore. |
 | `demo/bds-pilot/bds-type-catalog.json` | The **type catalogue** harvested from the real template (1,434 types) — the guard that stops the tool inventing types the template lacks. |
 | `demo/bds-pilot/bds-ids.json` | The project **IDS** (the requirements the gate adjudicates against). |
-| `WebApp/bridge/naming-ruleset.json` | The **naming convention**. |
+| `naming` artefact (`PUT /cde/:key/artefacts/naming`; pilot data at `demo/bds-pilot/bds-naming-ruleset.json`) | The **naming convention**. |
 | `WebApp/src/sentinel-core/*.ts` | The **logic** that reads all of the above (the engine). |
 
 These are the levers: the tools are only as strong as the standard in these files.

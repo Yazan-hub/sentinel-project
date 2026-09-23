@@ -2,22 +2,26 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
-import { bdsRuleset, type Ruleset } from "../sentinel-core";
-import { activeRuleset } from "./active-ruleset";
+import type { Ruleset } from "../sentinel-core";
+import { activeRuleset, installArtefact, refLabel, NO_RULESET } from "./active-ruleset";
+import { currentUser } from "./auth";
 import { getAppManager } from "../app";
 
 /**
  * Standards-pack marketplace — Phase 4 (the moat). Office/regional standards become forkable, versioned,
- * shareable packages. INSTALL a pack → it's written to the project as the active_ruleset, so the QA scan,
- * the Copilot, and every stage gate immediately enforce THAT standard (see active-ruleset.ts). Publish
- * your current standard; fork someone else's to adapt it. Talks to the service's /packs registry.
+ * shareable packages. INSTALL a pack → its ruleset (and naming, when the pack carries one) become the
+ * project's artefacts `ruleset@n` / `naming@n`, so the QA scan, the Copilot, the stage gates and the
+ * bridge's naming judges enforce THAT standard (see active-ruleset.ts). Publish the ruleset in force;
+ * fork someone else's to adapt it. Talks to the service's /packs registry, which seeds itself from
+ * WebApp/packs/*.json on first run.
  *
  * Plain-DOM panel; docked as the "Standards" tab.
  */
 
 interface Pack {
   id: string; key: string; version: string; name: string; description: string;
-  author: string; tags: string[]; ruleset: Ruleset; installs: number; forks: number; forked_from?: string | null;
+  author: string; tags: string[]; ruleset: Ruleset; naming?: Record<string, unknown> | null;
+  installs: number; forks: number; forked_from?: string | null;
 }
 
 const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
@@ -28,6 +32,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   const pid = () => activePid();
   let packs: Pack[] = [];
   let installedId = "";
+  let inForce = "";   // `in force: ruleset@n · source · sha`, or NO_RULESET
   let forkFrom: Pack | null = null;
 
   const inp = "background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.3rem;font:12px system-ui;box-sizing:border-box";
@@ -53,24 +58,17 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   const load = async () => {
     try {
-      packs = await (await bfetch(`${base}/packs`)).json();
-      if (!packs.length) { await seed(); packs = await (await bfetch(`${base}/packs`)).json(); }
+      packs = await (await bfetch(`${base}/packs`)).json();   // the bridge seeds an empty registry from WebApp/packs/*.json
       try { const proj = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); installedId = proj.standards_pack ?? ""; } catch { /* */ }
+      try { const a = await activeRuleset(base); inForce = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { inForce = `ruleset in force unknown: ${(e as Error).message}`; }
       renderBrowse();
     } catch (e) { el("pk-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
-  };
-
-  // Seed the registry with the BDS house standard + an ISO 19650 baseline on first run.
-  const seed = async () => {
-    await publishPack({ key: "bds-house", version: bdsRuleset.semver || "1.4.1", name: "BDS House Standard", description: "Badran Design Studio Revit standard — naming, worksets, parameters, sheets (ISO 19650).", author: "BDS", tags: ["KSA", "Architecture"], ruleset: bdsRuleset });
-    const iso: Ruleset = { standard_key: "iso-19650-lite", semver: "1.0.0", rules: bdsRuleset.rules.filter((r) => r.id === "SN-01") };
-    await publishPack({ key: "iso-19650-lite", version: "1.0.0", name: "ISO 19650 Sheet Naming (lite)", description: "Minimal ISO 19650 container/sheet-number baseline — a clean starting point to fork.", author: "Sentinel", tags: ["ISO", "Global"], ruleset: iso });
   };
 
   // ── browse ──────────────────────────────────────────────────────────────────
   const renderBrowse = () => {
     forkFrom = null;
-    el("pk-count").textContent = `(${packs.length})`;
+    el("pk-count").textContent = `(${packs.length}) · ${inForce}`;
     el("pk-body").innerHTML = packs.map((p) => {
       const installed = p.id === installedId;
       const rules = p.ruleset?.rules?.length ?? 0;
@@ -79,7 +77,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
         `<span style="font:600 10px ui-monospace,Consolas,monospace;color:#9ca3af">${esc(p.key)}@${esc(p.version)}</span></div>` +
         `<div style="font-size:11.5px;color:#9ca3af;margin:.25rem 0">${esc(p.description)}</div>` +
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.4rem">${(p.tags || []).map((t) => `<span style="font-size:10px;color:#c4b5fd;border:1px solid #6528d755;border-radius:100px;padding:.05rem .4rem">${esc(t)}</span>`).join("")}` +
-        `<span style="font-size:10px;color:#6b7280">${rules} rule(s) · ${p.installs || 0} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
+        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""} · ${p.installs || 0} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
         '<div style="display:flex;gap:.4rem">' +
           (installed ? `<span style="${btn};background:#16a34a22;color:#4ade80;border:1px solid #16a34a55">✓ Installed</span>` : `<button class="pk-install" data-id="${p.id}" style="${btn};background:#6528d7;color:#fff">Install</button>`) +
           `<button class="pk-fork" data-id="${p.id}" style="${btn};background:#2a2a30;color:#eee">Fork</button>` +
@@ -89,17 +87,22 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
     root.querySelectorAll<HTMLElement>(".pk-fork").forEach((b) => b.addEventListener("click", () => startFork(b.dataset.id!)));
   };
 
-  // ── install → make it the project's active ruleset ───────────────────────────
+  // ── install → the pack's ruleset (and naming) become the project's artefacts ───
   const install = async (id: string) => {
     const pack = packs.find((p) => p.id === id); if (!pack) return;
     msg(`Installing ${pack.name}…`);
+    const refs: string[] = [];
     try {
-      await bfetch(`${base}/packs/${encodeURIComponent(id)}/install`, { method: "POST" });
-      await bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id, active_ruleset: pack.ruleset }) });
+      const who = await currentUser().then((u) => u?.email || "web", () => "web");
+      // The artefacts are the install: the bridge validates each body and refuses below lead.
+      refs.push(`ruleset@${(await installArtefact(base, pid(), "ruleset", pack.ruleset, who)).version}`);
+      if (pack.naming) refs.push(`naming@${(await installArtefact(base, pid(), "naming", pack.naming, who)).version}`);
+      await bfetch(`${base}/packs/${encodeURIComponent(id)}/install`, { method: "POST" });   // marketplace counter
+      await bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id }) }); // display name only
       installedId = id;
-      msg(`Installed ${pack.name}. QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, "#22c55e");
+      msg(`Installed ${pack.name} as ${refs.join(" + ")} on ${pid()}. QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, "#22c55e");
       await load();
-    } catch (e) { msg("Install failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("Install failed: " + ((e as Error)?.message ?? String(e)) + (refs.length ? ` — ${refs.join(" + ")} did install` : ""), "#ef4444"); }
   };
 
   // ── publish / fork ────────────────────────────────────────────────────────────
@@ -108,7 +111,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   const renderPublish = async () => {
     el("pk-count").textContent = "";
     const src = forkFrom;
-    const rules = src ? src.ruleset?.rules?.length ?? 0 : (await activeRuleset(base)).rules.length;
+    const rules = src ? src.ruleset?.rules?.length ?? 0 : (await activeRuleset(base).catch(() => null))?.ruleset.rules.length ?? 0;
     el("pk-body").innerHTML =
       `<div style="font-weight:650;margin-bottom:.5rem">${src ? "Fork " + esc(src.name) : "Publish a standards pack"}</div>` +
       `<label style="font-size:11px;color:#9ca3af">Key</label><input id="pk-key" value="${esc(src ? src.key + "-fork" : "")}" placeholder="e.g. acme-arch" style="${inp};width:100%;margin:.15rem 0 .4rem"/>` +
@@ -132,12 +135,14 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
         // Fork = server copies the source (+ bumps its fork count) with the new identity.
         await bfetch(`${base}/packs/${encodeURIComponent(src.id)}/fork`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, version, name: val("pk-name").trim() || key }) });
       } else {
-        // Publish = the project's current active ruleset, packaged.
+        // Publish = the ruleset in force on this project, packaged. Nothing installed → nothing to publish.
+        const active = await activeRuleset(base);
+        if (!active) { msg(NO_RULESET, "#eab308"); return; }
         await publishPack({
           key, version, name: val("pk-name").trim() || key, description: val("pk-desc").trim(),
           author: getAppManager().projectData?.name ?? "you",
           tags: val("pk-tags").split(",").map((s) => s.trim()).filter(Boolean),
-          ruleset: await activeRuleset(base), forked_from: null,
+          ruleset: active.ruleset, forked_from: null,
         });
       }
       msg(`${src ? "Forked" : "Published"} ${key}. It's in the marketplace.`, "#22c55e");

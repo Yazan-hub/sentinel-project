@@ -1,4 +1,6 @@
 {
+  "standard_key": "base-iso19650-naming",
+  "semver": "1.0.0",
   "title": "Base ISO 19650 container naming (generic)",
   "separator": "_",
   "strip_extensions": [".ifc", ".ifczip", ".rvt", ".nwc", ".nwd", ".pdf"],

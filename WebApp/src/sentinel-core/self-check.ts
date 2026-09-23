@@ -5,12 +5,14 @@
 // Each case asserts whether a given name PASSES (no violation) or FAILS a rule id.
 
 import { RuleEngine } from "./rule-engine";
-import { bdsRuleset } from "./index";
-import type { Rule } from "./types";
+import type { Rule, Ruleset } from "./types";
+// The worked examples belong to the house pack, which is data now (WebApp/packs), not a core export.
+import housePack from "../../packs/bds-house.json";
 
+const houseRuleset = housePack.ruleset as Ruleset;
 const engine = new RuleEngine();
 const ruleById = (id: string): Rule => {
-  const r = bdsRuleset.rules.find((x) => x.id === id);
+  const r = houseRuleset.rules.find((x) => x.id === id);
   if (!r) throw new Error(`rule ${id} missing from ruleset`);
   return r;
 };

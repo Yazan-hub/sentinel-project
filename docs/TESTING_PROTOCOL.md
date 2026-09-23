@@ -60,6 +60,17 @@ photo, confidence < 1.0 on every photo-derived element.
 | Empty office | an office with no projects and no data → `not_checkable`, reason "no projects belong to this office" |
 | Office IDS | install an IDS on the office only → `POST /cde/<project>/propose` returns `ids_source: "office"` and the `ids@n` ref |
 
+## Session B3 — Standards as artefacts
+
+| Step | Pass criteria |
+|---|---|
+| Nothing installed | On `aster-villa` (no own ruleset/naming, office has none yet): readiness `naming.containers` → `not_checkable`, reason names `PUT /cde/:key/artefacts/naming`; the web QA scan shows "No ruleset installed for this project — install one from Packs" and does not scan; no bundled ruleset or bridge file is used anywhere |
+| Import to the office | `node bridge/artefact-import.mjs --from-metadata --key aster-office` → `ruleset@1` and `naming@1` installed on `aster-office` with actor `import`; audit rows name the source slot; a row that fails validation is listed, not installed |
+| Inherit | `GET /cde/aster-villa/artefacts/naming` → the office's `naming@1`; `aster-villa` readiness evidence for `office.naming_standard` and `naming.containers` names `naming@1 · office · <sha 12>` |
+| Project install | Packs → install on `aster-villa` from the web (if the platform loads the app) or `PUT /cde/aster-villa/artefacts/ruleset` → `ruleset@1` on the project; the scan header names `ruleset@1 · project` |
+| Superseded IDS | With open `IDS:` topics on a project, install a new `ids@n` → the PUT answers `superseded_topics`; Issues shows them under "Raised by a superseded IDS"; a lead's **Close all as superseded** closes them with one audit row; a viewer sees no button; new failures under `ids@n` raise their own topics carrying `ids_ref` |
+| Document naming | A BEP whose section 6 carries a naming ruleset as a ```` ```json ```` block → **Naming candidate** lists added/removed/changed fields against the version in force and warns before a field is removed; **Install** writes the candidate whole and the pointer's `source` names the document and section |
+
 ## Session C — Validate panel (the referee's home turf)
 
 Model: same harvested-standard model, deliberately damaged first (rename a

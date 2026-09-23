@@ -209,3 +209,27 @@ F49; type-checked and built), the Revit picker label at runtime (compiled, deplo
 final review: scope route has no membership check; trigger exceptions map to 500 instead of 409; the spec's
 per-item office semantics were replaced by generic worst-wins (spec to be amended); each readiness check
 re-resolves the scope.
+
+## Standards-as-artefacts drill (Session B3), 2026-09-24
+
+Feature `feature/standards-artefacts` (cohesion phase 3). Managed bridge restarted on the branch. Before the drill the
+legacy IDS pointers were restamped with the canonical (key-sorted) sha, because `bridge_docs.data` is jsonb and
+reorders keys, so every pre-existing artefact showed `pointer_sha_mismatch: true` (final review finding, fixed 6dddf5a).
+Every line is a bridge response or an audit id.
+
+| Step | Result | Evidence |
+|---|---|---|
+| Nothing installed | `GET /cde/aster-villa/artefacts/naming` → 404 "no naming artefact installed for aster-villa or its office (PUT /cde/aster-villa/artefacts/naming)" | response body |
+| Import from the metadata slot | `artefact-import --from-metadata --key aster-office --dry-run` → "would install ruleset … naming (ast-std-001 1.0.0)"; real run → `ruleset@1 · project · fb8f9baefa9f…`, `naming@1 · project · 43c954e892d0…`, actor `import` | CLI output, install audit rows |
+| Inheritance | `GET /cde/aster-villa/artefacts/naming` → `source: office, ref: naming@1, pointer_sha_mismatch: false`; `…/ruleset` → `ruleset@1 · office` | response bodies |
+| Office readiness item 7 | `met` — `aster-office: naming@1 · project · 43c954e892d0… | aster-tower: naming@1 · office · … | aster-villa: naming@1 · office · …`, one evidence line per project | readiness JSON |
+| Federation on the office | FG-02 `refs: {ruleset: "ruleset@1 · project · fb8f9baefa9f…", naming: "naming@1 · project · 43c954e892d0…"}`; run verdict `fail` on the planted pair as before | federation JSON |
+| Proposal on villa with a name | `naming_ref: naming@1, naming_source: office, naming_sha256: 43c954…`, `ids_source: office` | response body |
+| Superseded IDS topics | proposal of a wall without FireRating on villa under office `ids@3` → rejected, topic raised with `ids_ref: ids@3, ids_source: office` (audit 770); `PUT /cde/aster-office/artefacts/ids` (`ids@4`) → `superseded_topics: [8271f746…]`, the villa topic now `superseded_by: ids@4` (audit 772); `POST /cde/aster-villa/artefacts/ids/close-superseded` → `closed: 1` (audit 773); no auto-close before that | response bodies, audits 770–773 |
+| Bridge log | no errors during the drill except my own malformed first proposal (`psets` must be an array); stale local project rows are now skipped with a warning instead of failing `GET /projects` (fix 4751515) | managed server log |
+
+Not exercised: the web QA-scan "No ruleset installed" state, the Packs install, the Settings "Standards in force" block and
+the Issues "superseded" group in a browser (platform viewer blocked, F49; type-checked and built). Observed: an em dash
+sent from the Windows shell arrived as `�` in a topic title — the earlier `ids@1` title on the office shows the same,
+so it is the drill's shell encoding, not the bridge; verify once from the web UI. Left in place on `aster-office`:
+`ruleset@1`, `naming@1`, `ids@1..4`; on `aster-villa`: one closed superseded topic.
