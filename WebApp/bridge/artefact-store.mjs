@@ -33,7 +33,10 @@ export function validateArtefact(kind, body) {
   if (!KINDS.includes(kind)) throw err(400, `unknown artefact kind '${kind}' (expected one of ${KINDS.join(", ")})`);
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "artefact body must be a JSON object");
   if (kind === "ids") {
-    if (!Array.isArray(body.specifications)) throw err(400, "an IDS artefact needs `specifications: [...]` (the JSON spec shape; raw .ids XML is not accepted server-side)");
+    // A zero-spec compile installs as a silent pass-everything IDS (adjudicate() has nothing to check),
+    // which reports "accepted" for every model — a gate-only pass dressed as an IDS pass (the honesty
+    // rule). Reject it here so an empty compile can never become an artefact.
+    if (!Array.isArray(body.specifications) || body.specifications.length === 0) throw err(400, "an IDS artefact needs at least one specification in `specifications: [...]` (the JSON spec shape; raw .ids XML is not accepted server-side)");
     if (body.enforce !== undefined && !["reject", "warn", "off"].includes(body.enforce)) throw err(400, "ids.enforce must be reject | warn | off");
   }
   return true;

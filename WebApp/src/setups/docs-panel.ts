@@ -1193,7 +1193,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
             msg(`Install failed: ${esc((e as Error).message)}`, true);
           }
         };
-        if (canGovern()) box.append(install);
+        // A zero-spec compile has nothing for an installed IDS to check (adjudicate() would pass every
+        // model vacuously — a gate-only pass dressed as an IDS pass). Don't offer to install it.
+        if (canGovern() && r.specifications.length > 0) box.append(install);
         integrityOut.append(box);
       } catch (e) {
         const d = document.createElement("div"); d.textContent = `Compile failed: ${(e as Error).message}`;
