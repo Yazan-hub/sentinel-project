@@ -47,8 +47,17 @@ export function loadDefaultContract() {
   return JSON.parse(readFileSync(resolve(here, "delivery-contract.json"), "utf8"));
 }
 
-/** Percentage the way C# `{x:F0}` prints it (round half away from zero, no decimals). */
-const pct0 = (x) => String(Math.round(x + Number.EPSILON));
+/** Percentage the way C# `{x:F0}`/`{x:P0}` prints it — .NET's numeric formatting rounds an exact
+ *  half to the nearest EVEN digit (banker's rounding), not away from zero: (2.5).ToString("F0") →
+ *  "2", (12.5) → "12", (0.125).ToString("P0") → "12%". No decimals. */
+const pct0 = (x) => {
+  const floor = Math.floor(x);
+  const frac = x - floor;
+  const EPS = 1e-9;
+  if (frac > 0.5 + EPS) return String(floor + 1);
+  if (frac < 0.5 - EPS) return String(floor);
+  return String(floor % 2 === 0 ? floor : floor + 1); // exact .5 → round to even
+};
 
 /**
  * Check IFC bytes (or text) against a delivery contract. Never throws on a bad file — an unparsable

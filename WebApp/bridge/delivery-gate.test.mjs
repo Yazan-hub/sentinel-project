@@ -50,6 +50,13 @@ describe("checkDelivery", () => {
     const r = checkDelivery(ifc, contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 2147483647, max_ratio: 0.1 }] }));
     expect(r.failures).toContain("IFCBUILDINGELEMENTPROXY: 1/4 building elements (25%) exceeds 10% — semantics are being lost to proxies.");
   });
+  it("rounds an exact half-percent ratio half-to-even like C#'s :F0/:P0 (1/8 = 12.5% → 12%, not 13%)", () => {
+    const eightBuildingElements = Array.from({ length: 7 }, (_, i) => `#${i + 1}=IFCWALLSTANDARDCASE('W${i}',$,'Wall${i}');`)
+      .concat("#8=IFCBUILDINGELEMENTPROXY('P0',$,'Proxy');")
+      .join("\n");
+    const r = checkDelivery(eightBuildingElements, contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 2147483647, max_ratio: 0.1 }] }));
+    expect(r.failures).toContain("IFCBUILDINGELEMENTPROXY: 1/8 building elements (12%) exceeds 10% — semantics are being lost to proxies.");
+  });
   it("fails a hard max_count with the C# sentence", () => {
     const r = checkDelivery(ifc, contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 0, max_ratio: 1 }] }));
     expect(r.failures).toContain("IFCBUILDINGELEMENTPROXY: 1 exceeds max 0.");
