@@ -1306,6 +1306,7 @@ function fg05(ms, georefM, angleDeg) {
   };
   const rot = (mc) => Math.atan2(mc.x_axis_ordinate, mc.x_axis_abscissa) * 180 / Math.PI;
   const angleDelta = (a, b) => Math.abs(((a - b + 180) % 360 + 360) % 360 - 180);
+  let mismatched = 0, incomparable = 0, compared = 0;
   for (let i = 0; i < withGeo.length; i++) for (let j = i + 1; j < withGeo.length; j++) {
     const a = withGeo[i], b = withGeo[j];
     const sa = a.m.site, sb = b.m.site;
@@ -1316,10 +1317,22 @@ function fg05(ms, georefM, angleDeg) {
       deltaM = Math.max(deltaM ?? 0, Math.hypot(ma.eastings - mb.eastings, ma.northings - mb.northings, ma.height - mb.height));
       deltaDeg = angleDelta(rot(ma), rot(mb));
     }
-    if (deltaM != null && deltaM > georefM || deltaDeg != null && deltaDeg > angleDeg)
+    if (deltaM == null && deltaDeg == null) {
+      incomparable++;
+      c.evidence.push({ model_a: a.container, model_b: b.container, comparable: false, reason: "one model carries latitude/longitude only, the other a map conversion only" });
+      continue;
+    }
+    compared++;
+    if (deltaM != null && deltaM > georefM || deltaDeg != null && deltaDeg > angleDeg) {
+      mismatched++;
       c.evidence.push({ model_a: a.container, model_b: b.container, delta_m: deltaM == null ? null : Number(deltaM.toFixed(3)), delta_deg: deltaDeg == null ? null : Number(deltaDeg.toFixed(4)) });
+    }
   }
-  return c.evidence.length ? fail(c, "models are not placed together") : c;
+  const none = ms.length - withGeo.length;
+  if (mismatched || none) return fail(c, mismatched ? "models are not placed together" : "a model carries no georeference");
+  if (incomparable && !compared) return nc(c, "georeferences cannot be compared: latitude/longitude on one side, a map conversion on the other");
+  if (incomparable) return fail(c, "some model pairs could not be compared");
+  return c;
 }
 function fg06(models, opts) {
   const c = mk("FG-06", "Every model is named to the rule and judged");

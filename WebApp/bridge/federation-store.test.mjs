@@ -71,6 +71,16 @@ describe("getFederation", () => {
     expect(f.stale).toBe(true);
     expect(f.live_set[0].version_id).toBe("v-9");
   });
+  it("flags a run stale when a model the run never saw goes live", async () => {
+    const d = memDeps();
+    await runFederation("p", {}, { actor: "cli" }, d);
+    d.listManifests = async () => [
+      { container: "A-0101.ifc", container_id: "c-1", version_id: "v-1", revision: "P01", has_manifest: true, captured_at: null },
+      { container: "B-0102.ifc", container_id: "c-2", version_id: "v-2", revision: "P01", has_manifest: true, captured_at: null },
+      { container: "M-0103.ifc", container_id: "c-3", version_id: "v-3", revision: "P01", has_manifest: false, captured_at: null },
+    ];
+    expect((await getFederation("p", d)).stale).toBe(true);
+  });
   it("is not stale after a partial run when the untouched live models are unchanged (3 live, run on 2)", async () => {
     const live3 = [
       { container: "A-0101.ifc", container_id: "c-1", version_id: "v-1", revision: "P01", has_manifest: true, captured_at: null },

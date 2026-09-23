@@ -73,10 +73,13 @@ export async function runFederation(key, { versions } = {}, { actor = "web" } = 
  *  live version_id moved on, or its manifest coverage changed (a backfill after a NOT CHECKABLE run). */
 function isStale(recordedSet, liveSet) {
   const live = new Map(liveSet.map((m) => [m.container, m]));
+  const recorded = new Set(recordedSet.map((m) => m.container));
+  // Stale when a recorded model changed version or manifest state, OR when a live model exists that the
+  // run never saw (a container added after the run — final review 2026-09-23).
   return recordedSet.some((m) => {
     const l = live.get(m.container);
     return !l || l.version_id !== m.version_id || !!l.has_manifest !== !!m.has_manifest;
-  });
+  }) || liveSet.some((l) => !recorded.has(l.container));
 }
 
 export async function getFederation(key, deps) {

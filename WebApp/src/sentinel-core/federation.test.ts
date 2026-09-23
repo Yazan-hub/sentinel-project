@@ -125,6 +125,19 @@ describe("checkFederation", () => {
     const noneAtAll = checkFederation([model("A-0101.ifc", manifest({ site: null })), noGeo], { verdicts: okVerdicts });
     expect(check(noneAtAll, "FG-05").status).toBe("not_checkable");
   });
+  it("FG-05 never passes a pair it could not compare: lat/lon-only against map-conversion-only", () => {
+    const latOnly = model("A-0101.ifc", manifest({ site: { lat: 51.5, lon: -0.1, elevation_m: 0, map_conversion: null } }));
+    const mcOnly = model("B-0102.ifc", manifest({ site: { lat: null, lon: null, elevation_m: null, map_conversion: { eastings: 500000, northings: 3500000, height: 0, x_axis_abscissa: 1, x_axis_ordinate: 0, scale: 1, crs_name: "EPSG:32636" } } }));
+    const fg = check(checkFederation([latOnly, mcOnly], { verdicts: okVerdicts }), "FG-05");
+    expect(fg.status).toBe("not_checkable");
+    expect(fg.reason).toMatch(/cannot be compared/);
+    expect(fg.evidence).toContainEqual(expect.objectContaining({ model_a: "A-0101.ifc", model_b: "B-0102.ifc", comparable: false }));
+    const both = model("C-0103.ifc", manifest({ site: site(51.5, -0.1, {}) }));
+    expect(check(checkFederation([both, mcOnly], { verdicts: okVerdicts }), "FG-05").status).toBe("pass");   // compared through the map conversion
+    const mixed = checkFederation([latOnly, mcOnly, both], { verdicts: okVerdicts });
+    expect(check(mixed, "FG-05").status).toBe("fail");                    // one comparable pair passed, one could not be compared
+    expect(check(mixed, "FG-05").reason).toMatch(/could not be compared/);
+  });
   it("FG-06 fails a rejected or missing verdict and a name the ruleset rejects; warns on a warn-level ruleset", () => {
     const rs = { title: "two fields", separator: "-", strip_extensions: [".ifc"], enforce: "reject" as const, fields: [{ key: "p", label: "P", pattern: "[A-Z]" }, { key: "n", label: "N", pattern: "\\d{4}" }] };
     const b = model("B-0102.ifc", manifest({ elements: [{ guid: "g-b1", class: "IFCWALL", type_name: "Wall 9", storey: null }] }));
