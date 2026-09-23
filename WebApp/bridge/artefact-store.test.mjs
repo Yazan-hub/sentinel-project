@@ -91,4 +91,14 @@ describe("resolveIdsSpec", () => {
   it("rejects a raw .ids XML string from a client the way the referee did", async () => {
     await expect(resolveIdsSpec("p", { ids: "<ids/>" }, memDeps())).rejects.toMatchObject({ status: 400 });
   });
+  it("resolves the office through the real office helper when the project row carries office_key", async () => {
+    const { officeKeyOf } = await import("./office-scope.mjs");
+    const rows = [{ id: "1", key: "aster-office", name: "Aster", kind: "office", office_key: null }, { id: "2", key: "aster-tower", name: "Tower", kind: "project", office_key: "aster-office" }];
+    const d = memDeps({ parentKey: null });
+    d.officeKeyOf = (key) => officeKeyOf(key, { listProjectRows: async () => rows });
+    await putArtefact("aster-office", "ids", spec, { actor: "x" }, d);
+    const r = await resolveIdsSpec("aster-tower", {}, d);
+    expect(r.source).toBe("office");
+    expect(r.ref).toBe("ids@1");
+  });
 });

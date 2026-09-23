@@ -885,10 +885,12 @@ async function handleRequest(req, res) {
         const key = decodeURIComponent(p2);
         if (req.method === "PATCH") {
           const b = await readBody(req);
+          if (b?.kind !== undefined) { const m = await import("./members-store.mjs"); await m.requireMinRole(key, "owner"); }
           return send(res, 200, await cde.updateProject(key, b, b?.actor));
         }
         if (req.method === "DELETE") return send(res, 200, await cde.deleteProject(key, "web"));
       }
+      if (p1 === "projects" && p2 && p3 === "scope" && req.method === "GET") return send(res, 200, await cde.projectScope(decodeURIComponent(p2)));
       // ── Office intake: the add-in's standards pack + type catalogue ("snapshot") and scan reports.
       //    Latest wins; each receipt is audited; the readiness checks (office.*) read them.
       if (p2 === "office" && p3 === "snapshot" && req.method === "POST") {

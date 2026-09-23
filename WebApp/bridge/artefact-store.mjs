@@ -23,8 +23,7 @@ async function wire(deps = {}) {
     docUpsert: deps.docUpsert || cde.docUpsert,
     audit: deps.audit || cde.audit,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
-    // The office entity lands with cohesion phase 2; until then no project has a parent.
-    officeKeyOf: deps.officeKeyOf || (async () => null),
+    officeKeyOf: deps.officeKeyOf || (await import("./office-scope.mjs")).officeKeyOf,
   };
 }
 
