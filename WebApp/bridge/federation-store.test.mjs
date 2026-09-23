@@ -1,6 +1,9 @@
 // The gate on the bridge: resolve the set, load manifests and verdicts, judge, store, audit.
 import { describe, it, expect } from "vitest";
 import { runFederation, getFederation } from "./federation-store.mjs";
+import { refLabel } from "./artefact-store.mjs";
+
+const NONE = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
 
 const mA = { schema: "IFC4", elements: [{ guid: "g1", class: "IFCWALL", type_name: "Wall 1", storey: null }], levels: [{ name: "Level 1", elevation_mm: 0 }], grids: ["A"], site: { lat: 51.5, lon: -0.1, elevation_m: 0, map_conversion: null } };
 const mB = { ...mA, elements: [{ guid: "g1", class: "IFCWALL", type_name: "W-A1-Fin", storey: null }] };
@@ -20,8 +23,7 @@ function memDeps({ manifests = { "v-1": mA, "v-2": mB }, verdicts = { "v-1": "ac
     listManifests: async () => liveSet,
     getManifest: async (key, vid) => manifests[vid] ?? null,
     versionVerdicts: async () => verdicts,
-    projectNamingRuleset: async () => ({ ruleset: null }),
-    getArtefact: async () => null,
+    resolveArtefact: async () => NONE,
   };
 }
 
@@ -51,12 +53,40 @@ describe("runFederation", () => {
     expect(run.set.map((s) => s.version_id)).toEqual(["v-1"]);
     expect(run.result.verdict).toBe("not_checkable");
   });
-  it("uses the project's type rule from the ruleset artefact when installed", async () => {
+  it("uses the type rule from the resolved ruleset artefact and names it on the run, FG-02 and the audit row", async () => {
     const d = memDeps({ manifests: { "v-1": { ...mA, elements: [{ guid: "g1", class: "IFCWALL", type_name: "ZZZ_EXT_CMU_200 mm", storey: null }] }, "v-2": { ...mA, elements: [{ guid: "g2", class: "IFCWALL", type_name: "Wall 1", storey: null }] } } });
-    d.getArtefact = async (key, kind) => kind === "ruleset" ? { body: { org: "ZZZ", rules: [{ id: "TN-01", target: "type", mode: "monitor", tokens: ["ORG", "LOC", "MATERIAL", "SIZE"], token_defs: { ORG: "{org}", LOC: "EXT|INT", MATERIAL: "[A-Z0-9]+", SIZE: "\\d+ mm" }, separator: "_", message_en: "x" }] } } : null;
+    const rs = { body: { standard_key: "k", semver: "1.0.0", org: "ZZZ", rules: [{ id: "TN-01", target: "type", mode: "monitor", tokens: ["ORG", "LOC", "MATERIAL", "SIZE"], token_defs: { ORG: "{org}", LOC: "EXT|INT", MATERIAL: "[A-Z0-9]+", SIZE: "\\d+ mm" }, separator: "_", message_en: "x" }] }, source: "office", ref: "ruleset@2", sha256: "3f07376abcdef0123456789", pointer_sha_mismatch: false };
+    d.resolveArtefact = async (key, kind) => kind === "ruleset" ? rs : NONE;
     const run = await runFederation("p", {}, { actor: "cli" }, d);
     expect(run.type_rule).toBe("TN-01");
-    expect(run.result.checks.find((c) => c.id === "FG-02").evidence).toContainEqual({ model: "B-0102.ifc", type_name: "Wall 1", rule: "TN-01" });
+    expect(run.ruleset_ref).toBe(refLabel(rs));
+    expect(run.ruleset_ref).toContain("ruleset@2 · office · 3f07376abcde");
+    expect(run.naming_ref).toBeNull();
+    const fg02 = run.result.checks.find((c) => c.id === "FG-02");
+    expect(fg02.evidence).toContainEqual({ model: "B-0102.ifc", type_name: "Wall 1", rule: "TN-01" });
+    expect(fg02.refs).toEqual({ ruleset: run.ruleset_ref, naming: null });
+    expect(d.audits[0].newv).toMatchObject({ ruleset_ref: run.ruleset_ref, naming_ref: null });
+  });
+  it("with nothing installed FG-02 names neither ref and says how to install each", async () => {
+    const d = memDeps();
+    const run = await runFederation("p", {}, { actor: "cli" }, d);
+    const fg02 = run.result.checks.find((c) => c.id === "FG-02");
+    expect(run).toMatchObject({ ruleset_ref: null, naming_ref: null, type_rule: null });
+    expect(fg02.refs).toEqual({ ruleset: null, naming: null });
+    expect(fg02.reason).toContain("naming shapes compared only");
+    expect(fg02.warnings.join(" ")).toContain("no ruleset installed for this project or its office (PUT /cde/:key/artefacts/ruleset)");
+    expect(fg02.warnings.join(" ")).toContain("no naming installed for this project or its office (PUT /cde/:key/artefacts/naming)");
+  });
+  it("judges container names by the resolved naming artefact and names it", async () => {
+    const d = memDeps();
+    const nm = { body: { standard_key: "k", semver: "1.0.0", title: "Two-part", separator: "-", enforce: "reject", strip_extensions: [".ifc"], fields: [{ key: "disc", label: "Discipline", enum: ["A"] }, { key: "num", label: "Number", pattern: "[0-9]{4}" }] }, source: "project", ref: "naming@1", sha256: "a1b2c3d4e5f60718293a4b5c", pointer_sha_mismatch: false };
+    d.resolveArtefact = async (key, kind) => kind === "naming" ? nm : NONE;
+    const run = await runFederation("p", {}, { actor: "cli" }, d);
+    expect(run.naming_ruleset).toBe("Two-part");
+    expect(run.naming_ref).toContain("naming@1 · project · a1b2c3d4e5f6");
+    const fg06 = run.result.checks.find((c) => c.id === "FG-06");
+    expect(fg06.status).toBe("fail");
+    expect(fg06.evidence.map((e) => e.model)).toEqual(["B-0102.ifc"]);
   });
 });
 

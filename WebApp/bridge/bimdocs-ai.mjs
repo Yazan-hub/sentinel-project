@@ -8,6 +8,7 @@ import * as registry from "./check-registry.mjs";
 import * as deliverables from "./deliverables-store.mjs";
 import * as cde from "./cde-store.mjs";
 import { buildGrounding, buildDraftPrompt, buildIntegrityPrompt, parseDraft, parseFindings } from "./bimdocs-ai-logic.mjs";
+import { refLabel } from "./artefact-store.mjs";
 
 // Budget for the ASSEMBLED prompt (system + user: fact block AND document text) on both AI paths.
 // Name kept for import compatibility; since the review fix it caps the prompt, not just doc chars.
@@ -35,7 +36,8 @@ async function assembleGrounding(key, docId, d) {
   const { checks, planned } = d.listChecks();
   return buildGrounding({
     project,
-    ruleset: naming.ruleset, rulesetSource: naming.source,
+    // The fact names the version in force (naming@2 · office · sha…); "none" / "unknown" add no fact.
+    ruleset: naming.ruleset, rulesetSource: naming.ruleset ? refLabel(naming) : naming.source === "unknown" ? "unknown" : "none",
     checks, planned,
     deliverableSummary: status?.summary || null,
     compliance,

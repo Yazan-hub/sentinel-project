@@ -17,7 +17,8 @@ export function buildGrounding({ project, ruleset, rulesetSource, checks, planne
   const texts = [];
   if (project?.name) texts.push(`This project is "${project.name}" (key: ${project.key})${project.appointing_party ? `, appointing party: ${project.appointing_party}` : ""}.`);
   if (ruleset && rulesetSource !== "unknown") {
-    const fields = Array.isArray(ruleset.fields) ? ruleset.fields.join("-") : null;
+    // Real naming fields are objects ({ key, label, … }); the logic tests use bare strings — accept both.
+    const fields = Array.isArray(ruleset.fields) ? ruleset.fields.map((f) => f?.key ?? f).join("-") : null;
     texts.push(`The active naming ruleset (${rulesetSource}) requires container names with fields: ${fields || "as configured"}.`);
   }
   for (const c of checks || []) texts.push(`A governance check is configured: "${c.label}" (${c.id}) — ${c.description}`);
