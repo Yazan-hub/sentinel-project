@@ -9,7 +9,10 @@ alter table public.projects add column if not exists office_key text null
   references public.projects(key) on update cascade on delete set null;
 create index if not exists idx_projects_office_key on public.projects(office_key);
 
-create or replace function public.projects_office_guard() returns trigger language plpgsql as $$
+-- security definer: the lookups must see every project row, not only the caller's memberships (RLS),
+-- or an office owner who is not a member of every child could demote an office that still has children.
+create or replace function public.projects_office_guard() returns trigger
+  language plpgsql security definer set search_path = public as $$
 begin
   if new.office_key is not null then
     if new.kind = 'office' then raise exception 'an office cannot belong to an office'; end if;

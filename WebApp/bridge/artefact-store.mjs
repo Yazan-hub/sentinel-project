@@ -24,7 +24,20 @@ async function wire(deps = {}) {
     audit: deps.audit || cde.audit,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
     officeKeyOf: deps.officeKeyOf || (await import("./office-scope.mjs")).officeKeyOf,
+    officeArtefact: deps.officeArtefact || officeArtefactAsService,
   };
+}
+
+/** The office's current artefact, read with the SERVICE key: inheriting it is the point, and a member of the
+ *  child project need not be a member of the office (ensureProject would 403, bridge_docs RLS would hide it). */
+async function officeArtefactAsService(officeKey, kind) {
+  const { sb } = await import("./cde-store.mjs");
+  const rows = await sb(`projects?key=eq.${encodeURIComponent(officeKey)}&select=id`, { service: true });
+  const pid = rows?.[0]?.id;
+  if (!pid) return null;
+  const get = async (docId) => (await sb(`bridge_docs?store=eq.${STORE}&project_id=eq.${pid}&doc_id=eq.${encodeURIComponent(docId)}&select=data`, { service: true }))?.[0]?.data ?? null;
+  const pointer = await get(kind);
+  return pointer ? get(`${kind}@${pointer.version}`) : null;
 }
 
 /** Kind-specific validation. Only `ids` has a real check today; other kinds accept any object. */
@@ -101,7 +114,7 @@ export async function resolveIdsSpec(key, body = {}, deps) {
   if (own) return stamp(own, "project");
   const officeKey = await d.officeKeyOf(key);
   if (officeKey) {
-    const office = await getArtefact(officeKey, "ids", deps);
+    const office = await d.officeArtefact(officeKey, "ids");
     if (office) return stamp(office, "office");
   }
   if (clientSent) {

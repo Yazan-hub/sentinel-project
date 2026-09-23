@@ -16,6 +16,7 @@ function memDeps({ role = "lead", parentKey = null } = {}) {
     audit: async (pid, et, eid, action, actor, oldv, newv) => { audits.push({ pid, et, eid, action, actor, oldv, newv }); },
     requireMinRole: async (key, min) => { if (role !== "lead" && role !== "owner" && role !== "service") throw Object.assign(new Error(`this action requires the ${min} role`), { status: 403 }); },
     officeKeyOf: async () => parentKey,
+    officeArtefact: async (key, kind) => { const p = docs.get(k("artefact", `uuid-${key}`, kind)); return p ? docs.get(k("artefact", `uuid-${key}`, `${kind}@${p.version}`)) ?? null : null; },
   };
 }
 const spec = { title: "Aster IDS", specifications: [{ name: "DOOR — FireRating", applicability: { entity: "IFCDOOR" }, requirements: { properties: [{ pset: "Pset_DoorCommon", name: "FireRating", cardinality: "required" }] } }] };
@@ -84,6 +85,15 @@ describe("resolveIdsSpec", () => {
   it("uses the office's artefact when the project has none and an office key resolves", async () => {
     const d = memDeps({ parentKey: "aster-office" });
     await putArtefact("aster-office", "ids", spec, { actor: "x" }, d);
+    const r = await resolveIdsSpec("aster-tower", {}, d);
+    expect(r.source).toBe("office");
+    expect(r.ref).toBe("ids@1");
+  });
+  it("inherits the office IDS even when the caller is not a member of the office (403 from ensureProject)", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    await putArtefact("aster-office", "ids", spec, { actor: "x" }, d);
+    const ensure = d.ensureProject;
+    d.ensureProject = async (key) => { if (key === "aster-office") throw Object.assign(new Error("not a member"), { status: 403 }); return ensure(key); };
     const r = await resolveIdsSpec("aster-tower", {}, d);
     expect(r.source).toBe("office");
     expect(r.ref).toBe("ids@1");

@@ -223,9 +223,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const officeRows = rows.filter((p) => p.kind === "office" && p.key !== pid());
       // If the current office isn't visible to this viewer (RLS-scoped list), keep an option for it
       // so the select still shows it and a save doesn't silently detach the project (finding IMPORTANT-2).
-      const knownKey = current.office_key && officeRows.some((o) => o.key === current.office_key);
-      const extraOpt = current.office_key && !knownKey
-        ? `<option value="${esc(current.office_key)}">${esc(current.office_key)}</option>` : "";
+      const officeKey = current.office_key ?? null;
+      const knownKey = officeKey && officeRows.some((o) => o.key === officeKey);
+      const extraOpt = officeKey && !knownKey
+        ? `<option value="${esc(officeKey)}">${esc(officeKey)}</option>` : "";
       officeSel.innerHTML =
         '<option value="">No office</option>' + extraOpt +
         officeRows.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
