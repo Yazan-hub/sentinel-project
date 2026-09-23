@@ -141,6 +141,13 @@ namespace Sentinel.GhostBuilder
                 Level = _level.Name,
             });
 
+            // The catalogue check reads %AppData%\Sentinel\type-catalog.json, harvested from whatever model was
+            // last used as the golden model — on the pilot's own template it said the pilot's type was missing
+            // because the catalogue came from the Aster tower (simulation 3.9, F54). The OPEN document is the
+            // truth: if it has the type, use it.
+            if (res.Confidence <= 0 && !string.IsNullOrWhiteSpace(res.Type) && _wallTypes.ContainsKey(res.Type))
+                return res.Type;
+
             if (res.Confidence <= 0)
             {
                 // A gap is a "make it", not a "give up": clone the office's nearest real build-up and

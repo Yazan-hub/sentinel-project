@@ -114,7 +114,7 @@ namespace Sentinel.GhostBuilder
             {
                 FootprintWidthMm = Clamp(raw.FootprintWidthMm ?? Assumed(FootprintW.lo), FootprintW),
                 FootprintDepthMm = Clamp(raw.FootprintDepthMm ?? Assumed(FootprintD.lo), FootprintD),
-                Storeys = Clamp(raw.Storeys ?? Assumed(1), Storeys),
+                Storeys = Clamp(raw.Storeys ?? Assumed(1, unit: ""), Storeys),
                 StoreyHeightMm = Clamp(raw.StoreyHeightMm ?? Assumed(3000), StoreyH),
                 Openings = openings,
                 FacadesSeen = seen,
@@ -126,13 +126,13 @@ namespace Sentinel.GhostBuilder
         private static EstimatedValue Assumed(double value) =>
             new EstimatedValue { Value = value, Confidence = 0, Source = "assumed" };
 
-        private static EstimatedValue Clamp(EstimatedValue v, (double lo, double hi) b)
+        private static EstimatedValue Clamp(EstimatedValue v, (double lo, double hi) b, string unit = " mm")
         {
             var o = new EstimatedValue { Value = v.Value, Confidence = v.Confidence, Source = v.Source, Note = v.Note };
             if (double.IsNaN(o.Value) || double.IsInfinity(o.Value))
                 return new EstimatedValue { Value = b.lo, Confidence = 0, Source = "assumed", Note = "no usable value — assumed" };
-            if (o.Value < b.lo) { o.Value = b.lo; o.Note = $"raised to the {b.lo} mm minimum"; o.Source = "assumed"; o.Confidence = Math.Min(o.Confidence, 0.3); }
-            if (o.Value > b.hi) { o.Value = b.hi; o.Note = $"capped at the {b.hi} mm maximum"; o.Source = "assumed"; o.Confidence = Math.Min(o.Confidence, 0.3); }
+            if (o.Value < b.lo) { o.Value = b.lo; o.Note = $"raised to the {b.lo}{unit} minimum"; o.Source = "assumed"; o.Confidence = Math.Min(o.Confidence, 0.3); }
+            if (o.Value > b.hi) { o.Value = b.hi; o.Note = $"capped at the {b.hi}{unit} maximum"; o.Source = "assumed"; o.Confidence = Math.Min(o.Confidence, 0.3); }
             if (o.Source == "photo" && o.Confidence <= AssumedBelow)
             {
                 o.Source = "assumed";
