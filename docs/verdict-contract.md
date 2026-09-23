@@ -35,9 +35,7 @@ rulebook is private is just an opinion.
 }
 ```
 
-**Server-side IDS wins.** If the bridge has `SENTINEL_IDS` configured, a client-supplied `ids` is
-ignored and the response says so (`client_ids_ignored: true`, `ids_source: "server"`). A referee that
-let the proposer bring its own rulebook would not be a referee.
+**The project's installed IDS wins.** If the project (or its office) has an `ids` artefact, a client-supplied `ids` is ignored and `client_ids_ignored: true` is recorded; `ids_source` is `project | office | client | none` and `ids_ref` names the version.
 
 ## 2. Verdict
 

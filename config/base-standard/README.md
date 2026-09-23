@@ -8,8 +8,8 @@ that the pack is swappable.
 
 - **naming-ruleset.json** — container naming fields, read by the bridge
   (`SENTINEL_NAMING_RULESET`) to validate delivered file names.
-- **ids.json** — element data requirements (IDS-style specs), read by the
-  bridge (`SENTINEL_IDS`) during QA scans.
+- **ids.json** — element data requirements (IDS-style specs), installed on the
+  project via `Documents → EIR → Compile to IDS → Install on this project`.
 - **layers.json** — DWG layer → family/category mapping, read by the addin
   from `%AppData%\Sentinel\layers.json`.
 - **delivery-contract.json** — IFC delivery contract (required/forbidden
@@ -21,10 +21,9 @@ that the pack is swappable.
 1. Copy this folder to e.g. `config/<office>-standard/`.
 2. Rename naming fields, layer names, and IDS specs to the office's
    convention.
-3. Point the bridge at the new files:
-   `SENTINEL_NAMING_RULESET=config/<office>-standard/naming-ruleset.json`
-   `SENTINEL_IDS=config/<office>-standard/ids.json`
-4. Copy `layers.json` and `delivery-contract.json` to
+3. Install the IDS on the project: `Documents → EIR → Compile to IDS → Install on this project`, or `node bridge/artefact-import.mjs config/<office>-standard/ids.json --project <key> --kind ids`.
+4. For the naming ruleset, point the bridge: `SENTINEL_NAMING_RULESET=config/<office>-standard/naming-ruleset.json` in `config/.env`.
+5. Copy `layers.json` and `delivery-contract.json` to
    `%AppData%\Sentinel\` on each workstation.
 
 ## Scope note

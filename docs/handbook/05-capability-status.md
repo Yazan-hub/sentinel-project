@@ -7,10 +7,11 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Capability | Status | Notes |
 |---|---|---|
 | Governed Publish loop (Revit → gate → verdict → publish/BCF) | ✅ Verified | Live end-to-end on a real building model (G1–G4) |
+| Governed Intake (any IFC → gate → project IDS → verdict → version, no Revit) | 🟩 Built | Route `POST /cde/:key/intake`, CLI `bridge/intake.mjs`; Node delivery gate and web-ifc extractor; moves to ✅ on the Session D2 drill |
 | One-button Revit command + governance ribbon | 🟩 Built | Verified building on Revit 2024–2026 |
 | Pure governance engine (`sentinel-core`) | ✅ Verified | 99 passing tests |
 | Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Active: `WebApp/bridge/naming-ruleset.json` (BDS pilot); swap via `SENTINEL_NAMING_RULESET` env var |
-| Element IDS gate (Phase B, LOD-300, enforce=warn) | 🟩 Built | Active: client-supplied; enforce server-side via `SENTINEL_IDS` env var |
+| Element IDS gate (Phase B) | 🟩 Built | The project's installed IDS artefact (`PUT /cde/:key/artefacts/ids`, "Install on this project"); resolution project → office → client → none, named in every verdict as `ids@n`. The `SENTINEL_IDS` server override was removed on 2026-09-23 (cohesion review D3) |
 | Immutable hash-chained audit ledger | ✅ Verified | Truncate/tamper-proof at the DB core (`0015`) |
 | GhostBuilder v2: docs → proposal → **human review** → build | ✅ Verified | Live on Revit 2024, 2026-07-23. Local-only: BDS standard resolves known layers with no model call; the local LLM + vision model read the project's spec and sketches; spec values (e.g. `Fire Rating = FR60`) land on the built geometry; **nothing is written until a reviewer ticks it** |
 | Datum → Ghost → Annotate chain (folder-driven, level-aware, guideline views) | ✅ Verified | Live on Revit 2024, 2026-07-26 (`demo/ghost-sample`): Datum read levels+grids from the folder DXFs (kept existing L1, idempotent); Ghost's pick window listed the folder drawings and on re-run flagged + reused the existing import; the reviewer chose a non-lowest level and the wall's Base Constraint verified as that level; Annotate created 24 guideline views across 4 levels, re-run skipped all 28. Warnings correctly named the default template's missing BDS view templates — full scoring needs the office template |

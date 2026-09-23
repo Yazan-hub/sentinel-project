@@ -68,7 +68,7 @@ The ruleset defines each field as data — a list of allowed values (`enum`), a 
 **Active config:** None server-side by default; the gate uses the client-supplied IDS spec (from the Revit publish).
 **What it checks:** each exported **element** against BDS's LOD-300 data requirements (from the LOD Matrix).
 
-**To enforce a server-side spec:** set `SENTINEL_IDS=/path/to/ids.json` in `config/.env`; restart the bridge. When set, the server-side spec is authoritative and the client-supplied spec is ignored (audited). Example: to use the Base template, point to `config/base-standard/ids.json`.
+**To install the project IDS:** Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids`.
 
 ```jsonc
 {
@@ -113,7 +113,7 @@ A parameter that isn't authored is simply *absent* → the IDS reports it (as a 
 | Action | How |
 |---|---|
 | **Swap naming ruleset to Base template** | set `SENTINEL_NAMING_RULESET=config/base-standard/naming-ruleset.json` in `config/.env`; restart the bridge |
-| **Add server-side IDS enforcement** | set `SENTINEL_IDS=config/base-standard/ids.json` (or any other spec) in `config/.env`; restart the bridge |
+| **Install the project IDS** | Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids` |
 | **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in `WebApp/bridge/naming-ruleset.json` (or the env-var-pointed file), restart |
 | **Tighten element data at DD/CD** | set `"enforce": "reject"` in the server-side IDS file pointed to by `SENTINEL_IDS`, restart |
 | **Override a spec per-request** | a caller may pass an inline `naming` ruleset and/or `ids` spec in the propose body to override the on-disk defaults for that request only |

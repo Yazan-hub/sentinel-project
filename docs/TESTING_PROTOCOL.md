@@ -74,6 +74,16 @@ workset, strip a param from 5 doors, import a junk CAD block into a family).
 | Auto-Publish on save | Toggle on → save twice fast → exactly one throttled upload; toggle off → nothing |
 | Publish Sheets | Sheets render as PNGs, appear in web Sheets tab, right titleblocks |
 
+## Session D2 — Governed Intake (no Revit)
+
+| Step | Pass criteria |
+|---|---|
+| Install the project IDS | Documents → EIR → Compile to IDS → **Install on this project** → `GET /cde/:key/artefacts/ids` returns `ids@n` with a sha; audit row `artefact_installed ids@n` |
+| Fail path FIRST | `node bridge/intake.mjs <foreign.ifc> --project <key> --name <bad name>.ifc --source cli` → `REJECTED (ids)` or a naming failure that names the field; BCF topics per failing requirement on the web Issues panel; **no** new version in Project Files |
+| Gate fail | a file breaking the contract (e.g. `--name x.ifc` on an empty IFC) → `REJECTED (gate)` with the C# sentence; audit row `IFC delivery gate FAIL: …`; no adjudication row |
+| Pass path | a conforming name and a model that meets the installed IDS → `ACCEPTED (published)`; version in Project Files with the ✓ badge; `POST /receipt/:key/verify` matches; `ids_ref` names the artefact |
+| Recorded | with no IDS installed on a fresh project → `RECORDED (published)` and the note "published on the delivery-gate pass alone" |
+
 ## Session E — Coordinate panel (needs two machines or two sessions)
 
 Prereq: Session D published a version. Second seat = the browser on another
