@@ -2,7 +2,7 @@
 // Tested against an in-memory doc store so the sequencing (insert → pointer → audit) is exact.
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
-import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, KINDS } from "./artefact-store.mjs";
+import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS } from "./artefact-store.mjs";
 
 function memDeps({ role = "lead", parentKey = null } = {}) {
   const docs = new Map(), audits = [];
@@ -110,5 +110,96 @@ describe("resolveIdsSpec", () => {
     const r = await resolveIdsSpec("aster-tower", {}, d);
     expect(r.source).toBe("office");
     expect(r.ref).toBe("ids@1");
+  });
+});
+
+const ruleset = { standard_key: "ast-std-001", semver: "1.0.0", org: "AST", rules: [
+  { id: "WS-01", target: "workset", mode: "warn", message_en: "Workset '{name}' is not in the {org} whitelist." },
+  { id: "TN-01", target: "type", mode: "monitor", tokens: ["ORG", "SIZE"], token_defs: { ORG: "{org}", SIZE: "\d+ mm" }, message_en: "Type '{name}' does not match." },
+] };
+const naming = { standard_key: "ast-std-001", semver: "1.0.0", title: "Aster 2-field", separator: "-", enforce: "reject", strip_extensions: [".ifc"], fields: [
+  { key: "project", label: "Project", pattern: "[A-Z0-9]{3,}" },
+  { key: "role", label: "Role", enum: ["A", "S"] },
+] };
+const fails = (kind, body) => { try { validateArtefact(kind, body); } catch (e) { return e; } return null; };
+const withRule = (over) => ({ ...ruleset, rules: [ruleset.rules[0], { ...ruleset.rules[1], ...over }] });
+const withField = (over) => ({ ...naming, fields: [naming.fields[0], { ...naming.fields[1], ...over }] });
+
+describe("validateArtefact — ruleset and naming", () => {
+  it("accepts a well-formed scan ruleset and naming pack, extra fields included", () => {
+    expect(validateArtefact("ruleset", { ...ruleset, doc_refs: { rtg: "{org}-STD-001" }, schema_version: 1 })).toBe(true);
+    expect(validateArtefact("naming", naming)).toBe(true);
+    const { enforce, strip_extensions, ...bare } = naming;                     // both optional
+    expect(validateArtefact("naming", bare)).toBe(true);
+  });
+  it.each([
+    ["standard_key", { ...ruleset, standard_key: " " }],
+    ["semver", { ...ruleset, semver: "1.0" }],
+    ["org", { ...ruleset, org: 7 }],
+    ["rules", { ...ruleset, rules: [] }],
+    ["rules[1]", { ...ruleset, rules: [ruleset.rules[0], null] }],
+    ["rules[1].id", withRule({ id: "" })],
+    ["rules[1].target", withRule({ target: "room" })],
+    ["rules[1].mode", withRule({ mode: "reject" })],
+  ])("ruleset: a bad %s is a 400 naming that path", (path, body) => {
+    expect(fails("ruleset", body)).toMatchObject({ status: 400, message: expect.stringContaining(`ruleset: ${path} `) });
+  });
+  it.each([
+    ["standard_key", { ...naming, standard_key: undefined }],
+    ["semver", { ...naming, semver: "v1" }],
+    ["title", { ...naming, title: "" }],
+    ["separator", { ...naming, separator: "--" }],
+    ["fields", { ...naming, fields: [] }],
+    ["fields[1].key", withField({ key: "" })],
+    ["fields[1].label", withField({ label: undefined })],
+    ["fields[1]", withField({ enum: [] })],
+    ["enforce", { ...naming, enforce: "block" }],
+    ["strip_extensions", { ...naming, strip_extensions: ".ifc" }],
+  ])("naming: a bad %s is a 400 naming that path", (path, body) => {
+    expect(fails("naming", body)).toMatchObject({ status: 400, message: expect.stringContaining(`naming: ${path} `) });
+  });
+  it("refuses an invalid ruleset at install, before anything is written", async () => {
+    const d = memDeps();
+    await expect(putArtefact("p", "ruleset", withRule({ mode: "reject" }), { actor: "x" }, d)).rejects.toMatchObject({ status: 400 });
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
+  });
+});
+
+describe("resolveArtefact", () => {
+  const shaOf = (o) => createHash("sha256").update(JSON.stringify(o)).digest("hex");
+  it("resolves none → office → project, naming which judged and the sha of the body", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    expect(await resolveArtefact("aster-villa", "naming", d)).toEqual({ body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false });
+    await putArtefact("aster-office", "naming", naming, { actor: "x" }, d);
+    const o = await resolveArtefact("aster-villa", "naming", d);
+    expect(o).toEqual({ body: naming, source: "office", ref: "naming@1", sha256: shaOf(naming), pointer_sha_mismatch: false });
+    await putArtefact("aster-villa", "naming", { ...naming, title: "Villa" }, { actor: "x" }, d);
+    const p = await resolveArtefact("aster-villa", "naming", d);
+    expect(p).toMatchObject({ source: "project", ref: "naming@1" });
+    expect(p.body.title).toBe("Villa");
+    expect((await resolveArtefact("aster-villa", "ruleset", d)).source).toBe("none");   // kinds resolve independently
+  });
+  it("flags a document rewritten behind the pointer, and refuses an unknown kind", async () => {
+    const d = memDeps();
+    await putArtefact("p", "ruleset", ruleset, { actor: "x" }, d);
+    d.docs.get("artefact|uuid-p|ruleset@1").body = { ...ruleset, rules: [ruleset.rules[0]] };
+    expect((await resolveArtefact("p", "ruleset", d)).pointer_sha_mismatch).toBe(true);
+    await expect(resolveArtefact("p", "recipes", d)).rejects.toMatchObject({ status: 404 });
+  });
+  it("agrees with resolveIdsSpec on the IDS (resolveIdsSpec calls it)", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    await putArtefact("aster-office", "ids", spec, { actor: "x" }, d);
+    const a = await resolveArtefact("aster-tower", "ids", d);
+    const r = await resolveIdsSpec("aster-tower", {}, d);
+    expect(r).toMatchObject({ spec: a.body, source: a.source, ref: a.ref, sha256: a.sha256, pointer_sha_mismatch: false, client_ids_ignored: false });
+  });
+});
+
+describe("refLabel", () => {
+  it("names ref · source · 12 sha chars, and says none when nothing judged", () => {
+    expect(refLabel({ ref: "naming@2", source: "office", sha256: "3f0737600a1bc2d4e5f6" })).toBe("naming@2 · office · 3f0737600a1b…");
+    expect(refLabel({ ref: null, source: "none", sha256: null })).toBe("none");
+    expect(refLabel({ ref: null, source: "client", sha256: "abcdef0123456789" })).toBe("client · abcdef012345…");
   });
 });

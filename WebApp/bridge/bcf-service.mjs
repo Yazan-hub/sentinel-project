@@ -991,15 +991,18 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, result);
       }
-      // Project artefacts (standards in force): the store every judge reads through (cohesion phase 1).
-      //   GET /cde/:key/artefacts · GET /cde/:key/artefacts/:kind · GET /cde/:key/artefacts/:kind/:version
-      //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?})
+      // Project artefacts (standards in force): the store every judge reads through (cohesion phases 1 and 3).
+      //   GET /cde/:key/artefacts (this project's own pointers) · GET /cde/:key/artefacts/:kind (project → office → 404;
+      //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version
+      //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?};
+      //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields})
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
         if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
         if (p3 && !p4 && req.method === "GET") {
-          const a = await art.getArtefact(p1, p3);
-          return a ? send(res, 200, a) : send(res, 404, { message: `no ${p3} artefact installed for ${p1} or its office` });
+          const a = await art.resolveArtefact(p1, p3);
+          if (a.source === "none") return send(res, 404, { message: `no ${p3} artefact installed for ${p1} or its office (PUT /cde/${p1}/artefacts/${p3})` });
+          return send(res, 200, { kind: p3, version: Number(a.ref.split("@")[1]), ...a });
         }
         if (p3 && p4 && req.method === "GET") {
           const a = await art.getArtefactVersion(p1, p3, p4);
