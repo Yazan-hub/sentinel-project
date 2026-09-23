@@ -32,7 +32,7 @@ line("file", `${q.get("name")} · ${r.size} bytes · sha ${String(r.sha256).slic
 line("gate", `${r.gate?.passed ? "PASS" : "FAIL"} · contract ${r.gate?.contract_key} · ${r.gate?.detected_schema} · ${r.gate?.total_entities} entities`);
 for (const f of r.gate?.failures || []) line("  gate ✗", f);
 for (const w of r.gate?.warnings || []) line("  gate !", w);
-if (r.naming) line("naming", r.naming.ok ? "ok" : `✗ ${(r.naming.errors || r.naming.failures || []).map((e) => e.message || e).join("; ")}`);
+if (r.naming) line("naming", r.naming.ok ? "ok" : `✗ ${(r.naming.errors || r.naming.failures || []).map((e) => e.reason ?? e.message ?? JSON.stringify(e)).join("; ")}`);
 line("ids", `${r.ids_source}${r.ids_ref ? " " + r.ids_ref : ""}${r.summary?.ids ? " · " + r.summary.ids : ""}`);
 if (r.extracted) line("elements", `${r.extracted.elements} read, ${r.extracted.skipped} skipped`);
 line("failures", String((r.failures || []).length));
