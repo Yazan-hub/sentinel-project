@@ -781,32 +781,11 @@ export async function projectNamingRuleset(key) {
   return { ruleset: defaultNamingRuleset(), source: "default" };
 }
 
-// Server-side IDS custody (SENTINEL_IDS) — when set and valid, the server's spec is authoritative and a
-// client-posted `b.ids` is ignored (but audited). Mirrors defaultNamingRuleset()'s cache/warn idiom.
-// Fail-safe policy: SENTINEL_IDS unset → today's client-supplied fallback (cached as null). SENTINEL_IDS SET
-// but unreadable/malformed → do NOT fall back to the client spec; adjudicate with NO spec (cached as the
-// sentinel string "invalid", distinct from null so the two states aren't conflated).
-let _serverIds; // undefined = not yet loaded, null = unset (client fallback), "invalid" = set-but-broken (fail safe)
-function serverIdsSpec() {
-  if (_serverIds !== undefined) return _serverIds;
-  const raw = env.SENTINEL_IDS || "";
-  if (!raw) { _serverIds = null; return _serverIds; }
-  const p = resolveConfigPath(raw);
-  try {
-    const s = JSON.parse(readFileSync(p, "utf8"));
-    _serverIds = Array.isArray(s?.specifications) ? s : "invalid";
-  } catch { _serverIds = "invalid"; }
-  if (_serverIds === "invalid")
-    console.warn(`[bridge] WARNING: SENTINEL_IDS set but invalid/unreadable (resolved path: ${p}) — failing safe with NO spec (server-invalid); client-supplied IDS is ignored`);
-  return _serverIds;
-}
-
 /** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
  *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
  *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}).
- *  Server-side IDS custody: when SENTINEL_IDS is set and valid, that spec is authoritative and any client-posted
- *  `b.ids` is ignored (audited as ids_source: "server", client_ids_ignored: true). Otherwise, current
- *  client-supplied behaviour (ids_source: "client" or "none"). */
+ *  IDS custody: the project's installed artefact (artefact-store.mjs) → the office's → the client's posted
+ *  spec → none; the response says which judged in ids_source / ids_ref. */
 /**
  * One ledger entry, by id, scoped to the project — the backing read for a receipt check.
  * Returns null rather than throwing: "no such entry" is an answer a verifier needs to hear.
@@ -848,25 +827,9 @@ export function selectFailures(failures, requirement) {
 export async function adjudicateProposal(key, b = {}) {
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
-  const serverSpec = serverIdsSpec();
-  let spec = null, idsSource = "none", clientIdsIgnored = false;
-  if (serverSpec === "invalid") {
-    // Fail safe: SENTINEL_IDS is set but broken — adjudicate with NO spec rather than silently trusting
-    // whatever the client posted. Still record that a client spec arrived and was ignored.
-    idsSource = "server-invalid";
-    if (b.ids) clientIdsIgnored = true;
-  } else if (serverSpec) {
-    spec = serverSpec;
-    idsSource = "server";
-    if (b.ids) clientIdsIgnored = true;
-  } else if (b.ids) {
-    if (typeof b.ids === "string") {
-      // parseIds() needs a DOM (browser). Server-side, require a JSON IdsSpec rather than 500 on raw .ids XML.
-      try { spec = c.parseIds(b.ids); }
-      catch { const e = new Error("Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only."); e.status = 400; throw e; }
-    } else spec = b.ids;
-    idsSource = "client";
-  }
+  const { resolveIdsSpec } = await import("./artefact-store.mjs");
+  const resolved = await resolveIdsSpec(key, b);
+  const spec = resolved.spec, idsSource = resolved.source, clientIdsIgnored = resolved.client_ids_ignored;
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const adj = c.adjudicate(spec, elements);
   const { summary, failures } = adj;
@@ -911,7 +874,7 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
+      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -919,26 +882,31 @@ export async function adjudicateProposal(key, b = {}) {
   // against that version's id so the Versions panel can show a ✓/✗ badge on the row (entity_id = version id,
   // action "verdict:<verdict>"). Kept separate from the proposal record above so the agent/propose surface is
   // unchanged when no version is in play.
-  if (b.version_id) {
-    await sb(`audit_log`, {
-      method: "POST",
-      body: {
-        project_id: proj.id, entity_type: "file_version", entity_id: b.version_id,
-        action: `verdict:${verdict}`, actor: trustedActor, old_value: null,
-        new_value: { ids: summary.ids, summary, failures: failures.slice(0, 20), naming, warned, ...(agent ? { agent } : {}) },
-      },
-      prefer: "return=minimal", service: true,
-    });
-  }
+  if (b.version_id) await recordVersionVerdict(key, b.version_id, { verdict, summary, failures, naming, warned, agent, ids_ref: resolved.ref }, trustedActor);
   return {
     verdict, summary, ...selectFailures(failures, b.failures_requirement), naming, warned,
-    ids_enforce: idsEnforce, ids_source: idsSource, client_ids_ignored: clientIdsIgnored,
+    ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
     agent,
     // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
     // ledger that cannot be rewritten — see POST /receipt/:key/verify.
     receipt: buildReceipt(audit, { project_key: key }),
   };
+}
+
+/** Stamp a verdict on a specific file version so the Versions panel badges the row
+ *  (entity_id = version id, action "verdict:<verdict>"). Separate from the proposal row on purpose. */
+export async function recordVersionVerdict(key, version_id, r, actor) {
+  const proj = await ensureProject(key);
+  await sb(`audit_log`, {
+    method: "POST",
+    body: {
+      project_id: proj.id, entity_type: "file_version", entity_id: version_id,
+      action: `verdict:${r.verdict}`, actor: resolveActor(actor, "web"), old_value: null,
+      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, ...(r.agent ? { agent: r.agent } : {}) },
+    },
+    prefer: "return=minimal", service: true,
+  });
 }
 
 // ── Generic document store (migration 0009) — backs the clash/RFI/tender/pack stores as JSONB documents.

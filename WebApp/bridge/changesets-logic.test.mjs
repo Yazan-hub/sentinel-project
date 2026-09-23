@@ -97,7 +97,7 @@ describe("attachVerdicts", () => {
 
   it("maps adjudication failures to the right element by GlobalId; clean elements are accepted", () => {
     const e = elems();
-    const adj = { verdict: "rejected", ids_source: "server", failures: [{ element: e[0].validate.identity.GlobalId, requirement: "FireRating" }] };
+    const adj = { verdict: "rejected", ids_source: "project", failures: [{ element: e[0].validate.identity.GlobalId, requirement: "FireRating" }] };
     const out = attachVerdicts(e, adj);
     expect(out[0].verdict.status).toBe("rejected");
     expect(out[0].verdict.failures).toHaveLength(1);
@@ -139,7 +139,7 @@ describe("review fixes — honesty + degenerate geometry", () => {
 
   it("an unattributed failure under a rejected verdict taints clean elements to recorded, never accepted", () => {
     const e = el2();
-    const adj = { verdict: "rejected", ids_source: "server", failures: [{ requirement: "model-level rule" }] };
+    const adj = { verdict: "rejected", ids_source: "project", failures: [{ requirement: "model-level rule" }] };
     const out = attachVerdicts(e, adj);
     for (const x of out) expect(x.verdict.status).toBe("recorded");
     const un = unattributedFailures(e, adj);
@@ -148,7 +148,7 @@ describe("review fixes — honesty + degenerate geometry", () => {
 
   it("attributed failures still pin their own element; siblings stay accepted when nothing is unattributed", () => {
     const e = el2();
-    const adj = { verdict: "rejected", ids_source: "server", failures: [{ element: e[0].validate.identity.GlobalId, requirement: "R" }] };
+    const adj = { verdict: "rejected", ids_source: "project", failures: [{ element: e[0].validate.identity.GlobalId, requirement: "R" }] };
     const out = attachVerdicts(e, adj);
     expect(out[0].verdict.status).toBe("rejected");
     expect(out[1].verdict.status).toBe("accepted");
@@ -165,7 +165,7 @@ describe("review fixes — honesty + degenerate geometry", () => {
   it("a 200-failure list (cde-store's slice cap) taints a clean sibling to recorded, even fully attributed", () => {
     const e = el2();
     const failures = Array.from({ length: 200 }, (_, i) => ({ element: e[0].validate.identity.GlobalId, requirement: `R${i}` }));
-    const adj = { verdict: "rejected", ids_source: "server", failures };
+    const adj = { verdict: "rejected", ids_source: "project", failures };
     expect(unattributedFailures(e, adj)).toHaveLength(0); // every failure IS attributed — old code would accept element 1
     const out = attachVerdicts(e, adj);
     expect(out[0].verdict.status).toBe("rejected");

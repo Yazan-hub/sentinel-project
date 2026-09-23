@@ -53,7 +53,7 @@ describe("normalizeAgent", () => {
 describe("buildReceipt", () => {
   const row = {
     id: 412, at: "2026-09-15T10:00:00.000Z", actor: "agent", hash: "abc123", prev_hash: "def456",
-    new_value: { verdict: "accepted", ids_source: "server", summary: { ids: { failing: 0 } }, agent: { claimed: true, kind: "agent", model: "gpt-6" } },
+    new_value: { verdict: "accepted", ids_source: "project", summary: { ids: { failing: 0 } }, agent: { claimed: true, kind: "agent", model: "gpt-6" } },
   };
 
   it("anchors on the ledger's own chain hash, not a digest of its own", () => {

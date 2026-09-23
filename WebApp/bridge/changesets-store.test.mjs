@@ -41,7 +41,7 @@ describe("proposeChangeset", () => {
   it("maps per-element failures onto the right elements", async () => {
     const deps = baseDeps();
     deps.adjudicateProposal = vi.fn(async (key, b) => ({
-      verdict: "rejected", summary: {}, ids_source: "server", audit_id: 1,
+      verdict: "rejected", summary: {}, ids_source: "project", audit_id: 1,
       failures: [{ element: b.elements[1].identity.GlobalId, requirement: "FireRating" }],
     }));
     const cs = await proposeChangeset("demo", BODY, "agent", deps);
@@ -52,7 +52,7 @@ describe("proposeChangeset", () => {
   it("stores unattributed failures on the adjudication (a changeset-level rejection, not any one element's)", async () => {
     const deps = baseDeps();
     deps.adjudicateProposal = vi.fn(async () => ({
-      verdict: "rejected", summary: {}, ids_source: "server", audit_id: 2,
+      verdict: "rejected", summary: {}, ids_source: "project", audit_id: 2,
       failures: [{ requirement: "model-level rule" }],
     }));
     const cs = await proposeChangeset("demo", BODY, "agent", deps);
