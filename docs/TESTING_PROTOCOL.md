@@ -50,6 +50,16 @@ Per-tool criteria as in `docs/reviews/external-test-2026-07-26-snowdon.md`.
 corrected numbers (not the model's guess) drive the build, provenance says
 photo, confidence < 1.0 on every photo-derived element.
 
+## Session B2 — The office and its projects
+
+| Step | Pass criteria |
+|---|---|
+| Make an office | `PATCH /cde/projects/<office-key> {kind: "office"}` (owner) → the hub shows it with an "office" badge; the Revit picker lists it as `name (key) · office` |
+| Attach a project | Settings → Office selector (lead) or `PATCH /cde/projects/<key> {office_key}` → audit row with old and new office; the hub nests it under the office; `GET /cde/projects/<office>/scope` lists it |
+| Rollup | the office's READINESS report: `office.model_health` evidence carries `[<project>]` lines from the project's scan; `cde.states` / `naming.containers` count the project's containers under its key; template items read the office's snapshot only |
+| Empty office | an office with no projects and no data → `not_checkable`, reason "no projects belong to this office" |
+| Office IDS | install an IDS on the office only → `POST /cde/<project>/propose` returns `ids_source: "office"` and the `ids@n` ref |
+
 ## Session C — Validate panel (the referee's home turf)
 
 Model: same harvested-standard model, deliberately damaged first (rename a

@@ -41,5 +41,5 @@ account that already holds memberships — memberships point at the user id, and
 
 ## Bridge / add-in wiring
 - `%AppData%\Sentinel\bcf-config.json`: `serviceUrl` = the bridge, `projectId` = `aster-office`, `serviceToken` = the bridge token.
-- In Revit: Project Setup → Web project = `aster-office` on the **template** (acts 1–2) and `aster-tower` on the **tower** from act 3 on. An office is one project key today, so once the tower moves to its own project its scans stop counting in the office readiness view — finding F23 of the first run; the office view needs to aggregate across its projects.
+- In Revit: Project Setup → Web project = `aster-office` on the **template** (acts 1–2) and `aster-tower` on the **tower** from act 3 on. `aster-office` is an office (kind office) and `aster-tower` belongs to it, so the office readiness view rolls the tower's scans and containers up with the tower's key on every evidence line (F23 closed by cohesion phase 2).
 - Check the bridge is the current one before starting: `netstat -ano | findstr :4100` should show one process, and `GET /bimdocs/templates` should list `READINESS`.
