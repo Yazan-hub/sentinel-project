@@ -7,7 +7,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | Capability | Status | Notes |
 |---|---|---|
 | Governed Publish loop (Revit → gate → verdict → publish/BCF) | ✅ Verified | Live end-to-end on a real building model (G1–G4) |
-| Governed Intake (any IFC → gate → project IDS → verdict → version, no Revit) | 🟩 Built | Route `POST /cde/:key/intake`, CLI `bridge/intake.mjs`; Node delivery gate and web-ifc extractor; moves to ✅ on the Session D2 drill |
+| Governed Intake (any IFC → gate → project IDS → verdict → version, no Revit) | ✅ Verified | Session D2 drill 2026-09-23 (`docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md`): a 25 MB foreign IFC rejected with the field and the four failing elements named, BCF raised and de-duplicated; a conforming file accepted, uploaded, registered as P01 with its verdict, receipt verified and a tampered copy refused. Route `POST /cde/:key/intake`, CLI `bridge/intake.mjs` |
 | One-button Revit command + governance ribbon | 🟩 Built | Verified building on Revit 2024–2026 |
 | Pure governance engine (`sentinel-core`) | ✅ Verified | 99 passing tests |
 | Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Active: `WebApp/bridge/naming-ruleset.json` (BDS pilot); swap via `SENTINEL_NAMING_RULESET` env var |
