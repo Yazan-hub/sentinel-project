@@ -11,7 +11,12 @@ export const STORE = "artefact";
 export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
-const sha256 = (o) => createHash("sha256").update(JSON.stringify(o)).digest("hex");
+/** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
+ *  hash over the raw stringify never matched the pointer after a round-trip (final review, phase 3). */
+export const canonical = (o) => Array.isArray(o) ? `[${o.map(canonical).join(",")}]`
+  : (o && typeof o === "object") ? `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`
+  : JSON.stringify(o);
+const sha256 = (o) => createHash("sha256").update(canonical(o)).digest("hex");
 
 async function wire(deps = {}) {
   const cde = (deps.ensureProject && deps.docGet && deps.docInsert && deps.docUpsert && deps.audit) ? null : await import("./cde-store.mjs");

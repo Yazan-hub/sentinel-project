@@ -2,6 +2,7 @@
 // Tested against an in-memory doc store so the sequencing (insert → pointer → audit) is exact.
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
+import { canonical } from "./artefact-store.mjs";
 import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS } from "./artefact-store.mjs";
 
 function memDeps({ role = "lead", parentKey = null } = {}) {
@@ -62,7 +63,7 @@ describe("resolveIdsSpec", () => {
     expect(r.ref).toBe("ids@1");
     expect(r.spec.title).toBe("Aster IDS");
     expect(r.client_ids_ignored).toBe(true);
-    expect(r.sha256).toBe(createHash("sha256").update(JSON.stringify(spec)).digest("hex"));
+    expect(r.sha256).toBe(createHash("sha256").update(canonical(spec)).digest("hex"));
     expect(r.pointer_sha_mismatch).toBe(false);
   });
   it("hashes the body that judges — a document rewritten behind the bridge changes the sha and flags the pointer", async () => {
@@ -71,7 +72,7 @@ describe("resolveIdsSpec", () => {
     const stored = d.docs.get("artefact|uuid-p|ids@1");
     stored.body = { ...spec, specifications: [] };            // tampered through PostgREST, pointer untouched
     const r = await resolveIdsSpec("p", {}, d);
-    expect(r.sha256).toBe(createHash("sha256").update(JSON.stringify(stored.body)).digest("hex"));
+    expect(r.sha256).toBe(createHash("sha256").update(canonical(stored.body)).digest("hex"));
     expect(r.sha256).not.toBe(stored.sha256);
     expect(r.pointer_sha_mismatch).toBe(true);
   });
@@ -167,7 +168,7 @@ describe("validateArtefact — ruleset and naming", () => {
 });
 
 describe("resolveArtefact", () => {
-  const shaOf = (o) => createHash("sha256").update(JSON.stringify(o)).digest("hex");
+  const shaOf = (o) => createHash("sha256").update(canonical(o)).digest("hex");
   it("resolves none → office → project, naming which judged and the sha of the body", async () => {
     const d = memDeps({ parentKey: "aster-office" });
     expect(await resolveArtefact("aster-villa", "naming", d)).toEqual({ body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false });
@@ -193,6 +194,18 @@ describe("resolveArtefact", () => {
     const a = await resolveArtefact("aster-tower", "ids", d);
     const r = await resolveIdsSpec("aster-tower", {}, d);
     expect(r).toMatchObject({ spec: a.body, source: a.source, ref: a.ref, sha256: a.sha256, pointer_sha_mismatch: false, client_ids_ignored: false });
+  });
+});
+
+describe("canonical sha", () => {
+  it("is the same whatever key order the database returns the body in (jsonb reorders keys)", async () => {
+    const d = memDeps();
+    const p = await putArtefact("aster-tower", "ids", spec, { actor: "x" }, d);
+    const reordered = JSON.parse(JSON.stringify({ specifications: spec.specifications, title: spec.title }));
+    d.docs.set("artefact|uuid-aster-tower|ids@1", { ...d.docs.get("artefact|uuid-aster-tower|ids@1"), body: reordered });
+    const r = await resolveArtefact("aster-tower", "ids", d);
+    expect(r.sha256).toBe(p.sha256);
+    expect(r.pointer_sha_mismatch).toBe(false);
   });
 });
 

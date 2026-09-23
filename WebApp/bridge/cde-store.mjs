@@ -881,7 +881,7 @@ export async function adjudicateProposal(key, b = {}) {
     // reads. A client-sent ruleset is still honoured (it is the model's own name check) and recorded as
     // "client". Nothing installed → the name is not judged and the verdict row says so (naming_ref null).
     const client = b.naming && typeof b.naming === "object" && Array.isArray(b.naming.fields);
-    const named = client ? { ruleset: b.naming, source: "client", ref: "client-supplied", sha256: null } : await projectNamingRuleset(key);
+    const named = client ? { ruleset: b.naming, source: "client", ref: "client", sha256: null } : await projectNamingRuleset(key);
     namingProv = { naming_ref: named.ref ?? null, naming_source: named.source, naming_sha256: named.sha256 ?? null, ...(named.ruleset ? {} : { naming_reason: NO_NAMING_REASON }) };
     const rs = named.ruleset;
     naming = judgeContainerName(c.validateContainerName, b.container_name, rs);
