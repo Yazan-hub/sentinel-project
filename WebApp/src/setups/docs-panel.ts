@@ -3,6 +3,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { refLabel } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
@@ -1225,13 +1226,13 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         // so the candidate's number is this project's own next version, not the office's.
         const curRes = await bfetch(`${base}/cde/${key}/artefacts/naming`);
         if (!curRes.ok && curRes.status !== 404) throw new Error(`HTTP ${curRes.status}`);
-        const cur: { version: number; sha256: string; body: NamingRuleset } | null = curRes.ok ? await curRes.json() : null;
+        const cur: { version: number; sha256: string | null; ref: string; source: string; body: NamingRuleset } | null = curRes.ok ? await curRes.json() : null;
         const ownRes = await bfetch(`${base}/cde/${key}/artefacts`);
         const own: { naming?: { version: number } | null } = ownRes.ok ? await ownRes.json() : {};
         const next = (own.naming?.version || 0) + 1;
         const d = diffNaming(cur?.body ?? null, namingCand.ruleset);
         const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
-        h.textContent = `Candidate naming@${next} from “${namingCand.heading}” — against ${cur ? `naming@${cur.version} (sha ${String(cur.sha256).slice(0, 12)}…)` : "no naming standard in force"}`;
+        h.textContent = `Candidate naming@${next} from “${namingCand.heading}” — against ${cur ? refLabel(cur) : "no naming standard in force"}`;
         box.append(h);
         if (d.removed.length) line(`Removes ${d.removed.length} field(s): ${d.removed.map((f) => f.label).join(", ")} — names built with them will stop conforming.`, "#f87171");
         for (const x of d.header) line(x, "#eab308");

@@ -99,7 +99,9 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   // ── ground truth (cached; rebuilt on ↻ or first ask) ─────────────────────────
   const buildGrounding = async (): Promise<Grounding> => {
     const hasModel = fragments.list.size > 0;
-    const active = await activeRuleset(base); // project → office; null = nothing installed → no scan, the engine says so
+    // project → office; null = nothing installed → no scan. A bridge failure must not stop cost/count/carbon answers.
+    let active: Awaited<ReturnType<typeof activeRuleset>> = null;
+    try { active = await activeRuleset(base); } catch (e) { console.warn("[copilot] ruleset unavailable:", e); }
     let facts: Grounding["facts"] = [], report: Grounding["report"] = null, scorecard: Grounding["scorecard"] = null, boq: Grounding["boq"] = null, carbon: Grounding["carbon"] = null;
     if (hasModel) {
       facts = await extractFacts(fragments, { parameterNames: active ? paramNamesOf(active.ruleset) : [] });

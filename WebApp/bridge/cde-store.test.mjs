@@ -1,5 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import { mergeMetaForTest, selectFailures, projectNamingRuleset, NO_NAMING_REASON } from "./cde-store.mjs";
+import { mergeMetaForTest, selectFailures, projectNamingRuleset, NO_NAMING_REASON, judgeContainerName } from "./cde-store.mjs";
+
+describe("judgeContainerName — a missing enforce is reject", () => {
+  const validate = (name) => ({ ok: /^A-\d{4}$/.test(name) });
+  it("rejects a bad name under a ruleset with no enforce and records reject", () => {
+    expect(judgeContainerName(validate, "Bad name", { fields: [] })).toEqual({ ok: false, enforce: "reject" });
+  });
+  it("is null with no ruleset or enforce off; keeps warn", () => {
+    expect(judgeContainerName(validate, "x", null)).toBeNull();
+    expect(judgeContainerName(validate, "x", { enforce: "off" })).toBeNull();
+    expect(judgeContainerName(validate, "x", { enforce: "warn" }).enforce).toBe("warn");
+  });
+});
 
 const NONE = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
 

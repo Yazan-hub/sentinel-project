@@ -1201,12 +1201,13 @@ function fg05(ms, georefM, angleDeg) {
 function fg06(models, opts) {
   const c = mk("FG-06", "Every model is named to the rule and judged");
   const rs = opts.naming_ruleset;
+  const enforce = rs?.enforce ?? "reject";
   for (const m of models) {
     let naming = null;
-    if (rs && rs.enforce !== "off") {
+    if (rs && enforce !== "off") {
       naming = validateContainerName(m.container, rs);
       if (!naming.ok) {
-        if (rs.enforce === "reject") {
+        if (enforce === "reject") {
           c.status = "fail";
           c.evidence.push({ model: m.container, naming, verdict: opts.verdicts?.[m.version_id] ?? null });
           continue;
@@ -1221,7 +1222,7 @@ function fg06(models, opts) {
     }
   }
   if (c.status === "fail") c.reason = "a model is misnamed, rejected or not judged";
-  if (!rs) c.warnings.push("no naming ruleset installed \u2014 names not checked");
+  else if (!rs) return nc(c, "no naming standard installed \u2014 names cannot be checked (install one: PUT /cde/:key/artefacts/naming)");
   return c;
 }
 function checkFederation(models, opts = {}) {

@@ -1,6 +1,6 @@
 // F51: an IDS install marks the open IDS topics raised under an older or different IDS; nothing auto-closes.
 import { describe, it, expect } from "vitest";
-import { supersededBy, closableSuperseded, isOpenIdsTopic } from "./ids-supersede.mjs";
+import { supersededBy, supersededByOffice, closableSuperseded, isOpenIdsTopic } from "./ids-supersede.mjs";
 
 const t = (guid, over = {}) => ({ guid, title: "IDS: IFCDOOR — FireRating (3 failing)", topic_status: "Open", ...over });
 const topics = [
@@ -27,5 +27,12 @@ describe("superseded IDS topics", () => {
   it("closes only open IDS topics that carry a superseded_by mark", () => {
     const withClosedMark = [...topics, t("closed-sup", { superseded_by: "ids@2", topic_status: "Closed" })];
     expect(closableSuperseded(withClosedMark).map((x) => x.guid)).toEqual(["remark", "already"]);
+  });
+});
+
+describe("office IDS install supersedes a project's office-raised topics", () => {
+  it("marks open office topics from an older office IDS only", () => {
+    const ts = [t("o4", { ids_ref: "ids@4", ids_source: "office" }), t("o5", { ids_ref: "ids@5", ids_source: "office" }), t("p1", { ids_ref: "ids@1", ids_source: "project" }), t("oc", { ids_ref: "ids@3", ids_source: "office", topic_status: "Closed" })];
+    expect(supersededByOffice(ts, "ids@5").map((x) => x.guid)).toEqual(["o4"]);
   });
 });

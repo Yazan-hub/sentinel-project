@@ -69,7 +69,7 @@ curl -s http://127.0.0.1:4100/health
 - The BDS demo model open in Revit (or rely on the headless dry-run in §2 if Revit isn't on the demo box).
 
 > **The gate is two checks, both configurable** (full reference: [`docs/BDS_GATE_CONFIG.md`](BDS_GATE_CONFIG.md)):
-> **(A) Naming** — the model file name vs BDS's 11-field ISO 19650 form (`bridge/naming-ruleset.json`,
+> **(A) Naming** — the model file name vs BDS's 11-field ISO 19650 form (the installed `naming` artefact — pilot data `demo/bds-pilot/bds-naming-ruleset.json`,
 > `enforce: reject`). **(B) Element data** — per-element LOD-300 checks (`%AppData%\Sentinel\ids.json`,
 > `enforce: warn`). Pilot posture = naming reject, data warn; tighten data to `reject` at DD/CD. A future Base
 > template just replaces the two ruleset files — no code change.

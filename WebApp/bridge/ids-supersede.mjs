@@ -20,5 +20,17 @@ export function supersededBy(topics, newRef) {
   });
 }
 
+/** The open IDS topics of an office's PROJECT that installing `newRef` on the OFFICE supersedes: raised by
+ *  an older office IDS (or an office topic with no ref). A project's own or client-raised topics are not the office's. */
+export function supersededByOffice(topics, newRef) {
+  const n = versionOf(newRef);
+  if (n === null) throw Object.assign(new Error(`not an IDS ref: ${newRef}`), { status: 400 });
+  return (topics || []).filter((t) => {
+    if (!isOpenIdsTopic(t) || t.superseded_by === newRef || t.ids_source !== "office") return false;
+    const v = versionOf(t.ids_ref);
+    return v === null || v < n;
+  });
+}
+
 /** What "close all as superseded" closes: open IDS topics carrying a superseded_by mark. */
 export const closableSuperseded = (topics) => (topics || []).filter((t) => isOpenIdsTopic(t) && !!t.superseded_by);

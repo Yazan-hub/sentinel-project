@@ -84,14 +84,17 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   // Who may run the stage gate: lead and up. null until the bridge has answered — the button is not
   // offered on a guess (fail closed), and the answer is re-asked on every refresh.
   let gateRole: string | null = null;
+  let hasRuleset = false; // the stage gate's "Standards pack selected" = a ruleset artefact in force, not the display name
   const refresh = async () => {
     msg("Aggregating health, issues and cost…");
     gateRole = await myRole(base, pid());
     let noRuleset = false;
+    let active: Awaited<ReturnType<typeof activeRuleset>> = null;
+    try { active = await activeRuleset(base); } catch { active = null; } // project → office; null = nothing installed
+    hasRuleset = !!active;
     // QA health + compliance (only if a model is loaded, and only against an installed ruleset)
     if (fragments.list.size > 0) {
       try {
-        const active = await activeRuleset(base); // project → office; null = nothing installed, no scan
         if (!active) { noRuleset = true; kpis.health = null; kpis.compliance = null; kpis.blockOpen = 0; }
         else {
           const facts = await extractFacts(fragments, { parameterNames: paramNamesOf(active.ruleset) });
@@ -142,7 +145,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const gateMetrics = (): GateMetrics => ({
     health: kpis.health, compliance: kpis.compliance, blockViolations: kpis.blockOpen,
     hardClashes: kpis.hard, openIssues: kpis.open, openRfis: kpis.openRfis,
-    hasStandardsPack: !!project?.standards_pack,
+    hasStandardsPack: hasRuleset,
     cobieComplete: (project?.snapshot?.handover_readiness as number) ?? null, // 7D readiness (from snapshot)
   });
 

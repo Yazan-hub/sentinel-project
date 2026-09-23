@@ -117,9 +117,9 @@ A parameter that isn't authored is simply *absent* → the IDS reports it (as a 
 | **Loosen naming to advisory** | set `"enforce": "warn"` (or `"off"`) in the naming JSON and install it again (`--kind naming`) |
 | **Tighten element data at DD/CD** | set `"enforce": "reject"` in the IDS source, then Documents → Compile to IDS → Install on this project, or `node bridge/artefact-import.mjs <ids.json> --project <key> --kind ids` |
 | **Override a spec per-request** | a caller may pass an inline `naming` ruleset in the propose body; it judges that request and the verdict records `naming_ref: "client"`. An inline `ids` spec does the same, but **only when the project has no installed IDS artefact** (and no office one) — once a project or office IDS is installed, resolution stops there and the client's `ids` is ignored (`client_ids_ignored: true` in the response) |
-| **Reload after any edit** | restart the bridge (`npm run bcf:serve`); rulesets are cached at first use |
+| **Reload after any edit** | no restart: each install is a new artefact version, read on every judgement |
 
-Per-request override (agents/tools): a caller may pass an inline `naming` ruleset in the propose body to override the on-disk default for that request. An inline `ids` spec only takes effect when no project or office IDS artefact is installed — resolution order is project → office → client `ids` → none, and a project/office artefact always outranks a client-supplied spec.
+Per-request override (agents/tools): a caller may pass an inline `naming` ruleset in the propose body (recorded as client-supplied); it is honoured for that request over the installed artefact. An inline `ids` spec only takes effect when no project or office IDS artefact is installed — resolution order is project → office → client `ids` → none, and a project/office artefact always outranks a client-supplied spec.
 
 ---
 

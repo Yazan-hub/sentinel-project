@@ -184,12 +184,13 @@ function fg05(ms: { container: string; m: Manifest }[], georefM: number, angleDe
 function fg06(models: FederationModel[], opts: FederationOptions): FederationCheck {
   const c = mk("FG-06", "Every model is named to the rule and judged");
   const rs = opts.naming_ruleset;
+  const enforce = rs?.enforce ?? "reject"; // a missing enforce is reject (plan constraint)
   for (const m of models) {
     let naming: NamingResult | null = null;
-    if (rs && rs.enforce !== "off") {
+    if (rs && enforce !== "off") {
       naming = validateContainerName(m.container, rs);
       if (!naming.ok) {
-        if (rs.enforce === "reject") { c.status = "fail"; c.evidence.push({ model: m.container, naming, verdict: opts.verdicts?.[m.version_id] ?? null }); continue; }
+        if (enforce === "reject") { c.status = "fail"; c.evidence.push({ model: m.container, naming, verdict: opts.verdicts?.[m.version_id] ?? null }); continue; }
         c.warnings.push(`${m.container}: name does not meet '${rs.title}' (warn level)`);
       }
     }
@@ -197,7 +198,7 @@ function fg06(models: FederationModel[], opts: FederationOptions): FederationChe
     if (verdict !== "accepted" && verdict !== "recorded") { c.status = "fail"; c.evidence.push({ model: m.container, naming, verdict }); }
   }
   if (c.status === "fail") c.reason = "a model is misnamed, rejected or not judged";
-  if (!rs) c.warnings.push("no naming ruleset installed — names not checked");
+  else if (!rs) return nc(c, "no naming standard installed — names cannot be checked (install one: PUT /cde/:key/artefacts/naming)");
   return c;
 }
 

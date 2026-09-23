@@ -28,5 +28,5 @@ that the pack is swappable.
 
 ## Scope note
 
-QA-scan `ruleset.json` and stage gates are not yet swappable — those are
-build-time / code, not config, and are out of scope for this pack.
+The QA-scan ruleset is the project's `ruleset` artefact (install it like any other
+kind; see Packs). Stage gates are code, not config, and are out of scope for this pack.

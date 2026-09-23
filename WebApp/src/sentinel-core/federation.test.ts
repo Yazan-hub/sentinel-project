@@ -35,7 +35,8 @@ describe("nameShape", () => {
 describe("checkFederation", () => {
   it("passes a consistent pair and reports every check", () => {
     const c = model("C-0103.ifc", manifest({ elements: [{ guid: "g-wall-9", class: "IFCWALL", type_name: "Wall 3", storey: "Level 1" }] }));
-    const r = checkFederation([A(), c], { verdicts: okVerdicts });
+    const naming_ruleset = { title: "two fields", separator: "-", strip_extensions: [".ifc"], enforce: "reject" as const, fields: [{ key: "p", label: "P", pattern: "[A-Z]" }, { key: "n", label: "N", pattern: "\\d{4}" }] };
+    const r = checkFederation([A(), c], { verdicts: okVerdicts, naming_ruleset });
     expect(r.verdict).toBe("pass");
     expect(r.checks.map((x) => x.id)).toEqual(["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]);
     expect(r.checks.every((x) => x.status === "pass")).toBe(true);
@@ -154,5 +155,14 @@ describe("checkFederation", () => {
     const r4 = check(checkFederation([A(), b], { naming_ruleset: rs, verdicts: { "A-0101.ifc": "accepted" } }), "FG-06");
     expect(r4.evidence).toContainEqual(expect.objectContaining({ model: "B-0102.ifc", verdict: null }));
     expect(r4.status).toBe("fail");
+  });
+  it("FG-06 treats a missing enforce as reject, and is not_checkable (naming the install route) with no naming installed", () => {
+    const rs = { title: "two fields", separator: "-", strip_extensions: [".ifc"], fields: [{ key: "p", label: "P", pattern: "[A-Z]" }, { key: "n", label: "N", pattern: "\\d{4}" }] };
+    const bad = model("Bad name.ifc", manifest({ elements: [{ guid: "g-b1", class: "IFCWALL", type_name: "Wall 9", storey: null }] }));
+    const v = { "A-0101.ifc": "accepted", "Bad name.ifc": "accepted" } as const;
+    expect(check(checkFederation([A(), bad], { naming_ruleset: rs as never, verdicts: v }), "FG-06").status).toBe("fail");
+    const none = check(checkFederation([A(), bad], { verdicts: v }), "FG-06");
+    expect(none.status).toBe("not_checkable");
+    expect(none.reason).toMatch(/PUT \/cde\/:key\/artefacts\/naming/);
   });
 });

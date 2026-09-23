@@ -353,9 +353,8 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
 
 /** F51: installing ids@n MARKS the open IDS topics it supersedes (superseded_by = the new ref) and never
  *  closes them — a superseded topic may still be a real defect. One audit row lists the guids. */
-async function markSupersededIdsTopics(cde, pid, newRef, actor) {
-  const { supersededBy } = await import("./ids-supersede.mjs");
-  const hits = supersededBy(await cde.bcfListTopics(pid, { status: "all" }), newRef);
+async function markSupersededIdsTopics(cde, pid, newRef, actor, pick = "supersededBy") {
+  const hits = (await import("./ids-supersede.mjs"))[pick](await cde.bcfListTopics(pid, { status: "all" }), newRef);
   if (!hits.length) return [];
   const now = new Date().toISOString();
   for (const t of hits) {
@@ -1085,7 +1084,15 @@ async function handleRequest(req, res) {
           const pointer = await art.putArtefact(p1, p3, artefact, { actor, source });
           // F51: a new IDS marks the open IDS topics it supersedes. Best-effort — the install already stands.
           if (p3 === "ids") {
-            try { pointer.superseded_topics = await markSupersededIdsTopics(cde, p1, `ids@${pointer.version}`, resolveActor(actor, "web")); }
+            try {
+              const ref = `ids@${pointer.version}`, who = resolveActor(actor, "web");
+              pointer.superseded_topics = await markSupersededIdsTopics(cde, p1, ref, who);
+              // An office install also supersedes the office-raised topics of every project in its scope.
+              const { projectScope } = await import("./office-scope.mjs");
+              const scope = await projectScope(p1);
+              if (scope.kind === "office")
+                for (const k of scope.keys.slice(1)) pointer.superseded_topics.push(...await markSupersededIdsTopics(cde, k, ref, who, "supersededByOffice"));
+            }
             catch (e) { pointer.superseded_error = String(e?.message || e); }
           }
           return send(res, 201, pointer);

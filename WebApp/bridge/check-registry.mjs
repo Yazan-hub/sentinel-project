@@ -454,13 +454,13 @@ export const CHECKS = [
     description: "The project passes the gate for its current stage.",
     params_schema: {},
     async run(key) {
-      const [meta, c] = await Promise.all([getProjectMeta(key), core()]);
+      const [meta, c, rs] = await Promise.all([getProjectMeta(key), core(), resolveArtefact(key, "ruleset")]);
       const s = meta.snapshot || {};
       const metrics = {
         health: s.health ?? null, compliance: s.compliance ?? null,
         blockViolations: s.block_violations ?? 0, hardClashes: s.hard_clashes ?? 0,
         openIssues: s.open_issues ?? 0, openRfis: s.open_rfis ?? 0,
-        hasStandardsPack: !!meta.standards_pack, cobieComplete: s.handover_readiness ?? null,
+        hasStandardsPack: rs.source !== "none", cobieComplete: s.handover_readiness ?? null,
       };
       return classifyGate(meta.stage, c.evaluateGate(meta.stage, metrics));
     },

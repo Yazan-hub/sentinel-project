@@ -18,7 +18,7 @@ The reasoning behind every major call. This is the page that lets you **defend**
 
 ### D-03 · Gates are swappable config, and BDS is a *reference*, not a bible
 - **Context:** The pilot needed a concrete standard; BDS BIM documents were available.
-- **Decision:** Drive both gates from **config files** (`naming-ruleset.json`, `ids.json`) and treat BDS as *one profile*. A future office-agnostic **Base template** just replaces two files — no code change.
+- **Decision:** Drive both gates from **config files** (`naming-ruleset.json`, `ids.json`) and treat BDS as *one profile*. A future office-agnostic **Base template** is installed as `naming` and `ids` artefacts — no code change. (Superseded detail: the config files are now versioned artefacts, cohesion phase 3.)
 - **Why:** Hard-coding one firm's standard would make Sentinel unsellable to anyone else; config-driven gates make "install a standard → the platform enforces it" real.
 - **Built (2026-07-26):** `config/base-standard/` pack is now shipped with both rulesets; server-side ruleset/IDS custody via `SENTINEL_NAMING_RULESET` and `SENTINEL_IDS` env vars (naming falls back to bridge's bundled file; IDS falls back to client-supplied when unset).
 - **Trade-off:** QA ruleset.json is build-time bundled (swapped by distribution); stage gates in gates.ts are code (cannot be swapped without rebuild).
