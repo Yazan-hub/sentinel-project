@@ -22,6 +22,9 @@ interface Project {
   created_at: string;
   container_count: number;
   settings?: { archived?: boolean } | null;
+  kind?: "project" | "office";
+  office_key?: string | null;
+  office_name?: string | null;
 }
 
 export function projectsHubPanel(
@@ -74,31 +77,51 @@ export function projectsHubPanel(
     // Archived projects sink to the end of the grid, greyed — still clickable so unarchive
     // (Settings → Danger zone) stays reachable.
     const ordered = [...projects].sort((a, b) => Number(!!a.settings?.archived) - Number(!!b.settings?.archived));
-    el("ph-grid").innerHTML = ordered
-      .map((p) => {
-        const on = p.key === active;
-        const arch = !!p.settings?.archived;
-        return (
-          `<button class="ph-card" data-key="${esc(p.key)}" style="text-align:left;cursor:pointer;color:inherit;${arch ? "opacity:.45;" : ""}` +
-          `border:1px solid ${on ? "#6528d7" : "#23232a"};background:${on ? "#6528d714" : "#101014"};` +
-          `border-radius:12px;padding:.75rem .8rem;display:flex;flex-direction:column;gap:.35rem;min-height:6.5rem">` +
-          `<div style="display:flex;align-items:center;gap:.4rem">` +
-          `<span style="font:650 14px system-ui;color:#f3f4f6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</span>` +
-          (arch
-            ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#a1a1aa;border:1px solid #3f3f46;border-radius:100px;padding:.1rem .4rem">ARCHIVED</span>'
+    const card = (p: Project) => {
+      const on = p.key === active;
+      const arch = !!p.settings?.archived;
+      return (
+        `<button class="ph-card" data-key="${esc(p.key)}" style="text-align:left;cursor:pointer;color:inherit;${arch ? "opacity:.45;" : ""}` +
+        `border:1px solid ${on ? "#6528d7" : "#23232a"};background:${on ? "#6528d714" : "#101014"};` +
+        `border-radius:12px;padding:.75rem .8rem;display:flex;flex-direction:column;gap:.35rem;min-height:6.5rem">` +
+        `<div style="display:flex;align-items:center;gap:.4rem">` +
+        `<span style="font:650 14px system-ui;color:#f3f4f6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}` +
+        (p.kind === "office"
+          ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#93c5fd;border:1px solid #1d4ed8;border-radius:100px;padding:.1rem .4rem;margin-left:.4rem">office</span>'
+          : p.office_name
+            ? `<span style="color:#9ca3af;font-size:11px"> · ${esc(p.office_name)}</span>`
             : "") +
-          (on
-            ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#c4b5fd;border:1px solid #6528d7;border-radius:100px;padding:.1rem .4rem">ACTIVE</span>'
-            : "") +
-          `</div>` +
-          `<div style="font:11px ui-monospace,Consolas,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.key)}</div>` +
-          `<span style="flex:1"></span>` +
-          `<div style="display:flex;align-items:center;gap:.5rem;font-size:11px;color:#9ca3af">` +
-          `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${p.container_count}</span> container${p.container_count === 1 ? "" : "s"}` +
-          `<span style="flex:1"></span><span>${esc(fmtDate(p.created_at))}</span></div>` +
-          `</button>`
-        );
-      })
+        `</span>` +
+        (arch
+          ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#a1a1aa;border:1px solid #3f3f46;border-radius:100px;padding:.1rem .4rem">ARCHIVED</span>'
+          : "") +
+        (on
+          ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#c4b5fd;border:1px solid #6528d7;border-radius:100px;padding:.1rem .4rem">ACTIVE</span>'
+          : "") +
+        `</div>` +
+        `<div style="font:11px ui-monospace,Consolas,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.key)}</div>` +
+        `<span style="flex:1"></span>` +
+        `<div style="display:flex;align-items:center;gap:.5rem;font-size:11px;color:#9ca3af">` +
+        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${p.container_count}</span> container${p.container_count === 1 ? "" : "s"}` +
+        `<span style="flex:1"></span><span>${esc(fmtDate(p.created_at))}</span></div>` +
+        `</button>`
+      );
+    };
+    type Group = { title: string; rows: Project[] };
+    const offices = ordered.filter((p) => p.kind === "office");
+    const groups: Group[] = offices.map((o) => ({
+      title: `${o.name} · office`,
+      rows: [o, ...ordered.filter((p) => p.kind !== "office" && p.office_key === o.key)],
+    }));
+    const loose = ordered.filter((p) => p.kind !== "office" && !offices.some((o) => o.key === p.office_key));
+    if (loose.length) groups.push({ title: offices.length ? "No office" : "", rows: loose });
+    el("ph-grid").innerHTML = groups
+      .map(
+        (g) =>
+          (g.title
+            ? `<div style="grid-column:1/-1;color:#9ca3af;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;padding:.6rem .2rem .1rem">${esc(g.title)}</div>`
+            : "") + g.rows.map((p) => card(p)).join(""),
+      )
       .join("");
     root.querySelectorAll<HTMLElement>(".ph-card").forEach((b) =>
       b.addEventListener("click", () => open(b.dataset.key!)),
@@ -146,6 +169,13 @@ export function projectsHubPanel(
     el("ph-form").innerHTML =
       `<input id="ph-name" placeholder="Project name (e.g. Riverside Tower)" style="${inp}" />` +
       `<input id="ph-party" placeholder="Appointing party (optional)" style="${inp}" />` +
+      `<select id="ph-kind" style="${inp}"><option value="project">Project</option><option value="office">Office</option></select>` +
+      `<select id="ph-office" style="${inp}"><option value="">No office</option>` +
+      projects
+        .filter((p) => p.kind === "office")
+        .map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`)
+        .join("") +
+      "</select>" +
       '<div style="display:flex;gap:.4rem">' +
       `<button id="ph-create" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd;flex:1">Create & open</button>` +
       `<button id="ph-cancel" style="${btn}">Cancel</button></div>`;
@@ -154,6 +184,12 @@ export function projectsHubPanel(
     el("ph-create").addEventListener("click", create);
     el("ph-name").addEventListener("keydown", (e) => {
       if ((e as KeyboardEvent).key === "Enter") create();
+    });
+    const kindSel = el("ph-kind") as HTMLSelectElement;
+    const officeSel = el("ph-office") as HTMLSelectElement;
+    kindSel.addEventListener("change", () => {
+      officeSel.disabled = kindSel.value === "office";
+      if (officeSel.disabled) officeSel.value = "";
     });
   };
 
@@ -169,7 +205,13 @@ export function projectsHubPanel(
       const r = await bfetch(`${base}/cde/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, appointing_party: party || undefined, actor: "web" }),
+        body: JSON.stringify({
+          name,
+          appointing_party: party || undefined,
+          kind: (el("ph-kind") as HTMLSelectElement).value,
+          office_key: (el("ph-office") as HTMLSelectElement).value || undefined,
+          actor: "web",
+        }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const created: Project = await r.json();
