@@ -58,6 +58,23 @@ Sources, all read in full (screenshots where LinkedIn was unreachable):
 Every item below is a referee move (decision D-07). None builds an authoring
 agent, an editor, or a clash engine.
 
+## Upgrades of existing features
+
+The posts also overlap with capabilities Sentinel already has. Those are
+handled as *upgrades*, not new features, in
+[`docs/UPGRADE_MAP_2026-09.md`](UPGRADE_MAP_2026-09.md): each existing
+capability against what the sources and the platforms (Forma / ACC, Solibri,
+Speckle, BIMcollab, Revizto, That Open, Pascal) do, the delta, and a **U-n**
+upgrade with effort. The ones that are not already items below, grouped by
+where they land:
+
+| Wave | Upgrades from the map |
+|---|---|
+| 1 | U-1 Holding Area at the gate · U-6 IFCZIP · U-22 verdict diff between versions |
+| 2 | U-29 governance dashboard (audit-grade KPIs) · U-28 copilot actions |
+| 3 | U-8 queries + clash matrix from IDS applicability · U-9 clash triage dashboard · U-10 auto-assign by responsibility matrix · U-20 review workflows with the referee as step zero · U-23 issue stamps · U-24 focus mode · U-25 grounded RFI draft · U-21 drawing revision diff |
+| 4 | U-2 severity vocabulary · U-3 rule authoring assistant · U-4 colour-by-verdict in Revit · U-14 carbon at massing · U-16 EIR → IDS · U-17 non-model containers through the naming gate · U-30 classification as an IDS requirement · U-31 tests for untested cores · U-32 scorecard reconciliation · U-34 IDS conformance suite · U-35 IDS authoring panel |
+
 ## The backlog
 
 Effort: **S** ≤ 2 days · **M** 3–6 days · **L** 1–3 weeks. Status of the
