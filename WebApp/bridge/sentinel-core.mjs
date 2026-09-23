@@ -1211,6 +1211,7 @@ var nc = (c, reason) => {
 };
 function fg01(ms) {
   const c = mk("FG-01", "No GlobalId appears in two models");
+  if (ms.filter(({ m }) => m.elements.length > 0).length < 2) return nc(c, "fewer than two manifests carry elements");
   const seen = /* @__PURE__ */ new Map();
   for (const { container, m } of ms) for (const e of uniq(m.elements.map((x) => x.guid).filter(Boolean))) seen.set(e, [...seen.get(e) ?? [], container]);
   for (const [guid, models] of seen) if (models.length > 1) c.evidence.push({ guid, models });
@@ -1230,14 +1231,17 @@ function fg02(ms, opts) {
     for (const e of m.elements) if (e.type_name) per.set(e.class, [...per.get(e.class) ?? [], e.type_name]);
     for (const [cat, names] of per) byCat.set(cat, [...byCat.get(cat) ?? [], { container, names: uniq(names) }]);
   }
+  let sharedCategory = false;
   for (const [category, rows] of byCat) {
     if (rows.length < 2) continue;
+    sharedCategory = true;
     const shaped = rows.map((r) => ({ category, model: r.container, shape: dominant(r.names.map(nameShape)), examples: r.names.slice(0, 5) }));
     if (uniq(shaped.map((s) => s.shape)).length > 1) {
       c.evidence.push(...shaped);
       c.status = "fail";
     }
   }
+  if (!sharedCategory && !opts.type_rule) return nc(c, "no category appears in two or more models and no type rule installed");
   if (opts.type_rule) {
     const engine = new RuleEngine();
     const rule = resolveOrg(opts.type_rule, opts.org);

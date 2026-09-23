@@ -46,6 +46,19 @@ describe("checkFederation", () => {
     expect(r.verdict).toBe("not_checkable");
     expect(r.models.find((m) => m.container === "B-0102.ifc")?.has_manifest).toBe(false);
   });
+  it("FG-01 and FG-02 are not_checkable, not pass, when one manifest carries no elements (empty MEP manifest)", () => {
+    const empty = model("B-0102.ifc", manifest({ elements: [] }));
+    const r = checkFederation([A(), empty], { verdicts: okVerdicts });
+    expect(check(r, "FG-01").status).toBe("not_checkable");
+    expect(check(r, "FG-01").reason).toMatch(/fewer than two manifests carry elements/);
+    expect(check(r, "FG-02").status).toBe("not_checkable");
+    expect(check(r, "FG-02").reason).toMatch(/no category appears in two or more models/);
+  });
+  it("FG-02 is not_checkable when the two models share no category and no type rule is installed", () => {
+    const beam = model("B-0102.ifc", manifest({ elements: [{ guid: "g-beam-1", class: "IFCBEAM", type_name: "Beam 1", storey: "Level 1" }] }));
+    const fg = check(checkFederation([A(), beam], { verdicts: okVerdicts }), "FG-02");
+    expect(fg.status).toBe("not_checkable");
+  });
   it("FG-01 fails a GlobalId shared by two models, naming both", () => {
     const b = model("B-0102.ifc", manifest({ elements: [{ guid: "g-wall-1", class: "IFCWALL", type_name: "Wall 1", storey: "Level 1" }] }));
     const fg = check(checkFederation([A(), b], { verdicts: okVerdicts }), "FG-01");
