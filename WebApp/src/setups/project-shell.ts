@@ -6,7 +6,7 @@ import { myRole, canGovernRole } from "./my-role";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
-import { activeRuleset, paramNamesOf } from "./active-ruleset";
+import { activeRuleset, paramNamesOf, NO_RULESET } from "./active-ruleset";
 import { getAppManager } from "../app";
 
 /**
@@ -87,15 +87,19 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const refresh = async () => {
     msg("Aggregating health, issues and cost…");
     gateRole = await myRole(base, pid());
-    // QA health + compliance (only if a model is loaded)
+    let noRuleset = false;
+    // QA health + compliance (only if a model is loaded, and only against an installed ruleset)
     if (fragments.list.size > 0) {
       try {
-        const ruleset = await activeRuleset(base); // installed standards pack, else bundled
-        const facts = await extractFacts(fragments, { parameterNames: paramNamesOf(ruleset) });
-        const report = scan(facts, ruleset, { doc_title: "project", now: new Date().toISOString() });
-        kpis.health = buildScorecard(report).score;
-        kpis.compliance = report.score;
-        kpis.blockOpen = report.violations.filter((v) => v.mode === "block").length;
+        const active = await activeRuleset(base); // project → office; null = nothing installed, no scan
+        if (!active) { noRuleset = true; kpis.health = null; kpis.compliance = null; kpis.blockOpen = 0; }
+        else {
+          const facts = await extractFacts(fragments, { parameterNames: paramNamesOf(active.ruleset) });
+          const report = scan(facts, active.ruleset, { doc_title: "project", now: new Date().toISOString() });
+          kpis.health = buildScorecard(report).score;
+          kpis.compliance = report.score;
+          kpis.blockOpen = report.violations.filter((v) => v.mode === "block").length;
+        }
       } catch { kpis.health = null; kpis.compliance = null; }
       try {
         const boq = buildBoQ(await quantityTakeoff(fragments), defaultRates);
@@ -119,7 +123,9 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
 
     renderAll();
     persistSnapshot();
-    msg(fragments.list.size === 0 ? "No model loaded — load one for health & cost. Issues shown from the service." : "KPIs up to date.");
+    msg(fragments.list.size === 0 ? "No model loaded — load one for health & cost. Issues shown from the service."
+      : noRuleset ? `${NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date.",
+      noRuleset ? "#eab308" : undefined);
   };
 
   const persistSnapshot = () => {

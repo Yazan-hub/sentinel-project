@@ -9,6 +9,7 @@
 import type {
   ElementFacts, ScanReport, Scorecard, Ruleset, Violation, BoQ, CarbonReport,
 } from "../../sentinel-core";
+import { NO_RULESET } from "../active-ruleset";
 
 export interface CopilotIssue {
   guid: string; title: string; topic_type: string; topic_status: string;
@@ -24,7 +25,10 @@ export interface Grounding {
   boq: BoQ | null;
   carbon: CarbonReport | null;
   issues: CopilotIssue[];
-  ruleset: Ruleset;
+  /** the ruleset artefact in force; null = none installed on the project or its office (no scan ran). */
+  ruleset: Ruleset | null;
+  /** `ruleset@n · source · sha` — cited with every scan answer. */
+  rulesetRef: string | null;
   hasModel: boolean;
 }
 
@@ -76,6 +80,9 @@ const needModel = (what = "the model"): Answer => ({
   text: `Load a model first — I read ${what} from the loaded fragments.`, sources: [],
 });
 const catIn = (q: string) => CATS.find((c) => q.includes(c.kw));
+const noRuleset: Answer = { text: `${NO_RULESET} — there is no scan or health score to report.`, sources: [] };
+/** What judged: the standard and its artefact ref, cited on every scan answer. */
+const std = (g: Grounding) => (g.ruleset ? `${g.ruleset.standard_key} · ${g.rulesetRef}` : "no ruleset");
 
 // ── matchers (ordered; first hit wins) ───────────────────────────────────────
 type Matcher = (q: string, g: Grounding) => Answer | null;
@@ -164,7 +171,7 @@ const issuesM: Matcher = (q, g) => {
 };
 
 const ruleM: Matcher = (q, g) => {
-  if (!g.report) return null;
+  if (!g.report || !g.ruleset) return null;
   const ruleId = (q.match(/\b([a-z]{2}-\d{2})\b/i)?.[1] ?? "").toUpperCase();
   const kw = ["naming", "workset", "sheet", "family", "level", "grid", "parameter", "view", "fire"].find((k) => q.includes(k));
   const isFailQ = /\b(fail|violat|error|wrong|conform|rule|break|comply|non)\b/.test(q);
@@ -178,37 +185,39 @@ const ruleM: Matcher = (q, g) => {
     const ids = new Set(g.ruleset.rules.filter((r) => r.target.includes(kw!) || (r.doc_ref ?? "").toLowerCase().includes(kw!)).map((r) => r.id));
     vs = vs.filter((v) => ids.has(v.rule_id) || (v.message_en ?? "").toLowerCase().includes(kw!));
   }
-  if (!vs.length) return { text: `No open violations for "${label}".`, sources: [`scan · ${g.ruleset.standard_key}`] };
+  if (!vs.length) return { text: `No open violations for "${label}".`, sources: [`scan · ${std(g)}`] };
   const rules = [...new Set(vs.map((v) => v.rule_id))];
   return {
     text: `${vs.length} element(s) fail "${label}" (rule ${rules.join(", ")}). e.g. ${vs[0].message_en}`,
-    sources: [`scan · ${vs[0].doc_ref ?? g.ruleset.standard_key}`], elements: mapFromViolations(vs), count: vs.length,
+    sources: [`scan · ${vs[0].doc_ref ?? g.ruleset.standard_key} · ${g.rulesetRef}`], elements: mapFromViolations(vs), count: vs.length,
   };
 };
 
 const failM: Matcher = (q, g) => {
   if (!/\b(fail|failing|violation|problem|wrong|non.?conform|what.?s wrong|comply)\b/.test(q)) return null;
+  if (!g.ruleset) return noRuleset;
   if (!g.report) return needModel();
   const vs = g.report.violations.filter((v) => v.mode !== "monitor");
-  if (!vs.length) return { text: `No blocking issues — all ${g.report.elements_checked} checked elements conform to ${g.ruleset.standard_key}.`, sources: ["scan report"] };
+  if (!vs.length) return { text: `No blocking issues — all ${g.report.elements_checked} checked elements conform to ${g.ruleset.standard_key}.`, sources: [`scan report · ${std(g)}`] };
   const byRule = new Map<string, number>();
   for (const v of vs) byRule.set(v.rule_id, (byRule.get(v.rule_id) ?? 0) + 1);
   const top = [...byRule.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
   return {
     text: `${vs.length} element(s) fail the standard. Top rules: ${top.map(([r, n]) => `${r} (${n})`).join(", ")}.`,
-    sources: [`scan · ${g.ruleset.standard_key}`], elements: mapFromViolations(vs), count: vs.length,
+    sources: [`scan · ${std(g)}`], elements: mapFromViolations(vs), count: vs.length,
   };
 };
 
 const healthM: Matcher = (q, g) => {
   if (!/\b(health|score|grade|quality|how good|overall|state of)\b/.test(q)) return null;
+  if (!g.ruleset) return noRuleset;
   if (!g.scorecard) return needModel();
   const sc = g.scorecard;
   const top = sc.domains.slice().sort((a, b) => b.violations - a.violations).filter((d) => d.violations > 0).slice(0, 3);
   return {
     text: `Model health ${sc.score.toFixed(1)}% (grade ${sc.grade}) — ${sc.elements_checked} elements checked, ${sc.total_violations} issue(s).`
       + (top.length ? ` Worst areas: ${top.map((d) => `${d.domain} (${d.violations})`).join(", ")}.` : ""),
-    sources: [`scorecard · ${g.ruleset.standard_key}`],
+    sources: [`scorecard · ${std(g)}`],
   };
 };
 
@@ -243,6 +252,7 @@ function capabilities(): Answer {
 /** Compact grounded context for the optional local-LLM fallback (free-form questions only). */
 export function summarize(g: Grounding): string {
   const parts: string[] = [];
+  if (!g.ruleset) parts.push(`${NO_RULESET} — no scan, no health score.`);
   if (g.scorecard) parts.push(`Health: ${g.scorecard.score.toFixed(1)}% grade ${g.scorecard.grade}, ${g.scorecard.total_violations} issues over ${g.scorecard.elements_checked} elements.`);
   if (g.report) {
     const byRule = new Map<string, number>();

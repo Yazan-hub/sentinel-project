@@ -9,7 +9,7 @@ import {
   type Ruleset,
 } from "../sentinel-core";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
-import { activeRuleset, paramNamesOf } from "./active-ruleset";
+import { activeRuleset, paramNamesOf, refLabel, NO_RULESET } from "./active-ruleset";
 import type { ScanReport, Violation } from "../sentinel-core";
 
 /**
@@ -28,7 +28,7 @@ import type { ScanReport, Violation } from "../sentinel-core";
  * Factory returns the panel element WITHOUT self-mounting (mirrors sheetsPanel).
  */
 
-type Status = "idle" | "scanning" | "done" | "empty";
+type Status = "idle" | "scanning" | "done" | "empty" | "blocked";
 
 interface PanelState {
   status: Status;
@@ -36,8 +36,12 @@ interface PanelState {
   scorecard: Scorecard | null;
   /** rule-id prefixes whose row is expanded (domain filter chips). */
   domainFilter: string | null;
-  /** the ruleset last used for a scan (marketplace pack, or bundled default). */
+  /** the ruleset last used for a scan — the artefact in force, never a bundle. */
   ruleset: Ruleset | null;
+  /** `ruleset@n · source · sha` of that ruleset (the scan header names what judged). */
+  rulesetRef: string | null;
+  /** why a scan did not run: nothing installed, or the bridge could not say. */
+  notice: string | null;
 }
 
 // Targets that don't survive IFC export → reported as authoring-side only.
@@ -68,10 +72,15 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       update({ status: "empty", report: null, scorecard: null });
       return;
     }
-    update({ status: "scanning" });
+    update({ status: "scanning", notice: null });
     try {
-      // Use the standards pack installed for this project (marketplace), else the bundled BDS ruleset.
-      const ruleset = await activeRuleset(base);
+      // The ruleset installed on this project or its office. Nothing installed → no scan (never a bundle).
+      const active = await activeRuleset(base);
+      if (!active) {
+        update({ status: "blocked", report: null, scorecard: null, ruleset: null, rulesetRef: null, notice: NO_RULESET });
+        return;
+      }
+      const ruleset = active.ruleset;
       const facts = await extractFacts(fragments, {
         parameterNames: paramNamesOf(ruleset),
       });
@@ -81,10 +90,10 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         now: new Date().toISOString(),
       });
       const scorecard = buildScorecard(report);
-      update({ status: "done", report, scorecard, ruleset });
+      update({ status: "done", report, scorecard, ruleset, rulesetRef: refLabel(active) });
     } catch (err) {
       console.error("[Sentinel] scan failed", err);
-      update({ status: "empty", report: null, scorecard: null });
+      update({ status: "blocked", report: null, scorecard: null, notice: `Scan did not run: ${(err as Error)?.message ?? String(err)}` });
     }
   };
 
@@ -179,8 +188,8 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         AUTHORING_ONLY_TARGETS.has(r.target),
       );
       const rulesetLabel = state.ruleset
-        ? `${state.ruleset.standard_key} ${state.ruleset.semver}`
-        : "the active standard";
+        ? `${state.ruleset.standard_key} ${state.ruleset.semver} · ${state.rulesetRef}`
+        : "the ruleset installed for this project";
       const authoringNote =
         state.status === "done" && authoringRules.length > 0
           ? BUI.html`
@@ -198,6 +207,8 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
           return BUI.html`<div class="qa-empty">Scanning…</div>`;
         if (state.status === "empty")
           return BUI.html`<div class="qa-empty">No model loaded. Add one from the Assets panel first.</div>`;
+        if (state.status === "blocked")
+          return BUI.html`<div class="qa-empty">${state.notice}</div>`;
         if (violations.length === 0)
           return BUI.html`<div class="qa-empty">No violations in this scope. ✓</div>`;
         return BUI.html`<div class="qa-list">${violations.map(row)}</div>`;
@@ -272,6 +283,8 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       scorecard: null,
       domainFilter: null,
       ruleset: null,
+      rulesetRef: null,
+      notice: null,
     },
   );
 

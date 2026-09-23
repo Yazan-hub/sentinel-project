@@ -743,142 +743,6 @@ function toCobieCsv(r, facility) {
   return out.join("\r\n");
 }
 
-// src/sentinel-core/ruleset.json
-var ruleset_default = {
-  standard_key: "bds-rtg-001",
-  semver: "1.4.1",
-  rules: [
-    {
-      id: "WS-01",
-      target: "workset",
-      mode: "warn",
-      whitelist: [
-        "ARC_Sheets",
-        "ARC_Walls",
-        "ARC_Floors",
-        "ARC_Facade",
-        "ARC_Doors",
-        "ARC_Furniture",
-        "ARC_Interior",
-        "ARC_Links",
-        "INT_Walls",
-        "INT_Floors",
-        "INT_Ceilings",
-        "Shared_Levels & Grids Model",
-        "XX_Landscape",
-        "XX_MEP Modell",
-        "XX_STR Model"
-      ],
-      message_en: "Workset '{name}' is not in the BDS 15-name whitelist.",
-      message_ar: "\u0645\u062C\u0645\u0648\u0639\u0629 \u0627\u0644\u0639\u0645\u0644 '{name}' \u063A\u064A\u0631 \u0645\u062F\u0631\u062C\u0629 \u0641\u064A \u0642\u0627\u0626\u0645\u0629 BDS \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629.",
-      doc_ref: "BDS-RTG-001 \xA73.1"
-    },
-    {
-      id: "VN-01",
-      target: "view",
-      mode: "request",
-      tokens: ["PREFIX", "BODY"],
-      token_defs: {
-        PREFIX: "WIP|SH|SHEET|EXPORT|CO|ARC|INT|XX|STR|MEP",
-        BODY: "[A-Za-z0-9/&\\- ]+(_[A-Za-z0-9/&\\- ]+)*"
-      },
-      separator: "_",
-      whitelist: [
-        "NAVISWORKS",
-        "ARC_Sheets",
-        "ARC_Walls",
-        "ARC_Floors",
-        "ARC_Facade",
-        "ARC_Doors",
-        "ARC_Furniture",
-        "ARC_Interior",
-        "ARC_Links",
-        "INT_Walls",
-        "INT_Floors",
-        "INT_Ceilings",
-        "XX_Landscape",
-        "XX_MEP Modell",
-        "XX_STR Model"
-      ],
-      exclusions: ["^<.*>", "^\\{3D"],
-      message_en: "View '{name}' does not match [PREFIX]_[TYPE]_[LEVEL]_[DESC].",
-      message_ar: "\u0627\u0633\u0645 \u0627\u0644\u0639\u0631\u0636 '{name}' \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0646\u0645\u0637 \u0627\u0644\u062A\u0633\u0645\u064A\u0629 \u0627\u0644\u0645\u0639\u062A\u0645\u062F.",
-      doc_ref: "BDS-RTG-001 \xA75"
-    },
-    {
-      id: "VP-01",
-      target: "parameter",
-      mode: "warn",
-      parameter_name: "BDS_View Status",
-      exclusions: ["^<.*>", "^\\{3D"],
-      message_en: "View '{name}': 'BDS_View Status' is empty.",
-      message_ar: "\u0627\u0644\u0639\u0631\u0636 '{name}': \u062D\u0642\u0644 'BDS_View Status' \u0641\u0627\u0631\u063A.",
-      doc_ref: "BDS-RTG-001 \xA74.2"
-    },
-    {
-      id: "SN-01",
-      target: "sheet",
-      mode: "request",
-      tokens: ["PROJECT", "ORIGINATOR", "TYPE", "DISCIPLINE", "ZONE", "VENUE", "LEVEL", "NUMBER", "SUITABILITY", "REVISION"],
-      token_defs: {
-        PROJECT: "[A-Z]{2,5}\\d{4,6}",
-        ORIGINATOR: "[A-Z]{2,5}",
-        TYPE: "[A-Z]{2}(-[A-Z]{2})?",
-        DISCIPLINE: "[A-Z]{2,4}",
-        ZONE: "ZZ|Z\\d|XX|\\d{2}",
-        VENUE: "[A-Z0-9]{2}",
-        LEVEL: "XX|\\d{2}|B\\d",
-        NUMBER: "\\d{4}",
-        SUITABILITY: "S\\d|A\\d|B\\d|CR",
-        REVISION: "[PC]\\d{2}"
-      },
-      separator: "-",
-      message_en: "Sheet '{name}' does not match the 11-field ISO 19650 container string.",
-      message_ar: "\u0631\u0642\u0645 \u0627\u0644\u0644\u0648\u062D\u0629 '{name}' \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0633\u0644\u0633\u0644\u0629 ISO 19650.",
-      doc_ref: "BDS-BIM-001 \xA74.1"
-    },
-    {
-      id: "FN-01",
-      target: "family",
-      mode: "warn",
-      tokens: ["BDS", "BODY"],
-      token_defs: {
-        BDS: "BDS",
-        BODY: "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+"
-      },
-      separator: "_",
-      categories: ["Doors", "Windows", "Furniture", "Casework", "Plumbing Fixtures", "Specialty Equipment", "Generic Models"],
-      message_en: "Family '{name}' does not match BDS_[LOCATION]_[TYPE]_[VARIANT].",
-      message_ar: "\u0627\u0644\u0639\u0627\u0626\u0644\u0629 '{name}' \u0644\u0627 \u062A\u0637\u0627\u0628\u0642 \u0646\u0645\u0637 \u062A\u0633\u0645\u064A\u0629 BDS.",
-      doc_ref: "BDS-RTG-001 \xA78.1"
-    },
-    {
-      id: "LV-01",
-      target: "level",
-      mode: "monitor",
-      tokens: ["LEVEL"],
-      token_defs: {
-        LEVEL: "(L\\d{2}|LB\\d|LMZ|LRF)_(FFL|SSL)|STREET LEVEL"
-      },
-      separator: "_",
-      message_en: "Level '{name}' not in proposed pattern LXX_FFL/SSL (V1.5 contribution).",
-      doc_ref: "Proposed V1.5"
-    },
-    {
-      id: "GR-01",
-      target: "grid",
-      mode: "monitor",
-      tokens: ["GRID"],
-      token_defs: {
-        GRID: "[A-Z]{1,2}|\\d{1,3}"
-      },
-      separator: "_",
-      message_en: "Grid '{name}' is not letters-or-numbers (V1.5 contribution).",
-      doc_ref: "Proposed V1.5"
-    }
-  ]
-};
-
 // src/sentinel-core/guideline.ts
 var norm = (s) => (s ?? "").trim().toLowerCase();
 function fillPattern(use, input) {
@@ -1374,9 +1238,6 @@ function checkFederation(models, opts = {}) {
   return out;
 }
 
-// src/sentinel-core/index.ts
-var bdsRuleset = ruleset_default;
-
 // src/sentinel-core/ids.ts
 function applies(spec, el) {
   const cls = (el.identity?.Class ?? "").toUpperCase();
@@ -1685,7 +1546,6 @@ export {
   adjudicate,
   applies,
   assess,
-  bdsRuleset,
   buildBoQ,
   buildCarbon,
   buildScorecard,

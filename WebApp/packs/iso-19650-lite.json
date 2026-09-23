@@ -1,0 +1,50 @@
+{
+  "key": "iso-19650-lite",
+  "version": "1.0.0",
+  "name": "ISO 19650 Sheet Naming (lite)",
+  "description": "Minimal ISO 19650 container/sheet-number baseline — a clean starting point to fork.",
+  "author": "Sentinel",
+  "tags": [
+    "ISO",
+    "Global"
+  ],
+  "ruleset": {
+    "standard_key": "iso-19650-lite",
+    "semver": "1.0.0",
+    "rules": [
+      {
+        "id": "SN-01",
+        "target": "sheet",
+        "mode": "request",
+        "tokens": [
+          "PROJECT",
+          "ORIGINATOR",
+          "TYPE",
+          "DISCIPLINE",
+          "ZONE",
+          "VENUE",
+          "LEVEL",
+          "NUMBER",
+          "SUITABILITY",
+          "REVISION"
+        ],
+        "token_defs": {
+          "PROJECT": "[A-Z]{2,5}\\d{4,6}",
+          "ORIGINATOR": "[A-Z]{2,5}",
+          "TYPE": "[A-Z]{2}(-[A-Z]{2})?",
+          "DISCIPLINE": "[A-Z]{2,4}",
+          "ZONE": "ZZ|Z\\d|XX|\\d{2}",
+          "VENUE": "[A-Z0-9]{2}",
+          "LEVEL": "XX|\\d{2}|B\\d",
+          "NUMBER": "\\d{4}",
+          "SUITABILITY": "S\\d|A\\d|B\\d|CR",
+          "REVISION": "[PC]\\d{2}"
+        },
+        "separator": "-",
+        "message_en": "Sheet '{name}' does not match the 11-field ISO 19650 container string.",
+        "message_ar": "رقم اللوحة '{name}' لا يطابق سلسلة ISO 19650.",
+        "doc_ref": "BDS-BIM-001 §4.1"
+      }
+    ]
+  }
+}

@@ -140,6 +140,19 @@ const PACK_STORE = process.env.SENTINEL_PACK_STORE
 /** @type {{packs: any[]}} */
 let pkdb = loadJson(PACK_STORE, { packs: [] });
 const persistPack = () => writeJsonAtomic(PACK_STORE, pkdb);
+/** A registry record from a publish body (or a seed file). `naming` rides along so an install can put it on the project. */
+const packRecord = (b, existing, author) => ({
+  id: `${b.key}@${b.version}`, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
+  author, tags: b.tags || [], ruleset: b.ruleset || { rules: [] }, naming: b.naming || null,
+  installs: existing?.installs || 0, forks: existing?.forks || 0,
+  forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || new Date().toISOString(),
+});
+/** Seed packs are data (WebApp/packs/*.json): offered in an empty marketplace, enforced only once installed. */
+const SEED_PACK_DIR = join(import.meta.dirname, "..", "packs");
+const readSeedPacks = () => {
+  try { return readdirSync(SEED_PACK_DIR).filter((f) => f.endsWith(".json")).sort().map((f) => JSON.parse(readFileSync(join(SEED_PACK_DIR, f), "utf8"))); }
+  catch (e) { console.warn(`[packs] no seed packs read from ${SEED_PACK_DIR}: ${e?.message || e}`); return []; }
+};
 
 // ── Clash status store (Coordination): server-side dedup + a status lifecycle, replacing the per-browser
 // localStorage "known" set so a resolved/raised clash stays hidden for the whole team, not just one machine.
@@ -736,17 +749,21 @@ async function handleRequest(req, res) {
       // Global store (project_id=""). One list call (which also lazy-migrates) gives the current set to find in.
       const packs = useCde ? await cde.docListLazy("pack", "", pkdb.packs, (p) => p.id) : pkdb.packs;
       const savePack = async (pk) => { if (useCde) await cde.docUpsert("pack", "", pk.id, pk); else persistPack(); };
-      if (req.method === "GET" && !kid) return send(res, 200, packs);
+      if (req.method === "GET" && !kid) {
+        if (!packs.length) { // first run: seed from the data files (was the panel's job, with the pilot's ruleset in code)
+          for (const b of readSeedPacks()) {
+            const pk = packRecord(b, null, b.author || "seed");
+            if (useCde) { await cde.docUpsert("pack", "", pk.id, pk); packs.push(pk); } else pkdb.packs.push(pk);
+          }
+          if (!useCde) persistPack();
+        }
+        return send(res, 200, packs);
+      }
       if (req.method === "POST" && !kid) { // publish (create or update)
-        const b = await readBody(req); const now = new Date().toISOString();
+        const b = await readBody(req);
         const id = `${b.key}@${b.version}`;
         const existing = packs.find((p) => p.id === id);
-        const pack = {
-          id, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
-          author: resolveActor(b.author, "anon"), tags: b.tags || [], ruleset: b.ruleset || { rules: [] },
-          installs: existing?.installs || 0, forks: existing?.forks || 0,
-          forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || now,
-        };
+        const pack = packRecord(b, existing, resolveActor(b.author, "anon"));
         if (useCde) await cde.docUpsert("pack", "", id, pack); else { if (existing) Object.assign(existing, pack); else pkdb.packs.push(pack); persistPack(); }
         return send(res, 201, pack);
       }
