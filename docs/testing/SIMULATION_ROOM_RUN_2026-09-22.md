@@ -186,3 +186,26 @@ Not exercised: the web clash-panel banner (platform viewer blocked, F49) and the
 (compiled, deploy pending at the next Revit close). Left in place on `aster-office`: five fixture
 containers, their manifests and revisions, and six open `Federation:` topics. Product note carried from the
 final review: manifest capture is not idempotent (a repeated backfill orphans the earlier revision rows).
+
+## Office entity drill (Session B2), 2026-09-23
+
+Feature `feature/office-entity` (cohesion phase 2). Migration `0029_project_office.sql` applied to the live
+database first (`select key, kind, office_key from projects` showed every row `project` / `null`). The
+managed bridge was restarted on the branch. Every line is a bridge response.
+
+| Step | Result | Evidence |
+|---|---|---|
+| `PATCH /cde/projects/aster-office {kind: office}` | row returned with `kind: "office"`, `office_key: null` | response body |
+| `PATCH /cde/projects/aster-tower {office_key: aster-office}` | row returned with `kind: "project"`, `office_key: "aster-office"` | response body |
+| `GET /cde/projects/aster-office/scope` | `{ kind: "office", keys: ["aster-office", "aster-tower"] }` | response body |
+| Guard: `PATCH aster-office {office_key: aster-office}` | refused by the trigger ("an office cannot belong to an office"); surfaced as a 500 rather than 409 (backlog) | bridge log |
+| Office readiness (`READINESS cb8f72db`) | item 6 model health `violation` with `[aster-office] WS-01 … [aster-tower] …` evidence lines; item 20 CDE states `aster-office: 10 of 10 … | aster-tower: 3 of 4 container(s) are not published`, evidence `[aster-tower] …`; item 21 naming likewise; items 7/11/12/19 `met` with one line per project; template items 1–5 unchanged (office's own snapshot) | readiness JSON |
+| New child `POST /cde/projects {key: aster-villa, office_key: aster-office}` | created `kind: "project"`, `office_key: "aster-office"`; `GET /cde/aster-villa/artefacts/ids` → 404 (no IDS of its own) | response bodies |
+| `POST /cde/aster-villa/propose {elements: []}` | `ids_source: "office"`, `ids_ref: "ids@1"`, `ids_sha256: 72b7f3a0…`, verdict `accepted` — judged by the IDS installed on `aster-office` alone | response body |
+
+Not exercised: hub grouping and the settings office selector in the browser (platform viewer blocked,
+F49; type-checked and built), the Revit picker label at runtime (compiled, deploy pending). Left in place:
+`aster-office` is now an office, `aster-tower` and the empty `aster-villa` belong to it. Backlog from the
+final review: scope route has no membership check; trigger exceptions map to 500 instead of 409; the spec's
+per-item office semantics were replaced by generic worst-wins (spec to be amended); each readiness check
+re-resolves the scope.
