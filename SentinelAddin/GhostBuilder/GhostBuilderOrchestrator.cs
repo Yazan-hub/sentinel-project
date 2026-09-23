@@ -29,16 +29,18 @@ namespace Sentinel.GhostBuilder
         private readonly double _minConfidence;
         private readonly string _familyLibraryDir;   // null -> skip preload
         private readonly GuidelineMatcher _guideline; // optional Office Modelling Guideline (per-wall types)
+        private readonly bool _placeholderTypes;      // massing: default types + a note instead of skipping
 
         public GhostBuilderOrchestrator(Document doc, ILayerMapper mapper,
                                         double minConfidence = 0.5, string familyLibraryDir = null,
-                                        GuidelineMatcher guideline = null)
+                                        GuidelineMatcher guideline = null, bool placeholderTypes = false)
         {
             _doc = doc;
             _mapper = mapper;
             _minConfidence = minConfidence;
             _familyLibraryDir = familyLibraryDir;
             _guideline = guideline;
+            _placeholderTypes = placeholderTypes;
             _extractor = new GhostCadExtractor(doc);
         }
 
@@ -170,7 +172,7 @@ namespace Sentinel.GhostBuilder
                 var floorProv = new GhostFloorTypeProvisioner(_doc).Provision(mapping);
                 if (floorProv.Created > 0) _doc.Regenerate();
 
-                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level);
+                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level, _placeholderTypes);
                 report = engine.Place(mapping, elements);
                 report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);

@@ -38,14 +38,25 @@ namespace Sentinel.GhostBuilder
         // family the mapping supplies. Null = the pre-guideline behaviour, unchanged.
         private readonly GuidelineMatcher _guideline;
 
+        // Massing is an LOD 100 estimate: when the office standard has no type for a wall or floor, place it
+        // with the template's DEFAULT type and say so, rather than placing nothing (simulation 3.9, F43 —
+        // every wall was skipped on a template without the pilot's type names). The DWG path keeps the
+        // strict behaviour: a mis-typed wall there is a real defect, a placeholder box here is the point.
+        private readonly bool _placeholderTypes;
+
+        private T DefaultType<T>(ElementTypeGroup group, IReadOnlyDictionary<string, T> cache) where T : ElementType =>
+            (_doc.GetElement(_doc.GetDefaultElementTypeId(group)) as T) ?? cache.Values.FirstOrDefault();
+
         public ElementPlacementFactory(
             Document doc, Level level,
             IReadOnlyDictionary<string, WallType> wallTypes,
             IReadOnlyDictionary<string, FamilySymbol> symbols,
             IReadOnlyDictionary<string, FloorType> floorTypes = null,
             IReadOnlyDictionary<string, ElementType> ceilingTypes = null,
-            GuidelineMatcher guideline = null)
+            GuidelineMatcher guideline = null,
+            bool placeholderTypes = false)
         {
+            _placeholderTypes = placeholderTypes;
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
             _level = level ?? throw new ArgumentNullException(nameof(level));
             _wallTypes = wallTypes ?? new Dictionary<string, WallType>();
@@ -165,6 +176,16 @@ namespace Sentinel.GhostBuilder
             // The guideline decides the type from the measured thickness where it can; a gap is surfaced
             // and the wall skipped rather than mis-typed.
             string resolved = ResolveWallType(el, map, out string gapReason);
+            if (gapReason != null && _placeholderTypes)
+            {
+                var ph = DefaultType(ElementTypeGroup.WallType, _wallTypes);
+                if (ph != null)
+                {
+                    Notes.Add($"Placeholder wall type '{ph.Name}' used for {el.ThicknessMm:0} mm walls on '{el.CadLayer}' — {gapReason} Retype before issue.");
+                    resolved = ph.Name; gapReason = null;
+                    if (!_wallTypes.ContainsKey(ph.Name)) _createdWallTypes[ph.Name] = ph;
+                }
+            }
             if (gapReason != null)
             {
                 warning = $"Wall on '{el.CadLayer}': {gapReason}";
@@ -317,9 +338,15 @@ namespace Sentinel.GhostBuilder
         {
             warning = null;
             FloorType ft = ResolveType(_floorTypes, wanted);
+            if (ft == null && _placeholderTypes)
+            {
+                ft = DefaultType(ElementTypeGroup.FloorType, _floorTypes);
+                if (ft != null)
+                    Notes.Add($"Placeholder floor type '{ft.Name}' used on '{el.CadLayer}' — the office standard names no floor type for the massing. Retype before issue.");
+            }
             if (ft == null)
             {
-                warning = $"FloorType '{wanted}' not found (layer '{el.CadLayer}'); skipped.";
+                warning = $"FloorType '{wanted ?? ""}' not found (layer '{el.CadLayer}'); skipped.";
                 return Outcome.SkippedUnknownType;
             }
 

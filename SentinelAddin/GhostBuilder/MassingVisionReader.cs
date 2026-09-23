@@ -116,7 +116,9 @@ namespace Sentinel.GhostBuilder
                 FootprintDepthMm = Val("footprintDepthMm"),
                 Storeys = Val("storeys"),
                 StoreyHeightMm = Val("storeyHeightMm"),
-                Notes = root.TryGetProperty("notes", out var n) ? n.GetString() : null,
+                // A model that echoes JSON punctuation as its note ("}, {") has said nothing — show nothing.
+                Notes = root.TryGetProperty("notes", out var n) && n.ValueKind == JsonValueKind.String
+                        && (n.GetString() ?? "").Any(char.IsLetter) ? n.GetString() : null,
             };
             if (root.TryGetProperty("facadesSeen", out var fs) && fs.ValueKind == JsonValueKind.Array)
                 est.FacadesSeen = fs.EnumerateArray().Select(x => x.GetString() ?? "").ToList();

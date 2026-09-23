@@ -265,6 +265,7 @@ namespace Sentinel.GhostBuilder
     /// </summary>
     public sealed class GhostPlacementEngine
     {
+        private readonly bool _placeholderTypes; // massing only — see ElementPlacementFactory
         private readonly Document _doc;
         private readonly double _minConfidence;
 
@@ -277,11 +278,13 @@ namespace Sentinel.GhostBuilder
 
         private readonly GuidelineMatcher _guideline; // optional office guideline for per-wall type choice
 
-        public GhostPlacementEngine(Document doc, double minConfidence = 0.5, GuidelineMatcher guideline = null, Level level = null)
+        public GhostPlacementEngine(Document doc, double minConfidence = 0.5, GuidelineMatcher guideline = null, Level level = null,
+                                    bool placeholderTypes = false)
         {
             _doc = doc;
             _minConfidence = minConfidence;
             _guideline = guideline;
+            _placeholderTypes = placeholderTypes;
 
             _wallTypes = new FilteredElementCollector(doc)
                 .OfClass(typeof(WallType)).Cast<WallType>()
@@ -338,7 +341,7 @@ namespace Sentinel.GhostBuilder
 
             // All creation logic lives in the factory; the engine just iterates and tallies.
             var factory = new ElementPlacementFactory(
-                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes, _guideline);
+                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes, _guideline, _placeholderTypes);
 
             foreach (GhostElement el in elements)
             {

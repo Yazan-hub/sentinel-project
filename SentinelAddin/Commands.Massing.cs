@@ -43,7 +43,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             string.IsNullOrWhiteSpace(settings.GhostGuidelinePath) ? null : settings.GhostGuidelinePath,
             string.IsNullOrWhiteSpace(settings.GhostTypeCatalogPath) ? null : settings.GhostTypeCatalogPath);
         var orchestrator = new GhostBuilderOrchestrator(doc, mapper: null, minConfidence: 0,
-                                                        familyLibraryDir: libraryDir, guideline: guideline);
+                                                        familyLibraryDir: libraryDir, guideline: guideline,
+                                                        placeholderTypes: true); // LOD 100: default types, declared
 
         var placementEvent = new MassingPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
