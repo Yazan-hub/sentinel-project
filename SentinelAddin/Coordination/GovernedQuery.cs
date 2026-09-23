@@ -81,6 +81,39 @@ namespace Sentinel.Coordination
             catch { return null; } // never surface a read failure into Revit
         }
 
+        /// <summary>
+        /// One line for the Clash Manager header: the project's Federation Gate status from the web
+        /// (PASS / FAIL with the failing checks / NOT CHECKABLE / NOT RUN, STALE when a live version changed).
+        /// Blocking, ~4 s cap; null when the bridge is unreachable. The project key is the DOCUMENT's
+        /// (SettingsManager.WebProjectKeyFor), never the machine default — the cohesion review's D5.
+        /// </summary>
+        public static string? FederationStatus(string? projectKey)
+        {
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
+                var json = GetString(cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/federation", cfg.ServiceToken);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("latest", out var latest) || latest.ValueKind != JsonValueKind.Object)
+                {
+                    int live = root.TryGetProperty("live_set", out var ls) && ls.ValueKind == JsonValueKind.Array ? ls.GetArrayLength() : 0;
+                    return $"Federation Gate: NOT RUN — {live} live model(s) on '{key}'; run it on the web before clashing.";
+                }
+                var result = latest.GetProperty("result");
+                var verdict = result.GetProperty("verdict").GetString() ?? "";
+                var failing = new List<string>();
+                foreach (var c in result.GetProperty("checks").EnumerateArray())
+                    if (c.GetProperty("status").GetString() == "fail") failing.Add(c.GetProperty("id").GetString() ?? "");
+                bool stale = root.TryGetProperty("stale", out var st) && st.ValueKind == JsonValueKind.True;
+                var word = verdict == "pass" ? "PASS" : verdict == "fail" ? "FAIL" : "NOT CHECKABLE";
+                return $"Federation Gate: {word}" + (failing.Count > 0 ? " (" + string.Join(", ", failing) + " — see the web Issues)" : "")
+                     + (stale ? " — STALE, a live version changed" : "") + $" on '{key}'";
+            }
+            catch { return null; }
+        }
+
         /// <summary>One recorded clash from the web-side team register (GET /clash/:project).</summary>
         public sealed class ClashRow
         {

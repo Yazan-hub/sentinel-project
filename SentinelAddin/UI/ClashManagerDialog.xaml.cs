@@ -8,7 +8,7 @@ public partial class ClashManagerDialog : Window
 {
     private readonly List<ClashManager.ClashItem> _clashes;
 
-    public ClashManagerDialog(List<ClashManager.ClashItem> clashes)
+    public ClashManagerDialog(List<ClashManager.ClashItem> clashes, string? federationLine = null)
     {
         _clashes = clashes;
         InitializeComponent();
@@ -17,6 +17,7 @@ public partial class ClashManagerDialog : Window
             clashes.Count(c => c.Grade == ClashManager.Severity.Hard) + " hard, " +
             clashes.Count(c => c.Grade == ClashManager.Severity.Medium) + " medium, " +
             clashes.Count(c => c.Grade == ClashManager.Severity.Soft) + " soft";
+        if (!string.IsNullOrWhiteSpace(federationLine)) SubHeader.Text += "   ·   " + federationLine;
     }
 
     private List<ClashManager.ClashItem> SelectedOrAll() =>

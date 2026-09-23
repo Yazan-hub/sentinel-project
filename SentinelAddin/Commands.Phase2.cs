@@ -170,7 +170,10 @@ public sealed class ClashManagerCommand : IExternalCommand
                 "No clashes found between linked MEP/IFC elements and native structure.");
             return Result.Succeeded;
         }
-        var win = new Sentinel.UI.ClashManagerDialog(clashes);
+        // The data gate first (D-01): the same status the web clash panel shows, read for this document's key.
+        var fedLine = Sentinel.Coordination.GovernedQuery.FederationStatus(Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc))
+                      ?? "Federation Gate: bridge unreachable";
+        var win = new Sentinel.UI.ClashManagerDialog(clashes, fedLine);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         return Result.Succeeded;
