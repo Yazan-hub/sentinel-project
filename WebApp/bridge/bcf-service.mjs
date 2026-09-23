@@ -311,7 +311,7 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
   const openReqs = (existing || [])
-    .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+    .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved" && !t?.superseded_by)
     .map((t) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, ""));
   // Pure, unit-tested grouping + dedup (sentinel-core) — one issue per still-open failing requirement.
   const core = await loadCore();
@@ -324,8 +324,13 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
       title: `IDS: ${g.key} (${g.count} failing)`, topic_type: "Issue", priority: "High",
       creation_author: author,
       description: `IDS “${idsTitle}” — ${g.count} element(s) fail: ${g.key}.` +
+        (result.ids_ref ? ` Judged by ${result.ids_ref} (${result.ids_source}).` : "") +
         (g.guids.length ? ` Sample GUIDs: ${g.guids.slice(0, 10).join(", ")}` : ""),
     }, now);
+    // F51: which IDS raised this topic, so a later install can mark it superseded. ids_source matters:
+    // project and office versions are separate counters.
+    topic.ids_ref = result.ids_ref ?? null;
+    topic.ids_source = result.ids_source ?? null;
     if (g.guids.length) {
       topic.viewpoints.push({
         guid: randomUUID(), perspective_camera: null,
@@ -338,12 +343,51 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
     try {
       await cde.recordAudit(pid, {
         entity_type: "ids_validation", actor: author, action: `Issue raised: ${g.key}`,
-        new_value: { spec: idsTitle, requirement: g.key, failing: g.count, bcf_guid: topic.guid },
+        new_value: { spec: idsTitle, requirement: g.key, failing: g.count, bcf_guid: topic.guid, ids_ref: topic.ids_ref, ids_source: topic.ids_source },
       });
     } catch { /* audit is best-effort — the topic is already live */ }
     raised.push({ guid: topic.guid, title: topic.title });
   }
   return { raised: raised.length, skipped: openReqs.length, topics: raised };
+}
+
+/** F51: installing ids@n MARKS the open IDS topics it supersedes (superseded_by = the new ref) and never
+ *  closes them — a superseded topic may still be a real defect. One audit row lists the guids. */
+async function markSupersededIdsTopics(cde, pid, newRef, actor) {
+  const { supersededBy } = await import("./ids-supersede.mjs");
+  const hits = supersededBy(await cde.bcfListTopics(pid, { status: "all" }), newRef);
+  if (!hits.length) return [];
+  const now = new Date().toISOString();
+  for (const t of hits) {
+    t.superseded_by = newRef;
+    t.history = t.history || [];
+    t.history.push({ date: now, author: actor, action: `Superseded by ${newRef}` });
+    t.modified_date = now;
+    await cde.bcfSaveTopic(t);
+    broadcast(pid, { type: "topic", action: "updated", guid: t.guid, status: t.topic_status });
+  }
+  const guids = hits.map((t) => t.guid);
+  await cde.recordAudit(pid, { entity_type: "ids_validation", actor, action: `IDS topics superseded by ${newRef}`, new_value: { superseded_by: newRef, topics: guids } });
+  return guids;
+}
+
+/** The lead's one-click "close all as superseded": every open IDS topic carrying a superseded_by mark is
+ *  closed with a history line naming the IDS that superseded it; one audit row lists them. */
+async function closeSupersededIdsTopics(cde, pid, actor) {
+  const { closableSuperseded } = await import("./ids-supersede.mjs");
+  const hits = closableSuperseded(await cde.bcfListTopics(pid, { status: "all" }));
+  const now = new Date().toISOString();
+  for (const t of hits) {
+    t.history = t.history || [];
+    t.history.push({ date: now, author: actor, action: `Status: ${t.topic_status || "—"} → Closed (superseded by ${t.superseded_by})` });
+    t.topic_status = "Closed";
+    t.modified_date = now;
+    await cde.bcfSaveTopic(t);
+    broadcast(pid, { type: "topic", action: "updated", guid: t.guid, status: t.topic_status });
+  }
+  const closed = hits.map((t) => ({ guid: t.guid, superseded_by: t.superseded_by }));
+  if (closed.length) await cde.recordAudit(pid, { entity_type: "ids_validation", actor, action: `Superseded IDS topics closed (${closed.length})`, new_value: { closed } });
+  return { closed: closed.length, topics: closed };
 }
 
 /** One BCF topic per failing Federation Gate check, de-duplicated by title against open ones. The
@@ -1015,6 +1059,14 @@ async function handleRequest(req, res) {
       //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields})
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
+        // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so
+        // the p4 segment is never read as a version.
+        if (p3 === "ids" && p4 === "close-superseded" && req.method === "POST") {
+          const { requireMinRole } = await import("./members-store.mjs");
+          await requireMinRole(p1, "lead");
+          const b = await readBody(req);
+          return send(res, 200, await closeSupersededIdsTopics(cde, p1, resolveActor(b?.actor || url.searchParams.get("actor"), "web")));
+        }
         if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
         if (p3 && !p4 && req.method === "GET") {
           const a = await art.resolveArtefact(p1, p3);
@@ -1030,7 +1082,13 @@ async function handleRequest(req, res) {
           const actor = url.searchParams.get("actor") || body?.installed_by || "web";
           const source = body?.source && typeof body.source === "object" ? body.source : undefined;
           const { source: _s, installed_by: _i, ...artefact } = body || {};
-          return send(res, 201, await art.putArtefact(p1, p3, artefact, { actor, source }));
+          const pointer = await art.putArtefact(p1, p3, artefact, { actor, source });
+          // F51: a new IDS marks the open IDS topics it supersedes. Best-effort — the install already stands.
+          if (p3 === "ids") {
+            try { pointer.superseded_topics = await markSupersededIdsTopics(cde, p1, `ids@${pointer.version}`, resolveActor(actor, "web")); }
+            catch (e) { pointer.superseded_error = String(e?.message || e); }
+          }
+          return send(res, 201, pointer);
         }
       }
       // Governed Intake: the whole Governed Publish loop for an IFC from any source (no Revit).

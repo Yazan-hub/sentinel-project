@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
+import { myRole, canGovernRole } from "./my-role";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
@@ -33,6 +34,7 @@ interface Topic {
   comments?: { author: string; comment: string }[];
   history?: { date: string; author: string; action: string }[];
   viewpoints?: { components?: { selection?: { ifc_guid: string }[] } }[];
+  ids_ref?: string | null; ids_source?: string | null; superseded_by?: string;   // IDS-raised topics (F51)
 }
 
 interface FRAGS_Model {
@@ -50,6 +52,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const firstWorld = (): any => [...components.get(OBC.Worlds).list.values()][0];
   let topics: Topic[] = [];
+  let role = "viewer";   // fail closed; fetchAll asks the bridge each load
 
   // ── selection → GlobalIds + owning model ─────────────────────────────────────
   async function selection(): Promise<{ globalIds: string[]; model: FRAGS_Model | undefined }> {
@@ -167,17 +170,45 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     return topics.filter((t) => (s === "All" || t.topic_status === s) && (ty === "All" || t.topic_type === ty) && (pr === "All" || (t.priority || "") === pr));
   };
 
+  const rowHtml = (t: Topic) => {
+    const links = (t.viewpoints || []).reduce((n, v) => n + (v.components?.selection?.length || 0), 0);
+    return `<div class="ip-row" data-guid="${t.guid}" style="padding:.4rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
+      `<div style="display:flex;align-items:center;gap:.4rem"><span style="width:.6rem;height:.6rem;border-radius:50%;background:${STATUS_COLOR[t.topic_status] || "#6528d7"};flex:none"></span>` +
+      `<span style="flex:1;font-weight:600">${esc(t.title)}</span><span style="font-size:11px;color:#9ca3af">${esc(t.topic_type)}</span></div>` +
+      `<div style="font-size:11px;color:#9ca3af;margin-top:.15rem">${esc(t.topic_status)} · ${esc(t.priority || "—")} · ${links} el · ${esc(t.assigned_to || "unassigned")}` +
+      `${t.ids_ref ? ` · ${esc(t.ids_ref)}` : ""}${t.superseded_by ? ` · superseded by ${esc(t.superseded_by)}` : ""}</div></div>`;
+  };
+
+  const closeSuperseded = async () => {
+    const b = el("ip-close-sup") as HTMLButtonElement; b.disabled = true; msg("Closing superseded IDS issues…");
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(projectId())}/artefacts/ids/close-superseded`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
+      msg(`✅ ${j.closed} superseded issue(s) closed — recorded in the audit log.`, "#22c55e");
+      await fetchAll();
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); b.disabled = false; }
+  };
+
   const renderList = () => {
     const list = filtered();
+    // F51: open IDS topics a newer IDS superseded get their own group — still listed (a superseded topic may
+    // be a real defect), closable in one audited step by a lead. Nothing closes them automatically.
+    const isSup = (t: Topic) => !!t.superseded_by && t.topic_status !== "Closed" && t.topic_status !== "Resolved";
+    const current = list.filter((t) => !isSup(t)), sup = list.filter(isSup);
     el("ip-count").textContent = `(${list.length})`;
-    el("ip-list").innerHTML = list.map((t) => {
-      const links = (t.viewpoints || []).reduce((n, v) => n + (v.components?.selection?.length || 0), 0);
-      return `<div class="ip-row" data-guid="${t.guid}" style="padding:.4rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
-        `<div style="display:flex;align-items:center;gap:.4rem"><span style="width:.6rem;height:.6rem;border-radius:50%;background:${STATUS_COLOR[t.topic_status] || "#6528d7"};flex:none"></span>` +
-        `<span style="flex:1;font-weight:600">${esc(t.title)}</span><span style="font-size:11px;color:#9ca3af">${esc(t.topic_type)}</span></div>` +
-        `<div style="font-size:11px;color:#9ca3af;margin-top:.15rem">${esc(t.topic_status)} · ${esc(t.priority || "—")} · ${links} el · ${esc(t.assigned_to || "unassigned")}</div></div>`;
-    }).join("") || '<div style="color:#9ca3af;font-size:12px;padding:.4rem">No issues match the filters.</div>';
+    let h = current.map(rowHtml).join("") || (sup.length ? "" : '<div style="color:#9ca3af;font-size:12px;padding:.4rem">No issues match the filters.</div>');
+    if (sup.length) {
+      h += '<div style="display:flex;align-items:center;gap:.4rem;margin:.6rem 0 .3rem;padding-top:.4rem;border-top:1px solid #2a2a30">' +
+        `<span style="flex:1;color:#eab308;font:600 12px system-ui">Raised by a superseded IDS (${sup.length})</span>` +
+        (canGovernRole(role) ? `<button id="ip-close-sup" style="${btn};background:#2a2a30;color:#eee">Close all as superseded</button>` : "") +
+        "</div>" + sup.map(rowHtml).join("");
+    }
+    el("ip-list").innerHTML = h;
     root.querySelectorAll<HTMLElement>(".ip-row").forEach((r) => r.addEventListener("click", () => showDetail(r.dataset.guid as string)));
+    root.querySelector("#ip-close-sup")?.addEventListener("click", () => void closeSuperseded());
   };
 
   const showDetail = (guid: string) => {
@@ -187,6 +218,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     h += `<div style="font-weight:600;font-size:14px;margin-bottom:.4rem">${esc(t.title)}</div><div style="font-size:12px;line-height:1.5">`;
     h += row("Type", t.topic_type) + row("Status", t.topic_status) + row("Priority", t.priority) + row("Assigned", t.assigned_to) + row("Due", fmtDate(t.due_date));
     if (t.labels?.length) h += row("Labels", t.labels.join(", "));
+    if (/^IDS:/.test(t.title)) h += row("Raised by", `${t.ids_ref ? `${t.ids_ref} (${t.ids_source || "?"})` : "an IDS without a ref (before refs were recorded)"}${t.superseded_by ? ` · superseded by ${t.superseded_by}` : ""}`);
     h += row("Author", `${t.creation_author || "—"}  ${fmtDate(t.creation_date)}`);
     if (t.description) h += `<div style="margin-top:.3rem"><span style="color:#9ca3af">Description:</span><br>${esc(t.description)}</div>`;
     if (t.comments?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">Comments (${t.comments.length}):</div>`; for (const c of t.comments) h += `<div>• ${esc(c.author)}: ${esc(c.comment)}</div>`; }
@@ -202,6 +234,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     try {
       const r = await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics?status=all&model=`);
       topics = await r.json();
+      role = await myRole(base, projectId());
       renderList();
     } catch (e) { el("ip-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the BCF service.<br>${esc((e as Error).message)}</div>`; }
   };
