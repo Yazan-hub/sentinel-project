@@ -8,7 +8,8 @@
 //
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
-import { listFiles, getProjectMeta, listAudit, projectNamingRuleset, listTransmittals } from "./cde-store.mjs";
+import { listFiles, getProjectMeta, listAudit, projectNamingRuleset, listTransmittals, NO_NAMING_REASON } from "./cde-store.mjs";
+import { refLabel } from "./artefact-store.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
 
 let _core;
@@ -38,11 +39,13 @@ function defaultValidateContainerName(name, ruleset) {
   return { ok: failures.length === 0, failures };
 }
 
-export function classifyNaming(files, ruleset, source, validate = defaultValidateContainerName) {
+/** `named` is projectNamingRuleset's answer: { ruleset, source, ref, sha256 }. */
+export function classifyNaming(files, named, validate = defaultValidateContainerName) {
   const id = "naming.containers", label = "Container naming";
-  if (!ruleset) return result(id, label, "not_checkable", { reason: "No naming ruleset is configured for this bridge or project, so container names cannot be checked." });
+  const ruleset = named?.ruleset ?? null;
+  if (!ruleset) return result(id, label, "not_checkable", { reason: NO_NAMING_REASON });
   if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no containers yet — nothing to check." });
-  const which = source === "project" ? "the project's ruleset" : "the bridge default ruleset";
+  const which = refLabel(named);
   const bad = [];
   for (const f of files) {
     const r = validate(f.iso_name, ruleset);
@@ -411,11 +414,11 @@ export const CHECKS = [
   {
     id: "naming.containers",
     label: "Container naming",
-    description: "Every information container's name satisfies the project's ISO 19650 naming ruleset.",
+    description: "Every information container's name satisfies the naming standard installed on the project or its office.",
     params_schema: {},
     async run(key) {
-      const [files, { ruleset, source }, c] = await Promise.all([listFiles(key), projectNamingRuleset(key), core()]);
-      return classifyNaming(files, ruleset, source, c.validateContainerName);
+      const [files, named, c] = await Promise.all([listFiles(key), projectNamingRuleset(key), core()]);
+      return classifyNaming(files, named, c.validateContainerName);
     },
   },
   {

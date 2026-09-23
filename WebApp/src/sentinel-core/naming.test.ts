@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { validateContainerName, type NamingRuleset } from "./naming";
 
-// A compact BDS-style 11-field ruleset (mirrors bridge/naming-ruleset.json) for unit tests.
+// A compact BDS-style 11-field ruleset (mirrors demo/bds-pilot/bds-naming-ruleset.json) for unit tests.
 const BDS: NamingRuleset = {
   title: "BDS 11-field", separator: "-", strip_extensions: [".ifc", ".rvt"], enforce: "reject",
   fields: [

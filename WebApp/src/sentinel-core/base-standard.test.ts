@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "../../..");
 const baseNaming: NamingRuleset = JSON.parse(readFileSync(resolve(root, "config/base-standard/naming-ruleset.json"), "utf8"));
 const baseIds: IdsSpec = JSON.parse(readFileSync(resolve(root, "config/base-standard/ids.json"), "utf8"));
-const bdsNaming: NamingRuleset = JSON.parse(readFileSync(resolve(root, "WebApp/bridge/naming-ruleset.json"), "utf8"));
+const bdsNaming: NamingRuleset = JSON.parse(readFileSync(resolve(root, "demo/bds-pilot/bds-naming-ruleset.json"), "utf8"));
 
 const elem = (cls: string, name: string | undefined, psets: { name: string; rows: { name: string; value: string }[] }[] = [], guid = "G"): ElementProperties => ({
   modelId: "m", localId: 1, identity: { Class: cls, GlobalId: guid, ...(name != null ? { Name: name } : {}) }, psets, quantities: [],
@@ -40,7 +40,7 @@ describe("Base standard pack (D-03 proof)", () => {
     expect(good.verdict).toBe("accepted");
   });
 
-  it("real bridge naming-ruleset.json is well-formed (regression net for silent gate-off)", () => {
+  it("the pilot's naming pack (demo data) is well-formed", () => {
     expect(Array.isArray(bdsNaming.fields) && !!bdsNaming.separator).toBe(true);
   });
 

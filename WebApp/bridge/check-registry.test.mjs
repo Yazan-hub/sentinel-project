@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { refLabel, validateArtefact } from "./artefact-store.mjs";
 import {
   CHECKS, PLANNED_CHECKS, getCheck, listChecks, runCheck,
   classifyNaming, classifyStates, classifySuitability, classifyVersioned,
@@ -12,6 +13,8 @@ const RULESET = {
   title: "Test ruleset", separator: "-", enforce: "reject",
   fields: [{ key: "project", pattern: "[A-Za-z0-9]{3,}" }, { key: "disc", enum: ["ARC", "STR"] }],
 };
+const NAMED = { ruleset: RULESET, source: "office", ref: "naming@2", sha256: "3f07376abcdef0123456789" };
+const NOTHING = { ruleset: null, source: "none", ref: null, sha256: null };
 
 describe("registry contracts", () => {
   it("every check has the required fields and a unique id", () => {
@@ -54,55 +57,57 @@ describe("registry contracts", () => {
 
 describe("classifyNaming", () => {
   it("reports met when every container name passes", () => {
-    const r = classifyNaming([{ iso_name: "PRJ-ARC" }], RULESET, "project");
+    const r = classifyNaming([{ iso_name: "PRJ-ARC" }], NAMED);
     expect(r.status).toBe("met");
     expect(r.count).toBe(0);
   });
 
   it("reports violations with per-container evidence naming the failing field", () => {
-    const r = classifyNaming([{ iso_name: "PRJ-ARC" }, { iso_name: "PRJ-XXX" }], RULESET, "project");
+    const r = classifyNaming([{ iso_name: "PRJ-ARC" }, { iso_name: "PRJ-XXX" }], NAMED);
     expect(r.status).toBe("violations");
     expect(r.count).toBe(1);
     expect(r.evidence[0].label).toBe("PRJ-XXX");
     expect(r.evidence[0].detail).toContain("disc");
   });
 
-  it("is not_checkable with a reason when no ruleset is configured", () => {
-    const r = classifyNaming([{ iso_name: "anything" }], null, "default");
+  it("is not_checkable naming the install route when no naming standard is installed", () => {
+    const r = classifyNaming([{ iso_name: "anything" }], NOTHING);
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toMatch(/ruleset/i);
+    expect(r.reason).toBe("no naming standard installed for this project or its office (PUT /cde/:key/artefacts/naming)");
   });
 
   it("is not_checkable when the project has no containers yet", () => {
-    const r = classifyNaming([], RULESET, "project");
+    const r = classifyNaming([], NAMED);
     expect(r.status).toBe("not_checkable");
     expect(r.reason).toMatch(/no containers/i);
   });
 
-  it("names which ruleset was used in the summary", () => {
-    expect(classifyNaming([{ iso_name: "PRJ-ARC" }], RULESET, "default").summary).toContain("bridge default");
-    expect(classifyNaming([{ iso_name: "PRJ-ARC" }], RULESET, "project").summary).toContain("project");
+  it("names the artefact that judged — ref · source · sha — in the summary", () => {
+    expect(classifyNaming([{ iso_name: "PRJ-ARC" }], NAMED).summary).toContain(refLabel(NAMED));
+    expect(classifyNaming([{ iso_name: "PRJ-ARC" }], NAMED).summary).toContain("naming@2 · office");
+    expect(classifyNaming([{ iso_name: "PRJ-XXX" }], NAMED).summary).toContain("naming@2 · office");
   });
 
-  describe("against the real validator and shipped ruleset", () => {
+  describe("against the real validator and the pilot's naming pack (demo data, not a bridge default)", () => {
     const realRuleset = JSON.parse(
-      readFileSync(fileURLToPath(new URL("./naming-ruleset.json", import.meta.url)), "utf8")
+      readFileSync(fileURLToPath(new URL("../../demo/bds-pilot/bds-naming-ruleset.json", import.meta.url)), "utf8")
     );
+    const real = { ruleset: realRuleset, source: "project", ref: "naming@1", sha256: "0".repeat(64) };
+
+    it("both shipped naming packs are installable as naming artefacts", () => {
+      const base = JSON.parse(readFileSync(fileURLToPath(new URL("../../config/base-standard/naming-ruleset.json", import.meta.url)), "utf8"));
+      expect(() => validateArtefact("naming", realRuleset)).not.toThrow();
+      expect(() => validateArtefact("naming", base)).not.toThrow();
+    });
 
     it("passes a correctly formed container name", () => {
-      const r = classifyNaming(
-        [{ iso_name: "BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03" }],
-        realRuleset, "project", validateContainerName
-      );
+      const r = classifyNaming([{ iso_name: "BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03" }], real, validateContainerName);
       expect(r.status).toBe("met");
       expect(r.count).toBe(0);
     });
 
     it("flags a malformed container name with the real failing field", () => {
-      const r = classifyNaming(
-        [{ iso_name: "BDS20268-BDS-M3-IFC4-XYZ-ZZ-XX-XX-M001-S2-P03" }],
-        realRuleset, "project", validateContainerName
-      );
+      const r = classifyNaming([{ iso_name: "BDS20268-BDS-M3-IFC4-XYZ-ZZ-XX-XX-M001-S2-P03" }], real, validateContainerName);
       expect(r.status).toBe("violations");
       expect(r.count).toBe(1);
       expect(r.evidence[0].detail).toContain("discipline");
