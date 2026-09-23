@@ -1,6 +1,6 @@
 # Governed Intake — design (Features Update 2026-09, item 1.1)
 
-Status: draft for review, 2026-09-23. Source: `docs/FEATURES_UPDATE_2026-09.md` §Wave 1, `docs/HANDOFF_2026-09-23.md`.
+Status: draft for review, 2026-09-23; §3 amended the same day from the cohesion review (artefact store, env override removed). Source: `docs/FEATURES_UPDATE_2026-09.md` §Wave 1, `docs/HANDOFF_2026-09-23.md`.
 
 ## Goal
 
@@ -98,21 +98,40 @@ failures[], warnings[], sha256, size }`
   file on the pilot's seats (F26 unchanged by this item).
 - IFCZIP: refused with the existing wording ("IFCZIP (not yet supported)"); U-6 is a separate item.
 
-### 3. Project IDS custody — `PUT /cde/:key/ids`, `GET /cde/:key/ids`
+### 3. Project IDS as the first project artefact — `/cde/:key/artefacts/ids`
 
 The referee today judges by `SENTINEL_IDS` (a server env file) or whatever the client posts
-(`cde-store.mjs:851-869`); a project has no IDS of its own (findings F29, F36). This item adds the
-project artefact because a headless intake has no client to post one:
+(`cde-store.mjs:851-869`); a project has no IDS of its own (findings F29, F36). The cohesion review of
+2026-09-23 (`docs/reviews/cohesion-review-2026-09-23.md`, disconnections D1 and D3) makes this the
+first phase of the project spine, so the store is built as the general artefact store with IDS as its
+first kind, not as a one-off:
 
-- Store: `bridge_docs` store `"ids"`, doc id `"active"` (generic document store, `docUpsert`), body
-  `{ title, specifications[], enforce, source: { document_id?, compiled_at?, installed_by } }`;
-  every PUT writes an audit row `ids_installed`.
-- Resolution order in `resolveIdsSpec(key, body)`: server `SENTINEL_IDS` when set (custody, unchanged)
-  → project `ids/active` → `body.ids` → none. `adjudicateProposal` calls it, so Revit's Governed
-  Publish and the changeset adjudication (F36) inherit the project IDS without add-in changes;
-  `ids_source` in the response says which one judged (`server | project | client | none`).
-- Web: the existing **Compile to IDS** result view gets an **Install on this project** button that
-  PUTs the compiled spec (docs-panel.ts, small).
+- Store: `bridge_docs` store `"artefact"`, immutable documents `ids@1`, `ids@2`, … (`docInsert`,
+  create-only) plus a pointer document `ids` holding `{ kind, version, sha256, installed_by, installed_at,
+  source: { document_id?, compiled_at? } }` (`docUpsert`). Every install writes one audit row
+  `artefact_installed` naming `kind@version` and the sha.
+- Routes: `GET /cde/:key/artefacts` (what is in force, per kind), `GET /cde/:key/artefacts/:kind`
+  (resolves project → office → 404 `not installed for <key>`; returns `{ kind, version, sha256, source,
+  body }`), `PUT /cde/:key/artefacts/:kind` (new immutable version + pointer + audit row; lead role),
+  `GET /cde/:key/artefacts/:kind/:version` (a past version, for receipts). Only `kind = ids` has a
+  validator in this item; later kinds (ruleset, naming, contract, guideline, layers, type_catalog) reuse
+  the routes. "Office" resolution is a no-op until the office entity exists (review phase 2): the
+  resolver takes an optional parent key and the migration lands with that phase.
+- Resolution order in `resolveIdsSpec(key, body)`: project artefact → office artefact → `body.ids` →
+  none. **`SENTINEL_IDS` is removed**, not kept as an override: the review found the server-wide file
+  silently outranking every project (D3) and invisible on the Revit side. Its one-time use (the swap run
+  of 2026-07-26) is covered by the import CLI below. `ids_source` in every verdict says which judged
+  (`project | office | client | none`) and names `ids@version` and the sha.
+- `adjudicateProposal` calls the resolver, so Revit's Governed Publish and the changeset adjudication
+  (F36) inherit the project IDS without add-in changes.
+- Web: the **Compile to IDS** result view gets **Install on this project** (docs-panel.ts, small); the
+  Visibility panel runs the installed spec instead of `DEMO_IDS`.
+- Import: `node bridge/artefact-import.mjs --project <key> --kind ids <file.json>` installs an existing
+  `ids.json` (the pilot's and Aster's current files) so no project starts empty.
+
+Deliberately not in this item (review phase 5): routing Quick and Auto publish through the referee.
+The outbox watcher keeps registering versions ungated; this item adds the governed entry for files
+that do not come from Revit.
 
 ### 4. `POST /cde/:key/intake` — the loop
 
@@ -127,7 +146,7 @@ sequence is unit-tested with stubbed deps; the route only wires real deps.
 |---|---|---|
 | 0 | size cap, sha256, `name` required and must end in `.ifc` | 400 / 413 |
 | G2 | `checkDelivery` with the resolved contract; `recordGate(key, "intake", …)` | audit `intake rejected (gate)`, return `verdict: "rejected", stage: "gate"`, no BCF (as Revit) |
-| G1+G3 | `extractElements` → `adjudicateProposal(key, { source, actor, agent, elements, container_name: name, note })` | `rejected` → `raiseGovernedFailureTopics` (shared helper with the propose route), return with `bcf` |
+| G1+G3 | `extractElements` → `adjudicateProposal(key, { source, actor, agent, elements, container_name: name, note })` (IDS from the project artefact resolver of §3) | `rejected` → `raiseGovernedFailureTopics` (shared helper with the propose route), return with `bcf` |
 | G4 | `ifcBytesToFrag` → `uploadBytes` (fallback: raw IFC, as `/ifc`) → `registerFileVersion(key, { name, revision, sha256, size, platform_item_id, author })` → `recordVersionVerdict(key, version_id, result)` (the block now inline at `cde-store.mjs:912-924`, extracted) | upload failure after an accepted verdict is reported as `verdict: "accepted", published: false, error` — the verdict stands, the file is not lost (caller still has it) |
 
 Response: `{ verdict: accepted|rejected|recorded, stage: gate|ids|published, gate, naming, summary,
@@ -183,11 +202,11 @@ snapshot ingest per element (2.0); nightly re-check (U-5 second half); an MCP `i
 
 ## Files
 
-- Create: `WebApp/bridge/ifc-extract.mjs`, `WebApp/bridge/delivery-gate.mjs`,
+- Create: `WebApp/bridge/artefact-import.mjs`, `WebApp/bridge/ifc-extract.mjs`, `WebApp/bridge/delivery-gate.mjs`,
   `WebApp/bridge/delivery-contract.json`, `WebApp/bridge/intake-logic.mjs`, `WebApp/bridge/intake.mjs`,
   `WebApp/bridge/fixtures/minimal.ifc`, tests as above.
-- Modify: `WebApp/bridge/bcf-service.mjs` (routes `intake`, `ids`; extract `raiseGovernedFailureTopics`
+- Modify: `WebApp/bridge/bcf-service.mjs` (routes `intake`, `artefacts`; `serverIdsSpec` and `SENTINEL_IDS` removed; extract `raiseGovernedFailureTopics`
   and the `/ifc` upload body into helpers), `WebApp/bridge/cde-store.mjs` (`resolveIdsSpec`,
-  `recordVersionVerdict`, `getProjectIds/putProjectIds`), `WebApp/src/setups/docs-panel.ts` (Install on
+  `recordVersionVerdict`, `getArtefact/putArtefact/listArtefacts`), `WebApp/src/setups/docs-panel.ts` (Install on
   this project), `docs/TESTING_PROTOCOL.md`, `docs/handbook/05-capability-status.md`,
   `docs/FEATURES_UPDATE_2026-09.md` (status), `docs/mcp-server.md` (route note).
