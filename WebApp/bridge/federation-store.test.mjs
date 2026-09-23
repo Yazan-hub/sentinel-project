@@ -71,4 +71,23 @@ describe("getFederation", () => {
     expect(f.stale).toBe(true);
     expect(f.live_set[0].version_id).toBe("v-9");
   });
+  it("is not stale after a partial run when the untouched live models are unchanged (3 live, run on 2)", async () => {
+    const live3 = [
+      { container: "A-0101.ifc", container_id: "c-1", version_id: "v-1", revision: "P01", has_manifest: true, captured_at: null },
+      { container: "B-0102.ifc", container_id: "c-2", version_id: "v-2", revision: "P01", has_manifest: true, captured_at: null },
+      { container: "C-0103.ifc", container_id: "c-3", version_id: "v-3", revision: "P01", has_manifest: true, captured_at: null },
+    ];
+    const d = memDeps({ manifests: { "v-1": mA, "v-2": mB, "v-3": mB }, verdicts: { "v-1": "accepted", "v-2": "accepted", "v-3": "accepted" }, live: live3 });
+    await runFederation("p", { versions: ["v-1", "v-3"] }, { actor: "cli" }, d);
+    expect((await getFederation("p", d)).stale).toBe(false);
+  });
+  it("is stale when the recorded set's manifest coverage changed, even if the version id did not (backfill)", async () => {
+    const d = memDeps({ manifests: { "v-1": mA } });
+    await runFederation("p", {}, { actor: "cli" }, d);
+    d.listManifests = async () => [
+      { container: "A-0101.ifc", container_id: "c-1", version_id: "v-1", revision: "P01", has_manifest: true, captured_at: "now" },
+      { container: "B-0102.ifc", container_id: "c-2", version_id: "v-2", revision: "P01", has_manifest: true, captured_at: "now" },
+    ];
+    expect((await getFederation("p", d)).stale).toBe(true);
+  });
 });

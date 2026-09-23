@@ -42,7 +42,12 @@ export async function runFederation(key, { versions } = {}, { actor = "web" } = 
   const d = await wire(deps);
   const proj = await d.ensureProject(key);
   let set = await d.listManifests(key);
-  if (Array.isArray(versions) && versions.length) set = set.filter((m) => versions.includes(m.version_id));
+  let ignored = [];
+  if (Array.isArray(versions) && versions.length) {
+    const live = new Set(set.map((m) => m.version_id));
+    ignored = versions.filter((v) => !live.has(v));
+    set = set.filter((m) => versions.includes(m.version_id));
+  }
   const models = [];
   for (const m of set) models.push({ container: m.container, version_id: m.version_id, manifest: m.has_manifest ? await d.getManifest(key, m.version_id) : null });
   const verdicts = await d.versionVerdicts(key, models.map((m) => m.version_id));
@@ -52,14 +57,26 @@ export async function runFederation(key, { versions } = {}, { actor = "web" } = 
   const run = {
     result, set: set.map((m) => ({ container: m.container, version_id: m.version_id, revision: m.revision ?? null, has_manifest: m.has_manifest })),
     at: new Date().toISOString(), actor, type_rule: rule?.id ?? null, naming_ruleset: naming?.title ?? null,
+    ...(ignored.length ? { ignored_versions: ignored } : {}),
   };
   await d.docUpsert(STORE, proj.id, "latest", run);
   const word = result.verdict === "pass" ? "PASS" : result.verdict === "fail" ? "FAIL" : "NOT CHECKABLE";
-  await d.audit(proj.id, "federation_gate", null, `Federation gate ${word}: ${models.length} model(s)`, actor, null, {
+  const ignoredNote = ignored.length ? ` (${ignored.length} requested version(s) not live, ignored)` : "";
+  await d.audit(proj.id, "federation_gate", null, `Federation gate ${word}: ${models.length} model(s)${ignoredNote}`, actor, null, {
     verdict: result.verdict, models: run.set,
     checks: result.checks.map((c) => ({ id: c.id, status: c.status, reason: c.reason ?? null, evidence: c.evidence.length })),
   });
   return run;
+}
+
+/** A run's set is stale per container: it changed if a container it recorded is no longer live, its
+ *  live version_id moved on, or its manifest coverage changed (a backfill after a NOT CHECKABLE run). */
+function isStale(recordedSet, liveSet) {
+  const live = new Map(liveSet.map((m) => [m.container, m]));
+  return recordedSet.some((m) => {
+    const l = live.get(m.container);
+    return !l || l.version_id !== m.version_id || !!l.has_manifest !== !!m.has_manifest;
+  });
 }
 
 export async function getFederation(key, deps) {
@@ -67,6 +84,5 @@ export async function getFederation(key, deps) {
   const proj = await d.ensureProject(key);
   const latest = (await d.docGet(STORE, proj.id, "latest")) ?? null;
   const live = await d.listManifests(key);
-  const ids = (xs) => xs.map((x) => x.version_id).sort().join(",");
-  return { latest, stale: !!latest && ids(latest.set) !== ids(live), live_set: live };
+  return { latest, stale: !!latest && isStale(latest.set, live), live_set: live };
 }
