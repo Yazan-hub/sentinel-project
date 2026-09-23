@@ -57,6 +57,9 @@ export async function runFederation(key, { versions } = {}, { actor = "web" } = 
   const run = {
     result, set: set.map((m) => ({ container: m.container, version_id: m.version_id, revision: m.revision ?? null, has_manifest: m.has_manifest })),
     at: new Date().toISOString(), actor, type_rule: rule?.id ?? null, naming_ruleset: naming?.title ?? null,
+    // "all" = the whole live set was judged (a model added later makes it stale); "explicit" = a partial
+    // run over a named subset (models outside the subset never affect its staleness).
+    scope: Array.isArray(versions) && versions.length ? "explicit" : "all",
     ...(ignored.length ? { ignored_versions: ignored } : {}),
   };
   await d.docUpsert(STORE, proj.id, "latest", run);
@@ -71,15 +74,15 @@ export async function runFederation(key, { versions } = {}, { actor = "web" } = 
 
 /** A run's set is stale per container: it changed if a container it recorded is no longer live, its
  *  live version_id moved on, or its manifest coverage changed (a backfill after a NOT CHECKABLE run). */
-function isStale(recordedSet, liveSet) {
+function isStale(recordedSet, liveSet, scope = "all") {
   const live = new Map(liveSet.map((m) => [m.container, m]));
   const recorded = new Set(recordedSet.map((m) => m.container));
-  // Stale when a recorded model changed version or manifest state, OR when a live model exists that the
-  // run never saw (a container added after the run — final review 2026-09-23).
+  // Stale when a recorded model changed version or manifest state, OR — for a full run only — when a
+  // live model exists that the run never saw (a container added after the run — final review 2026-09-23).
   return recordedSet.some((m) => {
     const l = live.get(m.container);
     return !l || l.version_id !== m.version_id || !!l.has_manifest !== !!m.has_manifest;
-  }) || liveSet.some((l) => !recorded.has(l.container));
+  }) || (scope !== "explicit" && liveSet.some((l) => !recorded.has(l.container)));
 }
 
 export async function getFederation(key, deps) {
@@ -87,5 +90,5 @@ export async function getFederation(key, deps) {
   const proj = await d.ensureProject(key);
   const latest = (await d.docGet(STORE, proj.id, "latest")) ?? null;
   const live = await d.listManifests(key);
-  return { latest, stale: !!latest && isStale(latest.set, live), live_set: live };
+  return { latest, stale: !!latest && isStale(latest.set, live, latest.scope ?? "all"), live_set: live };
 }
