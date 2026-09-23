@@ -8,7 +8,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 |---|---|---|
 | Governed Publish loop (Revit → gate → verdict → publish/BCF) | ✅ Verified | Live end-to-end on a real building model (G1–G4) |
 | Governed Intake (any IFC → gate → project IDS → verdict → version, no Revit) | ✅ Verified | Session D2 drill 2026-09-23 (`docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md`): a 25 MB foreign IFC rejected with the field and the four failing elements named, BCF raised and de-duplicated; a conforming file accepted, uploaded, registered as P01 with its verdict, receipt verified and a tampered copy refused. Route `POST /cde/:key/intake`, CLI `bridge/intake.mjs` |
-| Federation Gate (six cross-model data checks before any clash run) | 🟩 Built | Manifests captured on publish; `POST /cde/:key/federation/run`, CLI `bridge/federation.mjs`, clash-panel banner, Revit Clash Manager status line; moves to ✅ on the Session D3 drill |
+| Federation Gate (six cross-model data checks before any clash run) | 🟩 Built | Manifests captured on Governed Intake and outbox publishes (not yet the web Files-panel upload, which still reads "no manifest" until backfilled via `POST /cde/:key/manifests/:versionId`); `POST /cde/:key/federation/run`, CLI `bridge/federation.mjs`, clash-panel banner, Revit Clash Manager status line; moves to ✅ on the Session D3 drill |
 | One-button Revit command + governance ribbon | 🟩 Built | Verified building on Revit 2024–2026 |
 | Pure governance engine (`sentinel-core`) | ✅ Verified | 99 passing tests |
 | Naming gate (Phase A, ISO 19650, enforce=reject) | 🟩 Built | Active: `WebApp/bridge/naming-ruleset.json` (BDS pilot); swap via `SENTINEL_NAMING_RULESET` env var |

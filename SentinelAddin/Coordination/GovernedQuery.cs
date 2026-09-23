@@ -106,9 +106,17 @@ namespace Sentinel.Coordination
                 var failing = new List<string>();
                 foreach (var c in result.GetProperty("checks").EnumerateArray())
                     if (c.GetProperty("status").GetString() == "fail") failing.Add(c.GetProperty("id").GetString() ?? "");
+                int total = 0, read = 0;
+                if (result.TryGetProperty("models", out var modelsEl) && modelsEl.ValueKind == JsonValueKind.Array)
+                    foreach (var m in modelsEl.EnumerateArray())
+                    {
+                        total++;
+                        if (m.TryGetProperty("has_manifest", out var hm) && hm.ValueKind == JsonValueKind.True) read++;
+                    }
                 bool stale = root.TryGetProperty("stale", out var st) && st.ValueKind == JsonValueKind.True;
                 var word = verdict == "pass" ? "PASS" : verdict == "fail" ? "FAIL" : "NOT CHECKABLE";
                 return $"Federation Gate: {word}" + (failing.Count > 0 ? " (" + string.Join(", ", failing) + " — see the web Issues)" : "")
+                     + (total > 0 && read < total ? $" · {read} of {total} read" : "")
                      + (stale ? " — STALE, a live version changed" : "") + $" on '{key}'";
             }
             catch { return null; }

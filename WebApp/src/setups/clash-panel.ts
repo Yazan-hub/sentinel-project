@@ -94,7 +94,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   // Federation Gate banner (decision D-01): the data checks a clash run should not start without. A
   // warning, not a lock — the lock is the review-workflow item. Reads the latest run; Run gate posts one.
   type FedCheck = { id: string; title: string; status: string };
-  type FedState = { latest: { at: string; set: unknown[]; result: { verdict: string; checks: FedCheck[] } } | null; stale: boolean; live_set: { has_manifest: boolean }[] };
+  type FedModel = { has_manifest: boolean };
+  type FedState = { latest: { at: string; set: unknown[]; result: { verdict: string; checks: FedCheck[]; models: FedModel[] } } | null; stale: boolean; live_set: { has_manifest: boolean }[] };
   const fedColour: Record<string, string> = { pass: "#22c55e", fail: "#f87171", not_checkable: "#eab308" };
   async function loadFederation() {
     const text = el("cl-fed-text");
@@ -109,10 +110,14 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       }
       const v = f.latest.result.verdict;
       const failing = f.latest.result.checks.filter((c) => c.status === "fail").map((c) => c.id);
+      const models = f.latest.result.models ?? [];
+      const read = models.filter((m) => m.has_manifest).length;
       text.style.color = f.stale ? fedColour.not_checkable : (fedColour[v] ?? "#9ca3af");
       text.textContent = `Federation Gate: ${v === "not_checkable" ? "NOT CHECKABLE" : v.toUpperCase()}` +
         (failing.length ? ` · ${failing.join(", ")} — see Issues` : "") +
-        ` · ${f.latest.set.length} model(s) · ${String(f.latest.at).slice(0, 10)}` + (f.stale ? " · STALE — a live version changed" : "");
+        ` · ${f.latest.set.length} model(s) · ${String(f.latest.at).slice(0, 10)}` +
+        (models.length && read < models.length ? ` · ${read} of ${models.length} read` : "") +
+        (f.stale ? " · STALE — a live version changed" : "");
     } catch { el("cl-fed-text").textContent = "Federation Gate: bridge unreachable"; }
   }
   el("cl-fed-run").onclick = async () => {
