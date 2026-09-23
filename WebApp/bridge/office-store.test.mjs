@@ -19,6 +19,15 @@ describe("validateSnapshot — names the field, stores nothing partial", () => {
     expect(s.pack.worksets).toHaveLength(1);
     expect(s.ruleset.org).toBe("XXX");
   });
+  it("keeps the ruleset's standard_key/semver and the artefact ref/sha256 when the add-in sends them, and only then", () => {
+    const s = goodSnapshot();
+    Object.assign(s.ruleset, { standard_key: "house-std", semver: "1.4.1", ref: "ruleset@3", sha256: "3f07376abcdef0123456789" });
+    expect(validateSnapshot(s).ruleset).toMatchObject({ org: "XXX", standard_key: "house-std", semver: "1.4.1", ref: "ruleset@3", sha256: "3f07376abcdef0123456789" });
+    const bare = validateSnapshot(goodSnapshot()).ruleset;
+    expect(Object.keys(bare).sort()).toEqual(["org", "rules"]);
+    const bad = goodSnapshot(); bad.ruleset.ref = 3;
+    expect(() => validateSnapshot(bad)).toThrow(/ruleset\.ref/);
+  });
   it("rejects with the offending field", () => {
     for (const [mutate, field] of [
       [(s) => { delete s.source; }, "source"],

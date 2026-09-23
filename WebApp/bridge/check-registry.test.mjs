@@ -5,7 +5,7 @@ import { refLabel, validateArtefact } from "./artefact-store.mjs";
 import {
   CHECKS, PLANNED_CHECKS, getCheck, listChecks, runCheck,
   classifyNaming, classifyStates, classifySuitability, classifyVersioned,
-  classifyGate, classifyPack, classifyVerdicts, classifyDeliverables,
+  classifyGate, classifyPack, classifyStandard, classifyVerdicts, classifyDeliverables,
 } from "./check-registry.mjs";
 import { validateContainerName } from "./sentinel-core.mjs";
 
@@ -245,16 +245,27 @@ describe("classifyGate", () => {
   });
 });
 
-describe("classifyPack", () => {
-  it("met when a pack is selected", () => {
-    const r = classifyPack("bds-house@1.4.1");
-    expect(r.status).toBe("met");
-    expect(r.summary).toContain("bds-house@1.4.1");
+describe("classifyPack — judged by the ruleset artefact; the metadata name is a display name only", () => {
+  const office = { body: { standard_key: "k", semver: "1.0.0", rules: [{ id: "R1", target: "type", mode: "warn" }] }, source: "office", ref: "ruleset@1", sha256: "3f07376abcdef0123456789", pointer_sha_mismatch: false };
+  const none = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
+
+  it("met naming ref · source · sha as evidence, with the display name in the summary", () => {
+    const r = classifyPack(office, "house-pack@1.4.1");
+    expect(r).toMatchObject({ id: "project.standards_pack", label: "Standards pack selected", status: "met" });
+    expect(r.summary).toContain("house-pack@1.4.1");
+    expect(r.evidence).toEqual([{ label: "ruleset", detail: refLabel(office) }]);
+    expect(r.evidence[0].detail).toContain("ruleset@1 · office · 3f07376abcde");
   });
 
-  it("violations when none is selected", () => {
-    expect(classifyPack("").status).toBe("violations");
-    expect(classifyPack(undefined).status).toBe("violations");
+  it("a display name alone is not a standard: nothing installed → violations naming the install route", () => {
+    const r = classifyPack(none, "house-pack@1.4.1");
+    expect(r.status).toBe("violations");
+    expect(r.evidence[0].detail).toBe("not installed — PUT /cde/:key/artefacts/ruleset");
+  });
+
+  it("classifyStandard keeps the caller's id and label", () => {
+    const r = classifyStandard(none, "naming", "office.naming_standard", "Container naming standard installed");
+    expect(r).toMatchObject({ id: "office.naming_standard", label: "Container naming standard installed", status: "violations" });
   });
 });
 

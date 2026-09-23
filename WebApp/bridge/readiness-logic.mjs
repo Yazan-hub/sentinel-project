@@ -3,6 +3,16 @@
 // The rule this module exists to keep: three numbers, never one. A measured item's verdict comes from
 // its bound check; a declared item's from a human answer. They are reported side by side and are never
 // summed, weighted or averaged into a percentage. Missing = the office has not told or shown us yet.
+import { refLabel } from "./artefact-store.mjs";
+
+/** ", ruleset <key> <semver> · <ref · snapshot · sha>" for the snapshot line; empty when the snapshot named none. */
+const snapshotRuleset = (rs) => {
+  if (!rs || (!rs.standard_key && !rs.ref)) return "";
+  const name = [rs.standard_key, rs.semver].filter(Boolean).join(" ");
+  const ref = rs.ref ? refLabel({ ref: rs.ref, source: "snapshot", sha256: rs.sha256 ?? null }) : "";
+  return `, ruleset ${[name, ref].filter(Boolean).join(" · ")}`;
+};
+
 export const PILLARS = ["standards", "people", "process"];
 export const ANSWERS = ["yes", "partial", "no"];
 
@@ -98,7 +108,7 @@ export function readinessMarkdown(report) {
   const { title, generated_at, evidence, score, plan } = report;
   const lines = [`# ${title}`, "", `Generated ${generated_at}.`, "", "## Evidence basis", ""];
   lines.push(evidence?.snapshot
-    ? `- Office snapshot: ${evidence.snapshot.source?.title || evidence.snapshot.source?.kind} taken ${String(evidence.snapshot.at).slice(0, 10)}, received ${String(evidence.snapshot.received_at).slice(0, 10)}.`
+    ? `- Office snapshot: ${evidence.snapshot.source?.title || evidence.snapshot.source?.kind} taken ${String(evidence.snapshot.at).slice(0, 10)}, received ${String(evidence.snapshot.received_at).slice(0, 10)}${snapshotRuleset(evidence.snapshot.ruleset)}.`
     : "- Office snapshot: none received.");
   lines.push(evidence?.scan
     ? `- Model scan: ${evidence.scan.doc_title} scanned ${String(evidence.scan.at).slice(0, 10)}.`

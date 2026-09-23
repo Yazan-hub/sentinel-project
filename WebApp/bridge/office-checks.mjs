@@ -2,7 +2,8 @@
 // and what the project already holds (documents, members, task teams). Same doctrine as check-registry:
 // read-only, never a fabricated pass, not_checkable WITH a reason. Pure classifiers + thin run().
 import { getSnapshot, getScan } from "./office-store.mjs";
-import { getProjectMeta, sb, ensureProject } from "./cde-store.mjs";
+import { sb, ensureProject } from "./cde-store.mjs";
+import { resolveArtefact } from "./artefact-store.mjs";
 import { listMembers } from "./members-store.mjs";
 import { listTeams } from "./task-teams-store.mjs";
 import { executability } from "./executability.mjs";
@@ -173,8 +174,8 @@ export const OFFICE_CHECKS = [
       const reg = await import("./check-registry.mjs");   // lazy: check-registry imports this file
       return classifyBep(bep, executability(bep, reg.CHECKS.map((c) => c.id), reg.PLANNED_CHECKS.map((p) => p.id)).score);
     } },
-  { id: "office.naming_standard", label: "Container naming standard installed", description: "A standards pack is selected for the project (delegates to project.standards_pack).", params_schema: {},
-    async run(key) { const reg = await import("./check-registry.mjs"); const r = reg.classifyPack((await getProjectMeta(key)).standards_pack); return { ...r, id: "office.naming_standard", label: "Container naming standard installed" }; } },
+  { id: "office.naming_standard", label: "Container naming standard installed", description: "A container naming standard (the naming artefact) is in force for the project or its office.", params_schema: {},
+    async run(key) { const reg = await import("./check-registry.mjs"); return reg.classifyStandard(await resolveArtefact(key, "naming"), "naming", "office.naming_standard", "Container naming standard installed"); } },
   { id: "office.roles", label: "Project roles: owner and lead present", description: "At least one owner and one lead are members of the project.", params_schema: {},
     async run(key) { return classifyRoles(await listMembers(key)); } },
   { id: "office.task_teams", label: "Task teams per discipline, each with a lead", description: "Task teams are declared and each names a lead.", params_schema: {},

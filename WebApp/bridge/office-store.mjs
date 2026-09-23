@@ -62,6 +62,9 @@ export function validateSnapshot(body) {
   if (b.ruleset !== undefined && b.ruleset !== null) {
     const r = obj(b.ruleset, "ruleset");
     ruleset = { org: str(r.org, "ruleset.org", { optional: true }), rules: arr(r.rules ?? [], "ruleset.rules").map((x, i) => obj(x, `ruleset.rules[${i}]`)) };
+    // Which standard the template was checked against (F13): the pack name/version, and — when the add-in
+    // pulled it as an artefact — its ref and sha. Stored only when sent; phase 4 makes the artefact the rule.
+    for (const f of ["standard_key", "semver", "ref", "sha256"]) { const v = str(r[f], `ruleset.${f}`, { optional: true, max: 100 }); if (v) ruleset[f] = v; }
   }
   return {
     source: { kind, title: str(source.title, "source.title"), revit_version: str(source.revit_version, "source.revit_version", { optional: true }) },
@@ -112,7 +115,7 @@ export async function saveSnapshot(key, body, actor) {
   await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored);
   // audit_log.entity_id is a uuid: the office IS the project, so the project id is the entity (doc_id "latest" is not a uuid).
   await audit(proj.id, "office", proj.id, "office_snapshot_received", actor || "revit", null,
-    { source: stored.source, worksets: stored.pack.worksets.length, shared_parameters: stored.pack.shared_parameters.length, types: stored.catalog.count, org: stored.ruleset?.org ?? null, at: stored.at });
+    { source: stored.source, worksets: stored.pack.worksets.length, shared_parameters: stored.pack.shared_parameters.length, types: stored.catalog.count, org: stored.ruleset?.org ?? null, ruleset_ref: stored.ruleset?.ref ?? null, at: stored.at });
   return { ok: true, received_at: stored.received_at, types: stored.catalog.count, worksets: stored.pack.worksets.length };
 }
 

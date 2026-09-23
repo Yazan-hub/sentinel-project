@@ -9,7 +9,7 @@
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
 import { listFiles, getProjectMeta, listAudit, projectNamingRuleset, listTransmittals, NO_NAMING_REASON } from "./cde-store.mjs";
-import { refLabel } from "./artefact-store.mjs";
+import { refLabel, resolveArtefact } from "./artefact-store.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
 
 let _core;
@@ -119,12 +119,18 @@ export function classifyGate(stage, gate) {
   return result(id, label, "met", { summary: `The “${stage}” stage gate passes.` });
 }
 
-export function classifyPack(packId) {
-  const id = "project.standards_pack", label = "Standards pack selected";
-  return packId
-    ? result(id, label, "met", { summary: `Standards pack: ${packId}.` })
-    : result(id, label, "violations", { count: 1, summary: "No standards pack is selected for this project.", evidence: [{ label: "standards_pack", detail: "not set" }] });
+/** Is a standard of `kind` in force for the project? Judged by the artefact resolver (project → office),
+ *  never by a metadata display name. Met names ref · source · sha; nothing installed is a violation that
+ *  names the install route (the question is "is one installed", so its absence is measured, not unknown). */
+export function classifyStandard(resolved, kind, id, label, displayName = "") {
+  if (!resolved || resolved.source === "none" || !resolved.body)
+    return result(id, label, "violations", { count: 1, summary: `No ${kind} standard is installed for this project or its office.`, evidence: [{ label: kind, detail: `not installed — PUT /cde/:key/artefacts/${kind}` }] });
+  const ref = refLabel(resolved);
+  return result(id, label, "met", { summary: `${displayName ? `${displayName}: ` : ""}${ref}.`, evidence: [{ label: kind, detail: ref }] });
 }
+
+/** project.standards_pack: the scan ruleset artefact; metadata.standards_pack is shown as its name only. */
+export const classifyPack = (resolved, displayName) => classifyStandard(resolved, "ruleset", "project.standards_pack", "Standards pack selected", displayName);
 
 export function classifyVerdicts(auditRows) {
   const id = "ids.last_verdict", label = "Governed adjudication verdicts";
@@ -462,9 +468,12 @@ export const CHECKS = [
   {
     id: "project.standards_pack",
     label: "Standards pack selected",
-    description: "The project has an installed standards pack driving its rules.",
+    description: "A scan ruleset artefact is in force for the project or its office.",
     params_schema: {},
-    async run(key) { return classifyPack((await getProjectMeta(key)).standards_pack); },
+    async run(key) {
+      const [resolved, meta] = await Promise.all([resolveArtefact(key, "ruleset"), getProjectMeta(key)]);
+      return classifyPack(resolved, meta.standards_pack);
+    },
   },
   {
     id: "ids.last_verdict",
