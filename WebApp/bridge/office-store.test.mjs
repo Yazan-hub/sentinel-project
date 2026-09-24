@@ -66,6 +66,12 @@ describe("validateScan", () => {
     const c = good(); delete c.doc_title;
     expect(() => validateScan(c)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining("doc_title") }));
   });
+  it("keeps what judged the scan — ruleset_ref and ruleset_sha256 — and null when the add-in sent none", () => {
+    const s = validateScan({ ...good(), ruleset_ref: "ruleset@1", ruleset_sha256: "fb8f9baefa9f0123" });
+    expect(s).toMatchObject({ ruleset_ref: "ruleset@1", ruleset_sha256: "fb8f9baefa9f0123" });
+    expect(validateScan(good())).toMatchObject({ ruleset_ref: null, ruleset_sha256: null });
+    expect(() => validateScan({ ...good(), ruleset_ref: 7 })).toThrow(expect.objectContaining({ status: 400, message: "ruleset_ref must be a string" }));
+  });
   it("by_mode totals cover ALL violations, not just the kept 5000", () => {
     const big = good();
     big.violations = Array.from({ length: 4998 }, (_, i) => ({ rule_id: "WS-01", mode: "warn", element_id: i }))

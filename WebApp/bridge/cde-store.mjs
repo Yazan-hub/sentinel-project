@@ -981,8 +981,8 @@ export async function docGet(store, pid, docId) {
   const rows = await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&select=data`);
   return rows?.[0]?.data ?? null;
 }
-export async function docUpsert(store, pid, docId, data) {
-  await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal" });
+export async function docUpsert(store, pid, docId, data, { service = false } = {}) {
+  await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal", service });
   return data;
 }
 /** Compare-and-swap replace: overwrite the doc ONLY if its current data->>status equals
@@ -1004,8 +1004,8 @@ export async function docReplaceIfField(store, pid, docId, data, field, expected
 }
 /** Create-only insert (no merge) → PostgREST 409 on PK conflict. Used for the crypto keystore so a concurrent
  *  first-setup can't clobber a DEK that already encrypted files. */
-export async function docInsert(store, pid, docId, data) {
-  await sb(`bridge_docs`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data }, prefer: "return=minimal" });
+export async function docInsert(store, pid, docId, data, { service = false } = {}) {
+  await sb(`bridge_docs`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data }, prefer: "return=minimal", service });
 }
 export async function docUpsertMany(store, pid, items) { // items: [{doc_id, data}]
   if (!items.length) return;

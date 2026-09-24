@@ -24,8 +24,10 @@ async function wire(deps = {}) {
   return {
     ensureProject: deps.ensureProject || cde.ensureProject,
     docGet: deps.docGet || cde.docGet,
-    docInsert: deps.docInsert || cde.docInsert,
-    docUpsert: deps.docUpsert || cde.docUpsert,
+    // Writes go with the SERVICE key: migration 0030 lets members read artefacts but never write them, so the
+    // install below (after requireMinRole) is the only way in. Reads stay forwarded (member-scoped).
+    docInsert: deps.docInsert || ((s, p, id, data) => cde.docInsert(s, p, id, data, { service: true })),
+    docUpsert: deps.docUpsert || ((s, p, id, data) => cde.docUpsert(s, p, id, data, { service: true })),
     audit: deps.audit || cde.audit,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
     officeKeyOf: deps.officeKeyOf || (await import("./office-scope.mjs")).officeKeyOf,
@@ -146,8 +148,8 @@ export async function listArtefacts(key, deps) {
 /**
  * The artefact of `kind` that judges `key`: the project's own → its office's → none. The answer names
  * which one judged (`source`, `ref`) and the sha of the BODY that judges, not the pointer's copy:
- * bridge_docs is member-writable through PostgREST (migration 0028), so a rewritten document must show
- * up as a different hash on every later verdict, and a pointer that disagrees is flagged.
+ * bridge_docs artefact rows are bridge-only since migration 0030, but a document rewritten with the service
+ * key must still show up as a different hash on every later verdict, and a pointer that disagrees is flagged.
  */
 export async function resolveArtefact(key, kind, deps) {
   const d = await wire(deps);
@@ -163,6 +165,24 @@ export async function resolveArtefact(key, kind, deps) {
     if (office) return stamp(office, "office");
   }
   return { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
+}
+
+/**
+ * The answer of GET /cde/:key/artefacts/:kind (spec 2026-09-25 decision 2). 200 carries an ETag naming ref,
+ * source and sha (source inside: the same body moving from office to project is a change); an If-None-Match
+ * equal to it is a 304 with no body; a 404 says why — not_installed | no_project | unknown_kind — so a client
+ * never reads a wrong key as "nothing installed". Returns { status, body?, etag? }; other errors (403) throw.
+ */
+export async function artefactReply(key, kind, ifNoneMatch, deps) {
+  if (!KINDS.includes(kind)) return { status: 404, body: { message: `unknown artefact kind '${kind}' (expected one of ${KINDS.join(", ")})`, reason: "unknown_kind" } };
+  let a;
+  try { a = await resolveArtefact(key, kind, deps); }
+  catch (e) { if (e?.status === 404) return { status: 404, body: { message: String(e.message), reason: "no_project" } }; throw e; }
+  if (a.source === "none") return { status: 404, body: { message: `no ${kind} artefact installed for ${key} or its office (PUT /cde/${key}/artefacts/${kind})`, reason: "not_installed" } };
+  const etag = `"${a.ref}:${a.source}:${a.sha256}"`;
+  // ponytail: exact match only (one ETag, no list, no W/ or *) — the add-in sends back what it was given.
+  if (ifNoneMatch === etag) return { status: 304, etag };
+  return { status: 200, etag, body: { kind, version: Number(a.ref.split("@")[1]), ...a } };
 }
 
 /** What judged, in one line for a verdict row, evidence line, scan header or CLI: "naming@2 · office · 3f0737600a1b…"; "none" when nothing is installed. */

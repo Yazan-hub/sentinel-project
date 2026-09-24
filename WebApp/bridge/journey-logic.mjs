@@ -93,7 +93,9 @@ const RULES = {
     team: [["members"], team],
     standards: [["standards"], standards(false)],
     bep: [["docs"], docOf("BEP", (d) => `BEP ${d.title} · ${d.status}`)],
-    model: [["scan"], (s) => s ? { evidence: { ref: s.at ? `office_scan@${s.at}` : "", label: `scan · ${s.doc_title} · ${s.at}` } } : { reason: "no scan report received for this project" }],
+    // A2 (2026-09-25): model measures the connection, not the judgment — still done from a scan alone — but
+    // the label names what judged it, honestly, so "done" is never read as "passed by some ruleset".
+    model: [["scan"], (s) => s ? { evidence: { ref: s.at ? `office_scan@${s.at}` : "", label: `scan · ${s.doc_title} · ${s.at} · judged by ${s.ruleset_ref && s.ruleset_ref !== "none" ? s.ruleset_ref : "nothing"}` } } : { reason: "no scan report received for this project" }],
     verdict: [["verdicts"], verdict],
     published: [["files", "verdicts"], published],
     federated: [["federation"], federated],
