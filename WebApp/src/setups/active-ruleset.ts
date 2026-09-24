@@ -1,4 +1,5 @@
 import type { Ruleset } from "../sentinel-core";
+import { applyOrg } from "../sentinel-core/org-names";
 import { activePid } from "./active-project";
 import { bfetch } from "./bridge-fetch";
 
@@ -22,13 +23,14 @@ export interface InForce<T = unknown> {
 export const refLabel = ({ ref, source, sha256: sha }: { ref: string | null; source: string; sha256?: string | null }): string =>
   [ref, source, sha && `${sha.slice(0, 12)}…`].filter(Boolean).join(" · ") || "none";
 
-/** GET /cde/:key/artefacts/:kind. 404 → null (nothing installed); any other failure throws — an
+/** GET /cde/:key/artefacts/:kind. A 404 with reason not_installed (or no reason, an older bridge) → null
+ *  (nothing installed); a 404 no_project / unknown_kind and any other failure throw — a wrong key or an
  *  unreachable bridge is not "nothing installed". Accepts the resolved shape ({body, source, ref, sha256})
  *  and the stored-document shape ({version, sha256, body, installed_by, installed_at}). */
 export async function artefactInForce<T = unknown>(baseUrl: string, key: string, kind: string): Promise<InForce<T> | null> {
   const r = await bfetch(`${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/artefacts/${kind}`);
-  if (r.status === 404) return null;
   const j = await r.json().catch(() => ({}));
+  if (r.status === 404 && (j?.reason ?? "not_installed") === "not_installed") return null;
   if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
   return {
     body: j.body as T,
@@ -51,10 +53,15 @@ export async function installArtefact(baseUrl: string, key: string, kind: string
   return j;
 }
 
-/** The scan ruleset in force for the ACTIVE project, or null when none is installed there or on its office. */
-export async function activeRuleset(baseUrl: string): Promise<{ ruleset: Ruleset; ref: string; source: string; sha256: string | null } | null> {
+/** The scan ruleset in force for the ACTIVE project, or null when none is installed there or on its office.
+ *  `ruleset` is the body with "{org}" expanded (applyOrg — judged exactly as the add-in judges); `removed`
+ *  names the rules dropped for want of an org; `raw` is the artefact body as installed — publish or re-install
+ *  that, never the expanded copy. */
+export async function activeRuleset(baseUrl: string): Promise<{ ruleset: Ruleset; raw: Ruleset; removed: string[]; ref: string; source: string; sha256: string | null } | null> {
   const a = await artefactInForce<Ruleset>(baseUrl, activePid(), "ruleset");
-  return a ? { ruleset: a.body, ref: a.ref, source: a.source, sha256: a.sha256 } : null;
+  if (!a) return null;
+  const { ruleset, removed } = applyOrg(a.body);
+  return { ruleset, raw: a.body, removed, ref: a.ref, source: a.source, sha256: a.sha256 };
 }
 
 /** Parameter names a ruleset needs the adapter to flatten (for its parameter-target rules). */
