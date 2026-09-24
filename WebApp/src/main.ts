@@ -2,8 +2,10 @@ import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
-// Worker loading: FragmentsModels.getWorker() fetches the worker and blob-inlines it,
-// which is sandbox-iframe-safe — the beta-only "fragments/inline" side-effect import is gone.
+// Inlines the fragments worker so it runs inside the platform's sandboxed iframe. On the beta engine
+// FragmentsModels.getWorker() cannot resolve the worker in an IIFE bundle without it (the viewer then
+// hangs at "Fragments Core"); the vite/esbuild alias maps this to @thatopen-platform/fragments-beta/inline.
+import "@thatopen/fragments/inline";
 import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
