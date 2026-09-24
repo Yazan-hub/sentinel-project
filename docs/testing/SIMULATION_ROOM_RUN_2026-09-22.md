@@ -233,3 +233,22 @@ the Issues "superseded" group in a browser (platform viewer blocked, F49; type-c
 sent from the Windows shell arrived as `�` in a topic title — the earlier `ids@1` title on the office shows the same,
 so it is the drill's shell encoding, not the bridge; verify once from the web UI. Left in place on `aster-office`:
 `ruleset@1`, `naming@1`, `ids@1..4`; on `aster-villa`: one closed superseded topic.
+
+## Next strip drill (Session B4), 2026-09-24
+
+Feature `feature/next-strip` (the cohesion review's Next strip graft). Managed bridge restarted on the branch; add-in
+deployed to Revit 2024 with Revit closed (02:29). Every line is a bridge response.
+
+| Step | Result | Evidence |
+|---|---|---|
+| Project journey, `aster-villa` | 1 of 8, next `team` ("needs an owner and a lead (0 owner, 0 lead)" — villa was created by the drill with the service token, so it has no members); `standards` done `ids@4,ruleset@1,naming@1`, all three `· office`; `federated` not checkable "no live model — federation needs two"; every other step todo with its reason | `GET /cde/aster-villa/journey` |
+| Office journey, `aster-office` | 5 of 5, next none; `team` two member ids; `standards` all `· project` (installed on the office itself); `snapshot` `office_snapshot@2026-09-22T00:10:45.168Z`; `readiness` document `cb8f72db…`; `projects` `aster-tower,aster-villa` | `GET /cde/aster-office/journey` |
+| Project journey, `aster-tower` | 6 of 8, next `federated` ("the Federation Gate has not run" on the tower); `standards` `ids@3 · project` (the tower's own IDS outranks the office's) with `ruleset@1`/`naming@1 · office`; `bep` document `f2c53f6a…`; `model` `office_scan@2026-09-22T22:26:00.888Z`; `verdict` `audit#658`; `published` version `ac3afdca…` · `audit#658` | `GET /cde/aster-tower/journey` |
+| Unknown key | 404 with the create-it message | `GET /cde/no-such-key/journey` |
+| No percentage | none of the three answers contains `%` | response bodies |
+| Revit pane | deployed; **not yet observed at runtime** — needs a document bound to a drill project opened in Revit | pending |
+
+Not exercised: the web strip and the live Guide in a browser (platform viewer blocked, F49; pure line builders
+tested, type-checked, built). Product gaps recorded during planning: the `model` step completes only after a
+Synchronize with Central (the only path that sends a scan report), and transmittals have no screen on either
+surface ("no screen for this step yet").
