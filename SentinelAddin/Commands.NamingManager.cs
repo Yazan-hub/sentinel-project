@@ -33,7 +33,7 @@ public sealed class NamingManagerCommand : IExternalCommand
         if (rs.Rules.Any(r => RuleRegex.NeedsOrg(r)) && string.IsNullOrWhiteSpace(rs.Org))
             TaskDialog.Show("Sentinel — Naming Manager", "The ruleset has no office code (\"org\") — every ORG-bearing rule will read 'needs a human' until it is set.");
 
-        var projectKey = SettingsManager.WebProjectKeyFor(doc);
+        var projectKey = ProjectContext.For(doc).Key; // empty when unbound: renames stay local, the audit row is not sent (Doctor log says so)
         var rows = NamingManagerService.BuildRows(doc, rs);           // read-only, on this command's API thread
         var window = new NamingManagerWindow(rows);
         DialogOwner.Attach(window, c);

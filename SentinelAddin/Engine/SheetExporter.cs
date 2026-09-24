@@ -63,7 +63,7 @@ public static class SheetExporter
             string manifest =
                 "{\"set\":" + JsonStr(setName) +
                 ",\"title\":" + JsonStr(doc.Title) +
-                ",\"project\":" + JsonStr(SettingsManager.WebProjectKeyFor(doc)) +
+                ",\"project\":" + JsonStr(ProjectContext.For(doc).Key) +
                 ",\"exportedAt\":" + JsonStr(DateTime.Now.ToString("o")) +
                 ",\"count\":" + entries.Count +
                 ",\"sheets\":[" + string.Join(",", entries) + "]}";

@@ -22,6 +22,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         if (uidoc is null || doc is null) return Result.Cancelled;
         var targetDocPath = doc.PathName;
         var targetTitle = doc.Title;
+        var projectKey = Sentinel.Engine.ProjectContext.For(doc).Key; // empty when unbound: certify locally, record nothing
 
         var choice = new TaskDialog("Sentinel — IFC Delivery Gate")
         {
@@ -48,7 +49,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             { Title = "Select IFC file", Filter = "IFC files (*.ifc)|*.ifc", CheckFileExists = true };
             if (Sentinel.UI.DialogOwner.ShowFileDialog(open, c.Application) != true) return Result.Cancelled;
             ifcPath = open.FileName;
-            Certify(ifcPath, contract);
+            Certify(ifcPath, contract, projectKey);
             return Result.Succeeded;
         }
 
@@ -97,7 +98,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
                 d.Export(Path.GetDirectoryName(ifcPath)!, Path.GetFileName(ifcPath), opts);
                 t.Commit();
 
-                Certify(ifcPath!, contract);
+                Certify(ifcPath!, contract, projectKey);
             }
             catch (Exception ex)
             {
@@ -107,13 +108,13 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         return Result.Succeeded;
     }
 
-    private static void Certify(string ifcPath, Sentinel.Engine.DeliveryContract contract)
+    private static void Certify(string ifcPath, Sentinel.Engine.DeliveryContract contract, string projectKey)
     {
         var r = Sentinel.Engine.IfcDeliveryGate.Validate(ifcPath, contract);
-        // Record the gate verdict in the web app's governed audit trail (fire-and-forget, never blocks).
+        // Record the gate verdict in the document's web project audit trail (fire-and-forget, never blocks).
         Sentinel.Coordination.GovernedNotify.DeliveryGate(
             Path.GetFileName(ifcPath), r.Passed, r.ContractKey, r.DetectedSchema,
-            r.TotalEntities, r.Failures.Count, r.FileSha256);
+            r.TotalEntities, r.Failures.Count, r.FileSha256, projectKey);
         var top = r.EntityCounts.OrderByDescending(kv => kv.Value).Take(6)
             .Select(kv => kv.Key + ": " + kv.Value);
 
@@ -125,6 +126,8 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             string.Join("\n", top) + "\n\n" +
             (r.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", r.Failures) + "\n\n" : "") +
             (r.Warnings.Count > 0 ? "Warnings:\n• " + string.Join("\n• ", r.Warnings) + "\n\n" : "") +
-            "Certificate: " + r.CertificatePath + "\nSHA-256: " + r.FileSha256.Substring(0, 16) + "…");
+            "Certificate: " + r.CertificatePath + "\nSHA-256: " + r.FileSha256.Substring(0, 16) + "…" +
+            (projectKey.Length == 0 ? "\n\nNot recorded on the web: " + Sentinel.Engine.ProjectContext.NotBound
+                                    : "\n\nRecorded on project '" + projectKey + "'."));
     }
 }

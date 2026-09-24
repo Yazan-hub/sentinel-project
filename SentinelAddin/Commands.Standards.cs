@@ -205,11 +205,16 @@ internal static class StandardsReview
 
         // Captured on the API thread (Create is called from the command); the click handler touches no Revit API.
         var doc = uiapp.ActiveUIDocument?.Document;
-        string projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+        string projectKey = Sentinel.Engine.ProjectContext.For(doc).Key; // empty when unbound (or no document)
         string revitVersion = uiapp.Application.VersionNumber;
         var ruleset = App.Engine?.Ruleset;
         window.SnapshotRequested += () =>
         {
+            if (projectKey.Length == 0)
+            {
+                window.SetStatus("Snapshot NOT sent: " + Sentinel.Engine.ProjectContext.NotBound);
+                return;
+            }
             var pack = window.Source;
             // Provenance must come from the PACK, not the active document: Create() also serves "Load pack
             // from disk" and async document-ingest (window created empty, Load called later), where the

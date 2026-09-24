@@ -42,7 +42,9 @@
                       Margin="0,4,0,2" VerticalContentAlignment="Center" Width="280"
                       HorizontalAlignment="Left" IsEditable="True"/>
             <TextBlock x:Name="WebProjectHint" Text="Loading projects from the bridge…"
-                       FontSize="10" Foreground="#889" Margin="0,0,0,10"/>
+                       FontSize="10" Foreground="#889" Margin="0,0,0,2"/>
+            <TextBlock x:Name="WebProjectScopeNote" FontSize="10" Foreground="#B26B00" Margin="0,0,0,10"
+                       TextWrapping="Wrap"/>
 
             <CheckBox x:Name="LinkedModelsBox" FontSize="12" Margin="0,0,0,14"
                       Content="Include linked models when publishing (each link exports as its own IFC — Quick/Auto publish)"/>
@@ -64,7 +66,7 @@
                                  Content="Current project (Extensible Storage — syncs with central, whole team)"
                                  FontSize="12" Margin="0,0,0,4"/>
                     <RadioButton x:Name="ScopeMachine" GroupName="Scope"
-                                 Content="This machine only (%AppData%\Sentinel\config.json — fallback default)"
+                                 Content="This machine only (%AppData%\Sentinel\config.json — paths and defaults; never the web project)"
                                  FontSize="12"/>
                 </StackPanel>
             </Border>

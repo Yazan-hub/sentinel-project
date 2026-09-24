@@ -72,17 +72,25 @@ public static class PlatformExporter
     /// Sidecar next to an outbox IFC telling the Bridge which web project the file belongs to
     /// (the ACC-style association) — and, for a linked model, which HOST file it nests under in the
     /// web file tree. The watcher reads it, uses it for the Supabase-side registration, and deletes
-    /// it with the IFC. Best-effort — a missing sidecar just means the bridge's default project.
+    /// it with the IFC. An UNBOUND document gets no sidecar (and a stale one is removed): the add-in never
+    /// names a project the document was not bound to. Best-effort.
     /// </summary>
     public static void WriteOutboxMeta(string ifcName, Document doc, string? hostIfcName = null)
     {
         try
         {
-            var key = SettingsManager.WebProjectKeyFor(doc);
+            var meta = Path.Combine(OutboxDir(), ifcName + ".meta.json");
+            var key = ProjectContext.For(doc).Key;
+            if (key.Length == 0)
+            {
+                File.Delete(meta); // no-op when absent
+                Log($"{ifcName}: no sidecar — {doc.Title} is not bound to a web project (Project Setup)");
+                return;
+            }
             var json = "{\"project\":" + System.Text.Json.JsonSerializer.Serialize(key) +
                        ",\"docTitle\":" + System.Text.Json.JsonSerializer.Serialize(doc.Title) +
                        (hostIfcName is null ? "" : ",\"host\":" + System.Text.Json.JsonSerializer.Serialize(hostIfcName)) + "}";
-            File.WriteAllText(Path.Combine(OutboxDir(), ifcName + ".meta.json"), json);
+            File.WriteAllText(meta, json);
         }
         catch { /* association is best-effort; the upload itself must never fail on this */ }
     }

@@ -6,7 +6,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Sentinel.Commands; // BcfConfig (bridge URL + platform project id)
+using Sentinel.Commands; // BcfConfig (bridge URL + service token)
 
 namespace Sentinel.Coordination
 {
@@ -15,8 +15,9 @@ namespace Sentinel.Coordination
     /// This is the compatibility bridge between authoring (Revit) and the referee layer (Sentinel web): it
     /// records what Revit did in the project's immutable, hash-chained audit trail, so the CDE timeline shows
     /// authoring events alongside coordination + governance. It NEVER throws and NEVER blocks the Revit save
-    /// flow — an absent or slow bridge is a silent no-op. Uses the same <see cref="BcfConfig"/> (ServiceUrl +
-    /// ProjectId) as the BCF sync, so it's zero extra configuration.
+    /// flow — an absent or slow bridge is a silent no-op. The bridge comes from <see cref="BcfConfig"/>
+    /// (ServiceUrl + ServiceToken); the project is ALWAYS the caller's document key (ProjectContext) — there is
+    /// no machine default, and an empty key records nothing (and says so in the Doctor log).
     /// </summary>
     internal static class GovernedNotify
     {
@@ -39,13 +40,13 @@ namespace Sentinel.Coordination
             return client.SendAsync(msg).GetAwaiter().GetResult();
         }
 
-        /// <summary>The project key a call targets: the caller's per-document key when given, else the
-        /// machine-wide BcfConfig default — so existing call sites keep today's behavior unchanged.</summary>
-        private static string KeyOf(BcfConfig cfg, string? projectKey) =>
-            string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
+        /// <summary>The document's project key, trimmed; empty when the document is not bound. No fallback.</summary>
+        private static string KeyOf(string? projectKey) => (projectKey ?? "").Trim();
+
+        private const string NotBoundError = "this model is not bound to a web project — Sentinel ▸ Project Setup";
 
         /// <summary>Record a "model published from Revit" event in the governed audit trail.</summary>
-        public static void ModelPublished(string modelName, long bytes, string? projectKey = null)
+        public static void ModelPublished(string modelName, long bytes, string projectKey)
         {
             Post("/audit", new
             {
@@ -62,7 +63,7 @@ namespace Sentinel.Coordination
         /// v1 → v2 → … and the newest becomes the live version — the same version timeline a web upload feeds.
         /// Fire-and-forget; a bridge without the CDE configured just no-ops (503).
         /// </summary>
-        public static void FileVersion(string modelName, long bytes, string? projectKey = null)
+        public static void FileVersion(string modelName, long bytes, string projectKey)
         {
             var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
             Post("/files", new
@@ -81,7 +82,7 @@ namespace Sentinel.Coordination
         /// verdict to the exact bytes that were certified (provenance).
         /// </summary>
         public static void DeliveryGate(string fileName, bool passed, string contractKey, string schema,
-                                        int totalEntities, int failureCount, string sha256, string? projectKey = null)
+                                        int totalEntities, int failureCount, string sha256, string projectKey)
         {
             Post("/audit", new
             {
@@ -104,7 +105,7 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>Record a Naming Manager batch in the governed audit trail (fire-and-forget).</summary>
-        public static void NamingRenamed(IEnumerable<object> rows, string actor, string? projectKey = null)
+        public static void NamingRenamed(IEnumerable<object> rows, string actor, string projectKey)
         {
             var list = rows.ToList();
             Post("/audit", new
@@ -126,15 +127,17 @@ namespace Sentinel.Coordination
         /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
         public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor,
-                                             string? containerName = null, string? projectKey = null,
+                                             string projectKey, string? containerName = null,
                                              string? source = null, string? note = null, bool raiseBcf = true,
                                              string? failuresRequirement = null)
         {
             var r = new ProposalResult();
+            var key = KeyOf(projectKey);
+            if (key.Length == 0) { r.Error = NotBoundError; return r; }
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/propose";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/propose";
                 var body = new Dictionary<string, object?>
                 {
                     ["source"] = source ?? "Governed Publish",
@@ -171,13 +174,15 @@ namespace Sentinel.Coordination
         /// blocking counterpart to <see cref="FileVersion"/>, used by Governed Publish so it can stamp the
         /// verdict badge onto the exact version it just created. <c>POST /cde/:key/files</c> → the new version's id.
         /// </summary>
-        public static string? RegisterVersionId(string modelName, long bytes, string author, string? notes = null, string? projectKey = null)
+        public static string? RegisterVersionId(string modelName, long bytes, string author, string projectKey, string? notes = null)
         {
+            var key = KeyOf(projectKey);
+            if (key.Length == 0) return null;
             try
             {
                 var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/files";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/files";
                 var body = new { name, author, size_bytes = bytes, notes = notes ?? "published from Revit (Governed Publish)" };
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
@@ -197,12 +202,14 @@ namespace Sentinel.Coordination
         /// Blocking (120 s cap — a 20k-type catalogue is megabytes); returns null on success, else a short reason.
         /// Deliberate, interactive (a button) — so it reports instead of no-op'ing like the fire-and-forget calls.
         /// </summary>
-        public static string? OfficeSnapshot(OfficeSnapshotDto dto, string? projectKey)
+        public static string? OfficeSnapshot(OfficeSnapshotDto dto, string projectKey)
         {
+            var key = KeyOf(projectKey);
+            if (key.Length == 0) return NotBoundError;
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/office/snapshot";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/office/snapshot";
                 var content = new StringContent(dto.ToJson(), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -222,16 +229,19 @@ namespace Sentinel.Coordination
         private static readonly TimeSpan ScanThrottle = TimeSpan.FromSeconds(60);
 
         /// <summary>Post a scan report to <c>POST /cde/{key}/office/scan</c> (the Phase-3 seam). Fire-and-forget,
-        /// at most one per minute per process — sync storms must not become request storms.</summary>
-        public static void OfficeScan(Sentinel.Engine.ScanReport report, string? projectKey)
+        /// at most one per minute per process — sync storms must not become request storms. An empty key posts
+        /// nothing (App.OnSynchronized already skips unbound documents; this keeps the rule for any other caller).</summary>
+        public static void OfficeScan(Sentinel.Engine.ScanReport report, string projectKey)
         {
+            var key = KeyOf(projectKey);
+            if (key.Length == 0) return;
             var now = DateTime.UtcNow;
             if (now - _lastScanPost < ScanThrottle) return;
             _lastScanPost = now;
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + "/office/scan";
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/office/scan";
                 var content = new StringContent(ScanReportDto.From(report).ToJson(), Encoding.UTF8, "application/json");
                 var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
                 if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
@@ -241,13 +251,20 @@ namespace Sentinel.Coordination
             catch { /* never throw into Revit */ }
         }
 
-        /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{key}{path}</c>; fire-and-forget, never throws.</summary>
-        private static void Post(string path, object payload, string? projectKey = null)
+        /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{key}{path}</c>; fire-and-forget, never throws.
+        /// An empty key posts nothing and says so in the Doctor log — never a silent "default".</summary>
+        private static void Post(string path, object payload, string projectKey)
         {
+            var key = KeyOf(projectKey);
+            if (key.Length == 0)
+            {
+                App.PanelVm?.LogDoctor($"Not recorded on the web ({path.TrimStart('/')}): {NotBoundError}.");
+                return;
+            }
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(KeyOf(cfg, projectKey)) + path;
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + path;
                 var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
                 var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
                 if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))

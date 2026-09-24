@@ -37,8 +37,14 @@ public sealed class GovernedPublishCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        // The web project this document publishes into (Project Setup → Web project; else the config default).
-        var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+        // The web project this document publishes into (Project Setup → Web project). None → nothing is exported.
+        var ctx = Sentinel.Engine.ProjectContext.For(doc);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show("Sentinel — Governed Publish", Sentinel.Engine.ProjectContext.NotBound + "\n\nNothing was exported or published.");
+            return Result.Cancelled;
+        }
+        var projectKey = ctx.Key;
 
         // 1) Export the active view to a TEMP IFC (not the outbox — we publish only on pass).
         var tempDir = Path.Combine(Path.GetTempPath(), "Sentinel", "governed");

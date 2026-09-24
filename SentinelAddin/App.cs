@@ -148,20 +148,25 @@ public sealed class App : IExternalApplication
         }
         PanelVm!.PublishReport(report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
-        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled, fire-and-forget.
-        Sentinel.Coordination.GovernedNotify.OfficeScan(report, Sentinel.Engine.SettingsManager.WebProjectKeyFor(e.Document));
+        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled,
+        // fire-and-forget. An unbound document posts nothing (silently: a sync is not the place for a dialog).
+        var ctx = ProjectContext.For(e.Document);
+        if (ctx.IsBound) Sentinel.Coordination.GovernedNotify.OfficeScan(report, ctx.Key);
         // After the scan report that completes the `model` step. That POST is fire-and-forget, so this GET can
         // race it and still read the step as todo — ↻ on the strip settles it.
         RefreshJourney(e.Document);
     }
 
     /// <summary>Next strip: read the document's web key and the ruleset that judged the pane's rows on the Revit
-    /// API thread, then hand strings to the pane (its GET runs off-thread). Read-only; family documents skipped.</summary>
+    /// API thread, then hand strings to the pane (its GET runs off-thread). Read-only; family documents skipped.
+    /// An unbound document shows "not bound — Sentinel ▸ Project Setup" and asks the bridge nothing.</summary>
     internal static void RefreshJourney(Document? doc)
     {
         if (doc is null || doc.IsFamilyDocument || PanelVm is null) return;
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound) { PanelVm.ShowUnbound(); return; }
         var rs = Engine?.Ruleset;
-        PanelVm.RefreshJourney(Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc), rs?.StandardKey ?? "", rs?.Semver ?? "");
+        PanelVm.RefreshJourney(ctx.Key, rs?.StandardKey ?? "", rs?.Semver ?? "");
     }
 
     // Local save (non-workshared, or a local save before sync) → push the latest model to the web.

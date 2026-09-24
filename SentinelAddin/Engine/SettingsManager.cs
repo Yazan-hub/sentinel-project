@@ -21,7 +21,8 @@ public sealed class SentinelSettings
     [JsonPropertyName("project_code")] public string ProjectCode { get; set; } = string.Empty; // optional, tightens CDE-01
 
     // The web-app project (Sentinel `projects.key`) this document publishes into — the ACC-style
-    // "which project does this model belong to" link. Empty -> the bridge/BcfConfig default.
+    // "which project does this model belong to" link. Read only from the DOCUMENT (ProjectContext); empty = not
+    // bound. A machine config.json value is ignored.
     [JsonPropertyName("web_project_key")] public string WebProjectKey { get; set; } = string.Empty;
 
     // Quick/Auto publish: also export each linked Revit model as its own IFC (Revit's ExportLinkedFiles).
@@ -86,18 +87,28 @@ public static class SettingsManager
         new FilteredElementCollector(doc).OfClass(typeof(DataStorage))
             .Cast<DataStorage>().FirstOrDefault(ds => ds.Name == StorageName);
 
-    /// <summary>Read project-level settings from the document. Null when absent.</summary>
-    public static SentinelSettings? LoadFromDocument(Document doc)
+    /// <summary>The raw settings JSON stored in the document, or null (none stored, unreadable). API thread;
+    /// never throws. <see cref="ProjectContext.For"/> reads the web project key from it.</summary>
+    internal static string? DocumentJson(Document doc)
     {
         try
         {
             var ds = FindStorage(doc);
             if (ds is null) return null;
             var entity = ds.GetEntity(GetSchema());
-            if (!entity.IsValid()) return null;
-            var json = entity.Get<string>(FieldName);
+            return entity.IsValid() ? entity.Get<string>(FieldName) : null;
+        }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>Read project-level settings from the document. Null when absent.</summary>
+    public static SentinelSettings? LoadFromDocument(Document doc)
+    {
+        try
+        {
+            var json = DocumentJson(doc);
             if (string.IsNullOrEmpty(json)) return null;
-            var s = JsonSerializer.Deserialize<SentinelSettings>(json);
+            var s = JsonSerializer.Deserialize<SentinelSettings>(json!);
             return s is { IsEmpty: false } ? s : null;
         }
         catch (Exception) { return null; }  // corrupt ES payload: fall through to JSON
@@ -133,17 +144,6 @@ public static class SettingsManager
     }
 
     // ---------------- Resolution ----------------
-
-    /// <summary>
-    /// The web-app project key this document publishes into: the document's WebProjectKey when set
-    /// (Project Setup), else the machine-wide BcfConfig ProjectId ("default" out of the box). This is
-    /// the ONE place the ACC-style "Revit document → web project" link is resolved.
-    /// </summary>
-    public static string WebProjectKeyFor(Document? doc)
-    {
-        var k = Resolve(doc).WebProjectKey;
-        return string.IsNullOrWhiteSpace(k) ? Sentinel.Commands.BcfConfig.Load().ProjectId : k.Trim();
-    }
 
     /// <summary>Effective settings: document ES first, machine JSON fallback,
     /// empty settings when neither exists (engine then uses built-in chain).</summary>

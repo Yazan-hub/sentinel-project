@@ -32,11 +32,17 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var uiapp = c.Application;
         if (uiapp.ActiveUIDocument?.Document is null) return Result.Cancelled;
 
+        // The OPEN model's web project governs which issues are listed, commented and resolved — there is no
+        // machine-wide default. Found live: a model on its own project listed another project's issues.
+        var ctx = ProjectContext.For(uiapp.ActiveUIDocument.Document);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show("Sentinel — BCF Issues", ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
+        var bcfKey = ctx.Key;
         var mainHandle = uiapp.MainWindowHandle;   // captured here: the UIApplication is only valid inside Execute
         BcfConfig cfg = BcfConfig.Load();
-        // The OPEN model's web project governs which issues are listed, commented and resolved — not the
-        // machine-wide default. Found live: a model on its own project listed another project's issues.
-        var bcfKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(uiapp.ActiveUIDocument.Document);
         var apply = new BcfApplyEvent();
         var externalEvent = ExternalEvent.Create(apply);
         var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
@@ -105,7 +111,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         // Fix-in-place: plan on the API thread, check/re-check through the referee off it, apply on the
         // API thread, and close the loop on the topic only with evidence (every GUID resolved AND passing).
         var doc = uiapp.ActiveUIDocument.Document;
-        var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+        var projectKey = bcfKey; // same document, same key
         var org = App.Engine?.Ruleset.Org;
         var ids = IdsSpecFile.Load();
         var user = doc.Application.Username;
@@ -319,45 +325,5 @@ public sealed class BcfIssuesCommand : IExternalCommand
         window.Show();
         Refresh(); // initial load
         return Result.Succeeded;
-    }
-}
-
-/// <summary>
-/// BCF sync configuration, read from %AppData%\Sentinel\bcf-config.json (env vars as fallback).
-/// projectId must match what the web viewer POSTs (its platform project id); modelId empty = all models.
-/// </summary>
-internal sealed class BcfConfig
-{
-    [JsonPropertyName("serviceUrl")] public string ServiceUrl { get; set; } = "http://localhost:4100";
-    [JsonPropertyName("projectId")] public string ProjectId { get; set; } = "default";
-    [JsonPropertyName("modelId")] public string ModelId { get; set; } = ""; // empty → service returns all models
-    // Shared secret for the bridge's auth gate (F2). When the bridge runs with BCF_TOKEN set, Revit must present
-    // it or the governed calls are rejected as anonymous. Empty = legacy bridge (no gate) → no header is sent.
-    [JsonPropertyName("serviceToken")] public string ServiceToken { get; set; } = "";
-
-    public static BcfConfig Load()
-    {
-        string path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "bcf-config.json");
-        try
-        {
-            if (File.Exists(path))
-                return JsonSerializer.Deserialize<BcfConfig>(File.ReadAllText(path),
-                           new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new BcfConfig();
-        }
-        catch { /* fall through to env/defaults */ }
-
-        return new BcfConfig
-        {
-            ServiceUrl = Env("BCF_SERVICE_URL", "http://localhost:4100"),
-            ProjectId = Env("THATOPEN_PROJECT_ID", "default"),
-            ServiceToken = Env("BCF_TOKEN", ""),
-        };
-    }
-
-    private static string Env(string name, string fallback)
-    {
-        string? v = Environment.GetEnvironmentVariable(name);
-        return string.IsNullOrWhiteSpace(v) ? fallback : v!;
     }
 }

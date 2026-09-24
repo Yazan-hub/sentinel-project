@@ -158,7 +158,7 @@ public static class NamingManagerService
         var done = results.Where(r => r.Item2 && r.Item3 == "renamed").ToList();
         foreach (var (row, _, _) in done) RoiTracker.Log("naming", $"{row.RuleId}: '{row.Current}' -> '{renamedMap[row]}'");
         if (done.Count > 0)
-            GovernedNotify.NamingRenamed(done.Select(r => (object)new { id = r.Item1.ElementId, from = r.Item1.Current, to = renamedMap[r.Item1], rule = r.Item1.RuleId }), user, projectKey);
+            GovernedNotify.NamingRenamed(done.Select(r => (object)new { id = r.Item1.ElementId, from = r.Item1.Current, to = renamedMap[r.Item1], rule = r.Item1.RuleId }), user, projectKey ?? "");
         return results;
     }
 

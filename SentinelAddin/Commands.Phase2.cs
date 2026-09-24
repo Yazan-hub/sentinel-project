@@ -165,8 +165,10 @@ public sealed class ClashManagerCommand : IExternalCommand
 
         var clashes = Sentinel.Engine.ClashManager.Run(doc);
         // The data gate first (D-01): the same status the web clash panel shows, read for this document's key.
-        var fedLine = Sentinel.Coordination.GovernedQuery.FederationStatus(Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc))
-                      ?? "Federation Gate: bridge unreachable";
+        var ctx = Sentinel.Engine.ProjectContext.For(doc);
+        var fedLine = !ctx.IsBound
+            ? "Federation Gate: not checked — " + Sentinel.Engine.ProjectContext.NotBound
+            : Sentinel.Coordination.GovernedQuery.FederationStatus(ctx.Key) ?? "Federation Gate: bridge unreachable";
         if (clashes.Count == 0)
         {
             TaskDialog.Show("Sentinel — Clash Manager",

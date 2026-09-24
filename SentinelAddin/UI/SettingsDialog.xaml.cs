@@ -20,16 +20,34 @@ public partial class SettingsDialog : Window
         _current = SettingsManager.Resolve(doc);
         RulesetPathBox.Text = _current.MasterRulesetPath;
         TemplatePathBox.Text = _current.RevitTemplatePath;
-        ProjectCodeBox.Text = _current.ProjectCode;
+        // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
+        // into a document fact — CDE-01 reads ProjectCode from the document only. No document → the machine's.
+        ProjectCodeBox.Text = doc is null ? _current.ProjectCode : SettingsManager.LoadFromDocument(doc)?.ProjectCode ?? "";
         GhostFolderBox.Text = _current.GhostSourceFolder;
-        WebProjectBox.Text = _current.WebProjectKey;
+        // The DOCUMENT's key only (never the merged machine value): saving at project scope can then never copy
+        // a machine key into a model the user did not bind.
+        WebProjectBox.Text = ProjectContext.For(doc).Key;
         LinkedModelsBox.IsChecked = _current.PublishLinkedModels;
         if (doc is null)
         {
             ScopeProject.IsEnabled = false;      // no document open
             ScopeMachine.IsChecked = true;
         }
+        ScopeProject.Checked += (_, _) => SyncWebProjectScope();
+        ScopeMachine.Checked += (_, _) => SyncWebProjectScope();
+        SyncWebProjectScope();
         LoadWebProjects();
+    }
+
+    /// <summary>The web project binds a DOCUMENT (Extensible Storage); a machine has none. At machine scope the
+    /// box is disabled and the save leaves every document's binding alone.</summary>
+    private void SyncWebProjectScope()
+    {
+        var machine = ScopeMachine.IsChecked == true;
+        WebProjectBox.IsEnabled = !machine;
+        WebProjectScopeNote.Text = machine
+            ? "Machine scope does not bind a model — pick \"Current project\" to set this model's web project."
+            : "";
     }
 
     /// <summary>
@@ -151,8 +169,7 @@ public partial class SettingsDialog : Window
             settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
-            settings.WebProjectKey = webProject;
-            settings.PublishLinkedModels = linkedModels;
+            settings.PublishLinkedModels = linkedModels; // no WebProjectKey: a machine binds no project
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Engine?.ReloadRuleset(null);

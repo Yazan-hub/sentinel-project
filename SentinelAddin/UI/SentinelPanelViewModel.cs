@@ -130,6 +130,18 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         })));
     }
 
+    /// The document has no web project: say so, and where to bind it — never a journey for "default". Bumps the
+    /// sequence so a slower GET for the previous document cannot overwrite this.
+    public void ShowUnbound()
+    {
+        ++_journeySeq;
+        OnUi(() =>
+        {
+            JourneyKey = "Journey — not bound — Sentinel ▸ Project Setup";
+            StandardsLine = NextLine = ScanRulesetLine = "";
+        });
+    }
+
     /// Row double-click -> select/zoom in Revit via the ExternalEvent hub.
     public void RequestSelect(ViolationRow row)
     {

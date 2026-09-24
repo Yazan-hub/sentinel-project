@@ -19,14 +19,20 @@ public sealed class ClashRegisterCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
-        var rows = Sentinel.Coordination.GovernedQuery.ClashRegister();
+        var ctx = Sentinel.Engine.ProjectContext.For(c.Application.ActiveUIDocument?.Document);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show("Sentinel — Clash Register", Sentinel.Engine.ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
+        var rows = Sentinel.Coordination.GovernedQuery.ClashRegister(ctx.Key);
 
         if (rows is null)
         {
             TaskDialog.Show("Sentinel — Clash Register",
-                "Couldn't reach the Sentinel bridge / CDE.\n\n" +
-                "Start the bridge (WebApp: start.ps1 or npm run bcf:serve) and check the project id in " +
-                "%AppData%\\Sentinel\\bcf-config.json.");
+                $"Couldn't reach the Sentinel bridge / CDE for project '{ctx.Key}'.\n\n" +
+                "Start the bridge (WebApp: start.ps1 or npm run bcf:serve). The project is this model's " +
+                "web project (Sentinel ▸ Project Setup).");
             return Result.Cancelled;
         }
 
@@ -52,7 +58,7 @@ public sealed class ClashRegisterCommand : IExternalCommand
                  .Concat(byStatus.Keys.Where(k => !order.Contains(k)).Select(k => $"{byStatus[k]} {k}")));
 
         var sb = new StringBuilder();
-        sb.AppendLine($"{rows.Count} clash(es) recorded for this project.");
+        sb.AppendLine($"{rows.Count} clash(es) recorded for project '{ctx.Key}'.");
         sb.AppendLine(summary);
         sb.AppendLine();
         sb.AppendLine("Biggest by shared volume:");
