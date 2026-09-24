@@ -53,7 +53,7 @@ export function nextLine(j: Journey): { text: string; tab: string | null } {
 
 /** B2: one line per step for the Guide's journey list, chosen by status — a todo's own reason never reads as "Not checkable". */
 export function stepDetail(s: JourneyStep, next: string | null): string {
-  if (s.status === "done") return `Evidence: ${s.evidence!.label}`;
+  if (s.status === "done") return `Evidence: ${s.evidence?.label ?? "(missing — should not happen)"}`;
   if (s.status === "not_checkable") return `Not checkable: ${s.reason}`;
   return (s.id === next ? "Next" : "To do") + (s.reason ? ` — ${s.reason}` : "");
 }

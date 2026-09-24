@@ -117,14 +117,15 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             JourneyKey = $"Journey · {projectKey} — loading…";
             StandardsLine = NextLine = ScanRulesetLine = "";
         });
-        var ui = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        Task.Run(() => GovernedQuery.Journey(projectKey)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
+        // Same dispatcher OnUi uses: the pane's (WPF application) dispatcher when there is one.
+        var ui = Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        Task.Run(() => { var info = GovernedQuery.Journey(projectKey, out var why); return (info, why); }).ContinueWith(t => ui.BeginInvoke(new Action(() =>
         {
             if (seq != _journeySeq) return;
-            var j = t.Status == TaskStatus.RanToCompletion ? t.Result : null;
+            var (j, why) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, t.Exception?.GetBaseException().Message);
             JourneyKey = j is null ? $"Journey · {projectKey}" : $"Journey · {j.Key} ({j.Kind})";
             StandardsLine = j?.StandardsLine ?? "";
-            NextLine = j?.NextLine ?? "Journey unavailable — the bridge did not answer for this project";
+            NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
             ScanRulesetLine = GovernedQuery.ScanRulesetLine(localStandardKey, localSemver, j);
         })));
     }

@@ -144,13 +144,29 @@ namespace Sentinel.Coordination
         /// percentage. Blocking, ~4 s cap; null when the bridge is unreachable. The key is the DOCUMENT's
         /// (SettingsManager.WebProjectKeyFor), read by the caller on the API thread.
         /// </summary>
-        public static JourneyInfo? Journey(string? projectKey)
+        public static JourneyInfo? Journey(string? projectKey) => Journey(projectKey, out _);
+
+        /// <summary>As <see cref="Journey(string?)"/>, and says why it returned null: the bridge's own message on a
+        /// refusal ("403: Not authorized: you are not a member of this project"), else the transport error.</summary>
+        public static JourneyInfo? Journey(string? projectKey, out string? failure)
         {
+            failure = null;
             try
             {
                 var cfg = BcfConfig.Load();
                 var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
-                var json = GetString(cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/journey", cfg.ServiceToken);
+                var msg = new HttpRequestMessage(HttpMethod.Get, cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/journey");
+                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                    msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+                var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
+                var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (!resp.IsSuccessStatusCode)
+                {
+                    string? said = null;
+                    try { using var err = JsonDocument.Parse(json); if (err.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) said = m.GetString(); } catch { }
+                    failure = $"{(int)resp.StatusCode}: {said ?? resp.ReasonPhrase}";
+                    return null;
+                }
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
@@ -210,7 +226,7 @@ namespace Sentinel.Coordination
                     RulesetLabel = Str(rs, "label"),
                 };
             }
-            catch { return null; } // never surface a read failure into Revit
+            catch (Exception e) { failure = e.Message; return null; } // never surface a read failure into Revit
         }
 
         /// <summary>

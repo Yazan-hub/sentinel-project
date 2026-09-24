@@ -156,6 +156,7 @@ public partial class SettingsDialog : Window
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Engine?.ReloadRuleset(null);
+            App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // key or ruleset may have changed
             DialogResult = true;
             Close();
             return;
@@ -182,6 +183,7 @@ public partial class SettingsDialog : Window
             SettingsManager.SaveToDocument(doc, settings);
             t.Commit();
             App.Engine?.ReloadRuleset(doc);
+            App.RefreshJourney(doc); // the web project key or the ruleset may have changed
         });
         DialogResult = true;
         Close();

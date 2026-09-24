@@ -31,6 +31,8 @@ const unavailable = (error) => ({ ref: null, source: "none", sha256: null, label
 export async function getJourney(key, deps = {}) {
   const d = await wire(deps);
   await d.ensureProject(key);                          // 404 unknown key, 403 not a member — before any fact is read
+  // Outside allSettled on purpose: the scope decides the kind and so the step list; without it there is no
+  // journey to mark step by step, and a 500 with the error is the honest answer.
   const scope = await d.projectScope(key);
   const run = (f) => Promise.resolve().then(f);        // a synchronous throw becomes a rejected fact, not a 500
   const sources = {
