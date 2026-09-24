@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import { runWithAuth, resolveActor } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
+import { corsOrigin } from "./cors-origin.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -44,7 +45,17 @@ const DEFAULT_CORS = [
 const CORS_RAW = process.env.BCF_CORS_ORIGIN || "";
 const CORS_WILDCARD = CORS_RAW === "*";
 const CORS_ALLOW = CORS_RAW && !CORS_WILDCARD ? CORS_RAW.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_CORS;
-const originAllowed = (origin) => CORS_WILDCARD || (!!origin && CORS_ALLOW.includes(origin));
+// The origin a request may use is decided by cors-origin.mjs (the platform's sandboxed app frame sends
+// Origin: null, accepted only with an allowlisted Referer). A refused null origin is logged once per Referer
+// origin, so a platform frame hosted somewhere new shows up in the log instead of as a silent CORS failure.
+const nullOriginSeen = new Set();
+const warnNullOrigin = (referer) => {
+  let from = "none";
+  try { if (referer) from = new URL(referer).origin; } catch { from = "unparseable"; }
+  if (nullOriginSeen.has(from)) return;
+  nullOriginSeen.add(from);
+  console.warn(`[bridge] refused Origin: null from Referer ${from} — if that is the platform's app frame, add it to BCF_CORS_ORIGIN`);
+};
 const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
 // EIR/BEP documents are text, not IFC models — cap far below MAX_UPLOAD so one huge upload can't hold
 // an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
@@ -223,7 +234,7 @@ async function updateClashStatusCde(cde, pid, signature, status) {
 // binary routes (sheet PNGs, CDE blobs) — those used a hardcoded "*" (F11), which let any site the user
 // happened to visit read sheets and document blobs straight out of the loopback bridge.
 const corsHeaders = (res) => (res._cors
-  ? { "Access-Control-Allow-Origin": res._cors, ...(res._cors === "*" ? {} : { Vary: "Origin" }) }
+  ? { "Access-Control-Allow-Origin": res._cors, ...(res._cors === "*" ? {} : { Vary: res._cors === "null" ? "Origin, Referer" : "Origin" }) }
   : {});
 
 const send = (res, code, body) => {
@@ -483,7 +494,8 @@ createServer((req, res) => {
 async function handleRequest(req, res) {
   const origin = req.headers.origin;
   // Per-request CORS origin: echo an allowlisted origin (or "*" only in wildcard/dev mode); otherwise none.
-  res._cors = CORS_WILDCARD ? (origin || "*") : (originAllowed(origin) ? origin : "");
+  res._cors = corsOrigin(origin, req.headers.referer, { allow: CORS_ALLOW, wildcard: CORS_WILDCARD });
+  if (origin === "null" && !res._cors) warnNullOrigin(req.headers.referer);
 
   if (req.method === "OPTIONS") {
     // Chrome Private Network Access: a public origin (the platform) calling a private
@@ -496,7 +508,7 @@ async function handleRequest(req, res) {
 
   // CSRF gate: refuse state-changing requests from a browser origin that isn't allowlisted. A request with no
   // Origin (Revit plugin, curl, server-to-server) is a non-browser caller and is allowed through.
-  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") && origin && !originAllowed(origin)) {
+  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") && origin && !res._cors) {
     return send(res, 403, { message: "Origin not allowed" });
   }
   const url = new URL(req.url, "http://localhost");
