@@ -1,14 +1,15 @@
 using System.Windows;
 using System.Windows.Media;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 
 namespace Sentinel.UI;
 
 public partial class RulesetWindow : Window
 {
-    public RulesetWindow(Ruleset ruleset)
+    public RulesetWindow(Ruleset ruleset, ResolvedArtefact source, string docTitle)
     {
-        DataContext = new RulesetWindowViewModel(ruleset);
+        DataContext = new RulesetWindowViewModel(ruleset, source, docTitle);
         InitializeComponent();
     }
 }
@@ -75,10 +76,13 @@ public sealed class RuleCard
 
 public sealed class RulesetWindowViewModel
 {
-    public RulesetWindowViewModel(Ruleset rs)
+    public RulesetWindowViewModel(Ruleset rs, ResolvedArtefact src, string docTitle)
     {
-        Header = $"{rs.StandardKey}  ·  v{rs.Semver}";
-        SubHeader = $"{rs.Rules.Count} active rules — office master + project overlay (effective set)";
+        // The artefact that judges this document, exactly as every other surface names it (refLabel), or none.
+        Header = src.Label;
+        SubHeader = rs.Rules.Count == 0
+            ? $"{docTitle} — no rules, nothing is scored"
+            : $"{docTitle} — {rs.StandardKey} v{rs.Semver} · {rs.Rules.Count} rule(s)";
         Rules = rs.Rules.Select(r => new RuleCard(r)).ToList();
     }
 

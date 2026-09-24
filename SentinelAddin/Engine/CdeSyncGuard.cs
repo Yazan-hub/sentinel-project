@@ -46,7 +46,7 @@ public static class CdeSyncGuard
         bool codeOk = string.IsNullOrEmpty(projectCode) ||
                       fileName.IndexOf(projectCode, StringComparison.OrdinalIgnoreCase) >= 0;
 
-        var rs = App.Engine?.Ruleset;
+        var rs = App.Engine?.RulesetFor(doc);
         string org = rs?.Org ?? string.Empty;
         bool orgConfigured = OrgNames.Configured(org);
         bool centralOk = orgConfigured && Regex.IsMatch(fileName, OrgNames.CentralFilePattern(org), RegexOptions.CultureInvariant);

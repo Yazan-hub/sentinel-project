@@ -1,7 +1,7 @@
 <Window x:Class="Sentinel.UI.RulesetWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Sentinel — Effective Ruleset"
+        Title="Sentinel — Ruleset"
         Width="760" Height="640" WindowStartupLocation="CenterScreen"
         Background="#F4F6F9">
     <Window.Resources>

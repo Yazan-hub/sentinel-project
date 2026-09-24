@@ -15,6 +15,9 @@ namespace Sentinel.GhostBuilder
     /// </summary>
     public sealed class GhostBuilderPlacementEvent : IExternalEventHandler
     {
+        /// The document's office code, set by the command that creates this handler (it names the event only).
+        public string Org = "";
+
         // Per-raise payload, staged on the UI/background thread just before Raise().
         private GhostBuilderOrchestrator _orchestrator;
         private GhostBuilderOrchestrator.Inputs _inputs;
@@ -66,6 +69,6 @@ namespace Sentinel.GhostBuilder
             }
         }
 
-        public string GetName() => Sentinel.Engine.OrgNames.GhostEventName(App.Org);
+        public string GetName() => Sentinel.Engine.OrgNames.GhostEventName(Org);
     }
 }

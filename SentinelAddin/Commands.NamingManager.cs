@@ -24,10 +24,10 @@ public sealed class NamingManagerCommand : IExternalCommand
         if (_open) { TaskDialog.Show("Sentinel — Naming Manager", "The Naming Manager is already open."); return Result.Cancelled; }
         if (App.Engine is null || App.Events is null) { TaskDialog.Show("Sentinel — Naming Manager", "Sentinel's rule engine is not running — restart Revit."); return Result.Failed; }
 
-        var rs = App.Engine.Ruleset;
+        var rs = App.Engine.RulesetFor(doc);
         if (!rs.Rules.Any(r => r.Target is RuleTarget.Type or RuleTarget.Family))
         {
-            TaskDialog.Show("Sentinel — Naming Manager", "The effective ruleset has no family or type naming rule (targets `family` / `type`). Add one to the ruleset first.");
+            TaskDialog.Show("Sentinel — Naming Manager", $"This document's ruleset ({App.Engine.SourceFor(doc).Label}) has no family or type naming rule (targets `family` / `type`). Install a ruleset@n with one on the web project or its office first.");
             return Result.Succeeded;
         }
         if (rs.Rules.Any(r => RuleRegex.NeedsOrg(r)) && string.IsNullOrWhiteSpace(rs.Org))
@@ -48,7 +48,7 @@ public sealed class NamingManagerCommand : IExternalCommand
                 {
                     var d = ua.ActiveUIDocument?.Document;
                     if (d == null || !d.Equals(doc)) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
-                    window.SetRows(NamingManagerService.BuildRows(d, App.Engine!.Ruleset));
+                    window.SetRows(NamingManagerService.BuildRows(d, App.Engine!.RulesetFor(d)));
                     window.SetBusy(false);
                 }
                 catch (Exception ex) { window.SetStatus("Revit refused: " + ex.Message); window.SetBusy(false); }
@@ -78,10 +78,10 @@ public sealed class NamingManagerCommand : IExternalCommand
                 {
                     var d = ua.ActiveUIDocument?.Document;
                     if (d == null || !d.Equals(doc)) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
-                    var results = NamingManagerService.Apply(d, ticked, App.Engine!.Ruleset, projectKey);
+                    var results = NamingManagerService.Apply(d, ticked, App.Engine!.RulesetFor(d), projectKey);
                     var ok = results.Count(r => r.Ok);
                     var failed = results.Where(r => !r.Ok).Select(r => $"{r.Row.Current}: {r.Message}").ToList();
-                    window.SetRows(NamingManagerService.BuildRows(d, App.Engine.Ruleset));
+                    window.SetRows(NamingManagerService.BuildRows(d, App.Engine.RulesetFor(d)));
                     window.SetStatus($"Renamed {ok}/{results.Count}." + (failed.Count > 0 ? " Not renamed — " + string.Join(" · ", failed.Take(6)) + (failed.Count > 6 ? " · …" : "") : ""));
                     window.SetBusy(false);
                 }

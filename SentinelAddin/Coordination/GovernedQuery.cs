@@ -137,6 +137,7 @@ namespace Sentinel.Coordination
             public string? RulesetSource;
             public string? RulesetStandardKey;
             public string? RulesetSemver;
+            public string? RulesetSha256;
             public string? RulesetLabel; // "unavailable — …" when the bridge could not read the standards
         }
 
@@ -226,6 +227,7 @@ namespace Sentinel.Coordination
                     RulesetSource = Str(rs, "source"),
                     RulesetStandardKey = Str(rs, "standard_key"),
                     RulesetSemver = Str(rs, "semver"),
+                    RulesetSha256 = Str(rs, "sha256"),
                     RulesetLabel = Str(rs, "label"),
                 };
             }
@@ -233,25 +235,22 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
-        /// Which ruleset judged the pane's rows, against the project's ruleset@n. Until the add-in reads the
-        /// artefact (cohesion phase 4) the machine's ruleset judges the pane, so the strip says which one and
-        /// whether it matches — it must not imply the project's artefact did. Pure (no I/O).
+        /// Which ruleset judged the pane's rows — the document's own ruleset@n as resolved when it was loaded
+        /// (its label says "cached" when the bridge was not reached) — against what the journey says is in force
+        /// now. Same artefact = ref, source and sha all equal; then the line is just "Judged by &lt;refLabel&gt;".
+        /// Pure (no I/O).
         /// </summary>
-        public static string ScanRulesetLine(string localStandardKey, string localSemver, JourneyInfo? j)
+        public static string ScanRulesetLine(ResolvedArtefact local, JourneyInfo? j)
         {
-            var localKey = (localStandardKey ?? "").Trim();
-            var localVer = (localSemver ?? "").Trim();
-            var head = "Scans here with " + (localKey.Length == 0 ? "an unkeyed ruleset" : (localKey + " " + localVer).Trim()) + " (this machine)";
-            if (j is null) return head + " — the project's ruleset is unknown (journey unavailable)";
+            var head = "Judged by " + local.Label;
+            if (j is null) return head + " — the project's ruleset now is unknown (journey unavailable)";
             if (string.IsNullOrEmpty(j.RulesetRef))
-                return head + (j.RulesetLabel is { } l && l != "none"
-                    ? " — the project's ruleset is " + l // "unavailable — …": a failed read is not "nothing installed"
-                    : " — the project has no ruleset installed");
-            var theirKey = (j.RulesetStandardKey ?? "").Trim();
-            var theirVer = (j.RulesetSemver ?? "").Trim();
-            if (localKey.Length > 0 && localKey == theirKey && localVer == theirVer) return head + " — matches " + j.RulesetRef;
-            var theirs = (theirKey.Length == 0 ? "no standard_key" : (theirKey + " " + theirVer).Trim());
-            return head + $" — differs from {j.RulesetRef} · {j.RulesetSource} ({theirs})";
+            {
+                if (j.RulesetLabel is { } l && l != "none") return head + " — the project's ruleset is " + l; // a failed read is not "nothing installed"
+                return local.Ref is null ? head + " — nothing is scored" : head + " — but the project now has no ruleset installed (Scan Now reloads)";
+            }
+            if (local.Ref == j.RulesetRef && local.Source == j.RulesetSource && local.Sha256 == j.RulesetSha256) return head;
+            return head + $" — the project now has {j.RulesetLabel ?? j.RulesetRef} (Scan Now reloads)";
         }
 
         /// <summary>One recorded clash from the web-side team register (GET /clash/:project).</summary>

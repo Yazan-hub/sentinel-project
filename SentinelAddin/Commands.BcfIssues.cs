@@ -112,7 +112,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         // API thread, and close the loop on the topic only with evidence (every GUID resolved AND passing).
         var doc = uiapp.ActiveUIDocument.Document;
         var projectKey = bcfKey; // same document, same key
-        var org = App.Engine?.Ruleset.Org;
+        var org = App.OrgFor(doc);
         var ids = IdsSpecFile.Load();
         var user = doc.Application.Username;
 

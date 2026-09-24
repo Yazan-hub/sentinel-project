@@ -49,10 +49,47 @@ static class Check
     {
         Console.WriteLine("ArtefactCache + ArtefactClient — Revit reads the project's standards and says where they came from\n");
         ArtefactCache.Root = Path.Combine(Path.GetTempPath(), "sentinel-artefact-cache-check-" + Guid.NewGuid().ToString("N"));
-        try { Run(); }
+        try { Run(); ScanLine(); }
         finally { try { Directory.Delete(ArtefactCache.Root, true); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
+    }
+
+    // ── 5. the pane's scan line: the document's own ruleset@n against what the journey says is in force now ──
+    static void ScanLine()
+    {
+        Console.WriteLine("\nScan line (Next strip) — which ruleset judged the rows, and whether it is still the project's\n");
+        static ResolvedArtefact A(string? r, string? src, string? sha, string label) => new() { Kind = "ruleset", Ref = r, Source = src, Sha256 = sha, Label = label, Origin = r is null ? "none" : "bridge" };
+        static GovernedQuery.JourneyInfo J(string? r, string src, string? sha, string label) => new() { RulesetRef = r, RulesetSource = src, RulesetSha256 = sha, RulesetLabel = label };
+        var aster = A("ruleset@1", "office", "fb8f9baefa9f0011", "ruleset@1 · office · fb8f9baefa9f…");
+        var cached = A("ruleset@1", "office", "fb8f9baefa9f0011", "ruleset@1 · office · fb8f9baefa9f… (cached 14:02)");
+        var none = RulesetStore.NoneSource("not installed for aster-villa or its office");
+        var jAster = J("ruleset@1", "office", "fb8f9baefa9f0011", "ruleset@1 · office · fb8f9baefa9f…");
+        var jNew = J("ruleset@2", "project", "aa11", "ruleset@2 · project · aa11…");
+        var jMoved = J("ruleset@1", "project", "fb8f9baefa9f0011", "ruleset@1 · project · fb8f9baefa9f…");
+        var jNone = J(null, "none", null, "none");
+        var jBad = J(null, "none", null, "unavailable — timeout");
+        string L(ResolvedArtefact l, GovernedQuery.JourneyInfo? j) => GovernedQuery.ScanRulesetLine(l, j);
+
+        Ok(L(aster, jAster) == "Judged by ruleset@1 · office · fb8f9baefa9f…", "same ref, source and sha → just the label");
+        Ok(L(cached, jAster) == "Judged by ruleset@1 · office · fb8f9baefa9f… (cached 14:02)", "a cached copy says cached");
+        Ok(L(aster, jNew) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project now has ruleset@2 · project · aa11… (Scan Now reloads)", "a newer ruleset@n on the project → says so, Scan Now reloads");
+        Ok(L(none, jNone) == "Judged by none — not installed for aster-villa or its office — nothing is scored", "none, and none installed → nothing is scored");
+        Ok(L(none, jAster) == "Judged by none — not installed for aster-villa or its office — the project now has ruleset@1 · office · fb8f9baefa9f… (Scan Now reloads)", "none here, installed since → says so");
+        Ok(L(aster, jBad) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project's ruleset is unavailable — timeout", "a failed journey read is not 'nothing installed'");
+        Ok(L(aster, null) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project's ruleset now is unknown (journey unavailable)", "no journey → unknown, not a match");
+        Ok(L(aster, jMoved).EndsWith("— the project now has ruleset@1 · project · fb8f9baefa9f… (Scan Now reloads)"), "office → project at the same @n and sha is a change (source is part of 'same')");
+        Ok(L(aster, jNone) == "Judged by ruleset@1 · office · fb8f9baefa9f… — but the project now has no ruleset installed (Scan Now reloads)", "judged by one, none installed now → says so");
+
+        // A none source never produces a score string: not on the scan line, not in the scorecard headline.
+        var lines = new[] { jAster, jNew, jMoved, jNone, jBad, null }.Select(j => L(none, j)).ToList();
+        var report = new ScanReport("Aster Villa", DateTimeOffset.Now, 3, 0, new List<Violation>()) { Ruleset = RulesetStore.None(), NotScored = none.Label };
+        var headline = HealthScorecard.Build(report).Headline;
+        Ok(lines.All(l => !l.Contains('%')) && headline.StartsWith("Not scored — none — not installed for aster-villa or its office")
+           && !headline.Contains('%') && !headline.Contains("(A)") && report.RulesetRef is null && report.RulesetSha256 is null,
+           "a none source never produces a score, a grade or a ruleset ref");
+        var (rs0, src0, note0) = RulesetStore.Load("");
+        Ok(rs0.Rules.Count == 0 && src0.Origin == "none" && src0.Label == "none — not bound — Sentinel ▸ Project Setup" && note0 is null, "Load(\"\") → none, not bound, nothing asked");
     }
 
     static void Run()

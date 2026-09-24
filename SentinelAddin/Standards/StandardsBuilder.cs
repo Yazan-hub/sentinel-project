@@ -305,7 +305,12 @@ public static class StandardsBuilder
 
         try
         {
-            var rs = RulesetStore.LoadEffective(doc);
+            // ponytail: interim until Task 8 — merges into a COPY of the document's ruleset (never the live one its
+            // scan judges by; no HTTP on the API thread) and reports it, but nothing is persisted: the machine file
+            // is gone and the ruleset@n+1 install is Task 8's.
+            var wire = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) } };
+            var live = App.Engine?.RulesetFor(doc) ?? RulesetStore.None();
+            var rs = JsonSerializer.Deserialize<Ruleset>(JsonSerializer.Serialize(live, wire), wire)!;
 
             if (hasWorksets)
             {
@@ -341,22 +346,7 @@ public static class StandardsBuilder
                 }
             }
 
-            // Same wire format RulesetStore reads (snake_case enums), written to the user cache.
-            var opts = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-            };
-            Directory.CreateDirectory(Path.GetDirectoryName(RulesetStore.UserCachePath)!);
-            File.WriteAllText(RulesetStore.UserCachePath, JsonSerializer.Serialize(rs, opts));
-
-            // Reload + rescan so the panel reflects the standard we just built.
-            App.Engine?.ReloadRuleset(doc);
-            var report = App.Engine?.ScanFull(doc);
-            if (report is not null) App.PanelVm?.PublishReport(report);
-            App.RefreshJourney(doc); // the local ruleset just changed: the strip's scan line must say so
-
-            r.Created.Add("Ruleset: scanner reloaded");
+            r.Failed.Add("Ruleset: NOT installed — the rules above were merged in memory only; installing them as the project's ruleset@n+1 is not wired yet");
         }
         catch (Exception ex) { r.Failed.Add($"Ruleset persist: {ex.Message}"); }
     }

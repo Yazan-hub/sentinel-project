@@ -5,11 +5,12 @@ using System.Text.Json.Serialization;
 namespace Sentinel.Engine;
 
 /// <summary>
-/// Offline-first ruleset access (Decision: add-in works offline).
-/// Order: %ProgramData% deployed cache -> per-user cache -> embedded fallback.
-/// Phase 3 adds backend sync writing into the per-user cache.
+/// The ruleset a document is judged by comes from its web project: ruleset@n on the project, else on its
+/// office, else the explicit none (cohesion phase 4a). There is no machine file, no bundled copy and no pilot
+/// fallback. This half is pure (no Revit, no HTTP) so tools/org-check compiles it; the fetching half —
+/// <c>Load</c> / <c>NoneSource</c> — is in RulesetStore.Revit.cs.
 /// </summary>
-public static class RulesetStore
+public static partial class RulesetStore
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -17,59 +18,49 @@ public static class RulesetStore
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
     };
 
-    public static string UserCachePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Sentinel", "ruleset.json");
+    /// The explicit "nothing installed" ruleset: no rules, so it scans nothing and scores nothing.
+    public static Ruleset None() => new() { StandardKey = "none", Semver = "0.0.0" };
 
-    public static string DeployedPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Sentinel", "ruleset.json");
-
-    /// Ruleset shipped alongside the add-in DLL (deployed by build.ps1).
-    public static string BundledPath => Path.Combine(
-        Path.GetDirectoryName(typeof(RulesetStore).Assembly.Location)!,
-        "Resources", "ruleset.json");
-
-    /// <summary>Resolution chain, highest priority first:
-    /// 1. Configured master ruleset (SettingsManager: project ES -> machine JSON)
-    /// 2. User cache -> ProgramData -> bundled -> embedded fallback.</summary>
-    public static Ruleset LoadEffective(Autodesk.Revit.DB.Document? doc = null)
+    /// <summary>A ruleset@n body (the raw artefact JSON) → the ruleset the scan uses: a fresh object, so the
+    /// "{org}" expansion (OrgNames.Apply, in place) never touches the stored body. Null/empty body → None().
+    /// A body that does not parse, or one the scanner cannot walk (a null list the bridge validator lets
+    /// through) → None() and <paramref name="error"/> says why, out loud. Never throws.
+    /// <paramref name="skipped"/> names the rules dropped because they need an office code and none is set.</summary>
+    public static Ruleset FromBody(string? bodyJson, out List<string> skipped, out string? error)
     {
-        var configured = SettingsManager.Resolve(doc).MasterRulesetPath;
-        var chain = string.IsNullOrWhiteSpace(configured)
-            ? new[] { UserCachePath, DeployedPath, BundledPath }
-            : new[] { configured, UserCachePath, DeployedPath, BundledPath };
-        foreach (var path in chain)
+        skipped = new List<string>();
+        error = null;
+        if (string.IsNullOrWhiteSpace(bodyJson)) return None();
+        try
         {
-            if (!File.Exists(path)) continue;
-            try
-            {
-                var rs = JsonSerializer.Deserialize<Ruleset>(File.ReadAllText(path), JsonOpts);
-                if (rs is not null) return Resolve(rs);
-            }
-            catch (JsonException) { /* fall through to next source */ }
+            var rs = JsonSerializer.Deserialize<Ruleset>(bodyJson!, JsonOpts);
+            if (rs is null) { error = "the body is null"; return None(); }
+            RequireShape(rs);
+            skipped = OrgNames.Apply(rs);
+            return rs;
         }
-        return Resolve(EmbeddedFallback());
+        catch (Exception ex)
+        {
+            skipped = new List<string>();
+            error = ex.Message;
+            return None();
+        }
     }
 
-    /// Expand "{org}" once at load; rules that need an office when none is configured are dropped LOUDLY.
-    private static Ruleset Resolve(Ruleset rs)
+    // The bridge validator checks id/target/mode only, so "whitelist": null (etc.) installs; C# would then crash
+    // in OrgNames.Apply or mid-scan. Refuse it here, naming the field.
+    private static void RequireShape(Ruleset rs)
     {
-        var skipped = OrgNames.Apply(rs);
-        if (skipped.Count > 0)
-            App.PanelVm?.LogDoctor("Ruleset: no office code configured ('org' is empty) — " +
-                skipped.Count + " rule(s) that need one skipped: " + string.Join(", ", skipped));
-        return rs;
-    }
-
-    /// Safety net so the add-in never starts rule-less: the shipped Resources/ruleset.json, compiled
-    /// into the DLL (csproj EmbeddedResource). It is the pilot's ruleset by design — a reference
-    /// profile, not a fixed standard — and keeping it as DATA means the office code lives in one
-    /// place; a neutral "XXX" ruleset would flag every workset and view in every office instead.
-    private static Ruleset EmbeddedFallback()
-    {
-        using var stream = typeof(RulesetStore).Assembly.GetManifestResourceStream("ruleset.json");
-        var rs = stream is null ? null : JsonSerializer.Deserialize<Ruleset>(stream, JsonOpts);
-        return rs ?? new Ruleset { StandardKey = "none", Semver = "0.0.0-fallback" };
+        if (rs.Rules is null) throw new InvalidDataException("'rules' is null");
+        if (rs.DocRefs is null) throw new InvalidDataException("'doc_refs' is null");
+        if (rs.Org is null) throw new InvalidDataException("'org' is null");
+        for (int i = 0; i < rs.Rules.Count; i++)
+        {
+            var r = rs.Rules[i] ?? throw new InvalidDataException($"rules[{i}] is null");
+            var nul = r.Tokens is null ? "tokens" : r.TokenDefs is null ? "token_defs" : r.Whitelist is null ? "whitelist"
+                : r.Exclusions is null ? "exclusions" : r.Categories is null ? "categories" : r.Separator is null ? "separator"
+                : r.MessageEn is null ? "message_en" : r.Id is null ? "id" : null;
+            if (nul is not null) throw new InvalidDataException($"rules[{i}].{nul} is null");
+        }
     }
 }

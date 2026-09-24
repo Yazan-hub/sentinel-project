@@ -1,49 +1,61 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
+using Sentinel.Coordination;
 
 namespace Sentinel.Engine;
 
 /// <summary>
-/// Evaluates the effective ruleset against a document (full scan) or a set of
-/// changed elements (DMU delta). Pure Revit-API reads; never opens transactions —
-/// safe inside IUpdater.Execute and event handlers.
+/// Evaluates a document against ITS ruleset (one per open document — its web project's ruleset@n, or none)
+/// as a full scan or a set of changed elements (DMU delta). Pure Revit-API reads; never opens transactions —
+/// safe inside IUpdater.Execute and event handlers. The per-document map is touched on the API thread only.
 /// </summary>
-public sealed class RuleEngineHost(Ruleset ruleset)
+public sealed class RuleEngineHost
 {
-    public Ruleset Ruleset { get; private set; } = ruleset;
+    private readonly Dictionary<Document, (Ruleset Ruleset, ResolvedArtefact Source)> _byDoc = new();
+    private readonly Dictionary<Rule, Regex> _compiled = new(); // keyed by the rule object: two documents' "VN-01" differ
 
-    /// Re-resolve the ruleset after Project Setup changes the configured
-    /// master path (doc = null -> machine-level resolution only).
-    public void ReloadRuleset(Autodesk.Revit.DB.Document? doc)
+    /// The ruleset that judges this document; none until its ruleset@n has been resolved (App.ReloadRuleset).
+    public Ruleset RulesetFor(Document doc) => Entry(doc).Ruleset;
+
+    /// Where that ruleset came from: ref · source · sha, cached, or none with the reason.
+    public ResolvedArtefact SourceFor(Document doc) => Entry(doc).Source;
+
+    public void Set(Document doc, (Ruleset Ruleset, ResolvedArtefact Source) entry)
     {
-        Ruleset = RulesetStore.LoadEffective(doc);
+        _byDoc[doc] = entry;
         _compiled.Clear();   // token regexes may have changed
     }
 
-    private readonly Dictionary<string, Regex> _compiled = [];
+    // ponytail: dropped on DocumentClosing; a close another add-in cancels leaves the document on none until
+    // the next Scan Now / Project Setup save reloads it.
+    public void Forget(Document doc) => _byDoc.Remove(doc);
 
-    private Regex CompiledPattern(Rule r)
+    private (Ruleset Ruleset, ResolvedArtefact Source) Entry(Document doc) =>
+        _byDoc.TryGetValue(doc, out var e) ? e : (RulesetStore.None(), RulesetStore.NoneSource("not loaded yet — Scan Now loads it"));
+
+    private Regex CompiledPattern(Rule r, string org)
     {
-        if (_compiled.TryGetValue(r.Id, out var rx)) return rx;
-        return _compiled[r.Id] = RuleRegex.For(r, Ruleset.Org);
+        if (_compiled.TryGetValue(r, out var rx)) return rx;
+        return _compiled[r] = RuleRegex.For(r, org);
     }
 
-    private bool IsExcluded(Rule r, string name) =>
+    private static bool IsExcluded(Rule r, string name) =>
         r.Exclusions.Any(x => Regex.IsMatch(name, x));
 
     // ---------------- Full scan ----------------
     public ScanReport ScanFull(Document doc)
     {
+        var (rs, src) = Entry(doc);
         var sw = Stopwatch.StartNew();
         var violations = new List<Violation>();
         int checkedCount = 0;
 
-        foreach (var rule in Ruleset.Rules)
+        foreach (var rule in rs.Rules)
         {
             // A rule that references the office code cannot be evaluated without one — say so once, per
             // rule, instead of scanning with a pattern that matches nothing (which would read as "all clean").
-            if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(Ruleset.Org))
+            if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(rs.Org))
             {
                 // Built directly, not via Make: the rule's own MessageEn would substitute this text into
                 // "{name}" and read as "Family '(ruleset.org is empty…)' does not match…".
@@ -53,57 +65,67 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             }
             switch (rule.Target)
             {
-                case RuleTarget.Workset:  checkedCount += ScanWorksets(doc, rule, violations); break;
-                case RuleTarget.View:     checkedCount += ScanElements<View>(doc, rule, violations, v => !v.IsTemplate && IsUserView(v)); break;
-                case RuleTarget.Sheet:    checkedCount += ScanElements<ViewSheet>(doc, rule, violations, _ => true, s => s.SheetNumber); break;
-                case RuleTarget.Family:   checkedCount += ScanFamilies(doc, rule, violations); break;
-                case RuleTarget.Type:     checkedCount += ScanTypes(doc, rule, violations); break;
-                case RuleTarget.Level:    checkedCount += ScanElements<Level>(doc, rule, violations, _ => true); break;
-                case RuleTarget.Grid:     checkedCount += ScanElements<Grid>(doc, rule, violations, _ => true); break;
-                case RuleTarget.Parameter: checkedCount += ScanParameter(doc, rule, violations); break;
+                case RuleTarget.Workset:  checkedCount += ScanWorksets(doc, rule, rs.Org, violations); break;
+                case RuleTarget.View:     checkedCount += ScanElements<View>(doc, rule, rs.Org, violations, v => !v.IsTemplate && IsUserView(v)); break;
+                case RuleTarget.Sheet:    checkedCount += ScanElements<ViewSheet>(doc, rule, rs.Org, violations, _ => true, s => s.SheetNumber); break;
+                case RuleTarget.Family:   checkedCount += ScanFamilies(doc, rule, rs.Org, violations); break;
+                case RuleTarget.Type:     checkedCount += ScanTypes(doc, rule, rs.Org, violations); break;
+                case RuleTarget.Level:    checkedCount += ScanElements<Level>(doc, rule, rs.Org, violations, _ => true); break;
+                case RuleTarget.Grid:     checkedCount += ScanElements<Grid>(doc, rule, rs.Org, violations, _ => true); break;
+                case RuleTarget.Parameter: checkedCount += ScanParameter(doc, rule, rs.Org, violations); break;
             }
         }
         sw.Stop();
-        return new ScanReport(doc.Title, DateTimeOffset.Now, sw.ElapsedMilliseconds, checkedCount, violations);
+        var report = new ScanReport(doc.Title, DateTimeOffset.Now, sw.ElapsedMilliseconds, checkedCount, violations) { Ruleset = rs };
+        if (rs.Rules.Count == 0)
+            // Nothing judged: no score, no grade, and the bridge gets no ruleset ref (office.model_health not_checkable).
+            report.NotScored = src.Origin == "none" ? src.Label : src.Label + " — no rule left to evaluate (see the Doctor log)";
+        else
+        {
+            report.RulesetRef = src.Ref;
+            report.RulesetSha256 = src.Sha256;
+        }
+        return report;
     }
 
     // ---------------- Delta scan (DMU) ----------------
     public IReadOnlyList<Violation> ScanElements(Document doc, IEnumerable<ElementId> ids)
     {
+        var rs = RulesetFor(doc);
         var violations = new List<Violation>();
         foreach (var id in ids)
         {
             if (doc.GetElement(id) is not Element e) continue;
-            foreach (var rule in Ruleset.Rules)
-                EvaluateSingle(e, rule, violations);
+            foreach (var rule in rs.Rules)
+                EvaluateSingle(e, rule, rs.Org, violations);
         }
         return violations;
     }
 
-    private void EvaluateSingle(Element e, Rule rule, List<Violation> sink)
+    private void EvaluateSingle(Element e, Rule rule, string org, List<Violation> sink)
     {
         switch (rule.Target)
         {
             case RuleTarget.View when e is View v && !v.IsTemplate && IsUserView(v):
-                CheckName(v, v.Name, rule, sink);
+                CheckName(v, v.Name, rule, org, sink);
                 break;
             case RuleTarget.Sheet when e is ViewSheet s:
-                CheckName(s, s.SheetNumber, rule, sink);
+                CheckName(s, s.SheetNumber, rule, org, sink);
                 break;
             case RuleTarget.Level when e is Level l:
-                CheckName(l, l.Name, rule, sink);
+                CheckName(l, l.Name, rule, org, sink);
                 break;
             case RuleTarget.Grid when e is Grid g:
-                CheckName(g, g.Name, rule, sink);
+                CheckName(g, g.Name, rule, org, sink);
                 break;
             case RuleTarget.Parameter when e is View pv && !pv.IsTemplate && IsUserView(pv):
-                CheckParameter(pv, rule, sink);
+                CheckParameter(pv, rule, org, sink);
                 break;
         }
     }
 
     // ---------------- Per-target scanners ----------------
-    private int ScanElements<T>(Document doc, Rule rule, List<Violation> sink,
+    private int ScanElements<T>(Document doc, Rule rule, string org, List<Violation> sink,
         Func<T, bool> filter, Func<T, string>? nameSelector = null) where T : Element
     {
         int n = 0;
@@ -111,12 +133,12 @@ public sealed class RuleEngineHost(Ruleset ruleset)
         {
             if (!filter(e)) continue;
             n++;
-            CheckName(e, nameSelector?.Invoke(e) ?? e.Name, rule, sink);
+            CheckName(e, nameSelector?.Invoke(e) ?? e.Name, rule, org, sink);
         }
         return n;
     }
 
-    private int ScanWorksets(Document doc, Rule rule, List<Violation> sink)
+    private static int ScanWorksets(Document doc, Rule rule, string org, List<Violation> sink)
     {
         if (!doc.IsWorkshared) return 0;
         int n = 0;
@@ -125,14 +147,14 @@ public sealed class RuleEngineHost(Ruleset ruleset)
         {
             n++; present.Add(ws.Name);
             if (!rule.Whitelist.Contains(ws.Name))
-                sink.Add(Make(rule, -1, ws.Name));
+                sink.Add(Make(rule, org, -1, ws.Name));
         }
         foreach (var missing in rule.Whitelist.Where(w => !present.Contains(w)))
-            sink.Add(Make(rule, -1, $"(missing) {missing}"));
+            sink.Add(Make(rule, org, -1, $"(missing) {missing}"));
         return n;
     }
 
-    private int ScanFamilies(Document doc, Rule rule, List<Violation> sink)
+    private int ScanFamilies(Document doc, Rule rule, string org, List<Violation> sink)
     {
         int n = 0;
         foreach (Family f in new FilteredElementCollector(doc).OfClass(typeof(Family)).Cast<Family>())
@@ -144,14 +166,14 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             // so German/French/Arabic Revit installs behave identically.
             if (rule.Categories.Count > 0 && !rule.Categories.Any(cat.MatchesCategoryKey)) continue;
             n++;
-            CheckName(f, f.Name, rule, sink);
+            CheckName(f, f.Name, rule, org, sink);
         }
         return n;
     }
 
     // Type names (system families included). Locale-safe category scope like ScanFamilies. Not wired to
     // the DMU delta — scan-on-demand and the Naming Manager are the path for types.
-    private int ScanTypes(Document doc, Rule rule, List<Violation> sink)
+    private int ScanTypes(Document doc, Rule rule, string org, List<Violation> sink)
     {
         int n = 0;
         foreach (ElementType et in new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>())
@@ -160,12 +182,12 @@ public sealed class RuleEngineHost(Ruleset ruleset)
             if (cat is null) continue;
             if (rule.Categories.Count > 0 && !rule.Categories.Any(cat.MatchesCategoryKey)) continue;
             n++;
-            CheckName(et, et.Name, rule, sink);
+            CheckName(et, et.Name, rule, org, sink);
         }
         return n;
     }
 
-    private int ScanParameter(Document doc, Rule rule, List<Violation> sink)
+    private static int ScanParameter(Document doc, Rule rule, string org, List<Violation> sink)
     {
         if (rule.ParameterName is null) return 0;
         int n = 0;
@@ -173,32 +195,32 @@ public sealed class RuleEngineHost(Ruleset ruleset)
         {
             if (v.IsTemplate || !IsUserView(v) || IsExcluded(rule, v.Name)) continue;
             n++;
-            CheckParameter(v, rule, sink);
+            CheckParameter(v, rule, org, sink);
         }
         return n;
     }
 
     // ---------------- Checks ----------------
-    private void CheckName(Element e, string name, Rule rule, List<Violation> sink)
+    private void CheckName(Element e, string name, Rule rule, string org, List<Violation> sink)
     {
         if (IsExcluded(rule, name)) return;
         if (rule.Whitelist.Contains(name)) return;
-        if (rule.Tokens.Count > 0 && CompiledPattern(rule).IsMatch(name)) return;
+        if (rule.Tokens.Count > 0 && CompiledPattern(rule, org).IsMatch(name)) return;
         if (rule.Tokens.Count == 0 && rule.Whitelist.Count == 0) return; // nothing to check
-        sink.Add(Make(rule, e.Id.IdValue(), name));
+        sink.Add(Make(rule, org, e.Id.IdValue(), name));
     }
 
-    private void CheckParameter(Element e, Rule rule, List<Violation> sink)
+    private static void CheckParameter(Element e, Rule rule, string org, List<Violation> sink)
     {
         var p = e.LookupParameter(rule.ParameterName!);
         if (p is null || !p.HasValue || string.IsNullOrWhiteSpace(p.AsString()))
-            sink.Add(Make(rule, e.Id.IdValue(), e.Name));
+            sink.Add(Make(rule, org, e.Id.IdValue(), e.Name));
     }
 
-    private Violation Make(Rule r, long id, string name) =>
+    private static Violation Make(Rule r, string org, long id, string name) =>
         new(r.Id, r.Mode, id, name,
-            RuleRegex.TextWithOrg(r.MessageEn.Replace("{name}", name), Ruleset.Org),
-            r.MessageAr is null ? null : RuleRegex.TextWithOrg(r.MessageAr.Replace("{name}", name), Ruleset.Org),
+            RuleRegex.TextWithOrg(r.MessageEn.Replace("{name}", name), org),
+            r.MessageAr is null ? null : RuleRegex.TextWithOrg(r.MessageAr.Replace("{name}", name), org),
             r.DocRef);
 
     /// Module 1 amendment: exclude Revit-generated view types globally.

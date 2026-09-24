@@ -15,5 +15,12 @@
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <!-- Phase 4a Task 5: the pane's scan line (GovernedQuery.ScanRulesetLine) and the none that never scores. -->
+    <Compile Include="..\..\SentinelAddin\Coordination\GovernedQuery.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\OrgNames.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.Revit.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\HealthScorecard.cs" />
   </ItemGroup>
 </Project>

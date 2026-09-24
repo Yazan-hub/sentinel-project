@@ -17,6 +17,12 @@ public static class PlatformExporter
 {
     public enum State { Ok, MissingOrEmpty, Locked, Failed }
 
+    // Paths of the linked models this exporter is opening right now. Revit raises DocumentOpened inside
+    // OpenDocumentFile, and App.OnDocumentOpened skips these: a link export never loads, scans or judges anything.
+    // API thread only (OpenDocumentFile is), so no lock.
+    private static readonly HashSet<string> OpeningForExport = new(StringComparer.OrdinalIgnoreCase);
+    public static bool IsOpenedForExport(string? path) => !string.IsNullOrEmpty(path) && OpeningForExport.Contains(path!);
+
     /// <summary>The outbox the Bridge watches. Persistent (NOT %TEMP%) so files survive until uploaded.</summary>
     public static string OutboxDir()
     {
@@ -139,17 +145,22 @@ public static class PlatformExporter
                 // Unload frees the file (Revit won't open a model that's loaded as a link), export from a
                 // REAL document, then reload so the host looks untouched.
                 lt.Unload(null);
-                var opened = app.OpenDocumentFile(lpath);
+                OpeningForExport.Add(lpath);
                 try
                 {
-                    var r = ExportToDir(opened, Default3DView(opened), OutboxDir(), linkIfc);
-                    ok = r.state == State.Ok;
-                    Log($"link {title}: unload+open export → {r.state}{(r.error is null ? "" : " (" + r.error + ")")}");
+                    var opened = app.OpenDocumentFile(lpath);
+                    try
+                    {
+                        var r = ExportToDir(opened, Default3DView(opened), OutboxDir(), linkIfc);
+                        ok = r.state == State.Ok;
+                        Log($"link {title}: unload+open export → {r.state}{(r.error is null ? "" : " (" + r.error + ")")}");
+                    }
+                    finally
+                    {
+                        try { opened.Close(false); } catch (Exception cex) { Log($"link {title}: close failed: {cex.Message}"); }
+                    }
                 }
-                finally
-                {
-                    try { opened.Close(false); } catch (Exception cex) { Log($"link {title}: close failed: {cex.Message}"); }
-                }
+                finally { OpeningForExport.Remove(lpath); }
             }
             catch (Exception ex) { Log($"link {title}: unload/open threw: {ex.Message}"); }
             finally

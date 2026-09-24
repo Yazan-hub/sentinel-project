@@ -17,9 +17,9 @@ public static class MepVoidManager
 {
     // Tracking parameters, named from the configured office code (empty org -> tracking impossible;
     // Reconcile/PlaceVoids say so instead of silently placing untracked instances).
-    public static string PVoidId => OrgNames.VoidId(App.Org);
-    public static string PVoidStatus => OrgNames.VoidStatus(App.Org);
-    public static bool TrackingConfigured => OrgNames.Configured(App.Org);
+    public static string PVoidId(Document doc) => OrgNames.VoidId(App.OrgFor(doc));
+    public static string PVoidStatus(Document doc) => OrgNames.VoidStatus(App.OrgFor(doc));
+    public static bool TrackingConfigured(Document doc) => OrgNames.Configured(App.OrgFor(doc));
     public const string NoOrgMessage = "No office code configured (ruleset 'org' is empty), so the void tracking parameters cannot be named.";
     private const double MergeToleranceFt = 0.150 / 0.3048;   // 150 mm
     private const double MatchToleranceFt = 0.500 / 0.3048;   // re-scan pairing radius
@@ -176,7 +176,7 @@ public static class MepVoidManager
             if (doc is null) { onDone(report); return; }
 
             var fresh = FindIntersections(doc);
-            if (!TrackingConfigured)
+            if (!TrackingConfigured(doc))
             {
                 // Existing voids cannot be recognised without the tracking parameter: report every
                 // intersection as new and say why, rather than pretend the model has no voids.
@@ -189,7 +189,7 @@ public static class MepVoidManager
             var existing = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_GenericModel)
                 .WhereElementIsNotElementType()
-                .Where(e => e.LookupParameter(PVoidId)?.AsString() is { Length: > 0 })
+                .Where(e => e.LookupParameter(PVoidId(doc))?.AsString() is { Length: > 0 })
                 .Cast<Element>().OfType<FamilyInstance>()
                 .ToList();
 
@@ -201,7 +201,7 @@ public static class MepVoidManager
             {
                 // Never relocate voids that are already physically cut — the
                 // opening exists in concrete; moving the marker would lie.
-                var status = inst.LookupParameter(PVoidStatus)?.AsString();
+                var status = inst.LookupParameter(PVoidStatus(doc))?.AsString();
                 if (string.Equals(status, "Cut", StringComparison.OrdinalIgnoreCase))
                 { report.Unchanged++; continue; }
 
@@ -245,7 +245,7 @@ public static class MepVoidManager
         {
             var doc = uiapp.ActiveUIDocument?.Document;
             if (doc is null) { onDone(0, candidates.Count); return; }
-            if (!TrackingConfigured)
+            if (!TrackingConfigured(doc))
             {
                 App.PanelVm?.LogDoctor("MEP voids: " + NoOrgMessage + " Nothing placed.");
                 onDone(0, candidates.Count);
@@ -270,7 +270,7 @@ public static class MepVoidManager
                 {
                     var inst = doc.Create.NewFamilyInstance(c.Point, symbol,
                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
-                    inst.LookupParameter(PVoidId)?.Set(Guid.NewGuid().ToString());
+                    inst.LookupParameter(PVoidId(doc))?.Set(Guid.NewGuid().ToString());
                     SetStatus(inst, "Pending");
                     c.Placed = true;
                     placed++;
@@ -287,7 +287,7 @@ public static class MepVoidManager
 
     private static void SetStatus(Element e, string status)
     {
-        var p = e.LookupParameter(PVoidStatus);
+        var p = e.LookupParameter(PVoidStatus(e.Document));
         if (p is not null && !p.IsReadOnly && p.StorageType == StorageType.String)
             p.Set(status);
     }

@@ -207,7 +207,7 @@ internal static class StandardsReview
         var doc = uiapp.ActiveUIDocument?.Document;
         string projectKey = Sentinel.Engine.ProjectContext.For(doc).Key; // empty when unbound (or no document)
         string revitVersion = uiapp.Application.VersionNumber;
-        var ruleset = App.Engine?.Ruleset;
+        var ruleset = doc is null ? null : App.Engine?.RulesetFor(doc);
         window.SnapshotRequested += () =>
         {
             if (projectKey.Length == 0)

@@ -16,7 +16,6 @@ namespace Sentinel.Engine;
 /// </summary>
 public sealed class SentinelSettings
 {
-    [JsonPropertyName("master_ruleset_path")] public string MasterRulesetPath { get; set; } = string.Empty;
     [JsonPropertyName("revit_template_path")] public string RevitTemplatePath { get; set; } = string.Empty;
     [JsonPropertyName("project_code")] public string ProjectCode { get; set; } = string.Empty; // optional, tightens CDE-01
 
@@ -52,8 +51,10 @@ public sealed class SentinelSettings
     [JsonPropertyName("ghost_type_catalog_path")] public string GhostTypeCatalogPath { get; set; } = string.Empty;
     [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
 
+    // An old payload's "master_ruleset_path" is ignored on read (the ruleset comes from the web project), so an
+    // ES that held only that path reads as empty. ProjectCode counts: an ES holding only a project code is real.
     [JsonIgnore] public bool IsEmpty =>
-        string.IsNullOrWhiteSpace(MasterRulesetPath) && string.IsNullOrWhiteSpace(RevitTemplatePath)
+        string.IsNullOrWhiteSpace(RevitTemplatePath) && string.IsNullOrWhiteSpace(ProjectCode)
         && string.IsNullOrWhiteSpace(GhostSourceFolder) && string.IsNullOrWhiteSpace(GhostFamilyLibraryDir)
         && string.IsNullOrWhiteSpace(WebProjectKey);
 }

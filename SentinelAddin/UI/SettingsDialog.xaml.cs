@@ -18,7 +18,6 @@ public partial class SettingsDialog : Window
     {
         InitializeComponent();
         _current = SettingsManager.Resolve(doc);
-        RulesetPathBox.Text = _current.MasterRulesetPath;
         TemplatePathBox.Text = _current.RevitTemplatePath;
         // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
         // into a document fact — CDE-01 reads ProjectCode from the document only. No document → the machine's.
@@ -109,17 +108,6 @@ public partial class SettingsDialog : Window
         return (WebProjectBox.Text ?? "").Trim();
     }
 
-    private void OnBrowseRuleset(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog
-        {
-            Title = "Select master ruleset",
-            Filter = "Sentinel ruleset (*.json)|*.json|All files (*.*)|*.*",
-            CheckFileExists = true,
-        };
-        if (dlg.ShowDialog(this) == true) RulesetPathBox.Text = dlg.FileName;
-    }
-
     private void OnBrowseTemplate(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog
@@ -152,7 +140,6 @@ public partial class SettingsDialog : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        var path = RulesetPathBox.Text.Trim();
         var template = TemplatePathBox.Text.Trim();
         var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
         var ghostFolder = GhostFolderBox.Text.Trim();
@@ -165,15 +152,13 @@ public partial class SettingsDialog : Window
             // saving to machine can't bake in project-only values, or blow away machine fields this
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
-            settings.MasterRulesetPath = path;
             settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
             settings.PublishLinkedModels = linkedModels; // no WebProjectKey: a machine binds no project
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
-            App.Engine?.ReloadRuleset(null);
-            App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // key or ruleset may have changed
+            App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // machine settings never pick the ruleset
             DialogResult = true;
             Close();
             return;
@@ -189,7 +174,6 @@ public partial class SettingsDialog : Window
             // saving to project can't bake in machine-local paths, or blow away project fields this
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromDocument(doc) ?? new SentinelSettings();
-            settings.MasterRulesetPath = path;
             settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
@@ -199,8 +183,7 @@ public partial class SettingsDialog : Window
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);
             t.Commit();
-            App.Engine?.ReloadRuleset(doc);
-            App.RefreshJourney(doc); // the web project key or the ruleset may have changed
+            App.ReloadRuleset(doc); // the web project key may have changed: its ruleset@n, rescan and strip follow
         });
         DialogResult = true;
         Close();

@@ -14,10 +14,10 @@ static class Check
     {
         Console.WriteLine("OfficeSnapshotDto — the wire shape the bridge's office-store validates\n");
 
-        // The shipped ruleset, loaded exactly as RulesetStore does, expanded with its org (as App does at load).
+        // The pilot's ruleset@1 body (seed data), deserialised as RulesetStore does, expanded with its org.
         string root = AppContext.BaseDirectory;
         for (int i = 0; i < 6 && !Directory.Exists(Path.Combine(root, "SentinelAddin")); i++) root = Path.GetFullPath(Path.Combine(root, ".."));
-        var rs = JsonSerializer.Deserialize<Ruleset>(File.ReadAllText(Path.Combine(root, "SentinelAddin", "Resources", "ruleset.json")), ReadOpts)!;
+        var rs = JsonSerializer.Deserialize<Ruleset>(File.ReadAllText(Path.Combine(root, "demo", "bds-pilot", "ruleset.json")), ReadOpts)!;
         OrgNames.Apply(rs);
 
         // ── 1. snapshot ────────────────────────────────────────────────────────────────────────
@@ -52,6 +52,13 @@ static class Check
         Ok(P(q, "at").GetString() == "2026-09-17T06:00:00.0000000+00:00", "at is UTC ISO");
         Ok(P(q, "violations.0.rule_id").GetString() == "VN-01" && P(q, "violations.0.mode").GetString() == "request" && P(q, "violations.1.mode").GetString() == "block", "violations[].rule_id / mode snake_case");
         Ok(P(q, "violations.0.element_id").GetInt64() == 1234 && P(q, "violations.0.element_name").GetString() == "Level 1 Plan" && P(q, "violations.0.message").GetString() == "does not match", "violations[].element_id / element_name / message");
+        Ok(P(q, "ruleset_ref").ValueKind == JsonValueKind.Null && P(q, "ruleset_sha256").ValueKind == JsonValueKind.Null, "judged by none: ruleset_ref / ruleset_sha256 travel as explicit nulls");
+        report.RulesetRef = "ruleset@1"; report.RulesetSha256 = "fb8f9baefa9f0000";
+        using var d2 = JsonDocument.Parse(ScanReportDto.From(report).ToJson());
+        Ok(P(d2.RootElement, "ruleset_ref").GetString() == "ruleset@1" && P(d2.RootElement, "ruleset_sha256").GetString() == "fb8f9baefa9f0000", "judged by ruleset@n: ruleset_ref / ruleset_sha256 name it");
+        var plus = report.Plus(new Violation("CDE-01", EnforcementMode.Warn, -1, "x", "m", null, null));
+        Ok(plus.ElementsChecked == 411 && plus.Violations.Count == 3 && plus.RulesetRef == "ruleset@1" && plus.RulesetSha256 == "fb8f9baefa9f0000", "Plus (CDE-01 at sync) keeps the ruleset identity");
+        Ok(report.Plus(plus.Violations[2], counted: false).ElementsChecked == 410, "Plus(counted: false) adds the row, not an element checked");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

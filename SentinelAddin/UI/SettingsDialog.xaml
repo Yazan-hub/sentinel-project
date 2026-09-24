@@ -8,20 +8,12 @@
         <Border Background="#1E3A5F" Padding="20,14">
             <StackPanel>
                 <TextBlock Text="Project Setup" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
-                <TextBlock Text="Standards sources — supports local servers, network drives and ACC Desktop Connector paths"
+                <TextBlock Text="The web project this model belongs to — its ruleset, IDS and naming standard come from there"
                            Foreground="#9DB4CE" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
         <StackPanel Margin="20,16">
-            <TextBlock Text="Master ruleset path (ruleset.json)" FontSize="11" Foreground="#667"/>
-            <DockPanel Margin="0,4,0,12">
-                <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
-                        Margin="6,0,0,0" Click="OnBrowseRuleset"/>
-                <TextBox x:Name="RulesetPathBox" Height="28" FontSize="12" Padding="6,4"
-                         VerticalContentAlignment="Center"/>
-            </DockPanel>
-
             <TextBlock Text="Revit template path (.rte)" FontSize="11" Foreground="#667"/>
             <DockPanel Margin="0,4,0,12">
                 <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"

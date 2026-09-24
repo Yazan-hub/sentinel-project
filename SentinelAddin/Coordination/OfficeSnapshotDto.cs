@@ -91,6 +91,10 @@ public sealed class ScanReportDto
     [JsonPropertyName("duration_ms")] public long DurationMs { get; set; }
     [JsonPropertyName("elements_checked")] public int ElementsChecked { get; set; }
     [JsonPropertyName("violations")] public List<ViolationDto> Violations { get; set; } = new();
+    // Which ruleset@n judged the scan. Sent as an explicit null when none judged (WireOpts drops nulls elsewhere):
+    // the bridge then reads office.model_health as not_checkable instead of "met" on an empty scan.
+    [JsonPropertyName("ruleset_ref"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? RulesetRef { get; set; }
+    [JsonPropertyName("ruleset_sha256"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? RulesetSha256 { get; set; }
 
     public sealed class ViolationDto
     {
@@ -108,6 +112,8 @@ public sealed class ScanReportDto
         DurationMs = r.DurationMs,
         ElementsChecked = r.ElementsChecked,
         Violations = r.Violations.Select(v => new ViolationDto { RuleId = v.RuleId, Mode = v.Mode, ElementId = v.ElementId, ElementName = v.ElementName, Message = v.MessageEn }).ToList(),
+        RulesetRef = r.RulesetRef,
+        RulesetSha256 = r.RulesetSha256,
     };
 
     public string ToJson() => JsonSerializer.Serialize(this, OfficeSnapshotDto.WireOpts);

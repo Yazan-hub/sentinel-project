@@ -19,11 +19,8 @@ public static class AutoFixExecution
 {
     /// <summary>Compute the synthesized suggestion without touching the model
     /// (used by FixReviewDialog to pre-fill its editable TextBox).</summary>
-    public static string? Suggest(string currentName, string ruleId)
-    {
-        var rule = App.Engine?.Ruleset.Rules.FirstOrDefault(r => r.Id == ruleId);
-        return rule is null || rule.Tokens.Count == 0 ? null : NameSynth.BuildCompliantName(currentName, rule, App.Engine?.Ruleset.Org);
-    }
+    public static string? Suggest(string currentName, Rule? rule, string? org) =>
+        rule is null || rule.Tokens.Count == 0 ? null : NameSynth.BuildCompliantName(currentName, rule, org);
 
     /// <summary>Queue an auto-fix for a violation. UI-thread safe.
     /// finalName: coordinator-approved name from FixReviewDialog; when null,
@@ -34,7 +31,7 @@ public static class AutoFixExecution
         App.Events?.Enqueue(uiapp =>
         {
             var doc = uiapp.ActiveUIDocument?.Document;
-            var rule = App.Engine?.Ruleset.Rules.FirstOrDefault(r => r.Id == ruleId);
+            var rule = doc is null ? null : App.Engine?.RulesetFor(doc).Rules.FirstOrDefault(r => r.Id == ruleId);
             if (doc is null || rule is null || rule.Tokens.Count == 0) { onDone?.Invoke("", null); return; }
 
             var element = doc.GetElement(elementId.ToElementId());
@@ -42,7 +39,7 @@ public static class AutoFixExecution
 
             string oldName = element is ViewSheet sh ? sh.SheetNumber : element.Name;
             string candidate = string.IsNullOrWhiteSpace(finalName)
-                ? NameSynth.BuildCompliantName(oldName, rule, App.Engine?.Ruleset.Org)
+                ? NameSynth.BuildCompliantName(oldName, rule, App.OrgFor(doc))
                 : finalName!.Trim();
             if (candidate == oldName) { onDone?.Invoke(oldName, null); return; }
 

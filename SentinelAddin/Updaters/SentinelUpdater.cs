@@ -80,7 +80,7 @@ public sealed class SentinelUpdater : IUpdater
         // proportional to the edit, not the model (15 s full-scan budget stays
         // reserved for open/sync events).
         var violations = _engine.ScanElements(doc, changed);
-        _panel.MergeDelta(changed.Select(c => c.IdValue()).ToList(), violations);
+        _panel.MergeDelta(changed.Select(c => c.IdValue()).ToList(), violations, _engine.RulesetFor(doc));
 
         // Enforcement modes (Decision 4):
         //  monitor -> log only (panel)

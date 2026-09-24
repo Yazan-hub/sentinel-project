@@ -13,7 +13,7 @@ import {
 } from "./office-checks.mjs";
 
 const NOW = new Date("2026-09-17T12:00:00Z");
-const RULESET_PATH = fileURLToPath(new URL("../../SentinelAddin/Resources/ruleset.json", import.meta.url));
+const RULESET_PATH = fileURLToPath(new URL("../../demo/bds-pilot/ruleset.json", import.meta.url));
 const CATALOG_PATH = fileURLToPath(new URL("../../demo/bds-pilot/bds-type-catalog.json", import.meta.url));
 const shipped = () => JSON.parse(readFileSync(RULESET_PATH, "utf8"));       // org = "BDS", {org} unexpanded
 const pilotCatalog = () => JSON.parse(readFileSync(CATALOG_PATH, "utf8"));   // 1,434 types

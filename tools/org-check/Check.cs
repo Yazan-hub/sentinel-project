@@ -45,16 +45,16 @@ static class Check
         Ok(OrgNames.GhostEventName("") == "Ghost Builder - Placement", "no org → un-prefixed event name");
         Ok(OrgNames.DocRef(null, "rtg") is null, "DocRef on a missing ruleset is null");
 
-        // ── 3. the shipped ruleset.json, expanded exactly as RulesetStore does ─────────────────
+        // ── 3. the pilot's ruleset@1 body (seed data), loaded exactly as RulesetStore.FromBody does ─
         string root = AppContext.BaseDirectory;
         for (int i = 0; i < 6 && !Directory.Exists(Path.Combine(root, "SentinelAddin")); i++)
             root = Path.GetFullPath(Path.Combine(root, ".."));
-        string json = File.ReadAllText(Path.Combine(root, "SentinelAddin", "Resources", "ruleset.json"));
+        string json = File.ReadAllText(Path.Combine(root, "demo", "bds-pilot", "ruleset.json"));
 
-        var rs = JsonSerializer.Deserialize<Ruleset>(json, JsonOpts)!;
-        Ok(rs.Org == "BDS", "shipped ruleset carries org = BDS as data");
-        var skipped = OrgNames.Apply(rs);
+        var rs = RulesetStore.FromBody(json, out var skipped, out var loadError);
+        Ok(rs.Org == "BDS" && loadError is null && rs.Rules.Count == 9, "pilot ruleset carries org = BDS as data; all 9 rules load");
         Ok(skipped.Count == 0, "with org set, no rule is skipped");
+        Ok(json.Contains("{org}") && !ReferenceEquals(rs, RulesetStore.FromBody(json, out _, out _)), "the body keeps its {org} placeholders — each load expands a fresh copy");
         Ok(OrgNames.DocRef(rs, "rtg") == "BDS-RTG-001" && OrgNames.DocRef(rs, "bep") == "BDS-BEP-001", "doc_refs expand to the pilot's standards");
         Ok(OrgNames.DocRef(rs, "nope") is null, "unknown doc_ref key is null, not invented");
         Rule R(string id) => rs.Rules.First(r => r.Id == id);
@@ -81,6 +81,22 @@ static class Check
         Ok(Same(bare.Rules.Select(r => r.Id).ToArray(), "LV-01", "GR-01"), "office-free rules survive");
         Ok(bare.DocRefs.Count == 0 && OrgNames.DocRef(bare, "rtg") is null, "no org → no office doc_refs");
         Ok(!bare.Rules.Any(r => r.TokenDefs.Values.Any(OrgNames.Uses) || OrgNames.Uses(r.ParameterName) || OrgNames.Uses(r.MessageEn)), "no unresolved {org} remains");
+        var noOrg = RulesetStore.FromBody(json.Replace("\"org\": \"BDS\"", "\"org\": \"\""), out var noOrgSkipped, out _);
+        Ok(noOrg.Rules.Count == 2 && noOrgSkipped.Count == 7, "FromBody with an empty org: the 7 office rules skipped and named, 2 survive");
+
+        // ── 6. nothing installed, or a body C# cannot read → the explicit none, said out loud ────
+        var none = RulesetStore.FromBody(null, out var s0, out var e0);
+        Ok(none.StandardKey == "none" && none.Rules.Count == 0 && s0.Count == 0 && e0 is null, "no body → the explicit none ruleset (no rules, no error)");
+        var bad = RulesetStore.FromBody("{\"standard_key\":\"x\",\"semver\":\"1.0.0\",\"rules\":[{\"id\":\"A\",\"target\":\"view\",\"mode\":\"warn\",\"tokens\":\"X\"}]}", out _, out var e1);
+        Ok(bad.StandardKey == "none" && bad.Rules.Count == 0 && e1 is not null, "a body the bridge validator accepts but C# cannot read (tokens as a string) → none, with the reason");
+        // C1: the bridge validator also accepts null collections — each degrades to none with the reason, never a crash.
+        foreach (var field in new[] { "token_defs", "whitelist", "categories", "tokens", "exclusions" })
+        {
+            var nul = RulesetStore.FromBody("{\"standard_key\":\"x\",\"semver\":\"1.0.0\",\"org\":\"X\",\"rules\":[{\"id\":\"A\",\"target\":\"view\",\"mode\":\"warn\",\"" + field + "\":null}]}", out _, out var en);
+            Ok(nul.StandardKey == "none" && nul.Rules.Count == 0 && en is not null && en.Contains(field), $"rules[0].{field} = null → none, the reason names it");
+        }
+        var nulDocRefs = RulesetStore.FromBody("{\"standard_key\":\"x\",\"semver\":\"1.0.0\",\"org\":\"X\",\"doc_refs\":null,\"rules\":[{\"id\":\"A\",\"target\":\"view\",\"mode\":\"warn\"}]}", out _, out var ed);
+        Ok(nulDocRefs.StandardKey == "none" && ed is not null, "doc_refs = null → none with the reason");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
