@@ -22,6 +22,7 @@ public sealed class ScanNowCommand : IExternalCommand
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null || App.Engine is null || App.PanelVm is null) return Result.Cancelled;
         App.PanelVm.PublishReport(App.Engine.ScanFull(doc));
+        App.RefreshJourney(doc);
         c.Application.GetDockablePane(App.PaneId).Show();
         return Result.Succeeded;
     }

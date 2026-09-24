@@ -31,6 +31,11 @@ public partial class SentinelPanel : UserControl, IDockablePaneProvider
         if (Grid.SelectedItem is ViolationRow row) _vm.RequestSelect(row);
     }
 
+    /// ↻ on the Next strip: the key and the ruleset are read on the Revit API thread through the same
+    /// ExternalEvent hub Select uses; the GET itself runs off-thread inside RefreshJourney.
+    private void OnJourneyRefreshClick(object sender, RoutedEventArgs e)
+        => App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document));
+
     private void OnFixClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is ViolationRow row)

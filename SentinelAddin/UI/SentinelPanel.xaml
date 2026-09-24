@@ -3,6 +3,19 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              MinWidth="320">
     <DockPanel Margin="8">
+        <Border DockPanel.Dock="Top" Padding="8,6" CornerRadius="4" Background="#EEF3EA" Margin="0,0,0,6">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="↻" Width="24" Height="22" VerticalAlignment="Top"
+                        Margin="6,0,0,0" Click="OnJourneyRefreshClick"
+                        ToolTip="Refresh the journey from the web (read-only)"/>
+                <StackPanel>
+                    <TextBlock Text="{Binding JourneyKey}" FontSize="11" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding StandardsLine}" FontSize="11" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding NextLine}" FontSize="11" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding ScanRulesetLine}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
         <Border DockPanel.Dock="Top" Padding="8" CornerRadius="4" Background="#F0F3F7">
             <StackPanel>
                 <TextBlock Text="{Binding ScoreText}" FontSize="20" FontWeight="Bold"/>
