@@ -1,6 +1,6 @@
 # Revit pulls its standards from the project — design (cohesion phase 4a)
 
-Status: approved 2026-09-24 (founder: "continue with phase 4a", after the phase-4 split and the 4a decisions were
+Status: approved 2026-09-24; amended 2026-09-25 after the plan cross-check (see "Amendments" at the end) (founder: "continue with phase 4a", after the phase-4 split and the 4a decisions were
 presented, including the `bds-office` cut-over). Source: `docs/reviews/cohesion-review-2026-09-23.md` §5–6 (phase 4
 row), seams D2 (Revit half), D4 (ruleset/IDS half), D5 (paths 1–2); findings F26, F54 (product remainder). The
 phase-4 code map this design rests on is the 2026-09-24 mapping run (five readers + critic); every file:line below
@@ -161,3 +161,23 @@ passes, or publishes under a green heading; an unbound document is never silentl
 Contract, guideline, layers, type catalogue (4b); ledger grafts (4c); publish policy and the outbox watcher key (5);
 the coordinator list (`RequestManager` settings.json); shared-parameter GUIDs in packs; per-user identity for Revit
 installs; the `default` self-heal on the bridge (kept; nothing in the add-in sends it any more).
+
+## Amendments (2026-09-25, after the plan cross-check)
+
+- Pane wording of record: headline `Not scored — no ruleset judged this model` with the status line `<title> — <none
+  label>` (the none label says why: not bound, not installed for <key> or its office, bridge unreachable with no cache,
+  no project); scan line `Judged by ruleset@n · source · sha…` (capital J), `(cached HH:mm)` from the cache.
+- `RulesetStore.Load(key)` is the only fetching entry point, called off the UI thread; there is no blocking
+  `LoadFor(Document)`.
+- ArtefactClient: a 304 is origin `bridge`; a 403 or 5xx falls back to the cache labelled cached; a 404 without a
+  reason (an older bridge) falls back to the cache; a 404 `no_project` clears the cache.
+- Decision 9 needs the bridge to write artefacts with the service key (after `requireMinRole`), so the bridge is
+  deployed before migration 0030 is applied.
+- CDE-01 with no `naming@n` is a Monitor-mode note each sync, never a violation; the office central-file convention
+  (`{org}_[ProjectCode]_[ProjectName]`) stays a second accepted form, built from the document's org and code.
+- Build/Apply with nothing installed anywhere creates `ruleset@1 · project` from the pack (no bump); versions are per
+  project, so a project inheriting the office's `ruleset@1` gets `ruleset@1 · project` on its first install, with the
+  fork warning ("this stops <key> inheriting …" — the office key is not in the artefact answer).
+- The journey `model` step stays done on any scan (it measures connection) and its evidence names what judged the scan.
+- Added (found live 2026-09-25): the web stage gate reports `not_checkable` when a check has no data, instead of
+  `GATE PASS`, and the Dashboard never advances a stage on unmeasured data (bridge `classifyGate` already did).
