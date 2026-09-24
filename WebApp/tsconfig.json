@@ -10,7 +10,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "strict": true
+    "strict": true,
+    "paths": {
+      "@thatopen/components": ["./node_modules/@thatopen-platform/components-beta"],
+      "@thatopen/components-front": ["./node_modules/@thatopen-platform/components-front-beta"],
+      "@thatopen/fragments": ["./node_modules/@thatopen-platform/fragments-beta"]
+    }
   },
   "include": ["src"]
 }

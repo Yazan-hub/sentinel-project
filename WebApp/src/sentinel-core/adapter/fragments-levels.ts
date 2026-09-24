@@ -34,7 +34,7 @@ async function storeySide(model: FRAGS.FragmentsModel, groups: Map<string, Level
 
   let data: (FRAGS.ItemData | undefined)[] = [];
   try {
-    data = await model.getItemsData(storeyIds, { attributesDefault: true, relations: { ContainsElements: { attributes: true } } });
+    data = await model.getItemsData(storeyIds, { attributesDefault: true, relations: { ContainsElements: { attributes: true, relations: false } } });
   } catch { return; }
 
   for (let i = 0; i < storeyIds.length; i++) {
@@ -67,7 +67,7 @@ async function elementSide(model: FRAGS.FragmentsModel, groups: Map<string, Leve
   if (!ids.length) return;
   let data: (FRAGS.ItemData | undefined)[] = [];
   try {
-    data = await model.getItemsData(ids, { attributesDefault: false, relations: { ContainedInStructure: { attributes: true } } });
+    data = await model.getItemsData(ids, { attributesDefault: false, relations: { ContainedInStructure: { attributes: true, relations: false } } });
   } catch { return; }
 
   for (let i = 0; i < ids.length; i++) {
