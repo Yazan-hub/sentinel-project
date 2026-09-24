@@ -15,10 +15,19 @@ describe("evaluateGate", () => {
     expect(r.pass).toBe(false);
     expect(r.checks.find((c) => c.label.includes("health"))?.ok).toBe(false);
   });
-  it("a null metric is 'n/a' (non-blocking), not a failure", () => {
-    const r = evaluateGate("design", M({ health: null, compliance: null, blockViolations: 0 }));
+  it("a null metric is 'n/a' and makes the gate not checkable — never a pass on unmeasured data", () => {
+    const r = evaluateGate("design", M({ health: null, compliance: 80, blockViolations: 0 }));
     expect(r.checks.find((c) => c.label.includes("health"))?.na).toBe(true);
-    expect(r.pass).toBe(true); // only the enforceable check (blockViolations == 0) is evaluated
+    expect(r.status).toBe("not_checkable");
+    expect(r.pass).toBe(false);
+  });
+  it("a failing measured check wins over an unmeasured one — hold, not not_checkable", () => {
+    const r = evaluateGate("design", M({ health: null, compliance: 50, blockViolations: 0 }));
+    expect(r.status).toBe("hold");
+    expect(r.pass).toBe(false);
+  });
+  it("every check measured and met → pass", () => {
+    expect(evaluateGate("design", M({ health: 85, compliance: 75, blockViolations: 0 })).status).toBe("pass");
   });
   it("tender gate keys off the standards-pack exists check", () => {
     expect(evaluateGate("tender", M({ hasStandardsPack: false })).pass).toBe(false);

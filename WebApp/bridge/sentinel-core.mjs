@@ -484,9 +484,8 @@ function evaluateGate(stage, m) {
     else if (c.op === "==") ok = v === (c.value ?? 0);
     return { label: c.label, ok, na: false, detail: String(Math.round(v)) };
   });
-  const enforceable = checks.filter((c) => !c.na);
-  const pass = enforceable.length === 0 ? true : enforceable.every((c) => c.ok);
-  return { checks, pass };
+  const status = checks.some((c) => !c.na && !c.ok) ? "hold" : checks.some((c) => c.na) ? "not_checkable" : "pass";
+  return { checks, pass: status === "pass", status };
 }
 
 // src/sentinel-core/carbon-factors.json

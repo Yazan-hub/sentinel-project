@@ -156,6 +156,11 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     if (fragments.list.size === 0) { msg("Load a model first — the gate checks model health & compliance.", "#eab308"); return; }
     const next = STAGES[i + 1];
     const g = evaluateGate(project.stage, gateMetrics());
+    if (g.status === "not_checkable") {
+      const missing = g.checks.filter((c) => c.na).map((c) => c.label).join(", ");
+      msg(`Gate not checkable — no data for: ${missing}. Load a model and scan it first.`, "#eab308");
+      return; // never advance or record a gate on unmeasured data
+    }
     await bfetch(`${base}/projects/${encodeURIComponent(pid())}/gate/${project.stage}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: g.pass ? "pass" : "hold", checks: g.checks, advance_to: g.pass ? next.id : undefined }),
@@ -219,7 +224,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     // boundary's requirements evaluated against current metrics (a preview of what it'll take).
     const preview = !isCurrent && !stored && !!GATE_DEFS[s];
     const g = isCurrent ? evaluateGate(s, gateMetrics())
-      : stored ? { checks: stored.checks as any[], pass: stored.status === "pass" }
+      : stored ? { checks: stored.checks as any[], pass: stored.status === "pass", status: stored.status === "pass" ? "pass" : stored.status === "not_checkable" ? "not_checkable" : "hold" }
       : GATE_DEFS[s] ? evaluateGate(s, gateMetrics()) : null;
 
     const suffix = isCurrent ? " (current)" : preview ? " (requirements)" : "";
@@ -236,8 +241,10 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
           `<span style="width:16px;height:16px;border-radius:5px;display:grid;place-items:center;flex:none;font:700 10px ui-monospace;color:#fff;background:${bg}">${mk}</span>` +
           `<span style="color:#cbd2dc">${esc(c.label)}${detail}</span></div>`;
       }).join("");
-      const vcol = g.pass ? "#22c55e" : "#eab308";
-      h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${g.pass ? "GATE PASS" : "GATE HOLD"}</div>`;
+      const st = (g as { status?: string }).status ?? (g.pass ? "pass" : "hold");
+      const vcol = st === "pass" ? "#22c55e" : st === "not_checkable" ? "#9ca3af" : "#eab308";
+      const word = st === "pass" ? "GATE PASS" : st === "not_checkable" ? "GATE NOT CHECKABLE — some checks have no data" : "GATE HOLD";
+      h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${word}</div>`;
     }
     if (isCurrent && next && gateRole !== null && canGovernRole(gateRole)) {
       h += `<button id="ps-advance" style="${btn};background:#6528d7;color:#fff;width:100%;margin-top:.6rem">Run gate → advance to ${esc(next.nm)}</button>`;
