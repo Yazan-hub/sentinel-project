@@ -469,7 +469,7 @@ createServer((req, res) => {
   initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; /health + /events exempt)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; only /health exempt)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
   if (JWT_SECRET && !TOKEN) console.warn("[bridge] WARNING: SUPABASE_JWT_SECRET set without BCF_TOKEN — a wrong secret silently downgrades signed-in users to the service key; arm BCF_TOKEN or unset the secret.");
@@ -494,7 +494,7 @@ createServer((req, res) => {
 async function handleRequest(req, res) {
   const origin = req.headers.origin;
   // Per-request CORS origin: echo an allowlisted origin (or "*" only in wildcard/dev mode); otherwise none.
-  res._cors = corsOrigin(origin, req.headers.referer, { allow: CORS_ALLOW, wildcard: CORS_WILDCARD });
+  res._cors = corsOrigin(origin, req.headers.referer, { allow: CORS_ALLOW, wildcard: CORS_WILDCARD, armed: !!TOKEN });
   if (origin === "null" && !res._cors) warnNullOrigin(req.headers.referer);
 
   if (req.method === "OPTIONS") {
@@ -514,12 +514,14 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, "http://localhost");
 
   // Auth gate (F2): when BCF_TOKEN is configured, close the anonymous service-key fall-open. Every route
-  // except /health and the SSE feed (EventSource can't send an Authorization header) must present EITHER a
-  // forwarded Supabase JWT (→ per-user RLS) OR the shared BCF_TOKEN (→ trusted desktop client, e.g. Revit).
+  // except /health must present EITHER a forwarded Supabase JWT (→ per-user RLS) OR the shared BCF_TOKEN
+  // (→ trusted desktop client, e.g. Revit). The SSE feed is no longer exempt: the web reads it as a fetch
+  // stream with the Authorization header (bridge-fetch.ts bridgeEvents) and Revit already sends its bearer,
+  // so the feed stays closed even when the bridge is reachable from the internet.
   // With BCF_TOKEN unset, behaviour is unchanged (legacy service-key mode). Activation = set BCF_TOKEN.
   if (TOKEN) {
     const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
-    const exempt = url.pathname === "/health" || url.pathname === "/events";
+    const exempt = url.pathname === "/health";
     const jwtOk = bearer && bearer !== TOKEN && bearer.split(".").length === 3
       && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET));
     const ok = bearer === TOKEN || jwtOk;

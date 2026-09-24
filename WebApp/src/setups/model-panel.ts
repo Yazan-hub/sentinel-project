@@ -651,8 +651,10 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
     }
   }
   function nextVersion(): number {
-    let n = 1;
-    try { n = (parseInt(localStorage.getItem(verKey()) || "0", 10) || 0) + 1; localStorage.setItem(verKey(), String(n)); } catch { /* storage off */ }
+    // ponytail: storage-less versions are timestamps (the published app runs where storage throws); ask the
+    // bridge for max(version) if the labels ever matter.
+    let n = Math.floor(Date.now() / 1000);
+    try { n = (parseInt(localStorage.getItem(verKey()) || "0", 10) || 0) + 1; localStorage.setItem(verKey(), String(n)); } catch { /* storage off → timestamp */ }
     return n;
   }
   async function bakeUpload() {

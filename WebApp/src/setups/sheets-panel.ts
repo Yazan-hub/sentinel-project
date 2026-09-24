@@ -1,6 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bridgeImage } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -166,11 +166,19 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       }
     }
 
+    let objUrl = "";
+    let seq = 0;
     const load = () => {
       const s = set.sheets[idx];
+      const mine = ++seq;
       q("lb-cap").textContent = `${s.number} — ${s.name}  (${idx + 1}/${set.sheets.length})`;
       img.onload = () => { drawHotspots(); fit(); };
-      img.src = `${base}${s.url}`;
+      // Fetched with the Authorization header: a plain <img src> to the bridge carries no credential.
+      bridgeImage(`${base}${s.url}`).then((u) => {
+        if (mine !== seq || !lb) { URL.revokeObjectURL(u); return; }
+        if (objUrl) URL.revokeObjectURL(objUrl);
+        objUrl = u; img.src = u;
+      }).catch((e) => { q("lb-cap").textContent = `${s.number} — could not load the sheet (${(e as Error).message})`; });
     };
     load();
 
@@ -198,6 +206,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("keydown", onKey);
+      if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = ""; }
       lb?.remove(); lb = null;
     }
   }

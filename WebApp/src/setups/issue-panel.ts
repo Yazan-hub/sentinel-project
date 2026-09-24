@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bridgeEvents } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { myRole, canGovernRole } from "./my-role";
 import * as OBC from "@thatopen/components";
@@ -268,9 +268,9 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   }, { threshold: 0.01 }).observe(root);
   // Live BCF loop (SSE): the bridge pushes every topic change (from the web OR the Revit plugin) —
   // refetch instantly so an issue raised in Revit appears here in seconds, and vice-versa.
-  try {
-    const src = new EventSource(`${base}/events?project=${encodeURIComponent(projectId())}`);
-    src.onmessage = () => { if (Date.now() - lastLoad > 400) { lastLoad = Date.now(); void fetchAll(); } };
-  } catch { /* EventSource unsupported → falls back to visibility auto-refresh */ }
+  // Read as a fetch stream (bridgeEvents) so the feed carries the Authorization header EventSource cannot.
+  bridgeEvents(`${base}/events?project=${encodeURIComponent(projectId())}`, () => {
+    if (Date.now() - lastLoad > 400) { lastLoad = Date.now(); void fetchAll(); }
+  });
   return root;
 }

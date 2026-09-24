@@ -1,6 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bridgeImage } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -178,12 +178,20 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
     const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
     const fit = () => { scale = 1; tx = 0; ty = 0; apply(); };
 
+    let objUrl = "";
+    let seq = 0;
     const load = () => {
       const v = flat[idx];
+      const mine = ++seq;
       q("lb-cap").textContent = `${v.name}  (${idx + 1}/${flat.length})`;
       isolateBtn.style.display = v.level ? "inline-block" : "none";
       img.onload = fit;
-      img.src = `${base}${v.url}`;
+      // Fetched with the Authorization header: a plain <img src> to the bridge carries no credential.
+      bridgeImage(`${base}${v.url}`).then((u) => {
+        if (mine !== seq || !lb) { URL.revokeObjectURL(u); return; }
+        if (objUrl) URL.revokeObjectURL(objUrl);
+        objUrl = u; img.src = u;
+      }).catch((e) => { q("lb-cap").textContent = `${v.name} — could not load the view (${(e as Error).message})`; });
     };
     load();
 
@@ -212,6 +220,7 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("keydown", onKey);
+      if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = ""; }
       lb?.remove(); lb = null;
     }
   }
