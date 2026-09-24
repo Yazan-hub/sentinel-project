@@ -246,7 +246,7 @@ deployed to Revit 2024 with Revit closed (02:29). Every line is a bridge respons
 | Project journey, `aster-tower` | 6 of 8, next `federated` ("the Federation Gate has not run" on the tower); `standards` `ids@3 · project` (the tower's own IDS outranks the office's) with `ruleset@1`/`naming@1 · office`; `bep` document `f2c53f6a…`; `model` `office_scan@2026-09-22T22:26:00.888Z`; `verdict` `audit#658`; `published` version `ac3afdca…` · `audit#658` | `GET /cde/aster-tower/journey` |
 | Unknown key | 404 with the create-it message | `GET /cde/no-such-key/journey` |
 | No percentage | none of the three answers contains `%` | response bodies |
-| Revit pane | deployed; **not yet observed at runtime** — needs a document bound to a drill project opened in Revit | pending |
+| Revit pane | observed 2026-09-24 on `AST_ASTR26_Aster Tower_yazan.hKNTHU.rvt` (bound to `aster-tower`): "Journey · aster-tower (project)"; "Standards in force: IDS ids@3 · project · bc25acf3506a… · Rules ruleset@1 · office · fb8f9baefa9f… · Naming naming@1 · office · 43c954e892d0…"; "Next: Federated … · 6 of 8 done" — the same refs, next step and count as the route; the grey line reads "Scans here with bds-rtg-001 1.5.0 (this machine) — differs from ruleset@1 · office (ast-std-001 1.0.0)", which is why the pane's own rows still quote the BDS whitelist (phase 4 closes this) | screenshot of the pane |
 
 Not exercised: the web strip and the live Guide in a browser (platform viewer blocked, F49; pure line builders
 tested, type-checked, built). Product gaps recorded during planning: the `model` step completes only after a
