@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Threading.Tasks;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.Workflow;
 
@@ -90,6 +92,43 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
 
     public void RaiseWarnToast(Violation v) =>
         OnUi(() => Status = $"⚠ {v.RuleId}: {v.MessageEn}");
+
+    // ── Next strip: the project's journey from the web (read-only; GET /cde/:key/journey) ──────────
+    private string _journeyKey = "Journey — open or scan a document bound to a web project";
+    public string JourneyKey { get => _journeyKey; private set { _journeyKey = value; OnChanged(); } }
+    private string _standardsLine = "";
+    public string StandardsLine { get => _standardsLine; private set { _standardsLine = value; OnChanged(); } }
+    private string _nextLine = "";
+    public string NextLine { get => _nextLine; private set { _nextLine = value; OnChanged(); } }
+    private string _scanRulesetLine = "";
+    public string ScanRulesetLine { get => _scanRulesetLine; private set { _scanRulesetLine = value; OnChanged(); } }
+    private int _journeySeq;
+
+    /// Called on the Revit API thread (Revit's main thread, which owns this pane) with strings read there: the
+    /// document's web key and the ruleset that judged the rows. The GET (up to 4 s) runs on a background task;
+    /// the result is set back on the pane's thread. A newer refresh wins over a slower older one; a failure
+    /// clears the strip and says so — never stale data.
+    public void RefreshJourney(string projectKey, string localStandardKey, string localSemver)
+    {
+        var seq = ++_journeySeq;
+        OnUi(() =>
+        {
+            // Like the web strip: while loading, no line from the previous document or ruleset stays up.
+            JourneyKey = $"Journey · {projectKey} — loading…";
+            StandardsLine = NextLine = ScanRulesetLine = "";
+        });
+        // Same dispatcher OnUi uses: the pane's (WPF application) dispatcher when there is one.
+        var ui = Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        Task.Run(() => { var info = GovernedQuery.Journey(projectKey, out var why); return (info, why); }).ContinueWith(t => ui.BeginInvoke(new Action(() =>
+        {
+            if (seq != _journeySeq) return;
+            var (j, why) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, t.Exception?.GetBaseException().Message);
+            JourneyKey = j is null ? $"Journey · {projectKey}" : $"Journey · {j.Key} ({j.Kind})";
+            StandardsLine = j?.StandardsLine ?? "";
+            NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
+            ScanRulesetLine = GovernedQuery.ScanRulesetLine(localStandardKey, localSemver, j);
+        })));
+    }
 
     /// Row double-click -> select/zoom in Revit via the ExternalEvent hub.
     public void RequestSelect(ViolationRow row)

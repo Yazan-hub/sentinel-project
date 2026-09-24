@@ -354,6 +354,7 @@ public static class StandardsBuilder
             App.Engine?.ReloadRuleset(doc);
             var report = App.Engine?.ScanFull(doc);
             if (report is not null) App.PanelVm?.PublishReport(report);
+            App.RefreshJourney(doc); // the local ruleset just changed: the strip's scan line must say so
 
             r.Created.Add("Ruleset: scanner reloaded");
         }

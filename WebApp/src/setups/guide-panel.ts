@@ -1,10 +1,17 @@
 import * as OBC from "@thatopen/components";
+import { SERVICE_URL } from "../config";
+import { activePid, onActiveProjectChange } from "./active-project";
+import { fetchJourney, standardsLine, stepDetail } from "./next-strip";
 
 /**
- * Guide — an interactive, in-app teaching interface. Explains what Sentinel is (goal, idea, use) and
- * every feature + how to use it, navigable by lifecycle stage. Read-only content panel; docked as the
- * "Guide" sidebar tab. Pure DOM, self-contained.
+ * Guide — the active project's journey on top (live: GET /cde/:key/journey, the same fetcher as the Next
+ * strip — every step with its status, evidence and where it is done), and below it, under "All features",
+ * the in-app teaching content: what Sentinel is and every feature + how to use it, by lifecycle stage.
+ * Read-only; docked as the "Guide" sidebar tab. Pure DOM.
  */
+
+const MARK = { done: "✓", todo: "○", not_checkable: "?" } as const;
+const escHtml = (s?: string | null) => (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
 interface Topic { id: string; stage: string; title: string; body: string; }
 
@@ -41,8 +48,10 @@ cites its sources — it never guesses. Optional local LLM (Ollama) adds free-fo
 naming?", "Total cost?". Answers with elements offer an <b>Isolate</b> button to highlight them in the 3D view.</p>` },
 
   { id: "guide", stage: "Overview", title: "Guide (this panel)", body: `
-<p><b>What it is.</b> This teaching interface. Pick any feature on the left to learn what it does and how to
-use it, grouped by lifecycle stage.</p>` },
+<p><b>What it is.</b> The top section is the active project's journey: every step, whether it is done (with the
+evidence that proves it), and where it is done — the Next strip above the project tabs shows its first open
+step. Below, under <b>All features</b>, pick any feature on the left to learn what it does and how to use it,
+grouped by lifecycle stage.</p>` },
 
   { id: "tender", stage: "Tender", title: "Tender — BoQ-driven bidding", body: `
 <p><b>What it is.</b> The front of the lifecycle. The tender scope <i>is</i> the model's Bill of Quantities, so
@@ -126,9 +135,14 @@ in 3D.</p>` },
 
 const STAGES = ["Overview", "Tender", "Design", "Construction", "Coordination", "Handover", "Operate"];
 
-export function guidePanel(_components: OBC.Components): HTMLElement {
+export function guidePanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+  const base = opts.baseUrl ?? SERVICE_URL;
   const root = document.createElement("div");
-  root.style.cssText = "display:grid;grid-template-columns:9.5rem 1fr;height:100%;background:#141419;color:#e7e9ee;font:13px system-ui;border-radius:.5rem;overflow:hidden";
+  root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#141419;color:#e7e9ee;font:13px system-ui;border-radius:.5rem;overflow:hidden";
+  const live = document.createElement("div"); live.className = "gd-live";
+  const allHead = document.createElement("div"); allHead.className = "gd-stage"; allHead.textContent = "All features";
+  const grid = document.createElement("div");
+  grid.style.cssText = "display:grid;grid-template-columns:9.5rem 1fr;flex:1;min-height:0;border-top:1px solid #2a2a30";
 
   // styles for content
   const style = document.createElement("style");
@@ -142,7 +156,13 @@ export function guidePanel(_components: OBC.Components): HTMLElement {
     ".gd-body p{margin:.5rem 0;line-height:1.6;color:#cdd2db}.gd-body b{color:#fff}" +
     ".gd-body ol{margin:.5rem 0;padding-left:1.2rem;color:#cdd2db;line-height:1.6}.gd-body li{margin:.2rem 0}" +
     ".gd-body .tip{margin-top:.9rem;padding:.6rem .7rem;border:1px solid #6528d755;background:#6528d715;border-radius:.4rem;font-size:12px;color:#d7d2f0}" +
-    ".gd-badge{display:inline-block;font:600 10px ui-monospace,Consolas,monospace;color:#a78bfa;border:1px solid #6528d755;border-radius:100px;padding:.1rem .5rem;margin-bottom:.6rem}";
+    ".gd-badge{display:inline-block;font:600 10px ui-monospace,Consolas,monospace;color:#a78bfa;border:1px solid #6528d755;border-radius:100px;padding:.1rem .5rem;margin-bottom:.6rem}" +
+    ".gd-live{flex:0 1 auto;max-height:45%;overflow:auto;padding:.5rem .8rem .6rem;border-bottom:1px solid #2a2a30}" +
+    ".gd-lh{display:flex;align-items:center;gap:.4rem;font:600 12.5px system-ui;color:#e7e9ee;margin-bottom:.25rem}" +
+    ".gd-step{padding:.3rem .45rem;border:1px solid transparent;border-radius:.35rem;margin:.15rem 0}" +
+    ".gd-step.gd-next{background:#6528d715;border-color:#6528d755}" +
+    ".gd-muted{color:#9ca3af;font-size:11.5px;margin:.1rem 0;line-height:1.45}.gd-err{color:#ef4444;font-size:12px;margin:.2rem 0}" +
+    ".gd-rf{margin-left:auto;border:1px solid #2c2c34;background:#1f1f27;color:#c9cfda;border-radius:.3rem;padding:.1rem .45rem;font:600 11px system-ui;cursor:pointer}";
   root.appendChild(style);
 
   const nav = document.createElement("div"); nav.className = "gd-nav";
@@ -172,7 +192,36 @@ export function guidePanel(_components: OBC.Components): HTMLElement {
     }
   }
 
-  root.appendChild(nav); root.appendChild(body);
+  grid.append(nav, body);
+  root.append(live, allHead, grid);
   select("overview", "", OVERVIEW);
+
+  // ── The live journey (spec 2026-09-24 §3): the bridge's steps as-is; done only with evidence ──
+  let seq = 0; // a slower answer for the previous project never overwrites the current one
+  const head = (text: string) => `<div class="gd-lh">${escHtml(text)}<button class="gd-rf" title="Refresh">↻</button></div>`;
+  const loadJourney = async () => {
+    const mine = ++seq;
+    const key = activePid();
+    live.innerHTML = head(`Journey · ${key}`) + '<p class="gd-muted">Loading…</p>';
+    try {
+      const j = await fetchJourney(base, key);
+      if (mine !== seq) return;
+      live.innerHTML = head(`Journey · ${j.key} · ${j.kind} · ${j.done} of ${j.total} done`) +
+        `<p class="gd-muted">${escHtml(standardsLine(j))}</p>` +
+        j.steps.map((s) => {
+          const where = [s.how.web && `Web: ${s.how.web.tab} ▸ ${s.how.web.hint}`, s.how.revit && `Revit: ${s.how.revit}`, `who: ${s.how.who}`].filter(Boolean).join(" · ");
+          const detail = stepDetail(s, j.next);
+          return `<div class="gd-step${s.id === j.next ? " gd-next" : ""}"><b>${MARK[s.status]} ${escHtml(s.label)}</b>` +
+            `<div class="gd-muted" title="${escHtml(s.evidence?.ref)}">${escHtml(detail)}</div><div class="gd-muted">${escHtml(where)}</div></div>`;
+        }).join("");
+    } catch (e) {
+      if (mine !== seq) return;
+      live.innerHTML = head(`Journey · ${key}`) + `<p class="gd-err">Journey unavailable — ${escHtml((e as Error).message)}</p>`;
+    }
+  };
+  live.addEventListener("click", (e) => { if ((e.target as HTMLElement).classList.contains("gd-rf")) void loadJourney(); });
+  onActiveProjectChange(() => void loadJourney());
+  // Reload each time the Guide comes into view (opened from the strip's "▸ Journey" or the sidebar).
+  new IntersectionObserver((entries) => { if (entries.some((x) => x.isIntersecting)) void loadJourney(); }).observe(live);
   return root;
 }

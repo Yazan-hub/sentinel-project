@@ -126,6 +126,7 @@ public sealed class App : IExternalApplication
             // Baseline full scan so the panel is populated immediately
             var report = Engine!.ScanFull(doc);
             PanelVm!.PublishReport(report);
+            RefreshJourney(doc);
         }
     }
 
@@ -149,6 +150,18 @@ public sealed class App : IExternalApplication
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled, fire-and-forget.
         Sentinel.Coordination.GovernedNotify.OfficeScan(report, Sentinel.Engine.SettingsManager.WebProjectKeyFor(e.Document));
+        // After the scan report that completes the `model` step. That POST is fire-and-forget, so this GET can
+        // race it and still read the step as todo — ↻ on the strip settles it.
+        RefreshJourney(e.Document);
+    }
+
+    /// <summary>Next strip: read the document's web key and the ruleset that judged the pane's rows on the Revit
+    /// API thread, then hand strings to the pane (its GET runs off-thread). Read-only; family documents skipped.</summary>
+    internal static void RefreshJourney(Document? doc)
+    {
+        if (doc is null || doc.IsFamilyDocument || PanelVm is null) return;
+        var rs = Engine?.Ruleset;
+        PanelVm.RefreshJourney(Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc), rs?.StandardKey ?? "", rs?.Semver ?? "");
     }
 
     // Local save (non-workshared, or a local save before sync) → push the latest model to the web.

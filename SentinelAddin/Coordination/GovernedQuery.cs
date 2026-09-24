@@ -122,6 +122,135 @@ namespace Sentinel.Coordination
             catch { return null; }
         }
 
+        /// <summary>The project's journey from the web (GET /cde/:key/journey), flattened for the pane's Next strip.</summary>
+        public sealed class JourneyInfo
+        {
+            public string Key = "";
+            public string Kind = "";
+            public string StandardsLine = "";
+            public string NextLine = "";
+            public int Done;
+            public int Total;
+            public string? RulesetRef;
+            public string? RulesetSource;
+            public string? RulesetStandardKey;
+            public string? RulesetSemver;
+            public string? RulesetLabel; // "unavailable — …" when the bridge could not read the standards
+        }
+
+        /// <summary>
+        /// The Next strip: the standards in force (each label is the bridge's refLabel, "ruleset@1 · office · 3f07…",
+        /// exactly as the judges print it), the next step with where it is done, and "n of m done" — counts, never a
+        /// percentage. Blocking, ~4 s cap; null when the bridge is unreachable. The key is the DOCUMENT's
+        /// (SettingsManager.WebProjectKeyFor), read by the caller on the API thread.
+        /// </summary>
+        public static JourneyInfo? Journey(string? projectKey) => Journey(projectKey, out _);
+
+        /// <summary>As <see cref="Journey(string?)"/>, and says why it returned null: the bridge's own message on a
+        /// refusal ("403: Not authorized: you are not a member of this project"), else the transport error.</summary>
+        public static JourneyInfo? Journey(string? projectKey, out string? failure)
+        {
+            failure = null;
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
+                var msg = new HttpRequestMessage(HttpMethod.Get, cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/journey");
+                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                    msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+                var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
+                var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (!resp.IsSuccessStatusCode)
+                {
+                    string? said = null;
+                    try { using var err = JsonDocument.Parse(json); if (err.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) said = m.GetString(); } catch { }
+                    failure = $"{(int)resp.StatusCode}: {said ?? resp.ReasonPhrase}";
+                    return null;
+                }
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                static string? Str(JsonElement e, string name) =>
+                    e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                static JsonElement Obj(JsonElement e, string name) =>
+                    e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Object ? v : default;
+                int Int(string name) => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
+                var standards = Obj(root, "standards");
+                // The web strip's rule: the ref label when installed; the install hint only for "none"; a failed
+                // read's "unavailable — …" label as is, never as an install hint.
+                string Label(string kind)
+                {
+                    var r = Obj(standards, kind);
+                    var label = Str(r, "label") ?? "unknown";
+                    return Str(r, "ref") is null && label == "none" ? "none — install from Settings/Packs" : label;
+                }
+
+                int done = Int("done"), total = Int("total");
+                var nextId = Str(root, "next");
+                string nextLine;
+                if (nextId is null)
+                {
+                    nextLine = $"Next: nothing left to do · {done} of {total} done"
+                             + (done < total ? $" ({total - done} not checkable — see the web Guide)" : "");
+                }
+                else
+                {
+                    JsonElement step = default;
+                    if (root.TryGetProperty("steps", out var steps) && steps.ValueKind == JsonValueKind.Array)
+                        foreach (var s in steps.EnumerateArray())
+                            if (Str(s, "id") == nextId) { step = s; break; }
+                    var how = Obj(step, "how");
+                    var web = Obj(how, "web");
+                    var place = Str(how, "revit")
+                             ?? (Str(web, "tab") is { } tab ? string.Join(" ▸ ", new[] { "web", tab, Str(web, "hint") }.Where(x => !string.IsNullOrEmpty(x))) : null)
+                             ?? "no screen for this step yet";
+                    var who = Str(how, "who");
+                    nextLine = $"Next: {Str(step, "label") ?? nextId} — {place}"
+                             + (who is null ? "" : $" ({who})")
+                             + $" · {done} of {total} done";
+                }
+
+                var rs = Obj(standards, "ruleset");
+                return new JourneyInfo
+                {
+                    Key = Str(root, "key") ?? key,
+                    Kind = Str(root, "kind") ?? "",
+                    StandardsLine = $"Standards in force: IDS {Label("ids")} · Rules {Label("ruleset")} · Naming {Label("naming")}",
+                    NextLine = nextLine,
+                    Done = done,
+                    Total = total,
+                    RulesetRef = Str(rs, "ref"),
+                    RulesetSource = Str(rs, "source"),
+                    RulesetStandardKey = Str(rs, "standard_key"),
+                    RulesetSemver = Str(rs, "semver"),
+                    RulesetLabel = Str(rs, "label"),
+                };
+            }
+            catch (Exception e) { failure = e.Message; return null; } // never surface a read failure into Revit
+        }
+
+        /// <summary>
+        /// Which ruleset judged the pane's rows, against the project's ruleset@n. Until the add-in reads the
+        /// artefact (cohesion phase 4) the machine's ruleset judges the pane, so the strip says which one and
+        /// whether it matches — it must not imply the project's artefact did. Pure (no I/O).
+        /// </summary>
+        public static string ScanRulesetLine(string localStandardKey, string localSemver, JourneyInfo? j)
+        {
+            var localKey = (localStandardKey ?? "").Trim();
+            var localVer = (localSemver ?? "").Trim();
+            var head = "Scans here with " + (localKey.Length == 0 ? "an unkeyed ruleset" : (localKey + " " + localVer).Trim()) + " (this machine)";
+            if (j is null) return head + " — the project's ruleset is unknown (journey unavailable)";
+            if (string.IsNullOrEmpty(j.RulesetRef))
+                return head + (j.RulesetLabel is { } l && l != "none"
+                    ? " — the project's ruleset is " + l // "unavailable — …": a failed read is not "nothing installed"
+                    : " — the project has no ruleset installed");
+            var theirKey = (j.RulesetStandardKey ?? "").Trim();
+            var theirVer = (j.RulesetSemver ?? "").Trim();
+            if (localKey.Length > 0 && localKey == theirKey && localVer == theirVer) return head + " — matches " + j.RulesetRef;
+            var theirs = (theirKey.Length == 0 ? "no standard_key" : (theirKey + " " + theirVer).Trim());
+            return head + $" — differs from {j.RulesetRef} · {j.RulesetSource} ({theirs})";
+        }
+
         /// <summary>One recorded clash from the web-side team register (GET /clash/:project).</summary>
         public sealed class ClashRow
         {
