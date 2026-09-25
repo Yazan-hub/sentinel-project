@@ -15,9 +15,9 @@ public partial class FixReviewDialog : Window
 
     public string? FinalName { get; private set; }
 
-    public FixReviewDialog(string elementName, string ruleId, string suggestion)
+    public FixReviewDialog(string elementName, string ruleId, Rule? rule, string suggestion)
     {
-        _rule = App.Engine?.Ruleset.Rules.FirstOrDefault(r => r.Id == ruleId);
+        _rule = rule;   // the rule that judged the row, from the document's own ruleset
         InitializeComponent();
         HeaderText.Text = "Review fix for '" + elementName + "'";
         RuleText.Text = _rule is null ? ruleId

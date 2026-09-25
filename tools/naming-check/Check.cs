@@ -53,8 +53,8 @@ static class Check
         Ok(RuleRegex.TextWithOrg("Type '{name}' does not match {org}_[LOC]", "XXX") == "Type '{name}' does not match XXX_[LOC]", "message substitution keeps {name}");
         Ok(RuleRegex.TextWithOrg("{org}_x", "") == "{org}_x", "empty org leaves the placeholder visible in text");
 
-        Console.WriteLine("\nShipped ruleset.json — 1.5.0 shape");
-        var rs = JsonSerializer.Deserialize<Ruleset>(File.ReadAllText(Path.Combine(RepoRoot(), "SentinelAddin", "Resources", "ruleset.json")), JsonOpts)!;
+        Console.WriteLine("\nPilot ruleset@1 seed (demo/bds-pilot/ruleset.json) — 1.5.0 shape");
+        var rs = JsonSerializer.Deserialize<Ruleset>(File.ReadAllText(Path.Combine(RepoRoot(), "demo", "bds-pilot", "ruleset.json")), JsonOpts)!;
         Ok(rs.Semver == "1.5.0", "semver 1.5.0");
         Ok(rs.Org == "BDS", "pilot copy carries org = BDS as DATA");
         var fn = rs.Rules.First(r => r.Id == "FN-01");

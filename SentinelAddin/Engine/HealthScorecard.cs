@@ -33,8 +33,10 @@ public static class HealthScorecard
         public double Score { get; set; }                    // weighted 0-100
         public string Grade => Score >= 95 ? "A" : Score >= 85 ? "B" : Score >= 70 ? "C" : Score >= 50 ? "D" : "F";
         public List<DomainScore> Domains { get; } = new List<DomainScore>();
-        public string Headline =>
-            $"{Score:F1}% ({Grade}) — {TotalViolations} open issue(s) across {Domains.Count} domain(s)";
+        public string? NotScored { get; set; }               // no ruleset judged the model: no score, no grade
+        public string Headline => NotScored is not null
+            ? $"Not scored — {NotScored} · {TotalViolations} open issue(s) from checks outside the ruleset"
+            : $"{Score:F1}% ({Grade}) — {TotalViolations} open issue(s) across {Domains.Count} domain(s)";
     }
 
     public static Scorecard Build(ScanReport report)
@@ -45,6 +47,7 @@ public static class HealthScorecard
             At = report.At,
             ElementsChecked = report.ElementsChecked,
             TotalViolations = report.Violations.Count,
+            NotScored = report.NotScored,
         };
 
         double penalty = 0;

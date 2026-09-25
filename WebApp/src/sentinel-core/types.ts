@@ -42,6 +42,10 @@ export interface Rule {
 export interface Ruleset {
   standard_key: string;
   semver: string;
+  /** Office code that "{org}" expands to (org-names.ts applyOrg, C# OrgNames.Apply). */
+  org?: string;
+  /** Cited office standards by role ("rtg", "bep"); may contain "{org}". */
+  doc_refs?: Record<string, string>;
   rules: Rule[];
 }
 

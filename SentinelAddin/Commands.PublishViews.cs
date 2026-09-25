@@ -29,6 +29,11 @@ public sealed class PublishViewsCommand : IExternalCommand
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
+        if (!ProjectContext.For(doc).IsBound)
+        {
+            TaskDialog.Show("Sentinel — Publish Views", ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
 
         var candidates = new FilteredElementCollector(doc)
             .OfClass(typeof(View)).Cast<View>()

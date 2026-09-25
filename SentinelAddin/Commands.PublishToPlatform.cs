@@ -25,6 +25,12 @@ public sealed class PublishToPlatformCommand : IExternalCommand
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
+        var ctx = Sentinel.Engine.ProjectContext.For(doc);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show("Sentinel — Publish to Platform", Sentinel.Engine.ProjectContext.NotBound + "\n\nNothing was exported.");
+            return Result.Cancelled;
+        }
 
         // Shared exporter (same code path as push-on-save). Manual publish keeps the active-view filter.
         var (state, path, bytes, error) = Sentinel.Engine.PlatformExporter.ExportToOutbox(doc, doc.ActiveView?.Id);
@@ -62,7 +68,7 @@ public sealed class PublishToPlatformCommand : IExternalCommand
 
         // Governed context (read-only, best-effort): show where this model stands in the web CDE version
         // history so the modeller knows what this publish will do (append the next version, becoming live).
-        var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
+        var projectKey = ctx.Key;
         var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
         var governed = live is null
             ? "Governed: not versioned yet — this publish starts the file's version history (v1)."

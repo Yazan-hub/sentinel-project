@@ -201,7 +201,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         }
 
         // 4. Wire the PHASE 3 placement handoff (runs on the API thread when raised).
-        var placementEvent = new GhostBuilderPlacementEvent();
+        var placementEvent = new GhostBuilderPlacementEvent { Org = App.OrgFor(doc) };
         var externalEvent = ExternalEvent.Create(placementEvent);
 
         // 5. Modeless progress window owns the CancellationTokenSource (ESC / Cancel -> cancel).

@@ -105,6 +105,8 @@ export function classifyModelHealth(scan, now = new Date()) {
   const id = "office.model_health", label = "Live model health";
   if (!scan) return result(id, label, "not_checkable", { reason: "No scan report received — synchronise a model with the add-in installed." });
   if (!(ageDays(scan.at, now) <= SNAPSHOT_MAX_AGE_DAYS)) return result(id, label, "not_checkable", { reason: `Last scan is from ${day(scan.at)} (older than ${SNAPSHOT_MAX_AGE_DAYS} days).` });
+  // A scan that names no ruleset judged nothing we can name: never a pass (spec 2026-09-25 decision 4).
+  if (!scan.ruleset_ref || scan.ruleset_ref === "none") return result(id, label, "not_checkable", { reason: `The latest scan names no ruleset (${scan.doc_title}, ${day(scan.at)}) — install a ruleset on the project or its office, then synchronise again.` });
   const byRule = new Map();
   for (const v of scan.violations || []) { const m = byRule.get(v.rule_id) || { block: 0, warn: 0, request: 0, monitor: 0 }; m[v.mode] = (m[v.mode] || 0) + 1; byRule.set(v.rule_id, m); }
   // Prefer the scan's own per-mode totals (computed over ALL violations before truncation); fall back to
@@ -114,7 +116,7 @@ export function classifyModelHealth(scan, now = new Date()) {
   const evidence = [...byRule].map(([rule, m]) => ({ label: rule, detail: Object.entries(m).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ") }));
   const kept = (scan.violations || []).length;
   const truncated = scan.violations_total > kept;
-  const summary = `${scan.doc_title}, scanned ${day(scan.at)}: ${block} block, ${warn} warn across ${scan.elements_checked} elements (limits: 0 block, ≤ ${MODEL_HEALTH_MAX_WARN} warn).`
+  const summary = `${scan.doc_title}, scanned ${day(scan.at)} by ${scan.ruleset_ref}: ${block} block, ${warn} warn across ${scan.elements_checked} elements (limits: 0 block, ≤ ${MODEL_HEALTH_MAX_WARN} warn).`
     + (truncated ? ` Evidence covers the first ${kept} of ${scan.violations_total} violations.` : "");
   return block === 0 && warn <= MODEL_HEALTH_MAX_WARN
     ? result(id, label, "met", { summary, evidence })

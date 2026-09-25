@@ -45,8 +45,8 @@ public static class FamilySanitizer
                 }
                 else
                 {
-                    Scan(famDoc, report);
                     var target = uiapp.ActiveUIDocument?.Document;
+                    Scan(famDoc, report, App.OrgFor(target));   // the project it loads into decides the office code
                     if (report.Passed && target is not null && !target.IsFamilyDocument)
                     {
                         loaded = famDoc.LoadFamily(target, new OverwriteOptions()) is not null;
@@ -68,7 +68,7 @@ public static class FamilySanitizer
     }
 
     /// <summary>Pure audit of an open family document.</summary>
-    public static void Scan(Document famDoc, SanitationReport report)
+    public static void Scan(Document famDoc, SanitationReport report, string org)
     {
         // 1. Heavy geometry: count solids across all element geometry.
         var opts = new Options { DetailLevel = ViewDetailLevel.Fine, ComputeReferences = false };
@@ -91,7 +91,6 @@ public static class FamilySanitizer
         // 3. Required shared parameters (by definition name on the family manager —
         //    shared param names are user-defined, not localized by Revit).
         var fm = famDoc.FamilyManager;
-        string org = App.Org;
         if (!Engine.OrgNames.Configured(org))
             App.PanelVm?.LogDoctor("Family sanitizer: no office code configured (ruleset 'org') — required shared-parameter check skipped for " +
                 Path.GetFileName(report.FamilyPath.Length > 0 ? report.FamilyPath : famDoc.Title));

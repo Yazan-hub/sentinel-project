@@ -6,6 +6,7 @@ using Sentinel.Updaters;
 using Sentinel.UI;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 
 namespace Sentinel;
@@ -22,17 +23,17 @@ public sealed class App : IExternalApplication
     internal static SentinelPanelViewModel? PanelVm { get; private set; }
     internal static RuleEngineHost? Engine { get; private set; }
     internal static RevitEventHub? Events { get; private set; }
-    /// The configured office code (ruleset "org"); empty when none — callers must say so, not guess.
-    internal static string Org => Engine?.Ruleset.Org ?? string.Empty;
+    /// This document's office code (its ruleset's "org"); empty when none — callers must say so, not guess.
+    internal static string OrgFor(Document? doc) => doc is null || Engine is null ? string.Empty : Engine.RulesetFor(doc).Org;
 
     public Result OnStartup(UIControlledApplication app)
     {
         try
         {
-            // 1. Rule engine (loads cached ruleset.json; backend sync is async/offline-safe)
+            // 1. Rule engine (empty: each document gets its project's ruleset@n when it opens)
             try
             {
-                Engine = new RuleEngineHost(RulesetStore.LoadEffective());
+                Engine = new RuleEngineHost();
             }
             catch (Exception ex)
             {
@@ -83,6 +84,7 @@ public sealed class App : IExternalApplication
             try
             {
                 app.ControlledApplication.DocumentOpened += OnDocumentOpened;
+                app.ControlledApplication.DocumentClosing += OnDocumentClosing;
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
 
@@ -109,6 +111,7 @@ public sealed class App : IExternalApplication
     public Result OnShutdown(UIControlledApplication app)
     {
         app.ControlledApplication.DocumentOpened -= OnDocumentOpened;
+        app.ControlledApplication.DocumentClosing -= OnDocumentClosing;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
@@ -118,16 +121,43 @@ public sealed class App : IExternalApplication
 
     private static void OnDocumentOpened(object? sender, DocumentOpenedEventArgs e)
     {
-        if (e.Document is { IsFamilyDocument: false } doc)
+        if (e.Document is not { IsFamilyDocument: false } doc) return;
+        // A linked model Sentinel opens itself to export it is never loaded, scanned or judged.
+        if (PlatformExporter.IsOpenedForExport(doc.PathName)) return;
+        SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
+        CdeSyncGuard.Prefetch(ProjectContext.For(doc)); // CDE-01's naming@n, off Revit's thread
+        Workflow.RequestManager.RefreshSnapshot(doc); // old-value capture baseline
+        ReloadRuleset(doc); // the baseline scan runs when the document's ruleset@n has landed
+    }
+
+    private static void OnDocumentClosing(object? sender, DocumentClosingEventArgs e)
+    {
+        Engine?.Forget(e.Document);
+        ReloadSeq.Remove(e.Document);
+    }
+
+    // The latest reload per document (API thread only): an older GET that lands late never overwrites a newer one.
+    private static readonly Dictionary<Document, int> ReloadSeq = new();
+
+    /// <summary>Resolve the document's ruleset@n (project → office → none) and judge the document by it. The
+    /// key is read here (Extensible Storage: API thread); the GET runs on a background task (≤ 4 s, never the UI
+    /// thread); the install, the rescan and the strip land back on the API thread through the event hub.</summary>
+    internal static void ReloadRuleset(Document doc)
+    {
+        if (doc.IsFamilyDocument || Engine is not { } engine || Events is not { } events) return;
+        var key = ProjectContext.For(doc).Key;
+        var seq = ReloadSeq[doc] = ReloadSeq.TryGetValue(doc, out var last) ? last + 1 : 1;
+        Task.Run(() => RulesetStore.Load(key)).ContinueWith(t => events.Enqueue(_ =>
         {
-            Engine!.ReloadRuleset(doc); // honor project-level settings (ES) if present
-            SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
-            Workflow.RequestManager.RefreshSnapshot(doc); // old-value capture baseline
-            // Baseline full scan so the panel is populated immediately
-            var report = Engine!.ScanFull(doc);
-            PanelVm!.PublishReport(report);
+            if (!doc.IsValidObject) return;              // closed while the ruleset was in flight
+            if (!ReloadSeq.TryGetValue(doc, out var latest) || latest != seq) return; // a newer reload is in flight or landed
+            if (ProjectContext.For(doc).Key != key) return; // rebound meanwhile: the newer reload installs its ruleset
+            var (rs, src, note) = t.Result;              // Load never throws
+            engine.Set(doc, (rs, src));
+            if (note is not null) PanelVm?.LogDoctor(note);
+            PanelVm?.PublishReport(engine.ScanFull(doc));
             RefreshJourney(doc);
-        }
+        }), TaskScheduler.Default);
     }
 
     private static void OnSynchronized(object? sender, DocumentSynchronizedWithCentralEventArgs e)
@@ -136,32 +166,37 @@ public sealed class App : IExternalApplication
         Workflow.RequestManager.RefreshSnapshot(e.Document);
         var report = Engine!.ScanFull(e.Document);
 
-        // CDE Sync Guard: central file name vs ISO 19650 / office convention.
-        // Sync cannot be vetoed by the API, so a mismatch reports loudly.
-        var cde = Sentinel.Engine.CdeSyncGuard.Check(e);
+        // CDE Sync Guard: the central file name judged by the project's naming@n (fetched off Revit's thread at
+        // open and after each sync). Sync cannot be vetoed by the API, so a mismatch reports loudly; with no
+        // naming standard to judge by, CDE-01 adds one Monitor note that is never scored or counted as checked.
+        var ctx = ProjectContext.For(e.Document);
+        var cde = Sentinel.Engine.CdeSyncGuard.Check(e, ctx, Sentinel.Engine.CdeSyncGuard.LastNaming(ctx));
+        Sentinel.Engine.CdeSyncGuard.Prefetch(ctx); // the next sync sees a naming@n installed since
         if (cde is not null)
         {
-            Sentinel.Engine.RoiTracker.Log("cde", cde.ElementName);
-            var merged = new List<Sentinel.Engine.Violation>(report.Violations) { cde };
-            report = new Sentinel.Engine.ScanReport(report.DocTitle, report.At,
-                report.DurationMs, report.ElementsChecked + 1, merged);
+            bool judged = cde.Mode != Sentinel.Engine.EnforcementMode.Monitor;
+            if (judged) Sentinel.Engine.RoiTracker.Log("cde", cde.ElementName);
+            report = report.Plus(cde, judged);
         }
         PanelVm!.PublishReport(report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
-        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled, fire-and-forget.
-        Sentinel.Coordination.GovernedNotify.OfficeScan(report, Sentinel.Engine.SettingsManager.WebProjectKeyFor(e.Document));
+        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled,
+        // fire-and-forget. An unbound document posts nothing (silently: a sync is not the place for a dialog).
+        if (ctx.IsBound) Sentinel.Coordination.GovernedNotify.OfficeScan(report, ctx.Key);
         // After the scan report that completes the `model` step. That POST is fire-and-forget, so this GET can
         // race it and still read the step as todo — ↻ on the strip settles it.
         RefreshJourney(e.Document);
     }
 
-    /// <summary>Next strip: read the document's web key and the ruleset that judged the pane's rows on the Revit
-    /// API thread, then hand strings to the pane (its GET runs off-thread). Read-only; family documents skipped.</summary>
+    /// <summary>Next strip: read the document's web key and where its ruleset came from on the Revit API thread,
+    /// then hand them to the pane (its GET runs off-thread). Read-only; family documents skipped. An unbound
+    /// document shows "not bound — Sentinel ▸ Project Setup" and asks the bridge nothing.</summary>
     internal static void RefreshJourney(Document? doc)
     {
-        if (doc is null || doc.IsFamilyDocument || PanelVm is null) return;
-        var rs = Engine?.Ruleset;
-        PanelVm.RefreshJourney(Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc), rs?.StandardKey ?? "", rs?.Semver ?? "");
+        if (doc is null || doc.IsFamilyDocument || PanelVm is null || Engine is null) return;
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound) { PanelVm.ShowUnbound(); return; }
+        PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc));
     }
 
     // Local save (non-workshared, or a local save before sync) → push the latest model to the web.
@@ -201,7 +236,7 @@ public sealed class App : IExternalApplication
         Push(va, "Sentinel_Scorecard", "Health\nScorecard", "Sentinel.Commands.ScorecardCommand", "scorecard",
             "Weighted executive compliance score with per-domain breakdown.");
         Push(va, "Sentinel_Rules", "Rule\nSet", "Sentinel.Commands.ShowRulesetCommand", "rules",
-            "View the effective ruleset (master version + project overlay).");
+            "View the ruleset this document is judged by: its web project's ruleset@n (or its office's), with source and sha.");
         var ifc = Pull(va, "Sentinel_IfcGate", "IFC\nGate", "ifcgate",
             "IFC deliverable checks: pre-flight before export, and delivery-gate certification after.");
         Sub(ifc, "Sentinel_IfcPreflight", "IFC Pre-Flight", "Sentinel.Commands.IfcPreFlightCommand", "preflight",
@@ -239,7 +274,7 @@ public sealed class App : IExternalApplication
         var std = Pull(st, "Sentinel_Standards", "Standards", "standards",
             "Set up and apply office standards: project setup, build/apply a standards pack, or ingest from documents.");
         Sub(std, "Sentinel_Setup", "Project Setup", "Sentinel.Commands.ProjectSetupCommand", "setup",
-            "Configure standards sources: master ruleset + template paths, saved to the project or this machine.");
+            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path and publishing options.");
         Sub(std, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
             "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
         Sub(std, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",

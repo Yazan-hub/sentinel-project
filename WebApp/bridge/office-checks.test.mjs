@@ -13,7 +13,7 @@ import {
 } from "./office-checks.mjs";
 
 const NOW = new Date("2026-09-17T12:00:00Z");
-const RULESET_PATH = fileURLToPath(new URL("../../SentinelAddin/Resources/ruleset.json", import.meta.url));
+const RULESET_PATH = fileURLToPath(new URL("../../demo/bds-pilot/ruleset.json", import.meta.url));
 const CATALOG_PATH = fileURLToPath(new URL("../../demo/bds-pilot/bds-type-catalog.json", import.meta.url));
 const shipped = () => JSON.parse(readFileSync(RULESET_PATH, "utf8"));       // org = "BDS", {org} unexpanded
 const pilotCatalog = () => JSON.parse(readFileSync(CATALOG_PATH, "utf8"));   // 1,434 types
@@ -149,13 +149,21 @@ describe("office.shared_params — every parameter rule's parameter exists in th
 });
 
 describe("office.model_health — 0 block, warn ≤ 25, fresh scan", () => {
-  const scan = (violations, at = "2026-09-15T08:00:00Z") => ({ doc_title: "Aster Tower.rvt", at, elements_checked: 100, violations, violations_total: violations.length });
+  const scan = (violations, at = "2026-09-15T08:00:00Z") => ({ doc_title: "Aster Tower.rvt", at, elements_checked: 100, violations, violations_total: violations.length, ruleset_ref: "ruleset@1", ruleset_sha256: "fb8f9baefa9f" });
   it("absent / stale → not_checkable", () => {
     expect(classifyModelHealth(null, NOW).status).toBe("not_checkable");
     expect(classifyModelHealth(scan([], "2026-06-01T00:00:00Z"), NOW).reason).toContain("2026-06-01");
   });
-  it("met within limits; violation with counts by rule when over", () => {
-    expect(classifyModelHealth(scan([{ rule_id: "VN-01", mode: "warn" }]), NOW).status).toBe("met");
+  it("a scan that names no ruleset (absent or none) is not_checkable, never met", () => {
+    for (const ruleset_ref of [undefined, null, "", "none"]) {
+      const r = classifyModelHealth({ ...scan([]), ruleset_ref }, NOW);
+      expect(r).toMatchObject({ status: "not_checkable", reason: expect.stringContaining("names no ruleset") });
+    }
+  });
+  it("met within limits and says which ruleset judged; violation with counts by rule when over", () => {
+    const met = classifyModelHealth(scan([{ rule_id: "VN-01", mode: "warn" }]), NOW);
+    expect(met.status).toBe("met");
+    expect(met.summary).toContain("scanned 2026-09-15 by ruleset@1:");
     const r = classifyModelHealth(scan([{ rule_id: "WS-01", mode: "block" }, ...Array(26).fill({ rule_id: "VN-01", mode: "warn" })]), NOW);
     expect(r.status).toBe("violations"); expect(r.count).toBe(27);
     expect(r.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ label: "WS-01", detail: expect.stringContaining("1 block") }), expect.objectContaining({ label: "VN-01", detail: expect.stringContaining("26 warn") })]));

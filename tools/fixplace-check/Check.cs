@@ -125,6 +125,15 @@ static class Check
         Ok(pr2.AuditId == "uuid-1" && pr2.ElementFailures.Single().Element == "42" && pr2.ReceiptHash == null, "string audit id, numeric element, no receipt → null");
         Ok(ProposalResult.Parse("{}").Verdict == "recorded" && ProposalResult.Parse("{}").ElementFailures.Count == 0, "an empty object reads as recorded, nothing certified");
 
+        Console.WriteLine("\nProposalResult.Parse — what judged, from the bridge's answer");
+        var pj = ProposalResult.Parse("{\"verdict\":\"accepted\",\"warned\":true,\"ids_enforce\":\"warn\",\"ids_source\":\"office\",\"ids_ref\":\"ids@4\"," +
+                                      "\"ids_sha256\":\"23bb57937fb0aa11\",\"naming_ref\":\"naming@1\",\"naming_source\":\"project\",\"naming_sha256\":\"bb22\"}");
+        Ok(pj.IdsRef == "ids@4" && pj.IdsSource == "office" && pj.IdsEnforce == "warn" && pj.Warned, "ids_ref / ids_source / ids_enforce / warned parsed");
+        Ok(pj.IdsLabel == "ids@4 · office · 23bb57937fb0…", "IdsLabel is the bridge's refLabel (ref · source · sha12…)");
+        Ok(pj.NamingLabel == "naming@1 · project · bb22…", "NamingLabel: a short sha keeps the ellipsis, as refLabel does");
+        var pn = ProposalResult.Parse("{\"verdict\":\"recorded\",\"ids_source\":\"none\",\"ids_ref\":null,\"naming_ref\":null}");
+        Ok(pn.IdsRef == null && pn.IdsLabel == "none" && pn.NamingRef == null && pn.NamingLabel == "none" && !pn.Warned, "nothing installed → refs null, labels \"none\", not warned");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

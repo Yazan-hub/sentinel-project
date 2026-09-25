@@ -14,3 +14,7 @@
 # DXF is plain text, but the AutoCAD family expects CRLF. Pin it so the sample file is byte-identical
 # on every machine that clones this repo.
 *.dxf  text eol=crlf
+
+# Fixtures `npm test` rewrites with LF (JSON.stringify): pinned to LF so a rewrite on a CRLF checkout is no change.
+WebApp/src/sentinel-core/fixtures/*.json text eol=lf
+WebApp/bridge/fixtures/*.json            text eol=lf

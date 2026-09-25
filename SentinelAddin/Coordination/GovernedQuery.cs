@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using Sentinel.Commands; // BcfConfig (bridge URL + platform project id)
+using Sentinel.Commands; // BcfConfig (bridge URL + service token)
 
 namespace Sentinel.Coordination
 {
@@ -42,14 +42,15 @@ namespace Sentinel.Coordination
         /// <summary>
         /// Look up the live file version + ISO 19650 state for <paramref name="modelTitle"/> (matched to the
         /// same "&lt;title&gt;.ifc" key <see cref="GovernedNotify.FileVersion"/> writes). Blocking, ~4s cap,
-        /// returns null on any problem.
+        /// returns null on any problem, and for an empty (unbound) key.
         /// </summary>
-        public static LiveInfo? LiveVersion(string modelTitle, string? projectKey = null)
+        public static LiveInfo? LiveVersion(string modelTitle, string projectKey)
         {
+            var key = (projectKey ?? "").Trim();
+            if (key.Length == 0) return null;
             try
             {
                 var cfg = BcfConfig.Load();
-                var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
                 var name = modelTitle.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelTitle : modelTitle + ".ifc";
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/files";
                 var json = GetString(url, cfg.ServiceToken);
@@ -84,15 +85,16 @@ namespace Sentinel.Coordination
         /// <summary>
         /// One line for the Clash Manager header: the project's Federation Gate status from the web
         /// (PASS / FAIL with the failing checks / NOT CHECKABLE / NOT RUN, STALE when a live version changed).
-        /// Blocking, ~4 s cap; null when the bridge is unreachable. The project key is the DOCUMENT's
-        /// (SettingsManager.WebProjectKeyFor), never the machine default — the cohesion review's D5.
+        /// Blocking, ~4 s cap; null when the bridge is unreachable or the key is empty. The project key is the
+        /// DOCUMENT's (ProjectContext), never a machine default — the cohesion review's D5.
         /// </summary>
-        public static string? FederationStatus(string? projectKey)
+        public static string? FederationStatus(string projectKey)
         {
+            var key = (projectKey ?? "").Trim();
+            if (key.Length == 0) return null;
             try
             {
                 var cfg = BcfConfig.Load();
-                var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
                 var json = GetString(cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/federation", cfg.ServiceToken);
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
@@ -135,6 +137,7 @@ namespace Sentinel.Coordination
             public string? RulesetSource;
             public string? RulesetStandardKey;
             public string? RulesetSemver;
+            public string? RulesetSha256;
             public string? RulesetLabel; // "unavailable — …" when the bridge could not read the standards
         }
 
@@ -142,19 +145,20 @@ namespace Sentinel.Coordination
         /// The Next strip: the standards in force (each label is the bridge's refLabel, "ruleset@1 · office · 3f07…",
         /// exactly as the judges print it), the next step with where it is done, and "n of m done" — counts, never a
         /// percentage. Blocking, ~4 s cap; null when the bridge is unreachable. The key is the DOCUMENT's
-        /// (SettingsManager.WebProjectKeyFor), read by the caller on the API thread.
+        /// (ProjectContext), read by the caller on the API thread.
         /// </summary>
-        public static JourneyInfo? Journey(string? projectKey) => Journey(projectKey, out _);
+        public static JourneyInfo? Journey(string projectKey) => Journey(projectKey, out _);
 
         /// <summary>As <see cref="Journey(string?)"/>, and says why it returned null: the bridge's own message on a
         /// refusal ("403: Not authorized: you are not a member of this project"), else the transport error.</summary>
-        public static JourneyInfo? Journey(string? projectKey, out string? failure)
+        public static JourneyInfo? Journey(string projectKey, out string? failure)
         {
             failure = null;
+            var key = (projectKey ?? "").Trim();
+            if (key.Length == 0) { failure = "not bound — Sentinel ▸ Project Setup"; return null; }
             try
             {
                 var cfg = BcfConfig.Load();
-                var key = string.IsNullOrWhiteSpace(projectKey) ? cfg.ProjectId : projectKey!.Trim();
                 var msg = new HttpRequestMessage(HttpMethod.Get, cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/journey");
                 if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
                     msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
@@ -223,6 +227,7 @@ namespace Sentinel.Coordination
                     RulesetSource = Str(rs, "source"),
                     RulesetStandardKey = Str(rs, "standard_key"),
                     RulesetSemver = Str(rs, "semver"),
+                    RulesetSha256 = Str(rs, "sha256"),
                     RulesetLabel = Str(rs, "label"),
                 };
             }
@@ -230,25 +235,22 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
-        /// Which ruleset judged the pane's rows, against the project's ruleset@n. Until the add-in reads the
-        /// artefact (cohesion phase 4) the machine's ruleset judges the pane, so the strip says which one and
-        /// whether it matches — it must not imply the project's artefact did. Pure (no I/O).
+        /// Which ruleset judged the pane's rows — the document's own ruleset@n as resolved when it was loaded
+        /// (its label says "cached" when the bridge was not reached) — against what the journey says is in force
+        /// now. Same artefact = ref, source and sha all equal; then the line is just "Judged by &lt;refLabel&gt;".
+        /// Pure (no I/O).
         /// </summary>
-        public static string ScanRulesetLine(string localStandardKey, string localSemver, JourneyInfo? j)
+        public static string ScanRulesetLine(ResolvedArtefact local, JourneyInfo? j)
         {
-            var localKey = (localStandardKey ?? "").Trim();
-            var localVer = (localSemver ?? "").Trim();
-            var head = "Scans here with " + (localKey.Length == 0 ? "an unkeyed ruleset" : (localKey + " " + localVer).Trim()) + " (this machine)";
-            if (j is null) return head + " — the project's ruleset is unknown (journey unavailable)";
+            var head = "Judged by " + local.Label;
+            if (j is null) return head + " — the project's ruleset now is unknown (journey unavailable)";
             if (string.IsNullOrEmpty(j.RulesetRef))
-                return head + (j.RulesetLabel is { } l && l != "none"
-                    ? " — the project's ruleset is " + l // "unavailable — …": a failed read is not "nothing installed"
-                    : " — the project has no ruleset installed");
-            var theirKey = (j.RulesetStandardKey ?? "").Trim();
-            var theirVer = (j.RulesetSemver ?? "").Trim();
-            if (localKey.Length > 0 && localKey == theirKey && localVer == theirVer) return head + " — matches " + j.RulesetRef;
-            var theirs = (theirKey.Length == 0 ? "no standard_key" : (theirKey + " " + theirVer).Trim());
-            return head + $" — differs from {j.RulesetRef} · {j.RulesetSource} ({theirs})";
+            {
+                if (j.RulesetLabel is { } l && l != "none") return head + " — the project's ruleset is " + l; // a failed read is not "nothing installed"
+                return local.Ref is null ? head + " — nothing is scored" : head + " — but the project now has no ruleset installed (Scan Now reloads)";
+            }
+            if (local.Ref == j.RulesetRef && local.Source == j.RulesetSource && local.Sha256 == j.RulesetSha256) return head;
+            return head + $" — the project now has {j.RulesetLabel ?? j.RulesetRef} (Scan Now reloads)";
         }
 
         /// <summary>One recorded clash from the web-side team register (GET /clash/:project).</summary>
@@ -263,13 +265,17 @@ namespace Sentinel.Coordination
         /// Read the team-wide clash register recorded on the web (status lifecycle raised → reviewed → approved
         /// → resolved, raise-time volume). Returns the list (possibly empty) when reachable, or null when the
         /// bridge/CDE can't be reached — so the caller can tell "no clashes" from "offline". Blocking, ~4s cap.
+        /// The register is keyed by the web project, the same key the web clash panel writes under (the document's
+        /// key, from ProjectContext); an empty key returns null.
         /// </summary>
-        public static List<ClashRow>? ClashRegister()
+        public static List<ClashRow>? ClashRegister(string projectKey)
         {
+            var key = (projectKey ?? "").Trim();
+            if (key.Length == 0) return null;
             try
             {
                 var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/clash/" + Uri.EscapeDataString(cfg.ProjectId);
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/clash/" + Uri.EscapeDataString(key);
                 var json = GetString(url, cfg.ServiceToken);
 
                 using var doc = JsonDocument.Parse(json);

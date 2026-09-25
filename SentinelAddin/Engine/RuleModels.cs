@@ -83,6 +83,21 @@ public sealed class ScanReport
     public int ElementsChecked { get; }
     public IReadOnlyList<Violation> Violations { get; }
 
+    /// The ruleset that judged these rows (null for a report no ruleset judged, e.g. IFC pre-flight) and its
+    /// artefact identity — what the scan report tells the bridge (ruleset_ref / ruleset_sha256).
+    public Ruleset? Ruleset { get; set; }
+    public string? RulesetRef { get; set; }
+    public string? RulesetSha256 { get; set; }
+    /// Set when no rule judged the document (ruleset none, or every rule dropped): the line shown INSTEAD of a
+    /// score and a grade — "none — not installed for aster-villa or its office". Score must not be read then.
+    public string? NotScored { get; set; }
+
+    /// The same report — same ruleset identity — with one more violation from a check outside the ruleset
+    /// (CDE-01 at sync); <paramref name="counted"/> false keeps it out of ElementsChecked (a Monitor note).
+    public ScanReport Plus(Violation extra, bool counted = true) =>
+        new(DocTitle, At, DurationMs, ElementsChecked + (counted ? 1 : 0), new List<Violation>(Violations) { extra })
+        { Ruleset = Ruleset, RulesetRef = RulesetRef, RulesetSha256 = RulesetSha256, NotScored = NotScored };
+
     /// Monitor-mode findings are informational and excluded from the score
     /// (HealthScorecard still counts them at low weight for the PM view).
     public double Score

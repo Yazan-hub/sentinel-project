@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for Build/Apply's ruleset install: the canonical JSON port (CanonicalJson.cs) against the
+       bridge's own canonical() outcomes in WebApp/bridge/fixtures/canonical-cases.json, and the raw-body merge
+       (RulesetMerge.cs): unknown fields kept, worksets unioned, naming rules replaced by id, patch bump only
+       on a real change. No Revit API, no HTTP; run with `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ruleset-install-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\CanonicalJson.cs" />
+    <Compile Include="..\..\SentinelAddin\Standards\RulesetMerge.cs" />
+  </ItemGroup>
+</Project>

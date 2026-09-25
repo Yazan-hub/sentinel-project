@@ -36,12 +36,12 @@ public static class GovernedElementExtractor
 
     private static readonly BuiltInCategory[] ExportCategories = CategoryToIfc.Select(x => x.cat).ToArray();
 
-    private static string OrgOrConfigured(string? org) => org ?? App.Engine?.Ruleset.Org ?? "";
+    private static string OrgOrConfigured(string? org, Document doc) => org ?? App.OrgFor(doc);
 
     /// <summary>Extract every exportable element. Read-only.</summary>
     public static List<GovElement> Extract(Document doc, string modelId, string? org = null)
     {
-        var o = OrgOrConfigured(org);
+        var o = OrgOrConfigured(org, doc);
         var elements = new FilteredElementCollector(doc)
             .WherePasses(new ElementMulticategoryFilter(ExportCategories))
             .WhereElementIsNotElementType()
@@ -53,7 +53,7 @@ public static class GovernedElementExtractor
     /// resolve are skipped — the caller compares what came back against what it asked for.</summary>
     public static List<GovElement> ExtractByIds(Document doc, string modelId, IEnumerable<ElementId> ids, string? org = null)
     {
-        var o = OrgOrConfigured(org);
+        var o = OrgOrConfigured(org, doc);
         var result = new List<GovElement>();
         foreach (var id in ids)
             if (doc.GetElement(id) is { } e) result.Add(ToGovElement(e, doc, modelId, o));

@@ -50,10 +50,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Shipped ruleset + ribbon icons: copied to output, deployed with the DLL -->
-    <Content Include="Resources\ruleset.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- ...and compiled in as the never-rule-less fallback (RulesetStore.EmbeddedFallback). -->
-    <EmbeddedResource Include="Resources\ruleset.json" LogicalName="ruleset.json" />
+    <!-- Ribbon icons + the Ghost reference profiles, copied to output and deployed with the DLL. No ruleset
+         ships: a document is judged by its web project's ruleset@n (the pilot's copy is seed data in demo/bds-pilot/). -->
     <Content Include="Resources\bds-layers.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Reference PROFILE, not a fixed standard (D-03). Another firm points ghost_guideline_path at
          their own file; this ships so the add-in works out of the box, not to lock anyone to BDS. -->

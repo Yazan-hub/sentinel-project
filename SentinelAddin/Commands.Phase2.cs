@@ -63,11 +63,11 @@ public sealed class MepVoidsCommand : IExternalCommand
 
         // Lifecycle pass: reconcile existing tracked voids against the current
         // IFC drop (relocate moved, orphan deleted), then handle new candidates.
-        Sentinel.Engine.MepVoidManager.Reconcile(report => HandleReport(report, c.Application));
+        Sentinel.Engine.MepVoidManager.Reconcile(report => HandleReport(report, c.Application, doc));
         return Result.Succeeded;
     }
 
-    private static void HandleReport(Sentinel.Engine.MepVoidManager.ReconcileReport report, Autodesk.Revit.UI.UIApplication uiapp)
+    private static void HandleReport(Sentinel.Engine.MepVoidManager.ReconcileReport report, Autodesk.Revit.UI.UIApplication uiapp, Document doc)
     {
         var candidates = report.NewCandidates;
         if (candidates.Count == 0 && report.Updated + report.Orphaned == 0)
@@ -89,9 +89,9 @@ public sealed class MepVoidsCommand : IExternalCommand
         };
         confirm.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
             "Place tracked provision-for-void families",
-            Sentinel.Engine.MepVoidManager.TrackingConfigured
-                ? "One instance per merged candidate, with " + Sentinel.Engine.MepVoidManager.PVoidId + " + " +
-                  Sentinel.Engine.MepVoidManager.PVoidStatus + " = Pending."
+            Sentinel.Engine.MepVoidManager.TrackingConfigured(doc)
+                ? "One instance per merged candidate, with " + Sentinel.Engine.MepVoidManager.PVoidId(doc) + " + " +
+                  Sentinel.Engine.MepVoidManager.PVoidStatus(doc) + " = Pending."
                 : "Unavailable: " + Sentinel.Engine.MepVoidManager.NoOrgMessage);
         confirm.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
             "Export to BCF (send to MEP engineers)",
@@ -100,7 +100,7 @@ public sealed class MepVoidsCommand : IExternalCommand
 
         if (choice == TaskDialogResult.CommandLink1)
         {
-            if (!Sentinel.Engine.MepVoidManager.TrackingConfigured)
+            if (!Sentinel.Engine.MepVoidManager.TrackingConfigured(doc))
             {
                 TaskDialog.Show("Sentinel — MEP Openings", Sentinel.Engine.MepVoidManager.NoOrgMessage);
                 return;
@@ -165,8 +165,10 @@ public sealed class ClashManagerCommand : IExternalCommand
 
         var clashes = Sentinel.Engine.ClashManager.Run(doc);
         // The data gate first (D-01): the same status the web clash panel shows, read for this document's key.
-        var fedLine = Sentinel.Coordination.GovernedQuery.FederationStatus(Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc))
-                      ?? "Federation Gate: bridge unreachable";
+        var ctx = Sentinel.Engine.ProjectContext.For(doc);
+        var fedLine = !ctx.IsBound
+            ? "Federation Gate: not checked — " + Sentinel.Engine.ProjectContext.NotBound
+            : Sentinel.Coordination.GovernedQuery.FederationStatus(ctx.Key) ?? "Federation Gate: bridge unreachable";
         if (clashes.Count == 0)
         {
             TaskDialog.Show("Sentinel — Clash Manager",

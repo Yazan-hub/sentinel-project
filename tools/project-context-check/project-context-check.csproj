@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the one project context (cohesion phase 4a): a document's web project comes only from
+       its own settings JSON, never from a machine file, bcf-config or "default". Compiles the pure half of
+       ProjectContext.cs (SENTINEL_CHECK hides the Revit-typed For) and BcfConfig.cs, and scans the add-in
+       sources for any fallback left behind. Run with dotnet run from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>project-context-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\ProjectContext.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+  </ItemGroup>
+</Project>

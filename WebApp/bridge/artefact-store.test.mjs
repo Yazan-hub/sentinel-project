@@ -1,9 +1,16 @@
 // Per-project standards as immutable, hashed artefacts: kind@n documents plus one pointer per kind.
 // Tested against an in-memory doc store so the sequencing (insert → pointer → audit) is exact.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { canonical } from "./artefact-store.mjs";
-import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS } from "./artefact-store.mjs";
+import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply } from "./artefact-store.mjs";
+
+// Only the default wiring (a test that omits docInsert/docUpsert) reaches this mock; memDeps tests never import cde-store.
+const cdeMock = vi.hoisted(() => ({
+  ensureProject: vi.fn(async (key) => ({ id: `uuid-${key}`, key })), docGet: vi.fn(async () => null),
+  docInsert: vi.fn(async () => {}), docUpsert: vi.fn(async () => {}), audit: vi.fn(async () => {}),
+}));
+vi.mock("./cde-store.mjs", () => cdeMock);
 
 function memDeps({ role = "lead", parentKey = null } = {}) {
   const docs = new Map(), audits = [];
@@ -214,5 +221,64 @@ describe("refLabel", () => {
     expect(refLabel({ ref: "naming@2", source: "office", sha256: "3f0737600a1bc2d4e5f6" })).toBe("naming@2 · office · 3f0737600a1b…");
     expect(refLabel({ ref: null, source: "none", sha256: null })).toBe("none");
     expect(refLabel({ ref: null, source: "client", sha256: "abcdef0123456789" })).toBe("client · abcdef012345…");
+  });
+});
+
+describe("artefactReply — the GET route's answer (ETag, 304, 404 reasons)", () => {
+  const shaOf = (o) => createHash("sha256").update(canonical(o)).digest("hex");
+  it("200 names kind, version, source, ref and sha, with an ETag of ref:source:sha", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    await putArtefact("aster-office", "ruleset", ruleset, { actor: "x" }, d);
+    const r = await artefactReply("aster-tower", "ruleset", undefined, d);
+    expect(r.status).toBe(200);
+    expect(r.etag).toBe(`"ruleset@1:office:${shaOf(ruleset)}"`);
+    expect(r.body).toEqual({ kind: "ruleset", version: 1, body: ruleset, source: "office", ref: "ruleset@1", sha256: shaOf(ruleset), pointer_sha_mismatch: false });
+  });
+  it("304 with no body when If-None-Match equals the ETag; 200 when it does not", async () => {
+    const d = memDeps();
+    await putArtefact("p", "naming", naming, { actor: "x" }, d);
+    const { etag } = await artefactReply("p", "naming", undefined, d);
+    expect(await artefactReply("p", "naming", etag, d)).toEqual({ status: 304, etag });
+    expect((await artefactReply("p", "naming", `"naming@0:project:${"0".repeat(64)}"`, d)).status).toBe(200);
+  });
+  it("the same body moving from the office to the project changes the ETag (source is inside it)", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    await putArtefact("aster-office", "ruleset", ruleset, { actor: "x" }, d);
+    const before = await artefactReply("aster-villa", "ruleset", undefined, d);
+    await putArtefact("aster-villa", "ruleset", ruleset, { actor: "x" }, d);
+    const after = await artefactReply("aster-villa", "ruleset", before.etag, d);
+    expect(after.status).toBe(200);
+    expect(after.body.sha256).toBe(before.body.sha256);
+    expect(after.etag).toBe(`"ruleset@1:project:${shaOf(ruleset)}"`);
+  });
+  it("404 not_installed when neither the project nor its office has the kind", async () => {
+    const r = await artefactReply("aster-villa", "ids", undefined, memDeps({ parentKey: "aster-office" }));
+    expect(r).toEqual({ status: 404, body: { message: "no ids artefact installed for aster-villa or its office (PUT /cde/aster-villa/artefacts/ids)", reason: "not_installed" } });
+  });
+  it("404 no_project when the key is unknown to the bridge — never read as nothing installed", async () => {
+    const d = memDeps();
+    d.ensureProject = async (key) => { throw Object.assign(new Error(`Project "${key}" does not exist — create it in the web app (Projects → + New project) first.`), { status: 404 }); };
+    const r = await artefactReply("no-such-key", "ruleset", undefined, d);
+    expect(r.status).toBe(404);
+    expect(r.body).toMatchObject({ reason: "no_project", message: expect.stringContaining('Project "no-such-key" does not exist') });
+  });
+  it("404 unknown_kind before touching the store; a 403 still throws", async () => {
+    const d = memDeps();
+    d.ensureProject = vi.fn(d.ensureProject);
+    const r = await artefactReply("p", "recipes", undefined, d);
+    expect(r).toMatchObject({ status: 404, body: { reason: "unknown_kind" } });
+    expect(d.ensureProject).not.toHaveBeenCalled();
+    d.ensureProject = async () => { throw Object.assign(new Error("not a member"), { status: 403 }); };
+    await expect(artefactReply("p", "ruleset", undefined, d)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("artefact writes go with the service key (migration 0030)", () => {
+  it("the default wiring inserts the version and upserts the pointer with { service: true }", async () => {
+    const d = memDeps();
+    await putArtefact("p", "naming", naming, { actor: "x" }, { requireMinRole: d.requireMinRole, officeKeyOf: d.officeKeyOf, officeArtefact: d.officeArtefact });
+    expect(cdeMock.docInsert).toHaveBeenCalledWith("artefact", "uuid-p", "naming@1", expect.objectContaining({ kind: "naming", version: 1, body: naming }), { service: true });
+    expect(cdeMock.docUpsert).toHaveBeenCalledWith("artefact", "uuid-p", "naming", expect.objectContaining({ kind: "naming", version: 1 }), { service: true });
+    expect(cdeMock.audit).toHaveBeenCalledTimes(1);
   });
 });

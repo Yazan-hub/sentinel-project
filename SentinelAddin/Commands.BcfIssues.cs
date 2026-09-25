@@ -32,11 +32,17 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var uiapp = c.Application;
         if (uiapp.ActiveUIDocument?.Document is null) return Result.Cancelled;
 
+        // The OPEN model's web project governs which issues are listed, commented and resolved — there is no
+        // machine-wide default. Found live: a model on its own project listed another project's issues.
+        var ctx = ProjectContext.For(uiapp.ActiveUIDocument.Document);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show("Sentinel — BCF Issues", ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
+        var bcfKey = ctx.Key;
         var mainHandle = uiapp.MainWindowHandle;   // captured here: the UIApplication is only valid inside Execute
         BcfConfig cfg = BcfConfig.Load();
-        // The OPEN model's web project governs which issues are listed, commented and resolved — not the
-        // machine-wide default. Found live: a model on its own project listed another project's issues.
-        var bcfKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(uiapp.ActiveUIDocument.Document);
         var apply = new BcfApplyEvent();
         var externalEvent = ExternalEvent.Create(apply);
         var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
@@ -105,9 +111,10 @@ public sealed class BcfIssuesCommand : IExternalCommand
         // Fix-in-place: plan on the API thread, check/re-check through the referee off it, apply on the
         // API thread, and close the loop on the topic only with evidence (every GUID resolved AND passing).
         var doc = uiapp.ActiveUIDocument.Document;
-        var projectKey = Sentinel.Engine.SettingsManager.WebProjectKeyFor(doc);
-        var org = App.Engine?.Ruleset.Org;
-        var ids = IdsSpecFile.Load();
+        var projectKey = bcfKey; // same document, same key
+        var org = App.OrgFor(doc);
+        // Display only (the banner): the bridge judges every check by its own resolved IDS. Off the UI thread.
+        var ids = Task.Run(() => IdsSpecFile.Resolve(projectKey));
         var user = doc.Application.Username;
 
         // "No failure came back" is only evidence of passing when the referee judged everything that was sent
@@ -156,8 +163,13 @@ public sealed class BcfIssuesCommand : IExternalCommand
             openFix[topic.Guid] = fix;
             fix.Closed += (_, __) => openFix.Remove(topic.Guid);
             window.SetFixEnabled(true);
-            if (ids == null)
-                fix.SetBanner("No IDS available to check against (no %AppData%\\Sentinel\\ids.json; the bridge may still hold a server IDS). Apply is allowed; the issue cannot be resolved from here unless the bridge adjudicates.");
+            ids.ContinueWith(t =>
+            {
+                // Resolve never throws; SetBanner marshals to the window. The label says why (not installed,
+                // no project, bridge unreachable) \u2014 so the banner does not claim "not installed" on a timeout.
+                if (t.Result.Origin == "none")
+                    fix.SetBanner($"No IDS to check against for {projectKey} ({t.Result.Label}). Apply is allowed; nothing can be checked, certified or resolved from here.");
+            }, TaskScheduler.Default);
 
             bool applied = false;   // set by Apply; decides whether the evidence says "Fixed" or "Verified"
 
@@ -189,7 +201,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         var keys = new HashSet<string>(ticked.Select(r => r.Key));
                         Task.Run(() =>
                         {
-                            var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
+                            var res = GovernedNotify.Propose(payload, null, user, projectKey: projectKey,
                                 source: "revit-fix", note: $"fix-in-place check \u00b7 BCF {topic.Guid}", raiseBcf: false,
                                 failuresRequirement: req.Requirement);
                             if (!res.Reached)
@@ -199,8 +211,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             }
                             if (res.Verdict == "recorded")
                             {
-                                fix.SetBanner("The bridge has no IDS to judge against \u2014 verdict \u201crecorded\u201d. Apply is allowed; nothing can be certified or resolved.");
-                                fix.SetStatus("Not checkable: no IDS on the bridge or locally."); fix.SetBusy(false); return;
+                                fix.SetBanner($"No IDS installed for {projectKey} or its office \u2014 verdict \u201crecorded\u201d. Apply is allowed; nothing can be certified or resolved.");
+                                fix.SetStatus($"Not checkable: no IDS installed for {projectKey} or its office."); fix.SetBusy(false); return;
                             }
                             var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count, res.FailuresMatched);
                             if (why != null) { fix.SetStatus(why); fix.SetBusy(false); return; }
@@ -208,7 +220,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             fix.RefreshRows();
                             // The bridge filtered the list to this requirement; the footnote count comes from its totals.
                             var other = res.FailuresTotal >= 0 && res.FailuresMatched >= 0 ? res.FailuresTotal - res.FailuresMatched : fold.OtherOpen;
-                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 audit {res.AuditId}");
+                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 IDS {res.IdsLabel} \u00b7 audit {res.AuditId}");
                             fix.SetBusy(false);
                         });
                     }
@@ -250,7 +262,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                     var keys = new HashSet<string>(plan.Rows.Select(r => r.Key));
                     Task.Run(async () =>
                     {
-                        var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
+                        var res = GovernedNotify.Propose(payload, null, user, projectKey: projectKey,
                             source: "revit-fix", note: $"fix-in-place re-check \u00b7 BCF {topic.Guid}", raiseBcf: false,
                             failuresRequirement: req.Requirement);
                         if (!res.Reached)
@@ -263,8 +275,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (res.Verdict == "recorded")
                         {
                             fix.SetStatus(applied
-                                ? "Applied. NOT verified \u2014 the bridge has no IDS to judge against; the issue was not touched."
-                                : "NOT verified \u2014 the bridge has no IDS to judge against; the issue was not touched.");
+                                ? $"Applied. NOT verified \u2014 no IDS installed for {projectKey} or its office; the issue was not touched."
+                                : $"NOT verified \u2014 no IDS installed for {projectKey} or its office; the issue was not touched.");
                             fix.SetBusy(false); return;
                         }
                         // Nothing is painted green and no comment is posted off a response that cannot vouch for
@@ -279,7 +291,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         // A topic lists at most 500 GUIDs (bridge viewpoint cap). When it names more failures than
                         // it lists, the unlisted ones were never examined — say so, and never resolve on them.
                         var unlisted = Math.Max(0, req.Failing - total);
-                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check audit {res.AuditId}{receipt}."
+                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel}, audit {res.AuditId}{receipt}."
                             + (unlisted > 0 ? $" {unlisted} of the {req.Failing} failing element(s) are not listed on this issue and were NOT examined." : "");
                         // The elements that ACTUALLY still fail — the fold's GUIDs, not every instance of a
                         // row that failed (a type row can fail one of its instances and pass the rest), and
@@ -319,45 +331,5 @@ public sealed class BcfIssuesCommand : IExternalCommand
         window.Show();
         Refresh(); // initial load
         return Result.Succeeded;
-    }
-}
-
-/// <summary>
-/// BCF sync configuration, read from %AppData%\Sentinel\bcf-config.json (env vars as fallback).
-/// projectId must match what the web viewer POSTs (its platform project id); modelId empty = all models.
-/// </summary>
-internal sealed class BcfConfig
-{
-    [JsonPropertyName("serviceUrl")] public string ServiceUrl { get; set; } = "http://localhost:4100";
-    [JsonPropertyName("projectId")] public string ProjectId { get; set; } = "default";
-    [JsonPropertyName("modelId")] public string ModelId { get; set; } = ""; // empty → service returns all models
-    // Shared secret for the bridge's auth gate (F2). When the bridge runs with BCF_TOKEN set, Revit must present
-    // it or the governed calls are rejected as anonymous. Empty = legacy bridge (no gate) → no header is sent.
-    [JsonPropertyName("serviceToken")] public string ServiceToken { get; set; } = "";
-
-    public static BcfConfig Load()
-    {
-        string path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "bcf-config.json");
-        try
-        {
-            if (File.Exists(path))
-                return JsonSerializer.Deserialize<BcfConfig>(File.ReadAllText(path),
-                           new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new BcfConfig();
-        }
-        catch { /* fall through to env/defaults */ }
-
-        return new BcfConfig
-        {
-            ServiceUrl = Env("BCF_SERVICE_URL", "http://localhost:4100"),
-            ProjectId = Env("THATOPEN_PROJECT_ID", "default"),
-            ServiceToken = Env("BCF_TOKEN", ""),
-        };
-    }
-
-    private static string Env(string name, string fallback)
-    {
-        string? v = Environment.GetEnvironmentVariable(name);
-        return string.IsNullOrWhiteSpace(v) ? fallback : v!;
     }
 }

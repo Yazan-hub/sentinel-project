@@ -54,7 +54,7 @@ public static class FamilyProcessor
                 {
                     famDoc = doc.EditFamily(family);
                     var report = new FamilySanitizer.SanitationReport();
-                    FamilySanitizer.Scan(famDoc, report);
+                    FamilySanitizer.Scan(famDoc, report, App.OrgFor(doc));
 
                     bool geometryProblem = report.SolidCount > FamilySanitizer.MaxSolids
                                            || report.NestedCadImports > 0;

@@ -8,20 +8,12 @@
         <Border Background="#1E3A5F" Padding="20,14">
             <StackPanel>
                 <TextBlock Text="Project Setup" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
-                <TextBlock Text="Standards sources — supports local servers, network drives and ACC Desktop Connector paths"
+                <TextBlock Text="The web project this model belongs to — its ruleset, IDS and naming standard come from there"
                            Foreground="#9DB4CE" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
         <StackPanel Margin="20,16">
-            <TextBlock Text="Master ruleset path (ruleset.json)" FontSize="11" Foreground="#667"/>
-            <DockPanel Margin="0,4,0,12">
-                <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
-                        Margin="6,0,0,0" Click="OnBrowseRuleset"/>
-                <TextBox x:Name="RulesetPathBox" Height="28" FontSize="12" Padding="6,4"
-                         VerticalContentAlignment="Center"/>
-            </DockPanel>
-
             <TextBlock Text="Revit template path (.rte)" FontSize="11" Foreground="#667"/>
             <DockPanel Margin="0,4,0,12">
                 <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
@@ -42,7 +34,9 @@
                       Margin="0,4,0,2" VerticalContentAlignment="Center" Width="280"
                       HorizontalAlignment="Left" IsEditable="True"/>
             <TextBlock x:Name="WebProjectHint" Text="Loading projects from the bridge…"
-                       FontSize="10" Foreground="#889" Margin="0,0,0,10"/>
+                       FontSize="10" Foreground="#889" Margin="0,0,0,2"/>
+            <TextBlock x:Name="WebProjectScopeNote" FontSize="10" Foreground="#B26B00" Margin="0,0,0,10"
+                       TextWrapping="Wrap"/>
 
             <CheckBox x:Name="LinkedModelsBox" FontSize="12" Margin="0,0,0,14"
                       Content="Include linked models when publishing (each link exports as its own IFC — Quick/Auto publish)"/>
@@ -64,7 +58,7 @@
                                  Content="Current project (Extensible Storage — syncs with central, whole team)"
                                  FontSize="12" Margin="0,0,0,4"/>
                     <RadioButton x:Name="ScopeMachine" GroupName="Scope"
-                                 Content="This machine only (%AppData%\Sentinel\config.json — fallback default)"
+                                 Content="This machine only (%AppData%\Sentinel\config.json — paths and defaults; never the web project)"
                                  FontSize="12"/>
                 </StackPanel>
             </Border>

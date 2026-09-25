@@ -38,7 +38,7 @@ public static class IfcPreFlightScanner
         var violations = new List<Violation>();
         int checkedCount = 0;
 
-        var rs = App.Engine?.Ruleset;
+        var rs = App.Engine?.RulesetFor(doc);
         string org = rs?.Org ?? string.Empty;
         string? bep = OrgNames.DocRef(rs, "bep");
         string exportAsRef = bep is null ? "ISO 16739" : "ISO 16739 / " + bep;

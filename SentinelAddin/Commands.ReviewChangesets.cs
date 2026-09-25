@@ -35,8 +35,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show("Sentinel — AI proposals", ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
         var cfg = BcfConfig.Load();
-        var key = SettingsManager.WebProjectKeyFor(doc);
+        var key = ctx.Key;
 
         var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);
         if (pending == null)

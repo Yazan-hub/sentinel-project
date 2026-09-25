@@ -74,7 +74,7 @@ describe("project journey", () => {
     expect(s.standards.evidence.ref).toBe("ids@4,ruleset@1,naming@1");
     expect(s.standards.evidence.label).toContain("ids@4 · office · 23bb57937fb0…");
     expect(s.bep.evidence.ref).toBe("d-bep");
-    expect(s.model.evidence.label).toBe("scan · Aster Villa · 2026-09-22T09:00:00Z");
+    expect(s.model.evidence.label).toBe("scan · Aster Villa · 2026-09-22T09:00:00Z · judged by nothing");
     expect(s.verdict.evidence.ref).toBe("audit#17");                         // the first verdict, oldest row
     expect(s.published.evidence.ref).toBe("version v-1 · audit#42");
     expect(s.federated.evidence.label).toBe("federation · pass · 2026-09-23T10:00:00Z");
@@ -185,5 +185,17 @@ describe("amendments (controller cross-check)", () => {
     expect(m.evidence.ref).toBe("office_scan@2026-09-22T09:00:00Z");
     const f = byId(buildJourney({ ...emptyProject(), federation: ok(FED_PASS) })).federated;
     expect(f.evidence.ref).toBe("federation@2026-09-23T10:00:00Z");
+  });
+  it("A2 (2026-09-25): a scan with a ruleset_ref names it in model's evidence label", () => {
+    const judged = byId(buildJourney({ ...emptyProject(), scan: ok({ doc_title: "M", at: "2026-09-22T09:00:00Z", ruleset_ref: "ruleset@3" }) })).model;
+    expect(judged.status).toBe("done");
+    expect(judged.evidence.label).toBe("scan · M · 2026-09-22T09:00:00Z · judged by ruleset@3");
+  });
+  it("A2 (2026-09-25): a scan with no ruleset_ref (absent or 'none') says nothing judged it, but model is still done — it measures the connection, not the judgment", () => {
+    for (const ruleset_ref of [undefined, "none"]) {
+      const none = byId(buildJourney({ ...emptyProject(), scan: ok({ doc_title: "M", at: "2026-09-22T09:00:00Z", ruleset_ref }) })).model;
+      expect(none.status).toBe("done");
+      expect(none.evidence.label).toBe("scan · M · 2026-09-22T09:00:00Z · judged by nothing");
+    }
   });
 });

@@ -281,4 +281,16 @@ public sealed class StandardsReviewWindow : Window
         _report.Visibility = Visibility.Visible;
         SetStatus($"Done — {r.Created.Count} created, {r.Skipped.Count} skipped, {r.Failed.Count} failed.");
     });
+
+    /// <summary>Append the ruleset install's outcome under the build report (raised off the API thread); the
+    /// status line takes its last line — the installed ruleset@n, "unchanged", or why nothing was installed.</summary>
+    public void AppendReport(IReadOnlyList<string> lines) => Dispatcher.Invoke(() =>
+    {
+        var sb = new StringBuilder(_report.Text);
+        sb.AppendLine().Append("Ruleset install (").Append(lines.Count).AppendLine("):");
+        foreach (var l in lines) sb.Append("  • ").AppendLine(l);
+        _report.Text = sb.ToString();
+        _report.Visibility = Visibility.Visible;
+        if (lines.Count > 0) SetStatus(lines[lines.Count - 1]);
+    });
 }

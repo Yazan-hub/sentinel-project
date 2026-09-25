@@ -14,5 +14,7 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\OrgNames.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RuleRegex.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.cs" />
   </ItemGroup>
 </Project>

@@ -18,18 +18,36 @@ public partial class SettingsDialog : Window
     {
         InitializeComponent();
         _current = SettingsManager.Resolve(doc);
-        RulesetPathBox.Text = _current.MasterRulesetPath;
         TemplatePathBox.Text = _current.RevitTemplatePath;
-        ProjectCodeBox.Text = _current.ProjectCode;
+        // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
+        // into a document fact — CDE-01 reads ProjectCode from the document only, so a machine has none to show.
+        ProjectCodeBox.Text = doc is null ? "" : SettingsManager.LoadFromDocument(doc)?.ProjectCode ?? "";
         GhostFolderBox.Text = _current.GhostSourceFolder;
-        WebProjectBox.Text = _current.WebProjectKey;
+        // The DOCUMENT's key only (never the merged machine value): saving at project scope can then never copy
+        // a machine key into a model the user did not bind.
+        WebProjectBox.Text = ProjectContext.For(doc).Key;
         LinkedModelsBox.IsChecked = _current.PublishLinkedModels;
         if (doc is null)
         {
             ScopeProject.IsEnabled = false;      // no document open
             ScopeMachine.IsChecked = true;
         }
+        ScopeProject.Checked += (_, _) => SyncWebProjectScope();
+        ScopeMachine.Checked += (_, _) => SyncWebProjectScope();
+        SyncWebProjectScope();
         LoadWebProjects();
+    }
+
+    /// <summary>The web project and the project code belong to a DOCUMENT (Extensible Storage); a machine has
+    /// neither. At machine scope both boxes are disabled and the save leaves every document's values alone.</summary>
+    private void SyncWebProjectScope()
+    {
+        var machine = ScopeMachine.IsChecked == true;
+        WebProjectBox.IsEnabled = !machine;
+        ProjectCodeBox.IsEnabled = !machine;
+        WebProjectScopeNote.Text = machine
+            ? "Machine scope does not bind a model or set its project code — pick \"Current project\" to set them."
+            : "";
     }
 
     /// <summary>
@@ -91,17 +109,6 @@ public partial class SettingsDialog : Window
         return (WebProjectBox.Text ?? "").Trim();
     }
 
-    private void OnBrowseRuleset(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog
-        {
-            Title = "Select master ruleset",
-            Filter = "Sentinel ruleset (*.json)|*.json|All files (*.*)|*.*",
-            CheckFileExists = true,
-        };
-        if (dlg.ShowDialog(this) == true) RulesetPathBox.Text = dlg.FileName;
-    }
-
     private void OnBrowseTemplate(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog
@@ -134,7 +141,6 @@ public partial class SettingsDialog : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        var path = RulesetPathBox.Text.Trim();
         var template = TemplatePathBox.Text.Trim();
         var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
         var ghostFolder = GhostFolderBox.Text.Trim();
@@ -147,16 +153,12 @@ public partial class SettingsDialog : Window
             // saving to machine can't bake in project-only values, or blow away machine fields this
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
-            settings.MasterRulesetPath = path;
             settings.RevitTemplatePath = template;
-            settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
-            settings.WebProjectKey = webProject;
-            settings.PublishLinkedModels = linkedModels;
+            settings.PublishLinkedModels = linkedModels; // no WebProjectKey or ProjectCode: both are document facts
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
-            App.Engine?.ReloadRuleset(null);
-            App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // key or ruleset may have changed
+            App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // machine settings never pick the ruleset
             DialogResult = true;
             Close();
             return;
@@ -172,7 +174,6 @@ public partial class SettingsDialog : Window
             // saving to project can't bake in machine-local paths, or blow away project fields this
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromDocument(doc) ?? new SentinelSettings();
-            settings.MasterRulesetPath = path;
             settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
@@ -182,8 +183,7 @@ public partial class SettingsDialog : Window
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);
             t.Commit();
-            App.Engine?.ReloadRuleset(doc);
-            App.RefreshJourney(doc); // the web project key or the ruleset may have changed
+            App.ReloadRuleset(doc); // the web project key may have changed: its ruleset@n, rescan and strip follow
         });
         DialogResult = true;
         Close();

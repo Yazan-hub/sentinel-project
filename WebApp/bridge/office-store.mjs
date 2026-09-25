@@ -101,6 +101,9 @@ export function validateScan(body) {
     at: isoTs(b.at, "at"),
     duration_ms: Number.isFinite(b.duration_ms) ? b.duration_ms : 0,
     elements_checked: Number.isInteger(b.elements_checked) ? b.elements_checked : 0,
+    // What judged this scan (spec 2026-09-25 decision 4): the add-in's ruleset@n and its sha, null when none.
+    ruleset_ref: str(b.ruleset_ref, "ruleset_ref", { optional: true, max: 100 }) || null,
+    ruleset_sha256: str(b.ruleset_sha256, "ruleset_sha256", { optional: true, max: 100 }) || null,
     violations: kept,
     violations_total: violations.length,
     by_mode,
@@ -127,7 +130,7 @@ export async function saveScan(key, body, actor) {
   await docUpsert(SCAN_STORE, proj.id, LATEST, stored);
   const byMode = stored.violations.reduce((m, v) => ((m[v.mode] = (m[v.mode] || 0) + 1), m), {});
   await audit(proj.id, "office", proj.id, "office_scan_received", actor || "revit", null,
-    { doc_title: stored.doc_title, elements_checked: stored.elements_checked, violations: stored.violations_total, by_mode: byMode, at: stored.at });
+    { doc_title: stored.doc_title, elements_checked: stored.elements_checked, violations: stored.violations_total, by_mode: byMode, ruleset_ref: stored.ruleset_ref, at: stored.at });
   return { ok: true, received_at: stored.received_at, violations: stored.violations_total };
 }
 

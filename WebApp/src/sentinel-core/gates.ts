@@ -27,7 +27,7 @@ export interface GateMetrics {
 }
 
 export interface EvaluatedCheck { label: string; ok: boolean; na: boolean; detail: string; }
-export interface GateResult { checks: EvaluatedCheck[]; pass: boolean; }
+export interface GateResult { checks: EvaluatedCheck[]; pass: boolean; status: "pass" | "hold" | "not_checkable"; }
 
 /** Keyed by the CURRENT stage — the gate you must pass to leave it. `oper` is terminal (no gate). */
 export const GATE_DEFS: Record<string, GateCheck[]> = {
@@ -69,7 +69,11 @@ export function evaluateGate(stage: string, m: GateMetrics): GateResult {
     else if (c.op === "==") ok = v === (c.value ?? 0);
     return { label: c.label, ok, na: false, detail: String(Math.round(v)) };
   });
-  const enforceable = checks.filter((c) => !c.na);
-  const pass = enforceable.length === 0 ? true : enforceable.every((c) => c.ok);
-  return { checks, pass };
+  // A failing measured check holds the gate; otherwise any unmeasured check makes it not checkable — the gate
+  // never passes on data it did not measure (bridge check-registry classifyGate applies the same rule).
+  // A stage with no gate defined passes vacuously.
+  const status: GateResult["status"] = checks.some((c) => !c.na && !c.ok) ? "hold"
+    : checks.some((c) => c.na) ? "not_checkable"
+    : "pass";
+  return { checks, pass: status === "pass", status };
 }

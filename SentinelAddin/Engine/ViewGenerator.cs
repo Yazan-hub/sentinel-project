@@ -36,7 +36,7 @@ public static class ViewGenerator
         view.DisplayStyle = DisplayStyle.ShadingWithEdges;
 
         // Browser routing (strict, with fallback — fix #1):
-        string org = App.Org;
+        string org = App.OrgFor(doc);
         string[] mainParams = OrgNames.MainGroupParams(org), subParams = OrgNames.SubGroupParams(org);
         if (!OrgNames.Configured(org))
             App.PanelVm?.LogDoctor("Clash view: no office code configured (ruleset 'org') — office browser parameters not tried.");

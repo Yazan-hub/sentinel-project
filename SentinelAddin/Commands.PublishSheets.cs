@@ -15,6 +15,11 @@ public sealed class PublishSheetsCommand : IExternalCommand
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
+        if (!Sentinel.Engine.ProjectContext.For(doc).IsBound)
+        {
+            TaskDialog.Show("Sentinel — Publish Sheets", Sentinel.Engine.ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
 
         var (count, dir, error) = Sentinel.Engine.SheetExporter.ExportAll(doc);
 

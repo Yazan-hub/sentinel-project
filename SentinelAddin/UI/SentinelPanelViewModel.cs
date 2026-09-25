@@ -11,8 +11,10 @@ namespace Sentinel.UI;
 
 public sealed class ViolationRow
 {
-    public ViolationRow(Violation v)
+    public ViolationRow(Violation v, Ruleset? rs)
     {
+        Rule = rs?.Rules.FirstOrDefault(r => r.Id == v.RuleId);
+        Org = rs?.Org;
         RuleId = v.RuleId;
         Mode = v.Mode.ToString().ToUpperInvariant();
         ElementId = v.ElementId;
@@ -20,8 +22,13 @@ public sealed class ViolationRow
         Message = v.MessageEn;
         MessageAr = v.MessageAr;
         DocRef = v.DocRef ?? "";
-        CanFix = ComputeCanFix(v);
+        CanFix = ComputeCanFix(v, Rule);
     }
+
+    /// The rule that judged this row, from the ruleset of the document it was scanned in (null for a check
+    /// outside the ruleset, e.g. CDE-01 or IFC pre-flight), and that ruleset's office code.
+    public Rule? Rule { get; }
+    public string? Org { get; }
 
     public string RuleId { get; }
     public string Mode { get; }
@@ -36,11 +43,10 @@ public sealed class ViolationRow
     /// Fix applies only to warn/request naming rules with a token schema on a
     /// real element (worksets report ElementId -1; parameter rules have no
     /// tokens to synthesize a name from).
-    private static bool ComputeCanFix(Violation v)
+    private static bool ComputeCanFix(Violation v, Rule? rule)
     {
         if (v.ElementId <= 0) return false;
         if (v.Mode != EnforcementMode.Warn && v.Mode != EnforcementMode.Request) return false;
-        var rule = App.Engine?.Ruleset.Rules.FirstOrDefault(r => r.Id == v.RuleId);
         // Type renames go through the Naming Manager: the one-row Fix would suffix on a collision.
         return rule is not null && rule.Tokens.Count > 0 && rule.Target != RuleTarget.Type;
     }
@@ -52,7 +58,8 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
 
     private double _score = 100;
     public double Score { get => _score; private set { _score = value; OnChanged(); OnChanged(nameof(ScoreText)); } }
-    public string ScoreText => $"{Score:F1}% compliant";
+    private string? _notScored;   // set when no ruleset judged the rows: no percentage, no grade
+    public string ScoreText => _notScored is null ? $"{Score:F1}% compliant" : "Not scored — no ruleset judged this model";
 
     private string _status = "No scan yet";
     public string Status { get => _status; private set { _status = value; OnChanged(); } }
@@ -61,18 +68,24 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     public void PublishReport(ScanReport report) => OnUi(() =>
     {
         Violations.Clear();
-        foreach (var v in report.Violations) Violations.Add(new ViolationRow(v));
-        Score = report.Score;
-        Status = $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
+        foreach (var v in report.Violations) Violations.Add(new ViolationRow(v, report.Ruleset));
+        _notScored = report.NotScored;
+        Score = report.Score;   // raises ScoreText, which reads _notScored
+        Status = report.NotScored is { } why
+            ? $"{report.DocTitle} — {why}"
+            : $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
     });
 
     /// DMU delta: replace rows belonging to the changed elements only.
-    public void MergeDelta(IReadOnlyList<long> changedIds, IReadOnlyList<Violation> fresh) => OnUi(() =>
+    public void MergeDelta(IReadOnlyList<long> changedIds, IReadOnlyList<Violation> fresh, Ruleset rs) => OnUi(() =>
     {
         var stale = Violations.Where(r => changedIds.Contains(r.ElementId)).ToList();
         foreach (var s in stale) Violations.Remove(s);
-        foreach (var v in fresh) Violations.Add(new ViolationRow(v));
-        Status = $"Live — updated {DateTime.Now:HH:mm:ss}";
+        foreach (var v in fresh) Violations.Add(new ViolationRow(v, rs));
+        // Keep the reason a model is not scored in view: a live edit must not replace "none — <why>".
+        Status = _notScored is { } why
+            ? $"{why} · live — updated {DateTime.Now:HH:mm:ss}"
+            : $"Live — updated {DateTime.Now:HH:mm:ss}";
     });
 
     /// 'Revit Doctor' log: native warnings auto-resolved/suppressed.
@@ -104,11 +117,11 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     public string ScanRulesetLine { get => _scanRulesetLine; private set { _scanRulesetLine = value; OnChanged(); } }
     private int _journeySeq;
 
-    /// Called on the Revit API thread (Revit's main thread, which owns this pane) with strings read there: the
-    /// document's web key and the ruleset that judged the rows. The GET (up to 4 s) runs on a background task;
-    /// the result is set back on the pane's thread. A newer refresh wins over a slower older one; a failure
-    /// clears the strip and says so — never stale data.
-    public void RefreshJourney(string projectKey, string localStandardKey, string localSemver)
+    /// Called on the Revit API thread (Revit's main thread, which owns this pane) with what was read there: the
+    /// document's web key and where the ruleset that judged the rows came from. The GET (up to 4 s) runs on a
+    /// background task; the result is set back on the pane's thread. A newer refresh wins over a slower older
+    /// one; a failure clears the strip and says so — never stale data.
+    public void RefreshJourney(string projectKey, ResolvedArtefact local)
     {
         var seq = ++_journeySeq;
         OnUi(() =>
@@ -126,8 +139,20 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             JourneyKey = j is null ? $"Journey · {projectKey}" : $"Journey · {j.Key} ({j.Kind})";
             StandardsLine = j?.StandardsLine ?? "";
             NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
-            ScanRulesetLine = GovernedQuery.ScanRulesetLine(localStandardKey, localSemver, j);
+            ScanRulesetLine = GovernedQuery.ScanRulesetLine(local, j);
         })));
+    }
+
+    /// The document has no web project: say so, and where to bind it — never a journey for "default". Bumps the
+    /// sequence so a slower GET for the previous document cannot overwrite this.
+    public void ShowUnbound()
+    {
+        ++_journeySeq;
+        OnUi(() =>
+        {
+            JourneyKey = "Journey — not bound — Sentinel ▸ Project Setup";
+            StandardsLine = NextLine = ScanRulesetLine = "";
+        });
     }
 
     /// Row double-click -> select/zoom in Revit via the ExternalEvent hub.
@@ -145,9 +170,9 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
 
         // Human-in-the-loop: show synthesized suggestion in an editable dialog;
         // nothing touches the model until the coordinator clicks Execute.
-        var suggestion = AutoFixExecution.Suggest(row.ElementName, row.RuleId);
+        var suggestion = AutoFixExecution.Suggest(row.ElementName, row.Rule, row.Org);
         if (suggestion is null) return;
-        var dialog = new FixReviewDialog(row.ElementName, row.RuleId, suggestion);
+        var dialog = new FixReviewDialog(row.ElementName, row.RuleId, row.Rule, suggestion);
         DialogOwner.Attach(dialog, ownerHandle);
         if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
 

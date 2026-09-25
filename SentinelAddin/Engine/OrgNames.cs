@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Sentinel.Engine;
 
 /// <summary>
-/// Office-code substitution. Sentinel is office-agnostic: the pilot's "BDS" lives in ruleset.json
+/// Office-code substitution. Sentinel is office-agnostic: the pilot's "BDS" lives in its ruleset@n body
 /// ("org"), never in code. Everything here is a pure function of the org string so tools/org-check
 /// can pin, without Revit, that org = "BDS" yields exactly the pilot's historical names.
 /// When no org is configured, callers must say so (doctor log / Monitor violation) rather than

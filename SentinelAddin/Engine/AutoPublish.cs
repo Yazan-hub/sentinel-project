@@ -47,6 +47,8 @@ public static class AutoPublish
 
     private static void RunNow(Document doc)
     {
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound) { LastStatus = "Auto-publish skipped: " + ProjectContext.NotBound; return; } // silent: no dialog on save
         _busy = true;
         try
         {
@@ -62,9 +64,8 @@ public static class AutoPublish
             // the file-version history (so Revit publishes share the web's version timeline). Fire-and-forget.
             if (r.state == PlatformExporter.State.Ok)
             {
-                var projectKey = SettingsManager.WebProjectKeyFor(doc);
-                Sentinel.Coordination.GovernedNotify.ModelPublished(doc.Title, r.bytes, projectKey);
-                Sentinel.Coordination.GovernedNotify.FileVersion(doc.Title, r.bytes, projectKey);
+                Sentinel.Coordination.GovernedNotify.ModelPublished(doc.Title, r.bytes, ctx.Key);
+                Sentinel.Coordination.GovernedNotify.FileVersion(doc.Title, r.bytes, ctx.Key);
             }
         }
         catch (Exception ex)

@@ -111,7 +111,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   const renderPublish = async () => {
     el("pk-count").textContent = "";
     const src = forkFrom;
-    const rules = src ? src.ruleset?.rules?.length ?? 0 : (await activeRuleset(base).catch(() => null))?.ruleset.rules.length ?? 0;
+    const rules = src ? src.ruleset?.rules?.length ?? 0 : (await activeRuleset(base).catch(() => null))?.raw.rules.length ?? 0;
     el("pk-body").innerHTML =
       `<div style="font-weight:650;margin-bottom:.5rem">${src ? "Fork " + esc(src.name) : "Publish a standards pack"}</div>` +
       `<label style="font-size:11px;color:#9ca3af">Key</label><input id="pk-key" value="${esc(src ? src.key + "-fork" : "")}" placeholder="e.g. acme-arch" style="${inp};width:100%;margin:.15rem 0 .4rem"/>` +
@@ -142,7 +142,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
           key, version, name: val("pk-name").trim() || key, description: val("pk-desc").trim(),
           author: getAppManager().projectData?.name ?? "you",
           tags: val("pk-tags").split(",").map((s) => s.trim()).filter(Boolean),
-          ruleset: active.ruleset, forked_from: null,
+          ruleset: active.raw, forked_from: null,   // the installed body, placeholders intact — never the {org}-expanded copy
         });
       }
       msg(`${src ? "Forked" : "Published"} ${key}. It's in the marketplace.`, "#22c55e");

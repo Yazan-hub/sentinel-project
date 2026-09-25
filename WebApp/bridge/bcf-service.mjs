@@ -237,7 +237,7 @@ const corsHeaders = (res) => (res._cors
   ? { "Access-Control-Allow-Origin": res._cors, ...(res._cors === "*" ? {} : { Vary: res._cors === "null" ? "Origin, Referer" : "Origin" }) }
   : {});
 
-const send = (res, code, body) => {
+const send = (res, code, body, extra) => {
   // F14 (schema disclosure): a raw PostgREST/Postgres error names tables, columns and constraints, and the
   // bridge echoed one at ~10 call sites. Scrub it ONCE here instead — every current and future 5xx is
   // covered, and a new route can't reintroduce the leak. Exactly 500 is scrubbed, so the deliberate 4xx
@@ -252,6 +252,7 @@ const send = (res, code, body) => {
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     ...corsHeaders(res),
+    ...extra,
   };
   res.writeHead(code, headers);
   res.end(body === undefined ? "" : JSON.stringify(body));
@@ -1089,9 +1090,8 @@ async function handleRequest(req, res) {
         }
         if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
         if (p3 && !p4 && req.method === "GET") {
-          const a = await art.resolveArtefact(p1, p3);
-          if (a.source === "none") return send(res, 404, { message: `no ${p3} artefact installed for ${p1} or its office (PUT /cde/${p1}/artefacts/${p3})` });
-          return send(res, 200, { kind: p3, version: Number(a.ref.split("@")[1]), ...a });
+          const r = await art.artefactReply(p1, p3, req.headers["if-none-match"]);
+          return send(res, r.status, r.body, r.etag && { ETag: r.etag });
         }
         if (p3 && p4 && req.method === "GET") {
           const a = await art.getArtefactVersion(p1, p3, p4);
