@@ -80,7 +80,10 @@ public sealed class SentinelUpdater : IUpdater
         // proportional to the edit, not the model (15 s full-scan budget stays
         // reserved for open/sync events).
         var violations = _engine.ScanElements(doc, changed);
-        _panel.MergeDelta(changed.Select(c => c.IdValue()).ToList(), violations, _engine.RulesetFor(doc));
+        // The pane shows one document: an edit in another open document (e.g. a change request resolved from its own
+        // window) never merges its rows or toasts under the shown document's title. Requests and snapshots still run.
+        var shown = App.IsShown(doc);
+        if (shown) _panel.MergeDelta(changed.Select(c => c.IdValue()).ToList(), violations, _engine.RulesetFor(doc));
 
         // Enforcement modes (Decision 4):
         //  monitor -> log only (panel)
@@ -88,8 +91,9 @@ public sealed class SentinelUpdater : IUpdater
         //  request -> Phase 2: create pending change request + flag element
         //  block   -> disallowed inside DMU; blocking rules are enforced by
         //             failure-posting at sync time
-        foreach (var v in violations.Where(v => v.Mode == EnforcementMode.Warn))
-            _panel.RaiseWarnToast(v);
+        if (shown)
+            foreach (var v in violations.Where(v => v.Mode == EnforcementMode.Warn))
+                _panel.RaiseWarnToast(v);
 
         // Phase 2: request-mode violations become pending change requests.
         // We are inside the DMU transaction, so ES writes + param sets are legal.
@@ -98,7 +102,7 @@ public sealed class SentinelUpdater : IUpdater
             var el = doc.GetElement(v.ElementId.ToElementId());
             if (el is null) continue;
             var newValue = el is ViewSheet sh ? sh.SheetNumber : el.Name;
-            if (Sentinel.Workflow.RequestManager.CreatePending(doc, v.RuleId, el, newValue))
+            if (Sentinel.Workflow.RequestManager.CreatePending(doc, v.RuleId, el, newValue) && shown)
                 _panel.RaisePendingRequest(v);
         }
 

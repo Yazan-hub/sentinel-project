@@ -43,7 +43,12 @@ public sealed class RevitEventHub : IExternalEventHandler
                 job = _work.Dequeue();
             }
             try { job(app); }
-            catch { /* never let a UI action crash Revit; Phase 3: log to backend */ }
+            catch (Exception ex)
+            {
+                // Never let a UI action crash Revit — but never lose it silently either (the ↻ on the strip, Select).
+                try { App.PanelVm?.LogDoctor($"A Sentinel action failed and was skipped: {ex.GetType().Name}: {ex.Message}"); }
+                catch { /* the pane itself is gone */ }
+            }
         }
     }
 

@@ -87,6 +87,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentClosing += OnDocumentClosing;
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
+                app.ViewActivated += OnViewActivated; // the pane follows the active document
 
                 // 'Revit Doctor': global native-warning interception
                 Updaters.FailureInterceptor.Register(app.ControlledApplication);
@@ -114,6 +115,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentClosing -= OnDocumentClosing;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
+        app.ViewActivated -= OnViewActivated;
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
         SentinelUpdater.UnregisterAll();
         return Result.Succeeded;
@@ -155,9 +157,40 @@ public sealed class App : IExternalApplication
             var (rs, src, note) = t.Result;              // Load never throws
             engine.Set(doc, (rs, src));
             if (note is not null) PanelVm?.LogDoctor(note);
+            // The pane shows the document it follows (not Revit's active one: a family editor in front never moves the
+            // pane): a ruleset that lands after the user moved to another project is installed for it, and shown when
+            // that project's view is activated again (OnViewActivated).
+            if (!IsShown(doc)) return;
             PanelVm?.PublishReport(engine.ScanFull(doc));
             RefreshJourney(doc);
         }), TaskScheduler.Default);
+    }
+
+    // The project document the pane last followed on a view activation (API thread only).
+    private static Document? _activeDoc;
+
+    /// Whether the pane shows this document: the one it follows, or any before the first activation / after it closed.
+    internal static bool IsShown(Document doc) =>
+        _activeDoc is not { } shown || !shown.IsValidObject || shown.Equals(doc);
+
+    /// <summary>The pane follows the active document: when a view of another project document becomes active, show
+    /// that document's scan and journey — no Scan Now needed. A document whose ruleset@n has not landed yet is loaded
+    /// (off Revit's thread; it publishes when it lands), never scanned with none; one already in flight lands by
+    /// itself. A family document leaves the pane as it was.</summary>
+    private static void OnViewActivated(object? sender, Autodesk.Revit.UI.Events.ViewActivatedEventArgs e)
+    {
+        var doc = e.Document;
+        if (doc is null || doc.IsFamilyDocument || Engine is not { } engine || PanelVm is not { } vm) return;
+        if (_activeDoc is { } prev && prev.IsValidObject && prev.Equals(doc)) return; // another view, same document
+        _activeDoc = doc;
+        if (!engine.Has(doc))
+        {
+            vm.ShowLoading(doc.Title);
+            if (!ReloadSeq.ContainsKey(doc)) ReloadRuleset(doc); // e.g. a new project never opened from disk
+            return;
+        }
+        vm.PublishReport(engine.ScanFull(doc));
+        RefreshJourney(doc);
     }
 
     private static void OnSynchronized(object? sender, DocumentSynchronizedWithCentralEventArgs e)

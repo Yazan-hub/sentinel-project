@@ -155,6 +155,22 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         });
     }
 
+    /// The active document's ruleset@n is still on its way: nothing from the previous document stays up and nothing
+    /// is scored; the landing publishes the scan and the strip. Bumps the sequence like ShowUnbound.
+    public void ShowLoading(string docTitle)
+    {
+        ++_journeySeq;
+        OnUi(() =>
+        {
+            Violations.Clear();
+            _notScored = "loading";
+            Score = 0; // raises ScoreText, which reads _notScored
+            Status = $"{docTitle} — loading its ruleset…";
+            JourneyKey = "Journey — loading…";
+            StandardsLine = NextLine = ScanRulesetLine = "";
+        });
+    }
+
     /// Row double-click -> select/zoom in Revit via the ExternalEvent hub.
     public void RequestSelect(ViolationRow row)
     {

@@ -21,6 +21,9 @@ public sealed class RuleEngineHost
     /// Where that ruleset came from: ref · source · sha, cached, or none with the reason.
     public ResolvedArtefact SourceFor(Document doc) => Entry(doc).Source;
 
+    /// Whether this document's ruleset@n (or its explicit none) has landed — false means "not loaded yet".
+    public bool Has(Document doc) => _byDoc.ContainsKey(doc);
+
     public void Set(Document doc, (Ruleset Ruleset, ResolvedArtefact Source) entry)
     {
         _byDoc[doc] = entry;
