@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 
 namespace Sentinel.Standards;
@@ -16,8 +18,9 @@ namespace Sentinel.Standards;
 /// into the active model. MUST run on the API thread inside an ExternalEvent (see StandardsBuildEvent) —
 /// it opens transactions. Idempotent: skip-if-exists on every item, so re-running only adds deltas.
 ///
-/// On success it also merges the built worksets into the effective ruleset's WS rule and reloads the
-/// engine, so the scanner immediately enforces the standard just provisioned ("one array, two faces").
+/// It also stages the install of the document's project's next ruleset@n (the pack's worksets in WS-01 and
+/// its naming rules, merged into the installed raw body); StandardsBuildEvent runs that GET/PUT off the API
+/// thread, then the scanner reloads the new ruleset@n ("one array, two faces").
 /// </summary>
 public static class StandardsBuilder
 {
@@ -296,58 +299,83 @@ public static class StandardsBuilder
             => DuplicateTypeAction.UseDestinationTypes;
     }
 
-    // ---------------- Enforcement loop: worksets + naming rules -> ruleset -> reload scanner ----------------
+    // ---------------- Enforcement loop: worksets + naming rules -> the project's ruleset@n+1 -> reload ----------------
+    /// Captures what the install needs on the API thread (the document's project, the pack's worksets and naming
+    /// rules) and stages the HTTP part in <see cref="BuildReport.RulesetJob"/>, which StandardsBuildEvent runs OFF
+    /// the API thread after the model report is on screen.
     private static void PersistRuleUpdates(Document doc, StandardsPack pack, BuildReport r)
     {
-        bool hasWorksets = pack.Provision.Worksets.Count > 0;
-        bool hasNaming = pack.Provision.NamingRules.Count > 0;
-        if (!hasWorksets && !hasNaming) return;
+        var worksets = pack.Provision.Worksets.Select(w => w.Name).Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.Ordinal).ToList();
+        var naming = pack.Provision.NamingRules.Select(s => s.ToRule()).ToList();
+        if (worksets.Count == 0 && naming.Count == 0) return;
 
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound)
+        {
+            r.Skipped.Add("Ruleset: not installed — this model is not bound to a web project (Sentinel ▸ Project Setup), so there is no project to install it on");
+            return;
+        }
+        string key = ctx.Key, title = doc.Title, packKey = pack.PackKey, packSemver = pack.Semver;
+        r.Created.Add($"Ruleset: installing on {key} — the outcome follows under \"Ruleset install\"");
+        r.RulesetJob = () => InstallRuleset(doc, key, title, packKey, packSemver, worksets, naming);
+    }
+
+    /// OFF the API thread. GET the installed raw ruleset (project → office), merge, and when the canonical form
+    /// changed PUT ruleset@n+1 on the document's own project (actor "revit:" + the Windows user, source revit-build);
+    /// then reload + rescan on the API thread. Never throws; every outcome is a line for the review window.
+    private static List<string> InstallRuleset(Document doc, string key, string title, string packKey, string packSemver,
+        List<string> worksets, List<Rule> naming)
+    {
+        var lines = new List<string>();
         try
         {
-            // ponytail: interim until Task 8 — merges into a COPY of the document's ruleset (never the live one its
-            // scan judges by; no HTTP on the API thread) and reports it, but nothing is persisted: the machine file
-            // is gone and the ruleset@n+1 install is Task 8's.
-            var wire = new JsonSerializerOptions { Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) } };
-            var live = App.Engine?.RulesetFor(doc) ?? RulesetStore.None();
-            var rs = JsonSerializer.Deserialize<Ruleset>(JsonSerializer.Serialize(live, wire), wire)!;
-
-            if (hasWorksets)
+            var cur = ArtefactClient.Resolve(key, "ruleset");
+            if (cur.Origin == "cache")
             {
-                var built = pack.Provision.Worksets.Select(w => w.Name).Distinct().ToList();
+                lines.Add($"✗ Ruleset NOT installed on {key}: the bridge did not answer ({cur.Label}). A cached copy is never the base of an install — the model was built; run Apply again when the bridge is up.");
+                return lines;
+            }
+            bool nothingInstalled = cur.Origin == "none" && (cur.Reason ?? "").StartsWith("not installed", StringComparison.Ordinal);
+            if (cur.Origin == "none" && !nothingInstalled)
+            {
+                lines.Add($"✗ Ruleset NOT installed on {key}: {cur.Label}");
+                return lines;
+            }
+            string? baseBody = nothingInstalled ? null
+                : cur.BodyJson ?? throw new InvalidOperationException($"the bridge answered {cur.Label} with no body");
 
-                var wsRule = rs.Rules.FirstOrDefault(x => x.Target == RuleTarget.Workset);
-                if (wsRule is null)
-                {
-                    wsRule = new Rule
-                    {
-                        Id = "WS-01",
-                        Target = RuleTarget.Workset,
-                        Mode = EnforcementMode.Warn,
-                        MessageEn = "Workset '{name}' is not in the office standard.",
-                        DocRef = pack.PackKey,
-                    };
-                    rs.Rules.Add(wsRule);
-                }
-                // Union so an existing house standard isn't clobbered — the built worksets are added.
-                wsRule.Whitelist = wsRule.Whitelist.Union(built, StringComparer.Ordinal).Distinct().ToList();
-                r.Created.Add($"Ruleset: WS-01 now enforces {built.Count} workset(s)");
+            var m = RulesetMerge.Merge(baseBody, worksets, naming, packKey, packSemver);
+            foreach (var l in m.Lines) lines.Add("Ruleset: " + l);
+            if (!m.Changed)
+            {
+                lines.Add($"Ruleset: unchanged — {cur.Label} already carries these worksets and naming rules; nothing installed");
+                return lines;
             }
 
-            if (hasNaming)
+            // The route lifts a top-level `source` object into the pointer's provenance (bcf-service.mjs PUT artefacts).
+            var body = JsonNode.Parse(m.BodyJson)!.AsObject();
+            body["source"] = new JsonObject { ["tool"] = "revit-build", ["pack"] = packKey, ["document"] = title };
+            var put = GovernedNotify.InstallArtefact(key, "ruleset", body.ToJsonString(), "revit:" + Environment.UserName);
+            if (put.Error is not null)
             {
-                foreach (var spec in pack.Provision.NamingRules)
-                {
-                    Rule rule = spec.ToRule();
-                    // Replace an existing rule with the same id (idempotent re-runs), else append.
-                    int idx = rs.Rules.FindIndex(x => string.Equals(x.Id, rule.Id, StringComparison.Ordinal));
-                    if (idx >= 0) rs.Rules[idx] = rule; else rs.Rules.Add(rule);
-                    r.Created.Add($"Ruleset: naming rule {rule.Id} [{rule.Target}] {string.Join(rule.Separator, rule.Tokens)}");
-                }
+                lines.Add($"✗ Ruleset NOT installed on {key}: {put.Error}");
+                return lines;
             }
 
-            r.Failed.Add("Ruleset: NOT installed — the rules above were merged in memory only; installing them as the project's ruleset@n+1 is not wired yet");
+            // Reload + rescan on the API thread so the pane judges by the ruleset@n just installed: App.ReloadRuleset
+            // reads the key there, fetches off it, then sets the engine, rescans and refreshes the strip.
+            App.Events?.Enqueue(_ =>
+            {
+                if (!doc.IsValidObject) return;
+                App.ReloadRuleset(doc);
+            });
+            if (cur.Source == "office")
+                lines.Add($"⚠ {key} now has its own ruleset: this stops {key} inheriting {cur.Label} from its office — later office installs no longer reach it");
+            string sha = put.Sha256 is { Length: > 12 } s ? s.Substring(0, 12) + "…" : put.Sha256 ?? "";
+            lines.Add($"Ruleset: installed ruleset@{put.Version} · project · {sha} on {key} ({m.Semver}); the scanner reloads it");
         }
-        catch (Exception ex) { r.Failed.Add($"Ruleset persist: {ex.Message}"); }
+        catch (Exception ex) { lines.Add($"✗ Ruleset install: {ex.Message}"); }
+        return lines;
     }
 }

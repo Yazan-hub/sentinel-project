@@ -223,6 +223,38 @@ namespace Sentinel.Coordination
             }
         }
 
+        /// <summary>
+        /// Install <paramref name="kind"/>@n+1 on the project: <c>PUT /cde/{key}/artefacts/{kind}?actor=…</c>. The
+        /// route lifts a top-level <c>source</c> object out of the body into the pointer's provenance. Blocking
+        /// (120 s cap) — call it OFF the API thread. Returns the new version and the bridge's sha, or a reason.
+        /// </summary>
+        public static (int Version, string? Sha256, string? Error) InstallArtefact(string projectKey, string kind, string bodyJson, string actor)
+        {
+            if (string.IsNullOrWhiteSpace(projectKey)) return (0, null, "this model is not bound to a web project");
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(projectKey.Trim()) + "/artefacts/" +
+                          Uri.EscapeDataString(kind) + "?actor=" + Uri.EscapeDataString(actor);
+                var resp = Send(GovHttp, HttpMethod.Put, url, new StringContent(bodyJson, Encoding.UTF8, "application/json"), cfg);
+                var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                JsonDocument? d = null;
+                try { d = JsonDocument.Parse(json); } catch { /* not JSON: report the status alone */ }
+                using (d)
+                {
+                    var root = d?.RootElement ?? default;
+                    string? Prop(string k) => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                    if (resp.IsSuccessStatusCode)
+                        return (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("version", out var ver) && ver.TryGetInt32(out var n) ? n : 0, Prop("sha256"), null);
+                    return (0, null, Prop("message") is { } m ? $"HTTP {(int)resp.StatusCode}: {m}" : "bridge returned HTTP " + (int)resp.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                return (0, null, ex is TaskCanceledException or OperationCanceledException ? "timed out after 120s" : (ex.InnerException?.Message ?? ex.Message));
+            }
+        }
+
         // ponytail: throttle is per process, not per document — two models synced within 60 s post one scan;
         // per-document map if that matters
         private static DateTime _lastScanPost = DateTime.MinValue;

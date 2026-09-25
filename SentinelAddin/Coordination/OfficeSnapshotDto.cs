@@ -11,7 +11,8 @@ namespace Sentinel.Coordination;
 /// What the add-in tells Sentinel about an OFFICE: the template's provision (worksets, shared parameters),
 /// its type catalogue and the ruleset in force. Wire shape = the bridge's office-store validateSnapshot():
 /// { source:{kind,title,revit_version}, pack:{worksets:[{name}], shared_parameters:[{name,binding}]},
-///   catalog:{count,types:[{category,family,type,system,width_mm,height_mm}]}, ruleset:{org,rules:[…]}|null, at }.
+///   catalog:{count,types:[{category,family,type,system,width_mm,height_mm}]},
+///   ruleset:{standard_key,semver,org,ref,sha256,rules:[…]}|null, at } — ref/sha name the ruleset@n that judged.
 /// No Revit types here — tools/snapshot-check compiles this file on plain net8 and pins the property names.
 /// </summary>
 public sealed class OfficeSnapshotDto
@@ -26,7 +27,7 @@ public sealed class OfficeSnapshotDto
     [JsonPropertyName("source")] public SourceDto Source { get; set; } = new();
     [JsonPropertyName("pack")] public PackDto Pack { get; set; } = new();
     [JsonPropertyName("catalog")] public CatalogDto Catalog { get; set; } = new();
-    [JsonPropertyName("ruleset")] public Ruleset? Ruleset { get; set; }
+    [JsonPropertyName("ruleset")] public RulesetDto? Ruleset { get; set; }
     [JsonPropertyName("at")] public string At { get; set; } = DateTimeOffset.UtcNow.ToString("o");
 
     public sealed class SourceDto
@@ -60,11 +61,21 @@ public sealed class OfficeSnapshotDto
         [JsonPropertyName("width_mm")] public double? WidthMm { get; set; }
         [JsonPropertyName("height_mm")] public double? HeightMm { get; set; }
     }
+    /// The ruleset the template was checked against and which artefact it is (office-store keeps ref and sha256).
+    public sealed class RulesetDto
+    {
+        [JsonPropertyName("standard_key")] public string StandardKey { get; set; } = "";
+        [JsonPropertyName("semver")] public string Semver { get; set; } = "";
+        [JsonPropertyName("org")] public string Org { get; set; } = "";
+        [JsonPropertyName("ref")] public string? Ref { get; set; }
+        [JsonPropertyName("sha256")] public string? Sha256 { get; set; }
+        [JsonPropertyName("rules")] public List<Rule> Rules { get; set; } = new();
+    }
 
     /// <summary>Build from primitives so the mapping from StandardsPack stays in the add-in and this file stays Revit-free.</summary>
     public static OfficeSnapshotDto Build(string kind, string title, string revitVersion,
         IEnumerable<string> worksets, IEnumerable<(string name, string binding)> sharedParams,
-        IEnumerable<TypeDto> types, Ruleset? ruleset)
+        IEnumerable<TypeDto> types, Ruleset? ruleset, string? rulesetRef = null, string? rulesetSha256 = null)
     {
         var typeList = types.ToList();
         return new OfficeSnapshotDto
@@ -76,7 +87,11 @@ public sealed class OfficeSnapshotDto
                 SharedParameters = sharedParams.Where(p => !string.IsNullOrWhiteSpace(p.name)).Select(p => new SharedParamDto { Name = p.name, Binding = string.IsNullOrWhiteSpace(p.binding) ? "instance" : p.binding }).ToList(),
             },
             Catalog = new CatalogDto { Count = typeList.Count, Types = typeList },
-            Ruleset = ruleset,
+            Ruleset = ruleset is null ? null : new RulesetDto
+            {
+                StandardKey = ruleset.StandardKey, Semver = ruleset.Semver, Org = ruleset.Org,
+                Ref = rulesetRef, Sha256 = rulesetSha256, Rules = ruleset.Rules,
+            },
         };
     }
 

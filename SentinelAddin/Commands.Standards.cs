@@ -200,21 +200,17 @@ internal static class StandardsReview
         var build = new StandardsBuildEvent();
         var externalEvent = ExternalEvent.Create(build);
         build.Built += report => window.ShowReport(report);
+        build.RulesetInstalled += lines => window.AppendReport(lines);
         window.BuildRequested += ticked => { build.Request(ticked); externalEvent.Raise(); };
         window.SaveRequested += ticked => SavePack(ticked, window);
 
-        // Captured on the API thread (Create is called from the command); the click handler touches no Revit API.
+        // The document is captured here (API thread); its project and ruleset are read when the button is
+        // clicked — back on the API thread through the event hub — so a Build that installed ruleset@n+1 since
+        // the window opened is what the snapshot names. The POST runs off Revit's thread.
         var doc = uiapp.ActiveUIDocument?.Document;
-        string projectKey = Sentinel.Engine.ProjectContext.For(doc).Key; // empty when unbound (or no document)
         string revitVersion = uiapp.Application.VersionNumber;
-        var ruleset = doc is null ? null : App.Engine?.RulesetFor(doc);
         window.SnapshotRequested += () =>
         {
-            if (projectKey.Length == 0)
-            {
-                window.SetStatus("Snapshot NOT sent: " + Sentinel.Engine.ProjectContext.NotBound);
-                return;
-            }
             var pack = window.Source;
             // Provenance must come from the PACK, not the active document: Create() also serves "Load pack
             // from disk" and async document-ingest (window created empty, Load called later), where the
@@ -225,22 +221,39 @@ internal static class StandardsReview
                 window.SetStatus("Snapshot NOT sent: this pack has no source model — extract from a template first (Build Office System).");
                 return;
             }
+            if (doc is null || App.Events is null)
+            {
+                window.SetStatus("Snapshot NOT sent: no open model to read the project and its ruleset from.");
+                return;
+            }
             string title = src.Title;
             string kind = string.Equals(System.IO.Path.GetExtension(src.Path ?? ""), ".rte", StringComparison.OrdinalIgnoreCase) ? "template" : "model";
-            var dto = OfficeSnapshotDto.Build(
-                kind: kind,
-                title: title, revitVersion: revitVersion,
-                worksets: pack.Provision.Worksets.Select(w => w.Name),
-                sharedParams: pack.Provision.SharedParameters.Select(p => (p.Name, p.Binding)),
-                types: pack.Provision.TypeCatalog.Select(t => new OfficeSnapshotDto.TypeDto { Category = t.Category, Family = t.Family, Type = t.Type, System = t.IsSystem, WidthMm = t.WidthMm, HeightMm = t.HeightMm }),
-                ruleset: ruleset);
-            window.SetStatus($"Sending office snapshot to Sentinel ({dto.Catalog.Count} types, {dto.Pack.Worksets.Count} worksets) → project {projectKey}…");
-            Task.Run(() =>
+            window.SetStatus("Reading this model's project and ruleset…");
+            App.Events.Enqueue(_ =>
             {
-                var error = GovernedNotify.OfficeSnapshot(dto, projectKey);
-                window.SetStatus(error is null
-                    ? $"Office snapshot received by Sentinel — project {projectKey}. Open the web app → Documents → READINESS to see it measured."
-                    : $"Snapshot NOT sent: {error}");
+                if (!doc.IsValidObject) { window.SetStatus("Snapshot NOT sent: the model this window was opened on is closed."); return; }
+                var ctx = Sentinel.Engine.ProjectContext.For(doc);
+                if (!ctx.IsBound) { window.SetStatus("Snapshot NOT sent: " + Sentinel.Engine.ProjectContext.NotBound); return; }
+                var from = App.Engine?.SourceFor(doc);
+                bool none = from is null || from.Origin == "none";
+                var dto = OfficeSnapshotDto.Build(
+                    kind: kind,
+                    title: title, revitVersion: revitVersion,
+                    worksets: pack.Provision.Worksets.Select(w => w.Name),
+                    sharedParams: pack.Provision.SharedParameters.Select(p => (p.Name, p.Binding)),
+                    types: pack.Provision.TypeCatalog.Select(t => new OfficeSnapshotDto.TypeDto { Category = t.Category, Family = t.Family, Type = t.Type, System = t.IsSystem, WidthMm = t.WidthMm, HeightMm = t.HeightMm }),
+                    ruleset: none ? null : App.Engine?.RulesetFor(doc),
+                    rulesetRef: none ? null : from!.Ref,
+                    rulesetSha256: none ? null : from!.Sha256);
+                string key = ctx.Key, judged = from?.Label ?? "none";
+                window.SetStatus($"Sending office snapshot to Sentinel ({dto.Catalog.Count} types, {dto.Pack.Worksets.Count} worksets, ruleset {judged}) → project {key}…");
+                Task.Run(() =>
+                {
+                    var error = GovernedNotify.OfficeSnapshot(dto, key);
+                    window.SetStatus(error is null
+                        ? $"Office snapshot received by Sentinel — project {key}, ruleset {judged}. Open the web app → Documents → READINESS to see it measured."
+                        : $"Snapshot NOT sent: {error}");
+                });
             });
         };
         return window;
@@ -270,6 +283,8 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
     private StandardsPack? _pending;
 
     public event Action<BuildReport>? Built;
+    /// The ruleset install's outcome lines, raised OFF the API thread after Built has rendered the model report.
+    public event Action<IReadOnlyList<string>>? RulesetInstalled;
 
     public void Request(StandardsPack pack) => _pending = pack;
 
@@ -286,7 +301,9 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
             report = new BuildReport();
             report.Failed.Add("Build error: " + ex.Message);
         }
-        Built?.Invoke(report);
+        Built?.Invoke(report); // ShowReport is a Dispatcher.Invoke: the model report is on screen when this returns
+        // The ruleset GET/PUT never runs on Revit's thread (the bridge can take seconds, or not answer).
+        if (report.RulesetJob is { } job) Task.Run(() => RulesetInstalled?.Invoke(job()));
     }
 
     public string GetName() => "Sentinel Standards Builder";

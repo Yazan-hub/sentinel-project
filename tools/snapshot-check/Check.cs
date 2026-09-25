@@ -25,7 +25,7 @@ static class Check
             new[] { "ARC_Walls", "", "ARC_Doors" },
             new[] { ("BDS_View Status", "instance"), ("BDS_Discipline", "") },
             new[] { new OfficeSnapshotDto.TypeDto { Category = "Walls", Family = "Basic Wall", Type = "BDS_EXT_ARC_CMU_200 mm", System = true, WidthMm = 200 } },
-            rs);
+            rs, "ruleset@1", "fb8f9baefa9f4c1d");
         using var s = JsonDocument.Parse(snap.ToJson());
         var r = s.RootElement;
         Ok(P(r, "source.kind").GetString() == "template" && P(r, "source.title").GetString() == "XXX_Template.rte" && P(r, "source.revit_version").GetString() == "2024", "source.kind / title / revit_version");
@@ -34,6 +34,10 @@ static class Check
         Ok(P(r, "catalog.count").GetInt32() == 1 && P(r, "catalog.types.0.width_mm").GetDouble() == 200 && P(r, "catalog.types.0.system").GetBoolean(), "catalog.count / types[].width_mm / system");
         Ok(!P(r, "catalog.types.0").TryGetProperty("height_mm", out _), "null height_mm is omitted (bridge accepts absent or null)");
         Ok(P(r, "ruleset.org").GetString() == "BDS", "ruleset.org travels as data");
+        Ok(P(r, "ruleset.ref").GetString() == "ruleset@1" && P(r, "ruleset.sha256").GetString() == "fb8f9baefa9f4c1d", "ruleset.ref / sha256 name the artefact that judged");
+        Ok(P(r, "ruleset.standard_key").GetString() == rs.StandardKey && P(r, "ruleset.semver").GetString() == rs.Semver, "ruleset.standard_key / semver travel");
+        using (var bare = JsonDocument.Parse(OfficeSnapshotDto.Build("template", "T.rte", "2024", new string[0], new (string, string)[0], new OfficeSnapshotDto.TypeDto[0], null).ToJson()))
+            Ok(!bare.RootElement.TryGetProperty("ruleset", out _), "no ruleset (none installed) → the snapshot carries none, never a default");
         var tn = P(r, "ruleset.rules").EnumerateArray().First(x => x.GetProperty("id").GetString() == "TN-01");
         Ok(tn.GetProperty("target").GetString() == "type" && tn.GetProperty("mode").GetString() == "monitor", "rule enums serialise snake_case (target=type, mode=monitor)");
         Ok(tn.GetProperty("token_defs").GetProperty("ORG").GetString() == "BDS", "token_defs key preserved; {org} expanded before send");
