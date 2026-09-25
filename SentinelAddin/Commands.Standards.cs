@@ -44,7 +44,7 @@ public sealed class BuildOfficeSystemCommand : IExternalCommand
         {
             catalogPath = TypeCatalogExport.Write(
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "exports"),
-                doc.Title, doc.PathName, DateTimeOffset.Now, pack.Provision.TypeCatalog, pack.Provision.ViewTemplates);
+                doc.Title, DateTimeOffset.Now, pack.Provision.TypeCatalog, pack.Provision.ViewTemplates);
         }
         catch (Exception ex) { exportError = ex.Message; } // a read-only folder must not sink the extraction
 

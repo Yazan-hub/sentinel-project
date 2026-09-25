@@ -159,7 +159,7 @@ namespace Sentinel.GhostBuilder
 
         // Blank as the bridge's filled() reads it: char.IsWhiteSpace plus U+FEFF (DeliveryContract.Text's rule).
         private static bool Filled(JsonElement v) =>
-            v.ValueKind == JsonValueKind.String && v.GetString()!.Any(ch => !char.IsWhiteSpace(ch) && ch != '﻿');
+            v.ValueKind == JsonValueKind.String && v.GetString()!.Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF');
 
         private static Regex? GlobToRegex(string glob)
         {

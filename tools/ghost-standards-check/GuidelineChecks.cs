@@ -219,7 +219,7 @@ static class GuidelineChecks
                 new() { Category = "Doors", Family = "Single-Flush", Type = "900 x 2100" },
             };
             var views = new List<ViewTemplateSpec> { new() { Name = "01_WIP_PLANS", ViewType = "FloorPlan" } };
-            string path = TypeCatalogExport.Write(Path.Combine(tmp, "exports"), "Office Project (Template)", @"C:\t\Office.rte",
+            string path = TypeCatalogExport.Write(Path.Combine(tmp, "exports"), "Office Project (Template)",
                                                   new DateTimeOffset(2026, 9, 25, 6, 14, 40, TimeSpan.FromHours(2)), types, views);
             _ok(path == Path.Combine(tmp, "exports", "type-catalog-Office_Project_Template.json") && File.Exists(path),
                 "the export is written to <Sentinel>\\exports\\type-catalog-<template>.json");
@@ -230,8 +230,8 @@ static class GuidelineChecks
             using var d = System.Text.Json.JsonDocument.Parse(body);
             var t = d.RootElement.GetProperty("template");
             _ok(!d.RootElement.TryGetProperty("source", out _) && t.GetProperty("title").GetString() == "Office Project (Template)"
-                && t.GetProperty("path").GetString() == @"C:\t\Office.rte" && t.GetProperty("extracted_at").GetString() == "2026-09-25T06:14:40.0000000+02:00",
-                "template {title, path, extracted_at}; no top-level source (the PUT route would lift it off)");
+                && !t.TryGetProperty("path", out _) && t.GetProperty("extracted_at").GetString() == "2026-09-25T06:14:40.0000000+02:00",
+                "template {title, extracted_at} with no workstation path; no top-level source (the PUT route would lift it off)");
             _ok(d.RootElement.GetProperty("count").GetInt32() == 2 && d.RootElement.GetProperty("types")[0].GetProperty("system").GetBoolean()
                 && d.RootElement.GetProperty("types")[0].GetProperty("width_mm").GetDouble() == 200 && d.RootElement.GetProperty("types")[1].GetProperty("width_mm").ValueKind == System.Text.Json.JsonValueKind.Null
                 && d.RootElement.GetProperty("view_templates").GetArrayLength() == 1,

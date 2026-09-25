@@ -25,13 +25,14 @@ public static class TypeCatalogExport
         return "type-catalog-" + (safe.Length == 0 ? "untitled" : safe) + ".json";
     }
 
-    /// <summary>The type_catalog@n body: template {title, path, extracted_at}, count, types, view_templates (the
+    /// <summary>The type_catalog@n body: template {title, extracted_at}, count, types, view_templates (the
     /// guideline's views section names view templates, so one harvest supplies both).</summary>
-    public static string Json(string templateTitle, string templatePath, DateTimeOffset extractedAt,
+    /// No template path: it names a workstation folder, and the body goes to the office's shared store when installed.
+    public static string Json(string templateTitle, DateTimeOffset extractedAt,
                               List<TypeSpec> types, List<ViewTemplateSpec> viewTemplates) =>
         JsonSerializer.Serialize(new
         {
-            template = new { title = templateTitle, path = templatePath ?? "", extracted_at = extractedAt.ToString("o") },
+            template = new { title = templateTitle, extracted_at = extractedAt.ToString("o") },
             count = types.Count,
             types,
             view_templates = viewTemplates,
@@ -39,12 +40,12 @@ public static class TypeCatalogExport
 
     /// <summary>Write the export into <paramref name="exportsDir"/> (created when absent) and return its path.
     /// Throws on an I/O failure; the caller says so.</summary>
-    public static string Write(string exportsDir, string templateTitle, string templatePath, DateTimeOffset extractedAt,
+    public static string Write(string exportsDir, string templateTitle, DateTimeOffset extractedAt,
                                List<TypeSpec> types, List<ViewTemplateSpec> viewTemplates)
     {
         Directory.CreateDirectory(exportsDir);
         string path = Path.Combine(exportsDir, FileName(templateTitle));
-        File.WriteAllText(path, Json(templateTitle, templatePath, extractedAt, types, viewTemplates));
+        File.WriteAllText(path, Json(templateTitle, extractedAt, types, viewTemplates));
         return path;
     }
 
