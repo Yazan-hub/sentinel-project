@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 
@@ -23,6 +24,14 @@ public sealed class ProposalResult
     public string? Error;                           // why Reached is false (timeout / refused / status)
     public bool? NamingOk;                          // null = name not checked; false = container name failed
     public List<string> NamingFailures = new();
+    // What judged — the bridge resolves the project's ids@n / naming@n (else its office's) itself. Null ref = none.
+    public string? IdsRef, IdsSource, IdsSha256;
+    public string? IdsEnforce;                      // reject | warn | off (the IDS's own enforce), null = not reported
+    public bool Warned;                             // accepted, with failures kept as warnings (enforce "warn")
+    public string? NamingRef, NamingSource, NamingSha256;
+    /// "ids@4 · office · 23bb57937fb0…" or "none" — the bridge's refLabel, as every other surface prints it.
+    public string IdsLabel => RefLabel(IdsRef, IdsSource, IdsSha256);
+    public string NamingLabel => RefLabel(NamingRef, NamingSource, NamingSha256);
 
     public static ProposalResult Parse(string json)
     {
@@ -63,7 +72,25 @@ public sealed class ProposalResult
                     r.NamingFailures.Add(Str(it, "reason") ?? "invalid");
                 }
         }
+        r.IdsRef = Str(root, "ids_ref");
+        r.IdsSource = Str(root, "ids_source");
+        r.IdsSha256 = Str(root, "ids_sha256");
+        r.IdsEnforce = Str(root, "ids_enforce");
+        r.Warned = root.TryGetProperty("warned", out var w) && w.ValueKind == JsonValueKind.True;
+        r.NamingRef = Str(root, "naming_ref");
+        r.NamingSource = Str(root, "naming_source");
+        r.NamingSha256 = Str(root, "naming_sha256");
         return r;
+    }
+
+    // The bridge's refLabel (artefact-store.mjs): ref · source · first 12 of the sha + "…", or "none".
+    private static string RefLabel(string? @ref, string? source, string? sha)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(@ref)) parts.Add(@ref!);
+        if (!string.IsNullOrEmpty(source)) parts.Add(source!);
+        if (!string.IsNullOrEmpty(sha)) parts.Add(sha!.Substring(0, Math.Min(12, sha.Length)) + "…");
+        return parts.Count == 0 ? "none" : string.Join(" · ", parts);
     }
 
     private static string? Str(JsonElement o, string name) =>

@@ -87,8 +87,8 @@ public sealed class GovernedPublishCommand : IExternalCommand
                 "office property sets (Pset_<org>.*) were NOT read for this publish; the referee will report them " +
                 "missing. Install a ruleset@n with an \"org\" on " + projectKey + " or its office, then retry.");
         var elements = Sentinel.Engine.GovernedElementExtractor.Extract(doc, projectKey);
-        var ids = Sentinel.Engine.IdsSpecFile.Load(); // null ⇒ no IDS configured → verdict "recorded" (gate-only publish)
-        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId: null, actor: "Revit", containerName: ifcName, projectKey: projectKey);
+        // No IDS is posted: the bridge judges by the project's ids@n (else its office's) and names it in the verdict.
+        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, versionId: null, actor: "Revit", containerName: ifcName, projectKey: projectKey);
 
         if (!verdict.Reached)
         {
@@ -122,8 +122,9 @@ public sealed class GovernedPublishCommand : IExternalCommand
             return Result.Succeeded;
         }
 
-        // 4) ACCEPTED (or "recorded" = no IDS): publish. Copy into the outbox for the bridge to upload,
-        //    register the version, then stamp the verdict onto that version (the web ✓ badge).
+        // 4) ACCEPTED, or RECORDED (no IDS installed: nothing was judged): publish. Copy into the outbox for the
+        //    bridge to upload, register the version, then stamp a real verdict onto that version (the web ✓ badge).
+        var judged = verdict.Verdict != "recorded";
         try
         {
             var outboxPath = Path.Combine(Sentinel.Engine.PlatformExporter.OutboxDir(), ifcName);
@@ -133,28 +134,37 @@ public sealed class GovernedPublishCommand : IExternalCommand
         catch (Exception ex)
         {
             TaskDialog.Show("Sentinel — Governed Publish",
-                "Verdict ACCEPTED, but copying the IFC into the upload outbox failed: " + ex.Message +
+                "Verdict " + verdict.Verdict.ToUpperInvariant() + ", but copying the IFC into the upload outbox failed: " + ex.Message +
                 "\n\nThe verdict is recorded; upload the file manually if needed.");
         }
 
         var versionId = Sentinel.Coordination.GovernedNotify.RegisterVersionId(doc.Title, bytes, "Revit", projectKey: projectKey);
-        if (versionId != null && ids != null)
-            Sentinel.Coordination.GovernedNotify.Propose(elements, ids, versionId, actor: "Revit", containerName: ifcName, projectKey: projectKey); // stamp the badge
+        if (versionId != null && judged)
+            Sentinel.Coordination.GovernedNotify.Propose(elements, versionId, actor: "Revit", containerName: ifcName, projectKey: projectKey); // stamp the badge
 
         var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
         var revLine = live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";
-        var idsLine = ids == null
-            ? "No project IDS configured — published on the delivery-gate pass alone."
-            : $"IDS: {verdict.Passing}/{verdict.InScope} in-scope element checks passed.";
+        // Every line names what judged, from the bridge's answer — never from a local file.
+        var idsLine = judged
+            ? $"IDS {verdict.IdsLabel}: {verdict.Passing}/{verdict.InScope} in-scope element checks passed" +
+              (verdict.Warned ? $" — {verdict.Failing} failure(s) kept as warnings (enforce: {verdict.IdsEnforce})." : ".")
+            : $"IDS: none — no IDS installed for {projectKey} or its office. The model was NOT judged.";
+        var namingLine = verdict.NamingRef is null
+            ? "Naming: not judged — no naming standard installed."
+            : $"Naming {verdict.NamingLabel}: " + (verdict.NamingOk == false ? "failed (warn — recorded, not blocking)." : "passed.");
 
         TaskDialog.Show("Sentinel — Governed Publish",
-            $"✓ ACCEPTED — {revLine}\n" +
+            (judged ? $"✓ ACCEPTED — {revLine}\n" : $"Published — not judged: no IDS installed ({revLine})\n") +
             $"Project: {projectKey}\n\n" +
             idsLine + "\n" +
+            namingLine + "\n" +
             "Delivery gate: PASS · Schema " + gate.DetectedSchema + "\n" +
             "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n\n" +
-            "The Sentinel bridge uploads the geometry; the coordinator sees the new version with a ✓ verdict " +
-            "badge and the hash-chained audit entry behind it.");
+            (judged
+                ? "The Sentinel bridge uploads the geometry; the coordinator sees the new version with a ✓ verdict " +
+                  "badge and the hash-chained audit entry behind it."
+                : "The Sentinel bridge uploads the geometry. No verdict badge: nothing was judged — the audit entry " +
+                  "records the publish as \"recorded\". Install an IDS on the project or its office to judge the next one."));
         TryDelete(tempPath);
         return Result.Succeeded;
     }

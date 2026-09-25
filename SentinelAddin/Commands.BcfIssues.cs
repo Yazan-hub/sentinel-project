@@ -113,7 +113,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var doc = uiapp.ActiveUIDocument.Document;
         var projectKey = bcfKey; // same document, same key
         var org = App.OrgFor(doc);
-        var ids = IdsSpecFile.Load();
+        // Display only (the banner): the bridge judges every check by its own resolved IDS. Off the UI thread.
+        var ids = Task.Run(() => IdsSpecFile.Resolve(projectKey));
         var user = doc.Application.Username;
 
         // "No failure came back" is only evidence of passing when the referee judged everything that was sent
@@ -162,8 +163,13 @@ public sealed class BcfIssuesCommand : IExternalCommand
             openFix[topic.Guid] = fix;
             fix.Closed += (_, __) => openFix.Remove(topic.Guid);
             window.SetFixEnabled(true);
-            if (ids == null)
-                fix.SetBanner("No IDS available to check against (no %AppData%\\Sentinel\\ids.json; the bridge may still hold a server IDS). Apply is allowed; the issue cannot be resolved from here unless the bridge adjudicates.");
+            ids.ContinueWith(t =>
+            {
+                // Resolve never throws; SetBanner marshals to the window. The label says why (not installed,
+                // no project, bridge unreachable) \u2014 so the banner does not claim "not installed" on a timeout.
+                if (t.Result.Origin == "none")
+                    fix.SetBanner($"No IDS to check against for {projectKey} ({t.Result.Label}). Apply is allowed; nothing can be checked, certified or resolved from here.");
+            }, TaskScheduler.Default);
 
             bool applied = false;   // set by Apply; decides whether the evidence says "Fixed" or "Verified"
 
@@ -195,7 +201,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         var keys = new HashSet<string>(ticked.Select(r => r.Key));
                         Task.Run(() =>
                         {
-                            var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
+                            var res = GovernedNotify.Propose(payload, null, user, projectKey: projectKey,
                                 source: "revit-fix", note: $"fix-in-place check \u00b7 BCF {topic.Guid}", raiseBcf: false,
                                 failuresRequirement: req.Requirement);
                             if (!res.Reached)
@@ -205,8 +211,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             }
                             if (res.Verdict == "recorded")
                             {
-                                fix.SetBanner("The bridge has no IDS to judge against \u2014 verdict \u201crecorded\u201d. Apply is allowed; nothing can be certified or resolved.");
-                                fix.SetStatus("Not checkable: no IDS on the bridge or locally."); fix.SetBusy(false); return;
+                                fix.SetBanner($"No IDS installed for {projectKey} or its office \u2014 verdict \u201crecorded\u201d. Apply is allowed; nothing can be certified or resolved.");
+                                fix.SetStatus($"Not checkable: no IDS installed for {projectKey} or its office."); fix.SetBusy(false); return;
                             }
                             var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count, res.FailuresMatched);
                             if (why != null) { fix.SetStatus(why); fix.SetBusy(false); return; }
@@ -256,7 +262,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                     var keys = new HashSet<string>(plan.Rows.Select(r => r.Key));
                     Task.Run(async () =>
                     {
-                        var res = GovernedNotify.Propose(payload, ids, null, user, projectKey: projectKey,
+                        var res = GovernedNotify.Propose(payload, null, user, projectKey: projectKey,
                             source: "revit-fix", note: $"fix-in-place re-check \u00b7 BCF {topic.Guid}", raiseBcf: false,
                             failuresRequirement: req.Requirement);
                         if (!res.Reached)
@@ -269,8 +275,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (res.Verdict == "recorded")
                         {
                             fix.SetStatus(applied
-                                ? "Applied. NOT verified \u2014 the bridge has no IDS to judge against; the issue was not touched."
-                                : "NOT verified \u2014 the bridge has no IDS to judge against; the issue was not touched.");
+                                ? $"Applied. NOT verified \u2014 no IDS installed for {projectKey} or its office; the issue was not touched."
+                                : $"NOT verified \u2014 no IDS installed for {projectKey} or its office; the issue was not touched.");
                             fix.SetBusy(false); return;
                         }
                         // Nothing is painted green and no comment is posted off a response that cannot vouch for

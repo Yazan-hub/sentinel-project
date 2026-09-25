@@ -118,15 +118,16 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
-        /// The referee call: POST the extracted <paramref name="elements"/> (+ optional JSON <paramref name="idsSpec"/>)
-        /// to <c>/cde/:key/propose</c> and return the deterministic verdict. When <paramref name="versionId"/> is
+        /// The referee call: POST the extracted <paramref name="elements"/> to <c>/cde/:key/propose</c> and return
+        /// the deterministic verdict. No IDS is sent: the bridge judges by the project's ids@n (else its office's,
+        /// else none → "recorded") and names it in the response (ids_ref · ids_source · ids_sha256). When <paramref name="versionId"/> is
         /// set, the bridge also stamps the verdict onto that file version (the web verdict badge, G3); on a reject
         /// it auto-opens a BCF issue per failing requirement (G2) unless <paramref name="raiseBcf"/> is false —
         /// a fix-in-place check or re-check must never open topics. <paramref name="source"/> and
         /// <paramref name="note"/> land on the audit row. Blocking (120s cap); never throws:
         /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
-        public static ProposalResult Propose(object elements, object? idsSpec, string? versionId, string actor,
+        public static ProposalResult Propose(object elements, string? versionId, string actor,
                                              string projectKey, string? containerName = null,
                                              string? source = null, string? note = null, bool raiseBcf = true,
                                              string? failuresRequirement = null)
@@ -144,7 +145,6 @@ namespace Sentinel.Coordination
                     ["actor"] = actor,
                     ["elements"] = elements,
                 };
-                if (idsSpec != null) body["ids"] = idsSpec;
                 if (versionId != null) body["version_id"] = versionId;
                 if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
                 if (note != null) body["note"] = note;
