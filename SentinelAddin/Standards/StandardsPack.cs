@@ -14,8 +14,8 @@ namespace Sentinel.Standards;
 ///
 /// MVP scope: the PROVISION half (worksets + shared parameters). The pack's worksets
 /// double as the WS-01 rule whitelist the scanner enforces — "one array, two faces".
-/// The embedded ruleset/delivery blocks from the spec land in a later slice; for the
-/// MVP the builder merges the worksets into the existing effective ruleset directly.
+/// The embedded ruleset/delivery blocks from the spec land in a later slice; Build/Apply merge the
+/// worksets and naming rules into the project's installed ruleset@n and install ruleset@n+1 (RulesetMerge).
 /// </summary>
 public sealed class StandardsPack
 {

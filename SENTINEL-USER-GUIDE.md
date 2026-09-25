@@ -7,7 +7,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 - **Live scanning (DMU):** every rename/new element is checked against the ruleset instantly; results appear in the panel.
 - **Sync guard:** on every Sync to Central, a full rescan runs and the central file name is checked against BDS/ISO 19650 naming (CDE-01).
 - **Revit Doctor:** benign native warnings (duplicate marks, off-axis lines, duplicate instances) are auto-resolved/suppressed and logged in the panel's Doctor strip.
-- **Ruleset source:** `ruleset.json` — project Extensible Storage → machine config → deployed copy, in that order. 7 rules active (v1.4.1): worksets WS-01, view names VN-01 (request), view status VP-01, sheet numbers SN-01 (request), family names FN-01, level LV-01 / grid GR-01 (monitor).
+- **Ruleset source:** `ruleset@n` installed on the document's bound web project, or on that project's office (Sentinel ▸ Project Setup binds the project); there is no machine ruleset file. The base standard ships 7 rules (v1.4.1): worksets WS-01, view names VN-01 (request), view status VP-01, sheet numbers SN-01 (request), family names FN-01, level LV-01 / grid GR-01 (monitor).
 
 ## Ribbon — Coordination panel
 | Tool | What it does |
@@ -42,7 +42,7 @@ Fix → dialog shows current value struck-through + editable synthesized suggest
 
 ## Key file locations
 - Source: `sentinel-project\SentinelAddin\` · build: `.\build.ps1` (Revit must be CLOSED to deploy)
-- Config: `%AppData%\Sentinel\` → `config.json`, `settings.json`, `delivery-contract.json` (created by the office, template: `config/base-standard/delivery-contract.json`; built-in default applies when absent), `roi.json`, `ruleset.json` (user cache)
+- Config: `%AppData%\Sentinel\` → `config.json`, `settings.json`, `delivery-contract.json` (created by the office, template: `config/base-standard/delivery-contract.json`; built-in default applies when absent), `roi.json`; standards cache (read-only, bridge-fed): `%AppData%\Sentinel\cache\<key>\<kind>.json`
 - Backend schema (Phase 3): `module2_knowledge_layer_schema.sql` · Roadmap: `ROADMAP.md`
 
 ## Known gaps (pre-pilot backlog)

@@ -24,9 +24,16 @@ that the pack is swappable.
 3. Install the IDS on the project: `Documents → EIR → Compile to IDS → Install on this project`, or `node bridge/artefact-import.mjs config/<office>-standard/ids.json --project <key> --kind ids`.
 4. Install the naming ruleset on the office (its projects inherit it) or on a project: `node bridge/artefact-import.mjs config/<office>-standard/naming-ruleset.json --project <key> --kind naming`. With nothing installed, naming checks report not checkable — there is no bridge default.
 5. Copy `layers.json` and `delivery-contract.json` to
-   `%AppData%\Sentinel\` on each workstation.
+   `%AppData%\Sentinel\` on each workstation. These two are still read from the machine until they
+   become artefacts (phase 4b). The ruleset, IDS and naming standard are never copied to a
+   workstation: Revit reads them from the project (or its office) like the web does.
 
 ## Scope note
 
-The QA-scan ruleset is the project's `ruleset` artefact (install it like any other
-kind; see Packs). Stage gates are code, not config, and are out of scope for this pack.
+The QA-scan ruleset is the project's `ruleset` artefact, and Revit scans by it as well. A model bound to a
+project (Sentinel ▸ Project Setup) judges by that project's `ruleset@n`, or by its office's. This pack ships
+no ruleset. Install one from Packs or with
+`node bridge/artefact-import.mjs <ruleset.json> --project <key> --kind ruleset`. With nothing installed,
+Revit's score reads `Not scored — no ruleset judged this model` and its status line reads
+`<doc title> — none — not installed for <key> or its office`. Stage gates are code, not
+config, and are out of scope for this pack.
