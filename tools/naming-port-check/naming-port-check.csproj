@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check that the add-in's container-name judge (ContainerNameJudge.cs, a port of the web's
+       validateContainerName) agrees with the TS validator on every case in
+       WebApp/src/sentinel-core/fixtures/naming-cases.json (written by the TS side's own test), and pins CDE-01's
+       decision (CdeSyncGuard.Judge.cs). No Revit API; run with `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>naming-port-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\OrgNames.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ContainerNameJudge.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\CdeSyncGuard.Judge.cs" />
+  </ItemGroup>
+</Project>

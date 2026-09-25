@@ -125,6 +125,7 @@ public sealed class App : IExternalApplication
         // A linked model Sentinel opens itself to export it is never loaded, scanned or judged.
         if (PlatformExporter.IsOpenedForExport(doc.PathName)) return;
         SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
+        CdeSyncGuard.Prefetch(ProjectContext.For(doc)); // CDE-01's naming@n, off Revit's thread
         Workflow.RequestManager.RefreshSnapshot(doc); // old-value capture baseline
         ReloadRuleset(doc); // the baseline scan runs when the document's ruleset@n has landed
     }
@@ -156,19 +157,22 @@ public sealed class App : IExternalApplication
         Workflow.RequestManager.RefreshSnapshot(e.Document);
         var report = Engine!.ScanFull(e.Document);
 
-        // CDE Sync Guard: central file name vs ISO 19650 / office convention.
-        // Sync cannot be vetoed by the API, so a mismatch reports loudly.
-        var cde = Sentinel.Engine.CdeSyncGuard.Check(e);
+        // CDE Sync Guard: the central file name judged by the project's naming@n (fetched off Revit's thread at
+        // open and after each sync). Sync cannot be vetoed by the API, so a mismatch reports loudly; with no
+        // naming standard to judge by, CDE-01 adds one Monitor note that is never scored or counted as checked.
+        var ctx = ProjectContext.For(e.Document);
+        var cde = Sentinel.Engine.CdeSyncGuard.Check(e, ctx, Sentinel.Engine.CdeSyncGuard.LastNaming(ctx));
+        Sentinel.Engine.CdeSyncGuard.Prefetch(ctx); // the next sync sees a naming@n installed since
         if (cde is not null)
         {
-            Sentinel.Engine.RoiTracker.Log("cde", cde.ElementName);
-            report = report.Plus(cde);
+            bool judged = cde.Mode != Sentinel.Engine.EnforcementMode.Monitor;
+            if (judged) Sentinel.Engine.RoiTracker.Log("cde", cde.ElementName);
+            report = report.Plus(cde, judged);
         }
         PanelVm!.PublishReport(report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled,
         // fire-and-forget. An unbound document posts nothing (silently: a sync is not the place for a dialog).
-        var ctx = ProjectContext.For(e.Document);
         if (ctx.IsBound) Sentinel.Coordination.GovernedNotify.OfficeScan(report, ctx.Key);
         // After the scan report that completes the `model` step. That POST is fire-and-forget, so this GET can
         // race it and still read the step as todo — ↻ on the strip settles it.
