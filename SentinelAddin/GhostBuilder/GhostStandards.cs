@@ -18,6 +18,10 @@ namespace Sentinel.GhostBuilder
 
         public ResolvedArtefact LayersSource, GuidelineSource, CatalogSource;
 
+        /// <summary>The installed layers@n (its <see cref="LayerRulesetMatcher.Sha"/> set), or
+        /// <see cref="LayerRulesetMatcher.HeuristicsOnly"/> when layers is none or did not parse.</summary>
+        public LayerRulesetMatcher Layers = LayerRulesetMatcher.HeuristicsOnly();
+
         /// <summary>What the review window and every build summary are headed with: the three labels, none included.</summary>
         public string Header => "Layers: " + LayersSource.Label + " · Guideline: " + GuidelineSource.Label + " · Type catalogue: " + CatalogSource.Label;
 
@@ -53,8 +57,18 @@ namespace Sentinel.GhostBuilder
             return FromResolved(l.Result, g.Result, c.Result);
         }
 
-        /// <summary>The three resolved kinds → what a build works with. The pure half of Load.</summary>
-        internal static GhostStandards FromResolved(ResolvedArtefact layers, ResolvedArtefact guideline, ResolvedArtefact catalog) =>
-            new GhostStandards(layers, guideline, catalog);
+        /// <summary>The three resolved kinds → what a build works with. The pure half of Load. A body a loader cannot
+        /// use is none naming the artefact and the field — never a partial standard (DeliveryContract.FromResolved).</summary>
+        internal static GhostStandards FromResolved(ResolvedArtefact layers, ResolvedArtefact guideline, ResolvedArtefact catalog)
+        {
+            var s = new GhostStandards(layers, guideline, catalog);
+            if (layers.Origin != "none")
+            {
+                var m = LayerRulesetMatcher.FromBody(layers.BodyJson, out var error);
+                if (m is null) s.LayersSource = ArtefactClient.None("layers", $"{layers.Label} did not parse: {error}");
+                else { m.Sha = layers.Sha256; s.Layers = m; }
+            }
+            return s;
+        }
     }
 }

@@ -27,8 +27,10 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("rationale")]     public string Rationale { get; set; }
         [JsonPropertyName("sourceDoc")]     public string SourceDoc { get; set; }
 
-        /// <summary>Which tier produced this mapping: "standard" (deterministic ruleset) or "llm".
-        /// Cached rows from before this field exist deserialize as null - treat null as "llm".</summary>
+        /// <summary>Which tier produced this mapping (LayerMapper): "standard" (a row or alias of the project's
+        /// installed layers@n — the only source the review pre-ticks), "heuristic" (an AIA major or keyword guess),
+        /// "llm" (the local model), "cache" (the local model's answer remembered for this project under the same
+        /// layers sha) or "unmapped" (the local model could not be reached; Rationale says so).</summary>
         [JsonPropertyName("source")]        public string Source { get; set; } = "llm";
     }
 

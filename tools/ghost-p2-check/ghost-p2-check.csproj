@@ -9,6 +9,8 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- ArtefactCache.cs (LayerMapper's per-project cache path) leans on the add-in's global usings. -->
+    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>ghost-p2-check</AssemblyName>
     <RootNamespace>Sentinel.Checks</RootNamespace>
@@ -22,6 +24,7 @@
     <Compile Include="..\..\SentinelAddin\Standards\DocumentTextReader.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerRulesetMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerMapper.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\UI\GhostReviewWindow.cs" />
   </ItemGroup>
 </Project>

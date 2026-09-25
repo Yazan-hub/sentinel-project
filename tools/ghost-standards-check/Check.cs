@@ -21,7 +21,7 @@ static partial class Check
     {
         Console.WriteLine("GhostStandards — layers, guideline and type catalogue from the project, each named, none included\n");
         ArtefactCache.Root = Path.Combine(Path.GetTempPath(), "sentinel-ghost-standards-check-" + Guid.NewGuid().ToString("N"));
-        try { Client(); Standards(); }
+        try { Client(); Standards(); Layers(); Mapper(); }
         finally { try { Directory.Delete(ArtefactCache.Root, true); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

@@ -45,7 +45,7 @@ What must be true — each row is a real failure mode, not a formality:
 |---|---|
 | The review window appears and **nothing is built yet** | The safety gate. Geometry before Build = the gate failed. |
 | `A-ANNO` and `DEFPOINTS` are **absent** from the list | Tier 0 ignore regressed if they appear. |
-| `EXTERIOR-ENVELOPE` is interpreted sensibly | The spec-reading premise. Clear it from `%AppData%\Sentinel\dwg_mappings.json` first, or the cache answers and the model is never asked. |
+| `EXTERIOR-ENVELOPE` is interpreted sensibly | The spec-reading premise. The model's answers are remembered per web project, under the installed layers standard's sha, in `%AppData%\Sentinel\cache\<key>\dwg_mappings.json` — clear that file first, or the remembered answer is used and the model is never asked. An unbound model remembers nothing. |
 | Untick a layer → it is **not** in the model | Ticks are the gate, not decoration. |
 | A spec value (e.g. `Fire Rating = FR60`) is on the built element or its type | The P2 payload. |
 | **One** Ctrl+Z removes the whole build | Confirms the single-transaction design; if it takes several, that's a real regression. |

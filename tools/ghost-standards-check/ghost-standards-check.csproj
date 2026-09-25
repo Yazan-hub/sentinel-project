@@ -16,5 +16,9 @@
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostStandards.cs" />
+    <!-- the layers@n loader, the mapping tiers and the per-project cache -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostBuilder_Architecture.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerRulesetMatcher.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerMapper.cs" />
   </ItemGroup>
 </Project>

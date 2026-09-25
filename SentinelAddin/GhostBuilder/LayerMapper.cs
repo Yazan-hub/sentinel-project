@@ -1,18 +1,19 @@
-#nullable disable
-// ponytail: nullable off to match the ported GhostBuilder module; annotate when hardening.
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Sentinel.Engine; // ArtefactCache: the per-project cache folder
 
 namespace Sentinel.GhostBuilder
 {
     /// <summary>
     /// The seam every layer-name-to-family mapper implements. LocalGhostBuilder is the LLM-backed
-    /// implementation; LayerMapper is a caching decorator over it. The orchestrator depends on this
+    /// implementation; LayerMapper is the tiered mapper in front of it. The orchestrator depends on this
     /// interface so the two compose without either knowing about the other.
     /// </summary>
     public interface ILayerMapper
@@ -21,57 +22,58 @@ namespace Sentinel.GhostBuilder
     }
 
     /// <summary>
-    /// Resilience layer for "dirty" external DWGs whose layer names are unpredictable and
-    /// non-standardised. It resolves each layer in three tiers, cheapest first:
+    /// Maps each DWG layer through five tiers, the project's installed standard first (cohesion phase 4b-2, spec
+    /// decision 9):
     ///
-    ///   1. PERSISTENT CACHE  — a JSON dictionary (%AppData%\Sentinel\dwg_mappings.json) of layers
-    ///      resolved on a previous run. A DWG from the same source re-uses these for free.
-    ///   2. BASE DICTIONARY   — built-in keyword heuristics (A-WALL/PARTITION -> Walls, etc.) that
-    ///      cover standard AIA-style names without any model call.
-    ///   3. LOCAL LLM         — ONLY the layers neither tier recognised are handed to the wrapped
-    ///      ILayerMapper (LocalGhostBuilder -> Ollama). Whatever it returns is written back to the
-    ///      cache, so each novel layer costs the model exactly once.
+    ///   0. IGNORE     — system / annotation layers (the standard's ignore globs + the built-in net): never
+    ///                   geometry, never a model call.
+    ///   1. STANDARD   — the project's layers@n, exact row or alias: Source "standard", the only rows the review
+    ///                   pre-ticks.
+    ///   2. REMEMBERED — this project's earlier local-model answers (%AppData%\Sentinel\cache\&lt;key&gt;\dwg_mappings.json),
+    ///                   used only under the same layers sha: Source "cache". Another project's guess, or one made
+    ///                   under another layers standard, never answers; an unbound document remembers nothing.
+    ///   3. HEURISTIC  — the AIA discipline-major parse and the keyword list: Source "heuristic", a guess.
+    ///   4. LOCAL LLM  — the layers nothing above recognised, in one call: Source "llm", remembered for next time.
+    ///                   When the model cannot be reached, every row above is kept and these layers come back
+    ///                   Source "unmapped" ("not mapped — local model unreachable (…)") instead of failing the run.
     ///
-    /// Pure data + network + file I/O — no Revit API — so it stays safe to await off the API thread,
-    /// exactly like the LocalGhostBuilder it wraps.
+    /// Pure data + network + file I/O — no Revit API — so it stays safe to await off the API thread.
     /// </summary>
     public sealed class LayerMapper : ILayerMapper, IDisposable
     {
-        private readonly ILayerMapper _llm;                       // tier 3: unknown layers only
-        private readonly LayerRulesetMatcher _matcher;            // tier 0 (ignore) + tier 2 (map): standard-driven
-        private readonly string _cachePath;                      // tier 1 backing file
-        private readonly Dictionary<string, LayerMapping> _cache; // normalised layer -> mapping
+        private readonly ILayerMapper _llm;                         // tier 4: unknown layers only
+        private readonly LayerRulesetMatcher _matcher;              // tiers 0, 1 and 3
+        private readonly string _key;                               // the document's web project
+        private readonly string? _cachePath;                        // null: unbound, nothing is remembered
+        private readonly Dictionary<string, LayerMapping> _cache;   // tier 2: normalised layer -> the model's answer
         private bool _dirty;
 
-        // On-disk shape: {"ruleset": "<standard name>", "mappings": {...}}. Stamped with the ruleset
-        // that produced the Source=="standard" rows, so a ruleset swap doesn't keep pre-ticking the
-        // old standard's mappings under the new one. LLM rows are ruleset-independent and survive.
+        // On disk: {"key": "<project>", "layers_sha": "<sha of layers@n, or none>", "mappings": {LAYER: llm row}}.
         private sealed class CacheFile
         {
-            [System.Text.Json.Serialization.JsonPropertyName("ruleset")]
-            public string Ruleset { get; set; }
-            [System.Text.Json.Serialization.JsonPropertyName("mappings")]
-            public Dictionary<string, LayerMapping> Mappings { get; set; }
+            [JsonPropertyName("key")] public string? Key { get; set; }
+            [JsonPropertyName("layers_sha")] public string? LayersSha { get; set; }
+            [JsonPropertyName("mappings")] public Dictionary<string, LayerMapping>? Mappings { get; set; }
         }
 
-        public LayerMapper(ILayerMapper llmFallback, string cachePath = null, LayerRulesetMatcher matcher = null)
+        /// <param name="llmFallback">The local model (LocalGhostBuilder).</param>
+        /// <param name="matcher">The project's layers@n (GhostStandards.Layers, its Sha set), or
+        /// LayerRulesetMatcher.HeuristicsOnly().</param>
+        /// <param name="projectKey">The document's web project; "" (unbound) remembers nothing.</param>
+        public LayerMapper(ILayerMapper llmFallback, LayerRulesetMatcher matcher, string projectKey)
         {
             _llm = llmFallback ?? throw new ArgumentNullException(nameof(llmFallback));
-            _matcher = matcher ?? LayerRulesetMatcher.Load(); // P1: BDS DWG Layer Standard drives ignore + mapping
-            _cachePath = cachePath ?? DefaultCachePath();
-            _cache = LoadCache(_cachePath, _matcher.StandardName, out bool rulesetChanged);
-            if (rulesetChanged) _dirty = true;
-
-            // Self-heal: purge any previously-cached system/annotation layers (e.g. a stale
-            // DEFPOINTS -> Walls written before the ignore-list existed) so the next save drops them.
-            var stale = _cache.Keys.Where(_matcher.ShouldIgnore).ToList();
-            foreach (string k in stale) _cache.Remove(k);
-            if (stale.Count > 0) _dirty = true;
+            _matcher = matcher ?? throw new ArgumentNullException(nameof(matcher));
+            _key = (projectKey ?? "").Trim();
+            _cachePath = _key.Length == 0 ? null : CachePathFor(_key);
+            _cache = LoadCache(_cachePath, _key, Stamp);
         }
 
-        public static string DefaultCachePath() => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Sentinel", "dwg_mappings.json");
+        /// <summary>%AppData%\Sentinel\cache\&lt;key&gt;\dwg_mappings.json — beside the project's artefact copies.</summary>
+        public static string CachePathFor(string key) => ArtefactCache.PathFor(key, "dwg_mappings");
+
+        // Remembered answers belong to one layers standard: another sha's are not used.
+        private string Stamp => _matcher.Sha ?? "none";
 
         public async Task<MappingResult> MapLayersAsync(
             IEnumerable<string> cadLayers, CancellationToken ct = default)
@@ -87,45 +89,35 @@ namespace Sentinel.GhostBuilder
 
             foreach (string layer in layers)
             {
-                // Tier 0: AutoCAD system / annotation layers are never model geometry — drop them
-                // before any cache/dictionary/LLM work so they can't become walls, furniture, or
-                // IFC noise, and never cost a model call.
-                if (_matcher.ShouldIgnore(layer)) continue;
-
-                string key = Normalize(layer);
-
-                // Tier 1: previously resolved (by this or an earlier DWG from the same source).
-                if (_cache.TryGetValue(key, out LayerMapping cached))
+                if (_matcher.ShouldIgnore(layer)) continue;                              // 0. never geometry
+                LayerMapping? hit = _matcher.Match(layer);
+                if (hit is { Source: "standard" }) { resolved.Add(hit); continue; }     // 1. the installed standard
+                if (_cache.TryGetValue(Normalize(layer), out LayerMapping? earlier))      // 2. remembered, same sha
                 {
-                    resolved.Add(WithLayer(cached, layer));
+                    resolved.Add(Remembered(earlier, layer));
                     continue;
                 }
-
-                // Tier 2: the BDS DWG Layer Standard (exact / alias / standard-format), with the old
-                // keyword heuristics kept as a fallback inside the matcher.
-                LayerMapping baseHit = _matcher.Match(layer);
-                if (baseHit != null)
-                {
-                    baseHit.Source = "standard";
-                    _cache[key] = baseHit;
-                    _dirty = true;
-                    resolved.Add(WithLayer(baseHit, layer));
-                    continue;
-                }
-
-                // Tier 3 candidate: hand to the LLM below.
-                unknown.Add(layer);
+                if (hit != null) { resolved.Add(hit); continue; }                        // 3. heuristic
+                unknown.Add(layer);                                                      // 4. the local model
             }
 
-            // One model round-trip for everything neither tier recognised.
+            // One model round-trip for everything no tier above recognised.
             if (unknown.Count > 0)
             {
-                MappingResult llmResult = await _llm.MapLayersAsync(unknown, ct).ConfigureAwait(false);
-                foreach (LayerMapping m in llmResult?.Mappings ?? Enumerable.Empty<LayerMapping>())
+                MappingResult? answer = null;
+                string? failure = null;
+                try { answer = await _llm.MapLayersAsync(unknown, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested)) // ESC still cancels
+                {
+                    failure = (ex is HttpRequestException ? "local model unreachable" : "local model failed") + " (" + ex.Message + ")";
+                }
+                if (failure != null)
+                    resolved.AddRange(unknown.Select(u => new LayerMapping { CadLayer = u, Confidence = 0, Source = "unmapped", Rationale = "not mapped — " + failure }));
+                foreach (LayerMapping m in answer?.Mappings ?? Enumerable.Empty<LayerMapping>())
                 {
                     if (m == null || string.IsNullOrWhiteSpace(m.CadLayer)) continue;
                     m.Source = "llm";
-                    _cache[Normalize(m.CadLayer)] = m;   // learn it for next time
+                    _cache[Normalize(m.CadLayer)] = m;   // remembered for this project, under this layers sha
                     _dirty = true;
                     resolved.Add(m);
                 }
@@ -135,88 +127,54 @@ namespace Sentinel.GhostBuilder
             return new MappingResult { Mappings = resolved };
         }
 
-        // Tier 0 (ignore) + tier 2 (standard-driven mapping) now live in LayerRulesetMatcher, loaded from
-        // the BDS DWG Layer Standard (bds-layers.json). See LayerRulesetMatcher.cs.
-
-        // ---- cache persistence (tier 1) ----
+        // ---- the per-project cache (tier 2) ----
 
         private static string Normalize(string layer) => layer.Trim().ToUpperInvariant();
 
-        private static Dictionary<string, LayerMapping> LoadCache(string path, string currentRuleset, out bool rulesetChanged)
+        private static Dictionary<string, LayerMapping> LoadCache(string? path, string key, string stamp)
         {
-            rulesetChanged = false;
             var dict = new Dictionary<string, LayerMapping>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                if (File.Exists(path))
-                {
-                    string json = File.ReadAllText(path);
-                    var wrapped = JsonSerializer.Deserialize<CacheFile>(json);
-                    Dictionary<string, LayerMapping> loaded;
-                    bool hadStamp;
-                    if (wrapped?.Mappings != null)
-                    {
-                        loaded = wrapped.Mappings;
-                        hadStamp = string.Equals(wrapped.Ruleset, currentRuleset, StringComparison.Ordinal);
-                    }
-                    else
-                    {
-                        // Pre-stamp format: a bare {layer -> mapping} dictionary. No stamp = treat as
-                        // mismatched so any previously-cached "standard" rows get dropped below.
-                        loaded = JsonSerializer.Deserialize<Dictionary<string, LayerMapping>>(json);
-                        hadStamp = false;
-                    }
-                    if (!hadStamp) rulesetChanged = true;
-
-                    if (loaded != null)
-                        foreach (var kv in loaded)
-                        {
-                            if (kv.Value == null) continue;
-                            // Old cache rows predate Source; a missing key leaves the "llm" initializer,
-                            // but guard an explicit JSON null too (System.Text.Json calls the setter for
-                            // a present-but-null property, overwriting the default).
-                            if (kv.Value.Source == null) kv.Value.Source = "llm";
-                            // Ruleset swapped: drop stale deterministic rows. LLM rows are ruleset-
-                            // independent (they're per-layer model guesses, not standard lookups) — keep them.
-                            if (!hadStamp && string.Equals(kv.Value.Source, "standard", StringComparison.OrdinalIgnoreCase))
-                                continue;
-                            dict[kv.Key] = kv.Value;
-                        }
-                }
+                if (path == null || !File.Exists(path)) return dict;
+                var file = JsonSerializer.Deserialize<CacheFile>(File.ReadAllText(path));
+                // Another project's answers (two keys can share a folder once sanitised) or answers given under
+                // another layers standard are not this run's.
+                if (file?.Mappings == null || file.Key != key || file.LayersSha != stamp) return dict;
+                foreach (var kv in file.Mappings)
+                    if (kv.Value != null && kv.Value.Source == "llm") dict[kv.Key] = kv.Value;
             }
-            catch (Exception) { /* corrupt/unreadable cache -> start empty, it will be rebuilt */ }
+            catch (Exception) { /* corrupt/unreadable cache -> start empty; the next model answer rewrites it */ }
             return dict;
         }
 
         private void SaveCache()
         {
+            if (_cachePath == null) return; // unbound: nothing is remembered
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(_cachePath));
-                var wrapped = new CacheFile { Ruleset = _matcher.StandardName, Mappings = _cache };
-                File.WriteAllText(_cachePath,
-                    JsonSerializer.Serialize(wrapped, new JsonSerializerOptions { WriteIndented = true }));
+                Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
+                File.WriteAllText(_cachePath, JsonSerializer.Serialize(
+                    new CacheFile { Key = _key, LayersSha = Stamp, Mappings = _cache },
+                    new JsonSerializerOptions { WriteIndented = true }));
                 _dirty = false;
             }
             catch (Exception) { /* best-effort: a read-only cache dir must not fail the mapping run */ }
         }
 
-        // A returned mapping must carry the DWG's ACTUAL layer string (case included) so the
-        // placement engine's by-layer join lines up; the cached copy stays untouched.
-        private static LayerMapping WithLayer(LayerMapping src, string layer) => new LayerMapping
+        // A remembered answer on the DWG's ACTUAL layer string (the placement join is by layer), labelled "cache";
+        // the stored copy stays untouched.
+        private LayerMapping Remembered(LayerMapping src, string layer) => new LayerMapping
         {
             CadLayer = layer,
             Category = src.Category,
             BdsFamily = src.BdsFamily,
             BdsFamilyType = src.BdsFamilyType,
             Confidence = src.Confidence,
-            // P2: carry the proposal's document-derived fields; a cached row has none (enrichment runs
-            // per-project, after mapping) but a matcher-supplied one may, and dropping them silently
-            // would lose the build proposal's provenance.
             Params = src.Params,
-            Rationale = src.Rationale,
+            Rationale = string.IsNullOrWhiteSpace(src.Rationale) ? "remembered: the local model's answer on an earlier run for " + _key : src.Rationale,
             SourceDoc = src.SourceDoc,
-            Source = src.Source,
+            Source = "cache",
         };
 
         public void Dispose() => (_llm as IDisposable)?.Dispose();
