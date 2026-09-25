@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the Ghost trio's standards (cohesion phase 4b-2): ArtefactClient's per-call cap and
+       GhostStandards - layers@n, guideline@n and type_catalog@n resolved together for one project, each
+       labelled, none named. It talks only to throwaway loopback "bridges" and points the cache root at a temp
+       folder; nothing touches AppData or the running bridge. No Revit API; `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ghost-standards-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostStandards.cs" />
+  </ItemGroup>
+</Project>
