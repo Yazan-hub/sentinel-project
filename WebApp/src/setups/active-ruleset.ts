@@ -2,6 +2,7 @@ import type { Ruleset } from "../sentinel-core";
 import { applyOrg } from "../sentinel-core/org-names";
 import { activePid } from "./active-project";
 import { bfetch } from "./bridge-fetch";
+import { canGovernRole } from "./my-role";
 
 /**
  * The project's standards as the bridge resolves them (artefact store: project → office → none). Every
@@ -52,6 +53,26 @@ export async function installArtefact(baseUrl: string, key: string, kind: string
   if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
   return j;
 }
+
+/** Install a picked .json file as `kind@n+1` on `key` — Project Settings ▸ Standards in force ▸ Install JSON…
+ *  (spec 2026-09-25 standards 4b, decision 11). The file must hold one JSON object: the artefact body as it is.
+ *  A top-level `source` or `installed_by` is refused before anything is sent: the install route lifts both out
+ *  of the body into the pointer (bcf-service.mjs, PUT /cde/:key/artefacts/:kind), so the body installed — and
+ *  its sha — would not be the file's (a type catalogue's harvest names its template `template`, decision 4).
+ *  The file name goes into the pointer's provenance. Throws with the local reason, or with the bridge's message
+ *  when it refuses the body (validateArtefact) or the caller's role. */
+export async function installArtefactFile(baseUrl: string, key: string, kind: string, fileName: string, text: string, actor: string): Promise<{ kind: string; version: number; sha256: string }> {
+  let body: unknown;
+  try { body = JSON.parse(text); } catch (e) { throw new Error(`${fileName} is not JSON — ${(e as Error).message}`); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error(`${fileName} must hold one JSON object: the ${kind} body`);
+  const lifted = ["source", "installed_by"].find((k) => k in body);
+  if (lifted) throw new Error(`${fileName} has a top-level "${lifted}", which the install reads as provenance and drops from the body — rename it (a type catalogue names its template "template") and pick the file again`);
+  return installArtefact(baseUrl, key, kind, { ...body, source: { file: fileName, uploaded_at: new Date().toISOString() } }, actor);
+}
+
+/** Who gets "Install JSON…" in Standards in force: a lead or owner (the bridge refuses anyone else) on a chosen
+ *  project — never on "default", the key the app falls back to when no project is chosen (active-project.ts). */
+export const canInstallArtefacts = (role: string, key: string): boolean => canGovernRole(role) && key !== "default";
 
 /** The scan ruleset in force for the ACTIVE project, or null when none is installed there or on its office.
  *  `ruleset` is the body with "{org}" expanded (applyOrg — judged exactly as the add-in judges); `removed`
