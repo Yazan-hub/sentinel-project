@@ -313,8 +313,16 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     expect(validateArtefact("layers", readRepoJson("config/base-standard/layers.json"))).toBe(true);
     expect(validateArtefact("layers", readRepoJson("demo/bds-pilot/bds-layers.json"))).toBe(true);
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-guideline.json"))).toBe(true);
-    const { source, ...harvest } = readRepoJson("demo/bds-pilot/bds-type-catalog.json");   // the harvest's source becomes template
-    expect(validateArtefact("type_catalog", { ...harvest, template: { title: source } })).toBe(true);
+    expect(validateArtefact("type_catalog", readRepoJson("demo/bds-pilot/bds-type-catalog.json"))).toBe(true);
+    expect(validateArtefact("type_catalog", readRepoJson("demo/aster/aster-type-catalog.json"))).toBe(true);
+  });
+  it("the type-catalogue fixtures carry the harvest's title under template, never a top-level source the install route strips", () => {
+    for (const f of ["demo/bds-pilot/bds-type-catalog.json", "demo/aster/aster-type-catalog.json"]) {
+      const c = readRepoJson(f);
+      expect(c).not.toHaveProperty("source");
+      expect(c.template.title).toEqual(expect.any(String));
+      expect(c.types).toHaveLength(c.count);
+    }
   });
   it("accepts well-formed bodies; optional fields may be absent or null; extra fields stay", () => {
     expect(validateArtefact("contract", contract)).toBe(true);

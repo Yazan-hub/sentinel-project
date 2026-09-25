@@ -1,6 +1,8 @@
 {
-  "source": "BDS_Project Number_Project Name (Template)",
-  "extracted_at": "2026-07-23T18:02:04.2218359+02:00",
+  "template": {
+    "title": "BDS_Project Number_Project Name (Template)",
+    "extracted_at": "2026-07-23T18:02:04.2218359+02:00"
+  },
   "count": 1434,
   "types": [
     {
