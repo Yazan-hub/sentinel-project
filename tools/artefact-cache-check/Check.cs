@@ -42,7 +42,7 @@ static class Check
             }
             finally { l.Stop(); }
         });
-        return (t, url);
+        return (t.WaitAsync(TimeSpan.FromSeconds(10)), url); // a client that never connects fails the check instead of hanging it
     }
 
     static int Main()
@@ -149,13 +149,13 @@ static class Check
         Ok(junk.Origin == "none" && junk.Label.StartsWith("none — the bridge answered 200 without"), "a 200 without provenance is not trusted");
 
         var gone = ArtefactClient.Interpret("aster-tower", "ruleset", 404, "{\"message\":\"no ruleset artefact installed for aster-tower or its office\",\"reason\":\"not_installed\"}", cached, now);
-        Ok(gone.Origin == "none" && gone.Label == "none — not installed for aster-tower or its office", "404 not_installed → none");
+        Ok(gone.Origin == "none" && gone.NotInstalled && gone.Label == "none — not installed for aster-tower or its office", "404 not_installed → none, flagged NotInstalled");
         Ok(ArtefactCache.Read("aster-tower", "ruleset") is null, "404 not_installed → the stale copy is cleared");
         ArtefactCache.Write("ghost", "ids", new CachedArtefact { Kind = "ids", Ref = "ids@1", Source = "project", Sha256 = Sha, BodyJson = "{}", FetchedAt = now });
         var noProj = ArtefactClient.Interpret("ghost", "ids", 404, "{\"message\":\"unknown project\",\"reason\":\"no_project\"}", ArtefactCache.Read("ghost", "ids"), now);
         Ok(noProj.Label == "none — no project ghost on the bridge" && ArtefactCache.Read("ghost", "ids") is null, "404 no_project → none, copy cleared");
         Ok(ArtefactClient.Interpret("k", "banana", 404, "{\"reason\":\"unknown_kind\"}", null, now).Label == "none — the bridge does not know the kind 'banana'", "404 unknown_kind → none");
-        Ok(ArtefactClient.Interpret("k", "ruleset", 404, "<html>", null, now).Label == "none — the bridge answered HTTP 404", "a 404 without a reason is not read as 'not installed'");
+        Ok(ArtefactClient.Interpret("k", "ruleset", 404, "<html>", null, now) is { Label: "none — the bridge answered HTTP 404", NotInstalled: false }, "a 404 without a reason is not read as 'not installed'");
 
         // ── 4. the real round trip: GET, bearer, If-None-Match from the cache, 304, then no bridge at all ────
         var (req1, url1) = Serve(200, "OK", Answer200());

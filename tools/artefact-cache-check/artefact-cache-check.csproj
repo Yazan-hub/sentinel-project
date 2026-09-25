@@ -19,6 +19,7 @@
     <Compile Include="..\..\SentinelAddin\Coordination\GovernedQuery.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\OrgNames.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RuleRegex.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.Revit.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\HealthScorecard.cs" />

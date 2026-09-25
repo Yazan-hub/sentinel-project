@@ -336,7 +336,7 @@ public static class StandardsBuilder
                 lines.Add($"✗ Ruleset NOT installed on {key}: the bridge did not answer ({cur.Label}). A cached copy is never the base of an install — the model was built; run Apply again when the bridge is up.");
                 return lines;
             }
-            bool nothingInstalled = cur.Origin == "none" && (cur.Reason ?? "").StartsWith("not installed", StringComparison.Ordinal);
+            bool nothingInstalled = cur.NotInstalled;
             if (cur.Origin == "none" && !nothingInstalled)
             {
                 lines.Add($"✗ Ruleset NOT installed on {key}: {cur.Label}");

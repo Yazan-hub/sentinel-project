@@ -48,9 +48,9 @@ public static class RulesetMerge
                 ["rules"] = new JsonArray(),
             }
             : JsonNode.Parse(rawBodyJson!) as JsonObject ?? throw new FormatException("the installed ruleset body is not a JSON object");
+        if (body["rules"] is not JsonArray rules) body["rules"] = rules = new JsonArray();
         string before = fresh ? "" : CanonicalJson.Of(body.ToJsonString());
         var res = new Result();
-        if (body["rules"] is not JsonArray rules) body["rules"] = rules = new JsonArray();
 
         if (worksets.Count > 0)
         {

@@ -147,7 +147,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
         // Every line names what judged, from the bridge's answer — never from a local file.
         var idsLine = judged
             ? $"IDS {verdict.IdsLabel}: {verdict.Passing}/{verdict.InScope} in-scope element checks passed" +
-              (verdict.Warned ? $" — {verdict.Failing} failure(s) kept as warnings (enforce: {verdict.IdsEnforce})." : ".")
+              (verdict.Warned ? $" — {verdict.Failing} failure(s) kept as warnings (enforce: {verdict.IdsEnforce ?? "not reported"})." : ".")
             : $"IDS: none — no IDS installed for {projectKey} or its office. The model was NOT judged.";
         var namingLine = verdict.NamingRef is null
             ? "Naming: not judged — no naming standard installed."

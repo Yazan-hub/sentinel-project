@@ -130,7 +130,14 @@ public sealed class App : IExternalApplication
         ReloadRuleset(doc); // the baseline scan runs when the document's ruleset@n has landed
     }
 
-    private static void OnDocumentClosing(object? sender, DocumentClosingEventArgs e) => Engine?.Forget(e.Document);
+    private static void OnDocumentClosing(object? sender, DocumentClosingEventArgs e)
+    {
+        Engine?.Forget(e.Document);
+        ReloadSeq.Remove(e.Document);
+    }
+
+    // The latest reload per document (API thread only): an older GET that lands late never overwrites a newer one.
+    private static readonly Dictionary<Document, int> ReloadSeq = new();
 
     /// <summary>Resolve the document's ruleset@n (project → office → none) and judge the document by it. The
     /// key is read here (Extensible Storage: API thread); the GET runs on a background task (≤ 4 s, never the UI
@@ -139,9 +146,11 @@ public sealed class App : IExternalApplication
     {
         if (doc.IsFamilyDocument || Engine is not { } engine || Events is not { } events) return;
         var key = ProjectContext.For(doc).Key;
+        var seq = ReloadSeq[doc] = ReloadSeq.TryGetValue(doc, out var last) ? last + 1 : 1;
         Task.Run(() => RulesetStore.Load(key)).ContinueWith(t => events.Enqueue(_ =>
         {
             if (!doc.IsValidObject) return;              // closed while the ruleset was in flight
+            if (!ReloadSeq.TryGetValue(doc, out var latest) || latest != seq) return; // a newer reload is in flight or landed
             if (ProjectContext.For(doc).Key != key) return; // rebound meanwhile: the newer reload installs its ruleset
             var (rs, src, note) = t.Result;              // Load never throws
             engine.Set(doc, (rs, src));

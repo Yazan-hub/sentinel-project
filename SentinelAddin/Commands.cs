@@ -21,6 +21,11 @@ public sealed class ScanNowCommand : IExternalCommand
     {
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null || App.Engine is null || App.PanelVm is null) return Result.Cancelled;
+        if (doc.IsFamilyDocument)
+        {
+            TaskDialog.Show("Sentinel — Scan Now", "A family document is not scanned — only project documents are judged by their project's ruleset.");
+            return Result.Cancelled;
+        }
         // Re-resolve the document's ruleset@n first (an unchanged one is a cheap 304), then scan by it: the
         // scan and the strip land on the API thread once the GET returns.
         App.ReloadRuleset(doc);
@@ -70,7 +75,7 @@ public sealed class ScorecardCommand : IExternalCommand
         if (doc is null || App.Engine is null) return Result.Cancelled;
         var card = Sentinel.Engine.HealthScorecard.Build(App.Engine.ScanFull(doc));
         TaskDialog.Show("Sentinel — Health Scorecard",
-            Sentinel.Engine.HealthScorecard.Render(card));
+            "Judged by " + App.Engine.SourceFor(doc).Label + "\n\n" + Sentinel.Engine.HealthScorecard.Render(card));
         return Result.Succeeded;
     }
 }

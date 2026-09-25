@@ -20,8 +20,8 @@ public partial class SettingsDialog : Window
         _current = SettingsManager.Resolve(doc);
         TemplatePathBox.Text = _current.RevitTemplatePath;
         // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
-        // into a document fact — CDE-01 reads ProjectCode from the document only. No document → the machine's.
-        ProjectCodeBox.Text = doc is null ? _current.ProjectCode : SettingsManager.LoadFromDocument(doc)?.ProjectCode ?? "";
+        // into a document fact — CDE-01 reads ProjectCode from the document only, so a machine has none to show.
+        ProjectCodeBox.Text = doc is null ? "" : SettingsManager.LoadFromDocument(doc)?.ProjectCode ?? "";
         GhostFolderBox.Text = _current.GhostSourceFolder;
         // The DOCUMENT's key only (never the merged machine value): saving at project scope can then never copy
         // a machine key into a model the user did not bind.
@@ -38,14 +38,15 @@ public partial class SettingsDialog : Window
         LoadWebProjects();
     }
 
-    /// <summary>The web project binds a DOCUMENT (Extensible Storage); a machine has none. At machine scope the
-    /// box is disabled and the save leaves every document's binding alone.</summary>
+    /// <summary>The web project and the project code belong to a DOCUMENT (Extensible Storage); a machine has
+    /// neither. At machine scope both boxes are disabled and the save leaves every document's values alone.</summary>
     private void SyncWebProjectScope()
     {
         var machine = ScopeMachine.IsChecked == true;
         WebProjectBox.IsEnabled = !machine;
+        ProjectCodeBox.IsEnabled = !machine;
         WebProjectScopeNote.Text = machine
-            ? "Machine scope does not bind a model — pick \"Current project\" to set this model's web project."
+            ? "Machine scope does not bind a model or set its project code — pick \"Current project\" to set them."
             : "";
     }
 
@@ -153,9 +154,8 @@ public partial class SettingsDialog : Window
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
             settings.RevitTemplatePath = template;
-            settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
-            settings.PublishLinkedModels = linkedModels; // no WebProjectKey: a machine binds no project
+            settings.PublishLinkedModels = linkedModels; // no WebProjectKey or ProjectCode: both are document facts
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // machine settings never pick the ruleset

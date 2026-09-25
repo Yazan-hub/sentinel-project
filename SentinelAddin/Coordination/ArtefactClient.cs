@@ -17,6 +17,7 @@ namespace Sentinel.Coordination
         public string? Ref, Source, Sha256, BodyJson;
         public string Origin = "none"; // bridge | cache | none
         public string? Reason;
+        public bool NotInstalled;       // none because the bridge said 404 not_installed (nothing on the project or its office)
         public DateTime? FetchedAt;     // UTC; set for bridge and cache
         public string Label = "";
     }
@@ -97,7 +98,9 @@ namespace Sentinel.Coordination
             if (status == 404 && reason == "not_installed")
             {
                 ArtefactCache.Clear(key, kind);
-                return None(kind, $"not installed for {key} or its office");
+                var none = None(kind, $"not installed for {key} or its office");
+                none.NotInstalled = true;
+                return none;
             }
             if (status == 404 && reason == "no_project")
             {

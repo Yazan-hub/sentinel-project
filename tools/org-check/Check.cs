@@ -97,6 +97,12 @@ static class Check
         }
         var nulDocRefs = RulesetStore.FromBody("{\"standard_key\":\"x\",\"semver\":\"1.0.0\",\"org\":\"X\",\"doc_refs\":null,\"rules\":[{\"id\":\"A\",\"target\":\"view\",\"mode\":\"warn\"}]}", out _, out var ed);
         Ok(nulDocRefs.StandardKey == "none" && ed is not null, "doc_refs = null → none with the reason");
+        // A regex the bridge never compiles would throw in every scan: it loads as none, the reason naming the rule.
+        foreach (var (field, val) in new[] { ("token_defs", "{\"T\":\"[A-\"}"), ("exclusions", "[\"(\"]") })
+        {
+            var rx = RulesetStore.FromBody("{\"standard_key\":\"x\",\"semver\":\"1.0.0\",\"org\":\"X\",\"rules\":[{\"id\":\"VN-09\",\"target\":\"view\",\"mode\":\"warn\",\"tokens\":[\"T\"],\"" + field + "\":" + val + "}]}", out _, out var er);
+            Ok(rx.StandardKey == "none" && rx.Rules.Count == 0 && er is not null && er.Contains("VN-09") && er.Contains("regex"), $"an invalid {field} regex → none, the reason names the rule");
+        }
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
