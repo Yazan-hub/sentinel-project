@@ -29,7 +29,9 @@ if (!res.ok) { console.error(`HTTP ${res.status}: ${r.message || JSON.stringify(
 const line = (k, v) => console.log(`${k.padEnd(14)} ${v ?? "—"}`);
 line("verdict", `${String(r.verdict).toUpperCase()} (${r.stage})`);
 line("file", `${q.get("name")} · ${r.size} bytes · sha ${String(r.sha256).slice(0, 16)}…`);
-line("gate", `${r.gate?.passed ? "PASS" : "FAIL"} · contract ${r.gate?.contract_key} · ${r.gate?.detected_schema} · ${r.gate?.total_entities} entities`);
+// PASS | FAIL | NOT CHECKED · contract@n · source · sha — or the none label (spec 2026-09-25 4b).
+const g = r.gate || {};
+line("gate", [{ pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }[g.result] ?? "—", g.contract_label, g.detected_schema, g.total_entities != null && `${g.total_entities} entities`].filter(Boolean).join(" · "));
 for (const f of r.gate?.failures || []) line("  gate ✗", f);
 for (const w of r.gate?.warnings || []) line("  gate !", w);
 if (r.naming) line("naming", r.naming.ok ? "ok" : `✗ ${(r.naming.errors || r.naming.failures || []).map((e) => e.reason ?? e.message ?? JSON.stringify(e)).join("; ")}`);

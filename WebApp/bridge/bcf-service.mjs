@@ -1129,13 +1129,14 @@ async function handleRequest(req, res) {
         const q = (k) => url.searchParams.get(k) || undefined;
         const agent = (q("agent_model") || q("agent_tool") || q("agent_prompt_sha256")) ? { kind: "agent", model: q("agent_model"), tool: q("agent_tool"), prompt_sha256: q("agent_prompt_sha256") } : undefined;
         const { runIntake } = await import("./intake-logic.mjs");
-        const { checkDelivery, loadDefaultContract } = await import("./delivery-gate.mjs");
+        const { checkDelivery, gateNotChecked } = await import("./delivery-gate.mjs");
         const { extractElements } = await import("./ifc-extract.mjs");
         const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
         const art = await import("./artefact-store.mjs");
         const deps = {
-          loadContract: async (key) => (await art.getArtefact(key, "contract"))?.body || loadDefaultContract(),
-          checkDelivery, extractElements,
+          // project → office → none, re-checked (spec 2026-09-25 4b decision 6): the office's contract judges intake as it judges Revit.
+          loadContract: (key) => art.resolveContract(key),
+          checkDelivery, gateNotChecked, extractElements,
           adjudicate: (key, body) => cde.adjudicateProposal(key, body),
           // Best-effort, same as the /propose route: a BCF hiccup after the verdict is already on the
           // ledger must not 500 the whole intake and drop the caller's audit_id/receipt.

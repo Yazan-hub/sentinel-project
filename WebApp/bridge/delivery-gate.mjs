@@ -1,12 +1,9 @@
 // IFC delivery gate — the Node port of SentinelAddin/Engine/IfcDeliveryGate.cs, so a file that never
 // passed through Revit gets the same contract check with the same sentences. A single pass over the
 // STEP text (no web-ifc): entity counts, pset and property names, schema, georeference, SHA-256.
+// There is no default contract (spec 2026-09-25 4b decision 3): the project or its office installs contract@n,
+// and without one the gate is NOT CHECKED (gateNotChecked) — never a pass on a contract nobody installed.
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 /** IFC subtypes that satisfy a contract's required entity (Revit writes every basic wall as
  *  IFCWALLSTANDARDCASE — found live, F25). Mirrors IfcDeliveryGate.Subtypes; the test asserts it. */
@@ -43,8 +40,20 @@ export function countWithSubtypes(counts, entity) {
   return n;
 }
 
-export function loadDefaultContract() {
-  return JSON.parse(readFileSync(resolve(here, "delivery-contract.json"), "utf8"));
+/**
+ * No contract installed for the project or its office: nothing is judged and nothing passes (result
+ * "not_checked", passed null). The file's sha256 and size are still computed — the version registration uses
+ * them — and its schema is still reported; entities are not read. `reason` is the none label the caller shows.
+ */
+export function gateNotChecked(input, reason) {
+  const buf = typeof input === "string" ? Buffer.from(input, "utf8") : Buffer.from(input);
+  // ponytail: FILE_SCHEMA is in the STEP HEADER at the top of the file; the first 64 KB always hold it.
+  const m = SCHEMA_RX.exec(buf.subarray(0, 1 << 16).toString("utf8"));
+  return {
+    result: "not_checked", passed: null, reason, contract_key: null, detected_schema: m ? m[1].toUpperCase() : "",
+    total_entities: null, entity_counts: {}, failures: [], warnings: [],
+    sha256: createHash("sha256").update(buf).digest("hex"), size: buf.length,
+  };
 }
 
 /**
@@ -87,14 +96,15 @@ const pctF0 = (x) => String(roundHalfEvenExact(x, 1));
 const pctP0 = (ratio) => String(roundHalfEvenExact(ratio, 100));
 
 /**
- * Check IFC bytes (or text) against a delivery contract. Never throws on a bad file — an unparsable
- * file fails with the same sentence the C# gate uses.
+ * Check IFC bytes (or text) against an installed delivery contract — validated at install (artefact-store
+ * validateArtefact): every field is present, so nothing here fills a default. Never throws on a bad file — an
+ * unparsable file fails with the same sentence the C# gate uses. result: "pass" | "fail".
  */
 export function checkDelivery(input, contract) {
   const buf = typeof input === "string" ? Buffer.from(input, "utf8") : Buffer.from(input);
   const text = buf.toString("utf8");
   const r = {
-    passed: false, contract_key: contract?.contract_key || "", detected_schema: "", total_entities: 0,
+    result: "fail", passed: false, contract_key: contract.contract_key, detected_schema: "", total_entities: 0,
     entity_counts: {}, failures: [], warnings: [],
     sha256: createHash("sha256").update(buf).digest("hex"), size: buf.length,
   };
@@ -124,30 +134,30 @@ export function checkDelivery(input, contract) {
     }
   }
 
-  const want = String(contract?.ifc_schema || "");
+  const want = contract.ifc_schema;
   if (want && r.detected_schema && !r.detected_schema.toUpperCase().startsWith(want.toUpperCase()))
     r.failures.push(`Schema mismatch: contract requires ${want}, file is ${r.detected_schema}.`);
 
-  for (const req of contract?.required_entities || []) {
+  for (const req of contract.required_entities) {
     const count = countWithSubtypes(r.entity_counts, req.entity);
-    if (count < (req.min_count ?? 1)) r.failures.push(`${req.entity}: ${count} found, contract requires ≥ ${req.min_count ?? 1}.`);
+    if (count < req.min_count) r.failures.push(`${req.entity}: ${count} found, contract requires ≥ ${req.min_count}.`);
   }
 
   let buildingElements = 0;
   for (const [k, v] of Object.entries(r.entity_counts)) if (BUILDING.has(k)) buildingElements += v;
-  for (const lim of contract?.forbidden_entities || []) {
+  for (const lim of contract.forbidden_entities) {
     const count = r.entity_counts[String(lim.entity).toUpperCase()] || 0;
-    const maxCount = lim.max_count ?? 0, maxRatio = lim.max_ratio ?? 1;
-    if (count > maxCount) r.failures.push(`${lim.entity}: ${count} exceeds max ${maxCount}.`);
-    else if (buildingElements > 0 && count / buildingElements > maxRatio)
-      r.failures.push(`${lim.entity}: ${count}/${buildingElements} building elements (${pctF0(100 * count / buildingElements)}%) exceeds ${pctP0(maxRatio)}% — semantics are being lost to proxies.`);
+    if (count > lim.max_count) r.failures.push(`${lim.entity}: ${count} exceeds max ${lim.max_count}.`);
+    else if (buildingElements > 0 && count / buildingElements > lim.max_ratio)
+      r.failures.push(`${lim.entity}: ${count}/${buildingElements} building elements (${pctF0(100 * count / buildingElements)}%) exceeds ${pctP0(lim.max_ratio)}% — semantics are being lost to proxies.`);
   }
 
-  for (const p of contract?.required_psets || []) if (!psets.has(String(p).toLowerCase())) r.failures.push(`Required property set '${p}' not found in the file.`);
-  for (const p of contract?.required_properties || []) if (!props.has(String(p).toLowerCase())) r.failures.push(`Required property '${p}' not found in the file.`);
-  if (contract?.require_georeference && !sawGeoref) r.warnings.push("No georeference detected on IFCSITE (RefLatitude/RefLongitude).");
+  for (const p of contract.required_psets) if (!psets.has(String(p).toLowerCase())) r.failures.push(`Required property set '${p}' not found in the file.`);
+  for (const p of contract.required_properties) if (!props.has(String(p).toLowerCase())) r.failures.push(`Required property '${p}' not found in the file.`);
+  if (contract.require_georeference && !sawGeoref) r.warnings.push("No georeference detected on IFCSITE (RefLatitude/RefLongitude).");
   if (r.total_entities === 0) r.failures.push("No IFC entities parsed — file may be corrupt or IFCZIP (not yet supported).");
 
   r.passed = r.failures.length === 0;
+  r.result = r.passed ? "pass" : "fail";
   return r;
 }

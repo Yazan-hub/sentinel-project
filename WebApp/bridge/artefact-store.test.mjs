@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { canonical } from "./artefact-store.mjs";
-import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply } from "./artefact-store.mjs";
+import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply, resolveContract } from "./artefact-store.mjs";
 
 // Only the default wiring (a test that omits docInsert/docUpsert) reaches this mock; memDeps tests never import cde-store.
 const cdeMock = vi.hoisted(() => ({
@@ -394,5 +394,36 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     await expect(putArtefact("p", "contract", { ...contract, ifc_schema: "IFC4X3" }, { actor: "x" }, d)).rejects.toMatchObject({ status: 400, message: "contract: ifc_schema must be IFC2X3 | IFC4" });
     expect(d.docs.size).toBe(0);
     expect(d.audits).toHaveLength(0);
+  });
+});
+
+describe("resolveContract — what judges Governed Intake: project → office → none, re-checked", () => {
+  const shaOf = (o) => createHash("sha256").update(canonical(o)).digest("hex");
+  it("none names the key and its office and carries no body", async () => {
+    expect(await resolveContract("aster-villa", memDeps({ parentKey: "aster-office" }))).toEqual({
+      body: null, ref: null, source: null, sha256: null,
+      label: "none — not installed for aster-villa or its office", reason: "not installed for aster-villa or its office",
+    });
+  });
+  it("the office's contract judges a project that has none; the project's own outranks it", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    await putArtefact("aster-office", "contract", contract, { actor: "x" }, d);
+    expect(await resolveContract("aster-villa", d)).toEqual({
+      body: contract, ref: "contract@1", source: "office", sha256: shaOf(contract),
+      label: `contract@1 · office · ${shaOf(contract).slice(0, 12)}…`, reason: null,
+    });
+    const own = { ...contract, ifc_schema: "IFC2X3" };
+    await putArtefact("aster-villa", "contract", own, { actor: "x" }, d);
+    expect(await resolveContract("aster-villa", d)).toMatchObject({ body: own, ref: "contract@1", source: "project", sha256: shaOf(own) });
+  });
+  it("a body installed before the validator existed is none with its reason, never a partial contract", async () => {
+    const d = memDeps();
+    await putArtefact("p", "contract", contract, { actor: "x" }, d);
+    const old = { contract_key: "old", ifc_schema: "" };                    // what "any object" let in before 4b-1
+    d.docs.get("artefact|uuid-p|contract@1").body = old;
+    const r = await resolveContract("p", d);
+    expect(r).toMatchObject({ body: null, ref: null, source: null, sha256: null });
+    expect(r.reason).toBe(`contract@1 · project · ${shaOf(old).slice(0, 12)}… did not parse: contract: ifc_schema must be IFC2X3 | IFC4`);
+    expect(r.label).toBe(`none — ${r.reason}`);
   });
 });

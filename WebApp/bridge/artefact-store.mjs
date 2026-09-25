@@ -267,6 +267,20 @@ export async function artefactReply(key, kind, ifNoneMatch, deps) {
 export const refLabel = ({ ref, source, sha256: sha } = {}) => [ref, source, sha && `${sha.slice(0, 12)}…`].filter(Boolean).join(" · ") || "none";
 
 /**
+ * The contract that judges `key` (Governed Intake; spec 2026-09-25 4b decision 6): the project's contract@n →
+ * its office's → none, as resolveArtefact. The body is re-checked with the install validator, so one installed
+ * before the validator existed (any object was accepted) is none with its reason — never a partial contract.
+ * `label` is what every surface prints: "contract@1 · office · 3f0737600a1b…" or "none — <reason>".
+ */
+export async function resolveContract(key, deps) {
+  const a = await resolveArtefact(key, "contract", deps);
+  const none = (reason) => ({ body: null, ref: null, source: null, sha256: null, label: `none — ${reason}`, reason });
+  if (a.source === "none") return none(`not installed for ${key} or its office`);
+  try { validateArtefact("contract", a.body); } catch (e) { return none(`${refLabel(a)} did not parse: ${e.message}`); }
+  return { body: a.body, ref: a.ref, source: a.source, sha256: a.sha256, label: refLabel(a), reason: null };
+}
+
+/**
  * The IDS a judge must use for `key`: project → office (resolveArtefact) → client → none. Returns the spec
  * and its provenance; `client_ids_ignored` is true when a client sent one but an installed artefact outranked it.
  */

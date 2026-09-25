@@ -27,15 +27,19 @@ export async function runIntake(deps, rawInput) {
   const input = validateIntakeInput(rawInput);
   const { key, name, bytes, source, actor, revision, note, agent } = input;
 
-  // G2 — delivery gate (the contract the project or the bridge default names).
+  // G2 — delivery gate: the project's contract@n, else its office's (deps.loadContract = resolveContract). None
+  // judges nothing: the gate is NOT CHECKED, never a pass, and the flow goes on to the IDS (spec 2026-09-25 4b
+  // decisions 2 and 6). `passed` is true | false | null — null is not checked, never read as a pass or a fail.
   const contract = await deps.loadContract(key);
-  const gate = await deps.checkDelivery(bytes, contract);
-  const gateRow = { file: name, passed: gate.passed, contract: gate.contract_key, schema: gate.detected_schema, entities: gate.total_entities, failures: gate.failures.length, sha256: gate.sha256, source };
+  const checked = contract.body ? await deps.checkDelivery(bytes, contract.body) : await deps.gateNotChecked(bytes, contract.label);
+  const gate = { ...checked, contract_ref: contract.ref, contract_source: contract.source, contract_sha256: contract.sha256, contract_label: contract.label };
+  const notChecked = gate.result === "not_checked";
+  const gateRow = { file: name, result: gate.result, passed: gate.passed, contract: gate.contract_key, contract_ref: gate.contract_ref, contract_source: gate.contract_source, contract_sha256: gate.contract_sha256, schema: gate.detected_schema, entities: gate.total_entities, failures: gate.failures.length, sha256: gate.sha256, source };
   // deps.audit is 4-arg here: (key, message, actor, value) — entity_type/entity_id are the wiring
   // adapter's job (see task-5-brief.md), not this module's; the real cde.audit takes 7 args.
-  await deps.audit(key, `IFC delivery gate ${gate.passed ? "PASS" : "FAIL"}: ${name}`, actor, gateRow);
+  await deps.audit(key, `IFC delivery gate ${{ pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }[gate.result]}: ${name}`, actor, gateRow);
   const base = { gate, sha256: gate.sha256, size: gate.size, naming: null, summary: null, failures: [], ids_source: null, ids_ref: null, ids_enforce: null, warned: false, audit_id: null, receipt: null, published: false };
-  if (!gate.passed) return { ...base, verdict: "rejected", stage: "gate" };
+  if (gate.result === "fail") return { ...base, verdict: "rejected", stage: "gate" };
 
   // G1 + G3 — the referee: naming gate on the container name, IDS on the extracted elements.
   const extracted = await deps.extractElements(bytes);
@@ -61,9 +65,14 @@ export async function runIntake(deps, rawInput) {
   // and is published as "recorded", never "accepted" (honesty rule; final review of 2026-09-23).
   const nothingInScope = result.verdict === "accepted" && result.summary && result.summary.in_scope === 0;
   const verdict = nothingInScope ? "recorded" : result.verdict; // "accepted" or "recorded"
+  // The note says what judged: the gate alone, the IDS alone, or nothing at all (no contract and no IDS).
+  const unchecked = `the delivery gate was not checked (contract: ${gate.contract_label})`;
+  const scope = `IDS ${result.ids_ref ?? ""} is installed but no element was in its scope (${extracted.counts?.elements ?? 0} read, ${extracted.counts?.skipped ?? 0} skipped)`.replace("IDS  is", "IDS is");
   const noteLine = nothingInScope
-    ? `IDS ${result.ids_ref ?? ""} is installed but no element was in its scope (${extracted.counts?.elements ?? 0} read, ${extracted.counts?.skipped ?? 0} skipped) — published on the delivery-gate pass alone.`.replace("IDS  is", "IDS is")
-    : verdict === "recorded" ? "No project IDS installed — published on the delivery-gate pass alone." : undefined;
+    ? (notChecked ? `${scope} and ${unchecked} — nothing was judged.` : `${scope} — published on the delivery-gate pass alone.`)
+    : verdict === "recorded"
+      ? (notChecked ? `No contract and no IDS installed for ${key} or its office — nothing was judged.` : "No project IDS installed — published on the delivery-gate pass alone.")
+      : notChecked ? `The IDS judged alone — ${unchecked}.` : undefined;
   const bcf = shouldRaiseBcf ? await deps.raiseBcf(key, result, { author: actor }) : undefined;
   let upload;
   try { upload = await deps.uploadIfc(bytes, name, revision || "v1"); }
