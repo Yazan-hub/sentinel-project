@@ -119,6 +119,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         TaskDialog.Show("Sentinel — IFC Delivery Gate",
             Sentinel.Engine.GateLines.GateDialog(r, projectKey) +
             (projectKey.Length == 0 ? "\n\nNot recorded on the web: " + Sentinel.Engine.ProjectContext.NotBound
-                                    : "\n\nRecorded on project '" + projectKey + "'."));
+                                    // The audit POST is fire-and-forget: say "sent", never "recorded" (B6: bridge stopped).
+                                    : "\n\nSent to the audit trail of project '" + projectKey + "' (not confirmed — the gate does not wait for the bridge)."));
     }
 }
