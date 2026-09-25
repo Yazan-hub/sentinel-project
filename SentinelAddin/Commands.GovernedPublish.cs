@@ -162,6 +162,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
             idsLine + "\n" +
             namingLine + "\n" +
             Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" +
+            (judged && gate.Outcome == Sentinel.Engine.GateOutcome.NotChecked ? Sentinel.Engine.GateLines.JudgedAlone(gate) + "\n" : "") +
             "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n\n" +
             (judged
                 ? "The Sentinel bridge uploads the geometry; the coordinator sees the new version with a ✓ verdict " +

@@ -120,6 +120,10 @@ static class Check
         Refused(Good.Replace("[\"FireRating\"]", "\"FireRating\""), "required_properties must be an array", "required_properties not an array");
         Refused(Good.Replace("\"require_georeference\":true", "\"require_georeference\":\"true\""), "require_georeference must be true or false", "require_georeference as text");
         Refused(Good.Replace("\"schema_version\":1", "\"schema_version\":1.5"), "schema_version must be an integer", "a fractional schema_version");
+        // One blank set and one int range with the bridge's validateArtefact (artefact-store.test.mjs pins the Node side).
+        Refused(Good.Replace("\"gate-check\"", "\"\\u0085\""), "contract_key must be a non-empty string", "a NEL-only contract_key (blank on both sides)");
+        Refused(Good.Replace("\"gate-check\"", "\"\\uFEFF\""), "contract_key must be a non-empty string", "a BOM-only contract_key (blank on both sides)");
+        Refused(Good.Replace("\"schema_version\":1", "\"schema_version\":2147483648"), "schema_version must be an integer", "a schema_version past int range");
 
         // ── 3. what Load hands the gate: a contract with its source, or none with the reason ──────────────
         var ok = DeliveryContract.FromResolved(Installed(Good));

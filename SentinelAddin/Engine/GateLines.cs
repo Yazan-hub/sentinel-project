@@ -31,6 +31,11 @@ public static class GateLines
     /// bridge-unreachable dialog.</summary>
     public static string PublishLine(GateResult r, string projectKey) => "Delivery gate: " + Verdict(r, projectKey);
 
+    /// <summary>Governed Publish's accept dialog when the IDS accepted and no contract judged: intake's note, word for
+    /// word (amendment A3).</summary>
+    public static string JudgedAlone(GateResult r) =>
+        "The IDS judged alone — the delivery gate was not checked (contract: " + r.ContractLabel + ").";
+
     /// <summary>The IFC Delivery Gate's first dialog. It names the contract that will judge (never a machine path)
     /// and says what an export produces. <paramref name="contractSchema"/> is null when no contract is in force.</summary>
     public static string Intro(string? contractSchema, string contractLabel) =>

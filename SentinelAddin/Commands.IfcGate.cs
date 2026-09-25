@@ -69,7 +69,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         var save = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Export IFC deliverable",
-            Filter = (schema == "IFC4" ? "IFC4" : "IFC 2x3") + " (*.ifc)|*.ifc",
+            Filter = (string.Equals(schema, "IFC4", StringComparison.OrdinalIgnoreCase) ? "IFC4" : "IFC 2x3") + " (*.ifc)|*.ifc",
             FileName = Path.GetFileNameWithoutExtension(doc.Title) + ".ifc",
         };
         if (Sentinel.UI.DialogOwner.ShowFileDialog(save, c.Application) != true) return Result.Cancelled;

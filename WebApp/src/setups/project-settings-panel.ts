@@ -245,10 +245,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".json,application/json";
-    input.style.display = "none";
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
-      input.remove();
       if (!file) return;
       try {
         const who = await currentUser().then((u) => u?.email || "web", () => "web");
@@ -258,8 +256,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
       }
     });
-    document.body.appendChild(input);
-    input.click();
+    input.click(); // detached: a cancelled pick fires no change event and leaves nothing in the page
   }
 
   async function load() {

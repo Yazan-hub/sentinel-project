@@ -130,8 +130,10 @@ public sealed class DeliveryContract
         return v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : throw Bad(name, "must be an array");
     }
 
+    // Blank as the bridge's filled() reads it: char.IsWhiteSpace plus U+FEFF, which JS \s has and .NET does not (the
+    // bridge adds U+0085 for the other direction).
     private static string Text(JsonElement v, string path) =>
-        v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()! : throw Bad(path, "must be a non-empty string");
+        v.ValueKind == JsonValueKind.String && v.GetString()!.Any(ch => !char.IsWhiteSpace(ch) && ch != '﻿') ? v.GetString()! : throw Bad(path, "must be a non-empty string");
 
     private static List<string> Names(JsonElement o, string name)
     {

@@ -346,6 +346,9 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     ["require_georeference", { ...contract, require_georeference: "yes" }],
     ["require_georeference", { ...contract, require_georeference: undefined }],
     ["schema_version", { ...contract, schema_version: "1" }],
+    // Parity with DeliveryContract.FromBody: what Revit would read as none, the bridge does not install.
+    ["contract_key", { ...contract, contract_key: "\u0085" }],
+    ["schema_version", { ...contract, schema_version: 2147483648 }],
   ])("contract: a bad or missing %s is a 400 naming that path", (path, body) => {
     expect(fails("contract", body)).toMatchObject({ status: 400, message: expect.stringContaining(`contract: ${path} `) });
   });

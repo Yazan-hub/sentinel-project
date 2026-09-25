@@ -48,6 +48,8 @@ static class GateLinesCheck
            "publish line: PASS names contract@n · source · sha and the schema");
         ok(GateLines.PublishLine(none, "north-yard") == "Delivery gate: NOT CHECKED — contract: none — not installed for north-yard or its office",
            "publish line: none reads NOT CHECKED with the none label");
+        ok(GateLines.JudgedAlone(none) == "The IDS judged alone — the delivery gate was not checked (contract: none — not installed for north-yard or its office).",
+           "publish accept with no contract: intake's note word for word (A3)");
         ok(GateLines.Verdict(fail, "north-yard") == "FAIL · contract@1 · office · 3f9a0c1d2e4b… · Schema IFC2X3",
            "verdict: FAIL names the contract and the schema");
         ok(GateLines.Verdict(unbound, "") == "NOT CHECKED — not bound — Sentinel ▸ Project Setup" && GateLines.NotBoundVerdict == GateLines.Verdict(unbound, "  "),

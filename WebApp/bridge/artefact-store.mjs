@@ -52,7 +52,9 @@ async function officeArtefactAsService(officeKey, kind) {
 const RULE_TARGETS = ["workset", "view", "parameter", "sheet", "family", "type", "level", "grid"];
 const RULE_MODES = ["monitor", "warn", "request", "block"];
 const ENFORCE = ["reject", "warn", "off"];
-const filled = (v) => typeof v === "string" && v.trim() !== "";
+// Blank is JS whitespace plus U+0085 (NEL), which .NET's char.IsWhiteSpace has and JS trim does not; DeliveryContract.Text
+// adds U+FEFF, which JS has and .NET does not. One set on both sides: the bridge never installs a key Revit reads as blank.
+const filled = (v) => typeof v === "string" && /[^\s\u0085]/.test(v);
 const bad = (kind, path, want) => err(400, `${kind}: ${path} ${want}`);
 
 // Contract, layers, guideline, type catalogue (spec 2026-09-25 4b decision 4): what their judges read, nothing
@@ -132,7 +134,9 @@ export function validateArtefact(kind, body) {
       if (typeof e.max_ratio !== "number" || !(e.max_ratio >= 0 && e.max_ratio <= 1)) throw bad(kind, `${at}.max_ratio`, "must be a number 0..1");
     });
     if (typeof body.require_georeference !== "boolean") throw bad(kind, "require_georeference", "must be true or false");
-    if (body.schema_version != null && !Number.isInteger(body.schema_version)) throw bad(kind, "schema_version", "must be an integer");
+    // A C# int, as DeliveryContract.FromBody reads it.
+    if (body.schema_version != null && !(Number.isInteger(body.schema_version) && body.schema_version >= -2147483648 && body.schema_version <= 2147483647))
+      throw bad(kind, "schema_version", "must be an integer -2147483648..2147483647");
   }
   if (kind === "layers") {
     // enforce, extensions, params, disciplines, match and format stay in the body; Revit does not read them.
