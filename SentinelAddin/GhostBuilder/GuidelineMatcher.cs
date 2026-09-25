@@ -3,10 +3,10 @@
 // `guideline.test.ts` + `guideline-bds.test.ts` are the CONFORMANCE REFERENCE: this must give the same
 // answer for the same input, exactly as LayerRulesetMatcher.cs mirrors layers.ts.
 //
-// PER-FIRM BY DESIGN. Nothing here knows about BDS. The guideline and the type catalogue are two swappable
-// JSON files; another practice points the settings at their own and no code changes (decision D-03 — an
-// office standard is config, not code). The shipped Resources copy is a reference profile, not a default
-// anyone is stuck with.
+// PER-FIRM BY DESIGN. Nothing here knows about any office. The guideline and the type catalogue are artefacts —
+// guideline@n and type_catalog@n installed on the document's web project or its office (cohesion phase 4b) —
+// resolved by GhostStandards and read here by FromBodies. Nothing ships beside the DLL and nothing is read from
+// the machine: with none installed there is no guideline, and every surface that builds says so.
 //
 // WHAT IT ADDS OVER LayerRulesetMatcher. That answers "is this layer a wall?" and hands back ONE family
 // per layer. This answers "WHICH wall type" — because a real office picks by material, location and size,
@@ -95,7 +95,7 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("statusPrefixes")] public Dictionary<string, string> StatusPrefixes { get; set; }
     }
 
-    /// <summary>One row of the office's harvested type catalogue (type-catalog.json).</summary>
+    /// <summary>One row of the office's harvested type catalogue (a type_catalog@n body's <c>types[]</c>).</summary>
     public sealed class CatalogEntry
     {
         [JsonPropertyName("category")] public string Category { get; set; }
@@ -103,10 +103,20 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("type")]     public string Type { get; set; }
     }
 
+    /// <summary>The template a catalogue was harvested from (Build Office System's export).</summary>
+    public sealed class CatalogTemplate
+    {
+        [JsonPropertyName("title")]        public string Title { get; set; }
+        [JsonPropertyName("path")]         public string Path { get; set; }
+        [JsonPropertyName("extracted_at")] public string ExtractedAt { get; set; }
+    }
+
     public sealed class CatalogDoc
     {
-        [JsonPropertyName("source")] public string Source { get; set; }
-        [JsonPropertyName("types")]  public List<CatalogEntry> Types { get; set; } = new List<CatalogEntry>();
+        /// <summary><c>template</c>, never <c>source</c>: the bridge's PUT route lifts a top-level source into the
+        /// artefact's pointer, and the catalogue would lose it (spec 2026-09-25-standards-4b decision 4).</summary>
+        [JsonPropertyName("template")] public CatalogTemplate Template { get; set; }
+        [JsonPropertyName("types")]    public List<CatalogEntry> Types { get; set; } = new List<CatalogEntry>();
     }
 
     // ---- the answer -----------------------------------------------------------------------------
@@ -139,6 +149,7 @@ namespace Sentinel.GhostBuilder
     {
         private readonly GuidelineDoc _doc;
         private readonly List<CatalogEntry> _catalog;
+        private readonly CatalogTemplate _template;
 
         public bool HasGuideline => _doc?.Elements != null && _doc.Elements.Count > 0;
         public bool HasCatalog => _catalog != null && _catalog.Count > 0;
@@ -147,44 +158,133 @@ namespace Sentinel.GhostBuilder
         public GuidelineViewNaming ViewNaming => _doc?.ViewNaming;
         public GuidelineGraphics Graphics => _doc?.Graphics;
 
-        private GuidelineMatcher(GuidelineDoc doc, List<CatalogEntry> catalog)
+        /// <summary>What the catalogue check judges by: the type_catalog artefact's label ("type_catalog@1 · office ·
+        /// 3f2a9c…", or "none — not installed for &lt;key&gt; or its office"). GhostStandards sets it; every gap text
+        /// names it, so a reviewer sees WHICH catalogue called a type missing (F54).</summary>
+        public string CatalogLabel { get; set; } = "type_catalog (unlabelled)";
+
+        /// <summary>The template the catalogue was harvested from (its <c>template.title</c>), or null.</summary>
+        public string TemplateTitle => _template?.Title;
+
+        private GuidelineMatcher(GuidelineDoc doc, List<CatalogEntry> catalog, CatalogTemplate template)
         {
             _doc = doc ?? new GuidelineDoc();
             _catalog = catalog ?? new List<CatalogEntry>();
+            _template = template;
         }
 
-        /// <summary>Load from explicit paths, else %AppData%\Sentinel\, else the shipped Resources copy.
-        /// Never throws — a missing or malformed guideline degrades to "no guideline", which leaves
-        /// GhostBuilder exactly as it was before, rather than breaking a build.</summary>
-        public static GuidelineMatcher Load(string guidelinePath = null, string catalogPath = null)
+        /// <summary>
+        /// The guideline@n and type_catalog@n bodies (the raw artefact JSON; null = none installed) → the matcher.
+        /// Each body is checked by the bridge validator's rules (artefact-store.mjs validateArtefact; spec
+        /// 2026-09-25-standards-4b decision 4) before it is read, and one that fails is left out with
+        /// <paramref name="guidelineError"/> / <paramref name="catalogError"/> naming the field — never a partial
+        /// standard, never a file on the machine or beside the DLL. Always returns a matcher (HasGuideline and
+        /// HasCatalog say what it holds); never throws.
+        /// </summary>
+        public static GuidelineMatcher FromBodies(string guidelineJson, string catalogJson,
+                                                  out string guidelineError, out string catalogError)
         {
-            var doc = ReadJson<GuidelineDoc>(Candidates(guidelinePath, "bds-guideline.json"));
-            var cat = ReadJson<CatalogDoc>(Candidates(catalogPath, "type-catalog.json"));
-            return new GuidelineMatcher(doc, cat?.Types);
+            var doc = Read<GuidelineDoc>(guidelineJson, CheckGuideline, out guidelineError);
+            var cat = Read<CatalogDoc>(catalogJson, CheckCatalog, out catalogError);
+            return new GuidelineMatcher(doc, cat?.Types, cat?.Template);
         }
 
-        private static IEnumerable<string> Candidates(string explicitPath, string fileName)
-        {
-            if (!string.IsNullOrWhiteSpace(explicitPath)) yield return explicitPath;
-            yield return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", fileName);
-            string dll = Path.GetDirectoryName(typeof(GuidelineMatcher).Assembly.Location);
-            if (!string.IsNullOrEmpty(dll)) yield return Path.Combine(dll, "Resources", fileName);
-        }
+        /// <summary>How placement reports a wall it could not type: "gap: &lt;what&gt; — &lt;why&gt; (type_catalog:
+        /// &lt;label&gt;)", naming the catalogue in force.</summary>
+        public string Gap(string what, string why) => "gap: " + what + " — " + why + " (type_catalog: " + CatalogLabel + ")";
 
-        private static T ReadJson<T>(IEnumerable<string> paths) where T : class
+        // ---- reading a body --------------------------------------------------------------------------
+
+        private const int MaxCatalogTypes = 20000; // = the bridge's MAX_CATALOG_TYPES (artefact-store.mjs)
+
+        private static T Read<T>(string json, Action<JsonElement> check, out string error) where T : class
         {
-            foreach (string p in paths)
+            error = null;
+            if (json == null) return null; // none installed: not an error
+            try
             {
-                try
+                if (string.IsNullOrWhiteSpace(json)) throw new InvalidDataException("the body is empty");
+                using (var d = JsonDocument.Parse(json))
                 {
-                    if (!string.IsNullOrWhiteSpace(p) && File.Exists(p))
-                        return JsonSerializer.Deserialize<T>(File.ReadAllText(p));
+                    var b = d.RootElement;
+                    if (b.ValueKind == JsonValueKind.Null) throw new InvalidDataException("the body is null");
+                    if (b.ValueKind != JsonValueKind.Object) throw new InvalidDataException("the body must be a JSON object");
+                    check(b);
                 }
-                catch (Exception) { /* corrupt file — try the next candidate */ }
+                return JsonSerializer.Deserialize<T>(json);
             }
-            return null;
+            catch (Exception ex) { error = ex.Message; return null; }
         }
+
+        // guideline@n as the bridge validates it: what Resolve dereferences (elements[].rules[].when/use.family).
+        private static void CheckGuideline(JsonElement b)
+        {
+            if (!Filled(b, "standard")) throw Bad("standard", "must be a non-empty string");
+            if (!b.TryGetProperty("elements", out var els) || els.ValueKind != JsonValueKind.Array || els.GetArrayLength() == 0)
+                throw Bad("elements", "must be a non-empty array");
+            int i = 0;
+            foreach (var e in els.EnumerateArray())
+            {
+                string at = "elements[" + i++ + "]";
+                if (e.ValueKind != JsonValueKind.Object) throw Bad(at, "must be an object");
+                if (!Filled(e, "category")) throw Bad(at + ".category", "must be a non-empty string");
+                if (!e.TryGetProperty("rules", out var rules) || rules.ValueKind != JsonValueKind.Array) throw Bad(at + ".rules", "must be an array");
+                int j = 0;
+                foreach (var r in rules.EnumerateArray())
+                {
+                    string rat = at + ".rules[" + j++ + "]";
+                    if (r.ValueKind != JsonValueKind.Object) throw Bad(rat, "must be an object");
+                    if (!r.TryGetProperty("when", out var w) || w.ValueKind != JsonValueKind.Object) throw Bad(rat + ".when", "must be an object");
+                    if (!r.TryGetProperty("use", out var u) || u.ValueKind != JsonValueKind.Object || !Filled(u, "family"))
+                        throw Bad(rat + ".use.family", "must be a non-empty string");
+                }
+                if (Present(e, "default", out var def) && !(def.ValueKind == JsonValueKind.Object && Filled(def, "family")))
+                    throw Bad(at + ".default.family", "must be a non-empty string");
+            }
+            if (Present(b, "views", out var views) && views.ValueKind != JsonValueKind.Array) throw Bad("views", "must be an array");
+            if (Present(b, "viewNaming", out var vn) && vn.ValueKind != JsonValueKind.Object) throw Bad("viewNaming", "must be an object");
+        }
+
+        // type_catalog@n as the bridge validates it (the office-snapshot row shape, template instead of source).
+        private static void CheckCatalog(JsonElement b)
+        {
+            if (!b.TryGetProperty("types", out var types) || types.ValueKind != JsonValueKind.Array || types.GetArrayLength() == 0)
+                throw Bad("types", "must be a non-empty array");
+            if (types.GetArrayLength() > MaxCatalogTypes)
+                throw Bad("types", "must hold at most " + MaxCatalogTypes + " entries (has " + types.GetArrayLength() + ")");
+            int i = 0;
+            foreach (var t in types.EnumerateArray())
+            {
+                string at = "types[" + i++ + "]";
+                if (t.ValueKind != JsonValueKind.Object) throw Bad(at, "must be an object");
+                if (!Filled(t, "category")) throw Bad(at + ".category", "must be a non-empty string");
+                if (!Filled(t, "type")) throw Bad(at + ".type", "must be a non-empty string");
+                if (Present(t, "family", out var fam) && fam.ValueKind != JsonValueKind.String) throw Bad(at + ".family", "must be a string");
+                if (Present(t, "system", out var sys) && sys.ValueKind != JsonValueKind.True && sys.ValueKind != JsonValueKind.False)
+                    throw Bad(at + ".system", "must be true or false");
+                if (Present(t, "width_mm", out var w) && w.ValueKind != JsonValueKind.Number) throw Bad(at + ".width_mm", "must be a number or null");
+                if (Present(t, "height_mm", out var h) && h.ValueKind != JsonValueKind.Number) throw Bad(at + ".height_mm", "must be a number or null");
+            }
+            if (Present(b, "template", out var tpl))
+            {
+                if (tpl.ValueKind != JsonValueKind.Object) throw Bad("template", "must be an object {title, path?, extracted_at?}");
+                if (!Filled(tpl, "title")) throw Bad("template.title", "must be a non-empty string");
+                if (Present(tpl, "path", out var p) && p.ValueKind != JsonValueKind.String) throw Bad("template.path", "must be a string");
+                if (Present(tpl, "extracted_at", out var x) && x.ValueKind != JsonValueKind.String) throw Bad("template.extracted_at", "must be a string");
+            }
+            if (Present(b, "view_templates", out var vt) && vt.ValueKind != JsonValueKind.Array) throw Bad("view_templates", "must be an array");
+        }
+
+        private static InvalidDataException Bad(string path, string want) => new InvalidDataException(path + " " + want);
+
+        // Optional = absent or null, as the bridge reads it.
+        private static bool Present(JsonElement o, string name, out JsonElement v) =>
+            o.TryGetProperty(name, out v) && v.ValueKind != JsonValueKind.Null;
+
+        // Blank as the bridge's filled() reads it: char.IsWhiteSpace plus U+FEFF (as DeliveryContract does).
+        private static bool Filled(JsonElement o, string name) =>
+            o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+            && v.GetString().Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF');
 
         // ---- resolution --------------------------------------------------------------------------
 
@@ -274,10 +374,12 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>
-        /// Verify the answer against the office's own template. This is the guard that makes the original
-        /// mistake impossible: a guideline written from a document named a type nobody had, and the
-        /// builder would have provisioned an invented type on first run. A type the template lacks comes
-        /// back at confidence 0 with the real alternatives listed, so the gate asks a human.
+        /// Verify the answer against the installed type catalogue (type_catalog@n, the office template's
+        /// harvest). This is the guard that makes the original mistake impossible: a guideline written from a
+        /// document named a type nobody had, and the builder would have provisioned an invented type on first
+        /// run. A type the catalogue lacks comes back at confidence 0 with the real alternatives listed and the
+        /// catalogue named (<see cref="CatalogLabel"/>), so the gate asks a human. No catalogue → unchecked here;
+        /// placement then checks the type against the open document only, and says so.
         /// </summary>
         private GuidelineResolution WithCatalogCheck(GuidelineResolution r, GuidelineInput input, string pattern)
         {
@@ -289,10 +391,11 @@ namespace Sentinel.GhostBuilder
 
             r.Available = pattern == null ? new List<string>() : PatternOptions(pattern, input.Category);
             r.Confidence = 0;
-            r.Why = "\"" + r.Type + "\" is not in this office's template. " +
+            r.Why = "\"" + r.Type + "\" is not in " + CatalogLabel +
+                    (TemplateTitle == null ? "" : " (template " + TemplateTitle + ")") + ". " +
                     (r.Available.Count > 0
                         ? "Available: " + string.Join(", ", r.Available) + "."
-                        : "No comparable type found — the office standard may need this type added.");
+                        : "No comparable type in it — the office standard may need this type added.");
             return r;
         }
 

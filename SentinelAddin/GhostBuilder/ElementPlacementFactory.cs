@@ -33,9 +33,10 @@ namespace Sentinel.GhostBuilder
         private readonly IReadOnlyDictionary<string, FloorType> _floorTypes;
         private readonly IReadOnlyDictionary<string, ElementType> _ceilingTypes;
 
-        // Optional Office Modelling Guideline. When present, a wall's TYPE is chosen from the measured
-        // thickness (GhostWallPairer) via the office's own catalogue, instead of the one-guess-per-layer
-        // family the mapping supplies. Null = the pre-guideline behaviour, unchanged.
+        // The Office Modelling Guideline and type catalogue in force (guideline@n, type_catalog@n — GhostStandards).
+        // With a guideline, a wall's TYPE is chosen from the measured thickness (GhostWallPairer) and checked against
+        // the catalogue, instead of the one-guess-per-layer family the mapping supplies. Guideline none (HasGuideline
+        // false) or null = the mapping's family, the pre-guideline behaviour — counted as such (WallsByMapping).
         private readonly GuidelineMatcher _guideline;
 
         // Massing is an LOD 100 estimate: when the office standard has no type for a wall or floor, place it
@@ -85,6 +86,11 @@ namespace Sentinel.GhostBuilder
         /// office standard was extended, not just that walls were placed.</summary>
         public readonly List<string> CreatedTypes = new List<string>();
 
+        /// <summary>Who typed each wall element — the build summary's three lines: the guideline; the layer mapping
+        /// (guideline none, or no measured thickness); nobody — a gap reported as a warning, or a massing placeholder
+        /// noted for retyping. A wall skipped for having no geometry is in none of them.</summary>
+        public int WallsByGuideline, WallsByMapping, WallGaps;
+
         /// <summary>
         /// Place one element. <paramref name="warning"/> is set (non-null) when the element is
         /// skipped for a reason worth surfacing to the user.
@@ -119,17 +125,29 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>
-        /// Choose the wall TYPE. If a guideline is loaded and the wall has a measured thickness, the
-        /// office's own type wins over the mapping's single-guess family. A guideline GAP (a measured
-        /// thickness the office template has no type for) returns null with a reviewer-facing reason —
-        /// the wall is then skipped, never built with an invented type or snapped to the wrong size.
+        /// Choose the wall TYPE and say who chose it (<paramref name="typedBy"/>: "guideline" | "mapping"). With a
+        /// guideline and a measured thickness the office's own type wins over the mapping's single-guess family; with
+        /// guideline none, or no measured thickness, it is the mapping's (the pre-guideline behaviour). The OPEN
+        /// document decides presence (F54). A GAP — no type the office's standards stand behind — returns null with a
+        /// reviewer-facing reason naming the type catalogue in force; the wall is then skipped (massing: placed on a
+        /// named placeholder), never built with an invented type, an unrelated clone, or the wrong size.
         /// </summary>
-        private string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason)
+        private string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason, out string typedBy)
         {
             gapReason = null;
-            if (_guideline == null || !_guideline.HasGuideline || el.ThicknessMm <= 0)
-                return map.BdsFamilyType ?? map.BdsFamily; // pre-guideline behaviour
+            typedBy = "mapping";
+            bool guided = _guideline != null && _guideline.HasGuideline;
+            if (!guided || el.ThicknessMm <= 0)
+            {
+                string mapped = map.BdsFamilyType ?? map.BdsFamily; // pre-guideline behaviour
+                if (mapped == null)
+                    gapReason = Gap($"{el.ThicknessMm:0} mm wall on '{el.CadLayer}'",
+                        (guided ? "no measured thickness to choose a guideline type" : "guideline: none")
+                        + ", and the layer mapping names no wall type");
+                return mapped;
+            }
 
+            typedBy = "guideline";
             // Discipline is the layer's first token: A-WALL-EXT -> "A", S-WALL -> "S".
             string disc = (el.CadLayer ?? "").Split('-', '_').FirstOrDefault();
             var res = _guideline.Resolve(new GuidelineInput
@@ -141,18 +159,26 @@ namespace Sentinel.GhostBuilder
                 Level = _level.Name,
             });
 
-            // The catalogue check reads %AppData%\Sentinel\type-catalog.json, harvested from whatever model was
-            // last used as the golden model — on the pilot's own template it said the pilot's type was missing
-            // because the catalogue came from the Aster tower (simulation 3.9, F54). The OPEN document is the
-            // truth: if it has the type, use it.
-            if (res.Confidence <= 0 && !string.IsNullOrWhiteSpace(res.Type) && _wallTypes.ContainsKey(res.Type))
+            if (!_guideline.HasCatalog)
+                Notes.Add($"Wall types were not checked against a type catalogue (type_catalog: {_guideline.CatalogLabel}) — only against this document.");
+
+            // The OPEN document is the truth (F54): if it has the type — or this build created it — use it, whatever
+            // the catalogue says (on the pilot's own template, another office's catalogue once called it missing).
+            if (!string.IsNullOrWhiteSpace(res.Type)
+                && (_wallTypes.ContainsKey(res.Type) || _createdWallTypes.ContainsKey(res.Type)))
                 return res.Type;
+
+            if (!string.IsNullOrWhiteSpace(res.Type) && !_guideline.HasCatalog)
+            {
+                gapReason = Gap(res.Type, "not in this document; types checked against this document only");
+                return null;
+            }
 
             if (res.Confidence <= 0)
             {
-                // A gap is a "make it", not a "give up": clone the office's nearest real build-up and
-                // resize it to the measured thickness, so the type is still a BDS assembly named to the
-                // office convention. Only if creation genuinely can't proceed do we fall back to the gap.
+                // A gap is a "make it", not a "give up": clone the nearest sibling the catalogue lists AND this
+                // document has, resized to the measured thickness and named to the office convention. No such
+                // sibling, or a resize that fails, is the gap — reported with the catalogue's label.
                 if (!string.IsNullOrWhiteSpace(res.Type) && res.Available != null && res.Available.Count > 0)
                 {
                     var made = GhostTypeCreator.CreateWallType(
@@ -166,14 +192,20 @@ namespace Sentinel.GhostBuilder
                         }
                         return made.Name;
                     }
-                    gapReason = $"{res.Why} Tried to create it and couldn't: {createReason}.";
+                    gapReason = Gap(res.Type, createReason);
                     return null;
                 }
-                gapReason = res.Why ?? $"No office type for a {el.ThicknessMm:0} mm wall on '{el.CadLayer}'.";
+                gapReason = res.Why ?? Gap($"{el.ThicknessMm:0} mm wall on '{el.CadLayer}'", "the guideline names no wall type for it");
                 return null;
             }
-            return res.Type ?? map.BdsFamilyType ?? map.BdsFamily;
+            if (res.Type != null) return res.Type;
+            typedBy = "mapping"; // a guideline rule with no type or pattern: the mapping's family, as before
+            return map.BdsFamilyType ?? map.BdsFamily;
         }
+
+        // A gap names the type catalogue in force (GuidelineMatcher.Gap); with no matcher at all there is none.
+        private string Gap(string what, string why) =>
+            _guideline?.Gap(what, why) ?? $"gap: {what} — {why} (type_catalog: not loaded)";
 
         // ---- Walls: stable API 2021-2027, no #if ----
         private Outcome PlaceWall(GhostElement el, string wanted, LayerMapping map, out string warning)
@@ -182,19 +214,21 @@ namespace Sentinel.GhostBuilder
 
             // The guideline decides the type from the measured thickness where it can; a gap is surfaced
             // and the wall skipped rather than mis-typed.
-            string resolved = ResolveWallType(el, map, out string gapReason);
+            string resolved = ResolveWallType(el, map, out string gapReason, out string typedBy);
             if (gapReason != null && _placeholderTypes)
             {
                 var ph = DefaultType(ElementTypeGroup.WallType, _wallTypes);
                 if (ph != null)
                 {
-                    Notes.Add($"Placeholder wall type '{ph.Name}' used for {el.ThicknessMm:0} mm walls on '{el.CadLayer}' — {gapReason} Retype before issue.");
+                    Notes.Add($"Placeholder wall type '{ph.Name}' used for {el.ThicknessMm:0} mm walls on '{el.CadLayer}' — {gapReason.TrimEnd('.')}. Retype before issue.");
                     resolved = ph.Name; gapReason = null;
+                    typedBy = "placeholder"; // counted in WallGaps once it is placed
                     if (!_wallTypes.ContainsKey(ph.Name)) _createdWallTypes[ph.Name] = ph;
                 }
             }
             if (gapReason != null)
             {
+                WallGaps++;
                 warning = $"Wall on '{el.CadLayer}': {gapReason}";
                 return Outcome.SkippedUnknownType;
             }
@@ -215,6 +249,7 @@ namespace Sentinel.GhostBuilder
             if (wanted == null
                 || (!_wallTypes.TryGetValue(wanted, out WallType wt) && !_createdWallTypes.TryGetValue(wanted, out wt)))
             {
+                WallGaps++;
                 warning = $"WallType '{wanted}' not found (layer '{el.CadLayer}'); skipped.";
                 return Outcome.SkippedUnknownType;
             }
@@ -234,7 +269,11 @@ namespace Sentinel.GhostBuilder
                             height, el.BaseElevation, flip: false, structural: false), map);
                 placed++;
             }
-            return placed > 0 ? Outcome.Placed : Outcome.SkippedNoGeometry;
+            if (placed == 0) return Outcome.SkippedNoGeometry;
+            if (typedBy == "guideline") WallsByGuideline++;
+            else if (typedBy == "mapping") WallsByMapping++;
+            else WallGaps++; // a massing placeholder: placed, but typed by nobody — reported for retyping
+            return Outcome.Placed;
         }
 
         /// <summary>

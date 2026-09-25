@@ -17,22 +17,23 @@ static class Check
     {
         Console.WriteLine("GuidelineMatcher — C# port conformance (mirrors guideline-bds.test.ts)\n");
 
-        // The REAL office files, loaded exactly as the add-in loads them.
-        // Resolve from the SOURCE tree, not the working directory: `dotnet run --project` keeps the
-        // shell's cwd, and a wrong path here silently falls through to the %AppData% copy — which is
-        // how the first run "loaded a catalogue" while testing nothing.
+        // The REAL office files, read as the add-in reads an installed guideline@n / type_catalog@n body
+        // (GuidelineMatcher.FromBodies). Resolve from the SOURCE tree, not the working directory: `dotnet run
+        // --project` keeps the shell's cwd. A wrong path throws here — there is no machine file to fall back to.
         string root = AppContext.BaseDirectory;
         for (int i = 0; i < 6 && !System.IO.Directory.Exists(System.IO.Path.Combine(root, "SentinelAddin")); i++)
             root = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, ".."));
         Console.WriteLine("  repo root: " + root);
         Console.WriteLine();
 
-        var m = GuidelineMatcher.Load(
-            System.IO.Path.Combine(root, "SentinelAddin", "Resources", "bds-guideline.json"),
-            System.IO.Path.Combine(root, "demo", "bds-pilot", "bds-type-catalog.json"));
+        var m = GuidelineMatcher.FromBodies(
+            System.IO.File.ReadAllText(System.IO.Path.Combine(root, "SentinelAddin", "Resources", "bds-guideline.json")),
+            System.IO.File.ReadAllText(System.IO.Path.Combine(root, "demo", "bds-pilot", "bds-type-catalog.json")),
+            out string guidelineError, out string catalogError);
+        m.CatalogLabel = "demo/bds-pilot/bds-type-catalog.json";
 
-        Ok(m.HasGuideline, $"guideline loaded ({m.Standard})");
-        Ok(m.HasCatalog, "type catalogue loaded");
+        Ok(m.HasGuideline, $"guideline loaded ({m.Standard})" + (guidelineError == null ? "" : " — " + guidelineError));
+        Ok(m.HasCatalog, "type catalogue loaded" + (catalogError == null ? "" : " — " + catalogError));
 
         var errs = m.ValidateAgainstCatalog();
         Ok(errs.Count == 0, "every name the guideline uses exists in the template"
@@ -61,16 +62,17 @@ static class Check
         Ok(gap.Available != null && gap.Available.SequenceEqual(new[]
            { "BDS_EXT_ARC_CMU_100 mm", "BDS_EXT_ARC_CMU_200 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_400 mm" }),
            "…and offers the real alternatives, smallest first");
-        Ok(gap.Why != null && gap.Why.Contains("not in this office's template"), "…and says why, in the reviewer's words");
+        Ok(gap.Why != null && gap.Why.Contains("is not in demo/bds-pilot/bds-type-catalog.json"), "…and says why, naming the catalogue it checked");
 
         // determinism
         var runs = Enumerable.Range(0, 20).Select(_ => T("A-WALL-EXT", 200)).Distinct().Count();
         Ok(runs == 1, "deterministic — 20 runs, one answer");
 
-        // a missing guideline must degrade, not throw
-        var none = GuidelineMatcher.Load("does-not-exist.json", "also-missing.json");
-        Ok(!none.HasGuideline && none.Resolve(new GuidelineInput { Category = "Walls" }).Source == "none",
-           "a missing/!swapped guideline degrades to 'no guideline' instead of throwing");
+        // nothing installed must degrade, not throw — and never reach for a file on the machine
+        var none = GuidelineMatcher.FromBodies(null, null, out string noneGuideline, out string noneCatalog);
+        Ok(!none.HasGuideline && !none.HasCatalog && noneGuideline == null && noneCatalog == null
+           && none.Resolve(new GuidelineInput { Category = "Walls" }).Source == "none",
+           "no guideline installed → 'no guideline' (no error, no fallback file) instead of throwing");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

@@ -7,9 +7,11 @@
 // the exact thickness, so the new type inherits the office's real build-up (materials, finish layers,
 // function) and differs only in the one dimension the drawing measured.
 //
-// This keeps the guarantee intact: a created type is still a real BDS build-up, named to the office's own
-// convention, not a Revit default. It is the office's standard extended by one size, which is what a
-// modeller would do by hand.
+// This keeps the guarantee intact: a created type is still a real build-up — a sibling the type catalogue lists
+// AND this document has — named to the office's own convention, never a Revit default and never a clone of an
+// unrelated wall (F43: another office's type names were cloned onto the first Basic wall). No such sibling → no
+// type; the caller reports the gap. It is the office's standard extended by one size, which is what a modeller
+// would do by hand.
 //
 // System families only (walls, floors — CompoundStructure). Loadable families (doors, windows, columns)
 // create a "type" by a different mechanism (duplicate + set the family's size parameters) and are a
@@ -49,12 +51,13 @@ namespace Sentinel.GhostBuilder
             var present = walls.FirstOrDefault(w => string.Equals(w.Name, newName, StringComparison.OrdinalIgnoreCase));
             if (present != null) return present;
 
-            // Clone the NEAREST-thickness sibling so the new type inherits the closest real build-up.
-            WallType baseType = NearestSibling(walls, siblingNames, thicknessMm)
-                                ?? walls.FirstOrDefault(w => w.Kind == WallKind.Basic);
+            // Clone the NEAREST-thickness sibling so the new type inherits the closest real build-up. Only a sibling
+            // the catalogue lists and this document has: any other Basic wall under the guideline's name would be one
+            // office's type name on another's build-up (F43), so no sibling is a reported gap, never a guess.
+            WallType baseType = NearestSibling(walls, siblingNames, thicknessMm);
             if (baseType == null)
             {
-                reason = "no Basic wall type to clone from";
+                reason = "no sibling type in this document";
                 return null;
             }
 

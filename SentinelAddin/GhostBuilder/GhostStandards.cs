@@ -22,6 +22,10 @@ namespace Sentinel.GhostBuilder
         /// <see cref="LayerRulesetMatcher.HeuristicsOnly"/> when layers is none or did not parse.</summary>
         public LayerRulesetMatcher Layers = LayerRulesetMatcher.HeuristicsOnly();
 
+        /// <summary>The installed guideline@n and type_catalog@n as one matcher, never null: with none installed it has no
+        /// guideline (HasGuideline false) and no catalogue (HasCatalog false). CatalogLabel names the catalogue in force.</summary>
+        public GuidelineMatcher Guideline = GuidelineMatcher.FromBodies(null, null, out _, out _);
+
         /// <summary>What the review window and every build summary are headed with: the three labels, none included.</summary>
         public string Header => "Layers: " + LayersSource.Label + " · Guideline: " + GuidelineSource.Label + " · Type catalogue: " + CatalogSource.Label;
 
@@ -68,7 +72,25 @@ namespace Sentinel.GhostBuilder
                 if (m is null) s.LayersSource = ArtefactClient.None("layers", $"{layers.Label} did not parse: {error}");
                 else { m.Sha = layers.Sha256; s.Layers = m; }
             }
+            (s.Guideline, s.GuidelineSource, s.CatalogSource) = ParseGuideline(guideline, catalog);
             return s;
+        }
+
+        /// <summary>The guideline and catalogue as resolved -> the matcher Ghost Builder, Photo Massing and Annotate build
+        /// with, always one: with none installed it has no guideline and no catalogue. A body the matcher cannot use is none
+        /// naming the artefact and the field ("guideline@1 · office · … did not parse: elements must be a non-empty array"),
+        /// the DeliveryContract.FromResolved pattern: never a partial standard, never a file instead. The catalogue's label
+        /// goes on the matcher, so every gap text names the catalogue in force. Pure; tools/ghost-standards-check drives it.</summary>
+        internal static (GuidelineMatcher Matcher, ResolvedArtefact Guideline, ResolvedArtefact Catalog) ParseGuideline(
+            ResolvedArtefact guideline, ResolvedArtefact catalog)
+        {
+            var m = GuidelineMatcher.FromBodies(guideline.Origin == "none" ? null : guideline.BodyJson ?? "",
+                                                catalog.Origin == "none" ? null : catalog.BodyJson ?? "",
+                                                out var guidelineError, out var catalogError);
+            if (guidelineError != null) guideline = ArtefactClient.None("guideline", $"{guideline.Label} did not parse: {guidelineError}");
+            if (catalogError != null) catalog = ArtefactClient.None("type_catalog", $"{catalog.Label} did not parse: {catalogError}");
+            m.CatalogLabel = catalog.Label;
+            return (m, guideline, catalog);
         }
     }
 }

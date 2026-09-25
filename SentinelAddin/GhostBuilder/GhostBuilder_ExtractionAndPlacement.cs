@@ -322,6 +322,9 @@ namespace Sentinel.GhostBuilder
             public readonly List<string> Warnings = new List<string>();
             /// <summary>Types this build created to fill a guideline gap (office standard extended by a size).</summary>
             public readonly List<string> CreatedTypes = new List<string>();
+            /// <summary>Wall elements typed by the guideline, by the layer mapping (guideline none, or no measured
+            /// thickness), or left as a reported gap (skipped, or a massing placeholder) — ElementPlacementFactory's tallies.</summary>
+            public int WallsByGuideline, WallsByMapping, WallGaps;
         }
 
         public PlacementReport Place(MappingResult mapping, IEnumerable<GhostElement> elements)
@@ -386,6 +389,9 @@ namespace Sentinel.GhostBuilder
             // P2: what the project documents actually wrote onto the geometry (and what would not take).
             report.Warnings.AddRange(factory.Notes);
             report.CreatedTypes.AddRange(factory.CreatedTypes);
+            report.WallsByGuideline = factory.WallsByGuideline;
+            report.WallsByMapping = factory.WallsByMapping;
+            report.WallGaps = factory.WallGaps;
 
             return report;
         }
