@@ -64,6 +64,16 @@ export async function activeRuleset(baseUrl: string): Promise<{ ruleset: Ruleset
   return { ruleset, raw: a.body, removed, ref: a.ref, source: a.source, sha256: a.sha256 };
 }
 
+/** What {org} expansion took out of the ruleset in force, in words — or null when every rule runs. A ruleset
+ *  whose rules all need an office code it does not set judges nothing, and must never score 100 %. Pure. */
+export function droppedRulesNote(active: { ruleset: Ruleset; removed: string[]; ref: string; source: string }): string | null {
+  if (!active.removed.length) return null;
+  const which = `${active.ref} · ${active.source}`;
+  return active.ruleset.rules.length === 0
+    ? `None of the rules in ${which} can run: all ${active.removed.length} need the office code {org}, and the ruleset sets none.`
+    : `${active.removed.length} rule(s) of ${which} skipped — they need the office code {org}, which the ruleset does not set: ${active.removed.join(", ")}.`;
+}
+
 /** Parameter names a ruleset needs the adapter to flatten (for its parameter-target rules). */
 export const paramNamesOf = (rs: Ruleset): string[] =>
   [...new Set(rs.rules.filter((r) => r.target === "parameter" && r.parameter_name).map((r) => r.parameter_name as string))];

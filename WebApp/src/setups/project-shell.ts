@@ -91,6 +91,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     let noRuleset = false;
     let active: Awaited<ReturnType<typeof activeRuleset>> = null;
     try { active = await activeRuleset(base); } catch { active = null; } // project → office; null = nothing installed
+    if (active && !active.ruleset.rules.length) active = null; // every rule needed an {org} the ruleset lacks — judges nothing
     hasRuleset = !!active;
     // QA health + compliance (only if a model is loaded, and only against an installed ruleset)
     if (fragments.list.size > 0) {

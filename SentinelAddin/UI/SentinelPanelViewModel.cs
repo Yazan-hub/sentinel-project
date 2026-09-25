@@ -82,7 +82,10 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         var stale = Violations.Where(r => changedIds.Contains(r.ElementId)).ToList();
         foreach (var s in stale) Violations.Remove(s);
         foreach (var v in fresh) Violations.Add(new ViolationRow(v, rs));
-        Status = $"Live — updated {DateTime.Now:HH:mm:ss}";
+        // Keep the reason a model is not scored in view: a live edit must not replace "none — <why>".
+        Status = _notScored is { } why
+            ? $"{why} · live — updated {DateTime.Now:HH:mm:ss}"
+            : $"Live — updated {DateTime.Now:HH:mm:ss}";
     });
 
     /// 'Revit Doctor' log: native warnings auto-resolved/suppressed.

@@ -5,7 +5,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 
 **Background behavior (always on, no button):**
 - **Live scanning (DMU):** every rename/new element is checked against the ruleset instantly; results appear in the panel.
-- **Sync guard:** on every Sync to Central, a full rescan runs and the central file name is checked against BDS/ISO 19650 naming (CDE-01).
+- **Sync guard:** on every Sync to Central, a full rescan runs and the central file name is checked against the project's installed container naming standard, `naming@n` (CDE-01); with none installed CDE-01 only notes that.
 - **Revit Doctor:** benign native warnings (duplicate marks, off-axis lines, duplicate instances) are auto-resolved/suppressed and logged in the panel's Doctor strip.
 - **Ruleset source:** `ruleset@n` installed on the document's bound web project, or on that project's office (Sentinel ▸ Project Setup binds the project); there is no machine ruleset file. The base standard ships 7 rules (v1.4.1): worksets WS-01, view names VN-01 (request), view status VP-01, sheet numbers SN-01 (request), family names FN-01, level LV-01 / grid GR-01 (monitor).
 

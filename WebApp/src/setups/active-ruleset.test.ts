@@ -71,3 +71,23 @@ describe("installArtefact", () => {
     await expect(installArtefact("http://b", "k", "ruleset", {}, "web")).rejects.toThrow("rules[3].mode");
   });
 });
+
+describe("droppedRulesNote", () => {
+  const base = { ref: "ruleset@1", source: "office" };
+  it("is null when every rule runs", async () => {
+    const { droppedRulesNote } = await import("./active-ruleset");
+    expect(droppedRulesNote({ ...base, ruleset: { standard_key: "k", semver: "1.0.0", rules: [{ id: "A" }] } as never, removed: [] })).toBeNull();
+  });
+  it("says nothing can run when {org} expansion removed every rule — never a 100 % score", async () => {
+    const { droppedRulesNote } = await import("./active-ruleset");
+    const note = droppedRulesNote({ ...base, ruleset: { standard_key: "k", semver: "1.0.0", rules: [] } as never, removed: ["WS-01", "VN-01"] });
+    expect(note).toContain("None of the rules in ruleset@1 · office can run");
+    expect(note).toContain("all 2");
+  });
+  it("names the skipped rules when some still run", async () => {
+    const { droppedRulesNote } = await import("./active-ruleset");
+    const note = droppedRulesNote({ ...base, ruleset: { standard_key: "k", semver: "1.0.0", rules: [{ id: "A" }] } as never, removed: ["VP-01"] });
+    expect(note).toContain("1 rule(s) of ruleset@1 · office skipped");
+    expect(note).toContain("VP-01");
+  });
+});

@@ -9,7 +9,7 @@ import {
   type Ruleset,
 } from "../sentinel-core";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
-import { activeRuleset, paramNamesOf, refLabel, NO_RULESET } from "./active-ruleset";
+import { activeRuleset, paramNamesOf, refLabel, NO_RULESET, droppedRulesNote } from "./active-ruleset";
 import type { ScanReport, Violation } from "../sentinel-core";
 
 /**
@@ -81,6 +81,12 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         return;
       }
       const ruleset = active.ruleset;
+      const dropped = droppedRulesNote(active);
+      if (!ruleset.rules.length) {
+        // Every rule needed an office code the ruleset does not set: nothing can judge — never a 100 % score.
+        update({ status: "blocked", report: null, scorecard: null, ruleset: null, rulesetRef: refLabel(active), notice: dropped });
+        return;
+      }
       const facts = await extractFacts(fragments, {
         parameterNames: paramNamesOf(ruleset),
       });
@@ -90,7 +96,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         now: new Date().toISOString(),
       });
       const scorecard = buildScorecard(report);
-      update({ status: "done", report, scorecard, ruleset, rulesetRef: refLabel(active) });
+      update({ status: "done", report, scorecard, ruleset, rulesetRef: refLabel(active), notice: dropped });
     } catch (err) {
       console.error("[Sentinel] scan failed", err);
       update({ status: "blocked", report: null, scorecard: null, notice: `Scan did not run: ${(err as Error)?.message ?? String(err)}` });
@@ -209,9 +215,11 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
           return BUI.html`<div class="qa-empty">No model loaded. Add one from the Assets panel first.</div>`;
         if (state.status === "blocked")
           return BUI.html`<div class="qa-empty">${state.notice}</div>`;
+        // A done scan can still carry a note: rules {org} expansion skipped, so the score covers fewer rules.
+        const note = state.notice ? BUI.html`<div class="qa-empty" style="color:#eab308">${state.notice}</div>` : BUI.html``;
         if (violations.length === 0)
-          return BUI.html`<div class="qa-empty">No violations in this scope. ✓</div>`;
-        return BUI.html`<div class="qa-list">${violations.map(row)}</div>`;
+          return BUI.html`${note}<div class="qa-empty">No violations in this scope. ✓</div>`;
+        return BUI.html`${note}<div class="qa-list">${violations.map(row)}</div>`;
       };
 
       return BUI.html`
