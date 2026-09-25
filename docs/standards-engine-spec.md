@@ -14,7 +14,7 @@ Sentinel already owns the **enforcement** half of "standards-as-code":
 | Artifact | File | Role today |
 |---|---|---|
 | `Ruleset` (`Engine/RuleModels.cs`, `sentinel-core/types.ts`) | `%AppData%\Sentinel\ruleset.json` | What the scanner **checks** (naming, params, worksets…) |
-| `DeliveryContract` (`Engine/DeliveryContract.cs`) | `%AppData%\Sentinel\delivery-contract.json` (created by the office, template: `config/base-standard/delivery-contract.json`; built-in default applies when absent) | What the IFC gate **certifies** at handover |
+| `DeliveryContract` (`Engine/DeliveryContract.cs`) | the project's `contract@n` artefact, resolved project → office → none (seed: `config/base-standard/delivery-contract.json`; since phase 4b-1 no workstation file and no compiled-in contract — none reads NOT CHECKED) | What the IFC gate **certifies** at handover |
 
 What's missing is the **provisioning** half: the machine-readable description of what to
 *create* in a blank template (shared parameters, worksets, view templates, browser
@@ -245,7 +245,7 @@ browser-param routing.
 **On success**, the Builder also:
 - writes `pack.ruleset` → `RulesetStore.UserCachePath` and calls `Engine.ReloadRuleset(doc)` →
   **the scanner immediately enforces the just-built standard** (closes the loop, zero new engine code);
-- writes `pack.delivery` → `DeliveryContract.DefaultPath`;
+- does not write `pack.delivery` to the machine (phase 4b-1): the delivery contract is the project's `contract@n`, installed with `artefact-import --kind contract` or Project Settings ▸ Standards in force ▸ Install JSON…;
 - writes the full pack → `%AppData%\Sentinel\packs\<pack_key>-<semver>.json` (versioned, for drift).
 
 ---
@@ -256,7 +256,7 @@ browser-param routing.
 |---|---|---|
 | **Scanner (Revit)** | pack.ruleset → `ruleset.json` → `RulesetStore.LoadEffective` | **none** — already reads that path |
 | **Scanner (web)** | same `ruleset` JSON loads via `sentinel-core/types.ts` | **none** — byte-compatible |
-| **IFC Delivery Gate** | pack.delivery → `delivery-contract.json` → `DeliveryContract.LoadOrDefault` | **none** |
+| **IFC Delivery Gate** | the project's `contract@n` → `DeliveryContract.Load(key)` (project → office → none; none = NOT CHECKED) | phase 4b-1 |
 | **GhostBuilder** | pack.provision worksets + family naming feed `LayerMapper` targets + placement worksets | small: pass pack to mapper |
 | **Ribbon** | new **"Build Office\nSystem"** button in the **Workflow** panel, beside "Project Setup" | 1 `AddButton` in `App.BuildRibbon` |
 | **Future Copilot** | grounds on the same pack (the "office rulebook" it cites) | future |
