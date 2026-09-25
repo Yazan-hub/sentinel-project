@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using Sentinel.Coordination;
 using Sentinel.Engine;
 
@@ -6,15 +8,23 @@ static class Check
     static int _pass, _fail;
     static void Ok(bool c, string n) { if (c) { _pass++; Console.WriteLine("  PASS  " + n); } else { _fail++; Console.WriteLine("  FAIL  " + n); } }
 
-    static string _root = "";
+    static string _root = "", _tmp = "";
 
     static int Main()
     {
-        Console.WriteLine("IfcDeliveryGate + DeliveryContract — subtype counts, the contract@n shape, and what a none reads\n");
+        Console.WriteLine("IfcDeliveryGate + DeliveryContract — subtype counts, the contract@n shape, NOT CHECKED, the certificate, Node parity\n");
         _root = AppContext.BaseDirectory;
         for (int i = 0; i < 6 && !Directory.Exists(Path.Combine(_root, "SentinelAddin")); i++) _root = Path.GetFullPath(Path.Combine(_root, ".."));
-        Counts();
-        Contracts();
+        _tmp = Path.Combine(Path.GetTempPath(), "sentinel-gate-check-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tmp); // the gate writes a certificate beside each IFC: never into the repo
+        try
+        {
+            Counts();
+            Contracts();
+            Gate();
+            Parity();
+        }
+        finally { try { Directory.Delete(_tmp, true); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
@@ -123,6 +133,136 @@ static class Check
            "none stays none, with the client's reason (ArtefactClient.None is public)");
         var unbound = DeliveryContract.Load("");
         Ok(unbound.Contract is null && unbound.Source.Label == "none — not bound — Sentinel ▸ Project Setup", "an unbound document asks nothing and reads not bound");
+    }
+
+    // A small IFC4 file that meets Good: an IFCSITE with no lat/long, a wall, a door, Pset_WallCommon with FireRating,
+    // and (optionally) an IFCMAPCONVERSION — 7 entities with it, 6 without.
+    static string Ifc(bool mapConversion) => string.Join("\n", new[]
+    {
+        "ISO-10303-21;", "HEADER;",
+        "FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');",
+        "FILE_NAME('gate.ifc','2026-09-25T00:00:00',(''),(''),'gate-check','','');",
+        "FILE_SCHEMA(('IFC4'));", "ENDSEC;", "DATA;",
+        "#1=IFCPROJECT('0YvctVUKr0kugbFTf53O9L',$,'P',$,$,$,$,$,$);",
+        "#2=IFCSITE('1YvctVUKr0kugbFTf53O9L',$,'Site',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);",
+        "#3=IFCWALL('2YvctVUKr0kugbFTf53O9L',$,'W1',$,$,$,$,$,.STANDARD.);",
+        "#4=IFCDOOR('3YvctVUKr0kugbFTf53O9L',$,'D1',$,$,$,$,$,2100.,900.,.DOOR.,.SINGLE_SWING_LEFT.,$);",
+        "#5=IFCPROPERTYSINGLEVALUE('FireRating',$,IFCLABEL('REI 60'),$);",
+        "#6=IFCPROPERTYSET('4YvctVUKr0kugbFTf53O9L',$,'Pset_WallCommon',$,(#5));",
+    }.Concat(mapConversion ? new[] { "#7=IFCMAPCONVERSION(#8,#9,0.,0.,0.,1.,0.,$);" } : Array.Empty<string>())
+     .Concat(new[] { "ENDSEC;", "END-ISO-10303-21;" }));
+
+    static string WriteTmp(string name, string text) { var p = Path.Combine(_tmp, name); File.WriteAllText(p, text); return p; }
+    static JsonElement Cert(IfcDeliveryGate.GateResult g) => JsonDocument.Parse(File.ReadAllText(g.CertificatePath)).RootElement;
+
+    // ── 4. the gate: PASS / FAIL name what judged; no contract is NOT CHECKED, never a pass ──────────────
+    static void Gate()
+    {
+        var contract = DeliveryContract.FromBody(Good, out _)!;
+        var src = Installed(Good);
+
+        RoiTracker.Logged.Clear();
+        var pass = IfcDeliveryGate.Validate(WriteTmp("pass.ifc", Ifc(true)), contract, src);
+        Ok(pass.Outcome == GateOutcome.Pass && pass.Passed && pass.Failures.Count == 0 && pass.TotalEntities == 7, "a file that meets contract@1 passes");
+        Ok(pass is { ContractLabel: "contract@1 · office · 0123456789ab…", ContractRef: "contract@1", ContractSource: "office", ContractSha256: Sha, NotCheckedReason: null },
+           "the result names what judged it");
+        var pc = Cert(pass);
+        Ok(pc.GetProperty("certificate").GetString() == "PASS" && pc.GetProperty("contract_ref").GetString() == "contract@1"
+           && pc.GetProperty("contract_source").GetString() == "office" && pc.GetProperty("contract_sha256").GetString() == Sha
+           && pc.GetProperty("contract_label").GetString() == "contract@1 · office · 0123456789ab…"
+           && pc.GetProperty("contract_key").GetString() == "gate-check" && pc.GetProperty("entities").GetInt32() == 7
+           && pc.GetProperty("sha256").GetString() == pass.FileSha256,
+           "the PASS certificate carries contract_ref, contract_source, contract_sha256 and contract_label");
+        Ok(RoiTracker.Logged.SequenceEqual(new[] { "cde IFC gate PASS: pass.ifc" }), "a judged gate is logged as an intervention");
+
+        Ok(pass.Warnings.Count == 0, "an IFCMAPCONVERSION georeferences the file although IFCSITE has no lat/long (the Node gate's rule)");
+        var noGeo = IfcDeliveryGate.Validate(WriteTmp("nogeo.ifc", Ifc(false)), contract, src);
+        Ok(noGeo.Passed && noGeo.Warnings.SequenceEqual(new[] { "No georeference detected on IFCSITE (RefLatitude/RefLongitude)." }),
+           "without it the same file warns — and a warning never fails");
+
+        var ifc2x3 = DeliveryContract.FromBody(Good.Replace("\"IFC4\"", "\"IFC2X3\""), out _)!;
+        var fail = IfcDeliveryGate.Validate(WriteTmp("fail.ifc", Ifc(true)), ifc2x3, src);
+        Ok(fail.Outcome == GateOutcome.Fail && !fail.Passed && fail.Failures.SequenceEqual(new[] { "Schema mismatch: contract requires IFC2X3, file is IFC4." }),
+           "a schema mismatch fails");
+        Ok(Cert(fail).GetProperty("certificate").GetString() == "FAIL", "the FAIL certificate says FAIL");
+
+        RoiTracker.Logged.Clear();
+        var none = ArtefactClient.None("contract", "not installed for p-none or its office");
+        var path = WriteTmp("none.ifc", Ifc(true));
+        var bytes = File.ReadAllBytes(path);
+        var nc = IfcDeliveryGate.Validate(path, null, none);
+        Ok(nc.Outcome == GateOutcome.NotChecked && !nc.Passed, "no contract → NOT CHECKED, never a pass");
+        Ok(nc.NotCheckedReason == "none — not installed for p-none or its office" && nc.ContractLabel == nc.NotCheckedReason && nc.ContractRef is null && nc.ContractSha256 is null,
+           "NOT CHECKED names why: the none label");
+        Ok(nc.TotalEntities == 0 && nc.EntityCounts.Count == 0 && nc.Failures.Count == 0 && nc.Warnings.Count == 0, "no entity is read, nothing is judged");
+        Ok(nc.DetectedSchema == "IFC4" && nc.FileSizeBytes == bytes.Length && nc.FileSha256 == Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+           "the schema, size and sha are still recorded");
+        var ncc = Cert(nc);
+        Ok(ncc.GetProperty("certificate").GetString() == "NOT_CHECKED"
+           && ncc.GetProperty("contract_label").GetString() == "none — not installed for p-none or its office"
+           && ncc.GetProperty("not_checked_reason").GetString() == "none — not installed for p-none or its office"
+           && ncc.GetProperty("contract_ref").ValueKind == JsonValueKind.Null && ncc.GetProperty("contract_source").ValueKind == JsonValueKind.Null
+           && ncc.GetProperty("contract_sha256").ValueKind == JsonValueKind.Null && ncc.GetProperty("contract_key").ValueKind == JsonValueKind.Null
+           && ncc.GetProperty("entities").ValueKind == JsonValueKind.Null && ncc.GetProperty("sha256").GetString() == nc.FileSha256,
+           "the NOT_CHECKED certificate names the none, no contract and no entity count, and still the file's sha");
+        Ok(RoiTracker.Logged.Count == 0, "a gate that judged nothing is not logged as time saved");
+
+        var unusable = DeliveryContract.FromResolved(Installed("{}"));
+        var nu = IfcDeliveryGate.Validate(WriteTmp("unusable.ifc", Ifc(true)), unusable.Contract, unusable.Source);
+        Ok(nu.Outcome == GateOutcome.NotChecked && nu.NotCheckedReason == "none — contract@1 · office · 0123456789ab… did not parse: contract_key is missing",
+           "an installed body the gate cannot use is NOT CHECKED, naming the artefact and the field");
+
+        var missing = IfcDeliveryGate.Validate(Path.Combine(_tmp, "absent.ifc"), contract, src);
+        Ok(missing.Outcome == GateOutcome.Fail && missing.Failures.SequenceEqual(new[] { "IFC file not found." }) && missing.CertificatePath.Length == 0,
+           "a missing file fails, with no certificate");
+        Ok(!new IfcDeliveryGate.GateResult().Passed, "a result nobody judged is not a pass");
+    }
+
+    // ── 5. the shared contract-parity fixture: the Node gate's test runs the same cases (Task 2) ──────────
+    static void Parity()
+    {
+        var dir = Path.Combine(_root, "WebApp", "bridge", "fixtures", "contract-parity");
+        var casesPath = Path.Combine(dir, "cases.json");
+        Ok(File.Exists(casesPath), "the parity fixture exists (WebApp/bridge/fixtures/contract-parity/cases.json)");
+        if (!File.Exists(casesPath)) return;
+        using var fx = JsonDocument.Parse(File.ReadAllText(casesPath));
+        var src = Installed("{}"); // the label only; the contract comes from the case
+        int n = 0;
+        bool mapConversion = false, schemaMismatch = false;
+        foreach (var c in fx.RootElement.EnumerateArray())
+        {
+            n++;
+            var name = c.GetProperty("name").GetString();
+            var ifcName = c.GetProperty("ifc").GetString()!;
+            var contract = DeliveryContract.FromBody(c.GetProperty("contract").GetRawText(), out var error);
+            Ok(contract is not null, $"{name}: the case's contract parses in C#" + (error is null ? "" : " — " + error));
+            if (contract is null) continue;
+            var copy = Path.Combine(_tmp, $"parity-{n}-{ifcName}");
+            File.Copy(Path.Combine(dir, ifcName), copy); // the certificate lands beside the copy, not in the fixture folder
+            var g = IfcDeliveryGate.Validate(copy, contract, src);
+            var expect = c.GetProperty("expect");
+            string want = expect.GetProperty("result").GetString()!;
+            int wantFailures = expect.GetProperty("failures").GetInt32();
+            string got = g.Outcome switch { GateOutcome.Pass => "pass", GateOutcome.Fail => "fail", _ => "not_checked" };
+            Ok(got == want && g.Failures.Count == wantFailures, $"{name}: {want} with {wantFailures} failure(s), as the Node gate");
+            if (got != want || g.Failures.Count != wantFailures) Console.WriteLine("        got: " + got + " — " + string.Join(" | ", g.Failures));
+            if (expect.TryGetProperty("warnings", out var w)) Ok(g.Warnings.Count == w.GetInt32(), $"{name}: {w.GetInt32()} warning(s), as the Node gate");
+
+            var text = File.ReadAllText(copy);
+            if (want == "pass" && contract.RequireGeoreference && text.Contains("IFCMAPCONVERSION("))
+            {
+                // "IFCMAPCONVERSION-only": without the map conversion the same file must lack a georeference.
+                var stripped = string.Join("\n", text.Split('\n').Where(l => !l.Contains("IFCMAPCONVERSION(")));
+                var bare = IfcDeliveryGate.Validate(WriteTmp($"parity-{n}-bare.ifc", stripped), contract, src);
+                bool alone = g.Warnings.Count == 0 && bare.Warnings.Contains("No georeference detected on IFCSITE (RefLatitude/RefLongitude).");
+                Ok(alone, $"{name}: the IFCMAPCONVERSION alone georeferences the file (no warning; stripped of it, the warning)");
+                mapConversion |= alone;
+            }
+            if (want == "fail" && g.Failures.Any(f => f.StartsWith("Schema mismatch:"))) schemaMismatch = true;
+        }
+        Ok(n >= 3, $"the fixture carries {n} case(s) (at least 3)");
+        Ok(mapConversion, "the fixture has an IFCMAPCONVERSION-only georeferenced case under require_georeference");
+        Ok(schemaMismatch, "the fixture has a schema-mismatch case that fails");
     }
 
     // contract@1 as the bridge hands it over (the harness never calls the bridge).

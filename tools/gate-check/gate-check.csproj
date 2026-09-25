@@ -13,7 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\IfcDeliveryGate.cs" />
-    <Compile Include="..\..\SentinelAddin\Engine\RoiTracker.cs" />
+    <!-- RoiTracker is this folder's RoiTrackerStub.cs: the real one appends to %AppData%\Sentinel\roi.json. -->
     <Compile Include="..\..\SentinelAddin\Engine\DeliveryContract.cs" />
     <!-- DeliveryContract.Load resolves contract@n through the phase-4a artefact client. -->
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />

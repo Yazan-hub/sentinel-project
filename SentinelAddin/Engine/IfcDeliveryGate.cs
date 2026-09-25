@@ -5,21 +5,37 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Sentinel.Coordination; // ResolvedArtefact
 
 namespace Sentinel.Engine;
 
+/// <summary>What the gate concluded. NotChecked = no contract to judge by: never a pass, never a fail.</summary>
+public enum GateOutcome { Pass, Fail, NotChecked }
+
 /// <summary>
 /// KF-1 validator: "CI/CD for IFC". Parses the exported IFC (STEP text scan —
-/// dependency-free, portable logic) and diffs it against the DeliveryContract.
-/// Emits a signed certificate (SHA-256 of the file + verdict + findings)
-/// stored next to the IFC; a failed gate means the file should not reach the
-/// CDE. Pure C# — ports 1:1 to TypeScript for the OBC web gate.
+/// dependency-free, portable logic) and diffs it against the project's contract@n.
+/// Emits a signed certificate (SHA-256 of the file + verdict + findings + the
+/// contract's kind@n · source · sha) stored next to the IFC; a failed gate means
+/// the file should not reach the CDE, and with no contract the certificate says
+/// NOT_CHECKED. Pure C# — the Node port is WebApp/bridge/delivery-gate.mjs, and
+/// tools/gate-check runs the shared contract-parity fixture that its test runs.
 /// </summary>
 public static class IfcDeliveryGate
 {
     public sealed class GateResult
     {
-        public bool Passed { get; set; }
+        /// Fail until judged: a result nobody judged is never a pass.
+        public GateOutcome Outcome { get; set; } = GateOutcome.Fail;
+        public bool Passed => Outcome == GateOutcome.Pass;
+        /// What judged, as every surface prints it: "contract@1 · office · 0123456789ab…", or
+        /// "none — not installed for &lt;key&gt; or its office".
+        public string ContractLabel { get; set; } = string.Empty;
+        public string? ContractRef { get; set; }
+        public string? ContractSource { get; set; }
+        public string? ContractSha256 { get; set; }
+        /// Why nothing was judged (the none label); set only when Outcome is NotChecked.
+        public string? NotCheckedReason { get; set; }
         public string IfcPath { get; set; } = string.Empty;
         public string FileSha256 { get; set; } = string.Empty;
         public string ContractKey { get; set; } = string.Empty;
@@ -35,14 +51,30 @@ public static class IfcDeliveryGate
 
     private static readonly Regex EntityRx = new(
         @"^#\d+\s*=\s*(IFC[A-Z0-9]+)\s*\(", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex SchemaRx = new(@"FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'", RegexOptions.CultureInvariant);
 
-    public static GateResult Validate(string ifcPath, DeliveryContract contract)
+    /// <summary>Judge <paramref name="ifcPath"/> by <paramref name="contract"/>, naming <paramref name="source"/> (the
+    /// pair DeliveryContract.Load returns). With no contract the outcome is NotChecked: the file's size, sha and schema
+    /// are recorded and a NOT_CHECKED certificate is written, but no entity is read and nothing passes.</summary>
+    public static GateResult Validate(string ifcPath, DeliveryContract? contract, ResolvedArtefact source)
     {
-        var r = new GateResult { IfcPath = ifcPath, ContractKey = contract.ContractKey };
+        var r = new GateResult
+        {
+            IfcPath = ifcPath, ContractKey = contract?.ContractKey ?? string.Empty, ContractLabel = source.Label,
+            ContractRef = source.Ref, ContractSource = source.Source, ContractSha256 = source.Sha256,
+        };
         if (!File.Exists(ifcPath)) { r.Failures.Add("IFC file not found."); return r; }
 
         var fi = new FileInfo(ifcPath);
         r.FileSizeBytes = fi.Length;
+
+        if (contract is null)
+        {
+            r.Outcome = GateOutcome.NotChecked;
+            r.NotCheckedReason = source.Label;
+            r.DetectedSchema = ReadSchema(ifcPath);
+            return Seal(r);
+        }
 
         var psets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var props = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -56,7 +88,7 @@ public static class IfcDeliveryGate
             {
                 if (r.DetectedSchema.Length == 0 && line.Contains("FILE_SCHEMA"))
                 {
-                    var m = Regex.Match(line, @"FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'");
+                    var m = SchemaRx.Match(line);
                     if (m.Success) r.DetectedSchema = m.Groups[1].Value.ToUpperInvariant();
                 }
 
@@ -86,6 +118,9 @@ public static class IfcDeliveryGate
                     // a parenthesised latitude tuple appears in the line)
                     if (Regex.IsMatch(line, @"\(\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+")) sawGeoref = true;
                 }
+                // IFC4 georeferencing: a map conversion is a georeference even when IFCSITE carries no lat/long
+                // (the Node gate's rule, delivery-gate.mjs: the same contract gives the same verdict in both).
+                else if (entity == "IFCMAPCONVERSION") sawGeoref = true;
             }
         }
 
@@ -127,31 +162,55 @@ public static class IfcDeliveryGate
 
         if (r.TotalEntities == 0) r.Failures.Add("No IFC entities parsed — file may be corrupt or IFCZIP (not yet supported).");
 
-        r.Passed = r.Failures.Count == 0;
+        r.Outcome = r.Failures.Count == 0 ? GateOutcome.Pass : GateOutcome.Fail;
+        return Seal(r);
+    }
 
-        // ---- Signed certificate ----
+    // ---- Signed certificate: the file's sha, the verdict and what judged it, for every outcome ----
+    private static GateResult Seal(GateResult r)
+    {
         using (var sha = SHA256.Create())
-        using (var fs = File.OpenRead(ifcPath))
+        using (var fs = File.OpenRead(r.IfcPath))
             r.FileSha256 = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
 
-        r.CertificatePath = Path.ChangeExtension(ifcPath, ".sentinel-cert.json");
+        bool judged = r.Outcome != GateOutcome.NotChecked;
+        r.CertificatePath = Path.ChangeExtension(r.IfcPath, ".sentinel-cert.json");
         File.WriteAllText(r.CertificatePath, JsonSerializer.Serialize(new
         {
-            schema_version = 1,
-            certificate = r.Passed ? "PASS" : "FAIL",
-            contract_key = r.ContractKey,
-            ifc_file = Path.GetFileName(ifcPath),
+            schema_version = 2,
+            certificate = r.Outcome switch { GateOutcome.Pass => "PASS", GateOutcome.Fail => "FAIL", _ => "NOT_CHECKED" },
+            contract_key = judged ? r.ContractKey : null,
+            contract_ref = r.ContractRef,
+            contract_source = r.ContractSource,
+            contract_sha256 = r.ContractSha256,
+            contract_label = r.ContractLabel,
+            not_checked_reason = r.NotCheckedReason,
+            ifc_file = Path.GetFileName(r.IfcPath),
             sha256 = r.FileSha256,
             ifc_schema = r.DetectedSchema,
-            entities = r.TotalEntities,
+            entities = judged ? r.TotalEntities : (int?)null, // not counted is not "0 entities"
             failures = r.Failures,
             warnings = r.Warnings,
             issued_at = r.At,
             issued_by = "Sentinel IFC Delivery Gate",
         }, new JsonSerializerOptions { WriteIndented = true }));
 
-        RoiTracker.Log("cde", "IFC gate " + (r.Passed ? "PASS" : "FAIL") + ": " + Path.GetFileName(ifcPath));
+        // ROI counts interventions; a gate that judged nothing saved nobody any time.
+        if (judged) RoiTracker.Log("cde", "IFC gate " + (r.Passed ? "PASS" : "FAIL") + ": " + Path.GetFileName(r.IfcPath));
         return r;
+    }
+
+    // The header's FILE_SCHEMA, reading no further than DATA; (a not-checked file's entities are never read).
+    private static string ReadSchema(string ifcPath)
+    {
+        using var reader = new StreamReader(ifcPath, Encoding.UTF8, true, 1 << 16);
+        string? line;
+        while ((line = reader.ReadLine()) is not null && !line.StartsWith("DATA;"))
+        {
+            var m = SchemaRx.Match(line);
+            if (m.Success) return m.Groups[1].Value.ToUpperInvariant();
+        }
+        return string.Empty;
     }
 
     /// <summary>IFC subtypes that satisfy a contract's required entity. Revit's IFC2x3 export writes every
