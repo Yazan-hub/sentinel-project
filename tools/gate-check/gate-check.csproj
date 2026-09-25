@@ -15,6 +15,7 @@
     <Compile Include="..\..\SentinelAddin\Engine\IfcDeliveryGate.cs" />
     <!-- RoiTracker is this folder's RoiTrackerStub.cs: the real one appends to %AppData%\Sentinel\roi.json. -->
     <Compile Include="..\..\SentinelAddin\Engine\DeliveryContract.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\GateLines.cs" />
     <!-- DeliveryContract.Load resolves contract@n through the phase-4a artefact client. -->
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />

@@ -242,7 +242,7 @@ public sealed class App : IExternalApplication
         Sub(ifc, "Sentinel_IfcPreflight", "IFC Pre-Flight", "Sentinel.Commands.IfcPreFlightCommand", "preflight",
             "Audit IfcExportAs and mandatory property sets BEFORE exporting IFC.");
         Sub(ifc, "Sentinel_IfcGateCmd", "IFC Delivery Gate", "Sentinel.Commands.IfcDeliveryGateCommand", "gate",
-            "Export + certify an IFC against the delivery contract (EIR-as-code). FAIL = do not upload to the CDE.");
+            "Export + certify an IFC against the delivery contract installed on this document's web project (or its office), named contract@n with source and sha; the export uses the contract's IFC schema. FAIL = do not upload to the CDE; no contract = NOT CHECKED, never a pass.");
         var fam = Pull(va, "Sentinel_FamilyHealth", "Family\nHealth", "family",
             "Family hygiene: audit an .rfa before loading, or heal families already in the project.");
         Sub(fam, "Sentinel_SanitizeFamily", "Sanitize .rfa", "Sentinel.Commands.SanitizeFamilyCommand", "family",

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -11,7 +12,8 @@ namespace Sentinel.Commands;
 /// <summary>
 /// G1 — the unified <b>Governed Publish</b>. One button that runs the whole differentiated seam in order:
 /// export the active view → IFC, run the <see cref="Sentinel.Engine.IfcDeliveryGate">IFC Delivery Gate</see>
-/// (contract check), adjudicate the model against the project's IDS via the referee API
+/// (the project's contract@n; none → NOT CHECKED and the IDS still judges), adjudicate the model against the
+/// project's IDS via the referee API
 /// (<c>POST /cde/:key/propose</c>), record the verdict to the immutable audit chain, and <b>publish + version
 /// ONLY on a passing verdict</b>. A fail is recorded (and each failing requirement auto-opens as a BCF issue
 /// that live-syncs to the web + back into Revit) but is not published.
@@ -46,11 +48,16 @@ public sealed class GovernedPublishCommand : IExternalCommand
         }
         var projectKey = ctx.Key;
 
-        // 1) Export the active view to a TEMP IFC (not the outbox — we publish only on pass).
+        // 0) The delivery contract in force (project → office → none), resolved OFF the API thread before the export so
+        //    the export can use the schema it asks for. The command waits here as it waits on /propose below.
+        var (contract, contractSource) = Task.Run(() => Sentinel.Engine.DeliveryContract.Load(projectKey)).GetAwaiter().GetResult();
+
+        // 1) Export the active view to a TEMP IFC (not the outbox — we publish only on pass) in the contract's schema
+        //    (IFC4 → IFC4 Reference View). With no contract it exports IFC 2x3 as before, and the gate below judges nothing.
         var tempDir = Path.Combine(Path.GetTempPath(), "Sentinel", "governed");
         var ifcName = SafeName(doc.Title) + ".ifc";
         var (state, tempPath, bytes, error) =
-            Sentinel.Engine.PlatformExporter.ExportToDir(doc, doc.ActiveView.Id, tempDir, ifcName);
+            Sentinel.Engine.PlatformExporter.ExportToDir(doc, doc.ActiveView.Id, tempDir, ifcName, contract?.IfcSchema ?? "IFC2X3");
         if (state != Sentinel.Engine.PlatformExporter.State.Ok)
         {
             TaskDialog.Show("Sentinel — Governed Publish",
@@ -61,19 +68,13 @@ public sealed class GovernedPublishCommand : IExternalCommand
             return Result.Failed;
         }
 
-        // 2) IFC Delivery Gate (contract check) → signed cert; record the verdict. A gate FAIL stops here.
-        var contract = Sentinel.Engine.DeliveryContract.LoadOrDefault();
-        var gate = Sentinel.Engine.IfcDeliveryGate.Validate(tempPath, contract);
-        Sentinel.Coordination.GovernedNotify.DeliveryGate(
-            ifcName, gate.Passed, gate.ContractKey, gate.DetectedSchema,
-            gate.TotalEntities, gate.Failures.Count, gate.FileSha256, projectKey);
-        if (!gate.Passed)
+        // 2) IFC Delivery Gate (the contract@n above) → certificate; record the verdict. A gate FAIL stops here. NOT
+        //    CHECKED (no contract installed) continues to the IDS, and every dialog below says the gate was not checked.
+        var gate = Sentinel.Engine.IfcDeliveryGate.Validate(tempPath, contract, contractSource);
+        Sentinel.Coordination.GovernedNotify.DeliveryGate(ifcName, gate, projectKey);
+        if (gate.Outcome == Sentinel.Engine.GateOutcome.Fail)
         {
-            TaskDialog.Show("Sentinel — Governed Publish",
-                "✕ REJECTED — delivery gate failed (not published)\n\n" +
-                "Contract: " + gate.ContractKey + " · Schema: " + gate.DetectedSchema + "\n\n" +
-                "FAILURES:\n• " + string.Join("\n• ", gate.Failures.Take(12)) + "\n\n" +
-                "Fix the deliverable and run Governed Publish again.");
+            TaskDialog.Show("Sentinel — Governed Publish", Sentinel.Engine.GateLines.PublishRejected(gate));
             TryDelete(tempPath);
             return Result.Succeeded;
         }
@@ -92,10 +93,11 @@ public sealed class GovernedPublishCommand : IExternalCommand
 
         if (!verdict.Reached)
         {
-            // Bridge/CDE unreachable — the gate passed, so let the modeller publish manually rather than lose work.
+            // Bridge/CDE unreachable. The gate did not fail (it passed, or was not checked; the line says which), so
+            // let the modeller publish manually rather than lose work.
             TaskDialog.Show("Sentinel — Governed Publish",
-                "Delivery gate PASSED, but the Sentinel bridge could not be reached to adjudicate + record the " +
-                "verdict.\n\n" +
+                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n\n" +
+                "The Sentinel bridge could not be reached to adjudicate + record the verdict.\n\n" +
                 (verdict.Error is { Length: > 0 } ? "Reason: " + verdict.Error + "\n\n" : "") +
                 "Start the bridge (npm run bcf:serve) and retry, or publish manually:\n\n" +
                 $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{tempPath}\"");
@@ -110,6 +112,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
                 : $"✕ REJECTED — {verdict.Failing} of {verdict.InScope} in-scope element check(s) failed (not published)\n\n";
             TaskDialog.Show("Sentinel — Governed Publish",
                 head +
+                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n\n" +
                 (nameFailed ? "NAMING:\n• " + string.Join("\n• ", verdict.NamingFailures) + "\n\n" : "") +
                 (verdict.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", verdict.Failures) + "\n\n" : "") +
                 (verdict.BcfRaised > 0
@@ -158,7 +161,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
             $"Project: {projectKey}\n\n" +
             idsLine + "\n" +
             namingLine + "\n" +
-            "Delivery gate: PASS · Schema " + gate.DetectedSchema + "\n" +
+            Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" +
             "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n\n" +
             (judged
                 ? "The Sentinel bridge uploads the geometry; the coordinator sees the new version with a ✓ verdict " +

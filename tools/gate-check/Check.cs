@@ -25,6 +25,7 @@ static class Check
             Parity();
         }
         finally { try { Directory.Delete(_tmp, true); } catch { } }
+        GateLinesCheck.Run(Ok);
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
