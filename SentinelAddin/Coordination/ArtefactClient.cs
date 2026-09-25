@@ -1,7 +1,9 @@
 using System;
+using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Sentinel.Commands; // BcfConfig (bridge URL + service token)
 using Sentinel.Engine;   // ArtefactCache
@@ -26,41 +28,52 @@ namespace Sentinel.Coordination
     /// Revit's reader of the project's standards: <c>GET /cde/:key/artefacts/:kind</c> (project → office on the
     /// bridge), with an ETag round-trip against the machine cache. 200 → cache it; 304 → the cached copy is current;
     /// 404 not_installed / no_project → none (and the stale copy is cleared); any other answer or no answer → the
-    /// cached copy labelled "cached", else none. Blocking (4 s cap) and never throws — callers run it OFF the Revit
-    /// UI thread and hand the result back to the API thread.
+    /// cached copy labelled "cached", else none. Blocking — each call has its own cap, 4 s unless the caller passes
+    /// one (a type catalogue passes 20 s) — and never throws: callers run it OFF the Revit UI thread and hand the
+    /// result back to the API thread.
     /// </summary>
     public static class ArtefactClient
     {
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+        // No client-wide cap: every call carries its own (a CancellationTokenSource per call), so the catalogue's
+        // 20 s never becomes every kind's, and a 4 s default never cuts the catalogue short.
+        private static readonly HttpClient Http = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
 
-        public static ResolvedArtefact Resolve(string key, string kind)
+        /// <summary>The cap on one artefact GET, body included, when the caller passes none.</summary>
+        public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(4);
+
+        public static ResolvedArtefact Resolve(string key, string kind, TimeSpan? timeout = null)
         {
             BcfConfig cfg;
             try { cfg = BcfConfig.Load(); }
             catch (Exception e) { return None(kind, "the bridge settings could not be read (" + e.Message + ")"); }
-            return Resolve(key, kind, cfg.ServiceUrl, cfg.ServiceToken);
+            return Resolve(key, kind, cfg.ServiceUrl, cfg.ServiceToken, timeout);
         }
 
-        /// <summary>As <see cref="Resolve(string,string)"/> against an explicit bridge (the harness's fake one).</summary>
-        internal static ResolvedArtefact Resolve(string key, string kind, string serviceUrl, string token)
+        /// <summary>As <see cref="Resolve(string,string,TimeSpan?)"/> against an explicit bridge (the harness's fake one).</summary>
+        internal static ResolvedArtefact Resolve(string key, string kind, string serviceUrl, string token, TimeSpan? timeout = null)
         {
             key = (key ?? "").Trim();
             kind = (kind ?? "").Trim();
             if (key.Length == 0) return None(kind, "not bound — Sentinel ▸ Project Setup");
+            var cap = timeout ?? DefaultTimeout;
             var cached = ArtefactCache.Read(key, kind);
             try
             {
+                // SendAsync buffers the body before it returns, under this token: the cap covers the whole read.
+                using var cts = new CancellationTokenSource(cap);
                 using var msg = new HttpRequestMessage(HttpMethod.Get,
                     (serviceUrl ?? "").TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/artefacts/" + Uri.EscapeDataString(kind));
                 if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 if (cached != null) msg.Headers.TryAddWithoutValidation("If-None-Match", ETagFor(cached.Ref, cached.Source, cached.Sha256));
-                using var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
+                using var resp = Http.SendAsync(msg, cts.Token).GetAwaiter().GetResult();
                 var text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 return Interpret(key, kind, (int)resp.StatusCode, text, cached, DateTime.UtcNow);
             }
             catch (Exception e)
             {
-                var why = e is TaskCanceledException or OperationCanceledException ? "timed out after 4 s" : (e.InnerException?.Message ?? e.Message);
+                var why = e is OperationCanceledException
+                    ? "timed out after " + cap.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) + " s"
+                    : (e.InnerException?.Message ?? e.Message);
                 return Fallback(kind, cached, "bridge unreachable", why);
             }
         }

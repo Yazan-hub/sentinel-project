@@ -20,9 +20,12 @@ static class SampleRun
         string dxf = Path.Combine(root, "demo", "ghost-sample", "sample-wall-thickness.dxf");
         var byLayer = ReadDxfLines(dxf);
 
-        var g = GuidelineMatcher.Load(
-            Path.Combine(root, "SentinelAddin", "Resources", "bds-guideline.json"),
-            Path.Combine(root, "demo", "bds-pilot", "bds-type-catalog.json"));
+        // The pilot's guideline and catalogue from demo/bds-pilot/ (what B7 installs on its office), parsed as artefact
+        // bodies — no machine file. The gap text names the catalogue it checked; here that is the fixture.
+        var g = GuidelineMatcher.FromBodies(
+            File.ReadAllText(Path.Combine(root, "demo", "bds-pilot", "bds-guideline.json")),
+            File.ReadAllText(Path.Combine(root, "demo", "bds-pilot", "bds-type-catalog.json")), out _, out _);
+        g.CatalogLabel = "demo/bds-pilot/bds-type-catalog.json";
 
         Console.WriteLine("Sample run — real WallPairing + GuidelineMatcher on the double-line DXF\n");
         Console.WriteLine($"  guideline: {g.Standard}\n");

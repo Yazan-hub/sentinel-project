@@ -30,6 +30,8 @@ public sealed class GhostReviewWindow : Window
         MinWidth = 160, Margin = new Thickness(6, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center,
     };
     private readonly List<(CheckBox Box, LayerMapping Map)> _rows = new();
+    // The three standards the proposal was made with (GhostStandards.Header), none included.
+    private readonly TextBlock _standards = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
 
     /// <summary>Fires with the ticked layers + the chosen level's ElementId value (-1 = default).</summary>
     public event Action<MappingResult, long>? BuildRequested;
@@ -40,14 +42,29 @@ public sealed class GhostReviewWindow : Window
     internal const int HighCountFlag = 500;
 
     /// <summary>
-    /// Whether a row starts ticked: deterministic ("standard") matches only, under the absurd-count cap,
-    /// at or above the confidence floor. LLM-sourced rows and high-count rows never start ticked (Snowdon
-    /// finding 2 — confident-but-wrong LLM rows arrived pre-ticked). Null/empty source is treated as NOT
-    /// standard, mirroring Task 3's conservative posture.
+    /// Whether a row starts ticked: rows of the project's installed layers standard ("standard") only, under the
+    /// absurd-count cap, at or above the confidence floor. Heuristic guesses, local-model answers (fresh or
+    /// remembered), unmapped layers and high-count rows never start ticked (Snowdon finding 2 — confident-but-wrong
+    /// LLM rows arrived pre-ticked; cohesion 4b-2 — a keyword guess is not a standard). Null/empty source is NOT
+    /// standard.
     /// </summary>
     internal static bool PreTick(int n, double confidence, string source, double preTickAbove) =>
         n > 0 && n <= HighCountFlag && confidence >= preTickAbove &&
         string.Equals(source, "standard", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What a row says after its element count when it is not a row of the installed standard.</summary>
+    internal static string SourceNote(string? source) => source?.ToLowerInvariant() switch
+    {
+        "standard" => "",
+        "heuristic" => "  · heuristic guess",
+        "llm" => "  · local model",
+        "cache" => "  · local model (remembered)",
+        "unmapped" => "  · not mapped",
+        _ => "  · " + (string.IsNullOrWhiteSpace(source) ? "no source" : source),
+    };
+
+    /// <summary>The standards line as shown (for the harness).</summary>
+    internal string StandardsLine => _standards.Text;
 
     // net48's LangVersion lacks IsExternalInit (needed for `record`), so this is a plain class.
     private sealed class LevelChoice
@@ -97,10 +114,14 @@ public sealed class GhostReviewWindow : Window
             FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap,
         };
 
+        var top = new StackPanel();
+        top.Children.Add(header);
+        top.Children.Add(_standards);
+
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (header, Dock.Top), (_status, Dock.Bottom), (buttons, Dock.Bottom),
+            (top, Dock.Top), (_status, Dock.Bottom), (buttons, Dock.Bottom),
         })
         {
             DockPanel.SetDock(el, dock);
@@ -122,11 +143,14 @@ public sealed class GhostReviewWindow : Window
     /// will actually turn into — a layer that maps beautifully but carries no geometry is worth seeing
     /// before you build, so those rows show "0 elements" and are never pre-ticked.
     /// </summary>
+    /// <param name="standardsHeader">The three standards the proposal was made with (GhostStandards.Header):
+    /// "Layers: … · Guideline: … · Type catalogue: …", none included. Shown under the title.</param>
     /// <param name="preTickAbove">Confidence at or above which a row starts ticked (low-confidence guesses
     /// are opt-in, exactly as in the standards review).</param>
     public void Load(MappingResult proposal, IReadOnlyDictionary<string, int> elementsPerLayer,
-                     string targetLabel, double preTickAbove = 0.5) => Dispatcher.Invoke(() =>
+                     string targetLabel, string standardsHeader, double preTickAbove = 0.5) => Dispatcher.Invoke(() =>
     {
+        _standards.Text = standardsHeader;
         _rows.Clear();
         _tree.Items.Clear();
 
@@ -149,7 +173,6 @@ public sealed class GhostReviewWindow : Window
             foreach (LayerMapping m in group.OrderByDescending(m => Count(elementsPerLayer, m.CadLayer)))
             {
                 int n = Count(elementsPerLayer, m.CadLayer);
-                bool isStandard = string.Equals(m.Source, "standard", StringComparison.OrdinalIgnoreCase);
                 bool absurd = n > HighCountFlag;
                 var cb = new CheckBox
                 {
@@ -160,7 +183,7 @@ public sealed class GhostReviewWindow : Window
                 cb.Unchecked += (_, __) => UpdateStatus();
 
                 string type = m.BdsFamilyType ?? m.BdsFamily ?? "(no type)";
-                string suffix = (isStandard ? "" : "  · LLM") + (absurd ? "  ⚠ high count — likely annotation" : "");
+                string suffix = SourceNote(m.Source) + (absurd ? "  ⚠ high count — likely annotation" : "");
                 var name = new TextBlock
                 {
                     Text = $"{m.CadLayer}  →  {type}   ·   {n:N0} element(s){suffix}",
@@ -219,7 +242,7 @@ public sealed class GhostReviewWindow : Window
         }
 
         _status.Text = $"{_rows.Count} layer(s), {totalElements:N0} element(s) proposed for '{targetLabel}'. " +
-                       "Deterministic standard matches start ticked; LLM-proposed and high-count rows start unticked — review before building.";
+                       "Only rows of the installed layers standard start ticked; heuristic, local-model, unmapped and high-count rows start unticked — review before building.";
         UpdateStatus();
     });
 

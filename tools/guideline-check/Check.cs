@@ -17,22 +17,22 @@ static class Check
     {
         Console.WriteLine("GuidelineMatcher — C# port conformance (mirrors guideline-bds.test.ts)\n");
 
-        // The REAL office files, loaded exactly as the add-in loads them.
-        // Resolve from the SOURCE tree, not the working directory: `dotnet run --project` keeps the
-        // shell's cwd, and a wrong path here silently falls through to the %AppData% copy — which is
-        // how the first run "loaded a catalogue" while testing nothing.
+        // The pilot's files as B7 installs them on its office (guideline@1, type_catalog@1), parsed by the loader the
+        // add-in runs on an artefact body. Resolved from the SOURCE tree, not the working directory (`dotnet run
+        // --project` keeps the shell's cwd); nothing here reads %AppData%, so every machine gets the same answers.
         string root = AppContext.BaseDirectory;
         for (int i = 0; i < 6 && !System.IO.Directory.Exists(System.IO.Path.Combine(root, "SentinelAddin")); i++)
             root = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, ".."));
         Console.WriteLine("  repo root: " + root);
         Console.WriteLine();
 
-        var m = GuidelineMatcher.Load(
-            System.IO.Path.Combine(root, "SentinelAddin", "Resources", "bds-guideline.json"),
-            System.IO.Path.Combine(root, "demo", "bds-pilot", "bds-type-catalog.json"));
+        string guidelineJson = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "demo", "bds-pilot", "bds-guideline.json"));
+        string catalogJson = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "demo", "bds-pilot", "bds-type-catalog.json"));
+        var m = GuidelineMatcher.FromBodies(guidelineJson, catalogJson, out string guidelineError, out string catalogError);
+        m.CatalogLabel = "type_catalog@1 · office · 0123456789ab…"; // what GhostStandards sets from the resolved artefact
 
-        Ok(m.HasGuideline, $"guideline loaded ({m.Standard})");
-        Ok(m.HasCatalog, "type catalogue loaded");
+        Ok(m.HasGuideline && guidelineError == null, $"guideline loaded ({m.Standard})" + (guidelineError == null ? "" : " — " + guidelineError));
+        Ok(m.HasCatalog && catalogError == null, "type catalogue loaded" + (catalogError == null ? "" : " — " + catalogError));
 
         var errs = m.ValidateAgainstCatalog();
         Ok(errs.Count == 0, "every name the guideline uses exists in the template"
@@ -61,16 +61,22 @@ static class Check
         Ok(gap.Available != null && gap.Available.SequenceEqual(new[]
            { "BDS_EXT_ARC_CMU_100 mm", "BDS_EXT_ARC_CMU_200 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_400 mm" }),
            "…and offers the real alternatives, smallest first");
-        Ok(gap.Why != null && gap.Why.Contains("not in this office's template"), "…and says why, in the reviewer's words");
+        Ok(gap.Why != null && gap.Why.Contains(m.CatalogLabel), "…and says why, naming the catalogue it checked (type_catalog@n · source · sha)");
 
         // determinism
         var runs = Enumerable.Range(0, 20).Select(_ => T("A-WALL-EXT", 200)).Distinct().Count();
         Ok(runs == 1, "deterministic — 20 runs, one answer");
 
-        // a missing guideline must degrade, not throw
-        var none = GuidelineMatcher.Load("does-not-exist.json", "also-missing.json");
-        Ok(!none.HasGuideline && none.Resolve(new GuidelineInput { Category = "Walls" }).Source == "none",
-           "a missing/!swapped guideline degrades to 'no guideline' instead of throwing");
+        // nothing installed: 'no guideline', never another office's file, never a throw
+        var none = GuidelineMatcher.FromBodies(null, null, out _, out _);
+        Ok(!none.HasGuideline && !none.HasCatalog && none.Resolve(new GuidelineInput { Category = "Walls" }).Source == "none",
+           "no guideline and no catalogue degrade to 'none' instead of throwing");
+
+        // a guideline with no catalogue: its type is not checked here — the open document decides (spec 4b decision 2)
+        var noCatalog = GuidelineMatcher.FromBodies(guidelineJson, null, out _, out _);
+        var unchecked275 = noCatalog.Resolve(new GuidelineInput { Category = "Walls", Layer = "A-WALL-EXT", ThicknessMm = 275 });
+        Ok(noCatalog.HasGuideline && !noCatalog.HasCatalog && unchecked275.Type == "BDS_EXT_ARC_CMU_275 mm" && unchecked275.Available == null,
+           "type catalogue none: the guideline's type is left for the open document to confirm, no alternatives invented");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

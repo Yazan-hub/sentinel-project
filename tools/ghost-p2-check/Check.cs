@@ -102,17 +102,24 @@ static class Check
                 // Finding 7: an LLM-sourced row must never pre-tick, even at high confidence with geometry —
                 // this is the canary that fails if the row-build site stops consulting Source.
                 new LayerMapping { CadLayer = "A-LLM-GUESS", Category = "Walls", BdsFamilyType = "INT-100", Confidence = 0.90, Source = "llm" },
+                // Cohesion 4b-2: a keyword guess is not a standard, however confident, and neither is a remembered answer.
+                new LayerMapping { CadLayer = "EXT-PARTITION", Category = "Walls", BdsFamily = "Generic Wall", Confidence = 1.00, Source = "heuristic" },
+                new LayerMapping { CadLayer = "S-FNDN", Category = "Floors", BdsFamily = "Generic Floor", Confidence = 0.95, Source = "cache" },
+                new LayerMapping { CadLayer = "EXTERIOR-ENVELOPE", Confidence = 0, Source = "unmapped", Rationale = "not mapped — local model unreachable (x)" },
             }
         };
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
             ["A-WALL-EXT"] = 120, ["A-GUESS"] = 7, ["A-LLM-GUESS"] = 50, // A-EMPTY absent => zero geometry
+            ["EXT-PARTITION"] = 40, ["S-FNDN"] = 12, ["EXTERIOR-ENVELOPE"] = 14,
         };
+        const string header = "Layers: layers@1 · office · 0123456789ab… · Guideline: none — not installed for demo or its office · Type catalogue: none — not installed for demo or its office";
 
         MappingResult emitted = null;
         var w = new GhostReviewWindow();          // constructed, never shown
         w.BuildRequested += (m, _) => emitted = m;
-        w.Load(proposal, counts, "Project.rvt");
+        w.Load(proposal, counts, "Project.rvt", header);
+        Ok(w.StandardsLine == header, "the review is headed with the three standards it was made with, none included");
 
         // The gate's whole purpose: nothing is emitted until a human clicks Build.
         Ok(emitted == null, "loading a proposal emits nothing (no build without review)");
@@ -124,6 +131,8 @@ static class Check
         Ok(!layers.Contains("A-GUESS"), "low-confidence layer is opt-in, not built by default");
         Ok(!layers.Contains("A-EMPTY"), "layer with no geometry is never pre-ticked");
         Ok(!layers.Contains("A-LLM-GUESS"), "LLM-sourced row is never pre-ticked, even high-confidence with geometry");
+        Ok(!layers.Contains("EXT-PARTITION") && !layers.Contains("S-FNDN") && !layers.Contains("EXTERIOR-ENVELOPE"),
+           "heuristic, remembered and unmapped rows are never pre-ticked, even at 1.0 with geometry");
         Ok(emitted?.Mappings.Count == 1, "only ticked rows are emitted");
         Ok(emitted?.Mappings[0].Params?[0].Value == "FR60", "approved row keeps its document-derived params");
         Ok(!ReferenceEquals(emitted, proposal), "emits a new proposal, never the unreviewed one");
@@ -133,6 +142,10 @@ static class Check
         Ok(!GhostReviewWindow.PreTick(10, 0.9, "llm", 0.5), "llm/0.9/10 does not pre-tick");
         Ok(!GhostReviewWindow.PreTick(10000, 1.0, "standard", 0.5), "standard/1.0/10000 (absurd count) does not pre-tick");
         Ok(!GhostReviewWindow.PreTick(10, 1.0, null, 0.5), "null source does not pre-tick");
+        Ok(new[] { "heuristic", "cache", "unmapped" }.All(s => !GhostReviewWindow.PreTick(10, 1.0, s, 0.5)), "heuristic/cache/unmapped at 1.0 do not pre-tick");
+        Ok(GhostReviewWindow.SourceNote("standard") == "" && GhostReviewWindow.SourceNote("heuristic") == "  · heuristic guess"
+           && GhostReviewWindow.SourceNote("llm") == "  · local model" && GhostReviewWindow.SourceNote("cache") == "  · local model (remembered)"
+           && GhostReviewWindow.SourceNote("unmapped") == "  · not mapped", "every row that is not the standard says what it is");
 
         // ---- The shipped sample: does the real SENSE path actually read it? ----
         Console.WriteLine("\nSample pair (demo/ghost-sample)");
@@ -162,7 +175,7 @@ static class Check
         emitted = null;
         var w2 = new GhostReviewWindow();
         w2.BuildRequested += (m, _) => emitted = m;
-        w2.Load(new MappingResult { Mappings = new List<LayerMapping>() }, counts, "Project.rvt");
+        w2.Load(new MappingResult { Mappings = new List<LayerMapping>() }, counts, "Project.rvt", header);
         w2.Build();
         Ok(emitted == null, "empty proposal cannot be built");
 
@@ -195,22 +208,18 @@ static class Check
         Console.WriteLine($"  evidence: {(evidence.IsEmpty ? "NONE" : $"{evidence.Sources.Count} doc(s) — {string.Join(", ", evidence.Sources)}")}");
         Ok(!evidence.IsEmpty, "the configured scoped folder yields document context");
 
-        string cache = Path.Combine(Path.GetTempPath(), "ghost-live-check-cache.json");
-        try { File.Delete(cache); } catch { }
-
-        // Load the SHIPPED BDS ruleset explicitly. Without this the matcher finds no bds-layers.json next
-        // to THIS tool's DLL and silently falls back to its built-in keyword heuristics — which resolve
-        // "Generic Wall" at 0.70 instead of the standard's BDS_Wall_Ext at 1.00, making the dry run
-        // unrepresentative of the add-in (whose deploy folder does carry Resources\bds-layers.json).
+        // The pilot's layers standard as bds-office installs it (layers@1). No project key: nothing is read from
+        // or written to a layer cache, so every layer the standard does not know really reaches the model.
         string ruleset = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "..", "..", "..", "..", "..", "SentinelAddin", "Resources", "bds-layers.json"));
-        Ok(File.Exists(ruleset), "the shipped BDS layer ruleset is on disk");
+            "..", "..", "..", "..", "..", "demo", "bds-pilot", "bds-layers.json"));
+        var standard = LayerRulesetMatcher.FromBody(File.ReadAllText(ruleset), out string rulesetError);
+        Ok(standard != null, $"the pilot's layers standard parses ({rulesetError ?? "demo/bds-pilot/bds-layers.json"})");
+        if (standard == null) return;
 
         var llm = new LocalGhostBuilder(schemaJson: "", model: "qwen2.5:7b-instruct",
                                         ollamaUrl: "http://localhost:11434/api/generate",
                                         evidence: evidence.Context);
-        using var mapper = new LayerMapper(llm, cachePath: cache,
-                                           matcher: LayerRulesetMatcher.Load(ruleset));
+        using var mapper = new LayerMapper(llm, standard, projectKey: "");
 
         MappingResult result;
         try { result = await mapper.MapLayersAsync(layers); }

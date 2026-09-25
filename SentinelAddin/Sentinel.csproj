@@ -50,12 +50,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Ribbon icons + the Ghost reference profiles, copied to output and deployed with the DLL. No ruleset
-         ships: a document is judged by its web project's ruleset@n (the pilot's copy is seed data in demo/bds-pilot/). -->
-    <Content Include="Resources\bds-layers.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Reference PROFILE, not a fixed standard (D-03). Another firm points ghost_guideline_path at
-         their own file; this ships so the add-in works out of the box, not to lock anyone to BDS. -->
-    <Content Include="Resources\bds-guideline.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Ribbon icons, copied to output and deployed with the DLL. No office standard ships: a document's ruleset,
+         IDS, naming, contract, layers, guideline and type catalogue are its web project's artefacts (or its
+         office's); the pilot's copies are seed data in demo/bds-pilot/. -->
     <Content Include="Resources\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

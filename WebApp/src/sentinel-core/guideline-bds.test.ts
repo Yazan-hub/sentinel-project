@@ -5,7 +5,7 @@ import {
   type Guideline, type CatalogType,
 } from "./guideline";
 
-const G: Guideline = JSON.parse(readFileSync("../SentinelAddin/Resources/bds-guideline.json", "utf8"));
+const G: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-guideline.json", "utf8"));
 const CATALOG: CatalogType[] = JSON.parse(
   readFileSync("../demo/bds-pilot/bds-type-catalog.json", "utf8"),
 ).types;
@@ -77,7 +77,7 @@ describe("BDS guideline — determinism", () => {
 });
 
 describe("BDS guideline — graphics and views name real things", () => {
-  const raw = JSON.parse(readFileSync("../SentinelAddin/Resources/bds-guideline.json", "utf8"));
+  const raw = JSON.parse(readFileSync("../demo/bds-pilot/bds-guideline.json", "utf8"));
   const CAT = JSON.parse(readFileSync("../demo/bds-pilot/bds-type-catalog.json", "utf8"));
   const families = new Set<string>(CAT.types.map((t: any) => t.family.toLowerCase()));
   const templates = new Set<string>(CAT.view_templates.map((v: any) => v.name));

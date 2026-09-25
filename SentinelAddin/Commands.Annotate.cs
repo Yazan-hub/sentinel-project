@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -9,10 +10,11 @@ using Sentinel.GhostBuilder;
 namespace Sentinel.Commands;
 
 /// <summary>
-/// Annotate — step 3 of the datum → model → annotate chain. Creates the WIP plan views the
-/// Office Modelling Guideline's `views` section prescribes: one per plannable entry per level,
-/// named to the office structure, view template applied, routed into the office Project Browser
-/// structure. Idempotent: a view whose name already exists is skipped, so re-running is safe.
+/// Annotate — step 3 of the datum → model → annotate chain. Creates the WIP plan views the `views` section of
+/// the guideline@n installed on the document's web project (or its office) prescribes: one per plannable entry
+/// per level, named to the office structure, view template applied, routed into the office Project Browser
+/// structure. Idempotent: a view whose name already exists is skipped, so re-running is safe. With no guideline
+/// it refuses and names the none — it never plans another office's views (cohesion 4b-2, F44).
 /// </summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class AnnotateViewsCommand : IExternalCommand
@@ -22,16 +24,17 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null) return Result.Cancelled;
 
-        var settings = SettingsManager.Resolve(doc);
-        var guideline = GuidelineMatcher.Load(
-            string.IsNullOrWhiteSpace(settings.GhostGuidelinePath) ? null : settings.GhostGuidelinePath,
-            string.IsNullOrWhiteSpace(settings.GhostTypeCatalogPath) ? null : settings.GhostTypeCatalogPath);
+        // guideline@n for this document's project (or its office): the key is read here on the API thread, the GET
+        // runs off it and the command waits (4 s cap), as Governed Publish waits on /propose.
+        string key = ProjectContext.For(doc).Key;
+        var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
+        var guideline = standards.Guideline;
+        string guidelineLabel = standards.GuidelineSource.Label;
 
-        if (guideline.Views is null || guideline.Views.Count == 0)
+        var nothing = ViewPlanner.NothingToPlan(guidelineLabel, standards.GuidelineSource.Origin != "none", guideline.Views);
+        if (nothing != null)
         {
-            TaskDialog.Show("Sentinel — Annotate",
-                "The guideline has no `views` section — nothing to create.\n" +
-                $"Guideline: {guideline.Standard}");
+            TaskDialog.Show("Sentinel — Annotate", nothing);
             return Result.Cancelled;
         }
 
@@ -47,7 +50,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
             levels.Select(l => l.Name).ToList());
         if (plans.Count == 0)
         {
-            TaskDialog.Show("Sentinel — Annotate", "The guideline's views section has no plannable (FloorPlan/CeilingPlan) entries.");
+            TaskDialog.Show("Sentinel — Annotate", $"Guideline: {guidelineLabel}\nIts views section has no plannable (FloorPlan/CeilingPlan) entries — nothing to create.");
             return Result.Cancelled;
         }
 
@@ -94,6 +97,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         t.Commit();
 
         var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Guideline: {guidelineLabel}"); // what planned these views
         sb.AppendLine($"Created: {created} view(s) across {levels.Count} level(s).");
         if (skippedExisting > 0) sb.AppendLine($"Skipped (already exist): {skippedExisting}");
         if (warnings.Count > 0)

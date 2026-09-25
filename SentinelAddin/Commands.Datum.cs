@@ -76,7 +76,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             TaskDialog.Show("Sentinel — Datum",
                 "Found no level or grid lines.\n\n" + string.Join("\n", detected.Warnings) +
                 "\n\nLevels are read from a section layer containing \"LEVEL\"; grids from a plan layer " +
-                "containing \"GRID\". Check the drawings are imported and drawn to the office layer standard.");
+                "containing \"GRID\" — those two words, not the project's layers standard. Check the drawings are imported.");
             return Result.Cancelled;
         }
 

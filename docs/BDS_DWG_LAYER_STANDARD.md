@@ -2,7 +2,7 @@
 
 The layer naming standard that incoming DWGs must follow so GhostBuilder can map layers to families **deterministically** (and so the AI only has to reason about the genuine gaps). It is lineage-compatible with the **AIA CAD Layer Guidelines / US National CAD Standard** and **ISO 13567**, adapted to the BDS family library and Sentinel's IDS.
 
-> Like the naming and IDS rulesets, this is a **configurable reference, not a bible**. BDS is the pilot profile; a future office-agnostic **Base** profile just swaps the ruleset file (`demo/bds-pilot/bds-layers.json`). Enforcement is per-project: `reject` / `warn` / `off`.
+> Like the naming and IDS rulesets, this is a **configurable reference, not a bible**. BDS is the pilot profile (`demo/bds-pilot/bds-layers.json`, installed on the office `bds-office` as `layers@1`); the office-agnostic **Base** profile is `config/base-standard/layers.json`. Swapping the standard means installing another `layers@n` on the project or its office. The file's `enforce` (`reject` / `warn` / `off`) is not applied by Revit — see *Compliance / enforcement*.
 
 ## Why it matters
 
@@ -115,19 +115,20 @@ Annotation, references, and drafting layers must **not** be turned into geometry
 ## How it feeds GhostBuilder (deterministic-first)
 
 1. **SENSE** reads each DWG layer.
-2. **Compliance check** (the layer gate): does the layer match the standard? Compliant layers get a **deterministic** category/family from this ruleset — no AI needed, confidence = 1.0.
-3. **AI only for the gaps:** non-compliant or ambiguous layers are the only ones sent to the interpreter to *propose* a mapping (with a lower confidence) — and to **suggest the compliant rename**.
-4. **Non-compliant DWGs** are flagged in the review with the offending layers and a proposed remap to the standard — so the office can fix the source, and the next run is deterministic.
+2. **Ignore:** a layer matching the standard's `ignore` globs, or a built-in annotation token (`ANNO`, `TEXT`, `DIM`, `GRID`, …), never reaches the review.
+3. **The installed standard:** an exact layer or an alias of the project's `layers@n` gets its category and family deterministically — no AI. These rows are `standard`, and they are the only rows the review pre-ticks.
+4. **The project's cache:** an answer the local model gave before on this project, under the same `layers@n` sha (`%AppData%\Sentinel\cache\<key>\dwg_mappings.json`) — a `cache` row.
+5. **Heuristics:** a `D-MAJR` parse (`A-WALL-…` → Walls) or a keyword (`WALL`, `DOOR`, …) proposes a generic family — a `heuristic` row, never pre-ticked. With no `layers@n` installed, every model layer is a heuristic or a model guess.
+6. **The local model** proposes the rest — an `llm` row, never pre-ticked. If it cannot be reached, those layers read `unmapped` ("not mapped — local model unreachable") and every row above is kept.
+
+The review window's header names the standard: `Layers: layers@n · source · sha`, or `Layers: none — not installed for <key> or its office`. The compliant-rename suggestion and the compliance verdict exist only in the TypeScript reference (`WebApp/src/sentinel-core/layers.ts`), which no tool runs yet.
 
 This is what keeps an autonomous build reliable: the standard carries the common cases; the AI is reserved for genuine ambiguity, not for guessing at chaos.
 
 ## Compliance / enforcement
 
-Per project, in `bds-layers.json`:
-- `reject` — a non-compliant layer blocks the build (strict offices).
-- `warn` — build proceeds, non-compliant layers flagged (default — matches the "warn-first" posture).
-- `off` — no layer checking (pure-AI mapping).
+The file carries `enforce`: `reject` (a non-compliant layer should block the build), `warn` (build and flag) or `off` (no layer checking). **Revit does not apply it:** Ghost Builder reads `standard`, `layers` and `ignore` only, maps every layer by the tiers above and leaves the decision to the reviewer's ticks. The TypeScript reference computes the verdict (`validateLayers`), but no tool calls it; until one does, `enforce` states an intent, it is not a gate.
 
 ## The machine-readable ruleset
 
-`demo/bds-pilot/bds-layers.json` is the source of truth GhostBuilder loads (mirrors `naming-ruleset.json` and `bds-ids.json`). Editing the standard = editing that file; no code change. Swap it for a `base-layers.json` to make Sentinel office-agnostic.
+`demo/bds-pilot/bds-layers.json` is the BDS standard as data. It reaches Ghost Builder only as an artefact: `node bridge/artefact-import.mjs ../demo/bds-pilot/bds-layers.json --project bds-office --kind layers` (from `WebApp`) installs it on the office as `layers@n`, and every project attached to the office (`demo`) inherits it. Editing the standard = editing that file and installing it again (`layers@n+1`); no code change, and no copy on a workstation or beside the add-in. The office-agnostic profile is `config/base-standard/layers.json`.

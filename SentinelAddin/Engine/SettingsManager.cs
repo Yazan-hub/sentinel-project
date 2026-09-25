@@ -33,22 +33,18 @@ public sealed class SentinelSettings
     [JsonPropertyName("ghost_family_library_dir")] public string GhostFamilyLibraryDir { get; set; } = string.Empty; // .rfa library root; empty -> skip preload
     [JsonPropertyName("ghost_mapping_schema_path")] public string GhostMappingSchemaPath { get; set; } = string.Empty; // JSON schema file echoed into the LLM prompt
 
-    // Ghost Builder v2 (P1): local model + swappable DWG layer standard. LOCAL-by-default (privacy — the
-    // office's drawings never leave the machine); cloud is an explicit opt-in and stays OFF unless enabled.
+    // Ghost Builder v2 (P1): the local model. LOCAL-by-default (privacy — the office's drawings never leave the
+    // machine); cloud is an explicit opt-in and stays OFF unless enabled. The layer standard, the modelling guideline
+    // and the type catalogue are not settings: they are the web project's layers@n, guideline@n and type_catalog@n
+    // (cohesion 4b-2). An old payload's ghost_layer_ruleset_path, ghost_guideline_path and ghost_type_catalog_path
+    // are ignored on read and dropped by the next save.
     [JsonPropertyName("ghost_model")] public string GhostModel { get; set; } = "qwen2.5:7b-instruct";          // local Ollama model for the unknown-layer gaps
     [JsonPropertyName("ollama_url")] public string OllamaUrl { get; set; } = "http://localhost:11434/api/generate";
-    [JsonPropertyName("ghost_layer_ruleset_path")] public string GhostLayerRulesetPath { get; set; } = string.Empty; // empty -> %AppData%\Sentinel\bds-layers.json, then the shipped Resources copy
     [JsonPropertyName("ghost_cloud_opt_in")] public bool GhostCloudOptIn { get; set; } = false;                 // OFF: no drawing leaves the machine
     // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs/sketches) the agent may read — and ONLY this
     // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
     [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
 
-    // The OFFICE MODELLING GUIDELINE and the TYPE CATALOGUE harvested from that office's template.
-    // Both are per-firm by design (decision D-03: BDS is a reference profile, not a fixed standard) —
-    // another practice points these at their own files and nothing in the code changes. Empty falls back
-    // to %AppData%\Sentinel\ then the shipped Resources copy, exactly like the layer ruleset above.
-    [JsonPropertyName("ghost_guideline_path")] public string GhostGuidelinePath { get; set; } = string.Empty;
-    [JsonPropertyName("ghost_type_catalog_path")] public string GhostTypeCatalogPath { get; set; } = string.Empty;
     [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
 
     // An old payload's "master_ruleset_path" is ignored on read (the ruleset comes from the web project), so an
@@ -147,7 +143,7 @@ public static class SettingsManager
     // ---------------- Resolution ----------------
 
     /// <summary>Effective settings: document ES first, machine JSON fallback,
-    /// empty settings when neither exists (engine then uses built-in chain).</summary>
+    /// empty settings when neither exists.</summary>
     public static SentinelSettings Resolve(Document? doc)
     {
         var machine = LoadFromMachine();
@@ -155,15 +151,13 @@ public static class SettingsManager
         if (project is null) return machine ?? new SentinelSettings();
 
         // A project's document ES wins for its own fields, but the machine config still supplies the GHOST
-        // operational defaults (source folder / family library / ruleset path) so they apply even in a project
-        // that carries its own Sentinel ES — otherwise a per-project setup silently disables P2's doc folder.
+        // operational defaults (source folder / family library) so they apply even in a project that carries its
+        // own Sentinel ES — otherwise a per-project setup silently disables P2's doc folder. No office standard is
+        // merged from the machine: layers, guideline and type catalogue come from the web project.
         if (machine is not null)
         {
             if (string.IsNullOrWhiteSpace(project.GhostSourceFolder)) project.GhostSourceFolder = machine.GhostSourceFolder;
             if (string.IsNullOrWhiteSpace(project.GhostFamilyLibraryDir)) project.GhostFamilyLibraryDir = machine.GhostFamilyLibraryDir;
-            if (string.IsNullOrWhiteSpace(project.GhostLayerRulesetPath)) project.GhostLayerRulesetPath = machine.GhostLayerRulesetPath;
-            if (string.IsNullOrWhiteSpace(project.GhostGuidelinePath)) project.GhostGuidelinePath = machine.GhostGuidelinePath;
-            if (string.IsNullOrWhiteSpace(project.GhostTypeCatalogPath)) project.GhostTypeCatalogPath = machine.GhostTypeCatalogPath;
         }
         return project;
     }
