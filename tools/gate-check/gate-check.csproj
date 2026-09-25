@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Offline check for the IFC delivery gate's entity counting. Pins that a contract requiring IFCWALL is
-       satisfied by IFCWALLSTANDARDCASE (what Revit's IFC2x3 export actually writes) — found live when a
-       196-wall model was rejected with "IFCWALL: 0 found". No Revit API; `dotnet run` from this folder. -->
+  <!-- Offline check for the IFC delivery gate: entity counting (a contract requiring IFCWALL is satisfied by
+       IFCWALLSTANDARDCASE, what Revit's IFC2x3 export writes) and, since cohesion phase 4b, the contract@n shape
+       (DeliveryContract.FromBody refuses what the bridge validator refuses) and what a none reads. No Revit API;
+       `dotnet run` from this folder. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
@@ -14,5 +15,9 @@
     <Compile Include="..\..\SentinelAddin\Engine\IfcDeliveryGate.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RoiTracker.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\DeliveryContract.cs" />
+    <!-- DeliveryContract.Load resolves contract@n through the phase-4a artefact client. -->
+    <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
   </ItemGroup>
 </Project>
