@@ -312,7 +312,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     expect(validateArtefact("contract", readRepoJson("demo/bds-pilot/delivery-contract.json"))).toBe(true);
     expect(validateArtefact("layers", readRepoJson("config/base-standard/layers.json"))).toBe(true);
     expect(validateArtefact("layers", readRepoJson("demo/bds-pilot/bds-layers.json"))).toBe(true);
-    expect(validateArtefact("guideline", readRepoJson("SentinelAddin/Resources/bds-guideline.json"))).toBe(true);
+    expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-guideline.json"))).toBe(true);
     const { source, ...harvest } = readRepoJson("demo/bds-pilot/bds-type-catalog.json");   // the harvest's source becomes template
     expect(validateArtefact("type_catalog", { ...harvest, template: { title: source } })).toBe(true);
   });

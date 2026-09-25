@@ -41,9 +41,17 @@ Check("no-prefix entries skipped", !plans.Exists(p => p.Use == "Coordination"));
 Check("null views -> empty", ViewPlanner.Plan(null, naming, new List<string> { "Level 0" }).Count == 0);
 Check("no levels -> empty", ViewPlanner.Plan(views, naming, new List<string>()).Count == 0);
 
-// the BDS pilot guideline parses with the new sections (read as an installed guideline@n body; no catalogue)
-var m = GuidelineMatcher.FromBodies(File.ReadAllText(Path.Combine(root, "SentinelAddin", "Resources", "bds-guideline.json")),
-                                    null, out string guidelineError, out _);
+// Annotate's refusal names the guideline in force (cohesion 4b-2): none, or one without views, plans nothing.
+Check("none refuses in the spec's words",
+    ViewPlanner.NothingToPlan("none — not installed for p-none or its office", false, null)
+    == "Guideline: none — not installed for p-none or its office. Nothing to plan — install a guideline@n with a views section on the project or its office.");
+Check("a guideline without views refuses, naming it",
+    ViewPlanner.NothingToPlan("guideline@1 · office · 0123456789ab…", true, new List<GuidelineViewStandard>())
+    == "Guideline: guideline@1 · office · 0123456789ab… has no views section. Nothing to plan — install a guideline@n with a views section on the project or its office.");
+Check("a guideline with views plans", ViewPlanner.NothingToPlan("guideline@1 · office · 0123456789ab…", true, views) == null);
+
+// the pilot's guideline (demo/bds-pilot/, what B7 installs as the pilot office's guideline@1) parses with the new sections
+var m = GuidelineMatcher.FromBodies(File.ReadAllText(Path.Combine(root, "demo", "bds-pilot", "bds-guideline.json")), null, out var guidelineError, out _);
 Check("BDS guideline loads" + (guidelineError == null ? "" : " — " + guidelineError), m.HasGuideline);
 Check("BDS views section deserialized", m.Views != null && m.Views.Count > 0);
 Check("BDS GA Plan wipTemplate", m.Views?.Find(v => v.Use == "GA Plan")?.WipTemplate == "01.100_WIP_FLOOR_PLANS");

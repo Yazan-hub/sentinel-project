@@ -14,8 +14,10 @@ namespace Sentinel.Commands;
 /// <summary>
 /// Photo → Massing: estimate a building's envelope from the project images (renders, photos, elevations)
 /// in the scoped folder, let the user CORRECT the numbers, then build it through the SAME governed
-/// GhostBuilder placement + Office Modelling Guideline a DWG uses. The governed answer to the Geopogo demo:
-/// the estimate is an explicit, reviewable input, not silent geometry that drifts.
+/// GhostBuilder placement a DWG uses, typed by the guideline@n and type_catalog@n installed on the document's web
+/// project (or its office) and named in the summary; with no guideline every wall is a declared placeholder.
+/// The governed answer to the Geopogo demo: the estimate is an explicit, reviewable input, not silent geometry
+/// that drifts.
 ///
 /// Threading mirrors GhostBuilderCommand: vision inference on a background thread (Revit-API-free);
 /// placement funnels through an ExternalEvent (API thread only).
@@ -39,12 +41,10 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         }
 
         string libraryDir = string.IsNullOrWhiteSpace(settings.GhostFamilyLibraryDir) ? null : settings.GhostFamilyLibraryDir;
-        var guideline = GuidelineMatcher.Load(
-            string.IsNullOrWhiteSpace(settings.GhostGuidelinePath) ? null : settings.GhostGuidelinePath,
-            string.IsNullOrWhiteSpace(settings.GhostTypeCatalogPath) ? null : settings.GhostTypeCatalogPath);
-        var orchestrator = new GhostBuilderOrchestrator(doc, mapper: null, minConfidence: 0,
-                                                        familyLibraryDir: libraryDir, guideline: guideline,
-                                                        placeholderTypes: true); // LOD 100: default types, declared
+        // The project key is read here (Extensible Storage, API thread); the guideline and type catalogue it names are
+        // fetched off this thread while the vision model reads the images. Massing reads no layer standard.
+        string key = ProjectContext.For(doc).Key;
+        GhostStandards standards = null; // set in the background before the review window can raise a build
 
         var placementEvent = new MassingPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
@@ -56,18 +56,25 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         {
             progress.Close();
             TaskDialog.Show("Sentinel — Massing",
-                error != null ? "Build failed: " + error.Message : Summarize(report));
+                error != null ? "Build failed: " + error.Message : Summarize(report, standards));
         });
 
-        // Vision estimate on a background thread; the review window (API thread) drives the build.
+        // Vision estimate and the standards GET on background threads; the review window (API thread) drives the build.
         _ = Task.Run(async () =>
         {
             try
             {
+                var fetch = Task.Run(() => GhostStandards.Load(key, layers: false)); // guideline@n + type_catalog@n
                 progress.SetStatus($"Reading the project images with the local vision model…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
                 MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
                 if (progress.Token.IsCancellationRequested) return;
+                progress.SetStatus("Reading the project's guideline and type catalogue…");
+                standards = await fetch.ConfigureAwait(false);
+                if (progress.Token.IsCancellationRequested) return;
+                var orchestrator = new GhostBuilderOrchestrator(doc, mapper: null, minConfidence: 0,
+                                                                familyLibraryDir: libraryDir, guideline: standards.Guideline,
+                                                                placeholderTypes: true); // LOD 100: default types, declared
 
                 progress.Dispatcher.Invoke(() =>
                 {
@@ -95,11 +102,16 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         return Result.Succeeded;
     }
 
-    private static string Summarize(GhostPlacementEngine.PlacementReport r)
+    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s)
     {
         if (r is null) return "No report returned.";
         var sb = new System.Text.StringBuilder();
+        // What typed this massing, first: the project's guideline and type catalogue, a none named as none.
+        sb.AppendLine("Guideline: " + s.GuidelineSource.Label + " · Type catalogue: " + s.CatalogSource.Label);
+        if (s.CatalogSource.Origin == "none") sb.AppendLine(GhostBuilderCommand.CatalogueNotChecked(s));
+        sb.AppendLine();
         sb.AppendLine($"Placed: {r.Placed}");
+        sb.AppendLine(GhostBuilderCommand.WallsLine(r, s));
         if (r.CreatedTypes.Count > 0)
         {
             sb.AppendLine().AppendLine($"Created {r.CreatedTypes.Count} new type(s):");

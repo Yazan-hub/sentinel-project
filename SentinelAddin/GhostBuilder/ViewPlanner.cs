@@ -53,5 +53,16 @@ namespace Sentinel.GhostBuilder
             }
             return outp;
         }
+
+        /// <summary>Why Annotate has nothing to plan, or null when it has: the guideline is none — its label says why
+        /// ("none — not installed for demo or its office") — or it has no views section. Annotate never plans another
+        /// office's views in their place (cohesion 4b-2, F44).</summary>
+        public static string NothingToPlan(string guidelineLabel, bool installed, List<GuidelineViewStandard> views)
+        {
+            const string install = " Nothing to plan — install a guideline@n with a views section on the project or its office.";
+            if (!installed) return "Guideline: " + guidelineLabel + "." + install;
+            if (views == null || views.Count == 0) return "Guideline: " + guidelineLabel + " has no views section." + install;
+            return null;
+        }
     }
 }

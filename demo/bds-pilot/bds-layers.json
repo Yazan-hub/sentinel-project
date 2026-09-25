@@ -10,8 +10,12 @@
   "ignore": [
     "0", "DEFPOINTS",
     "*-ANNO-*", "*-ANNO", "*-DIMS", "*-TEXT", "*-GRID", "*-DETL",
-    "*-PATT", "*-SECT", "*-ELEV", "*-NPLT", "*-HATCH"
+    "*-PATT", "*-SECT", "*-ELEV", "*-NPLT", "*-HATCH",
+
+    "*-IDEN", "*-OVHD", "*-HRAL", "*-OTLN-*", "*-LEVL",
+    "A-VRTC*", "Q-SPCQ*", "L-PLNT*", "L-SITE*", "G-*", "SD-*", "*-TTLB*", "*-PLOT*"
   ],
+  "_note_aia_ignore": "IDEN=tags, PATT=hatching (already present above for this file), OVHD=overhead dashed, HRAL=handrails (real geometry but not LOD-200 primary), LEVL=level annotation, VRTC=vertical-circulation symbols, SPCQ=space/area queries, L-*=landscape, G-/SD-=general/site-detail sheets, TTLB/PLOT=title block.",
 
   "disciplines": {
     "A": "Architectural", "S": "Structural", "M": "Mechanical",
@@ -24,19 +28,19 @@
     { "layer": "A-WALL-INT",  "category": "Walls",   "family": "BDS_Wall_Int",       "params": { "IsExternal": false, "Discipline": "A" }, "aliases": ["A-WALL-I", "WALL-INT", "A-WALL-INTERNAL"] },
     { "layer": "A-WALL-FIRE", "category": "Walls",   "family": "BDS_Wall_Fire",      "params": { "Discipline": "A" }, "requires": ["FireRating"], "aliases": ["A-WALL-FR", "A-WALL-RATED"] },
     { "layer": "A-WALL-PART", "category": "Walls",   "family": "BDS_Wall_Partition", "params": { "IsExternal": false, "Discipline": "A" }, "aliases": ["A-WALL-P", "A-PART"] },
-    { "layer": "A-WALL",      "category": "Walls",   "family": "BDS_Wall_Int",       "params": { "Discipline": "A" }, "aliases": ["WALL", "WALLS"] },
+    { "layer": "A-WALL",      "category": "Walls",   "family": "BDS_Wall_Int",       "params": { "Discipline": "A" }, "aliases": ["WALL", "WALLS", "A-WALL-FULL", "A-WALL-PRHT"] },
 
-    { "layer": "A-DOOR",      "category": "Doors",   "family": "BDS_Door",           "params": { "Discipline": "A" }, "aliases": ["DOOR", "DOORS", "A-DOR"] },
-    { "layer": "A-WIND",      "category": "Windows", "family": "BDS_Window",         "params": { "Discipline": "A" }, "aliases": ["A-GLAZ", "WIND", "WINDOW", "WINDOWS", "A-WIN"] },
+    { "layer": "A-DOOR",      "category": "Doors",   "family": "BDS_Door",           "params": { "Discipline": "A" }, "aliases": ["DOOR", "DOORS", "A-DOR", "A-DOOR-FRAM"] },
+    { "layer": "A-WIND",      "category": "Windows", "family": "BDS_Window",         "params": { "Discipline": "A" }, "aliases": ["A-GLAZ", "WIND", "WINDOW", "WINDOWS", "A-WIN", "A-GLAZ-FULL"] },
 
-    { "layer": "A-FLOR",      "category": "Floors",  "family": "BDS_Floor",          "params": { "Discipline": "A" }, "aliases": ["A-FLR", "FLOOR", "FLOORS", "A-SLAB"] },
+    { "layer": "A-FLOR",      "category": "Floors",  "family": "BDS_Floor",          "params": { "Discipline": "A" }, "aliases": ["A-FLR", "FLOOR", "FLOORS", "A-SLAB", "A-FLOR-OTLN"] },
     { "layer": "A-FLOR-FNSH", "category": "Floors",  "family": "BDS_Floor_Finish",   "params": { "Discipline": "A" }, "aliases": ["A-FLR-FIN", "A-FINISH"] },
     { "layer": "A-CLNG",      "category": "Ceilings","family": "BDS_Ceiling",        "params": { "Discipline": "A" }, "aliases": ["A-CEIL", "CEILING", "CEILINGS"] },
     { "layer": "A-COLS",      "category": "Columns", "family": "BDS_Column_Arch",    "params": { "Discipline": "A" }, "aliases": ["A-COL", "A-COLUMN"] },
     { "layer": "A-FURN",      "category": "Furniture","family": "BDS_Furniture",     "params": { "Discipline": "A" }, "aliases": ["A-FURNITURE", "FURN"] },
     { "layer": "A-EQPM",      "category": "Furniture","family": "BDS_Equipment",     "params": { "Discipline": "A" }, "aliases": ["A-EQUIP", "A-EQP"] },
 
-    { "layer": "S-COLS",      "category": "Columns", "family": "BDS_Column_Struct",  "params": { "Discipline": "S" }, "aliases": ["S-COL"] },
+    { "layer": "S-COLS",      "category": "Columns", "family": "BDS_Column_Struct",  "params": { "Discipline": "S" }, "aliases": ["S-COL", "S-COLS-CONC", "S-COLS-STL"] },
     { "layer": "S-SLAB",      "category": "Floors",  "family": "BDS_Slab_Struct",    "params": { "Discipline": "S" }, "aliases": ["S-FLOR"] },
     { "layer": "S-WALL",      "category": "Walls",   "family": "BDS_Wall_Shear",     "params": { "Discipline": "S" }, "aliases": ["S-WALL-SHEAR"] }
   ],
