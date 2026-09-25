@@ -136,7 +136,9 @@ namespace Sentinel.Coordination
                 ? From(kind, cached, "cache", $"{what} — cached {cached.FetchedAt.ToLocalTime():HH:mm}")
                 : None(kind, what + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")"));
 
-        private static ResolvedArtefact None(string kind, string reason) =>
+        /// <summary>The explicit none for <paramref name="kind"/>: its label is what every surface prints
+        /// ("none — &lt;reason&gt;"). Public so a loader can refuse a body it cannot use (DeliveryContract.Load).</summary>
+        public static ResolvedArtefact None(string kind, string reason) =>
             new ResolvedArtefact { Kind = kind, Origin = "none", Reason = reason, Label = "none — " + reason };
     }
 }

@@ -52,16 +52,35 @@ async function officeArtefactAsService(officeKey, kind) {
 const RULE_TARGETS = ["workset", "view", "parameter", "sheet", "family", "type", "level", "grid"];
 const RULE_MODES = ["monitor", "warn", "request", "block"];
 const ENFORCE = ["reject", "warn", "off"];
-const filled = (v) => typeof v === "string" && v.trim() !== "";
+// Blank is JS whitespace plus U+0085 (NEL), which .NET's char.IsWhiteSpace has and JS trim does not; DeliveryContract.Text
+// adds U+FEFF, which JS has and .NET does not. One set on both sides: the bridge never installs a key Revit reads as blank.
+const filled = (v) => typeof v === "string" && /[^\s\u0085]/.test(v);
 const bad = (kind, path, want) => err(400, `${kind}: ${path} ${want}`);
+
+// Contract, layers, guideline, type catalogue (spec 2026-09-25 4b decision 4): what their judges read, nothing
+// more. Every contract field is required — neither delivery gate fills a default, so Revit and intake read one
+// contract one way. "Optional" means absent or null. The loaders in Revit repeat these checks on what they receive.
+const IFC_SCHEMAS = ["IFC2X3", "IFC4"];                                  // what PlatformExporter can write
+const IFC_ENTITY = /^IFC[A-Z0-9_]+$/;
+const LAYER_CATEGORIES = ["Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture"];
+const MAX_CATALOG_TYPES = 20000;                                         // = office-store MAX_CATALOG_TYPES (importing it would load cde-store)
+const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+const intCount = (v) => Number.isInteger(v) && v >= 0 && v <= 2147483647; // a C# int: a larger count would not load in Revit
+const texts = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
+const names = (v) => Array.isArray(v) && v.every(filled);
+/** The array at `path` holds objects only; `each(item, "path[i]")` checks one. */
+function objects(kind, path, v, each) {
+  if (!Array.isArray(v)) throw bad(kind, path, "must be an array");
+  v.forEach((x, i) => { if (!isObj(x)) throw bad(kind, `${path}[${i}]`, "must be an object"); each(x, `${path}[${i}]`); });
+}
 
 function standardHead(kind, body) {
   if (!filled(body.standard_key)) throw bad(kind, "standard_key", "must be a non-empty string");
   if (typeof body.semver !== "string" || !/^\d+\.\d+\.\d+$/.test(body.semver)) throw bad(kind, "semver", "must be x.y.z");
 }
 
-/** Kind-specific validation: `ids`, `ruleset` and `naming` have real checks; the other kinds accept any
- *  object until they get a judge. A failure is a 400 naming the path (`rules[3].mode`). */
+/** Kind-specific validation — every kind has a real check, so the bridge never installs a body its judge could
+ *  not use. A failure is a 400 naming the path (`rules[3].mode`, `required_entities[0].min_count`). */
 export function validateArtefact(kind, body) {
   if (!KINDS.includes(kind)) throw err(400, `unknown artefact kind '${kind}' (expected one of ${KINDS.join(", ")})`);
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "artefact body must be a JSON object");
@@ -99,6 +118,69 @@ export function validateArtefact(kind, body) {
     if (body.enforce !== undefined && !ENFORCE.includes(body.enforce)) throw bad(kind, "enforce", "must be reject | warn | off");
     if (body.strip_extensions !== undefined && !(Array.isArray(body.strip_extensions) && body.strip_extensions.every((e) => typeof e === "string")))
       throw bad(kind, "strip_extensions", "must be an array of strings");
+  }
+  if (kind === "contract") {
+    if (!filled(body.contract_key)) throw bad(kind, "contract_key", "must be a non-empty string");
+    if (!IFC_SCHEMAS.includes(body.ifc_schema)) throw bad(kind, "ifc_schema", `must be ${IFC_SCHEMAS.join(" | ")}`);
+    const entity = (e, at) => { if (typeof e.entity !== "string" || !IFC_ENTITY.test(e.entity)) throw bad(kind, `${at}.entity`, "must be an IFC entity name in capitals, e.g. IFCWALL"); };
+    objects(kind, "required_entities", body.required_entities, (e, at) => {
+      entity(e, at);
+      if (!intCount(e.min_count)) throw bad(kind, `${at}.min_count`, "must be an integer 0..2147483647");
+    });
+    for (const f of ["required_psets", "required_properties"]) if (!names(body[f])) throw bad(kind, f, "must be an array of non-empty strings");
+    objects(kind, "forbidden_entities", body.forbidden_entities, (e, at) => {
+      entity(e, at);
+      if (!intCount(e.max_count)) throw bad(kind, `${at}.max_count`, "must be an integer 0..2147483647");
+      if (typeof e.max_ratio !== "number" || !(e.max_ratio >= 0 && e.max_ratio <= 1)) throw bad(kind, `${at}.max_ratio`, "must be a number 0..1");
+    });
+    if (typeof body.require_georeference !== "boolean") throw bad(kind, "require_georeference", "must be true or false");
+    // A C# int, as DeliveryContract.FromBody reads it.
+    if (body.schema_version != null && !(Number.isInteger(body.schema_version) && body.schema_version >= -2147483648 && body.schema_version <= 2147483647))
+      throw bad(kind, "schema_version", "must be an integer -2147483648..2147483647");
+  }
+  if (kind === "layers") {
+    // enforce, extensions, params, disciplines, match and format stay in the body; Revit does not read them.
+    if (!filled(body.standard)) throw bad(kind, "standard", "must be a non-empty string");
+    if (!Array.isArray(body.layers) || !body.layers.length) throw bad(kind, "layers", "must be a non-empty array");
+    objects(kind, "layers", body.layers, (l, at) => {
+      if (!filled(l.layer)) throw bad(kind, `${at}.layer`, "must be a non-empty string");
+      if (!LAYER_CATEGORIES.includes(l.category)) throw bad(kind, `${at}.category`, `must be ${LAYER_CATEGORIES.join(" | ")}`);
+      if (l.family != null && typeof l.family !== "string") throw bad(kind, `${at}.family`, "must be a string");
+      if (l.aliases != null && !texts(l.aliases)) throw bad(kind, `${at}.aliases`, "must be an array of strings");
+    });
+    if (body.ignore != null && !texts(body.ignore)) throw bad(kind, "ignore", "must be an array of strings");
+  }
+  if (kind === "guideline") {
+    // What GuidelineMatcher.Resolve dereferences (elements[].rules[].use.family): a gap there is a crash, not a standard.
+    if (!filled(body.standard)) throw bad(kind, "standard", "must be a non-empty string");
+    if (!Array.isArray(body.elements) || !body.elements.length) throw bad(kind, "elements", "must be a non-empty array");
+    objects(kind, "elements", body.elements, (e, at) => {
+      if (!filled(e.category)) throw bad(kind, `${at}.category`, "must be a non-empty string");
+      objects(kind, `${at}.rules`, e.rules, (r, rat) => {
+        if (!isObj(r.when)) throw bad(kind, `${rat}.when`, "must be an object");
+        if (!isObj(r.use) || !filled(r.use.family)) throw bad(kind, `${rat}.use.family`, "must be a non-empty string");
+      });
+      if (e.default != null && !(isObj(e.default) && filled(e.default.family))) throw bad(kind, `${at}.default.family`, "must be a non-empty string");
+    });
+    if (body.views != null && !Array.isArray(body.views)) throw bad(kind, "views", "must be an array");
+    if (body.viewNaming != null && !isObj(body.viewNaming)) throw bad(kind, "viewNaming", "must be an object");
+  }
+  if (kind === "type_catalog") {
+    if (!Array.isArray(body.types) || !body.types.length) throw bad(kind, "types", "must be a non-empty array");
+    if (body.types.length > MAX_CATALOG_TYPES) throw bad(kind, "types", `must hold at most ${MAX_CATALOG_TYPES} entries (has ${body.types.length})`);
+    objects(kind, "types", body.types, (t, at) => {
+      for (const f of ["category", "type"]) if (!filled(t[f])) throw bad(kind, `${at}.${f}`, "must be a non-empty string");
+      if (t.family != null && typeof t.family !== "string") throw bad(kind, `${at}.family`, "must be a string");
+      if (t.system != null && typeof t.system !== "boolean") throw bad(kind, `${at}.system`, "must be true or false");
+      for (const f of ["width_mm", "height_mm"]) if (t[f] != null && !Number.isFinite(t[f])) throw bad(kind, `${at}.${f}`, "must be a number or null");
+    });
+    // The harvest's top-level `source` travels as `template`: the PUT route lifts a top-level source into the pointer.
+    if (body.template != null) {
+      if (!isObj(body.template)) throw bad(kind, "template", "must be an object {title, path?, extracted_at?} (the harvest's source, renamed)");
+      if (!filled(body.template.title)) throw bad(kind, "template.title", "must be a non-empty string");
+      for (const f of ["path", "extracted_at"]) if (body.template[f] != null && typeof body.template[f] !== "string") throw bad(kind, `template.${f}`, "must be a string");
+    }
+    if (body.view_templates != null && !Array.isArray(body.view_templates)) throw bad(kind, "view_templates", "must be an array");
   }
   return true;
 }
@@ -187,6 +269,20 @@ export async function artefactReply(key, kind, ifNoneMatch, deps) {
 
 /** What judged, in one line for a verdict row, evidence line, scan header or CLI: "naming@2 · office · 3f0737600a1b…"; "none" when nothing is installed. */
 export const refLabel = ({ ref, source, sha256: sha } = {}) => [ref, source, sha && `${sha.slice(0, 12)}…`].filter(Boolean).join(" · ") || "none";
+
+/**
+ * The contract that judges `key` (Governed Intake; spec 2026-09-25 4b decision 6): the project's contract@n →
+ * its office's → none, as resolveArtefact. The body is re-checked with the install validator, so one installed
+ * before the validator existed (any object was accepted) is none with its reason — never a partial contract.
+ * `label` is what every surface prints: "contract@1 · office · 3f0737600a1b…" or "none — <reason>".
+ */
+export async function resolveContract(key, deps) {
+  const a = await resolveArtefact(key, "contract", deps);
+  const none = (reason) => ({ body: null, ref: null, source: null, sha256: null, label: `none — ${reason}`, reason });
+  if (a.source === "none") return none(`not installed for ${key} or its office`);
+  try { validateArtefact("contract", a.body); } catch (e) { return none(`${refLabel(a)} did not parse: ${e.message}`); }
+  return { body: a.body, ref: a.ref, source: a.source, sha256: a.sha256, label: refLabel(a), reason: null };
+}
 
 /**
  * The IDS a judge must use for `key`: project → office (resolveArtefact) → client → none. Returns the spec

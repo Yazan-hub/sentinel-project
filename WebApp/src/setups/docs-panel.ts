@@ -3,7 +3,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { refLabel } from "./active-ruleset";
+import { refLabel, installArtefact } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
@@ -169,17 +169,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     return r.json();
   };
   const actor = async () => { try { return (await currentUser())?.email || "web"; } catch { return "web"; } };
-  /** The one install path for every artefact a document offers (ids from the EIR compile, naming from a
-   *  section): PUT /cde/:key/artefacts/:kind — lead/owner only on the bridge, which also validates the body. */
-  const installArtefact = async (kind: "ids" | "naming", payload: Record<string, unknown>): Promise<{ version: number; sha256: string }> => {
-    const who = await actor();
-    const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/${kind}?actor=${encodeURIComponent(who)}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-    });
-    const p = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(p.message || `HTTP ${res.status}`);
-    return p;
-  };
 
   // ── AI provider/model selection — shared by Draft with AI (editor view) and Check integrity
   // (document view). Same rule as the copilot panel: the panel only picks WHICH; every call still
@@ -1198,7 +1187,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         install.onclick = async () => {
           install.disabled = true; install.textContent = "Installing…";
           try {
-            const p = await installArtefact("ids", { title: r.title, specifications: r.specifications, source: { document_id: doc.id, compiled_at: new Date().toISOString() } });
+            const p = await installArtefact(base, pid(), "ids", { title: r.title, specifications: r.specifications, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }, await actor());
             install.textContent = `Installed ids@${p.version}`;
             msg(`✓ ids@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — Governed Publish, intake and AI proposals now judge by it.`);
           } catch (e) {
@@ -1246,7 +1235,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           install.onclick = async () => {
             install.disabled = true; install.textContent = "Installing…";
             try {
-              const p = await installArtefact("naming", { ...namingCand.ruleset, source: { document_id: doc.id, section: namingCand.section_id } });
+              const p = await installArtefact(base, pid(), "naming", { ...namingCand.ruleset, source: { document_id: doc.id, section: namingCand.section_id } }, await actor());
               install.textContent = `Installed naming@${p.version}`;
               msg(`✓ naming@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — the naming gate, readiness and federation now judge by it.`);
             } catch (e) {

@@ -6,7 +6,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch }));
 vi.mock("./active-project", () => ({ activePid: () => "aster-villa" }));
 
 import { readFileSync } from "node:fs";
-import { activeRuleset, installArtefact, refLabel, NO_RULESET } from "./active-ruleset";
+import { activeRuleset, installArtefact, installArtefactFile, canInstallArtefacts, refLabel, NO_RULESET } from "./active-ruleset";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const rs = { standard_key: "house", semver: "1.0.0", rules: [{ id: "SN-01", target: "sheet", mode: "request" }] };
@@ -69,6 +69,51 @@ describe("installArtefact", () => {
   it("throws the bridge's refusal (validation or role)", async () => {
     bfetch.mockResolvedValue(res(400, { message: "rules[3].mode must be warn | request | monitor | reject" }));
     await expect(installArtefact("http://b", "k", "ruleset", {}, "web")).rejects.toThrow("rules[3].mode");
+  });
+});
+
+describe("installArtefactFile — Install JSON… in Project Settings ▸ Standards in force", () => {
+  beforeEach(() => bfetch.mockReset());
+  const contract = JSON.parse(readFileSync("../demo/bds-pilot/delivery-contract.json", "utf8"));
+
+  it("PUTs the file's object as the body, with the file name as provenance, and returns the pointer", async () => {
+    bfetch.mockResolvedValue(res(201, { kind: "contract", version: 2, sha256: "9e1f" }));
+    expect(await installArtefactFile("http://b", "b6-upload", "contract", "delivery-contract.json", JSON.stringify(contract), "lead@x"))
+      .toEqual({ kind: "contract", version: 2, sha256: "9e1f" });
+    const [url, init] = bfetch.mock.calls[0];
+    expect(url).toBe("http://b/cde/b6-upload/artefacts/contract?actor=lead%40x");
+    expect(JSON.parse(init.body)).toEqual({ ...contract, source: { file: "delivery-contract.json", uploaded_at: expect.any(String) } });
+  });
+
+  it("refuses text that is not JSON, or JSON that is not one object, before anything is sent", async () => {
+    await expect(installArtefactFile("http://b", "k", "layers", "l.json", "{not json", "x")).rejects.toThrow(/^l\.json is not JSON — /);
+    for (const t of ["[]", "null", "42", "\"layers\""])
+      await expect(installArtefactFile("http://b", "k", "layers", "l.json", t, "x")).rejects.toThrow("l.json must hold one JSON object: the layers body");
+    expect(bfetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a top-level source or installed_by — the route would lift it out and install a different body", async () => {
+    const harvest = JSON.stringify({ types: [{ category: "Walls", type: "W-200" }], source: { title: "Office template" } });
+    await expect(installArtefactFile("http://b", "k", "type_catalog", "tc.json", harvest, "x")).rejects.toThrow('tc.json has a top-level "source"');
+    await expect(installArtefactFile("http://b", "k", "type_catalog", "tc.json", harvest, "x")).rejects.toThrow('names its template "template"');
+    await expect(installArtefactFile("http://b", "k", "contract", "c.json", JSON.stringify({ ...contract, installed_by: "me" }), "x")).rejects.toThrow('top-level "installed_by"');
+    expect(bfetch).not.toHaveBeenCalled();
+  });
+
+  it("throws the bridge's refusal word for word", async () => {
+    bfetch.mockResolvedValue(res(400, { message: "contract: ifc_schema must be IFC2X3 | IFC4" }));
+    await expect(installArtefactFile("http://b", "k", "contract", "c.json", JSON.stringify({ ...contract, ifc_schema: "IFC5" }), "x"))
+      .rejects.toThrow("contract: ifc_schema must be IFC2X3 | IFC4");
+  });
+});
+
+describe("canInstallArtefacts — who sees Install JSON…", () => {
+  it("a lead, an owner, or the bridge's own service path, on a chosen project", () => {
+    for (const role of ["lead", "owner", "service"]) expect(canInstallArtefacts(role, "demo")).toBe(true);
+  });
+  it("never a contributor, a viewer, an unknown role (myRole fails closed to viewer), nor on the default fallback key", () => {
+    for (const role of ["contributor", "viewer", "", "admin"]) expect(canInstallArtefacts(role, "demo")).toBe(false);
+    expect(canInstallArtefacts("owner", "default")).toBe(false);
   });
 });
 

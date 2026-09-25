@@ -1,0 +1,86 @@
+[
+  {
+    "name": "ifc4-mapconversion-georef-pass",
+    "ifc": "ifc4-mapconversion.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc4", "ifc_schema": "IFC4",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCDOOR", "min_count": 1 }, { "entity": "IFCCOLUMN", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": ["FireRating"],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 0.2 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 }
+  },
+  {
+    "name": "ifc4-no-georef-warns",
+    "ifc": "ifc4-no-georef.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc4", "ifc_schema": "IFC4",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCDOOR", "min_count": 1 }, { "entity": "IFCCOLUMN", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": ["FireRating"],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 0.2 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 1 }
+  },
+  {
+    "name": "ifc2x3-site-latlong-pass",
+    "ifc": "ifc2x3-site-latlong.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc2x3", "ifc_schema": "IFC2X3",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCSLAB", "min_count": 1 }, { "entity": "IFCPROJECT", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": [],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 2147483647, "max_ratio": 0.5 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 }
+  },
+  {
+    "name": "schema-mismatch-fail",
+    "ifc": "ifc2x3-site-latlong.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc4", "ifc_schema": "IFC4",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCSLAB", "min_count": 1 }, { "entity": "IFCPROJECT", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": [],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 2147483647, "max_ratio": 0.5 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 }
+  },
+  {
+    "name": "proxy-ratio-fail",
+    "ifc": "ifc2x3-site-latlong.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc2x3", "ifc_schema": "IFC2X3",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCSLAB", "min_count": 1 }, { "entity": "IFCPROJECT", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": [],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 2147483647, "max_ratio": 0.2 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 }
+  },
+  {
+    "name": "proxy-max-count-fail",
+    "ifc": "ifc2x3-site-latlong.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc2x3", "ifc_schema": "IFC2X3",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCSLAB", "min_count": 1 }, { "entity": "IFCPROJECT", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": [],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 1 }],
+      "require_georeference": false
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 }
+  },
+  {
+    "name": "missing-entity-and-pset-fail",
+    "ifc": "ifc4-mapconversion.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc4", "ifc_schema": "IFC4",
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCBEAM", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon", "Pset_SlabCommon"], "required_properties": [],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 0.2 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "fail", "failures": 2, "warnings": 0 }
+  }
+]

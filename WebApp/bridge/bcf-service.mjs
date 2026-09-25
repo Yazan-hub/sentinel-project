@@ -1077,7 +1077,8 @@ async function handleRequest(req, res) {
       //   GET /cde/:key/artefacts (this project's own pointers) · GET /cde/:key/artefacts/:kind (project → office → 404;
       //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version
       //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?};
-      //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields})
+      //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields};
+      //   contract, layers, guideline, type_catalog: the shapes artefact-store validateArtefact checks — 400 names the field)
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
         // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so
@@ -1128,13 +1129,14 @@ async function handleRequest(req, res) {
         const q = (k) => url.searchParams.get(k) || undefined;
         const agent = (q("agent_model") || q("agent_tool") || q("agent_prompt_sha256")) ? { kind: "agent", model: q("agent_model"), tool: q("agent_tool"), prompt_sha256: q("agent_prompt_sha256") } : undefined;
         const { runIntake } = await import("./intake-logic.mjs");
-        const { checkDelivery, loadDefaultContract } = await import("./delivery-gate.mjs");
+        const { checkDelivery, gateNotChecked } = await import("./delivery-gate.mjs");
         const { extractElements } = await import("./ifc-extract.mjs");
         const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
         const art = await import("./artefact-store.mjs");
         const deps = {
-          loadContract: async (key) => (await art.getArtefact(key, "contract"))?.body || loadDefaultContract(),
-          checkDelivery, extractElements,
+          // project → office → none, re-checked (spec 2026-09-25 4b decision 6): the office's contract judges intake as it judges Revit.
+          loadContract: (key) => art.resolveContract(key),
+          checkDelivery, gateNotChecked, extractElements,
           adjudicate: (key, body) => cde.adjudicateProposal(key, body),
           // Best-effort, same as the /propose route: a BCF hiccup after the verdict is already on the
           // ledger must not 500 the whole intake and drop the caller's audit_id/receipt.

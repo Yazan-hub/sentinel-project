@@ -2,7 +2,8 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
 import { myRole, canGovernRole } from "./my-role";
-import { artefactInForce, refLabel, type InForce } from "./active-ruleset";
+import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
+import { currentUser } from "./auth";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -199,30 +200,63 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     }
   }
 
-  // ── Standards in force (read-only): each artefact kind's ref · source · sha · installer · date. The list
-  // route answers the project's own pointers; a kind it lacks is asked of the resolving route, which falls
-  // back to the office — so an inherited standard shows as `· office`, and "none" means none anywhere.
-  async function loadStandards() {
+  // ── Standards in force: each artefact kind's ref · source · sha · installer · date. The list route answers the
+  // project's own pointers; a kind it lacks is asked of the resolving route, which falls back to the office — so
+  // an inherited standard shows as `· office`, and "none" means none anywhere. A lead or owner gets "Install
+  // JSON…" on every row (spec 2026-09-25 standards 4b, decision 11): the bridge validates the body and refuses
+  // below lead; its message is shown as it came, and the row then names the new `kind@n · project · sha`. A key
+  // the bridge does not know fails the list call, so no row (and no control) renders for it.
+  async function loadStandards(note?: { text: string; bad?: boolean }) {
     const host = el("ps-standards");
     host.innerHTML = '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem">Standards in force</div>';
     try {
-      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts`);
+      const [r, role] = await Promise.all([bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts`), myRole(base, pid())]);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
       const pointers = j as Record<string, { version: number; sha256: string; installed_by?: string; installed_at?: string } | null>;
       const rows = await Promise.all(Object.entries(pointers).map(async ([kind, p]): Promise<[string, InForce | null]> =>
         [kind, p ? { body: null, ref: `${kind}@${p.version}`, source: "project", sha256: p.sha256, installed_by: p.installed_by, installed_at: p.installed_at }
                  : await artefactInForce(base, pid(), kind)]));
+      const canInstall = canInstallArtefacts(role, pid());
       host.innerHTML += rows.map(([kind, a]) =>
-        `<div style="display:flex;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
+        `<div style="display:flex;align-items:center;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
         `<span style="width:6.5rem;color:#9ca3af">${esc(kind)}</span>` +
         (a ? `<span style="flex:1;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:11px">${esc(refLabel(a))}</span>` +
              `<span style="color:#71717a;font-size:11px">${esc(a.installed_by ?? "—")} · ${esc((a.installed_at ?? "").slice(0, 10) || "—")}</span>`
            : `<span style="flex:1;color:#71717a">none installed</span>`) +
+        (canInstall ? `<button class="ps-install" data-kind="${esc(kind)}" style="${btn};padding:.2rem .5rem;font-size:11px">Install JSON…</button>` : "") +
         "</div>").join("");
+      host.querySelectorAll<HTMLButtonElement>(".ps-install").forEach((b) => b.addEventListener("click", () => pickAndInstall(b.dataset.kind!)));
     } catch (e) {
       host.innerHTML += `<div style="color:#fca5a5;font-size:11px">Standards in force couldn't load: ${esc((e as Error)?.message ?? String(e))}</div>`;
     }
+    if (note) {
+      const d = document.createElement("div");
+      d.textContent = note.text;
+      d.style.cssText = `font-size:11px;padding:.35rem 0;color:${note.bad ? "#fca5a5" : "#4ade80"}`;
+      host.append(d);
+    }
+  }
+
+  /** Install JSON… on one row: pick a .json, install it as `kind@n+1` on the project the row belongs to, re-render
+   *  the section with the outcome. The key is taken at the click, not after the file dialog closes. */
+  function pickAndInstall(kind: string) {
+    const key = pid();
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const who = await currentUser().then((u) => u?.email || "web", () => "web");
+        const p = await installArtefactFile(base, key, kind, file.name, await file.text(), who);
+        await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…).` });
+      } catch (e) {
+        await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
+      }
+    });
+    input.click(); // detached: a cancelled pick fires no change event and leaves nothing in the page
   }
 
   async function load() {

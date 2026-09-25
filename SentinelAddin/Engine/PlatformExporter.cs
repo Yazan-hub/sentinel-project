@@ -181,13 +181,15 @@ public static class PlatformExporter
     }
 
     /// <summary>
-    /// Export <paramref name="doc"/> to <paramref name="dir"/>/<paramref name="ifcName"/> — the shared export
-    /// primitive behind <see cref="ExportToOutbox"/> and the Governed Publish command (which exports to a temp
-    /// dir first so it can publish ONLY on a passing verdict). Same view-filter + transaction idiom; never
-    /// throws — returns a result.
+    /// Export <paramref name="doc"/> to <paramref name="dir"/>/<paramref name="ifcName"/>. This is the shared export
+    /// primitive behind <see cref="ExportToOutbox"/>, the Governed Publish command and the IFC Delivery Gate. Governed
+    /// Publish exports to a temp dir first so it can publish ONLY on a passing verdict.
+    /// <paramref name="ifcSchema"/> is the delivery contract's <c>ifc_schema</c>: "IFC4" exports IFC4 Reference View,
+    /// anything else exports IFC 2x3 CV2. The outbox, link and Auto/Quick Publish exports keep the IFC 2x3 default.
+    /// Same view-filter + transaction idiom. Never throws; returns a result.
     /// </summary>
     public static (State state, string path, long bytes, string? error) ExportToDir(
-        Document doc, ElementId? filterViewId, string dir, string ifcName)
+        Document doc, ElementId? filterViewId, string dir, string ifcName, string ifcSchema = "IFC2X3")
     {
         Directory.CreateDirectory(dir);
         string ifcPath = Path.Combine(dir, ifcName);
@@ -196,7 +198,8 @@ public static class PlatformExporter
         {
             var opts = new IFCExportOptions
             {
-                FileVersion = IFCVersion.IFC2x3CV2,
+                FileVersion = string.Equals(ifcSchema, "IFC4", StringComparison.OrdinalIgnoreCase)
+                    ? IFCVersion.IFC4RV : IFCVersion.IFC2x3CV2,
                 ExportBaseQuantities = true,
             };
             if (filterViewId is { } vid && vid != ElementId.InvalidElementId)

@@ -61,8 +61,11 @@ curl -s http://127.0.0.1:4100/health
 
 ### 1c. Demo dataset in place
 - `demo/bds-pilot/ids.json`, `elements-draft.json`, `elements-fixed.json` — present (repo).
-- `demo/bds-pilot/delivery-contract.json` — copied to `%AppData%\Sentinel\delivery-contract.json` (the
-  IFC Delivery Gate reads it there).
+- `demo/bds-pilot/delivery-contract.json` — installed on the office `bds-office` as `contract@1`, so every
+  project attached to it (`demo`) inherits it: `node bridge/artefact-import.mjs ../demo/bds-pilot/delivery-contract.json --project bds-office --kind contract`
+  from `WebApp`, checked with `GET /cde/demo/artefacts/contract` (`source: "office"`). A demo project with no
+  office needs `--project <that key>` instead. Nothing is copied to the workstation; with no contract the
+  IFC Delivery Gate reads NOT CHECKED.
 - **The element IDS** — copied to `%AppData%\Sentinel\ids.json`. For the real pilot use
   `demo/bds-pilot/bds-ids.json` (BDS LOD-300 checks, `enforce: warn`); `demo/bds-pilot/ids.json` is the tiny
   starter. Absent ⇒ the model is recorded but not judged (gate-only publish).

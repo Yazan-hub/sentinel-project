@@ -76,31 +76,21 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
-        /// Record an IFC Delivery Gate verdict (KF-1) in the governed audit trail, so the web CDE timeline
-        /// shows the pass/fail certificate that decided whether a deliverable was fit for upload — the same
-        /// gate the web app enforces via IDS, now sourced from Revit. <paramref name="sha256"/> ties the
-        /// verdict to the exact bytes that were certified (provenance).
+        /// Record an IFC Delivery Gate verdict (KF-1) in the governed audit trail. The web CDE timeline then shows the
+        /// certificate that decided whether a deliverable was fit for upload: PASS, FAIL or NOT CHECKED. The row names
+        /// the contract that judged (contract_ref · contract_source · contract_sha256), all null when none was
+        /// installed. <c>passed</c> is null when nothing was judged; every reader treats null as not checked, never as
+        /// a pass or a fail. The row is <see cref="Sentinel.Engine.GateLines.AuditValue"/>, which has the Node intake
+        /// gate row's shape and is pinned by tools/gate-check. <c>sha256</c> ties it to the exact bytes certified.
         /// </summary>
-        public static void DeliveryGate(string fileName, bool passed, string contractKey, string schema,
-                                        int totalEntities, int failureCount, string sha256, string projectKey)
+        public static void DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey)
         {
             Post("/audit", new
             {
                 entity_type = "delivery_gate",
                 actor = "Revit",
-                action = "IFC delivery gate " + (passed ? "PASS" : "FAIL") + ": " + fileName,
-                new_value = new
-                {
-                    file = fileName,
-                    passed,
-                    contract = contractKey,
-                    schema,
-                    entities = totalEntities,
-                    failures = failureCount,
-                    sha256,
-                    source = "revit",
-                    at = DateTime.UtcNow.ToString("o"),
-                },
+                action = Sentinel.Engine.GateLines.AuditAction(fileName, gate),
+                new_value = Sentinel.Engine.GateLines.AuditValue(fileName, gate),
             }, projectKey);
         }
 

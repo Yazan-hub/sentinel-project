@@ -1,10 +1,11 @@
 // The Node port of SentinelAddin/Engine/IfcDeliveryGate.cs. Same rules, same sentences — the web and Revit
 // must read one vocabulary, so the sentence tests read the C# source rather than copying it.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { checkDelivery, countWithSubtypes, loadDefaultContract, SUBTYPES, BUILDING_ELEMENTS } from "./delivery-gate.mjs";
+import * as gate from "./delivery-gate.mjs";
+import { checkDelivery, countWithSubtypes, gateNotChecked, SUBTYPES, BUILDING_ELEMENTS } from "./delivery-gate.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ifc = readFileSync(resolve(here, "fixtures/minimal.ifc"));
@@ -22,6 +23,7 @@ describe("checkDelivery", () => {
   it("passes the fixture against a contract it satisfies, with counts, schema and sha", () => {
     const r = checkDelivery(ifc, contract());
     expect(r.passed).toBe(true);
+    expect(r.result).toBe("pass");
     expect(r.failures).toEqual([]);
     expect(r.detected_schema).toBe("IFC4");
     expect(r.entity_counts.IFCWALLSTANDARDCASE).toBe(1);
@@ -38,6 +40,7 @@ describe("checkDelivery", () => {
   it("fails a missing required entity with the C# sentence", () => {
     const r = checkDelivery(ifc, contract({ required_entities: [{ entity: "IFCBEAM", min_count: 2 }] }));
     expect(r.passed).toBe(false);
+    expect(r.result).toBe("fail");
     expect(r.failures).toContain("IFCBEAM: 0 found, contract requires ≥ 2.");
   });
   it("fails a schema mismatch, a missing pset and a missing property with the C# sentences", () => {
@@ -93,10 +96,17 @@ describe("checkDelivery", () => {
     expect(csharp).toContain("Required property set '{pset}' not found in the file.");
     expect(csharp).toContain("No georeference detected on IFCSITE (RefLatitude/RefLongitude).");
   });
-  it("ships a neutral default contract with no office literal", () => {
-    const c = loadDefaultContract();
-    expect(c.contract_key).toBe("bridge-default");
-    expect(JSON.stringify(c)).not.toMatch(/BDS|AST/);
-    expect(checkDelivery(ifc, c).passed).toBe(true);
+  it("has no default contract: no loader, no file beside the gate (spec 2026-09-25 4b decision 3)", () => {
+    expect(gate.loadDefaultContract).toBeUndefined();
+    expect(existsSync(resolve(here, "delivery-contract.json"))).toBe(false);
+  });
+  it("not checked: no contract judges nothing — never a pass; the file's sha, size and schema are still read", () => {
+    const r = gateNotChecked(ifc, "none — not installed for p or its office");
+    expect(r).toEqual({
+      result: "not_checked", passed: null, reason: "none — not installed for p or its office", contract_key: null,
+      detected_schema: "IFC4", total_entities: null, entity_counts: {}, failures: [], warnings: [],
+      sha256: checkDelivery(ifc, contract()).sha256, size: ifc.length,
+    });
+    expect(gateNotChecked("not a step file", "none").detected_schema).toBe("");
   });
 });

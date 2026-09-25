@@ -3,15 +3,21 @@ import { describe, it, expect } from "vitest";
 import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
 
 const bytes = Buffer.from("ISO-10303-21;");
-function stubs({ gatePass = true, verdict = "accepted", uploadFails = false, warned = false, inScope = 1 } = {}) {
+const contractSha = "cd".repeat(32);
+const noneLabel = "none — not installed for aster-tower or its office";
+function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1 } = {}) {
   const calls = [];
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
   const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
   const idsEnforce = verdict === "recorded" ? null : warned ? "warn" : "reject";
   return {
     calls,
-    loadContract: rec("loadContract", { contract_key: "bridge-default" }),
-    checkDelivery: rec("checkDelivery", { passed: gatePass, contract_key: "bridge-default", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
+    // deps.loadContract is artefact-store resolveContract: project → office → none, with the label every surface prints.
+    loadContract: rec("loadContract", contract === "none"
+      ? { body: null, ref: null, source: null, sha256: null, label: noneLabel, reason: "not installed for aster-tower or its office" }
+      : { body: { contract_key: "parity-ifc4" }, ref: "contract@1", source: contract, sha256: contractSha, label: `contract@1 · ${contract} · ${contractSha.slice(0, 12)}…`, reason: null }),
+    checkDelivery: rec("checkDelivery", { result: gatePass ? "pass" : "fail", passed: gatePass, contract_key: "parity-ifc4", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
+    gateNotChecked: rec("gateNotChecked", (_bytes, reason) => ({ result: "not_checked", passed: null, reason, contract_key: null, detected_schema: "IFC4", total_entities: null, entity_counts: {}, failures: [], warnings: [], sha256: "ab".repeat(32), size: 13 })),
     extractElements: rec("extractElements", { elements: [{ identity: { Class: "IFCDOOR", GlobalId: "g1" }, psets: [], quantities: [] }], schema: "IFC4", counts: { elements: 1, skipped: 0, by_class: { IFCDOOR: 1 } } }),
     adjudicate: rec("adjudicate", { verdict, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
@@ -86,6 +92,37 @@ describe("runIntake", () => {
     expect(r).toMatchObject({ verdict: "accepted", stage: "upload_failed", published: false });
     expect(r.error).toMatch(/platform 401/);
     expect(names(d)).not.toContain("registerFileVersion");
+  });
+  it("an office contract judges: the gate, its audit row and the result name contract@1 · office · sha", async () => {
+    const d = stubs();
+    const r = await runIntake(d, input);
+    expect(d.calls.find((c) => c[0] === "checkDelivery")[2]).toEqual({ contract_key: "parity-ifc4" });
+    const [, , message, , row] = d.calls.find((c) => c[0] === "audit");
+    expect(message).toBe("IFC delivery gate PASS: ASTR26-AST-ZZ-XX-M3-A-0001.ifc");
+    expect(row).toEqual({ file: input.name, result: "pass", passed: true, contract: "parity-ifc4", contract_ref: "contract@1", contract_source: "office", contract_sha256: contractSha, schema: "IFC4", entities: 40, failures: 0, sha256: "ab".repeat(32), source: "astra" });
+    expect(r.gate).toMatchObject({ result: "pass", contract_ref: "contract@1", contract_source: "office", contract_sha256: contractSha, contract_label: `contract@1 · office · ${contractSha.slice(0, 12)}…` });
+    expect(r.note).toBeUndefined();
+  });
+  it("no contract for the project or its office: NOT CHECKED, never a pass — the IDS still judges and the note names the gate", async () => {
+    const d = stubs({ contract: "none" });
+    const r = await runIntake(d, input);
+    expect(names(d)).toEqual(["loadContract", "gateNotChecked", "audit", "extractElements", "adjudicate", "uploadIfc", "registerFileVersion", "recordVersionVerdict"]);
+    const [, , message, , row] = d.calls.find((c) => c[0] === "audit");
+    expect(message).toBe("IFC delivery gate NOT CHECKED: ASTR26-AST-ZZ-XX-M3-A-0001.ifc");
+    expect(row).toMatchObject({ result: "not_checked", passed: null, contract: null, contract_ref: null, contract_source: null, contract_sha256: null, entities: null, failures: 0, sha256: "ab".repeat(32) });
+    expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true, gate: { result: "not_checked", passed: null, reason: noneLabel, contract_ref: null, contract_label: noneLabel } });
+    expect(r.note).toBe(`The IDS judged alone — the delivery gate was not checked (contract: ${noneLabel}).`);
+    expect(d.calls.find((c) => c[0] === "registerFileVersion")[2]).toMatchObject({ sha256: "ab".repeat(32), size_bytes: 13 });
+  });
+  it("no contract and no IDS: recorded, and the note says nothing was judged", async () => {
+    const r = await runIntake(stubs({ contract: "none", verdict: "recorded" }), input);
+    expect(r).toMatchObject({ verdict: "recorded", stage: "published", ids_source: "none", gate: { result: "not_checked" } });
+    expect(r.note).toBe("No contract and no IDS installed for aster-tower or its office — nothing was judged.");
+  });
+  it("no contract and an IDS with nothing in scope: recorded, and the note says nothing was judged", async () => {
+    const r = await runIntake(stubs({ contract: "none", inScope: 0 }), input);
+    expect(r.verdict).toBe("recorded");
+    expect(r.note).toBe(`IDS ids@1 is installed but no element was in its scope (1 read, 0 skipped) and the delivery gate was not checked (contract: ${noneLabel}) — nothing was judged.`);
   });
 });
 
