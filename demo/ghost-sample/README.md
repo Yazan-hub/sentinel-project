@@ -34,7 +34,9 @@ code changes. It first passed on **Revit 2024, 2026-07-23** (all rows green; see
 stale install). Ollama must be running with `qwen2.5:7b-instruct`; `llava` is optional and adds the
 sketch-reading step.
 
-1. Open Revit, in a project **with at least one Level**.
+1. Open Revit, in a project **with at least one Level**, bound in Project Setup to a web project that
+   carries a `layers@n` (e.g. `demo`, which inherits `layers@1` from `bds-office`). On a project with no
+   `layers@n` the `A-*` rows are labelled `heuristic` and start unticked.
 2. **Insert → Import CAD** → `sample-plan.dxf`. If asked for units, choose **Millimeters**.
 3. Point **Sentinel → Project Setup → Ghost source folder** at a folder holding a spec (this folder, or
    your own). Then **Sentinel → Ghost Builder** and pick the import.

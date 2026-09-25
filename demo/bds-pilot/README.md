@@ -12,6 +12,13 @@ They drive the whole story — *reject → fix → accept* — without needing R
 | `elements-draft.json` | adjudicate | 6 elements with **4 intentional failures** → verdict **rejected**. |
 | `elements-fixed.json` | adjudicate | The same 6, corrected → verdict **accepted**. |
 | `delivery-contract.json` | Revit **IFC Delivery Gate** and **Governed Publish**, bridge **Governed Intake** (the project's `contract@n`) | EIR/BEP contract: IFC4, required entities/psets, forbidden proxies. Installed on `bds-office` as `contract@1` (`node bridge/artefact-import.mjs ../demo/bds-pilot/delivery-contract.json --project bds-office --kind contract` from `WebApp`); `demo` inherits it. Never copied to a workstation; a project with no contract installed on it or its office reads the gate NOT CHECKED. |
+| `bds-layers.json` | Revit **Ghost Builder** layer mapping (the project's `layers@n`) | The BDS DWG layer standard (`docs/BDS_DWG_LAYER_STANDARD.md`): layer → category and `BDS_*` family, aliases, ignore globs. Installed on `bds-office` as `layers@1` (`node bridge/artefact-import.mjs ../demo/bds-pilot/bds-layers.json --project bds-office --kind layers` from `WebApp`); `demo` inherits it. Revit reads `standard`, `layers[]` and `ignore[]`; `enforce`, `extensions`, `params`, `disciplines`, `match` and `format` stay in the body, unread by Revit. |
+| `bds-guideline.json` | Revit **Ghost Builder** and **Photo Massing** (wall types), **Annotate Views** (views, view naming) — the project's `guideline@n` | The BDS Office Modelling Guideline. Installed on `bds-office` as `guideline@1` (`node bridge/artefact-import.mjs ../demo/bds-pilot/bds-guideline.json --project bds-office --kind guideline` from `WebApp`); `demo` inherits it. |
+| `bds-type-catalog.json` | the guideline's type check in **Ghost Builder** and **Photo Massing** (the project's `type_catalog@n`) | The 1,434 types and 32 view templates Build Office System harvested from the BDS template, the harvest's title under `template` (a top-level `source` would be stripped by the install route). Installed on `bds-office` as `type_catalog@1` (`node bridge/artefact-import.mjs ../demo/bds-pilot/bds-type-catalog.json --project bds-office --kind type_catalog` from `WebApp`); `demo` inherits it. The open document still decides whether a type is present. |
+
+None of these is copied to a workstation or shipped beside the add-in: a project with none installed on it or
+its office reads `none — not installed for <key> or its office` in Ghost Builder, Photo Massing and Annotate
+Views.
 
 The IFC model itself is produced by **Revit → Governed Publish** at demo time (the real path). These JSON
 fixtures are what make the referee half of the loop testable and demoable headlessly.

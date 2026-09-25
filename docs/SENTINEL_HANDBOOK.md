@@ -99,7 +99,7 @@ Everything here runs *inside Revit*, on the model open in front of you. The ribb
 | **Standards → Apply Standard** | Load a saved standards pack and build it into the active model — the golden→blank round-trip. | Starting a new model from the office standard. | Modeller |
 | **Standards → Ingest Docs** | Read office-standards documents (PDF/text/CSV) with a **local** LLM and extract worksets + shared parameters into a reviewable pack. *Requires Ollama.* | Converting a written standard into an enforceable one. | Standards lead |
 | **Datum from Drawings** | Datum-first modelling: read the **levels** from a section's levels layer and the **grids** from a plan's grid layer, then create them — real floor-to-floor heights and a real column grid, measured off the drawings. Reads DWGs straight from the project folder. | The first modelling step on a new project. | Modeller |
-| **Ghost Builder** | Build LOD 200 geometry from a 2D DWG plan: a **local** LLM maps CAD layers to families, walls are paired to centrelines + thickness, and the **Office Modelling Guideline** picks the exact type (creating it if the template lacks it). Governed + audited. | When you have a DWG plan to model from. | Modeller |
+| **Ghost Builder** | Build LOD 200 geometry from a 2D DWG plan: a **local** LLM maps CAD layers to families, walls are paired to centrelines + thickness, and the project's **Office Modelling Guideline** (`guideline@n`) picks the exact type (a type the document lacks is created from a sibling the installed type catalogue names, or reported as a gap). Governed + audited. | When you have a DWG plan to model from. | Modeller |
 | **Photo Massing** | Estimate a building envelope from photos/renders/elevations with a **local** vision model, **review and correct the numbers**, then build it through the *same* governed placement. The governed answer to "photo → model." | Early massing when there's no DWG. | Modeller |
 | **ROI Dashboard** | Man-hours and money saved by Sentinel's automated interventions. | For a value/status conversation. | Manager |
 
@@ -212,7 +212,7 @@ Everything generative (Ghost Builder, Photo Massing, the Copilot agent) feeds *i
 | **Client / Owner** | Web app | Owner dashboard, Assets (versions), Scorecard, Timeline |
 | **QS / Commercial** | Web app | Tender, Cost (5D), Data table, Quantities |
 | **Sustainability** | Web app | Carbon (6D) |
-| **Standards lead** | Revit add-in | Build Office System, Apply Standard, Ingest Docs, Project Setup, the Guideline + Layer standard files |
+| **Standards lead** | Revit add-in | Build Office System, Apply Standard, Ingest Docs, Project Setup, the guideline, layers and type-catalogue artefacts |
 
 ---
 
@@ -222,9 +222,9 @@ The behaviour of the generation + validation tools is driven by editable data fi
 
 | File | What it defines |
 |---|---|
-| `SentinelAddin/Resources/bds-guideline.json` | **Office Modelling Guideline** — which family/type per element (layer + material + level), tags, view templates, view naming. |
-| `SentinelAddin/Resources/bds-layers.json` | **DWG Layer Standard** — which CAD layer maps to which Revit category/family, aliases, what to ignore. |
-| `demo/bds-pilot/bds-type-catalog.json` | The **type catalogue** harvested from the real template (1,434 types) — the guard that stops the tool inventing types the template lacks. |
+| `guideline` artefact (pilot data at `demo/bds-pilot/bds-guideline.json`) | **Office Modelling Guideline** — which family/type per element (layer + material + level), tags, view templates, view naming. |
+| `layers` artefact (pilot data at `demo/bds-pilot/bds-layers.json`; Base profile `config/base-standard/layers.json`) | **DWG Layer Standard** — which CAD layer maps to which Revit category/family, aliases, what to ignore. |
+| `type_catalog` artefact (pilot data at `demo/bds-pilot/bds-type-catalog.json`) | The **type catalogue** harvested from the real template (1,434 types) — the guard that stops the tool inventing types the template lacks. Build Office System exports it; `artefact-import --kind type_catalog` installs it. |
 | `demo/bds-pilot/bds-ids.json` | The project **IDS** (the requirements the gate adjudicates against). |
 | `naming` artefact (`PUT /cde/:key/artefacts/naming`; pilot data at `demo/bds-pilot/bds-naming-ruleset.json`) | The **naming convention**. |
 | `WebApp/src/sentinel-core/*.ts` | The **logic** that reads all of the above (the engine). |

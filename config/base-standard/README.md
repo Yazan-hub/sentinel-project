@@ -10,8 +10,13 @@ that the pack is swappable.
   (or office's) `naming` artefact; every naming judge reads it from there.
 - **ids.json** — element data requirements (IDS-style specs), installed on the
   project via `Documents → EIR → Compile to IDS → Install on this project`.
-- **layers.json** — DWG layer → family/category mapping, read by the addin
-  from `%AppData%\Sentinel\layers.json`.
+- **layers.json** — DWG layer → category/family mapping (the Base AIA-style
+  profile; the pilot's is `demo/bds-pilot/bds-layers.json`), installed as the
+  project's (or office's) `layers` artefact; Ghost Builder reads it from there
+  and names it `layers@n · source · sha`. Revit reads `standard`, `layers[]`
+  (`layer`, `category`, `family`, `aliases`) and `ignore[]`; `enforce`,
+  `extensions`, `params`, `disciplines`, `match` and `format` stay in the body,
+  unread by Revit.
 - **delivery-contract.json** — IFC delivery contract (required/forbidden
   entities, psets, georeference), installed as the project's (or office's)
   `contract` artefact; the IFC Delivery Gate, Governed Publish and Governed
@@ -29,9 +34,14 @@ that the pack is swappable.
    or Project Settings ▸ Standards in force ▸ contract ▸ Install JSON… (lead or owner). With none installed,
    the IFC Delivery Gate, Governed Publish and Governed Intake report the gate NOT CHECKED — there is no
    workstation or bundled contract.
-6. Copy `layers.json` to `%AppData%\Sentinel\` on each workstation. It is still read from the machine until
-   it becomes an artefact (phase 4b-2). The ruleset, IDS, naming standard and delivery contract are never
-   copied to a workstation: Revit reads them from the project (or its office) like the web does.
+6. Install the layers standard the same way:
+   `node bridge/artefact-import.mjs config/<office>-standard/layers.json --project <key> --kind layers`.
+   The office's modelling guideline (`--kind guideline`) and the type catalogue of its template have no
+   seed here — they are the office's own. Build Office System exports the catalogue to
+   `%AppData%\Sentinel\exports\type-catalog-<template title>.json` and names its install command
+   (`--kind type_catalog`). With none installed, Ghost Builder, Photo Massing and Annotate Views say so
+   ("none — not installed for <key> or its office"), and Annotate Views refuses. Nothing in this pack is
+   copied to a workstation: Revit reads every standard from the project (or its office) like the web does.
 
 ## Scope note
 
