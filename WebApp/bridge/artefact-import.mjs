@@ -1,6 +1,7 @@
 // Install standards as project artefacts.
-//   node bridge/artefact-import.mjs <file.json> --project <key> --kind ids [--actor <who>]
-//     one file → one artefact (the pilot's and Aster's existing ids.json files, so no project starts empty).
+//   node bridge/artefact-import.mjs <file.json> --project <key> --kind <ids|ruleset|naming|contract|guideline|layers|type_catalog> [--actor <who>]
+//     one file → one artefact of that kind (default ids). The bridge validates the body per kind and refuses one
+//     its judge could not use; the refusal names the field ("contract: ifc_schema must be IFC2X3 | IFC4").
 //   node bridge/artefact-import.mjs --from-metadata [--key <key>] [--dry-run]
 //     one-shot retirement of projects.metadata.active_ruleset (cohesion phase 3): every project row's slot is
 //     split into ruleset@n and naming@n, validated, installed with actor "import" and the slot named in the
@@ -9,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { loadEnv } from "./load-env.mjs";
 import { parseCliArgs } from "./cli-args.mjs";
-import { refLabel } from "./artefact-store.mjs";
+import { refLabel, KINDS } from "./artefact-store.mjs";
 import { splitActiveRulesets } from "./artefact-split.mjs";
 
 const env = { ...process.env, ...loadEnv() };
@@ -56,7 +57,7 @@ async function fromMetadata() {
 async function fromFile() {
   const project = flag("project"), kind = flag("kind", "ids");
   if (!file || !project) {
-    console.error("Usage: node bridge/artefact-import.mjs <file.json> --project <key> --kind ids [--actor <who>]");
+    console.error(`Usage: node bridge/artefact-import.mjs <file.json> --project <key> --kind <${KINDS.join("|")}> [--actor <who>]`);
     console.error("       node bridge/artefact-import.mjs --from-metadata [--key <key>] [--dry-run]");
     return 1;
   }

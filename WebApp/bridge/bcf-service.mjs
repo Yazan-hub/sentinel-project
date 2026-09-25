@@ -1077,7 +1077,8 @@ async function handleRequest(req, res) {
       //   GET /cde/:key/artefacts (this project's own pointers) · GET /cde/:key/artefacts/:kind (project → office → 404;
       //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version
       //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?};
-      //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields})
+      //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields};
+      //   contract, layers, guideline, type_catalog: the shapes artefact-store validateArtefact checks — 400 names the field)
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
         // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so

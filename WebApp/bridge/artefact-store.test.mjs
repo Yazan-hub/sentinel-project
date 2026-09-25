@@ -2,6 +2,7 @@
 // Tested against an in-memory doc store so the sequencing (insert → pointer → audit) is exact.
 import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { canonical } from "./artefact-store.mjs";
 import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply } from "./artefact-store.mjs";
 
@@ -280,5 +281,118 @@ describe("artefact writes go with the service key (migration 0030)", () => {
     expect(cdeMock.docInsert).toHaveBeenCalledWith("artefact", "uuid-p", "naming@1", expect.objectContaining({ kind: "naming", version: 1, body: naming }), { service: true });
     expect(cdeMock.docUpsert).toHaveBeenCalledWith("artefact", "uuid-p", "naming", expect.objectContaining({ kind: "naming", version: 1 }), { service: true });
     expect(cdeMock.audit).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Contract, layers, guideline and type catalogue (spec 2026-09-25 4b decision 4): the bridge refuses a body its
+// judge could not use. The seeds and the pilot's files are read from disk, so a shape drift shows up here first.
+const readRepoJson = (rel) => JSON.parse(readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8"));
+const contract = { schema_version: 1, contract_key: "office-ifc4", ifc_schema: "IFC4",
+  required_entities: [{ entity: "IFCWALL", min_count: 1 }, { entity: "IFCBUILDINGSTOREY", min_count: 0 }],
+  required_psets: ["Pset_WallCommon"], required_properties: [],
+  forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 2147483647, max_ratio: 0.25 }],
+  require_georeference: false };
+const layers = { standard: "Office layers v1", enforce: "warn", ignore: ["0", "DEFPOINTS"], layers: [
+  { layer: "A-WALL", category: "Walls", family: "Generic_Wall", aliases: ["A-WALL-EXT"], params: { Discipline: "A" } },
+  { layer: "A-DOOR", category: "Doors" },
+] };
+const guideline = { standard: "Office guideline v1", elements: [
+  { category: "Walls", rules: [{ when: { layer: "A-WALL" }, use: { family: "Basic Wall", typePattern: "EXT_{thickness} mm" } }], default: { family: "Basic Wall" } },
+  { category: "Ceilings", rules: [] },
+], views: [], viewNaming: { separator: "_" } };
+const catalog = { template: { title: "Office template", extracted_at: "2026-09-25T00:00:00Z" }, view_templates: [], types: [
+  { category: "Walls", family: "Basic Wall", type: "EXT_200 mm", system: true, width_mm: 200, height_mm: null },
+  { category: "Doors", type: "D1" },
+] };
+const withItem = (body, key, i, over) => ({ ...body, [key]: body[key].map((x, j) => (j === i ? { ...x, ...over } : x)) });
+
+describe("validateArtefact — contract, layers, guideline, type catalogue", () => {
+  it("accepts the seeds and the pilot's files as they will be installed", () => {
+    expect(validateArtefact("contract", readRepoJson("config/base-standard/delivery-contract.json"))).toBe(true);
+    expect(validateArtefact("contract", readRepoJson("demo/bds-pilot/delivery-contract.json"))).toBe(true);
+    expect(validateArtefact("layers", readRepoJson("config/base-standard/layers.json"))).toBe(true);
+    expect(validateArtefact("layers", readRepoJson("demo/bds-pilot/bds-layers.json"))).toBe(true);
+    expect(validateArtefact("guideline", readRepoJson("SentinelAddin/Resources/bds-guideline.json"))).toBe(true);
+    const { source, ...harvest } = readRepoJson("demo/bds-pilot/bds-type-catalog.json");   // the harvest's source becomes template
+    expect(validateArtefact("type_catalog", { ...harvest, template: { title: source } })).toBe(true);
+  });
+  it("accepts well-formed bodies; optional fields may be absent or null; extra fields stay", () => {
+    expect(validateArtefact("contract", contract)).toBe(true);
+    const { schema_version, ...unversioned } = contract;
+    expect(validateArtefact("contract", unversioned)).toBe(true);
+    expect(validateArtefact("layers", layers)).toBe(true);
+    expect(validateArtefact("layers", { standard: "S", ignore: null, layers: [{ layer: "A-WALL", category: "Walls", family: null, aliases: null }] })).toBe(true);
+    expect(validateArtefact("guideline", guideline)).toBe(true);
+    expect(validateArtefact("guideline", { standard: "G", elements: [{ category: "Walls", rules: [], default: null }] })).toBe(true);
+    expect(validateArtefact("type_catalog", catalog)).toBe(true);
+    expect(validateArtefact("type_catalog", { types: [{ category: "Walls", type: "W", family: null, system: null, width_mm: null }] })).toBe(true);
+  });
+  it.each([
+    ["contract_key", { ...contract, contract_key: "" }],
+    ["ifc_schema", { ...contract, ifc_schema: "IFC4X3" }],
+    ["ifc_schema", { ...contract, ifc_schema: undefined }],
+    ["required_entities", { ...contract, required_entities: undefined }],
+    ["required_entities[0]", { ...contract, required_entities: [null] }],
+    ["required_entities[0].entity", withItem(contract, "required_entities", 0, { entity: "IfcWall" })],
+    ["required_entities[0].min_count", withItem(contract, "required_entities", 0, { min_count: 1.5 })],
+    ["required_entities[1].min_count", withItem(contract, "required_entities", 1, { min_count: undefined })],
+    ["required_psets", { ...contract, required_psets: ["Pset_WallCommon", ""] }],
+    ["required_properties", { ...contract, required_properties: undefined }],
+    ["forbidden_entities", { ...contract, forbidden_entities: {} }],
+    ["forbidden_entities[0].entity", withItem(contract, "forbidden_entities", 0, { entity: "PROXY" })],
+    ["forbidden_entities[0].max_count", withItem(contract, "forbidden_entities", 0, { max_count: 2147483648 })],
+    ["forbidden_entities[0].max_ratio", withItem(contract, "forbidden_entities", 0, { max_ratio: 1.5 })],
+    ["forbidden_entities[0].max_ratio", withItem(contract, "forbidden_entities", 0, { max_ratio: undefined })],
+    ["require_georeference", { ...contract, require_georeference: "yes" }],
+    ["require_georeference", { ...contract, require_georeference: undefined }],
+    ["schema_version", { ...contract, schema_version: "1" }],
+  ])("contract: a bad or missing %s is a 400 naming that path", (path, body) => {
+    expect(fails("contract", body)).toMatchObject({ status: 400, message: expect.stringContaining(`contract: ${path} `) });
+  });
+  it.each([
+    ["standard", { ...layers, standard: " " }],
+    ["layers", { ...layers, layers: [] }],
+    ["layers[1]", { ...layers, layers: [layers.layers[0], "A-DOOR"] }],
+    ["layers[1].layer", withItem(layers, "layers", 1, { layer: "" })],
+    ["layers[1].category", withItem(layers, "layers", 1, { category: "Stairs" })],
+    ["layers[0].family", withItem(layers, "layers", 0, { family: 7 })],
+    ["layers[0].aliases", withItem(layers, "layers", 0, { aliases: "A-WALL-EXT" })],
+    ["ignore", { ...layers, ignore: [0] }],
+  ])("layers: a bad %s is a 400 naming that path", (path, body) => {
+    expect(fails("layers", body)).toMatchObject({ status: 400, message: expect.stringContaining(`layers: ${path} `) });
+  });
+  it.each([
+    ["standard", { ...guideline, standard: undefined }],
+    ["elements", { ...guideline, elements: [] }],
+    ["elements[0].category", withItem(guideline, "elements", 0, { category: "" })],
+    ["elements[1].rules", withItem(guideline, "elements", 1, { rules: undefined })],
+    ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].use.family", withItem(guideline, "elements", 0, { rules: [{ when: {}, use: { type: "X" } }] })],
+    ["elements[0].default.family", withItem(guideline, "elements", 0, { default: { family: "" } })],
+    ["views", { ...guideline, views: {} }],
+    ["viewNaming", { ...guideline, viewNaming: [] }],
+  ])("guideline: a bad %s is a 400 naming that path", (path, body) => {
+    expect(fails("guideline", body)).toMatchObject({ status: 400, message: expect.stringContaining(`guideline: ${path} `) });
+  });
+  it.each([
+    ["types", { ...catalog, types: [] }],
+    ["types", { ...catalog, types: Array.from({ length: 20001 }, (_, i) => ({ category: "Walls", type: `T${i}` })) }],
+    ["types[1].category", withItem(catalog, "types", 1, { category: "" })],
+    ["types[1].type", withItem(catalog, "types", 1, { type: undefined })],
+    ["types[0].family", withItem(catalog, "types", 0, { family: false })],
+    ["types[0].system", withItem(catalog, "types", 0, { system: "yes" })],
+    ["types[0].width_mm", withItem(catalog, "types", 0, { width_mm: "200" })],
+    ["template", { ...catalog, template: "Office template" }],
+    ["template.title", { ...catalog, template: { path: "C:/x.rte" } }],
+    ["template.extracted_at", { ...catalog, template: { title: "T", extracted_at: 20260925 } }],
+    ["view_templates", { ...catalog, view_templates: {} }],
+  ])("type_catalog: a bad %s is a 400 naming that path", (path, body) => {
+    expect(fails("type_catalog", body)).toMatchObject({ status: 400, message: expect.stringContaining(`type_catalog: ${path} `) });
+  });
+  it("refuses a contract its judge could not use at install, before anything is written", async () => {
+    const d = memDeps();
+    await expect(putArtefact("p", "contract", { ...contract, ifc_schema: "IFC4X3" }, { actor: "x" }, d)).rejects.toMatchObject({ status: 400, message: "contract: ifc_schema must be IFC2X3 | IFC4" });
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
   });
 });
