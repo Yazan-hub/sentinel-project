@@ -325,6 +325,9 @@ namespace Sentinel.GhostBuilder
             /// <summary>Wall elements typed by the guideline, by the layer mapping (guideline none, or no measured
             /// thickness), or left as a reported gap (skipped, or a massing placeholder) — ElementPlacementFactory's tallies.</summary>
             public int WallsByGuideline, WallsByMapping, WallGaps;
+            /// <summary>Wall and floor types a ticked mapping row named that this build did not create: no sibling from
+            /// the type catalogue in this document (the provisioners' gaps, each named in Warnings).</summary>
+            public int TypeGaps;
         }
 
         public PlacementReport Place(MappingResult mapping, IEnumerable<GhostElement> elements)

@@ -414,6 +414,32 @@ namespace Sentinel.GhostBuilder
                 .ToList();
         }
 
+        /// <summary>The catalogue's other types of the family that lists <paramref name="typeName"/> under
+        /// <paramref name="category"/> — what a provisioner may clone for it. Empty when no catalogue is installed or it
+        /// does not name the type: nothing the standard stands behind, so nothing to clone (F43).</summary>
+        public List<string> CatalogSiblings(string category, string typeName)
+        {
+            var entry = _catalog.FirstOrDefault(c => Norm(c.Category) == Norm(category) && Norm(c.Type) == Norm(typeName));
+            if (entry == null) return new List<string>();
+            return _catalog
+                .Where(c => Norm(c.Category) == Norm(category) && Norm(c.Family) == Norm(entry.Family) && Norm(c.Type) != Norm(typeName))
+                .Select(c => c.Type)
+                .ToList();
+        }
+
+        /// <summary>Of <paramref name="siblings"/> (catalogue types), the one <paramref name="inDocument"/> holds whose
+        /// named thickness is nearest <paramref name="targetMm"/> — the build-up a new type inherits. Null when the
+        /// document holds none: the caller reports the gap, never clones an unrelated type. Pure; names compare
+        /// case-insensitively and the catalogue's spelling is returned.</summary>
+        public static string NearestSiblingInDocument(IEnumerable<string> siblings, IEnumerable<string> inDocument, double targetMm)
+        {
+            var present = new HashSet<string>(inDocument ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            return (siblings ?? Enumerable.Empty<string>())
+                .Where(s => s != null && present.Contains(s))
+                .OrderBy(s => Math.Abs(TypeNameParse.ThicknessMm(s) - targetMm))
+                .FirstOrDefault();
+        }
+
         /// <summary>Every type the guideline names that the office's template does NOT contain. Run when a
         /// guideline is authored or swapped: it is the difference between a standard and a wish list.</summary>
         public List<string> ValidateAgainstCatalog()

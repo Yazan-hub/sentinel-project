@@ -30,20 +30,16 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>
         /// Create <paramref name="newName"/> at <paramref name="thicknessMm"/> by cloning the nearest of
-        /// <paramref name="siblingNames"/> (the guideline's `Available` list — real types of the same
-        /// family) and resizing its core layer. Returns the new type, or null with a reason if it can't be
-        /// built — in which case the caller falls back to reporting the gap, never to an invented type.
-        /// Caller owns the Transaction.
+        /// <paramref name="siblingNames"/> (the guideline's `Available` list or the catalogue's siblings — real
+        /// types of the same family) and resizing its core layer; a thickness of 0 (the name carries none) keeps
+        /// the sibling's own. Returns the new type, or null with a reason if it can't be built — in which case the
+        /// caller reports the gap, never an invented type. Caller owns the Transaction.
         /// </summary>
         public static WallType CreateWallType(
             Document doc, string newName, double thicknessMm, IEnumerable<string> siblingNames, out string reason)
         {
             reason = null;
-            if (string.IsNullOrWhiteSpace(newName) || thicknessMm <= 0)
-            {
-                reason = "no name or thickness to create from";
-                return null;
-            }
+            if (string.IsNullOrWhiteSpace(newName)) { reason = "no name to create"; return null; }
 
             var walls = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
 
@@ -54,7 +50,7 @@ namespace Sentinel.GhostBuilder
             // Clone the NEAREST-thickness sibling so the new type inherits the closest real build-up. Only a sibling
             // the catalogue lists and this document has: any other Basic wall under the guideline's name would be one
             // office's type name on another's build-up (F43), so no sibling is a reported gap, never a guess.
-            WallType baseType = NearestSibling(walls, siblingNames, thicknessMm);
+            WallType baseType = Nearest(walls, siblingNames, thicknessMm);
             if (baseType == null)
             {
                 reason = "no sibling type in this document";
@@ -64,7 +60,7 @@ namespace Sentinel.GhostBuilder
             try
             {
                 var dup = (WallType)baseType.Duplicate(newName);
-                if (!SetCoreThickness(dup, thicknessMm / FeetToMm, out reason))
+                if (thicknessMm > 0 && !SetCoreThickness(dup, thicknessMm / FeetToMm, out reason))
                 {
                     doc.Delete(dup.Id); // don't leave a wrong-width type behind
                     return null;
@@ -91,9 +87,10 @@ namespace Sentinel.GhostBuilder
             var present = floors.FirstOrDefault(f => string.Equals(f.Name, newName, StringComparison.OrdinalIgnoreCase));
             if (present != null) return present;
 
-            // Clone the nearest-thickness sibling; else any floor type.
-            FloorType baseType = NearestByName(floors, siblingNames, thicknessMm) ?? floors.FirstOrDefault();
-            if (baseType == null) { reason = "no floor type to clone from"; return null; }
+            // Only a sibling the catalogue lists and this document has — any other floor type under the wanted name
+            // would be one office's name on another's build-up (F43); no sibling is a reported gap, never a guess.
+            FloorType baseType = Nearest(floors, siblingNames, thicknessMm);
+            if (baseType == null) { reason = "no sibling type in this document"; return null; }
 
             try
             {
@@ -170,28 +167,14 @@ namespace Sentinel.GhostBuilder
             return false;
         }
 
-        // FloorType/WallType both inherit HostObjAttributes; the nearest-sibling logic is identical.
-        private static FloorType NearestByName(List<FloorType> types, IEnumerable<string> siblingNames, double targetMm)
+        /// <summary>The sibling this document holds whose own thickness is closest to the target — the best build-up
+        /// to inherit. The choice is GuidelineMatcher.NearestSiblingInDocument (pure, harness-checked); this only finds
+        /// the element it named. FloorType/WallType both inherit HostObjAttributes, so one helper serves both.</summary>
+        private static T Nearest<T>(List<T> types, IEnumerable<string> siblingNames, double targetMm) where T : ElementType
         {
-            var names = new HashSet<string>(siblingNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-            var cand = types.Where(t => names.Contains(t.Name)).ToList();
-            if (cand.Count == 0) return null;
-            return cand.OrderBy(t => Math.Abs(ThicknessFromName(t.Name) - targetMm)).First();
+            string pick = GuidelineMatcher.NearestSiblingInDocument(siblingNames, types.Select(t => t.Name), targetMm);
+            return pick == null ? null : types.First(t => string.Equals(t.Name, pick, StringComparison.OrdinalIgnoreCase));
         }
-
-        /// <summary>The sibling whose own thickness is closest to the target — best build-up to inherit.</summary>
-        private static WallType NearestSibling(List<WallType> walls, IEnumerable<string> siblingNames, double targetMm)
-        {
-            var names = new HashSet<string>(siblingNames ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-            var candidates = walls.Where(w => names.Contains(w.Name)).ToList();
-            if (candidates.Count == 0) return null;
-            return candidates.OrderBy(w => Math.Abs(ThicknessFromName(w.Name) - targetMm)).First();
-        }
-
-        // The trailing "<n> mm" in a BDS type name — the office convention encodes thickness there, and
-        // the audit confirmed it matches the real Width on every conforming type.
-        // (thickness parsing moved to the pure TypeNameParse; kept as a thin alias for callers)
-        private static double ThicknessFromName(string name) => TypeNameParse.ThicknessMm(name);
 
         /// <summary>
         /// Resize a system-family type (wall OR floor — both inherit HostObjAttributes) to a total

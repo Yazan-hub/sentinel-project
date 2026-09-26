@@ -1,7 +1,9 @@
 #nullable disable
-// Floor types are SYSTEM families (like walls) — they cannot be loaded from .rfa. So when a mapping names a
-// floor type the doc lacks, duplicate a base FloorType and rename it, exactly like GhostWallTypeProvisioner.
-// Runs inside the caller's Transaction, BEFORE GhostPlacementEngine caches its types.
+// Floor types are SYSTEM families (like walls) — they cannot be loaded from .rfa. So when a ticked mapping row names a
+// floor type the document lacks, it is created exactly like GhostWallTypeProvisioner creates a wall type: a clone of the
+// nearest sibling the installed type catalogue lists AND this document has (GhostTypeCreator.CreateFloorType), resized
+// when the name carries a thickness. No such sibling is a reported gap naming the catalogue, never a clone of the first
+// floor type (F43). Runs inside the caller's Transaction, BEFORE GhostPlacementEngine caches its types.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,12 +14,20 @@ namespace Sentinel.GhostBuilder
     public sealed class GhostFloorTypeProvisioner
     {
         private readonly Document _doc;
-        public GhostFloorTypeProvisioner(Document doc) => _doc = doc;
+        private readonly GuidelineMatcher _guideline; // the catalogue in force; null = not loaded
+
+        public GhostFloorTypeProvisioner(Document doc, GuidelineMatcher guideline)
+        {
+            _doc = doc;
+            _guideline = guideline;
+        }
 
         public sealed class ProvisionReport
         {
             public int Created;
             public int AlreadyPresent;
+            /// <summary>Names not created: no sibling from the type catalogue in this document (each in Warnings).</summary>
+            public int Gaps;
             public readonly List<string> Warnings = new List<string>();
         }
 
@@ -30,15 +40,6 @@ namespace Sentinel.GhostBuilder
                 new FilteredElementCollector(_doc).OfClass(typeof(FloorType)).Cast<FloorType>().Select(f => f.Name),
                 StringComparer.OrdinalIgnoreCase);
 
-            FloorType baseType = new FilteredElementCollector(_doc)
-                .OfClass(typeof(FloorType)).Cast<FloorType>().FirstOrDefault();
-
-            if (baseType == null)
-            {
-                report.Warnings.Add("No FloorType in document to duplicate from; floor provisioning skipped.");
-                return report;
-            }
-
             var wanted = mapping.Mappings
                 .Where(m => string.Equals(m.Category, "Floors", StringComparison.OrdinalIgnoreCase))
                 .Select(m => m.BdsFamilyType ?? m.BdsFamily)
@@ -49,22 +50,17 @@ namespace Sentinel.GhostBuilder
             {
                 if (existing.Contains(name)) { report.AlreadyPresent++; continue; }
 
-                try
+                double mm = TypeNameParse.ThicknessMm(name);
+                if (mm == double.MaxValue) mm = 0; // no thickness in the name: the sibling's own
+                var siblings = _guideline?.CatalogSiblings("Floors", name) ?? new List<string>();
+                if (GhostTypeCreator.CreateFloorType(_doc, name, mm, siblings, out string reason) != null)
                 {
-                    if (baseType.Duplicate(name) is FloorType)
-                    {
-                        report.Created++;
-                        existing.Add(name); // don't re-create if two mappings share a name
-                    }
-                    else
-                    {
-                        report.Warnings.Add($"Duplicate returned non-FloorType for '{name}'; skipped.");
-                    }
+                    report.Created++;
+                    existing.Add(name); // don't re-create if two mappings share a name
+                    continue;
                 }
-                catch (Exception ex)
-                {
-                    report.Warnings.Add($"Could not create floor type '{name}': {ex.Message}");
-                }
+                report.Gaps++;
+                report.Warnings.Add(_guideline?.Gap(name, reason) ?? $"gap: {name} — {reason} (type_catalog: not loaded)");
             }
 
             return report;

@@ -162,18 +162,17 @@ namespace Sentinel.GhostBuilder
                     if (pre.Loaded > 0) _doc.Regenerate(); // make new symbols visible to the collector
                 }
 
-                // Wall types are system families (not loadable) — duplicate a base type for any
-                // mapped wall type the doc lacks. Same transaction, before the engine caches types.
-                var wallProv = new GhostWallTypeProvisioner(_doc).Provision(mapping);
+                // Wall and floor types are system families (not loadable) — a mapped type the doc lacks is created from
+                // its catalogue sibling, or reported as a gap. Same transaction, before the engine caches types.
+                var wallProv = new GhostWallTypeProvisioner(_doc, _guideline).Provision(mapping);
                 if (wallProv.Created > 0) _doc.Regenerate();
 
-                // Floor types are system families too — duplicate a base type for any mapped floor type
-                // the doc lacks, so a "Floors" layer builds instead of skipping on a missing type.
-                var floorProv = new GhostFloorTypeProvisioner(_doc).Provision(mapping);
+                var floorProv = new GhostFloorTypeProvisioner(_doc, _guideline).Provision(mapping);
                 if (floorProv.Created > 0) _doc.Regenerate();
 
                 var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level, _placeholderTypes);
                 report = engine.Place(mapping, elements);
+                report.TypeGaps = wallProv.Gaps + floorProv.Gaps;
                 report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);
                 if (pre != null) report.Warnings.InsertRange(0, pre.Warnings);

@@ -8,30 +8,36 @@ using Autodesk.Revit.DB;
 namespace Sentinel.GhostBuilder
 {
     /// <summary>
-    /// Wall types are SYSTEM families — they cannot be loaded from .rfa like component families.
-    /// So when the LLM maps a "Walls" layer to a wall type the doc doesn't have, we duplicate an
-    /// existing base wall type and rename it to the wanted name. Must run inside a Transaction on
-    /// the API thread, BEFORE GhostPlacementEngine is constructed (the engine caches wall types in
-    /// its ctor, so new types must exist first).
+    /// Wall types are SYSTEM families — they cannot be loaded from .rfa like component families. So when a ticked
+    /// mapping row names a wall type the document lacks, the type is created the one way GhostTypeCreator creates one:
+    /// a clone of the nearest sibling the installed type catalogue lists AND this document has, resized when the name
+    /// carries a thickness. No such sibling — the catalogue is none, does not name the type, or the document holds none
+    /// of its family — is a reported gap naming the catalogue, never a clone of an unrelated wall (F43: another office's
+    /// names were once cloned onto the first Basic wall). Must run inside a Transaction on the API thread, BEFORE
+    /// GhostPlacementEngine is constructed (the engine caches wall types in its ctor, so new types must exist first).
     /// </summary>
     public sealed class GhostWallTypeProvisioner
     {
         private readonly Document _doc;
+        private readonly GuidelineMatcher _guideline; // the catalogue in force; null = not loaded
 
-        public GhostWallTypeProvisioner(Document doc) => _doc = doc;
+        public GhostWallTypeProvisioner(Document doc, GuidelineMatcher guideline)
+        {
+            _doc = doc;
+            _guideline = guideline;
+        }
 
         public sealed class ProvisionReport
         {
             public int Created;
             public int AlreadyPresent;
+            /// <summary>Names not created: no sibling from the type catalogue in this document (each in Warnings).</summary>
+            public int Gaps;
             public readonly List<string> Warnings = new List<string>();
         }
 
-        /// <summary>
-        /// Duplicates a base wall type for each missing "Walls" mapping. Caller owns the Transaction.
-        /// The new type is a geometric clone of the base (same width/layers) under the mapped name —
-        /// good enough for LOD 200 massing; real assemblies get authored later.
-        /// </summary>
+        /// <summary>Creates each missing "Walls" mapping name from its catalogue sibling, or reports the gap. Caller
+        /// owns the Transaction.</summary>
         public ProvisionReport Provision(MappingResult mapping)
         {
             var report = new ProvisionReport();
@@ -41,17 +47,6 @@ namespace Sentinel.GhostBuilder
                 new FilteredElementCollector(_doc).OfClass(typeof(WallType))
                     .Cast<WallType>().Select(w => w.Name),
                 StringComparer.OrdinalIgnoreCase);
-
-            // A basic (non-curtain, non-stacked) wall type to clone from.
-            WallType baseType = new FilteredElementCollector(_doc)
-                .OfClass(typeof(WallType)).Cast<WallType>()
-                .FirstOrDefault(w => w.Kind == WallKind.Basic);
-
-            if (baseType == null)
-            {
-                report.Warnings.Add("No Basic WallType in document to duplicate from; wall provisioning skipped.");
-                return report;
-            }
 
             // Distinct wall-type names the mapping needs (prefer bdsFamilyType, fall back to bdsFamily).
             var wanted = mapping.Mappings
@@ -64,25 +59,17 @@ namespace Sentinel.GhostBuilder
             {
                 if (existing.Contains(name)) { report.AlreadyPresent++; continue; }
 
-                try
+                double mm = TypeNameParse.ThicknessMm(name);
+                if (mm == double.MaxValue) mm = 0; // no thickness in the name: the sibling's own
+                var siblings = _guideline?.CatalogSiblings("Walls", name) ?? new List<string>();
+                if (GhostTypeCreator.CreateWallType(_doc, name, mm, siblings, out string reason) != null)
                 {
-                    // Duplicate returns the new ElementType; throws if the name is already taken
-                    // (guarded above) or invalid.
-                    var created = baseType.Duplicate(name) as WallType;
-                    if (created != null)
-                    {
-                        report.Created++;
-                        existing.Add(name); // don't re-create if two mappings share a name
-                    }
-                    else
-                    {
-                        report.Warnings.Add($"Duplicate returned non-WallType for '{name}'; skipped.");
-                    }
+                    report.Created++;
+                    existing.Add(name); // don't re-create if two mappings share a name
+                    continue;
                 }
-                catch (Exception ex)
-                {
-                    report.Warnings.Add($"Could not create wall type '{name}': {ex.Message}");
-                }
+                report.Gaps++;
+                report.Warnings.Add(_guideline?.Gap(name, reason) ?? $"gap: {name} — {reason} (type_catalog: not loaded)");
             }
 
             return report;
