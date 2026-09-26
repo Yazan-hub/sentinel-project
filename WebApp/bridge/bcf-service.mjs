@@ -21,6 +21,7 @@ import { runWithAuth, resolveActor } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
+import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, readCapped } from "./public-verify.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -457,20 +458,30 @@ async function startEventPoll() {
 // whole request inside that auth context, so cde-store's sb() forwards it to PostgREST (RLS per-user) when
 // forwarding is armed. No JWT → service key (current behaviour). Non-browser callers (Revit) send none.
 createServer((req, res) => {
-  const auth = req.headers.authorization || "";
-  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
-  // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
-  // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
-  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
-  runWithAuth(userJwt, () => handleRequest(req, res));
+  // One error boundary for every request: a throw that escapes the handler — sync here, or a rejection of the async
+  // handleRequest — must answer this caller, never end the process (Node exits on an unhandled rejection). A request
+  // target of "//" makes `new URL(req.url, …)` throw, so one anonymous `GET //` or `OPTIONS //` used to stop the bridge.
+  const failed = (e) => {
+    const bad = e?.code === "ERR_INVALID_URL";
+    try { if (res.headersSent) res.end(); else send(res, bad ? 400 : 500, { message: bad ? "Bad request" : String(e?.message || e) }); }
+    catch { /* the socket is already gone */ }
+  };
+  try {
+    const auth = req.headers.authorization || "";
+    const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
+    // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
+    // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
+    const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
+    runWithAuth(userJwt, () => handleRequest(req, res)).catch(failed);
+  } catch (e) { failed(e); }
 }).listen(PORT, HOST, () => {
   // Supabase projects on asymmetric signing keys sign USER SESSIONS with ES256 — the JWKS makes
   // those verifiable at the gate. Without it, arming SUPABASE_JWT_SECRET 401s every signed-in user.
   initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; only /health exempt)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; /health exempt; POST /receipt/:key/verify answers anyone hash-only)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
   if (JWT_SECRET && !TOKEN) console.warn("[bridge] WARNING: SUPABASE_JWT_SECRET set without BCF_TOKEN — a wrong secret silently downgrades signed-in users to the service key; arm BCF_TOKEN or unset the secret.");
@@ -492,8 +503,55 @@ createServer((req, res) => {
   startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
 });
 
+// ── Public receipt check (cohesion phase 4c): POST /receipt/:key/verify from a caller the auth gate would refuse.
+// Any page may ask (Access-Control-Allow-Origin: *, no credentials read or allowed); the answer is hash-only
+// (public-verify.mjs). At most 8 KB a check and 60 checks a minute across every caller; the log line names the
+// method, the path and the outcome, never the body.
+const publicLimiter = createLimiter({ max: 60, windowMs: 60000 });
+async function publicReceiptVerify(req, res, url) {
+  res._cors = "*";
+  if (req.method === "OPTIONS") {
+    // A member's preflight carries no Authorization either, so it lands here too: an allowlisted origin keeps its
+    // Private Network Access grant (as on every other route), a foreign one gets none.
+    if (req.headers["access-control-request-private-network"] === "true"
+        && corsOrigin(req.headers.origin, req.headers.referer, { allow: CORS_ALLOW, wildcard: CORS_WILDCARD, armed: !!TOKEN }))
+      res.setHeader("Access-Control-Allow-Private-Network", "true");
+    return send(res, 204);
+  }
+  const done = (code, body, outcome, extra) => {
+    console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
+    return send(res, code, body, extra);
+  };
+  if (!publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
+  const text = await readCapped(req);
+  // The rest of an over-cap body is drained, not read, and the connection closes after the 413.
+  if (text === null) return done(413, { message: "A receipt check is at most 8 KB" }, "413", { Connection: "close" });
+  let claim;
+  try { claim = parsePublicVerify(text ? JSON.parse(text) : null); }
+  catch (e) { return done(400, { message: e?.status === 400 ? e.message : "send {audit_id, ledger_hash} or a whole receipt as JSON" }, "400"); }
+  try {
+    let key = null;
+    try { key = decodeURIComponent(url.pathname.split("/")[2]); } catch { /* a malformed escape names no project */ }
+    const cde = await import("./cde-store.mjs");
+    const reply = comparePublic(key === null ? null : await cde.publicAuditRow(key, claim.audit_id), claim, key);
+    return done(200, reply, reply.matches ? "match" : "no match");
+  } catch (e) {
+    return done(500, { message: `public receipt check failed: ${e?.message || e}` }, "500"); // send() logs it, then scrubs it
+  }
+}
+
 async function handleRequest(req, res) {
   const origin = req.headers.origin;
+  const url = new URL(req.url, "http://localhost");
+  // The credential the auth gate below accepts: the shared BCF_TOKEN, or a Supabase JWT (checked against
+  // SUPABASE_JWT_SECRET when that is set).
+  const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+  const credentialOk = bearer === TOKEN
+    || (!!bearer && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET)));
+  // With the gate armed, a caller it would refuse may still ask whether a receipt is on the ledger: answered
+  // hash-only, ahead of the CSRF and bearer gates. A caller with a credential takes the /receipt route below and
+  // gets today's full reply; with the gate off every caller already does.
+  if (TOKEN && !credentialOk && isPublicRoute(req.method, url.pathname)) return publicReceiptVerify(req, res, url);
   // Per-request CORS origin: echo an allowlisted origin (or "*" only in wildcard/dev mode); otherwise none.
   res._cors = corsOrigin(origin, req.headers.referer, { allow: CORS_ALLOW, wildcard: CORS_WILDCARD, armed: !!TOKEN });
   if (origin === "null" && !res._cors) warnNullOrigin(req.headers.referer);
@@ -512,7 +570,6 @@ async function handleRequest(req, res) {
   if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") && origin && !res._cors) {
     return send(res, 403, { message: "Origin not allowed" });
   }
-  const url = new URL(req.url, "http://localhost");
 
   // Auth gate (F2): when BCF_TOKEN is configured, close the anonymous service-key fall-open. Every route
   // except /health must present EITHER a forwarded Supabase JWT (→ per-user RLS) OR the shared BCF_TOKEN
@@ -520,13 +577,10 @@ async function handleRequest(req, res) {
   // stream with the Authorization header (bridge-fetch.ts bridgeEvents) and Revit already sends its bearer,
   // so the feed stays closed even when the bridge is reachable from the internet.
   // With BCF_TOKEN unset, behaviour is unchanged (legacy service-key mode). Activation = set BCF_TOKEN.
+  // (POST /receipt/:key/verify from a caller with neither was already answered hash-only, above.)
   if (TOKEN) {
-    const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
     const exempt = url.pathname === "/health";
-    const jwtOk = bearer && bearer !== TOKEN && bearer.split(".").length === 3
-      && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET));
-    const ok = bearer === TOKEN || jwtOk;
-    if (!exempt && !ok) {
+    if (!exempt && !credentialOk) {
       // Why-log for rejected calls: no secrets, just the credential's shape.
       const why = !bearer ? "no-bearer"
         : bearer.split(".").length === 3 ? "jwt-rejected" : "token-mismatch";
@@ -1055,7 +1109,9 @@ async function handleRequest(req, res) {
         const b = await readBody(req);
         return send(res, 200, await cde.deleteFile(p1, b.container_id, b.actor));
       }
-      if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
+      // GET /cde/:key/audit?entity_type=&action_prefix=&entity_id=&actor=&since=&until=&limit=&offset=
+      //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
+      if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, version_id?, raise_bcf? }
       //   → { verdict: accepted|rejected|recorded, summary, failures[], audit_id, bcf? }. Agents propose; the
@@ -1280,7 +1336,8 @@ async function handleRequest(req, res) {
 
   // ── Verdict receipts: the shareable proof that an adjudication is on the ledger ──
   //   GET  /receipt/:key/:auditId   → the receipt for a recorded adjudication
-  //   POST /receipt/:key/verify { receipt } → { matches, reasons, ledger }
+  //   POST /receipt/:key/verify { receipt } → { matches, reasons, ledger }   (a bearer or member JWT; an armed
+  //   bridge answers every other caller hash-only in publicReceiptVerify, before the gates — phase 4c)
   //   Both are READ-ONLY. Verification is offered as a service precisely so a client does not have
   //   to take the receipt-holder's word for it.
   if (url.pathname.startsWith("/receipt")) {

@@ -30,7 +30,10 @@ export const forwardingConfigured = () => !!ANON;
 // Forward the caller's Supabase JWT (RLS-enforced) when one is present AND forwarding is armed; else use the
 // service key. `service: true` FORCES the service key for privileged writes that RLS blocks for authed users
 // (audit_log inserts, bridge_events) — those must bypass RLS by design.
-export async function sb(path, { method = "GET", body, prefer, service = false } = {}) {
+// `count: true` adds Prefer count=exact and returns { data, total }: total is the N of Content-Range "a-b/N", or of
+// "*/N" for an empty page or a 416 (an offset past the end), both data []. A reply with no N is an error, never a
+// planned or estimated count.
+export async function sb(path, { method = "GET", body, prefer, service = false, count = false } = {}) {
   if (!cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
   const userToken = service ? null : currentUserToken();
   const useUser = !!(userToken && ANON);
@@ -39,7 +42,7 @@ export async function sb(path, { method = "GET", body, prefer, service = false }
     Authorization: `Bearer ${useUser ? userToken : KEY}`,
     "Content-Type": "application/json",
   };
-  if (prefer) headers.Prefer = prefer;
+  if (prefer || count) headers.Prefer = [prefer, count && "count=exact"].filter(Boolean).join(",");
   // Postgres text/JSONB cannot hold a NUL () — error 22P05 "unsupported Unicode escape sequence". Real
   // authoring tools (Revit among them) occasionally emit a stray NUL inside an element name / parameter value,
   // which then rides into an audit/snapshot/BCF write and 500s the whole request. A NUL in a BIM string is
@@ -54,6 +57,12 @@ export async function sb(path, { method = "GET", body, prefer, service = false }
   const text = await r.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (count && (r.ok || r.status === 416)) {
+    const range = r.headers.get("content-range") || "";
+    const m = /^(\*|\d+-\d+)\/(\d+)$/.exec(range);
+    if (!m) throw new Error(`Supabase gave no exact count (Content-Range: ${range || "none"})`);
+    return { data: m[1] === "*" ? [] : data, total: Number(m[2]) };
+  }
   if (!r.ok) {
     const err = new Error(`Supabase ${r.status}: ${typeof data === "string" ? data : JSON.stringify(data)}`);
     // Surface auth/permission failures with their real client status instead of a generic 500, so a caller
@@ -583,9 +592,53 @@ export async function transition(version_id, new_state, actor, note) {
   return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note } });
 }
 
-export async function listAudit(key) {
+/** The ledger read's page: 200 rows unless asked, never more than 1000 (the db-max-rows SNAP_PAGE assumes). */
+export const AUDIT_LIMIT = 200, AUDIT_MAX = 1000;
+
+/** GET /cde/:key/audit's query → { filter, limit, offset } for PostgREST. Pure; a bad value throws a 400 before any
+ *  read. entity_type and actor match exactly; action_prefix → like.<p>* with LIKE's \ % _ escaped (PostgREST turns
+ *  every * into %, so a * cannot be matched literally and is refused); entity_id is a uuid or a comma list (→ in.());
+ *  since / until → at=gte. / at=lt.; limit defaults to 200 and is clamped to 1000; offset ≥ 0. A blank value is no
+ *  filter; other keys are ignored. */
+export function auditQuery(f = {}) {
+  const bad = (m) => Object.assign(new Error(m), { status: 400 });
+  const has = (k) => f[k] !== undefined && f[k] !== null && String(f[k]).trim() !== "";
+  const val = (k) => String(f[k]).trim();
+  let filter = "";
+  if (has("entity_type")) filter += `&entity_type=eq.${encodeURIComponent(val("entity_type"))}`;
+  if (has("action_prefix")) {
+    const p = String(f.action_prefix);
+    if (p.includes("*")) throw bad("action_prefix cannot contain * (PostgREST reads every * as a wildcard)");
+    filter += `&action=like.${encodeURIComponent(p.replace(/[\\%_]/g, "\\$&"))}*`;
+  }
+  if (has("entity_id")) {
+    const ids = val("entity_id").split(",").map((s) => s.trim());
+    if (!ids.every(isUuid)) throw bad("entity_id must be a uuid or a comma list of uuids");
+    filter += ids.length === 1 ? `&entity_id=eq.${ids[0]}` : `&entity_id=in.(${ids.join(",")})`;
+  }
+  if (has("actor")) filter += `&actor=eq.${encodeURIComponent(val("actor"))}`;
+  for (const [k, op] of [["since", "gte"], ["until", "lt"]]) {
+    if (!has(k)) continue;
+    const t = Date.parse(val(k));
+    if (Number.isNaN(t)) throw bad(`${k} must be a date or date-time`);
+    filter += `&at=${op}.${encodeURIComponent(new Date(t).toISOString())}`;
+  }
+  const int = (k, dflt, min) => {
+    if (!has(k)) return dflt;
+    const n = Number(val(k));
+    if (!Number.isInteger(n) || n < min) throw bad(`${k} must be an integer ≥ ${min}`);
+    return n;
+  };
+  return { filter, limit: Math.min(int("limit", AUDIT_LIMIT, 1), AUDIT_MAX), offset: int("offset", 0, 0) };
+}
+
+/** The project's ledger rows, newest first, filtered and paged: { rows, total, limit, offset }. `total` is the exact
+ *  count of rows matching the filter (not of the page), so a reader that got fewer rows than the total knows it. */
+export async function listAudit(key, filters = {}) {
+  const { filter, limit, offset } = auditQuery(filters);
   const proj = await ensureProject(key);
-  return sb(`audit_log?project_id=eq.${proj.id}&select=*&order=id.desc&limit=200`);
+  const { data, total } = await sb(`audit_log?project_id=eq.${proj.id}${filter}&select=*&order=id.desc&limit=${limit}&offset=${offset}`, { count: true });
+  return { rows: data, total, limit, offset };
 }
 
 export async function audit(project_id, entity_type, entity_id, action, actor, oldv, newv) {
@@ -815,6 +868,18 @@ export async function getAuditEntry(key, id) {
   const proj = await ensureProject(key);
   const rows = await sb(`audit_log?project_id=eq.${proj.id}&id=eq.${n}&select=*`);
   return (Array.isArray(rows) ? rows[0] : rows) ?? null;
+}
+
+/** The row an anonymous receipt check names (cohesion phase 4c), or null. Service key only, whatever
+ *  Authorization the caller sent; never ensureProject — no "default" self-heal, no key-specific 404 or 403.
+ *  An unknown key still costs the second read (against the nil uuid), so it takes as long as an unknown id. */
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+export async function publicAuditRow(key, id) {
+  if (!Number.isSafeInteger(id) || id < 1) return null;
+  const proj = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=id`, { service: true });
+  const pid = Array.isArray(proj) && proj[0]?.id ? proj[0].id : NIL_UUID;
+  const rows = await sb(`audit_log?id=eq.${id}&project_id=eq.${pid}&select=id,at,hash,new_value`, { service: true });
+  return (Array.isArray(rows) ? rows[0] : null) ?? null;
 }
 
 /** Re-derive the receipt for a recorded adjudication straight from the ledger. */

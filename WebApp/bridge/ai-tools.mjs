@@ -67,15 +67,17 @@ export const TOOLS = [
   {
     name: "read_audit",
     policy: "read",
-    description: "Read the project's immutable, hash-chained audit trail — every proposal verdict, state transition and publish. This is the golden-thread record; cite it when asked what happened or who did what.",
+    description: "Read the project's ledger (audit_log) newest first — every proposal verdict, state transition and publish — as {rows, total, limit, offset}; total is the exact count of matching rows, so fewer rows than total means older rows were not read. This is the golden-thread record; cite it when asked what happened or who did what. The hash chain is one chain across all projects and this read does not recompute it.",
     input_schema: {
       type: "object", required: ["project"],
-      properties: { project: { type: "string" }, limit: { type: "number", description: "most recent N rows (default 50)" } },
+      properties: {
+        project: { type: "string" },
+        limit: { type: "number", description: "most recent N rows (default 50, at most 1000)" },
+        entity_type: { type: "string", description: "only this entity type, e.g. file_version, container_version, proposal, delivery_gate" },
+        action_prefix: { type: "string", description: "only actions starting with this, e.g. verdict: or state:" },
+      },
     },
-    run: async ({ project, limit }) => {
-      const rows = await cde.listAudit(project);
-      return Array.isArray(rows) ? rows.slice(0, limit || 50) : rows;
-    },
+    run: ({ project, limit, entity_type, action_prefix }) => cde.listAudit(project, { entity_type, action_prefix, limit: limit ?? 50 }),
   },
 
   // ── WRITE: changes project state. Proposal only — the gate decides. ─────────────────────────────

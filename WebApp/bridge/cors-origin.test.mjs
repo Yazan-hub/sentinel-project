@@ -24,7 +24,7 @@ describe("corsOrigin", () => {
     // a look-alike host is a different origin
     expect(corsOrigin("null", "https://platform.thatopen.com.evil.example/", { allow })).toBe("");
   });
-  it("with the auth gate armed, accepts origin null from any page — every route still needs a bearer a browser never attaches by itself", () => {
+  it("with the auth gate armed, accepts origin null from any page — every route but the hash-only POST /receipt/:key/verify still needs a bearer a browser never attaches by itself", () => {
     // The published app's frame loads with referrerPolicy no-referrer, so a Referer cannot be relied on there.
     expect(corsOrigin("null", undefined, { allow, armed: true })).toBe("null");
     expect(corsOrigin("null", "https://evil.example/x", { allow, armed: true })).toBe("null");

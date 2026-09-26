@@ -46,7 +46,7 @@ export const TOOLS = [
       },
     },
   },
-  { name: "sentinel_audit", description: "Read a project's immutable, hash-chained audit trail (the governed record of proposals, clashes, ISO 19650 state transitions).", inputSchema: { type: "object", required: ["project"], properties: { project: { type: "string" }, limit: { type: "number" } } } },
+  { name: "sentinel_audit", description: "Read a project's ledger (audit_log: proposals, verdicts, clashes, gate rows, ISO 19650 state transitions), newest first, as {rows, total, limit, offset} — total is the exact count of matching rows, so fewer rows than total means there is more to page through with offset. Filters: entity_type, action_prefix (e.g. \"verdict:\", \"state:\"), entity_id (a uuid or a comma list), actor, since, until. limit defaults to 50, at most 1000. The hash chain is one chain across all projects and is not recomputed by this read.", inputSchema: { type: "object", required: ["project"], properties: { project: { type: "string" }, limit: { type: "number" }, offset: { type: "number" }, entity_type: { type: "string" }, action_prefix: { type: "string" }, entity_id: { type: "string" }, actor: { type: "string" }, since: { type: "string" }, until: { type: "string" } } } },
 
   // ── Document governance (read-only): BEP/EIR documents, compliance, deliverables, checks, integrity ──
   {
@@ -183,8 +183,10 @@ export async function callTool(name, args = {}, deps = {}) {
   }
   if (name === "sentinel_audit") {
     const project = need(args, "project");
-    const rows = await getJson(`/cde/${enc(project)}/audit`);
-    return Array.isArray(rows) ? rows.slice(0, args.limit || 50) : rows;
+    const q = new URLSearchParams({ limit: String(args.limit ?? 50) });
+    for (const k of ["offset", "entity_type", "action_prefix", "entity_id", "actor", "since", "until"])
+      if (args[k] !== undefined && args[k] !== "") q.set(k, String(args[k]));
+    return await getJson(`/cde/${enc(project)}/audit?${q}`);
   }
 
   if (name === "sentinel_list_documents") return await getJson(`/bimdocs/${enc(need(args, "project"))}`);

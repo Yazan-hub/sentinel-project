@@ -101,6 +101,7 @@ export function verifyJwt(token, secret) {
   if (parts.length !== 3) return false;
   let header;
   try { header = b64json(parts[0]); } catch { return false; }
+  if (!header || typeof header !== "object") return false; // a header of `null` is valid JSON — and threw at .alg
   if (header.alg === "HS256") return verifyHs256(parts, secret);
   if (header.alg === "ES256" || header.alg === "RS256") return verifyAsymmetric(parts, header);
   return false;

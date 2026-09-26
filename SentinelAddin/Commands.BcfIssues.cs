@@ -220,7 +220,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             fix.RefreshRows();
                             // The bridge filtered the list to this requirement; the footnote count comes from its totals.
                             var other = res.FailuresTotal >= 0 && res.FailuresMatched >= 0 ? res.FailuresTotal - res.FailuresMatched : fold.OtherOpen;
-                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 IDS {res.IdsLabel} \u00b7 audit {res.AuditId}");
+                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 IDS {res.IdsLabel} \u00b7 {LedgerLine.For(LedgerResult.FromReceipt(res.AuditId, res.ReceiptHash))}");
                             fix.SetBusy(false);
                         });
                     }
@@ -287,11 +287,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         fix.RefreshRows();
                         var total = guids.Count;
                         var passed = fold.PassGuids;
-                        var receipt = string.IsNullOrEmpty(res.ReceiptHash) ? "" : $" \u00b7 receipt {res.ReceiptHash!.Substring(0, Math.Min(16, res.ReceiptHash.Length))}";
+                        var ledgerLine = LedgerLine.For(LedgerResult.FromReceipt(res.AuditId, res.ReceiptHash));
                         // A topic lists at most 500 GUIDs (bridge viewpoint cap). When it names more failures than
                         // it lists, the unlisted ones were never examined — say so, and never resolve on them.
                         var unlisted = Math.Max(0, req.Failing - total);
-                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel}, audit {res.AuditId}{receipt}."
+                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel} (ledger row: {ledgerLine})."
                             + (unlisted > 0 ? $" {unlisted} of the {req.Failing} failing element(s) are not listed on this issue and were NOT examined." : "");
                         // The elements that ACTUALLY still fail — the fold's GUIDs, not every instance of a
                         // row that failed (a type row can fail one of its instances and pass the rest), and
@@ -316,7 +316,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         }
                         var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", user).ConfigureAwait(false);
                         fix.SetStatus(s >= 200 && s < 300
-                            ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved (audit {res.AuditId}). Closing it stays a human decision on the web."
+                            ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved ({ledgerLine}). Closing it stays a human decision on the web."
                             : $"Evidence posted; status unchanged (HTTP {s}).");
                         fix.SetBusy(false);
                         try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }

@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 
 namespace Sentinel.Engine;
@@ -60,12 +61,20 @@ public static class AutoPublish
                 PlatformExporter.State.Locked => "Auto-publish skipped: outbox IFC was locked.",
                 _ => "Auto-publish failed: " + (r.error ?? "unknown"),
             };
-            // On a successful publish, record it in the web app's governed audit trail AND append a version to
-            // the file-version history (so Revit publishes share the web's version timeline). Fire-and-forget.
+            // On a successful publish, record it on the ledger AND append a version to the file-version history (so
+            // Revit publishes share the web's version timeline). Neither blocks the save: the ledger row goes out on a
+            // task and its line lands in the Doctor log on the pane's thread (BeginInvoke — never Invoke from the
+            // worker); the version POST stays fire-and-forget.
             if (r.state == PlatformExporter.State.Ok)
             {
-                Sentinel.Coordination.GovernedNotify.ModelPublished(doc.Title, r.bytes, ctx.Key);
-                Sentinel.Coordination.GovernedNotify.FileVersion(doc.Title, r.bytes, ctx.Key);
+                var title = doc.Title;
+                var key = ctx.Key;
+                var bytes = r.bytes;
+                var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                Task.Run(() => Sentinel.Coordination.GovernedNotify.ModelPublished(title, bytes, key)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
+                    App.PanelVm?.LogDoctor("Auto-publish of " + title + ": " + Sentinel.Coordination.LedgerLine.For(t.Status == TaskStatus.RanToCompletion ? t.Result
+                        : Sentinel.Coordination.LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the ledger post did not finish"))))), TaskScheduler.Default);
+                Sentinel.Coordination.GovernedNotify.FileVersion(title, bytes, key);
             }
         }
         catch (Exception ex)

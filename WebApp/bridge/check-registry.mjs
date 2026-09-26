@@ -8,7 +8,7 @@
 //
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
-import { listFiles, getProjectMeta, listAudit, projectNamingRuleset, listTransmittals, NO_NAMING_REASON } from "./cde-store.mjs";
+import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, listTransmittals, NO_NAMING_REASON } from "./cde-store.mjs";
 import { refLabel, resolveArtefact } from "./artefact-store.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
 
@@ -132,11 +132,15 @@ export function classifyStandard(resolved, kind, id, label, displayName = "") {
 /** project.standards_pack: the scan ruleset artefact; metadata.standards_pack is shown as its name only. */
 export const classifyPack = (resolved, displayName) => classifyStandard(resolved, "ruleset", "project.standards_pack", "Standards pack selected", displayName);
 
-export function classifyVerdicts(auditRows) {
+/** `total` is the ledger's count of verdict rows (listAudit's total for the verdict filter); fewer rows than that is a
+ *  partial read, which cannot say which verdict is each version's latest. Omitted, the rows given are all there is. */
+export function classifyVerdicts(auditRows, total) {
   const id = "ids.last_verdict", label = "Governed adjudication verdicts";
+  const verdictRows = auditRows.filter((r) => r.entity_type === "file_version" && String(r.action || "").startsWith("verdict:"));
+  if (total !== undefined && verdictRows.length < total)
+    return result(id, label, "not_checkable", { reason: `Read ${verdictRows.length} of ${total} verdict rows on this project's ledger — a partial read cannot confirm each version's latest verdict.` });
   const newest = new Map(); // entity_id -> row (audit rows arrive newest-first; keep the first seen)
-  for (const r of auditRows) {
-    if (r.entity_type !== "file_version" || !String(r.action || "").startsWith("verdict:")) continue;
+  for (const r of verdictRows) {
     const prev = newest.get(r.entity_id);
     if (!prev || String(r.at) > String(prev.at)) newest.set(r.entity_id, r);
   }
@@ -355,7 +359,8 @@ export function classifyResponsibility(status, teams) {
  */
 const GENERIC_ACTORS = new Set(["", "web", "service", "bridge", "unknown", "null"]);
 
-export function classifyReview(files, auditRows) {
+/** `total` is the ledger's count of the rows asked for (listAudit's total); fewer rows than that is a partial read. */
+export function classifyReview(files, auditRows, total) {
   const id = "midp.review", label = "Review before issue (MIDP)";
   const published = [];
   for (const f of files || []) {
@@ -365,6 +370,8 @@ export function classifyReview(files, auditRows) {
   }
   if (!published.length)
     return result(id, label, "not_checkable", { reason: "Nothing has reached published on this project yet, so there is no issue to have reviewed." });
+  if (total !== undefined && (auditRows || []).length < total)
+    return result(id, label, "not_checkable", { reason: `Read ${(auditRows || []).length} of ${total} state transitions of the published versions on this project's ledger — a partial read cannot judge review before issue.` });
 
   // Audit rows arrive newest-first; the first seen of each action is the one that governs.
   const submitted = new Map(), authorized = new Map();
@@ -387,7 +394,7 @@ export function classifyReview(files, auditRows) {
       unmeasured.push({
         label: who,
         detail: !submitted.has(version.id) || !authorized.has(version.id)
-          ? "its state transitions are outside the audit window read here, so review cannot be judged"
+          ? "its state:wip->shared or state:shared->published row is not on the ledger, so review cannot be judged"
           : "submitted or authorized by an unresolved identity, so independence cannot be judged",
       });
       continue;
@@ -480,7 +487,10 @@ export const CHECKS = [
     label: "Governed adjudication verdicts",
     description: "The most recent governed verdict recorded against each version was an acceptance.",
     params_schema: {},
-    async run(key) { return classifyVerdicts(await listAudit(key)); },
+    async run(key) {
+      const { rows, total } = await listAudit(key, { entity_type: "file_version", action_prefix: "verdict:", limit: AUDIT_MAX });
+      return classifyVerdicts(rows, total);
+    },
   },
   {
     id: "midp.milestones",
@@ -539,8 +549,12 @@ export const CHECKS = [
     description: "Every published version was authorized by someone other than the person who submitted it.",
     params_schema: {},
     async run(key) {
-      const [files, rows] = await Promise.all([listFiles(key), listAudit(key)]);
-      return classifyReview(files, rows);
+      const files = await listFiles(key);
+      const ids = files.flatMap((f) => (f.versions || []).filter((v) => v.state === "published").map((v) => v.id));
+      if (!ids.length) return classifyReview(files, []);
+      // ponytail: every published id in one GET; batch the ids if a project publishes hundreds of versions.
+      const { rows, total } = await listAudit(key, { entity_type: "container_version", action_prefix: "state:", entity_id: ids.join(","), limit: AUDIT_MAX });
+      return classifyReview(files, rows, total);
     },
   },
   {

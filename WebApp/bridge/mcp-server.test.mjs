@@ -104,11 +104,13 @@ describe("callTool — existing tools regression", () => {
     expect(fetch.mock.calls[0][0]).toMatch(/\/cde\/projects$/);
   });
 
-  it("audit still GETs and slices to limit", async () => {
-    const rows = Array.from({ length: 80 }, (_, i) => ({ id: i }));
-    const fetch = vi.fn(async () => okJson(rows));
-    const r = await callTool("sentinel_audit", { project: "demo", limit: 10 }, { fetch });
-    expect(r).toHaveLength(10);
+  it("audit passes limit (default 50) and the filters to the route and returns its {rows, total, limit, offset}", async () => {
+    const page = { rows: [{ id: 44 }], total: 1, limit: 10, offset: 0 };
+    const fetch = vi.fn(async () => okJson(page));
+    expect(await callTool("sentinel_audit", { project: "demo", limit: 10, entity_type: "file_version", action_prefix: "verdict:", actor: "" }, { fetch })).toEqual(page);
+    expect(fetch.mock.calls[0][0]).toMatch(/\/cde\/demo\/audit\?limit=10&entity_type=file_version&action_prefix=verdict%3A$/);
+    await callTool("sentinel_audit", { project: "demo" }, { fetch });
+    expect(fetch.mock.calls[1][0]).toMatch(/\/cde\/demo\/audit\?limit=50$/);
   });
 
   it("propose still POSTs to /cde/:project/propose", async () => {

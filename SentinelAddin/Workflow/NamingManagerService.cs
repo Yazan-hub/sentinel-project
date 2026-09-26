@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Sentinel.Coordination;
 using Sentinel.Engine;
@@ -105,9 +106,12 @@ public static class NamingManagerService
     private static string SafeFamilyName(ElementType t) { try { return t.FamilyName ?? ""; } catch { return ""; } }
 
     /// <summary>ONE transaction; per row: re-validate against the rule, re-check uniqueness LIVE, rename;
-    /// each success collected for one batched audit-store write, then one ledger post for the batch.</summary>
-    public static List<(NamingRow Row, bool Ok, string Message)> Apply(Document doc, IEnumerable<NamingRow> rows, Ruleset rs, string? projectKey)
+    /// each success collected for one batched audit-store write, then one ledger row for the batch, posted on a task:
+    /// <paramref name="ledger"/> (null when nothing was renamed) — the window continues on it and shows the line.</summary>
+    public static List<(NamingRow Row, bool Ok, string Message)> Apply(Document doc, IEnumerable<NamingRow> rows, Ruleset rs, string? projectKey,
+                                                                    out Task<LedgerResult>? ledger)
     {
+        ledger = null;
         var results = new List<(NamingRow, bool, string)>();
         var user = doc.Application.Username;
         var list = rows.ToList();
@@ -158,7 +162,12 @@ public static class NamingManagerService
         var done = results.Where(r => r.Item2 && r.Item3 == "renamed").ToList();
         foreach (var (row, _, _) in done) RoiTracker.Log("naming", $"{row.RuleId}: '{row.Current}' -> '{renamedMap[row]}'");
         if (done.Count > 0)
-            GovernedNotify.NamingRenamed(done.Select(r => (object)new { id = r.Item1.ElementId, from = r.Item1.Current, to = renamedMap[r.Item1], rule = r.Item1.RuleId }), user, projectKey ?? "");
+        {
+            // Built here, on the API thread; posted off it (≤ 6 s), so the rename never waits on the bridge.
+            var ledgerRows = done.Select(r => (object)new { id = r.Item1.ElementId, from = r.Item1.Current, to = renamedMap[r.Item1], rule = r.Item1.RuleId }).ToList();
+            var key = projectKey ?? "";
+            ledger = Task.Run(() => GovernedNotify.NamingRenamed(ledgerRows, user, key));
+        }
         return results;
     }
 

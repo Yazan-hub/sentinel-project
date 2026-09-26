@@ -107,9 +107,12 @@ unknown key.*
    - Limits: the public path caps the body at 8 KB (413) and a global in-process fixed window of 60 calls a minute
      (429); it logs method, path and outcome only, never the body.
    - Residual, documented: the global chain means a member of project A holds the hash of a neighbouring row of some
-     other project, and with that project's key can confirm one bit ("row N on key B has this hash"). Removing it needs
-     per-project chaining (a migration) — out of scope.
-   - `public-client/sentinel-verify.mjs`: the badge shows a verdict only when `verdict` is in `checked`, otherwise "on
+     other project, and with that project's key can confirm that row N on key B has this hash and, by trying the
+     verdicts (`accepted`, then `rejected`: `matches` / `mismatched`), which verdict it records — nothing else
+     (`recorded_at` is compared as an exact string, so it cannot be probed in practice). Removing it needs per-project
+     chaining (a migration) — out of scope.
+   - `public-client/sentinel-verify.mjs`: the badge shows a verdict only when `verdict` is in `checked` (or on a
+     member's `{matches, reasons, ledger}` reply, whose `verifyReceipt` always compares it), otherwise "on
      the ledger — verdict not checked"; the text "Confirmed against the immutable ledger" becomes "matches the ledger's
      stored hash (chain not recomputed)". `cors-origin.mjs`'s "every route needs a bearer" comment and its test name
      the one exception.

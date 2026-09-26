@@ -8,7 +8,7 @@ Every governed action (a proposal, a verdict, an ISO 19650 state change, a Revit
 
 - **`BEFORE UPDATE OR DELETE` trigger** — any attempt to change or remove a ledger row is rejected. The record is append-only by construction.
 - **`BEFORE TRUNCATE` trigger** — the table can't be emptied.
-- **Hash chaining** — each row references the prior row's hash, so a silently altered or excised row breaks the chain and is detectable.
+- **Hash chaining** — each row's hash covers the prior row's hash, so a silently altered or excised row breaks the chain. It is **one chain for the whole table, not one per project** — the prior row may be another project's (migration `0006`) — and nothing in Sentinel recomputes it at runtime: finding a break takes a recompute in SQL, and a receipt check compares the stored hash (`docs/verdict-contract.md` §5).
 - **Least privilege + ownership** — write grants are revoked from the normal roles, and the table is owned by `postgres`, so **even the service key cannot drop the triggers** to get around it.
 
 Status: ✅ **Verified** — the ledger's immutability holds even against the service_role key and the table owner (migration `0015`).
