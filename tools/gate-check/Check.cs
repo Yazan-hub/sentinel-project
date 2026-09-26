@@ -166,7 +166,6 @@ static class Check
         var contract = DeliveryContract.FromBody(Good, out _)!;
         var src = Installed(Good);
 
-        RoiTracker.Logged.Clear();
         var pass = IfcDeliveryGate.Validate(WriteTmp("pass.ifc", Ifc(true)), contract, src);
         Ok(pass.Outcome == GateOutcome.Pass && pass.Passed && pass.Failures.Count == 0 && pass.TotalEntities == 7, "a file that meets contract@1 passes");
         Ok(pass is { ContractLabel: "contract@1 · office · 0123456789ab…", ContractRef: "contract@1", ContractSource: "office", ContractSha256: Sha, NotCheckedReason: null },
@@ -178,7 +177,6 @@ static class Check
            && pc.GetProperty("contract_key").GetString() == "gate-check" && pc.GetProperty("entities").GetInt32() == 7
            && pc.GetProperty("sha256").GetString() == pass.FileSha256,
            "the PASS certificate carries contract_ref, contract_source, contract_sha256 and contract_label");
-        Ok(RoiTracker.Logged.SequenceEqual(new[] { "cde IFC gate PASS: pass.ifc" }), "a judged gate is logged as an intervention");
 
         Ok(pass.Warnings.Count == 0, "an IFCMAPCONVERSION georeferences the file although IFCSITE has no lat/long (the Node gate's rule)");
         var noGeo = IfcDeliveryGate.Validate(WriteTmp("nogeo.ifc", Ifc(false)), contract, src);
@@ -191,7 +189,6 @@ static class Check
            "a schema mismatch fails");
         Ok(Cert(fail).GetProperty("certificate").GetString() == "FAIL", "the FAIL certificate says FAIL");
 
-        RoiTracker.Logged.Clear();
         var none = ArtefactClient.None("contract", "not installed for p-none or its office");
         var path = WriteTmp("none.ifc", Ifc(true));
         var bytes = File.ReadAllBytes(path);
@@ -210,7 +207,6 @@ static class Check
            && ncc.GetProperty("contract_sha256").ValueKind == JsonValueKind.Null && ncc.GetProperty("contract_key").ValueKind == JsonValueKind.Null
            && ncc.GetProperty("entities").ValueKind == JsonValueKind.Null && ncc.GetProperty("sha256").GetString() == nc.FileSha256,
            "the NOT_CHECKED certificate names the none, no contract and no entity count, and still the file's sha");
-        Ok(RoiTracker.Logged.Count == 0, "a gate that judged nothing is not logged as time saved");
 
         var unusable = DeliveryContract.FromResolved(Installed("{}"));
         var nu = IfcDeliveryGate.Validate(WriteTmp("unusable.ifc", Ifc(true)), unusable.Contract, unusable.Source);

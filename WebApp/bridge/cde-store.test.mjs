@@ -67,9 +67,9 @@ describe("mergeMeta", () => {
     expect(out.active_ruleset).toBeUndefined();
   });
 
-  it("still merges the pre-existing keys unchanged", () => {
+  it("no longer writes stage — the ledger's newest gate:pass row is the stage (phase 5c); the other keys merge as before", () => {
     const out = mergeMetaForTest(base, { stage: "coord", standards_pack: "bds-house@1.4.1" });
-    expect(out.stage).toBe("coord");
+    expect(out.stage).toBe("design");            // whatever the column already held: untouched, read by nothing
     expect(out.standards_pack).toBe("bds-house@1.4.1");
   });
 

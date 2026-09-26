@@ -160,7 +160,6 @@ public static class NamingManagerService
             return results.Select(r => r.Item2 ? (r.Item1, false, "transaction did not commit — nothing was renamed") : r).ToList();
 
         var done = results.Where(r => r.Item2 && r.Item3 == "renamed").ToList();
-        foreach (var (row, _, _) in done) RoiTracker.Log("naming", $"{row.RuleId}: '{row.Current}' -> '{renamedMap[row]}'");
         if (done.Count > 0)
         {
             // Built here, on the API thread; posted off it (≤ 6 s), so the rename never waits on the bridge.

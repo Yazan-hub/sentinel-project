@@ -194,9 +194,6 @@ public static class IfcDeliveryGate
             issued_at = r.At,
             issued_by = "Sentinel IFC Delivery Gate",
         }, new JsonSerializerOptions { WriteIndented = true }));
-
-        // ROI counts interventions; a gate that judged nothing saved nobody any time.
-        if (judged) RoiTracker.Log("cde", "IFC gate " + (r.Passed ? "PASS" : "FAIL") + ": " + Path.GetFileName(r.IfcPath));
         return r;
     }
 

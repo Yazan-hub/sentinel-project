@@ -475,3 +475,49 @@ describe("validateArtefact — publish", () => {
     expect(d.audits).toHaveLength(0);
   });
 });
+
+// The office's rate card (cohesion phase 5c, spec Decision 9): the Revit ROI dashboard multiplies the minutes each counted
+// kind saves by the ledger's counts. Without roi@n it shows counts and no money, so a key no reader shows is refused.
+describe("validateArtefact — roi", () => {
+  const roi = { currency: "EUR", hourly_rate: 90, minutes: { delivery_gate: 20, naming: 2, family_heal: 15 }, basis: "office estimate, September 2026" };
+  it("accepts the full body, and a one-kind minutes map with no basis", () => {
+    expect(KINDS).toContain("roi");
+    expect(validateArtefact("roi", roi)).toBe(true);
+    expect(validateArtefact("roi", { currency: "GBP", hourly_rate: 0.5, minutes: { naming: 0 }, basis: null })).toBe(true);
+  });
+  it.each([
+    [{ ...roi, currency: "eur" }, "roi: currency must be three capital letters, e.g. EUR"],
+    [{ ...roi, currency: "EURO" }, "roi: currency must be three capital letters, e.g. EUR"],
+    [{ ...roi, currency: undefined }, "roi: currency must be three capital letters, e.g. EUR"],
+    [{ ...roi, hourly_rate: 0 }, "roi: hourly_rate must be a number greater than 0"],
+    [{ ...roi, hourly_rate: "90" }, "roi: hourly_rate must be a number greater than 0"],
+    [{ ...roi, hourly_rate: -1 }, "roi: hourly_rate must be a number greater than 0"],
+    [{ ...roi, minutes: undefined }, "roi: minutes must be an object {delivery_gate?, naming?, family_heal?}"],
+    [{ ...roi, minutes: [20] }, "roi: minutes must be an object {delivery_gate?, naming?, family_heal?}"],
+    [{ ...roi, minutes: {} }, "roi: minutes needs at least one of delivery_gate, naming, family_heal"],
+    [{ ...roi, minutes: { naming: -1 } }, "roi: minutes.naming must be a number ≥ 0"],
+    [{ ...roi, minutes: { delivery_gate: "20" } }, "roi: minutes.delivery_gate must be a number ≥ 0"],
+    [{ ...roi, minutes: { naming: 2, auto_fix: 5 } }, "roi: minutes.auto_fix is not a counted kind — the ledger counts delivery_gate, naming and family_heal only"],
+    [{ ...roi, basis: 7 }, "roi: basis must be a string of at most 500 characters"],
+    [{ ...roi, basis: "x".repeat(501) }, "roi: basis must be a string of at most 500 characters"],
+    [{ ...roi, rate: 90 }, "roi: rate is not a roi field — the body is {currency, hourly_rate, minutes, basis?}"],
+  ])("%j is a 400: %s", (body, message) => {
+    expect(fails("roi", body)).toMatchObject({ status: 400, message });
+  });
+  it("installs roi@1 lead-only and audited; the office's card reaches a project with none; refLabel names it as every kind", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    expect((await artefactReply("aster-tower", "roi", undefined, d)).body.reason).toBe("not_installed");
+    await putArtefact("aster-office", "roi", roi, { actor: "lead@example.test" }, d);
+    const r = await resolveArtefact("aster-tower", "roi", d);
+    expect(r).toMatchObject({ source: "office", ref: "roi@1", body: roi, pointer_sha_mismatch: false });
+    expect(refLabel(r)).toBe(`roi@1 · office · ${r.sha256.slice(0, 12)}…`);
+    expect(d.audits.map((a) => a.action)).toEqual(["artefact_installed roi@1"]);
+    await expect(putArtefact("aster-tower", "roi", roi, { actor: "x" }, memDeps({ role: "contributor" }))).rejects.toMatchObject({ status: 403 });
+  });
+  it("refuses a rate card its reader could not use at install, before anything is written", async () => {
+    const d = memDeps();
+    await expect(putArtefact("p", "roi", { ...roi, minutes: {} }, { actor: "x" }, d)).rejects.toMatchObject({ status: 400, message: "roi: minutes needs at least one of delivery_gate, naming, family_heal" });
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
+  });
+});

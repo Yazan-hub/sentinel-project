@@ -231,9 +231,6 @@ public static class MepVoidManager
             t.Commit();
 
             report.NewCandidates.AddRange(unmatchedFresh);
-            if (report.Updated + report.Orphaned > 0)
-                RoiTracker.Log("mepvoid", report.Updated + " void(s) relocated, " +
-                                          report.Orphaned + " orphaned (IFC iteration)");
             onDone(report);
         });
     }
@@ -278,9 +275,6 @@ public static class MepVoidManager
                 catch (Autodesk.Revit.Exceptions.ApplicationException) { }
             }
             t.Commit();
-
-            if (placed > 0)
-                RoiTracker.Log("mepvoid", placed + " tracked provision-for-void instance(s) placed");
             onDone(placed, candidates.Count - placed);
         });
     }

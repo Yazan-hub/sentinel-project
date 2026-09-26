@@ -111,19 +111,23 @@ export async function ensureProject(key) {
 // ── Sentinel project metadata (migration 0007) — the governed-project store, unified into the Supabase
 // `projects` row's `metadata` jsonb (was the per-machine bridge/project-store.json). The bridge maps this to
 // the same JSON shape the web app already expects, so consolidating is transparent to callers.
-const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
+export const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
+// stage and gates are not metadata since cohesion phase 5c (spec 2026-09-26 Decision 10): the ledger's stage_gate rows
+// are the project's stage (projectStage) and its gate history (projectGates). A stage or gates key still in an old row
+// is overridden by toProjectShape and read by nothing.
 const defaultMeta = () => ({
-  stage: "design", standards_pack: "",
+  standards_pack: "",
   dimensions: { "2d": true, "3d": true, "4d": false, "5d": true, "6d": false, "7d": false },
-  gates: {}, snapshot: {}, updated_at: new Date().toISOString(),
+  snapshot: {}, updated_at: new Date().toISOString(),
 });
 /** Merge a patch into project metadata with the same field semantics as the old local store (deep-merge
- *  dimensions/snapshot, replace the rest). `name` is handled separately (a real column). */
+ *  dimensions/snapshot, replace the rest). `name` is handled separately (a real column); `stage` is not a field
+ *  here since phase 5c — the ledger decides it (runStageGate). */
 function mergeMeta(meta, patch) {
   const out = { ...meta };
   // active_ruleset is retired (cohesion phase 3): the scan ruleset and the naming pack are artefacts
   // (PUT /cde/:key/artefacts/:kind). A value already in the column is left in place and read by nothing.
-  for (const k of ["stage", "standards_pack", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
+  for (const k of ["standards_pack", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
   if (patch.dimensions) out.dimensions = { ...(meta.dimensions || {}), ...patch.dimensions };
   if (patch.snapshot) out.snapshot = { ...(meta.snapshot || {}), ...patch.snapshot };
   out.updated_at = new Date().toISOString();
@@ -131,27 +135,55 @@ function mergeMeta(meta, patch) {
 }
 /** Test seam: mergeMeta is module-private by design; this exposes it for unit tests only. */
 export const mergeMetaForTest = mergeMeta;
-// Always present the core governance fields (stage/dimensions/gates/snapshot) even if a migrated row's
-// metadata was partial — so consumers never see a null where the local store used to default them.
-const toProjectShape = (row) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}) });
+// Always present the core governance fields (dimensions/snapshot) even if a migrated row's metadata was partial — so
+// consumers never see a null where the local store used to default them. stage and gates come LAST, from the ledger's
+// stage_gate rows (gateRows), so a stale metadata.stage can never outrank a gate:pass row.
+const toProjectShape = (row, gates = []) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}), stage: stageOf(gates), gates: gatesOf(gates) });
+
+/** A project's stage_gate rows, newest first: what runStageGate wrote (audit_log, entity_type stage_gate). */
+async function gateRows(projectId) {
+  // ponytail: the newest 1000 rows; a project runs its gate a handful of times, never that many.
+  const rows = await sb(`audit_log?project_id=eq.${projectId}&entity_type=eq.stage_gate&select=id,at,hash,action,new_value&order=id.desc&limit=1000`);
+  return Array.isArray(rows) ? rows : [];
+}
+/** The stage: the newest gate:pass row's next_stage, else the first stage. A hold or a not_checkable run advances nothing. */
+const stageOf = (rows) => {
+  const s = rows.find((r) => String(r.action || "").startsWith("gate:pass "))?.new_value?.next_stage;
+  return STAGES.includes(s) ? s : STAGES[0];
+};
+/** The newest run per stage, each with the ledger row that holds it: {status, checks, at, ledger: {id, hash}}. */
+const gatesOf = (rows) => {
+  const out = {};
+  for (const r of rows) {
+    const v = r.new_value || {};
+    if (!STAGES.includes(v.stage) || out[v.stage]) continue;
+    out[v.stage] = { status: v.status, checks: Array.isArray(v.checks) ? v.checks : [], at: r.at, ledger: { id: r.id ?? null, hash: r.hash ?? null } };
+  }
+  return out;
+};
 
 /** Read one project in the web app's shape. `seed` (optional) backfills metadata on first access (one-time
- *  migration from the local store); if the row already has metadata, `seed` is ignored. */
+ *  migration from the local store; its stage and gates are dropped — the ledger holds those); if the row already
+ *  has metadata, `seed` is ignored. */
 export async function getProjectMeta(key, seed) {
   const proj = await ensureProject(key);
-  if (proj.metadata && Object.keys(proj.metadata).length > 0) return toProjectShape(proj);
-  const metadata = { ...defaultMeta(), ...(seed && Object.keys(seed).length ? seed : {}) }; // complete metadata on seed
+  const gates = await gateRows(proj.id);
+  if (proj.metadata && Object.keys(proj.metadata).length > 0) return toProjectShape(proj, gates);
+  const { stage: _stage, gates: _gates, ...seeded } = seed || {};
+  const metadata = { ...defaultMeta(), ...(Object.keys(seeded).length ? seeded : {}) }; // complete metadata on seed
   const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))[0];
-  return toProjectShape(row);
+  return toProjectShape(row, gates);
 }
 
 /** List every project in the web app's shape (project switcher / hub). Core fields defaulted via toProjectShape. */
 export async function listProjectMeta() {
-  const rows = await sb(`projects?select=key,name,metadata&order=created_at.desc`);
-  return (rows || []).map(toProjectShape);
+  const rows = await sb(`projects?select=id,key,name,metadata&order=created_at.desc`);
+  // ponytail: one ledger read per project on the hub list; one grouped read if a hub outgrows a few dozen projects.
+  return Promise.all((rows || []).map(async (r) => toProjectShape(r, await gateRows(r.id))));
 }
 
-/** Patch a project's metadata (stage/dims/snapshot/rate_pack/boq_baseline/carbon_baseline/name). */
+/** Patch a project's metadata (dims/snapshot/rate_pack/boq_baseline/carbon_baseline/name). A `stage` in the patch is
+ *  ignored: the stage is the ledger's (POST /cde/:key/gate). */
 export async function patchProjectMeta(key, patch = {}) {
   // Refuse rather than silently drop: a stale client that still "installs" a pack this way must see it failed.
   if (patch.active_ruleset !== undefined) throw Object.assign(new Error("active_ruleset is retired — install the scan ruleset with PUT /cde/:key/artefacts/ruleset and the naming pack with PUT /cde/:key/artefacts/naming"), { status: 400 });
@@ -160,18 +192,32 @@ export async function patchProjectMeta(key, patch = {}) {
   const body = { metadata };
   if (patch.name !== undefined) body.name = patch.name;
   const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" }))[0];
-  return toProjectShape(row);
+  return toProjectShape(row, await gateRows(proj.id));
 }
 
-/** Record a stage gate result; on pass+advance_to, move the project's stage. */
-export async function recordGate(key, stage, b = {}) {
+/** The project's stage: the newest gate:pass row's next_stage on its ledger, else tender. */
+export async function projectStage(key) { return stageOf(await gateRows((await ensureProject(key)).id)); }
+/** The newest gate run per stage, {stage: {status, checks, at, ledger: {id, hash}}}, from the ledger. */
+export async function projectGates(key) { return gatesOf(await gateRows((await ensureProject(key)).id)); }
+
+/** POST /cde/:key/gate (cohesion phase 5c, spec Decision 10): a lead runs the CURRENT stage's gate; the bridge measures
+ *  the inputs itself (stage-gate.mjs) and writes the run as one stage_gate row — gate:pass | gate:hold |
+ *  gate:not_checkable <stage>, new_value {stage, status, checks, next_stage} — through the internal writer the open audit
+ *  route refuses. A run that could not be checked is still a fact and advances nothing (the spec names pass and hold;
+ *  this row is the third). The reply is the measurement plus the row's id and hash: a line may say "ledger #id ·
+ *  receipt …" only from those. */
+export async function runStageGate(key, stage, actor) {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "lead");
   const proj = await ensureProject(key);
-  const meta = (proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta();
-  const gates = { ...(meta.gates || {}), [stage]: { status: b.status || "hold", checks: b.checks || [], at: new Date().toISOString() } };
-  const next = { ...meta, gates, updated_at: new Date().toISOString() };
-  if (b.status === "pass" && b.advance_to && STAGES.includes(b.advance_to)) next.stage = b.advance_to;
-  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata: next }, prefer: "return=representation" }))[0];
-  return toProjectShape(row);
+  const current = stageOf(await gateRows(proj.id));
+  if (stage !== current) throw Object.assign(new Error(`the gate to run is the current stage's: ${current}`), { status: 409 });
+  if (stage === STAGES[STAGES.length - 1]) throw Object.assign(new Error(`${stage} is the final stage — there is no gate to run`), { status: 409 });
+  const { measureGate, readGateInputs } = await import("./stage-gate.mjs");
+  const result = measureGate(stage, await readGateInputs(key));
+  const row = await audit(proj.id, "stage_gate", proj.id, `gate:${result.status} ${stage}`, actor || "web", null,
+    { stage, status: result.status, checks: result.checks, next_stage: result.next_stage });
+  return { ...result, ledger: { id: row?.id ?? null, hash: row?.hash ?? null } };
 }
 
 // ── Projects hub (the "which project?" layer above the per-project CDE board) ──────────────────────────
@@ -254,7 +300,7 @@ export async function createProject(b = {}) {
 }
 
 // Forma-style project settings live under metadata.settings so they never collide with the governance
-// fields (stage/gates/dimensions/snapshot) that share the same jsonb column.
+// fields (dimensions/snapshot) that share the same jsonb column.
 const SETTINGS_FIELDS = [
   "address", "location", "owner", "project_number", "project_type",
   "start_date", "completion_date", "project_value", "archived",

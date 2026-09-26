@@ -26,6 +26,20 @@ describe("evaluateGate", () => {
     expect(r.status).toBe("hold");
     expect(r.pass).toBe(false);
   });
+  it("a null count is 'n/a' too — an unposted count is never 'no open issues'", () => {
+    const r = evaluateGate("constr", M({ openIssues: null, health: 95 }));
+    expect(r.checks.find((c) => c.label.includes("coordination issues"))?.na).toBe(true);
+    expect(r.status).toBe("not_checkable");
+    expect(r.pass).toBe(false);
+  });
+  it("null hard clashes, RFIs and block violations each make their gate not checkable, never a pass", () => {
+    expect(evaluateGate("coord", M({ hardClashes: null, health: 90, openRfis: 0 })).status).toBe("not_checkable");
+    expect(evaluateGate("coord", M({ hardClashes: 0, health: 90, openRfis: null })).status).toBe("not_checkable");
+    expect(evaluateGate("design", M({ health: 85, compliance: 75, blockViolations: null })).status).toBe("not_checkable");
+  });
+  it("a null count never hides a measured failure — hold wins", () => {
+    expect(evaluateGate("coord", M({ hardClashes: 3, health: 90, openRfis: null })).status).toBe("hold");
+  });
   it("every check measured and met → pass", () => {
     expect(evaluateGate("design", M({ health: 85, compliance: 75, blockViolations: 0 })).status).toBe("pass");
   });

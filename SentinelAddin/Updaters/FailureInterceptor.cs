@@ -62,7 +62,6 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
                     accessor.DeleteWarning(failure);           // benign: dismiss (duplicate mark)
                     Log("Suppressed: " + Trim(description));
                 }
-                Engine.RoiTracker.Log("doctor", Trim(description));
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
             {

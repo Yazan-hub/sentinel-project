@@ -39,13 +39,19 @@ public sealed class SanitizeFamilyCommand : IExternalCommand
     }
 }
 
-/// <summary>Executive ROI dashboard.</summary>
+/// <summary>The ROI dashboard on the ledger (cohesion phase 5c): the active document's key is read here, on the API
+/// thread; its ledger rows and its roi@n are read OFF it and waited for, as Governed Publish waits for its referee.
+/// An unbound document reads nothing and the window says so.</summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class RoiDashboardCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
-        var win = new Sentinel.UI.RoiDashboard();
+        var ctx = Sentinel.Engine.ProjectContext.For(c.Application.ActiveUIDocument?.Document);
+        var lines = ctx.IsBound
+            ? System.Threading.Tasks.Task.Run(() => Sentinel.UI.RoiDashboard.Read(ctx.Key)).GetAwaiter().GetResult()
+            : Sentinel.Engine.RoiLines.NotBound();
+        var win = new Sentinel.UI.RoiDashboard(lines);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         return Result.Succeeded;

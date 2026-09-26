@@ -73,7 +73,6 @@ public static class AutoFixExecution
                         Detail = ruleId + ": '" + oldName + "' -> '" + candidate + "'",
                     });
                 t.Commit();
-                Engine.RoiTracker.Log("autofix", ruleId + ": '" + oldName + "' -> '" + candidate + "'");
                 onDone?.Invoke(oldName, candidate);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)

@@ -1,6 +1,7 @@
 // sentinel-core/gates — PURE stage-gate definitions + evaluator (no OBC/DOM). Generalizes the
 // Phase-1 delivery gate: every lifecycle boundary has a declarative list of checks, each a boolean
-// over a computed metric. The project shell feeds live metrics; the engine says pass/hold and why.
+// over a computed metric. The bridge feeds measured metrics (POST /cde/:key/gate, bridge/stage-gate.mjs); the
+// browser previews with null where it has no scan. The engine says pass, hold or not checkable, and why.
 // "Standards-as-code at every boundary" — the same idea as the IFC delivery gate, everywhere.
 
 export type Metric =
@@ -14,14 +15,16 @@ export interface GateCheck {
   label: string;
 }
 
-/** Live values the shell computes; null = not measurable yet (→ the check is "n/a", non-blocking). */
+/** The gate's inputs; null = not measured (→ the check is "n/a": it never passes, and it makes the gate
+ *  not_checkable unless a measured check already holds it). The bridge measures them for the recorded gate
+ *  (bridge/stage-gate.mjs); the browser passes null wherever it has no scan or no answer from the service. */
 export interface GateMetrics {
   health: number | null;
   compliance: number | null;
-  blockViolations: number;
-  hardClashes: number;
-  openIssues: number;
-  openRfis: number;
+  blockViolations: number | null;
+  hardClashes: number | null;
+  openIssues: number | null;
+  openRfis: number | null;
   hasStandardsPack: boolean;
   cobieComplete: number | null; // 7D handover readiness % (from the project snapshot)
 }

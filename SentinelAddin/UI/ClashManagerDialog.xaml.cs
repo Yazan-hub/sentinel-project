@@ -44,7 +44,6 @@ public partial class ClashManagerDialog : Window
                 var uidoc = uiapp.ActiveUIDocument!;
                 uidoc.RequestViewChange(view);
                 uidoc.RefreshActiveView();   // force Project Browser redraw (fix #3)
-                RoiTracker.Log("mepvoid", "Clash view '" + view.Name + "' generated (" + selection.Count + " clashes)");
                 Autodesk.Revit.UI.TaskDialog.Show("Sentinel — Clash View",
                     "Created '" + view.Name + "'.\nCheck the Doctor log in the panel if it did not land under 05_COORDINATION & QA/QC.");
             }

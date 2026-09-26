@@ -37,8 +37,8 @@ const TOPICS: Topic[] = [
 issues, cost) + the current <b>stage gate</b>.</p>
 <p><b>How to use it.</b></p><ol>
 <li>Press ↻ to aggregate the latest KPIs from the model + service.</li>
-<li>Read the gate: green ✓ = met, amber ! = not yet.</li>
-<li>When all checks pass, press <b>Advance stage</b> — it moves the project forward only if the standard allows.</li></ol>
+<li>Read the gate: green ✓ = met, amber ! = not yet, grey – = not measured (each check names its source).</li>
+<li>Press <b>Run gate → advance</b> — the bridge measures the gate itself, records it on the ledger and moves the project forward only on a pass; a check nothing measured leaves it not checkable, never passed.</li></ol>
 <div class="tip">This is the payoff of the whole platform: standards-as-code gating the lifecycle.</div>` },
 
   { id: "copilot", stage: "Overview", title: "Copilot — grounded assistant", body: `

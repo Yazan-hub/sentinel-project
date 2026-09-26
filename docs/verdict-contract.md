@@ -91,6 +91,20 @@ bridge token and the AI tools cannot give one. The `state:shared->published` row
 every new version starts in `wip`, and `POST /cde/:project/audit` refuses `verdict:`, `state:`, `gate:` and `roi:`
 actions and `stage_gate` rows: Sentinel alone writes those.
 
+**The ledger also answers ROI and the stage.** `roi@n` is an artefact kind (`PUT /cde/:project/artefacts/roi`, lead
+and up, inherited from the office): `{ "currency": "EUR", "hourly_rate": 90, "minutes": { "delivery_gate": 20,
+"naming": 3, "family_heal": 15 }, "basis": "…" }` — three upper-case letters, a rate above 0, at least one of the three
+kinds, nothing else. The Revit ROI Dashboard counts a project's `delivery_gate` rows whose `new_value.passed` is true or
+false (null was not checked and is not counted), its `naming` rows' `rows.length` and its `family_heal` rows'
+`healed_total`, read through `GET /cde/:project/audit?entity_type=…&limit=1000&offset=…` (exact `total`), and prices them
+only with `roi@n` installed, named `roi@n · source · sha`. `POST /cde/:project/gate { "stage": "tender" }` (lead and
+up) measures the stage gate's inputs on the bridge — the ruleset artefact, and the open BCF topics, open RFIs and hard
+clashes whose stores are scoped by project; health, compliance, block violations and COBie have no server source and
+stay "not measured" — writes one `stage_gate` row (`gate:pass <stage>`, `gate:hold <stage>` or
+`gate:not_checkable <stage>`, `new_value.checks` naming each check's source) and answers it with the row's `id` and
+`hash`; the project's stage is the newest `gate:pass` row's `next_stage`. A gate with an unmeasured check is not
+checkable, never passed, and no client can post a status.
+
 ## 3. Provenance is claimed, never verified
 
 The `agent` block is stored under `claimed: true` because Sentinel **cannot** verify that the caller

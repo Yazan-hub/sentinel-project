@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { refLabel, validateArtefact } from "./artefact-store.mjs";
@@ -8,6 +8,11 @@ import {
   classifyGate, classifyPack, classifyStandard, classifyVerdicts, classifyDeliverables,
 } from "./check-registry.mjs";
 import { validateContainerName } from "./sentinel-core.mjs";
+
+// gate.stage's two reads (phase 5c): the ledger's stage and the bridge's measured inputs. Set per test; no Supabase.
+const gateState = vi.hoisted(() => ({ stage: "tender", inputs: { hasStandardsPack: true, openIssues: 0, openRfis: 0, hardClashes: 0 } }));
+vi.mock("./cde-store.mjs", async (orig) => ({ ...(await orig()), projectStage: vi.fn(async () => gateState.stage) }));
+vi.mock("./stage-gate.mjs", async (orig) => ({ ...(await orig()), readGateInputs: vi.fn(async () => gateState.inputs) }));
 
 const RULESET = {
   title: "Test ruleset", separator: "-", enforce: "reject",
@@ -196,10 +201,11 @@ describe("classifyGate", () => {
     expect(r.evidence[0].label).toBe("Health");
   });
 
-  it("is not_checkable when every gate metric is unavailable", () => {
-    const r = classifyGate("design", { checks: [{ label: "Health", ok: false, na: true, detail: "no data" }], pass: true });
+  it("is not_checkable when every gate metric is unavailable, naming the metrics and each one's missing source", () => {
+    const r = classifyGate("design", { checks: [{ label: "Health", ok: false, na: true, detail: "no data", source: "not measured — no server source: the browser scan is not persisted" }], pass: true });
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toMatch(/no data|not available/i);
+    expect(r.reason).toBe("1 of 1 gate metrics have no server source (Health) — the gate cannot be confirmed.");
+    expect(r.evidence).toEqual([{ label: "Health", detail: "not measured — no server source: the browser scan is not persisted" }]);
   });
 
   it("is not_checkable for a terminal stage with no gate", () => {
@@ -217,10 +223,8 @@ describe("classifyGate", () => {
     });
     expect(r.status).toBe("not_checkable");
     expect(r.count).toBe(2);
-    expect(r.reason).toContain("2 of 3");
-    expect(r.reason).toContain("Model health ≥ 80%");
-    expect(r.reason).toContain("Standards compliance ≥ 70%");
-    expect(r.evidence.map((e) => e.label)).toEqual(["Model health ≥ 80%", "Standards compliance ≥ 70%"]);
+    expect(r.reason).toBe("2 of 3 gate metrics have no server source (Model health ≥ 80%, Standards compliance ≥ 70%) — the gate cannot be confirmed.");
+    expect(r.evidence).toEqual([{ label: "Model health ≥ 80%", detail: "no data" }, { label: "Standards compliance ≥ 70%", detail: "no data" }]);
   });
 
   it("reports met only when every check was actually measured and passed", () => {
@@ -242,6 +246,23 @@ describe("classifyGate", () => {
     expect(r.status).toBe("violations");
     expect(r.count).toBe(1);
     expect(r.evidence[0].label).toBe("Health");
+  });
+});
+
+describe("gate.stage — the bridge's own measurement on the ledger's stage (phase 5c), never a snapshot, never a ?? 0", () => {
+  it("tender with a ruleset artefact is met; design is not checkable, naming the three metrics with no server source", async () => {
+    gateState.stage = "tender";
+    expect(await getCheck("gate.stage").run("aster-tower")).toMatchObject({ status: "met", summary: "The “tender” stage gate passes." });
+    gateState.stage = "design";
+    const r = await getCheck("gate.stage").run("aster-tower");
+    expect(r.status).toBe("not_checkable");
+    expect(r.reason).toBe("3 of 3 gate metrics have no server source (Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70%) — the gate cannot be confirmed.");
+    expect(r.evidence.map((e) => e.detail)).toEqual(Array(3).fill("not measured — no server source: the browser scan is not persisted"));
+  });
+  it("a counted failure is a violation naming the check; an unmeasured sibling stays a caveat", async () => {
+    gateState.stage = "coord";
+    gateState.inputs = { ...gateState.inputs, hardClashes: 2 };
+    expect(await getCheck("gate.stage").run("aster-tower")).toMatchObject({ status: "violations", count: 1, evidence: [{ label: "No open hard clashes", detail: "2" }] });
   });
 });
 
