@@ -100,7 +100,7 @@ Everything here runs *inside Revit*, on the model open in front of you. The ribb
 | **Datum from Drawings** | Datum-first modelling: read the **levels** from a section's levels layer and the **grids** from a plan's grid layer, then create them — real floor-to-floor heights and a real column grid, measured off the drawings. Reads DWGs straight from the project folder. | The first modelling step on a new project. | Modeller |
 | **Ghost Builder** | Build LOD 200 geometry from a 2D DWG plan: the project's layer standard (`layers@n`) maps CAD layers to families and a **local** LLM proposes the rest (never pre-ticked), walls are paired to centrelines + thickness, and the project's **Office Modelling Guideline** (`guideline@n`) picks the exact type (a type the document lacks is created from a sibling the installed type catalogue names, or reported as a gap). Governed + audited. | When you have a DWG plan to model from. | Modeller |
 | **Photo Massing** | Estimate a building envelope from photos/renders/elevations with a **local** vision model, **review and correct the numbers**, then build it through the *same* governed placement. The governed answer to "photo → model." | Early massing when there's no DWG. | Modeller |
-| **ROI Dashboard** | Man-hours and money saved by Sentinel's automated interventions. | For a value/status conversation. | Manager |
+| **ROI Dashboard** | What Sentinel did on the document's web project, counted from that project's ledger: delivery gate runs, Naming Manager renames and family heals (the rows those tools write), read through the audit route — never a machine file. Money only when a lead installed `roi@n` (`{currency, hourly_rate, minutes}`, on the project or its office), named `roi@n · source · sha`; without it counts and no money. Every other tool is listed as not counted: it writes no ledger row. | For a value/status conversation. | Manager |
 
 **Behind the ribbon (automatic):** on document open Sentinel runs a baseline scan; on **sync** it re-scans and checks the central file name against the ISO 19650 / BDS convention; on **save** and **sync** it auto-publishes through Governed Publish only when the lead's `publish@n` says `auto: true` (linked models are not published). A global **failure interceptor** ("Revit Doctor") catches native warnings.
 
@@ -112,7 +112,7 @@ The web app is a browser BIM environment (viewer + CDE) built on That Open Compo
 
 | Section | What's in it | Primarily for |
 |---|---|---|
-| **Projects** | The projects hub — pick/switch/manage projects. The landing tab. | Everyone |
+| **Projects** | The projects hub — pick/switch/manage projects. The landing tab. Opening a project enters its space: **Dashboard** (the stage rail, live KPIs and the stage gate — **Run gate → advance** asks the bridge to measure the current stage's gate and record it on the ledger; the stage is the newest `gate:pass` row, and a check with no server source leaves the gate not checkable, never passed), Project Files, Settings. | Everyone |
 | **Guide** | In-app guidance / help panel. | New users |
 | **Copilot** | The AI assistant (see §5). | Everyone |
 | **BIM Tools** | The viewer toolkit: **Model** loader, **Properties**, **Project Browser** (element tree), **Visibility** (isolate/hide), **Plans** (2D), **Sheets** (the rendered Revit sheets), **Views** (saved camera views), **Clash** panel. Plus viewer tools: measure, section/clip, exploded view, camera views. | Reviewer, Modeller |
@@ -153,7 +153,7 @@ The bridge is the only thing that talks to the outside world. Its endpoints:
 |---|---|
 | `/events` (SSE) | The live issue/coordination stream. |
 | `/ai/*` (`providers`, `models`, `tools`, `run-tool`, `chat`) | The Copilot — provider list, model list, tool registry, tool execution, chat. |
-| `/cde/*` | The CDE: projects, containers, folders, files, versions, transitions, snapshots, audit, transmittals, element-graph, propose. The ISO 19650 heart. |
+| `/cde/*` | The CDE: projects, containers, folders, files, versions, transitions, snapshots, audit, transmittals, element-graph, propose, artefacts (the standards in force, `roi` among them), gate (the stage gate, measured on the bridge and recorded). The ISO 19650 heart. |
 | `/projects/:pid/topics/*` | BCF issues (topics, comments, viewpoints). |
 | `/clash/*` | The team-wide clash register. |
 | `/sheets`, `/sheets/img/*` | The rendered Revit sheet images. |
@@ -169,7 +169,7 @@ Pure, dependency-free TypeScript (no DOM, no Revit), each with tests, and each m
 | Module | Judgement it owns |
 |---|---|
 | `rule-engine`, `scanner`, `scorecard` | Compliance scanning + scoring. |
-| `ids`, `ids-parse`, `gates` | IDS parsing + the delivery-gate adjudication. |
+| `ids`, `ids-parse`, `gates` | IDS parsing + the delivery-gate adjudication; `gates` holds the stage-gate definitions and evaluator the bridge runs for `POST /cde/:key/gate` (a null input is "not measured" — never a pass). |
 | `clash` | Clash detection geometry. |
 | `guideline`, `layers` | The Office Modelling Guideline (layer → type) + DWG layer standard. |
 | `naming` | Naming-convention validation. |
@@ -206,7 +206,7 @@ Everything generative (Ghost Builder, Photo Massing, the Copilot agent) feeds *i
 | Role | Lives mostly in | Their key tools |
 |---|---|---|
 | **Modeller** (Revit author) | Revit add-in | Datum from Drawings, Ghost Builder, Photo Massing, Scan Now, Pre-Flight, Governed Publish; web: BIM Tools, Issues |
-| **BIM Coordinator / Manager** | Both | Governed Publish, Clash Manager, Scorecard, Change Requests, Rule Set; web: Coordination, CDE, Assets, QA |
+| **BIM Coordinator / Manager** | Both | Governed Publish, Clash Manager, Scorecard, Change Requests, Rule Set, ROI Dashboard; web: Coordination, CDE, Assets, QA, Dashboard (Run gate) |
 | **Reviewer / stakeholder** (no Revit) | Web app | Viewer, Properties, Issues, RFI, Sheets, Reality Capture |
 | **Client / Owner** | Web app | Owner dashboard, Assets (versions), Scorecard, Timeline |
 | **QS / Commercial** | Web app | Tender, Cost (5D), Data table, Quantities |

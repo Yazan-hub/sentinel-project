@@ -69,7 +69,7 @@ manager finds the same problems every time."
 | 4.1 | An agent proposes a changeset over MCP (rename 3 types) | MCP / web | Copilot, MCP server | changeset row with agent provenance "claimed" |
 | 4.2 | Review AI Proposals in Revit: apply one, withdraw one | Revit | Review AI Proposals | audit thread with both outcomes |
 | 4.3 | Verify a receipt from a signed-out browser | web | receipt route | `ledger_hash` verifies |
-| 4.4 | Ingest Docs (docx pack) and ROI Dashboard | Revit | Ingest Docs, ROI Dashboard | ingestion report; ROI figures cite their sources |
+| 4.4 | Ingest Docs (docx pack) and ROI Dashboard | Revit | Ingest Docs, ROI Dashboard | ingestion report; ROI counts name the ledger rows read, money only with `roi@n` named |
 
 ## Act 5 — Handover and the matrix
 | # | Step | Evidence |
