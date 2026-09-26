@@ -193,6 +193,14 @@ static class Check
         LedgerResult.Post(url2, "", "demo", "/audit", payload, TimeSpan.FromSeconds(5));
         Ok(seen2.GetAwaiter().GetResult().Auth == "", "no token → no Authorization header");
 
+        // A payload that already has its wire shape (the scan report: snake_case, an explicit null) goes as a JsonElement.
+        const string Wire = "{\"doc_title\":\"Tower A\",\"ruleset_ref\":null,\"violations\":[{\"rule_id\":\"N-01\",\"element_id\":7}]}";
+        var (seen5, url5) = Bridge(201, "{\"ok\":true,\"received_at\":\"2026-09-25T10:00:00Z\",\"violations\":1}");
+        using (var wire = System.Text.Json.JsonDocument.Parse(Wire))
+            Is(LedgerLine.For(LedgerResult.Post(url5, "", "demo", "/office/scan", wire.RootElement, TimeSpan.FromSeconds(5))),
+               "not confirmed — the bridge returned no chain hash", "a 201 from /office/scan → not confirmed, no chain hash");
+        Is(seen5.GetAwaiter().GetResult().Body, Wire, "a JsonElement payload is sent exactly as it is");
+
         var (seen3, url3) = Bridge(500, "{\"message\":\"Internal error — see the bridge log.\"}");
         var r500 = LedgerResult.Post(url3, "", "demo", "/audit", payload, TimeSpan.FromSeconds(5));
         seen3.GetAwaiter().GetResult();

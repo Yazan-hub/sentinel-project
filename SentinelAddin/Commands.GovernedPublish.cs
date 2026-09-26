@@ -14,7 +14,7 @@ namespace Sentinel.Commands;
 /// export the active view → IFC, run the <see cref="Sentinel.Engine.IfcDeliveryGate">IFC Delivery Gate</see>
 /// (the project's contract@n; none → NOT CHECKED and the IDS still judges), adjudicate the model against the
 /// project's IDS via the referee API
-/// (<c>POST /cde/:key/propose</c>), record the verdict to the immutable audit chain, and <b>publish + version
+/// (<c>POST /cde/:key/propose</c>), record the verdict on the ledger, and <b>publish + version
 /// ONLY on a passing verdict</b>. A fail is recorded (and each failing requirement auto-opens as a BCF issue
 /// that live-syncs to the web + back into Revit) but is not published.
 ///
@@ -68,13 +68,16 @@ public sealed class GovernedPublishCommand : IExternalCommand
             return Result.Failed;
         }
 
-        // 2) IFC Delivery Gate (the contract@n above) → certificate; record the verdict. A gate FAIL stops here. NOT
-        //    CHECKED (no contract installed) continues to the IDS, and every dialog below says the gate was not checked.
+        // 2) IFC Delivery Gate (the contract@n above) → certificate; record the verdict on the ledger and WAIT for the
+        //    answer (off this thread, ≤ 6 s) before /propose, so the gate row lands first; every dialog below prints its
+        //    line. A gate FAIL stops here. NOT CHECKED (no contract installed) continues to the IDS, and every dialog
+        //    below says the gate was not checked.
         var gate = Sentinel.Engine.IfcDeliveryGate.Validate(tempPath, contract, contractSource);
-        Sentinel.Coordination.GovernedNotify.DeliveryGate(ifcName, gate, projectKey);
+        var gateLedger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(ifcName, gate, projectKey)).GetAwaiter().GetResult();
+        var gateRow = "Gate row: " + Sentinel.Coordination.LedgerLine.For(gateLedger);
         if (gate.Outcome == Sentinel.Engine.GateOutcome.Fail)
         {
-            TaskDialog.Show("Sentinel — Governed Publish", Sentinel.Engine.GateLines.PublishRejected(gate));
+            TaskDialog.Show("Sentinel — Governed Publish", Sentinel.Engine.GateLines.PublishRejected(gate) + "\n\n" + gateRow);
             TryDelete(tempPath);
             return Result.Succeeded;
         }
@@ -96,13 +99,17 @@ public sealed class GovernedPublishCommand : IExternalCommand
             // Bridge/CDE unreachable. The gate did not fail (it passed, or was not checked; the line says which), so
             // let the modeller publish manually rather than lose work.
             TaskDialog.Show("Sentinel — Governed Publish",
-                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n\n" +
-                "The Sentinel bridge could not be reached to adjudicate + record the verdict.\n\n" +
+                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" + gateRow + "\n\n" +
+                "The Sentinel bridge did not return a verdict — nothing was published, and no verdict row is confirmed.\n\n" +
                 (verdict.Error is { Length: > 0 } ? "Reason: " + verdict.Error + "\n\n" : "") +
                 "Start the bridge (npm run bcf:serve) and retry, or publish manually:\n\n" +
                 $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{tempPath}\"");
             return Result.Succeeded;
         }
+
+        // The deciding proposal row: /propose hands back its audit_id and receipt.ledger_hash (ProposalResult).
+        var verdictRow = "Verdict row: " + Sentinel.Coordination.LedgerLine.For(
+            Sentinel.Coordination.LedgerResult.FromReceipt(verdict.AuditId, verdict.ReceiptHash));
 
         if (verdict.Verdict == "rejected")
         {
@@ -112,7 +119,9 @@ public sealed class GovernedPublishCommand : IExternalCommand
                 : $"✕ REJECTED — {verdict.Failing} of {verdict.InScope} in-scope element check(s) failed (not published)\n\n";
             TaskDialog.Show("Sentinel — Governed Publish",
                 head +
-                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n\n" +
+                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" +
+                gateRow + "\n" +
+                verdictRow + "\n\n" +
                 (nameFailed ? "NAMING:\n• " + string.Join("\n• ", verdict.NamingFailures) + "\n\n" : "") +
                 (verdict.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", verdict.Failures) + "\n\n" : "") +
                 (verdict.BcfRaised > 0
@@ -120,7 +129,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
                       "Issues panel and will live-sync into Revit. Fix them and run Governed Publish again."
                     : nameFailed
                         ? "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again."
-                        : "The rejection is recorded in the immutable audit trail. Fix the failures and retry."));
+                        : "Fix the failures and retry."));
             TryDelete(tempPath);
             return Result.Succeeded;
         }
@@ -138,15 +147,26 @@ public sealed class GovernedPublishCommand : IExternalCommand
         {
             TaskDialog.Show("Sentinel — Governed Publish",
                 "Verdict " + verdict.Verdict.ToUpperInvariant() + ", but copying the IFC into the upload outbox failed: " + ex.Message +
-                "\n\nThe verdict is recorded; upload the file manually if needed.");
+                "\n\n" + verdictRow + "\nUpload the file manually if needed.");
         }
 
+        // The version and its badge are claimed only when measured: RegisterVersionId handed back the new version's
+        // id, and the stamp call (a second adjudication that writes verdict:<v> onto that version) answered with the
+        // same verdict. Otherwise `badge` says why the badge is not confirmed.
         var versionId = Sentinel.Coordination.GovernedNotify.RegisterVersionId(doc.Title, bytes, "Revit", projectKey: projectKey);
-        if (versionId != null && judged)
-            Sentinel.Coordination.GovernedNotify.Propose(elements, versionId, actor: "Revit", containerName: ifcName, projectKey: projectKey); // stamp the badge
+        string? badge = null;
+        if (versionId is null) badge = "the version was not registered (the bridge returned no version id)";
+        else if (judged)
+        {
+            var stamp = Sentinel.Coordination.GovernedNotify.Propose(elements, versionId, actor: "Revit", containerName: ifcName, projectKey: projectKey);
+            badge = !stamp.Reached ? "the stamp call failed (" + stamp.Error + ")"
+                  : stamp.Verdict != verdict.Verdict ? "the stamp call judged it " + stamp.Verdict + ", not " + verdict.Verdict
+                  : null;
+        }
 
-        var live = Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
-        var revLine = live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";
+        var live = versionId is null ? null : Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
+        var revLine = versionId is null ? "copied to the upload outbox; the new version is not confirmed"
+                    : live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";
         // Every line names what judged, from the bridge's answer — never from a local file.
         var idsLine = judged
             ? $"IDS {verdict.IdsLabel}: {verdict.Passing}/{verdict.InScope} in-scope element checks passed" +
@@ -163,12 +183,15 @@ public sealed class GovernedPublishCommand : IExternalCommand
             namingLine + "\n" +
             Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" +
             (judged && gate.Outcome == Sentinel.Engine.GateOutcome.NotChecked ? Sentinel.Engine.GateLines.JudgedAlone(gate) + "\n" : "") +
-            "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n\n" +
+            "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n" +
+            gateRow + "\n" +
+            verdictRow + "\n\n" +
             (judged
-                ? "The Sentinel bridge uploads the geometry; the coordinator sees the new version with a ✓ verdict " +
-                  "badge and the hash-chained audit entry behind it."
-                : "The Sentinel bridge uploads the geometry. No verdict badge: nothing was judged — the audit entry " +
-                  "records the publish as \"recorded\". Install an IDS on the project or its office to judge the next one."));
+                ? "The Sentinel bridge uploads the geometry.\n" +
+                  (badge is null ? $"Version badge: ✓ {verdict.Verdict} stamped on this version." : "Version badge: not confirmed — " + badge + ".")
+                : "The Sentinel bridge uploads the geometry. No verdict badge: nothing was judged — the verdict is " +
+                  "\"recorded\"." + (badge is null ? "" : "\nVersion: not confirmed — " + badge + ".") +
+                  "\nInstall an IDS on the project or its office to judge the next one."));
         TryDelete(tempPath);
         return Result.Succeeded;
     }

@@ -265,27 +265,26 @@ namespace Sentinel.Coordination
         private static DateTime _lastScanPost = DateTime.MinValue;
         private static readonly TimeSpan ScanThrottle = TimeSpan.FromSeconds(60);
 
-        /// <summary>Post a scan report to <c>POST /cde/{key}/office/scan</c> (the Phase-3 seam). Fire-and-forget,
-        /// at most one per minute per process — sync storms must not become request storms. An empty key posts
-        /// nothing (App.OnSynchronized already skips unbound documents; this keeps the rule for any other caller).</summary>
-        public static void OfficeScan(Sentinel.Engine.ScanReport report, string projectKey)
+        /// <summary>Post a scan report to <c>POST /cde/{key}/office/scan</c> (the Phase-3 seam) and return what the
+        /// ledger answered. At most one per minute per process — sync storms must not become request storms; a
+        /// throttled report is not sent and says so. The route writes its ledger row through audit() (return=minimal),
+        /// so a 201 reads "not confirmed — the bridge returned no chain hash" until that follow-up lands. BLOCKING
+        /// (≤ 6 s): App.OnSynchronized runs it on a task and never waits. An empty key posts nothing. Never throws.</summary>
+        public static LedgerResult OfficeScan(Sentinel.Engine.ScanReport report, string projectKey)
         {
-            var key = KeyOf(projectKey);
-            if (key.Length == 0) return;
+            if (KeyOf(projectKey).Length == 0) return LedgerResult.NotBound();
             var now = DateTime.UtcNow;
-            if (now - _lastScanPost < ScanThrottle) return;
+            if (now - _lastScanPost < ScanThrottle)
+                return LedgerResult.NotRecorded("a scan report went less than a minute ago; this one was not sent (one a minute per process)");
             _lastScanPost = now;
             try
             {
-                var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/office/scan";
-                var content = new StringContent(ScanReportDto.From(report).ToJson(), Encoding.UTF8, "application/json");
-                var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
-                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
-                    msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
-                _ = Http.SendAsync(msg).ContinueWith(t => { _ = t.Exception; msg.Dispose(); }, TaskScheduler.Default);
+                // The report keeps its own wire shape (snake_case, an explicit null ruleset): Event's serializer writes a
+                // JsonElement exactly as it is.
+                using var wire = JsonDocument.Parse(ScanReportDto.From(report).ToJson());
+                return Event("/office/scan", wire.RootElement, projectKey);
             }
-            catch { /* never throw into Revit */ }
+            catch (Exception e) { return LedgerResult.NotRecorded("the scan report could not be written (" + e.Message + ")"); }
         }
 
         /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{key}{path}</c>; fire-and-forget, never throws.

@@ -213,12 +213,25 @@ public sealed class App : IExternalApplication
         }
         PanelVm!.PublishReport(report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
-        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled,
-        // fire-and-forget. An unbound document posts nothing (silently: a sync is not the place for a dialog).
-        if (ctx.IsBound) Sentinel.Coordination.GovernedNotify.OfficeScan(report, ctx.Key);
-        // After the scan report that completes the `model` step. That POST is fire-and-forget, so this GET can
-        // race it and still read the step as todo — ↻ on the strip settles it.
-        RefreshJourney(e.Document);
+        // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled;
+        // posted on a task and never waited for — a sync must not block. When the bridge has answered, its ledger line
+        // goes to the Doctor log and the journey is re-read, so the `model` step is never read before its report
+        // lands. Both on the pane's thread through BeginInvoke — never Invoke from the worker. The key and the ruleset
+        // source are read here, on the API thread. An unbound document posts nothing (silently: a sync is not the
+        // place for a dialog) and its strip says not bound.
+        if (ctx.IsBound)
+        {
+            var key = ctx.Key;
+            var local = Engine.SourceFor(e.Document);
+            var vm = PanelVm;
+            var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            Task.Run(() => Sentinel.Coordination.GovernedNotify.OfficeScan(report, key)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
+            {
+                vm.LogDoctor("Scan report: " + Sentinel.Coordination.LedgerLine.For(t.Result));
+                vm.RefreshJourney(key, local);
+            })), TaskScheduler.Default);
+        }
+        else RefreshJourney(e.Document);
     }
 
     /// <summary>Next strip: read the document's web key and where its ruleset came from on the Revit API thread,
@@ -285,12 +298,12 @@ public sealed class App : IExternalApplication
         Push(va, "Sentinel_MepVoids", "MEP\nOpenings", "Sentinel.Commands.MepVoidsCommand", "mep",
             "Find linked MEP vs structure intersections; place provision-for-void families.");
         Push(va, "Sentinel_NamingManager", "Naming\nManager", "Sentinel.Commands.NamingManagerCommand", "family",
-            "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Everything is audited.");
+            "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Each batch is one ledger row, and the window says whether it landed.");
 
         // ── Publish — governed delivery (flagship) + ungoverned options ──────────────────────
         var pu = app.CreateRibbonPanel(tab, "Publish");
         Push(pu, "Sentinel_GovernedPublish", "Governed\nPublish", "Sentinel.Commands.GovernedPublishCommand", "govern",
-            "One governed action: export the active view to IFC, run the delivery gate, adjudicate against the project IDS, record the verdict immutably, and publish + version ONLY if it passes. A fail is recorded and each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit).");
+            "One governed action: export the active view to IFC, run the delivery gate, adjudicate against the project IDS, record the verdict on the ledger, and publish + version ONLY if it passes. A fail is recorded and each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit).");
         var pub = Pull(pu, "Sentinel_Publish", "Publish", "publish",
             "Ungoverned publishing: quick publish, auto-publish on save, and sheet rendering. Prefer Governed Publish for delivery.");
         Sub(pub, "Sentinel_QuickPublish", "Quick Publish (ungoverned)", "Sentinel.Commands.PublishToPlatformCommand", "publish",

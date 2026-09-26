@@ -113,13 +113,12 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
     {
         // No contract → NOT CHECKED: the file's sha and schema are recorded, nothing is judged, never a PASS.
         var r = Sentinel.Engine.IfcDeliveryGate.Validate(ifcPath, contract, contractSource);
-        // Record the gate verdict and the contract that judged in the document's web project audit trail
-        // (fire-and-forget, never blocks; an unbound document records nothing and says so in the Doctor log).
-        Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey);
+        // Record the gate verdict and the contract that judged on the document's web project ledger and wait for the
+        // answer OFF this thread (≤ 6 s) — both callers are API contexts: the command body and the export's event job.
+        // The dialog ends with what the ledger answered: "Recorded: ledger #<id> · receipt <16 hex>…", not confirmed,
+        // not recorded, or — unbound — nothing sent.
+        var ledger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey)).GetAwaiter().GetResult();
         TaskDialog.Show("Sentinel — IFC Delivery Gate",
-            Sentinel.Engine.GateLines.GateDialog(r, projectKey) +
-            (projectKey.Length == 0 ? "\n\nNot recorded on the web: " + Sentinel.Engine.ProjectContext.NotBound
-                                    // The audit POST is fire-and-forget: say "sent", never "recorded" (B6: bridge stopped).
-                                    : "\n\nSent to the audit trail of project '" + projectKey + "' (not confirmed — the gate does not wait for the bridge)."));
+            Sentinel.Engine.GateLines.GateDialog(r, projectKey) + "\n\n" + Sentinel.Coordination.LedgerLine.Sentence(ledger));
     }
 }

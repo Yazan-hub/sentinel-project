@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.UI;
 using Sentinel.Workflow;
@@ -33,7 +35,7 @@ public sealed class NamingManagerCommand : IExternalCommand
         if (rs.Rules.Any(r => RuleRegex.NeedsOrg(r)) && string.IsNullOrWhiteSpace(rs.Org))
             TaskDialog.Show("Sentinel — Naming Manager", "The ruleset has no office code (\"org\") — every ORG-bearing rule will read 'needs a human' until it is set.");
 
-        var projectKey = ProjectContext.For(doc).Key; // empty when unbound: renames stay local, the audit row is not sent (Doctor log says so)
+        var projectKey = ProjectContext.For(doc).Key; // empty when unbound: renames stay local, the ledger row is not sent (the status says so)
         var rows = NamingManagerService.BuildRows(doc, rs);           // read-only, on this command's API thread
         var window = new NamingManagerWindow(rows);
         DialogOwner.Attach(window, c);
@@ -78,12 +80,16 @@ public sealed class NamingManagerCommand : IExternalCommand
                 {
                     var d = ua.ActiveUIDocument?.Document;
                     if (d == null || !d.Equals(doc)) { window.SetStatus("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
-                    var results = NamingManagerService.Apply(d, ticked, App.Engine!.RulesetFor(d), projectKey);
+                    var results = NamingManagerService.Apply(d, ticked, App.Engine!.RulesetFor(d), projectKey, out var ledger);
                     var ok = results.Count(r => r.Ok);
                     var failed = results.Where(r => !r.Ok).Select(r => $"{r.Row.Current}: {r.Message}").ToList();
                     window.SetRows(NamingManagerService.BuildRows(d, App.Engine.RulesetFor(d)));
-                    window.SetStatus($"Renamed {ok}/{results.Count}." + (failed.Count > 0 ? " Not renamed — " + string.Join(" · ", failed.Take(6)) + (failed.Count > 6 ? " · …" : "") : ""));
+                    var status = $"Renamed {ok}/{results.Count}." + (failed.Count > 0 ? " Not renamed — " + string.Join(" · ", failed.Take(6)) + (failed.Count > 6 ? " · …" : "") : "");
+                    window.SetStatus(ledger is null ? status : status + " Ledger: waiting for the bridge…");
                     window.SetBusy(false);
+                    // The batch's ledger row is on a task (≤ 6 s). Its line follows from the worker through the window's
+                    // dispatcher; this handler has returned by then, so nothing waits on the worker.
+                    ledger?.ContinueWith(t => window.SetStatus(status + " " + LedgerLine.Sentence(t.Result)), TaskScheduler.Default);
                 }
                 catch (Exception ex) { window.SetStatus("Revit refused: " + ex.Message); window.SetBusy(false); }
             });
