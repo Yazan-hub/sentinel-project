@@ -70,15 +70,17 @@ export function createLimiter({ max = 60, windowMs = 60000, now = Date.now } = {
   };
 }
 
-/** The request body as text, or null when it is over `max` bytes — declared (answered unread) or streamed (cut). */
+/** The request body as text, or null when it is over `max` bytes — declared (answered unread) or streamed (the rest
+ *  drained unbuffered, never cut: a destroyed socket could not carry the 413, which the caller sends with
+ *  Connection: close). */
 export const readCapped = (req, max = PUBLIC_BODY_MAX) => new Promise((resolve) => {
   if (Number(req.headers?.["content-length"] || 0) > max) return resolve(null);
-  const chunks = [];
-  let total = 0;
+  let chunks = [], total = 0;
   req.on("data", (c) => {
+    if (!chunks) return; // over the cap: the stream keeps flowing, nothing is kept
     total += c.length;
-    if (total > max) { req.destroy(); resolve(null); } else chunks.push(c);
+    if (total > max) { chunks = null; resolve(null); } else chunks.push(c);
   });
-  req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+  req.on("end", () => { if (chunks) resolve(Buffer.concat(chunks).toString("utf8")); });
   req.on("error", () => resolve(null));
 });

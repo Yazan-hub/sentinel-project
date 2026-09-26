@@ -34,7 +34,10 @@ describe("verifyJwt — HS256 (legacy shared secret, behavior preserved)", () =>
     expect(verifyJwt(hs256({ ...authed, role: "anon" }), SECRET)).toBe(false));
   it("rejects an expired token", () =>
     expect(verifyJwt(hs256({ ...authed, exp: Math.floor(Date.now() / 1000) - 10 }), SECRET)).toBe(false));
-  it("rejects garbage", () => expect(verifyJwt("not.a.jwt", SECRET)).toBe(false));
+  it("rejects garbage", () => {
+    expect(verifyJwt("not.a.jwt", SECRET)).toBe(false);
+    expect(verifyJwt(`${b64(null)}.${b64(authed)}.x`, SECRET)).toBe(false); // a `null` header: false, never a throw
+  });
 });
 
 describe("verifyJwt — ES256 via JWKS (Supabase asymmetric signing keys)", () => {

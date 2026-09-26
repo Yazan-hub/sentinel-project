@@ -458,13 +458,23 @@ async function startEventPoll() {
 // whole request inside that auth context, so cde-store's sb() forwards it to PostgREST (RLS per-user) when
 // forwarding is armed. No JWT → service key (current behaviour). Non-browser callers (Revit) send none.
 createServer((req, res) => {
-  const auth = req.headers.authorization || "";
-  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
-  // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
-  // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
-  const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
-  runWithAuth(userJwt, () => handleRequest(req, res));
+  // One error boundary for every request: a throw that escapes the handler — sync here, or a rejection of the async
+  // handleRequest — must answer this caller, never end the process (Node exits on an unhandled rejection). A request
+  // target of "//" makes `new URL(req.url, …)` throw, so one anonymous `GET //` or `OPTIONS //` used to stop the bridge.
+  const failed = (e) => {
+    const bad = e?.code === "ERR_INVALID_URL";
+    try { if (res.headersSent) res.end(); else send(res, bad ? 400 : 500, { message: bad ? "Bad request" : String(e?.message || e) }); }
+    catch { /* the socket is already gone */ }
+  };
+  try {
+    const auth = req.headers.authorization || "";
+    const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
+    // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
+    // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
+    const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
+    runWithAuth(userJwt, () => handleRequest(req, res)).catch(failed);
+  } catch (e) { failed(e); }
 }).listen(PORT, HOST, () => {
   // Supabase projects on asymmetric signing keys sign USER SESSIONS with ES256 — the JWKS makes
   // those verifiable at the gate. Without it, arming SUPABASE_JWT_SECRET 401s every signed-in user.
@@ -500,14 +510,22 @@ createServer((req, res) => {
 const publicLimiter = createLimiter({ max: 60, windowMs: 60000 });
 async function publicReceiptVerify(req, res, url) {
   res._cors = "*";
-  if (req.method === "OPTIONS") return send(res, 204);
-  const done = (code, body, outcome) => {
+  if (req.method === "OPTIONS") {
+    // A member's preflight carries no Authorization either, so it lands here too: an allowlisted origin keeps its
+    // Private Network Access grant (as on every other route), a foreign one gets none.
+    if (req.headers["access-control-request-private-network"] === "true"
+        && corsOrigin(req.headers.origin, req.headers.referer, { allow: CORS_ALLOW, wildcard: CORS_WILDCARD, armed: !!TOKEN }))
+      res.setHeader("Access-Control-Allow-Private-Network", "true");
+    return send(res, 204);
+  }
+  const done = (code, body, outcome, extra) => {
     console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
-    return send(res, code, body);
+    return send(res, code, body, extra);
   };
   if (!publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
   const text = await readCapped(req);
-  if (text === null) return done(413, { message: "A receipt check is at most 8 KB" }, "413");
+  // The rest of an over-cap body is drained, not read, and the connection closes after the 413.
+  if (text === null) return done(413, { message: "A receipt check is at most 8 KB" }, "413", { Connection: "close" });
   let claim;
   try { claim = parsePublicVerify(text ? JSON.parse(text) : null); }
   catch (e) { return done(400, { message: e?.status === 400 ? e.message : "send {audit_id, ledger_hash} or a whole receipt as JSON" }, "400"); }
@@ -518,8 +536,7 @@ async function publicReceiptVerify(req, res, url) {
     const reply = comparePublic(key === null ? null : await cde.publicAuditRow(key, claim.audit_id), claim, key);
     return done(200, reply, reply.matches ? "match" : "no match");
   } catch (e) {
-    console.error(`[receipt] public check failed: ${e?.message || e}`);
-    return done(500, { message: "Internal error — see the bridge log." }, "500");
+    return done(500, { message: `public receipt check failed: ${e?.message || e}` }, "500"); // send() logs it, then scrubs it
   }
 }
 

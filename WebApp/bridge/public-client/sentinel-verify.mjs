@@ -83,14 +83,15 @@ export class Sentinel {
  * It renders UNVERIFIED until `verify()` has confirmed the receipt against the ledger. A badge that
  * looked authoritative on the proposer's say-so would defeat its own purpose: the whole value is
  * that the reader checked, not that the writer asserted. And it shows a verdict only when the check
- * compared it (`"verdict"` in `check.checked`): a hash match proves the entry, not the verdict the
- * receipt claims for it.
+ * compared it (`"verdict"` in `check.checked`, or a member's reply — `{matches, reasons, ledger}`,
+ * which always compares the verdict): a hash match proves the entry, not the verdict the receipt
+ * claims for it.
  */
 export function verdictBadge(receipt, check, doc = globalThis.document) {
   if (!doc) throw new Error("no document available — pass one for non-browser use");
   const verdict = receipt?.verdict ?? "unknown";
   const confirmed = check?.matches === true;
-  const verdictChecked = confirmed && Array.isArray(check.checked) && check.checked.includes("verdict");
+  const verdictChecked = confirmed && (Array.isArray(check.checked) ? check.checked.includes("verdict") : Array.isArray(check.reasons));
   const accepted = verdict === "accepted";
   const color = !confirmed ? "#9ca3af" : !verdictChecked ? "#2563eb" : accepted ? "#16a34a" : "#dc2626";
 

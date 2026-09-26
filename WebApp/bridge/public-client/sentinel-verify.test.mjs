@@ -118,8 +118,10 @@ describe("verdictBadge", () => {
     expect(text(el)).not.toMatch(/accepted/);
     expect(el.attrs["data-sentinel-confirmed"]).toBe("true");
     expect(el.attrs["data-sentinel-verdict"]).toBe("not-checked");
-    // a member's full reply carries no `checked` either: the badge under-claims rather than assumes
-    expect(text(verdictBadge({ verdict: "accepted" }, { matches: true, reasons: [], ledger: {} }, doc()))).toMatch(/verdict not checked/);
+    // a member's full reply carries no `checked`, but its verifyReceipt always compares the verdict; a reply with
+    // neither `checked` nor `reasons` under-claims rather than assumes
+    expect(text(verdictBadge({ verdict: "accepted" }, { matches: true, reasons: [], ledger: {} }, doc()))).toMatch(/accepted by Sentinel/);
+    expect(text(verdictBadge({ verdict: "accepted" }, { matches: true }, doc()))).toMatch(/verdict not checked/);
   });
 
   it("says what a match is: the ledger's stored hash, the chain not recomputed", () => {

@@ -177,8 +177,13 @@ describe("readCapped — 8 KB, then 413", () => {
   it("is null for a declared length over the cap, without reading", async () => {
     const r = req(["{}"], { "content-length": "8193" });
     expect(await readCapped(r)).toBeNull();
+    expect(r.readableFlowing).toBeNull(); // nothing attached a reader: the stream was never consumed
+    expect(r.listenerCount("data")).toBe(0);
   });
   it("is null for a streamed body that runs past the cap", async () => {
-    expect(await readCapped(req(["a".repeat(5000), "a".repeat(5000)]))).toBeNull();
+    const r = req(["a".repeat(5000), "a".repeat(5000), "a".repeat(5000)]);
+    const ended = new Promise((ok) => r.on("end", ok));
+    expect(await readCapped(r)).toBeNull();
+    await ended; // drained to its end, not destroyed: the connection survives to carry the 413
   });
 });
