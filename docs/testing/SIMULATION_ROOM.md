@@ -56,7 +56,7 @@ manager finds the same problems every time."
 | 3.3 | MIDP/TIDP: deliverables with purpose; import `programme.csv` (4D) and `programme-midp.json` (rebaseline rows) | web | Deliverables, 4D Sequence | derived status per deliverable; milestones on the timeline |
 | 3.4 | Governed Publish the tower model → rejected on IDS | Revit | Governed Publish, IFC Pre-Flight, IFC Delivery Gate | BCF topics `IDS: …`; receipt hash; verdict badge on the version |
 | 3.5 | BCF Issues → Fix in Revit → Check → Apply → Resolve | Revit | BCF Issues (Fix in Revit) | `✓ N/N pass … Resolved (audit id)`; re-publish accepted |
-| 3.6 | Publish Views / Publish Sheets / Quick Publish (ungoverned) / Auto-Publish on save | Revit | those four | web Project Files shows versions; ungoverned ones marked so |
+| 3.6 | Publish Views / Publish Sheets; auto-publish on save with `publish@1 {auto: true}` installed on the project | Revit | those two, then a save | web Sheets and Views tabs show them; Project Files shows the auto-published version with its verdict, the Doctor strip its line |
 | 3.7 | Clash Manager + Clash Register; raise RFIs and issues from the web | both | Clash Manager, Clash Register; Clash, Issues, RFIs panels | register rows with responsible team |
 | 3.8 | MEP Openings on the linked MEP model; Change Requests review | Revit | MEP Openings, Change Requests, Review Flag | request rows; opening elements with AST void parameters |
 | 3.9 | Datum from Drawings → Ghost Builder → Annotate Views on the DWG set; Photo Massing on the site photos | Revit | 1 · Datum, 2 · Ghost Builder, 2b · Photo Massing, 3 · Annotate Views | levels/grids from DWG; ghost elements; annotations |
@@ -83,7 +83,7 @@ Status ∈ `pass` (evidence linked) · `fail` (finding #) · `not run`. Fill fro
 
 **Revit ribbon** (from `App.cs BuildRibbon`, one row each): Show Panel · Scan Now · Health Scorecard · Rule Set · Change Requests · Review Flag ·
 Project Setup · Build Office System · Apply Standard · Ingest Docs · Naming Manager · Sanitize .rfa · Heal Loaded Families ·
-IFC Pre-Flight · IFC Delivery Gate · Governed Publish · Quick Publish (ungoverned) · Auto-Publish on save · Publish Views ·
+IFC Pre-Flight · IFC Delivery Gate · Governed Publish · Publish Views ·
 Publish Sheets · BCF Issues (incl. Fix in Revit) · Clash Manager · Clash Register · MEP Openings · 1 · Datum from Drawings ·
 2 · Ghost Builder · 2b · Photo Massing · 3 · Annotate Views · Review AI Proposals · ROI Dashboard.
 
@@ -105,8 +105,7 @@ Publish Sheets · BCF Issues (incl. Fix in Revit) · Clash Manager · Clash Regi
 | IFC Pre-Flight | 3.4 | | |
 | IFC Delivery Gate | 3.4 | | |
 | Governed Publish | 3.4 | | |
-| Quick Publish (ungoverned) | 3.6 | | |
-| Auto-Publish on save | 3.6 | | |
+| Auto-publish on save (`publish@n`, no button) | 3.6 | | |
 | Publish Views | 3.6 | | |
 | Publish Sheets | 3.6 | | |
 | BCF Issues (Fix in Revit) | 3.5 | | |
