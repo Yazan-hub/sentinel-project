@@ -7,26 +7,37 @@ import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
 import { activeRuleset, paramNamesOf, NO_RULESET } from "./active-ruleset";
+import { runStageGate, gateLine, ledgerLine, type GateReply } from "./stage-gate";
 import { getAppManager } from "../app";
 
 /**
  * Project Shell — the Lifecycle Command Center (docs/phase1-spec.md Part A). The project as one
- * governed dataset: a lifecycle stage + gate results (from the project store), with live KPIs
- * AGGREGATED from the panels that already compute truth — QA health/compliance (scan + scorecard),
- * open issues (BCF service), and 5D cost (quantity take-off). "Advance stage" runs the stage gate
- * (standards-as-code) and refuses to pass on a failing check, exactly like the IFC delivery gate.
+ * governed dataset: a lifecycle stage + gate results (read from the ledger through the project store),
+ * with live KPIs AGGREGATED from the panels that already compute truth — QA health/compliance (scan +
+ * scorecard), open issues (BCF service), and 5D cost (quantity take-off). "Run gate" asks the bridge to
+ * measure the current stage's gate itself and record it (POST /cde/:key/gate, cohesion phase 5c): the
+ * browser posts only the stage, never a status; the stage is the newest `gate:pass` ledger row, and a
+ * check nothing measured leaves the gate not checkable, never passed — exactly like the IFC delivery gate.
  *
  * Read-only aggregation MVP: it never recomputes new truth, it composes it. Plain-DOM panel
- * (mirrors cost-panel); main.ts docks it as the "Project" landing tab.
+ * (mirrors cost-panel); main.ts docks it as the "Dashboard" tab of the project space.
  */
 
+/** One stage's newest stage_gate ledger row, as the bridge's projectGates shapes it. */
+interface GateRow {
+  status: string;
+  checks: { label: string; ok: boolean; na?: boolean; detail?: string; source?: string }[];
+  at: string;
+  ledger?: { id: number | null; hash: string | null } | null;
+}
 interface ProjectState {
   project_id: string; name: string; stage: string; standards_pack: string;
   dimensions: Record<string, boolean>;
-  gates: Record<string, { status: string; checks: { label: string; ok: boolean }[]; at: string }>;
+  gates: Record<string, GateRow>;
   snapshot: Record<string, number | string>;
 }
-interface Kpis { health: number | null; compliance: number | null; open: number; hard: number; cost: number | null; currency: string; blockOpen: number; openRfis: number; }
+/** null = not measured here (no model or no ruleset for the scan metrics; no answer from the service for the counts). */
+interface Kpis { health: number | null; compliance: number | null; open: number | null; hard: number | null; cost: number | null; currency: string; blockOpen: number | null; openRfis: number | null; }
 
 const STAGES = [
   { id: "tender", nm: "Tender" }, { id: "design", nm: "Design" }, { id: "coord", nm: "Coordination" },
@@ -44,7 +55,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const pid = () => activePid();
 
   let project: ProjectState | null = null;
-  let kpis: Kpis = { health: null, compliance: null, open: 0, hard: 0, cost: null, currency: defaultRates.currency, blockOpen: 0, openRfis: 0 };
+  let kpis: Kpis = { health: null, compliance: null, open: null, hard: null, cost: null, currency: defaultRates.currency, blockOpen: null, openRfis: null };
   let viewStage = ""; // stage whose gate detail is shown
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
@@ -67,8 +78,9 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const msg = (t: string, c = "#9ca3af") => { el("ps-msg").textContent = t; el("ps-msg").style.color = c; };
   const stageIdx = (id: string) => STAGES.findIndex((s) => s.id === id);
+  const stageName = (id: string) => STAGES.find((s) => s.id === id)?.nm ?? id;
 
-  // ── load persisted project state ─────────────────────────────────────────────
+  // ── load persisted project state (the stage and the gates come from the ledger) ─────────────
   const loadProject = async () => {
     try {
       const r = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
@@ -96,7 +108,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     // QA health + compliance (only if a model is loaded, and only against an installed ruleset)
     if (fragments.list.size > 0) {
       try {
-        if (!active) { noRuleset = true; kpis.health = null; kpis.compliance = null; kpis.blockOpen = 0; }
+        if (!active) { noRuleset = true; kpis.health = null; kpis.compliance = null; kpis.blockOpen = null; }
         else {
           const facts = await extractFacts(fragments, { parameterNames: paramNamesOf(active.ruleset) });
           const report = scan(facts, active.ruleset, { doc_title: "project", now: new Date().toISOString() });
@@ -104,26 +116,26 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
           kpis.compliance = report.score;
           kpis.blockOpen = report.violations.filter((v) => v.mode === "block").length;
         }
-      } catch { kpis.health = null; kpis.compliance = null; }
+      } catch { kpis.health = null; kpis.compliance = null; kpis.blockOpen = null; }
       try {
         const boq = buildBoQ(await quantityTakeoff(fragments), defaultRates);
         kpis.cost = boq.total; kpis.currency = boq.currency;
       } catch { kpis.cost = null; }
     } else {
-      kpis.health = null; kpis.compliance = null; kpis.cost = null; kpis.blockOpen = 0;
+      kpis.health = null; kpis.compliance = null; kpis.cost = null; kpis.blockOpen = null;
     }
-    // Open issues + hard clashes from the BCF service (works with no model)
+    // Open issues + hard clashes from the BCF service (works with no model). No answer = not measured, never 0.
     try {
       const topics = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
       const openT = topics.filter((t: any) => t.topic_status !== "Closed" && t.topic_status !== "Resolved");
       kpis.open = openT.length;
       kpis.hard = openT.filter((t: any) => /clash/i.test(t.topic_type)).length;
-    } catch { /* leave counts */ }
+    } catch { kpis.open = null; kpis.hard = null; }
     // Open RFIs (Phase 2 gate metric)
     try {
       const rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(pid())}?status=all`)).json();
       kpis.openRfis = rfis.filter((r: any) => r.status !== "Closed").length;
-    } catch { /* leave count */ }
+    } catch { kpis.openRfis = null; }
 
     renderAll();
     persistSnapshot();
@@ -133,7 +145,9 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   };
 
   const persistSnapshot = () => {
-    const snap: Record<string, number | string> = { open_issues: kpis.open, hard_clashes: kpis.hard, currency: kpis.currency };
+    const snap: Record<string, number | string> = { currency: kpis.currency };
+    if (kpis.open != null) snap.open_issues = kpis.open;
+    if (kpis.hard != null) snap.hard_clashes = kpis.hard;
     if (kpis.health != null) snap.health = Math.round(kpis.health);
     if (kpis.compliance != null) snap.compliance = Math.round(kpis.compliance);
     if (kpis.cost != null) snap.cost_total = Math.round(kpis.cost);
@@ -143,6 +157,8 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   };
 
   // ── the stage gate (standards-as-code at EVERY boundary — see sentinel-core/gates.ts) ──
+  // The browser's PREVIEW of a gate (a stage with no ledger row yet): null wherever nothing here measured it. The
+  // recorded gate is the bridge's own measurement (Run gate → POST /cde/:key/gate), never these values.
   const gateMetrics = (): GateMetrics => ({
     health: kpis.health, compliance: kpis.compliance, blockViolations: kpis.blockOpen,
     hardClashes: kpis.hard, openIssues: kpis.open, openRfis: kpis.openRfis,
@@ -154,20 +170,12 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     if (!project) return;
     const i = stageIdx(project.stage);
     if (i < 0 || i >= STAGES.length - 1) { msg("Final stage reached.", "#eab308"); return; }
-    if (fragments.list.size === 0) { msg("Load a model first — the gate checks model health & compliance.", "#eab308"); return; }
-    const next = STAGES[i + 1];
-    const g = evaluateGate(project.stage, gateMetrics());
-    if (g.status === "not_checkable") {
-      const missing = g.checks.filter((c) => c.na).map((c) => c.label).join(", ");
-      msg(`Gate not checkable — no data for: ${missing}. Load a model and scan it first.`, "#eab308");
-      return; // never advance or record a gate on unmeasured data
-    }
-    await bfetch(`${base}/projects/${encodeURIComponent(pid())}/gate/${project.stage}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: g.pass ? "pass" : "hold", checks: g.checks, advance_to: g.pass ? next.id : undefined }),
-    });
-    await loadProject();
-    msg(g.pass ? `Gate PASS — advanced to ${next.nm}.` : "Gate HOLD — clear the failing checks below to advance.", g.pass ? "#22c55e" : "#eab308");
+    msg("Running the gate on the bridge…");
+    let reply: GateReply;
+    try { reply = await runStageGate(base, pid(), project.stage); }
+    catch (e) { msg(`Gate not run — ${String((e as Error)?.message || e)}`, "#ef4444"); return; }
+    await loadProject(); // the stage and the gates come back from the ledger
+    msg(gateLine(reply, stageName), reply.status === "pass" ? "#22c55e" : "#eab308");
   };
 
   // ── render ───────────────────────────────────────────────────────────────────
@@ -180,10 +188,12 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     el("ps-rail").innerHTML =
       '<div style="display:flex;gap:.25rem;overflow-x:auto;padding-bottom:.2rem">' +
       STAGES.map((s, i) => {
-        const gate = project!.gates[s.id]?.status;
+        const row = project!.gates[s.id];
+        const gate = row?.status;
         const dot = s.id === project!.stage ? "#3b82f6" : gate === "pass" ? "#22c55e" : gate === "hold" ? "#eab308" : "#3a3a42";
         const on = s.id === viewStage;
-        return `<button class="ps-stage" data-id="${s.id}" style="flex:1 0 auto;min-width:58px;background:${on ? "#1f1f27" : "none"};border:1px solid ${on ? "#3a3a44" : "transparent"};border-radius:9px;padding:.5rem .35rem;cursor:pointer;color:inherit;text-align:center">` +
+        const title = row ? `${gate} · ${ledgerLine(row.ledger ?? null)}` : "no gate recorded";
+        return `<button class="ps-stage" data-id="${s.id}" title="${esc(title)}" style="flex:1 0 auto;min-width:58px;background:${on ? "#1f1f27" : "none"};border:1px solid ${on ? "#3a3a44" : "transparent"};border-radius:9px;padding:.5rem .35rem;cursor:pointer;color:inherit;text-align:center">` +
           `<div style="width:20px;height:20px;margin:0 auto;border-radius:6px;border:1px solid ${dot};color:${dot};display:grid;place-items:center;font:700 10px ui-monospace,Consolas,monospace">${String(i + 1).padStart(2, "0")}</div>` +
           `<div style="font-size:9.5px;letter-spacing:.03em;color:${i <= cur ? "#e5e7eb" : "#6b7280"};margin-top:.3rem;font-family:ui-monospace,Consolas,monospace;text-transform:uppercase">${esc(s.nm.slice(0, 6))}</div></button>`;
       }).join("") + "</div>";
@@ -201,7 +211,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     el("ps-kpis").innerHTML =
       tile("Model health", h != null ? Math.round(h) + "%" : "—", "weighted QA scorecard", h != null ? healthColor(h) : "#6b7280") +
       tile("Std compliance", c != null ? Math.round(c) + "%" : "—", "elements passing", c != null ? healthColor(c) : "#6b7280") +
-      tile("Open issues", String(kpis.open), `${kpis.hard} hard clash(es)`, kpis.hard > 0 ? "#ef4444" : "#eee") +
+      tile("Open issues", kpis.open != null ? String(kpis.open) : "—", kpis.hard != null ? `${kpis.hard} hard clash(es)` : "not read from the service", (kpis.hard ?? 0) > 0 ? "#ef4444" : "#eee") +
       tile("Cost · 5D", kpis.cost != null ? money(kpis.cost, kpis.currency) : "—", "from model take-off", "#eee");
   };
 
@@ -214,37 +224,41 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     }).join("");
   };
 
+  type CheckRow = GateRow["checks"][number];
   const renderGate = () => {
     if (!project) return;
     const s = viewStage || project.stage;
     const isCurrent = s === project.stage;
     const i = stageIdx(project.stage);
     const next = i >= 0 && i < STAGES.length - 1 ? STAGES[i + 1] : null;
-    const stored = project.gates[s];
-    // Current stage → live evaluation; a past stage with a stored result → that result; otherwise the
-    // boundary's requirements evaluated against current metrics (a preview of what it'll take).
-    const preview = !isCurrent && !stored && !!GATE_DEFS[s];
-    const g = isCurrent ? evaluateGate(s, gateMetrics())
-      : stored ? { checks: stored.checks as any[], pass: stored.status === "pass", status: stored.status === "pass" ? "pass" : stored.status === "not_checkable" ? "not_checkable" : "hold" }
+    const stored = project.gates[s]; // this stage's newest stage_gate ledger row: the bridge's own measurement
+    // A stage with a ledger row → that row, whatever the browser sees now. Otherwise the boundary's requirements
+    // evaluated against what the browser has — a preview, null where nothing here measured; Run gate measures on the bridge.
+    const preview = !stored && !!GATE_DEFS[s];
+    const g: { checks: CheckRow[]; status: string } | null = stored
+      ? { checks: stored.checks, status: stored.status === "pass" ? "pass" : stored.status === "not_checkable" ? "not_checkable" : "hold" }
       : GATE_DEFS[s] ? evaluateGate(s, gateMetrics()) : null;
 
-    const suffix = isCurrent ? " (current)" : preview ? " (requirements)" : "";
-    let h = `<div style="font:600 12px system-ui;color:#e5e7eb;margin-bottom:.5rem">Stage gate · ${esc(STAGES[stageIdx(s)]?.nm ?? s)}${suffix}</div>`;
+    const tag = stored ? ledgerLine(stored.ledger ?? null) : preview ? "preview — Run gate measures on the bridge" : "";
+    const suffix = isCurrent ? ` (current${tag ? " · " + tag : ""})` : tag ? ` (${tag})` : "";
+    let h = `<div style="font:600 12px system-ui;color:#e5e7eb;margin-bottom:.5rem">Stage gate · ${esc(STAGES[stageIdx(s)]?.nm ?? s)}${esc(suffix)}</div>`;
     if (!g) {
       h += `<div style="color:#6b7280;font-size:12px">No gate defined for this stage.</div>`;
     } else {
-      h += g.checks.map((c: any) => {
+      h += g.checks.map((c) => {
         const na = !!c.na;
         const bg = na ? "#3a3a42" : c.ok ? "#22c55e" : "#eab308";
         const mk = na ? "–" : c.ok ? "✓" : "!";
         const detail = c.detail ? ` <span style="color:#6b7280">(${esc(String(c.detail))})</span>` : "";
+        const source = c.source ? ` <span style="color:#6b7280">· ${esc(String(c.source))}</span>` : "";
         return `<div style="display:flex;align-items:center;gap:.5rem;font-size:12px;margin:.3rem 0">` +
           `<span style="width:16px;height:16px;border-radius:5px;display:grid;place-items:center;flex:none;font:700 10px ui-monospace;color:#fff;background:${bg}">${mk}</span>` +
-          `<span style="color:#cbd2dc">${esc(c.label)}${detail}</span></div>`;
+          `<span style="color:#cbd2dc">${esc(c.label)}${detail}${source}</span></div>`;
       }).join("");
-      const st = (g as { status?: string }).status ?? (g.pass ? "pass" : "hold");
+      const st = g.status;
       const vcol = st === "pass" ? "#22c55e" : st === "not_checkable" ? "#9ca3af" : "#eab308";
-      const word = st === "pass" ? "GATE PASS" : st === "not_checkable" ? "GATE NOT CHECKABLE — some checks have no data" : "GATE HOLD";
+      const naLabels = g.checks.filter((c) => c.na).map((c) => c.label).join(", ");
+      const word = st === "pass" ? "GATE PASS" : st === "not_checkable" ? `GATE NOT CHECKABLE — not measured: ${esc(naLabels)}` : "GATE HOLD";
       h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${word}</div>`;
     }
     if (isCurrent && next && gateRole !== null && canGovernRole(gateRole)) {
