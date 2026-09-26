@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 /** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
@@ -61,6 +61,8 @@ const bad = (kind, path, want) => err(400, `${kind}: ${path} ${want}`);
 // more. Every contract field is required — neither delivery gate fills a default, so Revit and intake read one
 // contract one way. "Optional" means absent or null. The loaders in Revit repeat these checks on what they receive.
 const IFC_SCHEMAS = ["IFC2X3", "IFC4"];                                  // what PlatformExporter can write
+const ROI_FIELDS = ["currency", "hourly_rate", "minutes", "basis"];       // the roi body (spec 2026-09-26 Decision 9)
+const ROI_KINDS = ["delivery_gate", "naming", "family_heal"];             // the ledger rows the ROI dashboard counts
 const IFC_ENTITY = /^IFC[A-Z0-9_]+$/;
 const LAYER_CATEGORIES = ["Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture"];
 const MAX_CATALOG_TYPES = 20000;                                         // = office-store MAX_CATALOG_TYPES (importing it would load cde-store)
@@ -188,6 +190,21 @@ export function validateArtefact(kind, body) {
     const stray = Object.keys(body).find((k) => k !== "auto");
     if (stray !== undefined) throw bad(kind, stray, "is not a publish field — the body is exactly {auto: true} or {auto: false}");
     if (typeof body.auto !== "boolean") throw bad(kind, "auto", "must be true or false");
+  }
+  if (kind === "roi") {
+    // The office's rate card (cohesion phase 5c, spec Decision 9): what the Revit ROI dashboard multiplies the ledger's
+    // counts by — minutes saved per delivery gate run, per naming rename, per family heal, at hourly_rate in currency.
+    // Any other key at either level is refused, not kept: money would then rest on a number no reader shows.
+    const stray = Object.keys(body).find((k) => !ROI_FIELDS.includes(k));
+    if (stray !== undefined) throw bad(kind, stray, "is not a roi field — the body is {currency, hourly_rate, minutes, basis?}");
+    if (typeof body.currency !== "string" || !/^[A-Z]{3}$/.test(body.currency)) throw bad(kind, "currency", "must be three capital letters, e.g. EUR");
+    if (typeof body.hourly_rate !== "number" || !Number.isFinite(body.hourly_rate) || body.hourly_rate <= 0) throw bad(kind, "hourly_rate", "must be a number greater than 0");
+    if (!isObj(body.minutes)) throw bad(kind, "minutes", "must be an object {delivery_gate?, naming?, family_heal?}");
+    const strayKind = Object.keys(body.minutes).find((k) => !ROI_KINDS.includes(k));
+    if (strayKind !== undefined) throw bad(kind, `minutes.${strayKind}`, "is not a counted kind — the ledger counts delivery_gate, naming and family_heal only");
+    if (!Object.keys(body.minutes).length) throw bad(kind, "minutes", "needs at least one of delivery_gate, naming, family_heal");
+    for (const k of ROI_KINDS) if (body.minutes[k] !== undefined && !(typeof body.minutes[k] === "number" && Number.isFinite(body.minutes[k]) && body.minutes[k] >= 0)) throw bad(kind, `minutes.${k}`, "must be a number ≥ 0");
+    if (body.basis != null && !(typeof body.basis === "string" && body.basis.length <= 500)) throw bad(kind, "basis", "must be a string of at most 500 characters");
   }
   return true;
 }

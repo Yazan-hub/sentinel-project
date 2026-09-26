@@ -111,7 +111,7 @@ export async function ensureProject(key) {
 // ── Sentinel project metadata (migration 0007) — the governed-project store, unified into the Supabase
 // `projects` row's `metadata` jsonb (was the per-machine bridge/project-store.json). The bridge maps this to
 // the same JSON shape the web app already expects, so consolidating is transparent to callers.
-const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
+export const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
 const defaultMeta = () => ({
   stage: "design", standards_pack: "",
   dimensions: { "2d": true, "3d": true, "4d": false, "5d": true, "6d": false, "7d": false },
