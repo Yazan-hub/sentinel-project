@@ -25,7 +25,7 @@ const raw = (port, requestLine) => new Promise((resolve, reject) => {
   const s = net.connect({ port, host: "127.0.0.1" }, () =>
     s.write(`${requestLine} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`));
   s.setEncoding("utf8");
-  s.setTimeout(5000, () => { s.destroy(); reject(new Error(`no reply to ${requestLine} within 5 s`)); });
+  s.setTimeout(3000, () => { s.destroy(); reject(new Error(`no reply to ${requestLine} within 3 s`)); }); // under vitest's 5 s, so this message wins
   s.on("data", (d) => { reply += d; });
   s.on("end", () => resolve(reply));
   s.on("error", reject);
@@ -54,7 +54,8 @@ beforeAll(async () => {
     BCF_HOST: "127.0.0.1", BCF_PORT: String(port),
     BCF_TOKEN: "smoke-only-token",          // the gate armed: the scenario needs no token to reach the boundary
   };
-  child = spawn(process.execPath, [join(copy, "bcf-service.mjs")], { env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+  // cwd inside the temp dir too, so a cwd-relative read or write the bridge might gain later still lands there.
+  child = spawn(process.execPath, [join(copy, "bcf-service.mjs")], { cwd: copy, env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (d) => { stderr += d; });
 
@@ -67,9 +68,13 @@ beforeAll(async () => {
   throw new Error(`the bridge copy did not answer /health within 20 s:\n${stderr}`);
 }, 30_000);
 
-afterAll(() => {
-  if (child && child.exitCode === null) child.kill();
-  if (tmp) rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
+afterAll(async () => {
+  if (child && child.exitCode === null) {
+    const gone = new Promise((r) => child.once("exit", r));
+    child.kill();
+    await Promise.race([gone, new Promise((r) => setTimeout(r, 5000))]); // let it exit before its folder goes
+  }
+  if (tmp) rmSync(tmp, { recursive: true, force: true, maxRetries: 5 }); // the junction is unlinked, never followed
 });
 
 describe("the request error boundary — an unparseable target never ends the bridge", () => {
