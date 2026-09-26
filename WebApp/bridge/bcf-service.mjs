@@ -1140,7 +1140,8 @@ async function handleRequest(req, res) {
       //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version
       //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?};
       //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields};
-      //   contract, layers, guideline, type_catalog: the shapes artefact-store validateArtefact checks — 400 names the field)
+      //   contract, layers, guideline, type_catalog: the shapes artefact-store validateArtefact checks — 400 names the field;
+      //   publish: exactly {auto: true} or {auto: false}, the lead's auto-publish policy, read by the add-in from phase 5b)
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
         // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so
