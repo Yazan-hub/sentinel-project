@@ -353,6 +353,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       }
       await loadAll();
     } catch (e) {
+      renderBoard(inFolder(selected)); // needsReason is already cleared: drop a stale reason field and its red line
       status(`Transition rejected: ${(e as Error).message}`);
     }
   }

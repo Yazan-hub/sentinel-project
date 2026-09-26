@@ -4,7 +4,10 @@
 -- probes/0031_probe.sql. Apply it first, then deploy the 5a bridge at once. The master bridge's transitions still
 -- resolve (named arguments; p_override has a default), but its unarchive is a direct state PATCH that the trigger
 -- below refuses (a 500 until the 5a bridge restores through the function). The 5a bridge without this migration
--- fails only a publish with a lead's reason (PostgREST finds no function taking p_override: a 500).
+-- fails a publish with a lead's reason (PostgREST finds no function taking p_override: a 500) and every Unarchive
+-- (the old function refuses archived -> published: a 409), and the old function's raises are all plain P0001, so
+-- its "not found" and "insufficient role" come back as 409s rather than 404/403. Applying 0031 first, then the 5a
+-- bridge at once, leaves no such window.
 --
 -- Until now cde_transition checked the ISO 19650 state machine and, for a signed-in caller, the lead role — never
 -- the verdict (0004:61-93); a contributor could PATCH state directly (cv_update, 0004:154-156) and a registration

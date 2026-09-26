@@ -12,11 +12,12 @@ const state = vi.hoisted(() => {
   return { ids: null };
 });
 
-// resolveIdsSpec's order, as artefact-store has it: the installed IDS (state.ids) → the one the caller sent → none.
+// resolveIdsSpec's order, as artefact-store has it: the installed IDS (state.ids) → the one the caller sent → none; a
+// client ids beside an installed one is ignored and says so.
 vi.mock("./artefact-store.mjs", async (orig) => ({
   ...(await orig()),
   resolveIdsSpec: vi.fn(async (_key, body = {}) => (state.ids
-    ? { spec: state.ids, source: "project", ref: "ids@1", sha256: "1d".repeat(32), client_ids_ignored: false }
+    ? { spec: state.ids, source: "project", ref: "ids@1", sha256: "1d".repeat(32), client_ids_ignored: body.ids !== undefined && body.ids !== null }
     : body.ids
       ? { spec: body.ids, source: "client", ref: null, sha256: "c1".repeat(32), client_ids_ignored: false }
       : { spec: null, source: "none", ref: null, sha256: null, client_ids_ignored: false })),
@@ -179,6 +180,8 @@ describe("register — one adjudication registers the version and stamps it", ()
     const r = await adjudicateProposal("aster-tower", { source: "revit", elements: [], container_name: NAME, register });
     expect(r).toMatchObject({ verdict: "recorded", downgraded: "nothing in scope", version: { revision: "v1", state: "wip" } });
     expect(actions()).toEqual(["Proposal recorded from revit", "created", "set live", "uploaded", "verdict:recorded"]);
+    expect(db.audit_log.at(-1)).toMatchObject({ entity_id: r.version.id, new_value: { downgraded: "nothing in scope", ids_ref: "ids@1", summary: { in_scope: 0 } } });
+    expect(r.verdict_audit_id).toBe(db.audit_log.at(-1).id);
   });
 
   it("rejected registers nothing", async () => {
@@ -221,10 +224,38 @@ describe("an IDS the caller sent never stamps or registers a version (controller
     expect(posts("container_versions")).toHaveLength(0);
   });
 
+  it("an installed IDS outranks a client ids: register still registers and stamps, judged by ids@1, and says the client's was ignored", async () => {
+    const r = await adjudicateProposal("aster-tower", { source: "revit", ids: { title: "mine", specifications: [] }, elements: GOOD, container_name: NAME, register });
+    expect(r).toMatchObject({ verdict: "accepted", ids_source: "project", ids_ref: "ids@1", client_ids_ignored: true, version: { state: "wip" } });
+    expect(db.audit_log[0].new_value).toMatchObject({ ids_ref: "ids@1", client_ids_ignored: true });
+    expect(db.audit_log.at(-1)).toMatchObject({ action: "verdict:accepted", entity_id: r.version.id, new_value: { ids_ref: "ids@1", summary: { in_scope: 1 } } });
+  });
+
   it("the same body without register is judged by the client IDS, as today", async () => {
     state.ids = null;
     const r = await adjudicateProposal("aster-tower", { source: "revit", ids: IDS, elements: GOOD, container_name: NAME });
     expect(r).toMatchObject({ verdict: "accepted", ids_source: "client", version: null, verdict_audit_id: null, summary: { in_scope: 1 } });
+    expect(actions()).toEqual(["Proposal accepted from revit"]);
+  });
+});
+
+describe("a naming ruleset the caller sent never judges a stamped or registered version's name", () => {
+  const register = { name: NAME, size_bytes: 1234, sha256: SHA };
+  const refused = "a version's name is judged only by the naming standard installed on aster-tower or its office — send no naming ruleset, or propose without version_id/register";
+  const OFF = { fields: [], enforce: "off" };
+
+  it.each([
+    ["register", { container_name: NAME, register }],
+    ["version_id", { container_name: NAME, version_id: V_OWN }],
+  ])("a client naming and %s: 400 before any read, no version, no ledger row", async (_what, extra) => {
+    await expect(adjudicateProposal("aster-tower", { source: "revit", naming: OFF, elements: GOOD, ...extra }))
+      .rejects.toMatchObject({ status: 400, message: refused });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("a plain proposal is still judged by the client ruleset and records naming_ref 'client'", async () => {
+    const r = await adjudicateProposal("aster-tower", { source: "revit", naming: OFF, elements: GOOD, container_name: NAME });
+    expect(r).toMatchObject({ verdict: "accepted", naming_ref: "client", naming_source: "client", version: null, verdict_audit_id: null });
     expect(actions()).toEqual(["Proposal accepted from revit"]);
   });
 });

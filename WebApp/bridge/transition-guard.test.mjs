@@ -20,9 +20,10 @@ const V1 = "aaaaaaaa-0000-4000-8000-000000000001"; // demo's
 const V2 = "aaaaaaaa-0000-4000-8000-000000000002"; // demo's, archived
 const VX = "bbbbbbbb-0000-4000-8000-000000000001"; // the other project's
 const V3 = "aaaaaaaa-0000-4000-8000-000000000003"; // what a registration creates
+const V4 = "aaaaaaaa-0000-4000-8000-000000000004"; // demo's, a second archived version
 const NEEDS = `version ${V1} has no accepted verdict that measured something (latest: none) — publishing it needs the lead's reason`;
 
-let calls, rpc;
+let calls, rpc, versions;
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 function fakeRest(url, init = {}) {
   const u = new URL(String(url));
@@ -35,11 +36,11 @@ function fakeRest(url, init = {}) {
   if (path === "rpc/cde_transition") return rpc(body);
   if (path === "container_versions" && method === "GET" && q.get("select")?.includes("information_containers")) {
     const id = q.get("id").slice(3);
-    const project_id = { [V1]: DEMO, [V2]: DEMO, [VX]: OTHER }[id];
+    const project_id = { [V1]: DEMO, [V2]: DEMO, [V4]: DEMO, [VX]: OTHER }[id];
     return json(project_id ? [{ id, container_id: C1, revision: "v1", state: "shared", information_containers: { project_id } }] : []);
   }
   if (path === "information_containers" && q.get("select")?.startsWith("id,iso_name,container_versions(id,state)"))
-    return json([{ id: C1, iso_name: "A.ifc", container_versions: [{ id: V1, state: "published" }, { id: V2, state: "archived" }] }]);
+    return json([{ id: C1, iso_name: "A.ifc", container_versions: versions }]);
   if (path === "information_containers" && q.get("iso_name"))
     return json([{ id: C1, parent_id: null, container_versions: [{ id: V1, revision: "v1", is_live: true, platform_item_id: null }] }]);
   if (path === "information_containers" && q.get("id")) return json([{ project_id: DEMO, iso_name: "A.ifc" }]);
@@ -52,6 +53,7 @@ const realFetch = globalThis.fetch;
 beforeEach(() => {
   calls = [];
   rpc = (body) => json({ id: body.p_version, state: body.p_new_state });
+  versions = [{ id: V1, state: "published" }, { id: V2, state: "archived" }];
   globalThis.fetch = vi.fn(async (url, init) => fakeRest(url, init));
 });
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -87,6 +89,14 @@ describe("transition — the lead's reason, and cde_transition's refusals in its
     expect(e.message).toMatch(/^Supabase 404: /);
   });
 
+  it("an override that is not a string is a 400 before any call — it would be recorded as '[object Object]' or '5'", async () => {
+    for (const override of [{ reason: "x" }, 5, true, ["x"]])
+      await expect(transition(null, V1, "published", { override })).rejects.toMatchObject({ status: 400, message: "override must be a string — the lead's reason to publish" });
+    expect(calls).toHaveLength(0);
+    await transition(null, V1, "published", { override: null });
+    expect(rpcCalls()[0].body).not.toHaveProperty("p_override");
+  });
+
   it("a malformed id is a 404 before any call", async () => {
     await expect(transition(null, "nope", "shared")).rejects.toMatchObject({ status: 404, message: "version not found" });
     expect(calls).toHaveLength(0);
@@ -120,8 +130,10 @@ describe("archive and restore go through cde_transition", () => {
   });
 
   it("a refused restore stops the loop with the function's words", async () => {
+    versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
     rpc = pgError(403, "42501", "insufficient role to transition (needs lead or owner)");
-    await expect(unarchiveFile("demo", C1, "viewer@bds.jo")).rejects.toMatchObject({ status: 403 });
+    await expect(unarchiveFile("demo", C1, "viewer@bds.jo")).rejects.toMatchObject({ status: 403, message: "insufficient role to transition (needs lead or owner)" });
+    expect(rpcCalls().map((c) => c.body.p_version)).toEqual([V2]); // V4 is never tried
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived")).toBeUndefined();
   });
 });

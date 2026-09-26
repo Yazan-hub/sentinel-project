@@ -1121,7 +1121,7 @@ async function handleRequest(req, res) {
       //   Agents propose; the governed core (IDS + rules) adjudicates deterministically and records the verdict
       //   immutably. Nothing in scope answers recorded (downgraded "nothing in scope"); a version_id must be this
       //   project's (400); register registers the version on accepted/recorded and stamps it (cde-store adjudicateProposal);
-      //   a client-sent IDS never stamps or registers a version (400).
+      //   a client-sent IDS or naming ruleset never stamps or registers a version (400).
       //   G2: on a REJECT, each failing requirement auto-opens as a BCF issue (live-synced to web + Revit),
       //   unless the caller passes raise_bcf:false. Best-effort — a BCF hiccup never changes the verdict.
       if (p2 === "propose" && !p3 && req.method === "POST") {
@@ -1304,8 +1304,8 @@ async function handleRequest(req, res) {
         return send(res, 201, await cde.addVersion(p2, await readBody(req)));
       }
       // override: the lead's reason to publish a version with no accepted verdict that measured something, passed
-      // through as given; cde_transition (0031) takes it only from a signed-in lead. A refusal is a 409 in the
-      // function's words, a role refusal a 403, an unknown version a 404 (cde-store.mjs transition).
+      // through as given (a non-string is a 400); cde_transition (0031) takes it only from a signed-in lead. A refusal
+      // is a 409 in the function's words, a role refusal a 403, an unknown version a 404 (cde-store.mjs transition).
       if (p1 === "versions" && p3 === "transition" && req.method === "POST") {
         const body = await readBody(req);
         return send(res, 200, await cde.transition(null, p2, body.state, { actor: body.actor, note: body.note, override: body.override }));

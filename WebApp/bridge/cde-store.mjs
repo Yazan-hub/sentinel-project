@@ -634,6 +634,8 @@ const TRANSITION_REFUSAL = { P0001: 409, P0002: 404, "42501": 403 };
  *  something: sent only when not blank, and cde_transition takes it only from a signed-in lead. */
 export async function transition(key, version_id, new_state, { actor, note, override } = {}) {
   if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
+  // The reason is recorded word for word on the state: row, so only a string is one ({} or 5 would be "[object Object]"/"5").
+  if (override != null && typeof override !== "string") { const e = new Error("override must be a string — the lead's reason to publish"); e.status = 400; throw e; }
   if (key) await versionOnKey(key, version_id);
   // ISO 19650 state changes are the governed trail's spine — stamp the verified identity, not the claim.
   const body = { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note };
@@ -923,11 +925,6 @@ export async function projectNamingRuleset(key, deps = {}) {
   return { ruleset: r.body ?? null, source: r.source, ref: r.ref, sha256: r.sha256 };
 }
 
-/** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
- *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
- *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}).
- *  IDS custody: the project's installed artefact (artefact-store.mjs) → the office's → the client's posted
- *  spec → none; the response says which judged in ids_source / ids_ref. */
 /**
  * One ledger entry, by id, scoped to the project — the backing read for a receipt check.
  * Returns null rather than throwing: "no such entry" is an answer a verifier needs to hear.
@@ -1003,8 +1000,22 @@ function readRegister(b) {
   return { name, size_bytes: r.size_bytes, sha256: r.sha256.toLowerCase() };
 }
 
+/** Adjudicate a proposal (POST /cde/:key/propose, intake, the AI tools, MCP, changesets): validate `elements` (the
+ *  ElementProperties shape) against the IDS — the project's installed artefact → the office's → the caller's `ids` →
+ *  none, named in ids_source / ids_ref — and the container name against the naming standard, write one proposal row,
+ *  and return { verdict, downgraded, summary, failures, naming, ids_*, audit_id, version, verdict_audit_id, receipt }.
+ *  No IDS → "recorded"; accepted with nothing in scope → "recorded", downgraded "nothing in scope". `version_id` stamps
+ *  the key's own version (another's is a 400); `register` registers a wip version on accepted or recorded and stamps
+ *  it (readRegister). A stamp is what publishing reads (migration 0031), so an IDS or a naming ruleset the caller sent
+ *  together with version_id or register is a 400: only what is installed on the project or its office stamps. Every
+ *  400 comes before any ledger row. */
 export async function adjudicateProposal(key, b = {}) {
   const reg = readRegister(b);
+  // The naming twin of the client-IDS rule below: a caller's own ruleset (even {fields: [], enforce: "off"}) may judge
+  // a plain proposal, never the name a stamped or registered version carries. Pure, so before any read.
+  if (b.naming != null && (b.version_id || reg)) {
+    throw Object.assign(new Error(`a version's name is judged only by the naming standard installed on ${key} or its office — send no naming ruleset, or propose without version_id/register`), { status: 400 });
+  }
   const proj = await ensureProject(key);
   // A verdict is stamped only on a version of the project that judged it (spec Decision 4): another project's version,
   // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1).
