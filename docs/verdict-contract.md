@@ -84,18 +84,26 @@ ledger is append-only and immutable — the wrong place to discover that. The di
   "summary": { … },
   "agent": { "claimed": true, … } | null,
   "ledger_hash": "9f2c…",             // the audit row's OWN hash-chain entry
-  "prev_hash":   "1ab7…"
+  "prev_hash":   "1ab7…"              // the previous row's hash in the WHOLE ledger — often another project's
 }
 ```
 
-The anchor is **the ledger's hash chain**, not a digest this code invents — and that chain is
-truncate-proof at the Postgres core (migrations 0006/0015: UPDATE, DELETE and TRUNCATE are blocked by
-triggers and least-privilege grants, so a compromised bridge or a DBA cannot rewrite it).
+The anchor is **the ledger's hash chain**, not a digest this code invents. It is **one chain for the
+whole ledger, not one per project**: each row's hash covers the previous row's hash — whichever project
+wrote that row — and the row's own `entity_type`, `entity_id`, `action`, `actor`, `old_value`,
+`new_value` and `at` (migration 0006); the row's `id` and `project_id` are not in the hash. The ledger
+is append-only at the Postgres core (migrations 0002/0015: UPDATE, DELETE and TRUNCATE are blocked by
+triggers and least-privilege grants, so a bridge holding the service key cannot rewrite it; a database
+superuser is outside that guarantee, as for any database). Nothing in Sentinel recomputes the chain at
+runtime: a receipt is checked against the hash the ledger stored (§5).
 
 ## 5. Verify — the part that matters
 
 `POST /receipt/:project/verify` with `{ "receipt": … }`, or
-`GET /receipt/:project/:auditId` for the authoritative one.
+`GET /receipt/:project/:auditId` for the authoritative one. The POST answers two kinds of caller.
+
+**A member** — the bridge's bearer token, or a signed-in member's session — gets the full reply, as
+before (the MCP tool `sentinel_verify_receipt` is one):
 
 ```jsonc
 { "matches": false,
@@ -107,6 +115,40 @@ Mismatches are **listed, not collapsed into a boolean**: "this receipt is forged
 is for a different verdict" are different conversations to have with a client. A ledger row with no
 chain hash is reported as *unconfirmable* rather than confirmed — the hash is the only field the
 database, rather than the caller, produced.
+
+**Anyone else** — no token, from any web page — sends the receipt, or just `{ "audit_id": 702,
+"ledger_hash": "<64 hex>" }` with `recorded_at`, `verdict` and `project` if it has them; only those
+five fields are read. The reply names fields and never carries a ledger value:
+
+```jsonc
+{ "matches": false,
+  "checked":     ["audit_id", "ledger_hash", "project", "verdict"],  // compared (names only)
+  "mismatched":  ["verdict"],                                        // compared and different
+  "not_checked": ["recorded_at"],                                    // not sent: never counted as a pass
+  "note": "…" }
+```
+
+`matches: true` needs the id, the hash and the project to match, and every field that was sent to
+match; its note reads "matches the ledger's stored hash; the chain is not recomputed". An unknown
+project key, an unknown id, a row of another project, a wrong hash and a row with no chain hash all
+get the same bytes, so the answer says nothing about which keys or ids exist:
+
+```json
+{"matches":false,"note":"no ledger entry on this key has that id and hash"}
+```
+
+A malformed body — an id that is not an integer, a hash that is not 64 lowercase hex — is a 400
+before any read; a body over 8 KB is a 413; past 60 anonymous checks a minute (one window for every
+caller together, not per address) the answer is a 429. This path alone answers
+`Access-Control-Allow-Origin: *`, without credentials; the bridge logs the method, the path and the
+outcome of an anonymous check, never its body. `GET /receipt/…` and every `/cde` route still need
+the bearer.
+
+**What a match does not say.** The check compares the hash the ledger stored for that row; it does not
+recompute the hash or walk the chain. And because the chain runs across projects (§4), a receipt's
+`prev_hash` is often another project's row: someone holding it and that project's key can confirm one
+bit — "row N on that key has this hash" — and learn nothing else. Removing that needs per-project
+chaining, a migration Sentinel has not made.
 
 ## 6. The client
 
@@ -124,8 +166,11 @@ database, rather than the caller, produced.
 ```
 
 `verdictBadge` renders **UNVERIFIED** until `verify()` has confirmed the receipt. A badge that looked
-authoritative on the proposer's say-so would defeat its own purpose. It is built with
-`createElement`, never `innerHTML`, so it is safe beside untrusted model data.
+authoritative on the proposer's say-so would defeat its own purpose. It shows a verdict only when the
+check compared it (`verdict` in the reply's `checked`); a receipt confirmed on its id and hash alone
+reads "on the ledger — verdict not checked", and a confirmed badge's title says the entry "matches the
+ledger's stored hash (chain not recomputed)". It is built with `createElement`, never `innerHTML`, so
+it is safe beside untrusted model data.
 
 ## 7. What this contract deliberately does not do
 

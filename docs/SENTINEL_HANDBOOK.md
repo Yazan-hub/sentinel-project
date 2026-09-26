@@ -76,18 +76,18 @@ Everything here runs *inside Revit*, on the model open in front of you. The ribb
 | **Health Scorecard** | A weighted executive compliance score with a per-domain breakdown. | For a status read / a client update. | Coordinator, Manager |
 | **Rule Set** | Shows the *effective* ruleset (master version + this project's overlay). | To see what's actually being enforced. | Coordinator |
 | **IFC Gate → IFC Pre-Flight** | Audits `IfcExportAs` and mandatory property sets **before** you export IFC. | Right before an IFC export. | Modeller |
-| **IFC Gate → IFC Delivery Gate** | Exports + certifies an IFC against the project's delivery contract (`contract@n`, EIR-as-code), named in the dialog and the certificate. **FAIL = do not upload.** No contract installed → **NOT CHECKED**, never a pass. | At a formal deliverable. | Coordinator |
+| **IFC Gate → IFC Delivery Gate** | Exports + certifies an IFC against the project's delivery contract (`contract@n`, EIR-as-code), named in the dialog and the certificate. **FAIL = do not upload.** No contract installed → **NOT CHECKED**, never a pass. The verdict's ledger row is waited for (up to 6 s): the dialog ends `Recorded: ledger #<id> · receipt <16 hex>…`, or says the row was not recorded or is not confirmed, and why. | At a formal deliverable. | Coordinator |
 | **Family Health → Sanitize .rfa** | Audits a family file (geometry budget, nested CAD, shared params) **before** loading it. | Before bringing in an external family. | Modeller |
-| **Family Health → Heal Loaded Families** | Scans families already in the project; injects missing shared parameters and reloads silently. | To fix a model that's already polluted. | Coordinator |
+| **Family Health → Heal Loaded Families** | Scans families already in the project; injects missing shared parameters and reloads silently. Each run is one `family_heal` row on the model's web project ledger, and the report ends with that row's ledger line. | To fix a model that's already polluted. | Coordinator |
 | **MEP Openings** | Finds linked MEP-vs-structure intersections and places provision-for-void families. | Structural/MEP coordination. | Coordinator, Structural |
 
 ### 3.3 Publish — governed delivery (the flagship) + ungoverned options
 
 | Tool | What it does | When | Who |
 |---|---|---|---|
-| **Governed Publish** ⭐ | The flagship. **One action**: export the active view to IFC → run the delivery gate → adjudicate against the project IDS → record the verdict **immutably** → publish + version **only if it passes**. A fail is recorded and each failing requirement **auto-opens as a BCF issue**, live-synced to the web and back into Revit. | Every real deliverable. This is the referee. | Coordinator |
+| **Governed Publish** ⭐ | The flagship. **One action**: export the active view to IFC → run the delivery gate → adjudicate against the project IDS → record the verdict **on the ledger** → publish + version **only if it passes**. A fail is recorded and each failing requirement **auto-opens as a BCF issue**, live-synced to the web and back into Revit. The dialog names the gate row's and the verdict's ledger entries (`ledger #<id> · receipt <16 hex>…`), and says `version badge: not confirmed — <reason>` rather than promise the ✓ badge when the version or its stamp is not confirmed. | Every real deliverable. This is the referee. | Coordinator |
 | **Publish → Quick Publish** | Ungoverned: export the active view to IFC into the outbox; the bridge uploads it. **No verdict.** | Quick share of work-in-progress. | Modeller |
-| **Publish → Auto-Publish on save** | Toggle push-on-save: every save/sync re-exports + uploads. Throttled. | Turn on for a live-shared model; off for very large ones. | Modeller |
+| **Publish → Auto-Publish on save** | Toggle push-on-save: every save/sync re-exports + uploads. Throttled. Each publish's ledger line goes to the panel's Doctor log; the ledger post never holds up the save. | Turn on for a live-shared model; off for very large ones. | Modeller |
 | **Publish → Publish Sheets** | Renders all Revit sheets to PNG (sheets don't survive IFC) and serves them to the web app's Sheets tab. | When reviewers need the actual drawings, not just the model. | Modeller |
 
 ### 3.4 Standards & Build — office standards + generation

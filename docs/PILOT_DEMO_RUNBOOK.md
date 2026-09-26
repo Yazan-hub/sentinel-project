@@ -112,7 +112,7 @@ curl -s -X POST $BASE/cde/$KEY/propose -H "Content-Type: application/json" \
 
 # 3) Coordinator view: the issues are live, and the version now carries a ✗ badge
 curl -s "$BASE/bcf/3.0/projects/$KEY/topics?status=all&model=" | node -e 'const t=JSON.parse(require("fs").readFileSync(0));console.log(t.length,"BCF topics:",t.map(x=>x.title))'
-curl -s "$BASE/cde/$KEY/audit" | node -e 'const a=JSON.parse(require("fs").readFileSync(0));console.log("verdict events:",a.filter(e=>e.action.startsWith("verdict:")).map(e=>e.action))'
+curl -s "$BASE/cde/$KEY/audit?entity_type=file_version&action_prefix=verdict:" | node -e 'const a=JSON.parse(require("fs").readFileSync(0));console.log("verdict events:",a.total,a.rows.map(e=>e.action))'
 
 # 4) Fix and re-propose → ACCEPTED; re-run also proves BCF dedup (raised 0 on the same reqs)
 curl -s -X POST $BASE/cde/$KEY/propose -H "Content-Type: application/json" \
