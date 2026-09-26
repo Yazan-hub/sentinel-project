@@ -677,11 +677,25 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
   // audit_log has no authed-insert policy (writes bypass RLS by design) → force the service key.
   // A forwarded JWT's verified identity outranks any client-asserted actor (anti audit-trail poisoning, F3);
   // with no JWT (Revit/service path) we keep the supplied actor so the pilot is unaffected.
-  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: resolveActor(actor), old_value: oldv, new_value: newv }, service: true });
+  // return=representation: the caller gets the row the ledger stored ({id, at, hash, …}), so a line can name
+  // "ledger #id"; null when no row came back — never a made-up id. Callers that ignore the value are unchanged.
+  const rows = await sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: resolveActor(actor), old_value: oldv, new_value: newv }, prefer: "return=representation", service: true });
+  return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 
-/** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). */
+/** Ledger rows Sentinel writes itself and then reads as fact (spec Decision 7): cde_transition's `state:` rows and
+ *  recordVersionVerdict's `verdict:` stamps (the transition guard and ids.last_verdict read them), the stage gate
+ *  (`gate:`, entity_type stage_gate) and ROI (`roi:`). The open audit route may not write them. */
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:"];
+
+/** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
+ *  row (an action starting with one of RESERVED_ACTIONS, or entity_type stage_gate; case and surrounding spaces
+ *  ignored) is a 400 before any read. */
 export async function recordAudit(key, b) {
+  const type = String(b.entity_type ?? "").trim().toLowerCase();
+  const action = String(b.action ?? "").trim().toLowerCase();
+  const reserved = type === "stage_gate" ? "stage_gate" : RESERVED_ACTIONS.find((p) => action.startsWith(p));
+  if (reserved) { const e = new Error(`${reserved} rows are written by Sentinel, not through this route`); e.status = 400; throw e; }
   const proj = await ensureProject(key);
   return (await sb(`audit_log`, {
     method: "POST",
