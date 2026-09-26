@@ -15,7 +15,7 @@ Spec: `docs/superpowers/specs/2026-09-26-publish-one-path-design.md` (5a). Branc
 - (controller) The client-IDS amendments to Tasks 1 and 2 add one probe case and at least one vitest case: from Task 2 on, the npm totals below rise by the tests those amendments add, and the probe pass line rises by one case — each implementer states the totals it measured.
 - (controller) Master is **4541242**. Branch from it (the controller names the branch, e.g. `feature/publish-one-path`). Nothing is pushed before Task 6 is committed. 5a touches no C#: no add-in build, no DeployToRevit.
 - **Execution order:** Tasks 1, 2, 3, 4, 5, 6, then the controller's Task 7. Task 7 is: the founder approves 0031 → apply `WebApp/db/migrations/0031_transition_reads_verdict.sql` → run `probes/0031_probe.sql` → deploy the managed bridge and the managed outbox watcher at once → Session B9 → capability row ✅ → merge. The task texts live in scratchpad `p5a-plan-A.md` (T1), `-B.md` (T2), `-C.md` (T3-T4) and `-D.md` (T5-T6). The amendments override a task's text where they conflict. Where a task quotes text that an earlier task changed, match the text, not the line numbers (Tasks 2-5 cite master numbering).
-- **Migration rule:** no task applies 0031 or runs its probe, locally or live. Task 1 only writes the two files. The controller applies 0031 in Task 7, and only after the founder's explicit approval. The order is 0031 first, then the 5a bridge at once: between the two, the master bridge's unarchive is a direct state PATCH, which the new trigger refuses with a 500. If the first RPC answers PGRST202, run `notify pgrst, 'reload schema';`. The probe passes only when it raises text beginning `PROBE 0031: 18 of 18 as expected.` and names 13 burned ledger ids; record those ids in the B9 notes. Tasks 1 and 3 must ship in the same deploy: until `recordAudit` refuses `verdict:` rows, any member can forge the row 0031's guard reads.
+- **Migration rule:** no task applies 0031 or runs its probe, locally or live. Task 1 only writes the two files. The controller applies 0031 in Task 7, and only after the founder's explicit approval. The order is 0031 first, then the 5a bridge at once: between the two, the master bridge's unarchive is a direct state PATCH, which the new trigger refuses with a 500. If the first RPC answers PGRST202, run `notify pgrst, 'reload schema';`. The probe passes only when it raises text beginning `PROBE 0031: 20 of 20 as expected.` and names 17 burned ledger ids (18 of 18 and 13 before the client-IDS amendment added P19 and P20); record those ids in the B9 notes. Tasks 1 and 3 must ship in the same deploy: until `recordAudit` refuses `verdict:` rows, any member can forge the row 0031's guard reads.
 - **npm test** (`cd WebApp && npm test`; without `config/.env`, set dummy `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` and `SUPABASE_ANON_KEY`):
 
   | After | Tests | Files |
@@ -259,7 +259,7 @@ Create `WebApp/db/migrations/probes/0031_probe.sql`:
 -- probes/0031_probe.sql — the drill for 0031_transition_reads_verdict.sql, run by the controller AFTER 0031 is applied.
 -- One DO block: it builds two throwaway projects, drives cde_transition and the state trigger through every refusal
 -- and every allowed move, then ALWAYS raises its summary, so every write it made rolls back (projects, versions,
--- memberships, audit rows). The summary is the error text: "PROBE 0031: 18 of 18 as expected …" is the pass.
+-- memberships, audit rows). The summary is the error text: "PROBE 0031: 20 of 20 as expected …" is the pass (with the amendment's P19 and P20).
 -- Side effects that survive the rollback: the audit rows' identity values are consumed (the summary names them, so
 -- the drill notes can say why those ledger ids do not exist), and the audit chain's advisory lock is held for the
 -- block's few milliseconds. A signed-in user is simulated with the transaction-local request.jwt.claims setting
@@ -464,7 +464,7 @@ begin
 end $probe$;
 ```
 
-Neither SQL file is executed in this task: there is no local Postgres and the live database is not written before the founder approves. Their first execution is Task 7's apply, then this probe; a pass is the error text beginning `PROBE 0031: 18 of 18 as expected.` and naming the 13 ledger ids its rolled-back rows took (P3, P5, P9, P10 ×2, P11 ×3, P12 ×3, P13 ×2).
+Neither SQL file is executed in this task: there is no local Postgres and the live database is not written before the founder approves. Their first execution is Task 7's apply, then this probe; a pass is the error text beginning `PROBE 0031: 20 of 20 as expected.` and naming the 17 ledger ids its rolled-back rows took (P3, P5, P9, P10 ×2, P11 ×3, P12 ×3, P13 ×2, P19 ×2, P20 ×2 — the last two from the client-IDS amendment).
 
 - [ ] **Step 3: Write the failing tests**
 

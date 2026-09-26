@@ -44,7 +44,7 @@ When the gate fails, Sentinel doesn't just say "no" — it turns each failing re
 
 ## ISO 19650 state governance
 
-Information containers move through an ISO 19650 state machine (WIP → Shared → Published → Archived, with suitability codes) recorded on the ledger, so the CDE timeline shows *who moved what, when, and with what verdict*. Shared → Published needs the version's newest verdict to be accepted with something in scope, or a signed-in lead's reason; the `state:` row records the verdict it read and the reason, and a state changes only through `cde_transition` (migration 0031). Status: 🟩 Built (`cde_transition`, the Versions panel with history / set-live / compare).
+Information containers move through an ISO 19650 state machine (WIP → Shared → Published → Archived, with suitability codes) recorded on the ledger, so the CDE timeline shows *who moved what, when, and with what verdict*. Shared → Published needs the version's newest verdict to be accepted with something in scope, judged by an IDS installed on the project or its office, or a signed-in lead's reason; the `state:` row records the verdict it read and the reason, and a state changes only through `cde_transition` (migration 0031). Status: 🟩 Built (`cde_transition`, the Versions panel with history / set-live / compare).
 
 ## Try it without any install
 

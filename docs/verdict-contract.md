@@ -39,6 +39,11 @@ rulebook is private is just an opinion.
 
 **The project's installed IDS wins.** If the project (or its office) has an `ids` artefact, a client-supplied `ids` is ignored and `client_ids_ignored: true` is recorded; `ids_source` is `project | office | client | none` and `ids_ref` names the version.
 
+**Only installed standards judge a version.** A client `ids` (with none installed) or a client `naming` ruleset may
+judge a plain proposal, but sent together with `version_id` or `register` it is a 400 before any ledger row: a stamp
+is what publishing reads (§2), so only the IDS and the naming standard installed on the project or its office make
+one.
+
 ## 2. Verdict
 
 ```jsonc
@@ -75,7 +80,9 @@ registers nothing. `version_id` stamps a version that already exists; one on ano
 registered). The in-app AI tools and MCP `sentinel_propose` pass neither.
 
 **What a verdict unlocks.** A version moves shared → published only when its newest `verdict:` row on its project is
-`verdict:accepted` with `summary.in_scope` above 0. Anything else — `recorded`, `rejected`, no verdict — needs a
+`verdict:accepted` with `summary.in_scope` above 0 and a non-null `ids_ref` — judged by an IDS installed on the
+project or its office. Anything else — `recorded`, `rejected`, no verdict, an accepted verdict judged by an IDS the
+caller sent (`ids_ref` null) or one written before verdicts named their IDS — needs a
 signed-in lead's reason, `POST /cde/versions/:id/transition { "state": "published", "override": "<reason>" }`;
 without one the answer is a 409 saying the version needs the lead's reason. The bridge's service key, Revit, the
 bridge token and the AI tools cannot give one. The `state:shared->published` row records the `verdict` and the
