@@ -210,7 +210,7 @@ public sealed class App : IExternalApplication
             report = report.Plus(cde, judged);
         }
         PanelVm!.PublishReport(report);
-        Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
+        Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync → auto-publish, when the project's publish@n says so
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled;
         // posted on a task and never waited for — a sync must not block. When the bridge has answered, its ledger line
         // goes to the Doctor log and the journey is re-read, so the `model` step is never read before its report
@@ -318,7 +318,7 @@ public sealed class App : IExternalApplication
         var std = Pull(st, "Sentinel_Standards", "Standards", "standards",
             "Set up and apply office standards: project setup, build/apply a standards pack, or ingest from documents.");
         Sub(std, "Sentinel_Setup", "Project Setup", "Sentinel.Commands.ProjectSetupCommand", "setup",
-            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path and publishing options.");
+            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path.");
         Sub(std, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
             "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
         Sub(std, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",

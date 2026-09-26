@@ -333,7 +333,7 @@ static class Check
         Is(PublishLines.Doctor(plan, Unreached, NotStaged), "Auto-publish: no verdict — nothing uploaded — timed out after 120s (model may be very large)", "auto, bridge not reached");
         Is(PublishLines.Doctor(noGeom), "Auto-publish failed — nothing uploaded — IFC export contained no geometry — nothing to publish. Check the model's 3D view and the IFC mappings.", "auto, empty export");
         Is(PublishLines.Doctor(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged), "Auto-publish: verdict accepted but the bridge registered no version — nothing uploaded · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, no version in the reply");
-        Is(PublishLines.Doctor(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (x)", KeptIfcPath = @"C:\t\a.ifc" }), "Auto-publish: " + Container + " v1 · wip registered but NOT in the upload outbox — the IFC did not reach the upload outbox (x)", "auto, the move failed");
+        Is(PublishLines.Doctor(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (x)", KeptIfcPath = @"C:\t\a.ifc" }), "Auto-publish: " + Container + " v1 · wip registered but NOT in the upload outbox — the IFC did not reach the upload outbox (x) — the IFC is kept at C:\\t\\a.ifc", "auto, the move failed: names the kept IFC");
         Is(PublishLines.Doctor(plan), "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded", "auto, a Judge task that never answered");
     }
 

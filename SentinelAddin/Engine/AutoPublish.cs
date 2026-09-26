@@ -13,7 +13,7 @@ namespace Sentinel.Engine;
 /// and its ledger row, one /propose that registers the version with its verdict, the sidecar-first stage — run
 /// without a dialog, and ONLY when the project's <c>publish@n</c> says <c>{auto: true}</c>. There is no switch in
 /// Revit: none installed, a cached none, <c>auto: false</c> or a body that does not parse all mean off, and the
-/// Doctor log says so once per document per session, naming the policy ("Auto-publish: off — publish: none — not
+/// Doctor log says so once per document per policy (a changed policy earns its line), naming it ("Auto-publish: off — publish: none — not
 /// installed for &lt;key&gt; or its office"). A rejected run uploads nothing and logs its line; so does a gate FAIL.
 ///
 /// Threading: the save/sync handler reads the key (Extensible Storage: API thread) and returns at once; the policy
@@ -27,7 +27,7 @@ public static class AutoPublish
     private static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(15);
     // API thread only: the handlers, the hub's jobs and the pane's dispatcher are all Revit's main thread.
     private static readonly Dictionary<Document, DateTime> LastRun = new();
-    private static readonly HashSet<Document> SaidOff = new();
+    private static readonly Dictionary<Document, string> SaidOff = new(); // the last "off" line said per document
     private static bool _busy;
 
     /// <summary>True from Prepare to Stage of one run. Governed Publish refuses to start meanwhile: both would write
@@ -53,11 +53,15 @@ public static class AutoPublish
                 : ArtefactClient.None("publish", "the policy read did not finish (" + (t.Exception?.GetBaseException().Message ?? "unknown") + ")");
             if (!Publisher.AutoEnabled(policy))
             {
-                // Once per document per session: saves are frequent, the reason is not. On the pane's thread (BeginInvoke,
-                // never Invoke from a worker), which is the API thread that owns SaidOff.
+                // Once per document per policy: saves are frequent, the reason is not — but a changed policy (publish@2, the
+                // cached copy while the bridge is down) earns its line. On the pane's thread (BeginInvoke, never Invoke from
+                // a worker), which is the API thread that owns SaidOff.
+                var line = PublishLines.Policy(policy);
                 ui.BeginInvoke(new Action(() =>
                 {
-                    if (doc.IsValidObject && SaidOff.Add(doc)) vm.LogDoctor(PublishLines.Policy(policy));
+                    if (!doc.IsValidObject || (SaidOff.TryGetValue(doc, out var said) && said == line)) return;
+                    SaidOff[doc] = line;
+                    vm.LogDoctor(line);
                 }));
                 return;
             }

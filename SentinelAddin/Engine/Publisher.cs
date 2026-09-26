@@ -142,7 +142,7 @@ public static class Publisher
     /// <see cref="DeliveryContract.Load"/>); the WHOLE model exported (<see cref="PlatformExporter.Default3DView"/>)
     /// into a folder of its own under <paramref name="tempDir"/> in <c>contract.IfcSchema ?? "IFC2X3"</c>; the gate and
     /// its ledger row (waited, ≤ 6 s, so the row lands before /propose); the elements read for the referee. An unbound
-    /// document, a failed export or a gate FAIL leaves <see cref="PublishPlan.Ready"/> false with the temp IFC
+    /// document, a failed export, a gate FAIL or a throw after the export leaves <see cref="PublishPlan.Ready"/> false with the temp IFC
     /// discarded: <see cref="PublishLines.Dialog(PublishPlan,PublishOutcome?,StageResult?)"/> says which. Revit API
     /// only here; the plan carries no Revit object.
     /// </summary>
@@ -175,22 +175,33 @@ public static class Publisher
 
         // 2) The IFC Delivery Gate (contract@n above; none → NOT CHECKED, and the IDS still judges), and its row on the
         //    ledger, waited OFF this thread so it lands before /propose. A FAIL stops here; every line names it.
-        plan.Gate = IfcDeliveryGate.Validate(path, contract, source);
-        plan.SizeBytes = plan.Gate.FileSizeBytes;
-        plan.Sha256 = plan.Gate.FileSha256;
-        var gate = plan.Gate;
-        var name = plan.ContainerName;
-        plan.GateRow = Task.Run(() => GovernedNotify.DeliveryGate(name, gate, key)).GetAwaiter().GetResult();
-        if (plan.GateFailed) { Discard(plan); return plan; }
+        //    From here the temp IFC exists: a throw (the gate's file I/O, the gate row's task, the extraction) is a
+        //    refusal that discards it, so nothing lingers under %TEMP% unnamed — on either caller's path.
+        try
+        {
+            plan.Gate = IfcDeliveryGate.Validate(path, contract, source);
+            plan.SizeBytes = plan.Gate.FileSizeBytes;
+            plan.Sha256 = plan.Gate.FileSha256;
+            var gate = plan.Gate;
+            var name = plan.ContainerName;
+            plan.GateRow = Task.Run(() => GovernedNotify.DeliveryGate(name, gate, key)).GetAwaiter().GetResult();
+            if (plan.GateFailed) { Discard(plan); return plan; }
 
-        // 3) The elements the referee judges, read-only from the live model. Without an office code the Pset_<org>.*
-        //    rows are dropped from the read table (PsetMap) and the referee reports them missing: the plan says so.
-        if (string.IsNullOrWhiteSpace(App.OrgFor(doc)))
-            plan.OrgWarning = "This document's ruleset (" + (App.Engine?.SourceFor(doc).Label ?? "none") + ") has no \"org\" code — " +
-                "office property sets (Pset_<org>.*) were NOT read for this publish; the referee will report them " +
-                "missing. Install a ruleset@n with an \"org\" on " + key + " or its office, then retry.";
-        plan.Elements = GovernedElementExtractor.Extract(doc, key);
-        return plan;
+            // 3) The elements the referee judges, read-only from the live model. Without an office code the Pset_<org>.*
+            //    rows are dropped from the read table (PsetMap) and the referee reports them missing: the plan says so.
+            if (string.IsNullOrWhiteSpace(App.OrgFor(doc)))
+                plan.OrgWarning = "This document's ruleset (" + (App.Engine?.SourceFor(doc).Label ?? "none") + ") has no \"org\" code — " +
+                    "office property sets (Pset_<org>.*) were NOT read for this publish; the referee will report them " +
+                    "missing. Install a ruleset@n with an \"org\" on " + key + " or its office, then retry.";
+            plan.Elements = GovernedElementExtractor.Extract(doc, key);
+            return plan;
+        }
+        catch (Exception e)
+        {
+            Discard(plan);
+            plan.Refusal = "the publish stopped before the referee: " + e.Message;
+            return plan;
+        }
     }
 
     /// <summary>
@@ -217,7 +228,7 @@ public sealed class PublishPlan
     public string TempIfcPath = "";
     public long SizeBytes;
     public string Sha256 = "";
-    /// <summary>Why nothing was judged: not bound, or the export produced nothing. Null when the export landed.</summary>
+    /// <summary>Why nothing was judged: not bound, the export produced nothing, or the gate or the extraction threw (the temp IFC discarded). Null otherwise — a gate FAIL is <see cref="GateFailed"/>, not a refusal.</summary>
     public string? Refusal;
     /// <summary>The org-less ruleset note (Pset_&lt;org&gt; rows not read), for the dialog; null when the org is set.</summary>
     public string? OrgWarning;
@@ -396,7 +407,7 @@ public static class PublishLines
                    " · " + LedgerLine.For(o.VerdictRow);
         if (o.Version is null) return "Auto-publish: verdict " + v.Verdict + " but the bridge registered no version — nothing uploaded · " + LedgerLine.For(o.VerdictRow);
         var ver = o.Version;
-        if (!s.Staged) return "Auto-publish: " + p.ContainerName + " " + ver.Revision + " · " + ver.State + " registered but NOT in the upload outbox — " + s.Reason;
+        if (!s.Staged) return "Auto-publish: " + p.ContainerName + " " + ver.Revision + " · " + ver.State + " registered but NOT in the upload outbox — " + s.Reason + (s.KeptIfcPath is null ? "" : " — the IFC is kept at " + s.KeptIfcPath);
         return "Auto-published " + p.ContainerName + " " + ver.Revision + " · " + ver.State + " · " + LedgerLine.For(o.StampRow) +
                (o.Accepted ? "" : " — not judged: " + NotJudged(p, o));
     }
