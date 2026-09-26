@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for what a Revit tool says about its ledger write (cohesion phase 4c, decision 1): every HTTP
+       status and transport failure → Recorded / not confirmed / not recorded / not bound → the one line
+       (LedgerResult, LedgerLine), and the POST itself against throwaway loopback "bridges". Compiles LedgerResult.cs
+       and the pure half of ProjectContext.cs (SENTINEL_CHECK hides the Revit-typed For). No Revit API, no AppData,
+       never the running bridge; `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>event-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Coordination\LedgerResult.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ProjectContext.cs" />
+  </ItemGroup>
+</Project>

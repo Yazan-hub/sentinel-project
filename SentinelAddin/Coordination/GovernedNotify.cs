@@ -11,13 +11,15 @@ using Sentinel.Commands; // BcfConfig (bridge URL + service token)
 namespace Sentinel.Coordination
 {
     /// <summary>
-    /// Fire-and-forget notifications from Revit INTO the web app's governed layer (bridge <c>/cde/...</c>).
-    /// This is the compatibility bridge between authoring (Revit) and the referee layer (Sentinel web): it
-    /// records what Revit did in the project's immutable, hash-chained audit trail, so the CDE timeline shows
-    /// authoring events alongside coordination + governance. It NEVER throws and NEVER blocks the Revit save
-    /// flow — an absent or slow bridge is a silent no-op. The bridge comes from <see cref="BcfConfig"/>
+    /// Notifications from Revit INTO the web app's governed layer (bridge <c>/cde/...</c>): what Revit did lands on
+    /// the project's ledger (audit_log; its hash chain runs through the whole table, not per project), so the CDE
+    /// timeline shows authoring events alongside coordination + governance. A ledger event (<see cref="Event"/> and
+    /// the wrappers that return a <see cref="LedgerResult"/>) is BLOCKING — 6 s cap — and says what the ledger
+    /// answered: callers run it OFF the Revit API thread and wait (a modal tool) or continue on the task (save, sync),
+    /// then print <see cref="LedgerLine"/> on their own thread. Nothing here throws; only <see cref="FileVersion"/>'s
+    /// not-bound Doctor line touches UI, on the caller's thread. The bridge comes from <see cref="BcfConfig"/>
     /// (ServiceUrl + ServiceToken); the project is ALWAYS the caller's document key (ProjectContext) — there is
-    /// no machine default, and an empty key records nothing (and says so in the Doctor log).
+    /// no machine default, and an empty key records nothing and says so.
     /// </summary>
     internal static class GovernedNotify
     {
@@ -45,17 +47,30 @@ namespace Sentinel.Coordination
 
         private const string NotBoundError = "this model is not bound to a web project — Sentinel ▸ Project Setup";
 
-        /// <summary>Record a "model published from Revit" event in the governed audit trail.</summary>
-        public static void ModelPublished(string modelName, long bytes, string projectKey)
+        /// <summary>
+        /// POST one governed event to <c>{ServiceUrl}/cde/{key}{path}</c> and return what the ledger answered —
+        /// <see cref="LedgerLine"/> is the only text for it. BLOCKING, ≤ 6 s unless <paramref name="timeout"/> says
+        /// otherwise: a modal tool waits with <c>Task.Run(() => …).GetAwaiter().GetResult()</c>, a save or sync handler
+        /// continues on the task. Never throws and never touches UI — no LogDoctor, no Dispatcher: a worker calling
+        /// back into a thread that waits on it would deadlock; the caller prints the line on its own thread. An empty
+        /// key sends nothing (<see cref="LedgerState.NotBound"/>).
+        /// </summary>
+        public static LedgerResult Event(string path, object payload, string projectKey, TimeSpan? timeout = null)
         {
-            Post("/audit", new
+            var cfg = BcfConfig.Load(); // never throws: the file, else the environment, else localhost
+            return LedgerResult.Post(cfg.ServiceUrl, cfg.ServiceToken, projectKey, path, payload, timeout ?? LedgerResult.DefaultTimeout);
+        }
+
+        /// <summary>Record a "model published from Revit" event on the ledger (AutoPublish continues on the task and
+        /// logs the line).</summary>
+        public static LedgerResult ModelPublished(string modelName, long bytes, string projectKey) =>
+            Event("/audit", new
             {
                 entity_type = "model",
                 actor = "Revit",
                 action = "Model published from Revit: " + modelName,
                 new_value = new { model = modelName, kb = bytes / 1024, source = "revit", at = DateTime.UtcNow.ToString("o") },
             }, projectKey);
-        }
 
         /// <summary>
         /// Register a Revit publish as a new version in the web app's file-version history (migration 0011,
@@ -76,29 +91,29 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
-        /// Record an IFC Delivery Gate verdict (KF-1) in the governed audit trail. The web CDE timeline then shows the
+        /// Record an IFC Delivery Gate verdict (KF-1) on the ledger. The web CDE timeline then shows the
         /// certificate that decided whether a deliverable was fit for upload: PASS, FAIL or NOT CHECKED. The row names
         /// the contract that judged (contract_ref · contract_source · contract_sha256), all null when none was
         /// installed. <c>passed</c> is null when nothing was judged; every reader treats null as not checked, never as
         /// a pass or a fail. The row is <see cref="Sentinel.Engine.GateLines.AuditValue"/>, which has the Node intake
         /// gate row's shape and is pinned by tools/gate-check. <c>sha256</c> ties it to the exact bytes certified.
+        /// The IFC gate and Governed Publish wait for the answer and print its line.
         /// </summary>
-        public static void DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey)
-        {
-            Post("/audit", new
+        public static LedgerResult DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey) =>
+            Event("/audit", new
             {
                 entity_type = "delivery_gate",
                 actor = "Revit",
                 action = Sentinel.Engine.GateLines.AuditAction(fileName, gate),
                 new_value = Sentinel.Engine.GateLines.AuditValue(fileName, gate),
             }, projectKey);
-        }
 
-        /// <summary>Record a Naming Manager batch in the governed audit trail (fire-and-forget).</summary>
-        public static void NamingRenamed(IEnumerable<object> rows, string actor, string projectKey)
+        /// <summary>Record a Naming Manager batch on the ledger: one row for the batch (the window continues on the
+        /// task and shows the line).</summary>
+        public static LedgerResult NamingRenamed(IEnumerable<object> rows, string actor, string projectKey)
         {
             var list = rows.ToList();
-            Post("/audit", new
+            return Event("/audit", new
             {
                 entity_type = "naming",
                 actor,
