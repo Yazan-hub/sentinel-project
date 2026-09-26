@@ -182,25 +182,39 @@ public sealed class ClashManagerCommand : IExternalCommand
     }
 }
 
-/// <summary>Retroactive scan + auto-heal of families already in the project.</summary>
+/// <summary>Retroactive scan + auto-heal of families already in the project. Each run is one <c>family_heal</c> row
+/// on the document's web project ledger (cohesion phase 4c; simulation F16). The document and its key are captured
+/// here, on the API thread at command time: the heal runs later on the Events queue and must never heal, or record
+/// against, whichever model has focus by then.</summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class SanitizeLoadedCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
-        if (c.Application.ActiveUIDocument?.Document is null) return Result.Cancelled;
+        var doc = c.Application.ActiveUIDocument?.Document;
+        if (doc is null) return Result.Cancelled;
+        var key = Sentinel.Engine.ProjectContext.For(doc).Key; // "" when unbound: Event sends nothing and says so
 
-        Workflow.FamilyProcessor.ScanLoaded(verdicts =>
+        Workflow.FamilyProcessor.ScanLoaded(doc, verdicts =>
         {
-            int healed = verdicts.Count(v => v.Result == Workflow.FamilyProcessor.HealResult.Healed);
-            int human = verdicts.Count(v => v.Result == Workflow.FamilyProcessor.HealResult.RequiresHumanInteraction);
+            List<string> Names(Workflow.FamilyProcessor.HealResult r) =>
+                verdicts.Where(v => v.Result == r).Select(v => v.FamilyName).ToList();
+            var healedNames = Names(Workflow.FamilyProcessor.HealResult.Healed);
+            var humanNames = Names(Workflow.FamilyProcessor.HealResult.RequiresHumanInteraction);
+            var failedNames = Names(Workflow.FamilyProcessor.HealResult.Failed);
+            int healed = healedNames.Count, human = humanNames.Count, failed = failedNames.Count;
             int clean = verdicts.Count(v => v.Result == Workflow.FamilyProcessor.HealResult.Clean);
-            int failed = verdicts.Count(v => v.Result == Workflow.FamilyProcessor.HealResult.Failed);
 
             var needsHuman = verdicts
                 .Where(v => v.Result == Workflow.FamilyProcessor.HealResult.RequiresHumanInteraction)
                 .Take(12)
                 .Select(v => "• " + v.TypeName + ": " + string.Join("; ", v.Notes.Take(2)));
+
+            // One ledger row per run, waited for (6 s cap) on this Events job. Event never touches the UI, so the
+            // wait cannot deadlock; the report then says what the ledger recorded, or why that is not confirmed.
+            var payload = Workflow.HealRecord.Payload(verdicts.Count, clean, healedNames, humanNames, failedNames, Environment.UserName);
+            var ledger = System.Threading.Tasks.Task.Run(() => Sentinel.Coordination.GovernedNotify.Event("/audit", payload, key)).GetAwaiter().GetResult();
+            var said = Sentinel.Coordination.LedgerLine.Sentence(ledger);
 
             TaskDialog.Show("Sentinel — Family Auto-Heal",
                 verdicts.Count + " families scanned\n" +
@@ -208,7 +222,8 @@ public sealed class SanitizeLoadedCommand : IExternalCommand
                 "⚡ Auto-healed (shared params injected + reloaded): " + healed + "\n" +
                 "⚠ Requires human interaction (geometry/CAD): " + human + "\n" +
                 "✕ Failed: " + failed +
-                (human > 0 ? "\n\nManual attention needed:\n" + string.Join("\n", needsHuman) : ""));
+                (human > 0 ? "\n\nManual attention needed:\n" + string.Join("\n", needsHuman) : "") +
+                "\n\n" + said);
         });
         return Result.Succeeded;
     }

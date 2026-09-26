@@ -25,15 +25,15 @@ public static class FamilyProcessor
         public List<string> Notes { get; } = new List<string>();
     }
 
-    /// <summary>Scan every editable, user-loadable model family in the active
-    /// document; heal what is safely healable. Callback gets the full report.</summary>
-    public static void ScanLoaded(Action<List<FamilyVerdict>> onDone)
+    /// <summary>Scan every editable, user-loadable model family in <paramref name="doc"/> — the document the
+    /// command captured, never whichever one has focus when the job runs — and heal what is safely healable.
+    /// Callback gets the full report.</summary>
+    public static void ScanLoaded(Document doc, Action<List<FamilyVerdict>> onDone)
     {
         App.Events?.Enqueue(uiapp =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
+            if (!doc.IsValidObject) return; // closed before the job ran: nothing healed, nothing to record
             var verdicts = new List<FamilyVerdict>();
-            if (doc is null) { onDone(verdicts); return; }
 
             var families = new FilteredElementCollector(doc).OfClass(typeof(Family))
                 .Cast<Family>()
@@ -99,7 +99,7 @@ public static class FamilyProcessor
         Document famDoc, List<string> missing, FamilyVerdict verdict)
     {
         var originalSp = app.SharedParametersFilename;
-        var tempSp = Path.Combine(Path.GetTempPath(), "Sentinel_SP.txt");
+        var tempSp = Path.Combine(Path.GetTempPath(), HealRecord.SharedParameterFile); // the file the heal's ledger row names
         try
         {
             if (!File.Exists(tempSp)) File.WriteAllText(tempSp, "");
