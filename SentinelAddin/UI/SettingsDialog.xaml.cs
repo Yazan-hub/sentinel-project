@@ -26,7 +26,6 @@ public partial class SettingsDialog : Window
         // The DOCUMENT's key only (never the merged machine value): saving at project scope can then never copy
         // a machine key into a model the user did not bind.
         WebProjectBox.Text = ProjectContext.For(doc).Key;
-        LinkedModelsBox.IsChecked = _current.PublishLinkedModels;
         if (doc is null)
         {
             ScopeProject.IsEnabled = false;      // no document open
@@ -145,7 +144,6 @@ public partial class SettingsDialog : Window
         var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
         var ghostFolder = GhostFolderBox.Text.Trim();
         var webProject = WebProjectKey();
-        var linkedModels = LinkedModelsBox.IsChecked == true;
 
         if (ScopeMachine.IsChecked == true)
         {
@@ -154,8 +152,7 @@ public partial class SettingsDialog : Window
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
             settings.RevitTemplatePath = template;
-            settings.GhostSourceFolder = ghostFolder;
-            settings.PublishLinkedModels = linkedModels; // no WebProjectKey or ProjectCode: both are document facts
+            settings.GhostSourceFolder = ghostFolder; // no WebProjectKey or ProjectCode: both are document facts
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // machine settings never pick the ruleset
@@ -178,7 +175,6 @@ public partial class SettingsDialog : Window
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
             settings.WebProjectKey = webProject;
-            settings.PublishLinkedModels = linkedModels;
             using var t = new Transaction(doc, "Sentinel: Save project settings");
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);
