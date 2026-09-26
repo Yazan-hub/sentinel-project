@@ -74,7 +74,8 @@ The bridge decides it once, for every caller — Revit, Governed Intake, agents.
 **One call judges, registers and stamps.** With `register`, an accepted or recorded verdict registers a new version
 of the container `register.name` — always `wip`, with no geometry until the uploader attaches it by the version's
 id — and stamps `verdict:<v>` on it from this same result: one proposal row, one version, one verdict row. The reply
-adds `"version": { "id", "container_id", "revision", "state": "wip" }` and `"verdict_audit_id"`. A rejected verdict
+adds `"version": { "id", "container_id", "revision", "state": "wip" }`, `"verdict_audit_id"` and `"verdict_hash"` (that
+verdict row's own chain hash, so Revit's `Version:` line can carry its receipt; both null when nothing was stamped). A rejected verdict
 registers nothing. `version_id` stamps a version that already exists; one on another project is a 400
 (`version <id> is not on <project>`). `register.name` must equal `container_name` (the name judged is the name
 registered). The in-app AI tools and MCP `sentinel_propose` pass neither.

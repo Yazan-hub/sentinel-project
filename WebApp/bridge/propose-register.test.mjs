@@ -163,7 +163,7 @@ describe("register — one adjudication registers the version and stamps it", ()
     expect(actions()).toEqual(["Proposal accepted from revit", "created", "set live", "uploaded", "verdict:accepted"]);
     const stamp = db.audit_log.at(-1);
     expect(stamp).toMatchObject({ entity_type: "file_version", entity_id: v.id, actor: "revit:yazan", new_value: { ids_ref: "ids@1", summary: { in_scope: 1 } } });
-    expect(r).toMatchObject({ verdict: "accepted", audit_id: db.audit_log[0].id, verdict_audit_id: stamp.id });
+    expect(r).toMatchObject({ verdict: "accepted", audit_id: db.audit_log[0].id, verdict_audit_id: stamp.id, verdict_hash: stamp.hash });
   });
 
   it("an existing container gets its next version, and that version is the live one", async () => {
@@ -186,7 +186,7 @@ describe("register — one adjudication registers the version and stamps it", ()
 
   it("rejected registers nothing", async () => {
     const r = await adjudicateProposal("aster-tower", { source: "revit", elements: BAD, container_name: NAME, register });
-    expect(r).toMatchObject({ verdict: "rejected", version: null, verdict_audit_id: null });
+    expect(r).toMatchObject({ verdict: "rejected", version: null, verdict_audit_id: null, verdict_hash: null });
     expect(actions()).toEqual(["Proposal rejected from revit"]);
     expect(posts("information_containers")).toHaveLength(0);
     expect(posts("container_versions")).toHaveLength(0);

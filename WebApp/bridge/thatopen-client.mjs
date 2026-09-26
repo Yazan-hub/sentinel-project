@@ -1,6 +1,7 @@
 // Shared That Open Platform upload helpers for the Sentinel Bridge.
-// Wraps the official @thatopen/services client so both the one-shot uploader (upload-ifc.mjs)
-// and the outbox watcher (watch-outbox.mjs) use the exact same, verified upload path.
+// Wraps the official @thatopen/services client so the outbox watcher (watch-outbox.mjs) and the bridge's own
+// uploads (platform-publish.mjs) use the exact same, verified upload path. The one-shot uploader (upload-ifc.mjs)
+// went in cohesion phase 5b: a model reaches the CDE only through /propose and the watcher.
 
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";

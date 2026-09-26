@@ -1,11 +1,12 @@
 // Sentinel → That Open Platform bridge — outbox watcher.
 //
-// Watches the Sentinel outbox (%APPDATA%\Sentinel\outbox) that Revit publishes into, and uploads each new IFC to
-// That Open Platform via the shared, verified upload path. Where the geometry lands in the CDE is read from the IFC's
-// sidecar (<name>.ifc.meta.json) and nothing else (spec Decision 6, outbox-logic.mjs): a sidecar version_id → attach
-// the platform item to that version; a pre-5b sidecar with no version_id → register a version by file name; no
-// sidecar, or one naming no project → the IFC moves to outbox\unbound\ with one log line, never uploaded or
-// registered. Uploaded files are moved to outbox\sent\ so they are never re-uploaded.
+// Watches the Sentinel outbox (%APPDATA%\Sentinel\outbox) that Revit's Publisher stages into, and uploads each new IFC
+// to That Open Platform via the shared, verified upload path. Where the geometry lands in the CDE is read from the
+// IFC's sidecar (<name>.ifc.meta.json, {project, container, version_id}) and nothing else (spec Decision 6,
+// outbox-logic.mjs): the platform item is attached to the sidecar's version by id — the version /propose registered
+// and judged before the IFC reached the outbox. No sidecar, one naming no project, or one with no version_id (the
+// add-in before 5b, which registered by file name) → the IFC moves to outbox\unbound\ with one log line, never
+// uploaded or registered. Uploaded files are moved to outbox\sent\ so they are never re-uploaded.
 //
 // Usage:
 //   node bridge/watch-outbox.mjs [--once] [--dry-run]
@@ -42,31 +43,20 @@ const inFlight = new Set();
 const ts = () => new Date().toISOString();
 
 /**
- * Put an uploaded outbox file's geometry on its CDE version, as the sidecar decided (outboxDecision): "attach" → the
- * platform item goes on the sidecar's version by id (cde.attachGeometry — that version of that project, once);
- * "register" (a pre-5b sidecar with no version_id) → a version by the .ifc name, as before, with attach_geometry:
- * true spelled out (the by-name attach is opt-in since 5a; this path goes in 5b). Never throws: the upload has
- * already happened, so a failure logs one line naming the platform item that is on no version, and returns null.
+ * Put an uploaded outbox file's geometry on the version its sidecar names: the platform item goes on that version by
+ * id (cde.attachGeometry — that version of that project, once). Never throws: the upload has already happened, so a
+ * failure logs one line naming the platform item that is on no version, and returns null.
  */
-async function recordVersion(d, name, sizeBytes, itemId) {
+async function recordVersion(d, name, itemId) {
   const orphan = `platform item ${itemId || "(none returned)"} is on no version`;
   try {
     const cde = await import("./cde-store.mjs");
     if (!cde.cdeConfigured()) { console.error(`  ⚠ CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY) — ${name}: ${orphan}`); return null; }
-    if (d.action === "attach") {
-      const r = await cde.attachGeometry(d.project, d.version_id, itemId);
-      console.log(`  📎 geometry attached to ${r.iso_name} ${r.version.revision} (version ${r.version.id}, project ${d.project})${r.audit_id ? ` · ledger #${r.audit_id}` : " · ledger row not returned"}`);
-      return { key: d.project, ...r };
-    }
-    const r = await cde.registerFileVersion(d.project, {
-      name, author: "outbox", size_bytes: sizeBytes, platform_item_id: itemId || null, attach_geometry: true,
-      parent_name: d.host, // linked model → nests under its host in the file tree
-      notes: d.host ? `linked model of ${d.host} (outbox watcher)` : "uploaded via outbox watcher",
-    });
-    console.log(`  📚 versioned ${name} in the CDE (project ${d.project}${d.host ? `, link of ${d.host}` : ""}; pre-5b sidecar, no version_id: ${r.linked ? "attached by name to the live version without geometry" : "a new version"})`);
+    const r = await cde.attachGeometry(d.project, d.version_id, itemId);
+    console.log(`  📎 geometry attached to ${r.iso_name} ${r.version.revision} (version ${r.version.id}, project ${d.project})${r.audit_id ? ` · ledger #${r.audit_id}` : " · ledger row not returned"}`);
     return { key: d.project, ...r };
   } catch (e) {
-    console.error(`  ⚠ ${d.action === "attach" ? `geometry not attached to version ${d.version_id}` : "version register failed"} for ${name} on ${d.project}: ${e?.message || e} — ${orphan}`);
+    console.error(`  ⚠ geometry not attached to version ${d.version_id} for ${name} on ${d.project}: ${e?.message || e} — ${orphan}`);
     return null;
   }
 }
@@ -114,18 +104,19 @@ async function handle(name) {
   try {
     if (!(await waitStable(p))) return;
     // Where this publish goes is the sidecar's to say, and nothing else's. Read it again once after 2 s when it is
-    // missing or unreadable — Governed Publish copies the IFC in just before it writes the sidecar.
+    // missing or unreadable — Publisher writes the sidecar before it moves the IFC in, so this only guards against a
+    // sidecar still being written.
     let d = outboxDecision(await readSidecar(p));
     if (d.action === "unbound") { await new Promise((r) => setTimeout(r, 2000)); d = outboxDecision(await readSidecar(p)); }
     if (d.action === "unbound") {
       if (DRY) { console.log(`[${ts()}] would move ${name} to ${UNBOUND} — ${d.reason}`); return; }
       const parked = join(UNBOUND, `${Date.now()}_${name}`);
       await rename(p, parked);
-      await rename(p + ".meta.json", parked + ".meta.json").catch(() => {}); // a sidecar naming no project goes with it
-      console.log(`[${ts()}] ⛔ ${name} → ${parked} — ${d.reason}: not uploaded, not registered. Bind the model to a web project (Revit → Project Setup) and publish again.`);
+      await rename(p + ".meta.json", parked + ".meta.json").catch(() => {}); // a sidecar naming no project, or a pre-5b one, goes with it
+      console.log(`[${ts()}] ⛔ ${name} → ${parked} — ${d.reason}: not uploaded, not registered. ${d.advice}`);
       return;
     }
-    const target = d.action === "attach" ? `version ${d.version_id} on ${d.project}` : `${d.project} by file name (pre-5b sidecar, no version_id)`;
+    const target = `version ${d.version_id} on ${d.project}`;
     if (DRY) { console.log(`[${ts()}] would upload ${name} → ${target}`); return; }
 
     console.log(`[${ts()}] uploading ${name} → ${target} …`);
@@ -140,13 +131,13 @@ async function handle(name) {
       const fragBytes = await ifcToFrag(p);
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
-      const reg = await recordVersion(d, name, size, result?.item?._id);
+      const reg = await recordVersion(d, name, result?.item?._id);
       await captureAfterRegister(reg, name, p);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      const reg = await recordVersion(d, name, size, result?.item?._id);
+      const reg = await recordVersion(d, name, result?.item?._id);
       await captureAfterRegister(reg, name, p);
     }
 
