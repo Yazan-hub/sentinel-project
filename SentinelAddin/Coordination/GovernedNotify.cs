@@ -129,13 +129,16 @@ namespace Sentinel.Coordination
         /// set, the bridge also stamps the verdict onto that file version (the web verdict badge, G3); on a reject
         /// it auto-opens a BCF issue per failing requirement (G2) unless <paramref name="raiseBcf"/> is false —
         /// a fix-in-place check or re-check must never open topics. <paramref name="source"/> and
-        /// <paramref name="note"/> land on the audit row. Blocking (120s cap); never throws:
-        /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
+        /// <paramref name="note"/> land on the audit row. With <paramref name="register"/> (the Publisher: one
+        /// adjudication per publish, spec 2026-09-26 Decision 3) the bridge registers the version on an accepted or
+        /// recorded verdict and stamps it, answering <see cref="ProposalResult.Version"/> and
+        /// <see cref="ProposalResult.VerdictAuditId"/>; a rejected verdict registers nothing. Blocking (120s cap);
+        /// never throws: <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
         public static ProposalResult Propose(object elements, string? versionId, string actor,
                                              string projectKey, string? containerName = null,
                                              string? source = null, string? note = null, bool raiseBcf = true,
-                                             string? failuresRequirement = null)
+                                             string? failuresRequirement = null, RegisterRequest? register = null)
         {
             var r = new ProposalResult();
             var key = KeyOf(projectKey);
@@ -144,19 +147,7 @@ namespace Sentinel.Coordination
             {
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/propose";
-                var body = new Dictionary<string, object?>
-                {
-                    ["source"] = source ?? "Governed Publish",
-                    ["actor"] = actor,
-                    ["elements"] = elements,
-                };
-                if (versionId != null) body["version_id"] = versionId;
-                if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
-                if (note != null) body["note"] = note;
-                if (!raiseBcf) body["raise_bcf"] = false;
-                // One requirement's failures only (fix-in-place): the bridge then returns up to 1000 of them
-                // plus failures_total / failures_matched, so truncation is detected by count, not guessed.
-                if (!string.IsNullOrWhiteSpace(failuresRequirement)) body["failures_requirement"] = failuresRequirement;
+                var body = ProposalResult.RequestBody(elements, versionId, actor, containerName, source, note, raiseBcf, failuresRequirement, register);
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the one publish path (cohesion phase 5b, spec 2026-09-26 Decision 8): the container's name
+       (the central file's, F12), the /propose body's register and the reply's version, the outbox staging order
+       (the sidecar before the IFC, on a temp folder), every line Governed Publish and Auto-Publish print, and the
+       publish@n policy decision. Compiles Publisher.cs's pure half under SENTINEL_CHECK (the Revit-typed Prepare and
+       Judge are hidden) with the files it reads. No Revit API, no AppData, never the running bridge; `dotnet run`
+       from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>publish-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\Publisher.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\GovElement.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ProjectContext.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\IfcDeliveryGate.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\DeliveryContract.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\GateLines.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\LedgerResult.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\ProposalResult.cs" />
+    <!-- ProposalResult's ElementFailure lives in FixPlan.cs (fix-in-place), which reads PsetMap and IdsIssueRef. -->
+    <Compile Include="..\..\SentinelAddin\Coordination\FixPlan.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\IdsIssueRef.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
+    <!-- IfcDeliveryGate logs a judged gate through RoiTracker; gate-check's stub keeps %AppData%\Sentinel\roi.json
+         untouched (phase 5c deletes RoiTracker and the stub together: drop this line with them). -->
+    <Compile Include="..\gate-check\RoiTrackerStub.cs" />
+  </ItemGroup>
+</Project>
