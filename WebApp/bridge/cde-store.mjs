@@ -70,6 +70,7 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
     // RLS/row-security denial gets a 403. Routes propagate this via `e?.status || 500`. Other upstream codes
     // (e.g. a malformed query) stay 500 by default — they signal a bridge bug, not a client-fixable one.
     if (r.status === 401 || r.status === 403) err.status = r.status;
+    err.body = data; // PostgREST's { code, message, … } — lets a caller map a function's own refusal (transition)
     throw err;
   }
   return data;
@@ -475,7 +476,7 @@ export async function archiveFile(key, container_id, actor) {
   const versions = c.container_versions || [];
   let archived = 0, discarded = 0;
   for (const v of versions) {
-    if (v.state === "published") { await transition(v.id, "archived", actor || "web", "file archived"); archived++; }
+    if (v.state === "published") { await transition(key, v.id, "archived", { actor: actor || "web", note: "file archived" }); archived++; }
     else if (v.state !== "archived") { await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=minimal" }); discarded++; }
   }
   await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
@@ -483,14 +484,15 @@ export async function archiveFile(key, container_id, actor) {
 }
 
 /** Restore an archived file: archived versions return to 'published' (the state they held before
- *  archiving — only published versions survive the archive step). Direct state write (the ISO machine
- *  has no archived→ transition; the immutability trigger only guards published rows), audited. */
+ *  archiving — only published versions survive the archive step) through cde_transition's archived→published
+ *  move (migration 0031): lead-only for a signed-in caller, one state: row per version. A refusal stops the loop
+ *  in the function's words (transition). */
 export async function unarchiveFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
   let restored = 0;
   for (const v of c.container_versions || []) {
     if (v.state !== "archived") continue;
-    await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { state: "published" }, prefer: "return=minimal" });
+    await transition(key, v.id, "published", { actor: actor || "web", note: "file restored" });
     restored++;
   }
   await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
@@ -515,7 +517,8 @@ export async function deleteFile(key, container_id, actor) {
   return { deleted: true, iso_name: c.iso_name };
 }
 
-/** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live. */
+/** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and
+ *  always starts in wip (a body's `state` is ignored — publishing is cde_transition's, migration 0031). */
 export async function registerFileVersion(key, b = {}) {
   const proj = await ensureProject(key);
   const name = (b.name || b.iso_name || "").trim();
@@ -537,15 +540,12 @@ export async function registerFileVersion(key, b = {}) {
     await sb(`information_containers?id=eq.${container.id}`, { method: "PATCH", body: { parent_id: parentId }, prefer: "return=minimal" });
   }
 
-  // Geometry link: Governed Publish creates the version at publish time (verdict-badged, but no platform
-  // geometry yet); the outbox watcher then uploads the IFC and calls back here with the platform item id. If
-  // the file's live version has no geometry yet, ATTACH the item to it rather than appending a second,
-  // unbadged version — so the badged version gets its geometry and "Open 3D" lights up.
-  // `attach_geometry: false` (Governed Intake) skips this: intake always carries its own sha256/size/revision
-  // and must land as its own version, never silently attached onto an unrelated stale liveNoGeom row left by
-  // an outbox publish that's still waiting on its callback (found live — the intake's verdict landed on the
-  // wrong version).
-  if (container && b.platform_item_id && b.attach_geometry !== false) {
+  // Geometry link, opt-in: only `attach_geometry: true` (the outbox watcher's pre-5b sidecar, which carries no
+  // version_id) attaches the platform item to the file's live version that has no geometry yet, so the version
+  // Governed Publish registered gets its geometry. Every other caller lands as its own version: a web upload
+  // whose name matched a Revit-judged version once attached onto it (files-panel.ts), and an intake's verdict
+  // once landed on a stale row (phase 5 spec, Decision 6).
+  if (container && b.platform_item_id && b.attach_geometry === true) {
     const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id);
     if (liveNoGeom) {
       await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=minimal" });
@@ -570,7 +570,7 @@ export async function registerFileVersion(key, b = {}) {
   const version = (await sb(`container_versions`, {
     method: "POST",
     body: {
-      container_id: container.id, revision, state: b.state || "wip", suitability: b.suitability || "S0",
+      container_id: container.id, revision, state: "wip", suitability: b.suitability || "S0",
       author: resolveActor(b.author, "web"), notes: b.notes || null, file_ref: b.file_ref || null,
       platform_item_id: b.platform_item_id || null,
       size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
@@ -585,11 +585,43 @@ export async function registerFileVersion(key, b = {}) {
   return { container_id: container.id, iso_name: name, version: { ...version, is_live: true } };
 }
 
-/** Run the DB state machine (validates the transition, writes the audit row, enforces immutability). */
-export async function transition(version_id, new_state, actor, note) {
+/** The version when it is on the key's project: { proj, version: { id, container_id, revision, state } }. Any
+ *  other id — another project's version, an unknown or malformed one — is a 400 "version <id> is not on <key>". */
+export async function versionOnKey(key, version_id) {
+  const proj = await ensureProject(key);
+  const rows = isUuid(version_id)
+    ? await sb(`container_versions?id=eq.${version_id}&select=id,container_id,revision,state,information_containers(project_id)`)
+    : [];
+  const v = Array.isArray(rows) ? rows[0] : null;
+  if (!v || v.information_containers?.project_id !== proj.id) {
+    const e = new Error(`version ${version_id} is not on ${key}`); e.status = 400; throw e;
+  }
+  return { proj, version: { id: v.id, container_id: v.container_id, revision: v.revision, state: v.state } };
+}
+
+// cde_transition's raises (migration 0031) → the caller's status, in the function's own words: a refusal (P0001:
+// the state machine, the verdict guard, the state trigger) is a 409; an unknown version (no_data_found) a 404; a
+// role refusal (insufficient_privilege) a 403. Anything else stays the bridge's error (a 500 at the route, scrubbed).
+const TRANSITION_REFUSAL = { P0001: 409, P0002: 404, "42501": 403 };
+
+/** Run the DB state machine (validates the move and the verdict, writes the state: row, enforces immutability).
+ *  `key` given → the version must be on that project (versionOnKey); the keyless route and the assistant pass
+ *  null. `override` is the lead's reason to publish a version without an accepted verdict that measured
+ *  something: sent only when not blank, and cde_transition takes it only from a signed-in lead. */
+export async function transition(key, version_id, new_state, { actor, note, override } = {}) {
   if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
+  if (key) await versionOnKey(key, version_id);
   // ISO 19650 state changes are the governed trail's spine — stamp the verified identity, not the claim.
-  return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note } });
+  const body = { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note };
+  const reason = String(override ?? "").trim();
+  if (reason) body.p_override = reason;
+  try {
+    return await sb(`rpc/cde_transition`, { method: "POST", body });
+  } catch (e) {
+    const status = TRANSITION_REFUSAL[e?.body?.code];
+    if (status) { const r = new Error(e.body.message); r.status = status; throw r; }
+    throw e;
+  }
 }
 
 /** The ledger read's page: 200 rows unless asked, never more than 1000 (the db-max-rows SNAP_PAGE assumes). */

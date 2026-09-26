@@ -125,7 +125,7 @@ export const TOOLS = [
   {
     name: "transition_container",
     policy: "write",
-    description: "Move an information container version through the ISO 19650 state machine (wip → shared → published → archived). Gated by role server-side; the transition is audited.",
+    description: "Move an information container version through the ISO 19650 state machine (wip → shared → published → archived; archived → published restores). Publishing needs the version's latest verdict to be accepted with elements in scope, judged by the IDS installed on the project or its office; otherwise only a signed-in lead can publish it, with a reason, on the web — this tool cannot give one. The transition is audited.",
     input_schema: {
       type: "object", required: ["version_id", "state"],
       properties: {
@@ -135,7 +135,7 @@ export const TOOLS = [
         note: { type: "string" },
       },
     },
-    run: ({ version_id, state, actor, note }) => cde.transition(version_id, state, actor, note),
+    run: ({ version_id, state, actor, note }) => cde.transition(null, version_id, state, { actor, note }), // never an override
   },
   {
     name: "set_live_version",

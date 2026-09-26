@@ -45,11 +45,11 @@ describe("actor wiring at the sinks", () => {
   });
 
   it("transition(): JWT identity overrides; claim survives machine path; default is web", async () => {
-    await runWithAuth(jwt({ email: "real@x.com" }), () => transition("22222222-2222-4222-8222-222222222222", "shared", "SPOOFED", "n"));
+    await runWithAuth(jwt({ email: "real@x.com" }), () => transition(null, "22222222-2222-4222-8222-222222222222", "shared", { actor: "SPOOFED", note: "n" }));
     expect(lastBody().p_actor).toBe("real@x.com");
-    await transition("22222222-2222-4222-8222-222222222222", "shared", "revit-pilot", "n");
+    await transition(null, "22222222-2222-4222-8222-222222222222", "shared", { actor: "revit-pilot", note: "n" });
     expect(lastBody().p_actor).toBe("revit-pilot");
-    await transition("22222222-2222-4222-8222-222222222222", "shared", undefined, "n");
+    await transition(null, "22222222-2222-4222-8222-222222222222", "shared", { note: "n" });
     expect(lastBody().p_actor).toBe("web");
   });
 });

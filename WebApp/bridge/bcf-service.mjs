@@ -1000,7 +1000,7 @@ async function handleRequest(req, res) {
 
   // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──
   //   GET/POST /cde/:key/containers · GET /cde/:key/audit · GET/POST /cde/:key/transmittals
-  //   POST /cde/containers/:cid/versions · POST /cde/versions/:vid/transition  { state, actor, note }
+  //   POST /cde/containers/:cid/versions · POST /cde/versions/:vid/transition  { state, actor, note, override? }
   if (url.pathname.startsWith("/cde/")) {
     const cde = await import("./cde-store.mjs");
     if (!cde.cdeConfigured()) {
@@ -1296,9 +1296,12 @@ async function handleRequest(req, res) {
       if (p1 === "containers" && p3 === "versions" && req.method === "POST") {
         return send(res, 201, await cde.addVersion(p2, await readBody(req)));
       }
+      // override: the lead's reason to publish a version with no accepted verdict that measured something, passed
+      // through as given; cde_transition (0031) takes it only from a signed-in lead. A refusal is a 409 in the
+      // function's words, a role refusal a 403, an unknown version a 404 (cde-store.mjs transition).
       if (p1 === "versions" && p3 === "transition" && req.method === "POST") {
         const body = await readBody(req);
-        return send(res, 200, await cde.transition(p2, body.state, body.actor, body.note));
+        return send(res, 200, await cde.transition(null, p2, body.state, { actor: body.actor, note: body.note, override: body.override }));
       }
       return send(res, 404, { message: "CDE route not found" });
     } catch (e) {
