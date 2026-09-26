@@ -25,9 +25,14 @@ namespace Sentinel.Engine;
 public static class AutoPublish
 {
     private static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(15);
-    // API thread only: the handlers, the hub's jobs and the pane's dispatcher are all Revit's main thread.
-    private static readonly Dictionary<Document, DateTime> LastRun = new();
-    private static readonly Dictionary<Document, string> SaidOff = new(); // the last "off" line said per document
+    // API thread only: the handlers, the hub's jobs and the pane's dispatcher are all Revit's main thread. Keyed by the
+    // document's path (else its title), never by the Document object: a closed document's wrapper throws
+    // InvalidObjectException from Equals/GetHashCode, which once left every later save's handler dead and silent
+    // (Session B10). A closed document's key lingers harmlessly; the same path reopened resumes its throttle and its line.
+    private static readonly Dictionary<string, DateTime> LastRun = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, string> SaidOff = new(StringComparer.OrdinalIgnoreCase); // the last "off" line said per document
+
+    private static string IdOf(Document doc) => doc.PathName.Length > 0 ? doc.PathName : doc.Title;
     private static bool _busy;
 
     /// <summary>True from Prepare to Stage of one run. Governed Publish refuses to start meanwhile: both would write
@@ -38,11 +43,18 @@ public static class AutoPublish
     /// runs on a task, what needs Revit runs in a later hub job.</summary>
     public static void Trigger(Document? doc)
     {
+        // A throw here is swallowed by Revit (journal only) and would leave auto-publish silently dead: say it instead.
+        try { TriggerCore(doc); }
+        catch (Exception ex) { App.PanelVm?.LogDoctor("Auto-publish: not triggered — " + ex.GetType().Name + ": " + ex.Message); }
+    }
+
+    private static void TriggerCore(Document? doc)
+    {
         if (doc is null || doc.IsFamilyDocument || _busy || App.Events is not { } events || App.PanelVm is not { } vm) return;
         var now = DateTime.UtcNow;
-        if (LastRun.TryGetValue(doc, out var last) && now - last < MinInterval) return;
-        LastRun[doc] = now;
-        Prune();
+        var id = IdOf(doc);
+        if (LastRun.TryGetValue(id, out var last) && now - last < MinInterval) return;
+        LastRun[id] = now;
         var key = ProjectContext.For(doc).Key;
         if (key.Length == 0) return; // unbound: nothing to publish into
 
@@ -59,8 +71,8 @@ public static class AutoPublish
                 var line = PublishLines.Policy(policy);
                 ui.BeginInvoke(new Action(() =>
                 {
-                    if (!doc.IsValidObject || (SaidOff.TryGetValue(doc, out var said) && said == line)) return;
-                    SaidOff[doc] = line;
+                    if (!doc.IsValidObject || (SaidOff.TryGetValue(id, out var said) && said == line)) return;
+                    SaidOff[id] = line;
                     vm.LogDoctor(line);
                 }));
                 return;
@@ -108,11 +120,5 @@ public static class AutoPublish
             }
             finally { _busy = false; }
         }), TaskScheduler.Default);
-    }
-
-    // Closed documents leave the maps (API thread).
-    private static void Prune()
-    {
-        foreach (var d in LastRun.Keys.Where(d => !d.IsValidObject).ToList()) { LastRun.Remove(d); SaidOff.Remove(d); }
     }
 }
