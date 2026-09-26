@@ -120,7 +120,9 @@ export const TOOLS = [
         note: { type: "string" },
       },
     },
-    run: ({ project, ...body }) => cde.adjudicateProposal(project, body),
+    // Only the declared fields reach the referee: an agent can neither stamp a verdict on a version (version_id),
+    // register one (register) nor override anything — whatever else the model puts in the call is dropped.
+    run: ({ project, source, elements, note }) => cde.adjudicateProposal(project, { source, elements, note }),
   },
   {
     name: "transition_container",

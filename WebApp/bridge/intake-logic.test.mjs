@@ -10,6 +10,9 @@ function stubs({ gatePass = true, contract = "office", verdict = "accepted", upl
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
   const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
   const idsEnforce = verdict === "recorded" ? null : warned ? "warn" : "reject";
+  // The referee's own answer (adjudicateProposal decides it once): an installed IDS with no element in scope is
+  // "recorded", downgraded "nothing in scope" — intake no longer re-decides it.
+  const downgraded = verdict === "accepted" && inScope === 0 ? "nothing in scope" : null;
   return {
     calls,
     // deps.loadContract is artefact-store resolveContract: project → office → none, with the label every surface prints.
@@ -19,7 +22,7 @@ function stubs({ gatePass = true, contract = "office", verdict = "accepted", upl
     checkDelivery: rec("checkDelivery", { result: gatePass ? "pass" : "fail", passed: gatePass, contract_key: "parity-ifc4", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
     gateNotChecked: rec("gateNotChecked", (_bytes, reason) => ({ result: "not_checked", passed: null, reason, contract_key: null, detected_schema: "IFC4", total_entities: null, entity_counts: {}, failures: [], warnings: [], sha256: "ab".repeat(32), size: 13 })),
     extractElements: rec("extractElements", { elements: [{ identity: { Class: "IFCDOOR", GlobalId: "g1" }, psets: [], quantities: [] }], schema: "IFC4", counts: { elements: 1, skipped: 0, by_class: { IFCDOOR: 1 } } }),
-    adjudicate: rec("adjudicate", { verdict, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
+    adjudicate: rec("adjudicate", { verdict: downgraded ? "recorded" : verdict, downgraded, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
     uploadIfc: uploadFails ? rec("uploadIfc", () => { throw new Error("platform 401"); }) : rec("uploadIfc", { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9 }),
     registerFileVersion: rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: "item-1", is_live: true } }),
@@ -78,13 +81,13 @@ describe("runIntake", () => {
     expect(r).toMatchObject({ verdict: "recorded", stage: "published", published: true, ids_source: "none" });
     expect(r.note).toBe("No project IDS installed — published on the delivery-gate pass alone.");
   });
-  it("an installed IDS with no element in scope publishes as recorded, not accepted", async () => {
+  it("an installed IDS with no element in scope: the referee's recorded is published and stamped as recorded, never accepted", async () => {
     const d = stubs({ inScope: 0 });
     const r = await runIntake(d, input);
     expect(r).toMatchObject({ verdict: "recorded", stage: "published", published: true, ids_source: "project", ids_ref: "ids@1" });
     expect(r.note).toMatch(/no element was in its scope/);
     expect(names(d)).not.toContain("raiseBcf");
-    expect(d.calls.find((c) => c[0] === "recordVersionVerdict")).toBeTruthy();
+    expect(d.calls.find((c) => c[0] === "recordVersionVerdict")[3]).toMatchObject({ verdict: "recorded", downgraded: "nothing in scope" });
   });
   it("an upload failure after acceptance keeps the verdict and reports the failure honestly", async () => {
     const d = stubs({ uploadFails: true });

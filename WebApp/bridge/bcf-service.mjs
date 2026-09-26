@@ -1113,9 +1113,13 @@ async function handleRequest(req, res) {
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
-      // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, version_id?, raise_bcf? }
-      //   → { verdict: accepted|rejected|recorded, summary, failures[], audit_id, bcf? }. Agents propose; the
-      //   governed core (IDS + rules) adjudicates deterministically and records the verdict immutably.
+      // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
+      //   version_id? | register?: {name, size_bytes, sha256}, raise_bcf? }
+      //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, bcf? }.
+      //   Agents propose; the governed core (IDS + rules) adjudicates deterministically and records the verdict
+      //   immutably. Nothing in scope answers recorded (downgraded "nothing in scope"); a version_id must be this
+      //   project's (400); register registers the version on accepted/recorded and stamps it (cde-store adjudicateProposal);
+      //   a client-sent IDS never stamps or registers a version (400).
       //   G2: on a REJECT, each failing requirement auto-opens as a BCF issue (live-synced to web + Revit),
       //   unless the caller passes raise_bcf:false. Best-effort — a BCF hiccup never changes the verdict.
       if (p2 === "propose" && !p3 && req.method === "POST") {

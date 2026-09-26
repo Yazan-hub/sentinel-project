@@ -948,12 +948,40 @@ export function judgeContainerName(validate, name, rs) {
   return { ...validate(name, rs), enforce };
 }
 
+/** POST /cde/:key/propose's `register` (cohesion phase 5a, spec 2026-09-26 Decision 3), or null when absent. The name
+ *  registered is the name the naming standard judged, so it must equal container_name; size_bytes and sha256 tie the
+ *  version to the file that was judged. Pure: a bad body is a 400 before any read or ledger row. */
+function readRegister(b) {
+  if (b.register === undefined || b.register === null) return null;
+  const bad = (m) => Object.assign(new Error(m), { status: 400 });
+  const r = b.register;
+  if (typeof r !== "object" || Array.isArray(r)) throw bad("register must be {name, size_bytes, sha256}");
+  if (b.version_id) throw bad("pass version_id (stamp an existing version) or register (register a new one), not both");
+  const name = typeof r.name === "string" ? r.name.trim() : "";
+  if (!name) throw bad("register.name is required");
+  if (name !== b.container_name) throw bad("register.name must equal container_name — the name the naming standard judges is the name registered");
+  if (!Number.isSafeInteger(r.size_bytes) || r.size_bytes < 0) throw bad("register.size_bytes must be a whole number of bytes");
+  if (typeof r.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(r.sha256)) throw bad("register.sha256 must be 64 hex characters");
+  return { name, size_bytes: r.size_bytes, sha256: r.sha256.toLowerCase() };
+}
+
 export async function adjudicateProposal(key, b = {}) {
+  const reg = readRegister(b);
+  const proj = await ensureProject(key);
+  // A verdict is stamped only on a version of the project that judged it (spec Decision 4): another project's version,
+  // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1).
+  if (b.version_id) await versionOnKey(key, b.version_id);
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const { resolveIdsSpec } = await import("./artefact-store.mjs");
   const resolved = await resolveIdsSpec(key, b);
   const spec = resolved.spec, idsSource = resolved.source, clientIdsIgnored = resolved.client_ids_ignored;
+  // An IDS the caller sent may judge a plain proposal, but its verdict never lands on a version (controller amendment,
+  // 5a): a stamp is what publishing reads, so only the project's or office's installed IDS may make one. Refused
+  // before any ledger row, registration or stamp.
+  if (idsSource === "client" && (b.version_id || reg)) {
+    throw Object.assign(new Error(`a version is stamped only by the IDS installed on ${key} or its office — install one (Packs or Documents ▸ EIR ▸ Install on this project) or propose without version_id/register`), { status: 400 });
+  }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const adj = c.adjudicate(spec, elements);
   const { summary, failures } = adj;
@@ -985,7 +1013,11 @@ export async function adjudicateProposal(key, b = {}) {
     if (naming && !naming.ok && naming.enforce === "reject") verdict = "rejected";
   }
 
-  const proj = await ensureProject(key);
+  // Nothing in scope is recorded (spec Decision 4), decided here once for every caller — /propose, intake, the AI
+  // tools, MCP, changesets: an installed IDS that found no element in its scope measured nothing, so it is never
+  // "accepted". Decided before the proposal row and any stamp; the row and the reply say why.
+  const downgraded = verdict === "accepted" && summary.in_scope === 0 ? "nothing in scope" : null;
+  if (downgraded) verdict = "recorded";
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
   const trustedActor = resolveActor(b.actor ?? b.source, "agent");
@@ -998,19 +1030,29 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
+      new_value: { source: b.source ?? null, verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
-  // When the proposal is about a specific file version (the Governed Publish loop), ALSO record the verdict
-  // against that version's id so the Versions panel can show a ✓/✗ badge on the row (entity_id = version id,
-  // action "verdict:<verdict>"). Kept separate from the proposal record above so the agent/propose surface is
-  // unchanged when no version is in play.
-  if (b.version_id) await recordVersionVerdict(key, b.version_id, { verdict, summary, failures, naming, warned, agent, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref }, trustedActor);
+  // The verdict on a file version (entity_id = version id, action "verdict:<verdict>"): the Versions panel's badge and
+  // what the transition guard reads (migration 0031). `version_id` stamps an existing version of this project (checked
+  // above). `register` (one adjudication per publish, spec Decision 3) registers the version on an accepted or recorded
+  // verdict — always wip, never attached to another version's geometry — and stamps this same result on it: one
+  // proposal row, one registration, one verdict row. A rejected verdict registers nothing. A failure here throws (a
+  // 500, its message scrubbed): the proposal row stays on the ledger, and a version left without its stamp cannot be
+  // published without a signed-in lead's reason.
+  const judged = { verdict, summary, failures, naming, warned, agent, downgraded, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref };
+  let version = null, stamp = null;
+  if (reg && verdict !== "rejected") {
+    const r = await registerFileVersion(key, { ...reg, author: trustedActor, attach_geometry: false });
+    version = { id: r.version.id, container_id: r.container_id, revision: r.version.revision, state: r.version.state };
+    stamp = await recordVersionVerdict(key, version.id, judged, trustedActor);
+  } else if (b.version_id) stamp = await recordVersionVerdict(key, b.version_id, judged, trustedActor);
   return {
-    verdict, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
+    verdict, downgraded, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
+    version, verdict_audit_id: stamp?.id ?? null,
     agent,
     // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
     // ledger that cannot be rewritten — see POST /receipt/:key/verify.
@@ -1019,18 +1061,20 @@ export async function adjudicateProposal(key, b = {}) {
 }
 
 /** Stamp a verdict on a specific file version so the Versions panel badges the row
- *  (entity_id = version id, action "verdict:<verdict>"). Separate from the proposal row on purpose. */
+ *  (entity_id = version id, action "verdict:<verdict>"). Separate from the proposal row on purpose. Returns the
+ *  ledger row: its id is the verdict_audit_id /propose answers and the one the state: row names when the version is
+ *  published (migration 0031). */
 export async function recordVersionVerdict(key, version_id, r, actor) {
   const proj = await ensureProject(key);
-  await sb(`audit_log`, {
+  return (await sb(`audit_log`, {
     method: "POST",
     body: {
       project_id: proj.id, entity_type: "file_version", entity_id: version_id,
       action: `verdict:${r.verdict}`, actor: resolveActor(actor, "web"), old_value: null,
-      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, naming_ref: r.naming_ref ?? null, ...(r.agent ? { agent: r.agent } : {}) },
+      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, naming_ref: r.naming_ref ?? null, ...(r.downgraded ? { downgraded: r.downgraded } : {}), ...(r.agent ? { agent: r.agent } : {}) },
     },
-    prefer: "return=minimal", service: true,
-  });
+    prefer: "return=representation", service: true,
+  }))[0];
 }
 
 /** Latest governed verdict per version id (from the "verdict:<v>" rows recordVersionVerdict writes);

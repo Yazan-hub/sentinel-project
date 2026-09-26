@@ -120,6 +120,15 @@ describe("callTool — existing tools regression", () => {
     expect(url).toMatch(/\/cde\/demo\/propose$/);
     expect(init.method).toBe("POST");
   });
+
+  it("propose forwards only its declared fields: an MCP client can neither stamp, register nor override", async () => {
+    const fetch = vi.fn(async () => okJson({ verdict: "recorded" }));
+    await callTool("sentinel_propose", {
+      project: "demo", source: "astra", elements: [], note: "n",
+      version_id: "aaaaaaaa-0000-4000-8000-000000000001", register: { name: "x.ifc", size_bytes: 1, sha256: "ab".repeat(32) }, override: "because",
+    }, { fetch });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ source: "astra", elements: [], note: "n" });
+  });
 });
 
 describe("changeset tools", () => {
