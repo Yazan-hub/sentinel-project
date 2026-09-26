@@ -146,9 +146,17 @@ the bearer.
 
 **What a match does not say.** The check compares the hash the ledger stored for that row; it does not
 recompute the hash or walk the chain. And because the chain runs across projects (§4), a receipt's
-`prev_hash` is often another project's row: someone holding it and that project's key can confirm one
-bit — "row N on that key has this hash" — and learn nothing else. Removing that needs per-project
-chaining, a migration Sentinel has not made.
+`prev_hash` is often another project's row (usually row id − 1): someone holding it and that project's
+key can confirm that row N on that key has this hash and, by trying the verdicts (`accepted`, then
+`rejected`) and reading `matches` and `mismatched`, which verdict it records — nothing else (its time
+cannot be guessed to the exact string). Removing that needs per-project chaining, a migration Sentinel
+has not made.
+
+**How far "field names only" holds.** The anonymous reply goes to a caller the auth gate refuses. With
+`SUPABASE_JWT_SECRET` unset, that gate checks a JWT's shape only (`docs/SECURITY_F2_ACTIVATION.md`): any
+three-segment bearer takes the member path and, with JWT forwarding off (no `SUPABASE_ANON_KEY`), is
+answered with the service key — the full reply, ledger values included — as `GET /receipt/…` and every
+`/cde` route already are. The guarantee is as strong as that check; set the secret to close it.
 
 ## 6. The client
 
@@ -167,7 +175,8 @@ chaining, a migration Sentinel has not made.
 
 `verdictBadge` renders **UNVERIFIED** until `verify()` has confirmed the receipt. A badge that looked
 authoritative on the proposer's say-so would defeat its own purpose. It shows a verdict only when the
-check compared it (`verdict` in the reply's `checked`); a receipt confirmed on its id and hash alone
+check compared it (`verdict` in the reply's `checked`, or a member's reply, whose check always compares
+the verdict); a receipt confirmed on its id and hash alone
 reads "on the ledger — verdict not checked", and a confirmed badge's title says the entry "matches the
 ledger's stored hash (chain not recomputed)". It is built with `createElement`, never `innerHTML`, so
 it is safe beside untrusted model data.
