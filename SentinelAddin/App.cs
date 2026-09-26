@@ -307,7 +307,7 @@ public sealed class App : IExternalApplication
         // ── Publish — governed delivery (flagship) + ungoverned options ──────────────────────
         var pu = app.CreateRibbonPanel(tab, "Publish");
         Push(pu, "Sentinel_GovernedPublish", "Governed\nPublish", "Sentinel.Commands.GovernedPublishCommand", "govern",
-            "One governed action: export the active view to IFC, run the delivery gate, adjudicate against the project IDS, record the verdict on the ledger, and publish + version ONLY if it passes. A fail is recorded and each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit).");
+            "The one publish path: export the whole model to IFC in the contract's schema, run the delivery gate, adjudicate against the project IDS and naming, and — on accepted or recorded — register one version (the container is named from the central file) with its verdict on the ledger and stage the upload. A reject uploads nothing; each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit). The dialog names the version and both ledger rows.");
         var pub = Pull(pu, "Sentinel_Publish", "Publish", "publish",
             "Ungoverned publishing: quick publish, auto-publish on save, and sheet rendering. Prefer Governed Publish for delivery.");
         Sub(pub, "Sentinel_QuickPublish", "Quick Publish (ungoverned)", "Sentinel.Commands.PublishToPlatformCommand", "publish",

@@ -29,6 +29,10 @@ public static class AutoPublish
     private static DateTime _lastRun = DateTime.MinValue;
     private static bool _busy;
 
+    /// <summary>True while a run is between its export and its outbox write. Governed Publish refuses to start meanwhile:
+    /// both write the same temp and outbox names.</summary>
+    internal static bool InFlight => _busy;
+
     /// <summary>
     /// Queue an auto-export for <paramref name="doc"/> if enabled, not a family doc, and neither throttled
     /// nor already running. Called from the DocumentSaved / DocumentSynchronizedWithCentral hooks.
