@@ -202,6 +202,62 @@ namespace Sentinel.Coordination
             return head + $" — the project now has {j.RulesetLabel ?? j.RulesetRef} (Scan Now reloads)";
         }
 
+        /// <summary>One project's ledger rows of one entity_type, as far as they were read (the ROI dashboard's read).</summary>
+        public sealed class RoiPage
+        {
+            public readonly List<JsonElement> Rows = new List<JsonElement>(); // each Clone()d: the parsed documents are disposed
+            public int Total;      // the route's exact count of rows of this kind
+            public bool Truncated; // Total > Rows.Count: the newest were read, the ledger holds more
+        }
+
+        /// <summary>The audit route's AUDIT_MAX per page, and how many pages are read before the dashboard says the ledger holds more.</summary>
+        public const int RoiPageSize = 1000, RoiPages = 5;
+
+        /// <summary>
+        /// The project's ledger rows of one entity_type, newest first, through the filtered audit route
+        /// (GET /cde/:key/audit?entity_type=&lt;t&gt;&amp;limit=1000&amp;offset=&lt;k·1000&gt;), up to <see cref="RoiPages"/> pages;
+        /// <c>Truncated</c> when the route's exact total exceeds what was read. Null when the bridge could not be read,
+        /// with why (the bridge's own message on a refusal, else the transport error) — a failed read is never "0 rows".
+        /// BLOCKING, each GET ≤ 4 s; callers run it OFF the API thread. The key is the DOCUMENT's (ProjectContext).
+        /// </summary>
+        public static RoiPage? RoiRows(string projectKey, string entityType, out string? failure)
+        {
+            failure = null;
+            var key = (projectKey ?? "").Trim();
+            if (key.Length == 0) { failure = "not bound — Sentinel ▸ Project Setup"; return null; }
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var page = new RoiPage();
+                for (int i = 0; i < RoiPages; i++)
+                {
+                    var msg = new HttpRequestMessage(HttpMethod.Get, cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key)
+                        + "/audit?entity_type=" + Uri.EscapeDataString(entityType) + "&limit=" + RoiPageSize + "&offset=" + (i * RoiPageSize));
+                    if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
+                        msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+                    var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
+                    var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        string? said = null;
+                        try { using var err = JsonDocument.Parse(json); if (err.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) said = m.GetString(); } catch { }
+                        failure = $"{(int)resp.StatusCode}: {said ?? resp.ReasonPhrase}";
+                        return null;
+                    }
+                    using var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+                    page.Total = root.TryGetProperty("total", out var t) && t.ValueKind == JsonValueKind.Number && t.TryGetInt32(out var n) ? n : 0;
+                    int got = 0;
+                    if (root.TryGetProperty("rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
+                        foreach (var r in rows.EnumerateArray()) { page.Rows.Add(r.Clone()); got++; }
+                    if (got < RoiPageSize || page.Rows.Count >= page.Total) break; // the last page
+                }
+                page.Truncated = page.Total > page.Rows.Count;
+                return page;
+            }
+            catch (Exception e) { failure = e.Message; return null; } // never surface a read failure into Revit
+        }
+
         /// <summary>One recorded clash from the web-side team register (GET /clash/:project).</summary>
         public sealed class ClashRow
         {

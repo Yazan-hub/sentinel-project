@@ -50,8 +50,6 @@ public static class FamilySanitizer
                     if (report.Passed && target is not null && !target.IsFamilyDocument)
                     {
                         loaded = famDoc.LoadFamily(target, new OverwriteOptions()) is not null;
-                        Engine.RoiTracker.Log("family",
-                            Path.GetFileName(rfaPath) + " sanitized and loaded");
                     }
                 }
             }

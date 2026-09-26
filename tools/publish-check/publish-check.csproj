@@ -30,8 +30,5 @@
     <Compile Include="..\..\SentinelAddin\Coordination\FixPlan.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\IdsIssueRef.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
-    <!-- IfcDeliveryGate logs a judged gate through RoiTracker; gate-check's stub keeps %AppData%\Sentinel\roi.json
-         untouched (phase 5c deletes RoiTracker and the stub together: drop this line with them). -->
-    <Compile Include="..\gate-check\RoiTrackerStub.cs" />
   </ItemGroup>
 </Project>

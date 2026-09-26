@@ -340,7 +340,6 @@ public static class FixInPlaceService
         foreach (var o in outcomes.Where(x => x.Ok))
         {
             var value = written[o.Row];
-            RoiTracker.Log("fix", $"{req.Requirement}: '{o.Row.Current}' -> '{value}' via {o.Row.ResolvedVia} (BCF {bcfGuid})");
             o.Row.Current = value;
         }
         return outcomes;

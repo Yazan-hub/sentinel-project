@@ -71,8 +71,6 @@ public static class FamilyProcessor
                         famDoc.LoadFamily(doc, new SilentOverwrite());
                         verdict.Result = HealResult.Healed;
                         verdict.Notes.Add("Injected: " + string.Join(", ", report.MissingSharedParams));
-                        Engine.RoiTracker.Log("family", typeName + " auto-healed (" +
-                            report.MissingSharedParams.Count + " shared param(s))");
                     }
                     else
                     {

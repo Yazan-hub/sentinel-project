@@ -206,7 +206,6 @@ public sealed class App : IExternalApplication
         if (cde is not null)
         {
             bool judged = cde.Mode != Sentinel.Engine.EnforcementMode.Monitor;
-            if (judged) Sentinel.Engine.RoiTracker.Log("cde", cde.ElementName);
             report = report.Plus(cde, judged);
         }
         PanelVm!.PublishReport(report);
@@ -336,7 +335,7 @@ public sealed class App : IExternalApplication
         Sub(chain, "Sentinel_Annotate", "3 · Annotate Views", "Sentinel.Commands.AnnotateViewsCommand", "ghost",
             "Create the WIP plan views prescribed by the `views` section of the guideline installed on this document's web project (or its office), named guideline@n with source and sha: one per plannable entry per level, templated and routed into the office Project Browser structure. Idempotent. No guideline installed = nothing to plan.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
-            "Man-hours and monetary value saved by Sentinel's automated interventions.");
+            "Counts from this document's web project ledger — delivery gate runs, naming renames, family heals — priced only by the roi standard installed on the project (or its office); what writes no ledger row is listed as not counted.");
     }
 
     private static string _asm = "";

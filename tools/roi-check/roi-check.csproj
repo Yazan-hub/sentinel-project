@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the ROI dashboard on the ledger (cohesion phase 5c, spec 2026-09-26 Decision 9): the counts
+       (a delivery_gate row is a run only when passed is true or false; naming rows' rows.length and family_heal rows'
+       healed_total are summed), the money (only with roi@n installed, per kind and in total, naming the artefact —
+       "(cached HH:mm)" when it is the cached copy), and every line the dashboard prints. No Revit API, no AppData,
+       never the running bridge; `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>roi-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\RoiReport.cs" />
+    <!-- RoiMoney reads a ResolvedArtefact (ArtefactClient.cs), which reads the cache and the bridge settings. -->
+    <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
+  </ItemGroup>
+</Project>

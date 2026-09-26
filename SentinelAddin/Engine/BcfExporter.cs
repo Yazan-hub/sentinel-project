@@ -143,8 +143,6 @@ public static class BcfExporter
         if (File.Exists(target)) File.Delete(target);
         ZipFile.CreateFromDirectory(work, target);
         try { Directory.Delete(work, true); } catch (IOException) { }
-
-        RoiTracker.Log("bcf", issue.Title + " -> " + fileName);
         return target;
     }
 
