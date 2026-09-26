@@ -149,7 +149,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
         {
             TaskDialog.Show("Sentinel — Governed Publish",
                 "Verdict " + verdict.Verdict.ToUpperInvariant() + ", but copying the IFC into the upload outbox failed: " + ex.Message +
-                "\n\n" + verdictRow + "\nUpload the file manually if needed.");
+                "\n\n" + verdictRow + "\nThe IFC is kept for a manual upload: " + tempPath);
         }
 
         // The version and its badge are claimed only when measured: RegisterVersionId handed back the new version's
@@ -196,7 +196,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
                 : uploadLine + " No verdict badge: nothing was judged — the verdict is " +
                   "\"recorded\"." + (badge is null ? "" : "\nVersion: not confirmed — " + badge + ".") +
                   "\nInstall an IDS on the project or its office to judge the next one."));
-        TryDelete(tempPath);
+        if (copied) TryDelete(tempPath); // a failed copy leaves the only IFC for the manual upload the dialog named
         return Result.Succeeded;
     }
 

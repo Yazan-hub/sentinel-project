@@ -56,6 +56,7 @@ public sealed class NamingManagerCommand : IExternalCommand
                     var d = ua.ActiveUIDocument?.Document;
                     if (d == null || !d.Equals(doc)) { Say("switch back to the model the Naming Manager was opened on — nothing was done"); window.SetBusy(false); return; }
                     window.SetRows(NamingManagerService.BuildRows(d, App.Engine!.RulesetFor(d)));
+                    said++; // SetRows wrote the status itself: an earlier batch's late ledger line must not overwrite it
                     window.SetBusy(false);
                 }
                 catch (Exception ex) { Say("Revit refused: " + ex.Message); window.SetBusy(false); }
