@@ -585,6 +585,30 @@ export async function registerFileVersion(key, b = {}) {
   return { container_id: container.id, iso_name: name, version: { ...version, is_live: true } };
 }
 
+/** The outbox watcher's attach (spec Decision 6): put an uploaded platform item on the version a sidecar names, by
+ *  id — only a version of `key`'s project, and only while it has no geometry (platform_item_id is written once; the
+ *  PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked" (actor outbox);
+ *  returns the version and the ledger row's id. 400 for a blank item or a version not on `key`, 409 when the version
+ *  already has geometry — each decided before any write. */
+export async function attachGeometry(key, versionId, platformItemId) {
+  const item = String(platformItemId ?? "").trim();
+  const notOnKey = () => Object.assign(new Error(`version ${versionId} is not on ${key}`), { status: 400 });
+  if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
+  if (!isUuid(versionId)) throw notOnKey();
+  const proj = await ensureProject(key);
+  const v = (await sb(`container_versions?id=eq.${versionId}&select=id,container_id,revision,is_live,platform_item_id`))?.[0];
+  const c = v && (await sb(`information_containers?id=eq.${v.container_id}&project_id=eq.${proj.id}&select=iso_name`))?.[0];
+  if (!c) throw notOnKey();
+  const done = v.platform_item_id ? [] : await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation" });
+  if (!done?.length) {
+    const e = new Error(`version ${v.id} already has geometry${v.platform_item_id ? ` (platform item ${v.platform_item_id})` : ""} — a version's geometry is attached once`);
+    e.status = 409;
+    throw e;
+  }
+  const row = await audit(proj.id, "file_version", v.id, "geometry linked", "outbox", null, { file: c.iso_name, platform_item_id: item, by: "version_id" });
+  return { container_id: v.container_id, iso_name: c.iso_name, linked: true, version: { id: v.id, revision: v.revision, platform_item_id: item, is_live: v.is_live }, audit_id: row?.id ?? null };
+}
+
 /** The version when it is on the key's project: { proj, version: { id, container_id, revision, state } }. Any
  *  other id — another project's version, an unknown or malformed one — is a 400 "version <id> is not on <key>". */
 export async function versionOnKey(key, version_id) {
