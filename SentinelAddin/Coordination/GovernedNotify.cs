@@ -264,6 +264,7 @@ namespace Sentinel.Coordination
         // per-document map if that matters
         private static DateTime _lastScanPost = DateTime.MinValue;
         private static readonly TimeSpan ScanThrottle = TimeSpan.FromSeconds(60);
+        private static readonly object ScanGate = new object(); // OfficeScan runs on pool threads: two syncs must not both post
 
         /// <summary>Post a scan report to <c>POST /cde/{key}/office/scan</c> (the Phase-3 seam) and return what the
         /// ledger answered. At most one per minute per process — sync storms must not become request storms; a
@@ -273,10 +274,13 @@ namespace Sentinel.Coordination
         public static LedgerResult OfficeScan(Sentinel.Engine.ScanReport report, string projectKey)
         {
             if (KeyOf(projectKey).Length == 0) return LedgerResult.NotBound();
-            var now = DateTime.UtcNow;
-            if (now - _lastScanPost < ScanThrottle)
-                return LedgerResult.NotRecorded("a scan report went less than a minute ago; this one was not sent (one a minute per process)");
-            _lastScanPost = now;
+            lock (ScanGate)
+            {
+                var now = DateTime.UtcNow;
+                if (now - _lastScanPost < ScanThrottle)
+                    return LedgerResult.NotRecorded("a scan report went less than a minute ago; this one was not sent (one a minute per process)");
+                _lastScanPost = now;
+            }
             try
             {
                 // The report keeps its own wire shape (snake_case, an explicit null ruleset): Event's serializer writes a

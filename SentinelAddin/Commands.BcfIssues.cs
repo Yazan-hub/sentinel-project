@@ -291,7 +291,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         // A topic lists at most 500 GUIDs (bridge viewpoint cap). When it names more failures than
                         // it lists, the unlisted ones were never examined — say so, and never resolve on them.
                         var unlisted = Math.Max(0, req.Failing - total);
-                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel}, {ledgerLine}."
+                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel} (ledger row: {ledgerLine})."
                             + (unlisted > 0 ? $" {unlisted} of the {req.Failing} failing element(s) are not listed on this issue and were NOT examined." : "");
                         // The elements that ACTUALLY still fail — the fold's GUIDs, not every instance of a
                         // row that failed (a type row can fail one of its instances and pass the rest), and

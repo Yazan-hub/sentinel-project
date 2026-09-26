@@ -72,7 +72,8 @@ public static class AutoPublish
                 var bytes = r.bytes;
                 var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
                 Task.Run(() => Sentinel.Coordination.GovernedNotify.ModelPublished(title, bytes, key)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
-                    App.PanelVm?.LogDoctor("Auto-publish of " + title + ": " + Sentinel.Coordination.LedgerLine.For(t.Result)))), TaskScheduler.Default);
+                    App.PanelVm?.LogDoctor("Auto-publish of " + title + ": " + Sentinel.Coordination.LedgerLine.For(t.Status == TaskStatus.RanToCompletion ? t.Result
+                        : Sentinel.Coordination.LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the ledger post did not finish"))))), TaskScheduler.Default);
                 Sentinel.Coordination.GovernedNotify.FileVersion(title, bytes, key);
             }
         }

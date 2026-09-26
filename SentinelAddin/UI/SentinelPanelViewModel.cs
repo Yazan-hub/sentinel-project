@@ -116,6 +116,9 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     private string _scanRulesetLine = "";
     public string ScanRulesetLine { get => _scanRulesetLine; private set { _scanRulesetLine = value; OnChanged(); } }
     private int _journeySeq;
+    /// Bumped (on the Revit API thread) by every refresh, ShowUnbound and ShowLoading: a caller that captured it can
+    /// tell whether the strip has moved on since.
+    internal int JourneySeq => _journeySeq;
 
     /// Called on the Revit API thread (Revit's main thread, which owns this pane) with what was read there: the
     /// document's web key and where the ruleset that judged the rows came from. The GET (up to 4 s) runs on a

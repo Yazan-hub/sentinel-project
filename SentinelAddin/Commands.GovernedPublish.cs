@@ -137,10 +137,12 @@ public sealed class GovernedPublishCommand : IExternalCommand
         // 4) ACCEPTED, or RECORDED (no IDS installed: nothing was judged): publish. Copy into the outbox for the
         //    bridge to upload, register the version, then stamp a real verdict onto that version (the web ✓ badge).
         var judged = verdict.Verdict != "recorded";
+        var copied = false; // the dialog claims the outbox (and so an upload) only when the copy landed
         try
         {
             var outboxPath = Path.Combine(Sentinel.Engine.PlatformExporter.OutboxDir(), ifcName);
             File.Copy(tempPath, outboxPath, overwrite: true);
+            copied = true;
             Sentinel.Engine.PlatformExporter.WriteOutboxMeta(ifcName, doc); // → the right web project
         }
         catch (Exception ex)
@@ -165,8 +167,10 @@ public sealed class GovernedPublishCommand : IExternalCommand
         }
 
         var live = versionId is null ? null : Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
-        var revLine = versionId is null ? "copied to the upload outbox; the new version is not confirmed"
+        var revLine = !copied ? "NOT in the upload outbox (the copy failed); " + (versionId is null ? "no new version is confirmed" : "a version was registered with nothing to upload")
+                    : versionId is null ? "copied to the upload outbox; the new version is not confirmed"
                     : live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";
+        var uploadLine = copied ? "The Sentinel bridge uploads the geometry." : "Nothing was queued for upload — the copy into the outbox failed.";
         // Every line names what judged, from the bridge's answer — never from a local file.
         var idsLine = judged
             ? $"IDS {verdict.IdsLabel}: {verdict.Passing}/{verdict.InScope} in-scope element checks passed" +
@@ -187,9 +191,9 @@ public sealed class GovernedPublishCommand : IExternalCommand
             gateRow + "\n" +
             verdictRow + "\n\n" +
             (judged
-                ? "The Sentinel bridge uploads the geometry.\n" +
+                ? uploadLine + "\n" +
                   (badge is null ? $"Version badge: ✓ {verdict.Verdict} stamped on this version." : "Version badge: not confirmed — " + badge + ".")
-                : "The Sentinel bridge uploads the geometry. No verdict badge: nothing was judged — the verdict is " +
+                : uploadLine + " No verdict badge: nothing was judged — the verdict is " +
                   "\"recorded\"." + (badge is null ? "" : "\nVersion: not confirmed — " + badge + ".") +
                   "\nInstall an IDS on the project or its office to judge the next one."));
         TryDelete(tempPath);

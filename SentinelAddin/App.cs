@@ -216,19 +216,23 @@ public sealed class App : IExternalApplication
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled;
         // posted on a task and never waited for — a sync must not block. When the bridge has answered, its ledger line
         // goes to the Doctor log and the journey is re-read, so the `model` step is never read before its report
-        // lands. Both on the pane's thread through BeginInvoke — never Invoke from the worker. The key and the ruleset
-        // source are read here, on the API thread. An unbound document posts nothing (silently: a sync is not the
-        // place for a dialog) and its strip says not bound.
+        // lands. Both on the pane's thread through BeginInvoke — never Invoke from the worker. The key, the ruleset
+        // source and the strip's follow token are read here, on the API thread: if the strip has moved on meanwhile
+        // (another project's view activated), the re-read is skipped rather than show this project's journey there.
+        // An unbound document posts nothing (silently: a sync is not the place for a dialog) and its strip says not bound.
         if (ctx.IsBound)
         {
             var key = ctx.Key;
             var local = Engine.SourceFor(e.Document);
             var vm = PanelVm;
+            var follow = vm.JourneySeq;
             var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
             Task.Run(() => Sentinel.Coordination.GovernedNotify.OfficeScan(report, key)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
             {
-                vm.LogDoctor("Scan report: " + Sentinel.Coordination.LedgerLine.For(t.Result));
-                vm.RefreshJourney(key, local);
+                var ledger = t.Status == TaskStatus.RanToCompletion ? t.Result
+                    : Sentinel.Coordination.LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the scan post did not finish");
+                vm.LogDoctor("Scan report: " + Sentinel.Coordination.LedgerLine.For(ledger));
+                if (vm.JourneySeq == follow) vm.RefreshJourney(key, local);
             })), TaskScheduler.Default);
         }
         else RefreshJourney(e.Document);
