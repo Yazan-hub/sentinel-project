@@ -13,5 +13,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
   </ItemGroup>
 </Project>

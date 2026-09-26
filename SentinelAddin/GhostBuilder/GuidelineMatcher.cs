@@ -414,6 +414,32 @@ namespace Sentinel.GhostBuilder
                 .ToList();
         }
 
+        /// <summary>The catalogue's types a provisioner may clone for <paramref name="typeName"/> under
+        /// <paramref name="category"/>: what <see cref="GuidelineResolution.Available"/> lists for a guideline gap — the
+        /// same name stem at another thickness (BDS_EXT_ARC_CMU_{thickness} mm), smallest first, the name itself left
+        /// out. Never merely the same Revit family: in a template every wall is "Basic Wall", and a plaster build-up
+        /// renamed as a metal type would be the F43 lie under the standard's own name. Empty when no catalogue is
+        /// installed, the name carries no thickness (no stem to share), or the catalogue has no other size of it.</summary>
+        public List<string> CatalogSiblings(string category, string typeName)
+        {
+            string pattern = TypeNameParse.ThicknessPattern(typeName);
+            if (pattern == null || !HasCatalog) return new List<string>();
+            return PatternOptions(pattern, category).Where(t => Norm(t) != Norm(typeName)).ToList();
+        }
+
+        /// <summary>Of <paramref name="siblings"/> (catalogue types), the one <paramref name="inDocument"/> holds whose
+        /// named thickness is nearest <paramref name="targetMm"/> — the build-up a new type inherits. Null when the
+        /// document holds none: the caller reports the gap, never clones an unrelated type. Pure; names compare
+        /// case-insensitively and the catalogue's spelling is returned.</summary>
+        public static string NearestSiblingInDocument(IEnumerable<string> siblings, IEnumerable<string> inDocument, double targetMm)
+        {
+            var present = new HashSet<string>(inDocument ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            return (siblings ?? Enumerable.Empty<string>())
+                .Where(s => s != null && present.Contains(s))
+                .OrderBy(s => Math.Abs(TypeNameParse.ThicknessMm(s) - targetMm))
+                .FirstOrDefault();
+        }
+
         /// <summary>Every type the guideline names that the office's template does NOT contain. Run when a
         /// guideline is authored or swapped: it is the difference between a standard and a wish list.</summary>
         public List<string> ValidateAgainstCatalog()

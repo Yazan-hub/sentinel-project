@@ -200,6 +200,39 @@ static class GuidelineChecks
         var noSibling = lone.Resolve(new GuidelineInput { Category = "Walls", Layer = "A-WALL-EXT", ThicknessMm = 250 });
         _ok(noSibling.Why == "\"OFF_EXT_250 mm\" is not in type_catalog@2 · project · 0123456789ab… (template Office_Template). No comparable type in it — the office standard may need this type added.",
             "no comparable type: the gap still names the catalogue it checked");
+
+        // The provisioners' decision (F43): a type the catalogue names is cloned from a sibling of its catalogue family
+        // that this document holds; a name the catalogue lacks, or a catalogue of none, has no sibling — a gap, never a clone.
+        _ok(m.CatalogSiblings("Walls", "OFF_EXT_200 mm").SequenceEqual(new[] { "OFF_EXT_300 mm" }),
+            "CatalogSiblings: the catalogue's other sizes of the name's stem — what Available lists for a guideline gap");
+        _ok(m.CatalogSiblings("Walls", "OFF_EXT_250 mm").SequenceEqual(new[] { "OFF_EXT_200 mm", "OFF_EXT_300 mm" }),
+            "CatalogSiblings: a size the catalogue lacks still has its stem's siblings, smallest first (the standard extended by one size)");
+        _ok(m.CatalogSiblings("Walls", "off_ext_300 MM").SequenceEqual(new[] { "OFF_EXT_200 mm" }),
+            "CatalogSiblings: the name compares case-insensitively; the catalogue's spelling is returned");
+        var mates = GuidelineMatcher.FromBodies(Guideline,
+            Catalog.Replace("],\"view_templates\"", ",{\"category\":\"Walls\",\"family\":\"Basic Wall\",\"type\":\"OFF_INT_250 mm\"}],\"view_templates\""),
+            out _, out var mateError);
+        _ok(mateError == null && mates.CatalogSiblings("Walls", "OFF_EXT_200 mm").SequenceEqual(new[] { "OFF_EXT_300 mm" }),
+            "CatalogSiblings: another stem of the same Revit family (OFF_INT_250 mm, Basic Wall) is not a sibling — no build-up renamed as another type");
+        _ok(m.CatalogSiblings("Walls", "Basic Wall").Count == 0 && m.CatalogSiblings("Walls", "OTHER_250 mm").Count == 0
+            && m.CatalogSiblings("Floors", "OFF_EXT_200 mm").Count == 0,
+            "CatalogSiblings: a name with no thickness, a stem the catalogue lacks, or another category has no siblings");
+        _ok(TypeNameParse.ThicknessPattern("OFF_EXT_200 mm") == "OFF_EXT_{thickness} mm" && TypeNameParse.ThicknessPattern("OFF_EXT_200mm") == "OFF_EXT_{thickness}mm"
+            && TypeNameParse.ThicknessPattern("Basic Wall") == null && TypeNameParse.ThicknessPattern(null) == null,
+            "ThicknessPattern: the trailing thickness becomes {thickness}; no thickness → null");
+        var uncatalogued = GuidelineMatcher.FromBodies(Guideline, null, out _, out _);
+        _ok(!uncatalogued.HasCatalog && uncatalogued.CatalogSiblings("Walls", "OFF_EXT_200 mm").Count == 0,
+            "CatalogSiblings: type_catalog none names no sibling — nothing to clone");
+        var sibs = new[] { "OFF_EXT_200 mm", "OFF_EXT_300 mm" };
+        _ok(GuidelineMatcher.NearestSiblingInDocument(sibs, new[] { "OFF_EXT_200 mm", "OFF_EXT_300 mm" }, 280) == "OFF_EXT_300 mm"
+            && GuidelineMatcher.NearestSiblingInDocument(sibs, new[] { "off_ext_200 mm", "Generic - 200mm" }, 280) == "OFF_EXT_200 mm",
+            "NearestSiblingInDocument: the nearest thickness among the siblings this document holds, case-insensitively");
+        _ok(GuidelineMatcher.NearestSiblingInDocument(sibs, new[] { "OFF_EXT_300 mm", "OFF_EXT_200 mm" }, 0) == "OFF_EXT_200 mm",
+            "NearestSiblingInDocument: a name with no thickness (0) takes the thinnest sibling as it is");
+        _ok(GuidelineMatcher.NearestSiblingInDocument(sibs, new[] { "Generic - 200mm", "Basic Wall" }, 280) == null
+            && GuidelineMatcher.NearestSiblingInDocument(new string[0], new[] { "OFF_EXT_200 mm" }, 280) == null
+            && GuidelineMatcher.NearestSiblingInDocument(null, null, 280) == null,
+            "NearestSiblingInDocument: no sibling in the document, no siblings, or nothing at all → null: the caller's gap, never the first Basic wall");
     }
 
     // ── 7. Build Office System's export: a type_catalog@n body with template, in exports\, never type-catalog.json ──

@@ -22,6 +22,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerMapper.cs" />
     <!-- Task 3 (4b-2): the guideline and type-catalogue reader, Build Office System's export and the pack types it serialises. -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
     <Compile Include="..\..\SentinelAddin\Standards\TypeCatalogExport.cs" />
     <Compile Include="..\..\SentinelAddin\Standards\StandardsPack.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />

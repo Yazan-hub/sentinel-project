@@ -374,6 +374,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         lines.AppendLine();
         lines.AppendLine($"Placed: {r.Placed}");
         lines.AppendLine(WallsLine(r, s));
+        if (r.TypeGaps > 0) lines.AppendLine($"Types: {r.TypeGaps} named by the layer mapping not created (each named below with its reason)");
         if (r.SkippedLowConfidence > 0) lines.AppendLine($"Skipped (low confidence): {r.SkippedLowConfidence}");
         if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (family not in model): {r.SkippedUnknownFamily}");
         if (r.SkippedNoGeometry > 0)    lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");
