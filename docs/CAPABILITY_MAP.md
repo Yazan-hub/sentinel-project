@@ -89,7 +89,7 @@ Geometry becomes cost, carbon, schedule and ROI. `sentinel-core/` (mostly tested
 | Tender | Solid | BoQ→bid comparison→award, per-line, history. |
 | Owner / FM Dashboard | Solid | Read-only golden thread; asset register search + locate; no model load needed. |
 | Health Scorecard | Solid | Severity-weighted 0–100 compliance grade by domain. |
-| ROI Tracker + Dashboard | Caveat | Hours-saved / $ value — monetary figures use **static rate constants** (assumptions). |
+| ROI Dashboard | Works | Counts read from the ledger per project (delivery gate runs, renames, heals); money only with a lead's `roi@n` installed, named on the line; everything else listed as not counted (cohesion 5c). |
 
 **Read:** cores are cleanly separated and mostly tested; the weak spot is test coverage on COBie/schedule
 and the ROI dashboard's assumption-driven dollar figures.

@@ -1,5 +1,5 @@
 // Install standards as project artefacts.
-//   node bridge/artefact-import.mjs <file.json> --project <key> --kind <ids|ruleset|naming|contract|guideline|layers|type_catalog> [--actor <who>]
+//   node bridge/artefact-import.mjs <file.json> --project <key> --kind <ids|ruleset|naming|contract|guideline|layers|type_catalog|publish|roi> [--actor <who>]
 //     one file → one artefact of that kind (default ids). The bridge validates the body per kind and refuses one
 //     its judge could not use; the refusal names the field ("contract: ifc_schema must be IFC2X3 | IFC4").
 //   node bridge/artefact-import.mjs --from-metadata [--key <key>] [--dry-run]
