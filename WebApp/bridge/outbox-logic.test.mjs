@@ -1,6 +1,7 @@
-// The outbox watcher (cohesion phase 5a, spec Decision 6): the sidecar alone decides — unbound, attach to the
-// sidecar's version by id, or the pre-5b register path — and attachGeometry puts the platform item on that one
-// version of that project, once. globalThis.fetch is a fake PostgREST; no network, no That Open.
+// The outbox watcher (cohesion phase 5a, spec Decision 6; 5b removes the pre-5b register path): the sidecar alone
+// decides — unbound, with the advice the watcher prints, or attach to the sidecar's version by id — and attachGeometry
+// puts the platform item on that one version of that project, once. globalThis.fetch is a fake PostgREST; no network,
+// no That Open.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.hoisted(() => {
@@ -11,13 +12,15 @@ vi.hoisted(() => {
 });
 
 import { outboxDecision } from "./outbox-logic.mjs";
-import { attachGeometry, registerFileVersion } from "./cde-store.mjs";
+import { attachGeometry } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111"; // aster-tower
 const Q = "22222222-2222-4222-8222-222222222222"; // another project
 const C = "cccccccc-0000-4000-8000-000000000001";
 const V = "aaaaaaaa-0000-4000-8000-000000000001";
 const side = (o) => JSON.stringify(o);
+
+const BIND = "Bind the model to a web project (Revit → Project Setup) and publish again.";
 
 describe("outboxDecision — the sidecar, and nothing else, says where an outbox IFC goes", () => {
   it.each([
@@ -29,17 +32,18 @@ describe("outboxDecision — the sidecar, and nothing else, says where an outbox
     [side({ project: 7 }), "its sidecar names no project"],
     [side({ project: "aster-tower", version_id: "v3" }), 'its sidecar\'s version_id is not a uuid ("v3")'],
     [side({ project: "aster-tower", version_id: null }), "its sidecar's version_id is not a uuid (null)"],
-  ])("%s → unbound: %s", (text, reason) => {
-    expect(outboxDecision(text)).toEqual({ action: "unbound", reason });
+  ])("%s → unbound: %s — bind the model", (text, reason) => {
+    expect(outboxDecision(text)).toEqual({ action: "unbound", reason, advice: BIND });
   });
 
   it("a sidecar with a version_id attaches to that version on that project", () => {
     expect(outboxDecision(side({ project: " aster-tower ", container: "AST-ARC-M3-ZZ-0001.ifc", version_id: V }))).toEqual({ action: "attach", project: "aster-tower", version_id: V });
   });
 
-  it("a pre-5b sidecar (no version_id key) registers by file name, with its host when it names one", () => {
-    expect(outboxDecision(side({ project: "aster-tower", docTitle: "Aster Tower" }))).toEqual({ action: "register", project: "aster-tower", host: null });
-    expect(outboxDecision(side({ project: "aster-tower", docTitle: "Link", host: " Tower.ifc " }))).toEqual({ action: "register", project: "aster-tower", host: "Tower.ifc" });
+  it("a pre-5b sidecar (a project, no version_id key — the add-in that registered by file name) is unbound: update the add-in", () => {
+    const legacy = { action: "unbound", reason: "pre-5b sidecar (no version_id)", advice: "Update the add-in and publish again." };
+    expect(outboxDecision(side({ project: "aster-tower", docTitle: "Aster Tower" }))).toEqual(legacy);
+    expect(outboxDecision(side({ project: "aster-tower", docTitle: "Link", host: " Tower.ifc " }))).toEqual(legacy);
   });
 });
 
@@ -53,8 +57,6 @@ function fakeRest(url, init = {}) {
   calls.push({ path, method, search: decodeURIComponent(u.search), prefer: init.headers?.Prefer ?? null, body });
   const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
   if (path === "projects") return json(q.get("key") === "eq.aster-tower" ? [{ id: P, key: "aster-tower" }] : []);
-  if (path === "information_containers" && q.get("iso_name")) // registerFileVersion's by-name lookup
-    return json([{ id: C, parent_id: null, container_versions: [{ id: V, revision: version.revision, is_live: true, platform_item_id: version.platform_item_id }] }]);
   if (path === "information_containers")
     return json(q.get("id") === `eq.${C}` && q.get("project_id") === `eq.${owner}` ? [{ iso_name: "AST-ARC-M3-ZZ-0001.ifc" }] : []);
   if (path === "container_versions" && method === "GET") return json(q.get("id") === `eq.${V}` ? [version] : []);
@@ -113,14 +115,5 @@ describe("attachGeometry — the uploaded item goes on the sidecar's version, by
     raced = true;
     await expect(attachGeometry("aster-tower", V, "item-42")).rejects.toMatchObject({ status: 409, message: `version ${V} already has geometry — a version's geometry is attached once` });
     expect(writes().map((c) => c.path)).toEqual(["container_versions"]);
-  });
-});
-
-describe("the pre-5b path — registerFileVersion with attach_geometry: true", () => {
-  it("still attaches by name to the live version without geometry (the watcher spells the flag out)", async () => {
-    version.revision = "v1";
-    const r = await registerFileVersion("aster-tower", { name: "AST-ARC-M3-ZZ-0001.ifc", author: "outbox", size_bytes: 10, platform_item_id: "item-7", attach_geometry: true });
-    expect(r).toMatchObject({ container_id: C, linked: true, version: { id: V, platform_item_id: "item-7" } });
-    expect(writes().map((c) => [c.path, c.method])).toEqual([["container_versions", "PATCH"], ["audit_log", "POST"]]);
   });
 });

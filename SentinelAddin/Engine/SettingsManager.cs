@@ -24,10 +24,8 @@ public sealed class SentinelSettings
     // bound. A machine config.json value is ignored.
     [JsonPropertyName("web_project_key")] public string WebProjectKey { get; set; } = string.Empty;
 
-    // Quick/Auto publish: also export each linked Revit model as its own IFC (Revit's ExportLinkedFiles).
-    // Off by default — links multiply export time, and Governed Publish stays host-only (the gate
-    // certifies one deliverable at a time).
-    [JsonPropertyName("publish_linked_models")] public bool PublishLinkedModels { get; set; } = false;
+    // Linked-model publishing was deleted in cohesion phase 5b: links are never judged, so they are not published. An
+    // old payload's publish_linked_models is ignored on read and dropped by the next save.
 
     // Ghost Builder: DWG -> LOD 200 auto-modeler. Both optional; empty disables preload / uses no schema.
     [JsonPropertyName("ghost_family_library_dir")] public string GhostFamilyLibraryDir { get; set; } = string.Empty; // .rfa library root; empty -> skip preload

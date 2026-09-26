@@ -29,9 +29,52 @@ public sealed class ProposalResult
     public string? IdsEnforce;                      // reject | warn | off (the IDS's own enforce), null = not reported
     public bool Warned;                             // accepted, with failures kept as warnings (enforce "warn")
     public string? NamingRef, NamingSource, NamingSha256;
+    // The version /propose registered and stamped when `register` was sent (cohesion phase 5a, spec Decision 3): null
+    // on a rejected verdict, without `register`, or when the bridge answered without one. VerdictAuditId and
+    // VerdictHash are the verdict:<v> row's id and chain hash (verdict_hash, answered by the 5b bridge; an older one
+    // answers no hash and the stamp then reads not confirmed); Downgraded is "nothing in scope" when an accepted
+    // verdict with in_scope 0 was recorded instead.
+    public VersionInfo? Version;
+    public string? VerdictAuditId;
+    public string? VerdictHash;
+    public string? Downgraded;
     /// "ids@4 · office · 23bb57937fb0…" or "none" — the bridge's refLabel, as every other surface prints it.
     public string IdsLabel => RefLabel(IdsRef, IdsSource, IdsSha256);
     public string NamingLabel => RefLabel(NamingRef, NamingSource, NamingSha256);
+
+    /// <summary>The reply's <c>version {id, container_id, revision, state}</c>.</summary>
+    public sealed class VersionInfo
+    {
+        public string Id = "";
+        public string? ContainerId;
+        public string Revision = "";
+        public string State = "";
+    }
+
+    /// <summary>The /propose body, as <c>GovernedNotify.Propose</c> serializes it. Pure, so tools/publish-check pins
+    /// the wire shape: <paramref name="register"/> goes as <c>{name, size_bytes, sha256}</c> (the bridge requires
+    /// name = container_name) and only when given; every other key as before.</summary>
+    public static Dictionary<string, object?> RequestBody(object elements, string? versionId, string actor, string? containerName,
+                                                          string? source, string? note, bool raiseBcf, string? failuresRequirement,
+                                                          RegisterRequest? register)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["source"] = source ?? "Governed Publish",
+            ["actor"] = actor,
+            ["elements"] = elements,
+        };
+        if (versionId != null) body["version_id"] = versionId;
+        if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
+        if (note != null) body["note"] = note;
+        if (!raiseBcf) body["raise_bcf"] = false;
+        // One requirement's failures only (fix-in-place): the bridge then returns up to 1000 of them
+        // plus failures_total / failures_matched, so truncation is detected by count, not guessed.
+        if (!string.IsNullOrWhiteSpace(failuresRequirement)) body["failures_requirement"] = failuresRequirement;
+        if (register != null)
+            body["register"] = new Dictionary<string, object?> { ["name"] = register.Name, ["size_bytes"] = register.SizeBytes, ["sha256"] = register.Sha256 };
+        return body;
+    }
 
     public static ProposalResult Parse(string json)
     {
@@ -40,6 +83,11 @@ public sealed class ProposalResult
         var root = doc.RootElement;
         r.Reached = true;
         r.Verdict = Str(root, "verdict") ?? "recorded";
+        r.Downgraded = Str(root, "downgraded");
+        if (root.TryGetProperty("version", out var ver) && ver.ValueKind == JsonValueKind.Object && Str(ver, "id") is { Length: > 0 } vid)
+            r.Version = new VersionInfo { Id = vid, ContainerId = Str(ver, "container_id"), Revision = Str(ver, "revision") ?? "", State = Str(ver, "state") ?? "" };
+        r.VerdictAuditId = Scalar(root, "verdict_audit_id");
+        r.VerdictHash = Str(root, "verdict_hash");
         if (root.TryGetProperty("summary", out var s) && s.ValueKind == JsonValueKind.Object)
         {
             if (s.TryGetProperty("in_scope", out var i) && i.TryGetInt32(out var iv)) r.InScope = iv;
@@ -102,4 +150,13 @@ public sealed class ProposalResult
         if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(name, out var p)) return null;
         return p.ValueKind switch { JsonValueKind.String => p.GetString(), JsonValueKind.Number => p.GetRawText(), _ => null };
     }
+}
+
+/// <summary>What /propose registers on an accepted or recorded verdict (spec 2026-09-26 Decision 3): the container the
+/// naming standard judged (the bridge refuses a name other than container_name) and the bytes the gate certified.</summary>
+public sealed class RegisterRequest
+{
+    public string Name = "";
+    public long SizeBytes;
+    public string Sha256 = "";
 }

@@ -81,14 +81,13 @@ Everything here runs *inside Revit*, on the model open in front of you. The ribb
 | **Family Health → Heal Loaded Families** | Scans families already in the project; injects missing shared parameters and reloads silently. Each run is one `family_heal` row on the model's web project ledger, and the report ends with that row's ledger line. | To fix a model that's already polluted. | Coordinator |
 | **MEP Openings** | Finds linked MEP-vs-structure intersections and places provision-for-void families. | Structural/MEP coordination. | Coordinator, Structural |
 
-### 3.3 Publish — governed delivery (the flagship) + ungoverned options
+### 3.3 Publish — governed delivery (the flagship), by hand or on save
 
 | Tool | What it does | When | Who |
 |---|---|---|---|
-| **Governed Publish** ⭐ | The flagship. **One action**: export the active view to IFC → run the delivery gate → adjudicate against the project IDS → record the verdict **on the ledger** → publish + version **only if it passes**. A fail is recorded and each failing requirement **auto-opens as a BCF issue**, live-synced to the web and back into Revit. The dialog names the gate row's and the verdict's ledger entries (`ledger #<id> · receipt <16 hex>…`), and says `Version badge: not confirmed — <reason>.` rather than promise the ✓ badge when the version or its stamp is not confirmed. The version is registered in WIP; Publish on the web (the CDE panel) takes it further only on an accepted verdict that measured something, judged by an IDS installed on the project or its office, or with a lead's reason the ledger records (migration 0031). | Every real deliverable. This is the referee. | Coordinator |
-| **Publish → Quick Publish** | Ungoverned: export the active view to IFC into the outbox; the bridge uploads it. **No verdict**, so its version reaches Published only with a signed-in lead's reason. | Quick share of work-in-progress. | Modeller |
-| **Publish → Auto-Publish on save** | Toggle push-on-save: every save/sync re-exports + uploads. Throttled. Each publish's ledger line goes to the panel's Doctor log; the ledger post never holds up the save. | Turn on for a live-shared model; off for very large ones. | Modeller |
-| **Publish → Publish Sheets** | Renders all Revit sheets to PNG (sheets don't survive IFC) and serves them to the web app's Sheets tab. | When reviewers need the actual drawings, not just the model. | Modeller |
+| **Governed Publish** ⭐ | The flagship. **One action**: export the whole model to IFC (the contract's schema) → run the delivery gate → adjudicate against the project IDS → record the verdict **on the ledger** → register + stage the version **only if it passes**. A fail is recorded and each failing requirement **auto-opens as a BCF issue**, live-synced to the web and back into Revit. One `/propose` judges, registers the version (in WIP, in a container named from the central model's file — one container per model, whatever the local copy is called) and stamps it; the dialog names the gate row, the verdict row and the version (`Version: <container> <revision> · wip · ledger #<id> · receipt <16 hex>…`, or `Version: not confirmed — <reason>`), and a verdict that measured nothing reads `Published — not judged: …`, never accepted. The IFC goes into the outbox with its version id in the sidecar, so the bridge attaches the geometry to that version. Publish on the web (the CDE panel) takes it further only on an accepted verdict that measured something, judged by an IDS installed on the project or its office, or with a lead's reason the ledger records (migration 0031). | Every real deliverable. This is the referee. | Coordinator |
+| **Auto-publish on save** (no button) | The lead's `publish@n` (`{auto: true}`, installed on the project or its office from Project Settings ▸ Standards in force) runs Governed Publish on every save and Sync with Central with no dialog — the same gate, IDS, naming and one `/propose`; a rejected run uploads nothing. One run per 15 s at most; the save never waits on the bridge, though the export itself runs on Revit's API thread and can pause the UI for up to ~10 s plus the export while it does. Each run's line goes to the panel's Doctor log (`Auto-published <container> <revision> · wip · ledger #…`, `Auto-publish rejected — nothing uploaded — …`, or `Auto-publish: off — <publish label>` once per document per policy), and the pane's strip names the policy (`Auto-publish: on · publish@1 · office · …` or `Auto-publish: off — publish: none — not installed for <key> or its office`). None installed = off. | A lead turns it on for a live-shared model; leaves it off for very large ones. | Lead (the policy), Modeller (the saves) |
+| **Publish → Publish Sheets** | Renders all Revit sheets to PNG (sheets don't survive IFC) and serves them to the web app's Sheets tab. Publish Sheets and Publish Views are keyed by the model's name under `%AppData%`, outside the governed path. | When reviewers need the actual drawings, not just the model. | Modeller |
 
 ### 3.4 Standards & Build — office standards + generation
 
@@ -103,7 +102,7 @@ Everything here runs *inside Revit*, on the model open in front of you. The ribb
 | **Photo Massing** | Estimate a building envelope from photos/renders/elevations with a **local** vision model, **review and correct the numbers**, then build it through the *same* governed placement. The governed answer to "photo → model." | Early massing when there's no DWG. | Modeller |
 | **ROI Dashboard** | Man-hours and money saved by Sentinel's automated interventions. | For a value/status conversation. | Manager |
 
-**Behind the ribbon (automatic):** on document open Sentinel runs a baseline scan; on **sync** it re-scans, checks the central file name against the ISO 19650 / BDS convention, and refreshes the web copy; on **save** it can auto-publish. A global **failure interceptor** ("Revit Doctor") catches native warnings.
+**Behind the ribbon (automatic):** on document open Sentinel runs a baseline scan; on **sync** it re-scans and checks the central file name against the ISO 19650 / BDS convention; on **save** and **sync** it auto-publishes through Governed Publish only when the lead's `publish@n` says `auto: true` (linked models are not published). A global **failure interceptor** ("Revit Doctor") catches native warnings.
 
 ---
 
@@ -161,7 +160,7 @@ The bridge is the only thing that talks to the outside world. Its endpoints:
 | `/ifc` | IFC upload/fetch, and IFC→fragments conversion for the viewer. |
 | `/files` | File listing. |
 
-Supporting modules: `thatopen-client` (uploads to That Open Platform), `upload-ifc` / `watch-outbox` (the Revit outbox → cloud pipeline), `ifc-to-frag` (convert IFC for the viewer), `bcf-service` (the server itself), `cde-store` (CDE persistence), `ai-gateway` + `ai-tools` (AI), `bridge-auth`, `mcp-server` (exposes Sentinel's governance tools over MCP).
+Supporting modules: `thatopen-client` (uploads to That Open Platform), `watch-outbox` (the Revit outbox → cloud pipeline: the geometry attached to the version Revit's `/propose` registered), `ifc-to-frag` (convert IFC for the viewer), `bcf-service` (the server itself), `cde-store` (CDE persistence), `ai-gateway` + `ai-tools` (AI), `bridge-auth`, `mcp-server` (exposes Sentinel's governance tools over MCP).
 
 ### 6.2 sentinel-core — the shared brain (`WebApp/src/sentinel-core/`)
 
@@ -206,7 +205,7 @@ Everything generative (Ghost Builder, Photo Massing, the Copilot agent) feeds *i
 
 | Role | Lives mostly in | Their key tools |
 |---|---|---|
-| **Modeller** (Revit author) | Revit add-in | Datum from Drawings, Ghost Builder, Photo Massing, Scan Now, Pre-Flight, Quick Publish; web: BIM Tools, Issues |
+| **Modeller** (Revit author) | Revit add-in | Datum from Drawings, Ghost Builder, Photo Massing, Scan Now, Pre-Flight, Governed Publish; web: BIM Tools, Issues |
 | **BIM Coordinator / Manager** | Both | Governed Publish, Clash Manager, Scorecard, Change Requests, Rule Set; web: Coordination, CDE, Assets, QA |
 | **Reviewer / stakeholder** (no Revit) | Web app | Viewer, Properties, Issues, RFI, Sheets, Reality Capture |
 | **Client / Owner** | Web app | Owner dashboard, Assets (versions), Scorecard, Timeline |

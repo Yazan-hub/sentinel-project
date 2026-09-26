@@ -1,211 +1,71 @@
-using System;
 using System.IO;
-using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
+using Sentinel.Engine;
 
 namespace Sentinel.Commands;
 
 /// <summary>
-/// G1 — the unified <b>Governed Publish</b>. One button that runs the whole differentiated seam in order:
-/// export the active view → IFC, run the <see cref="Sentinel.Engine.IfcDeliveryGate">IFC Delivery Gate</see>
-/// (the project's contract@n; none → NOT CHECKED and the IDS still judges), adjudicate the model against the
-/// project's IDS via the referee API
-/// (<c>POST /cde/:key/propose</c>), record the verdict on the ledger, and <b>publish + version
-/// ONLY on a passing verdict</b>. A fail is recorded (and each failing requirement auto-opens as a BCF issue
-/// that live-syncs to the web + back into Revit) but is not published.
-///
-/// This is thin orchestration over already-proven parts — the three standalone commands (IFC Delivery Gate,
-/// Publish to Platform, and the web IDS panel) still exist for power users; this makes the demo path one
-/// action with one clear verdict. Exports to a TEMP file first so a reject never leaks a model into the
-/// upload outbox. Blocking bridge calls are short-capped and degrade gracefully when the bridge is down.
+/// G1 — <b>Governed Publish</b>: the one publish path (cohesion phase 5b, spec Decision 8) with a dialog.
+/// <see cref="Publisher.Prepare"/> on this thread — the whole model (the default 3D view) exported to a TEMP IFC in
+/// the contract's schema, the delivery gate and its ledger row (waited for, ≤ 6 s), the elements extracted —
+/// then <see cref="Publisher.Judge"/> waited for OFF this thread: one <c>POST /cde/:key/propose</c> that judges the
+/// IDS and the name and, on accepted or recorded, registers the version and stamps its verdict (one proposal row,
+/// one version, one verdict row; a gate FAIL never reaches it). Then <see cref="Publisher.Stage"/>: the sidecar
+/// naming that version is written first, then the IFC moves into the outbox; a reject stages nothing. One dialog
+/// from <see cref="PublishLines"/> names the container, the revision, both ledger rows and what judged. Auto-publish
+/// runs the same three calls without the dialog, when the project's publish@n says so.
 /// </summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class GovernedPublishCommand : IExternalCommand
 {
+    private const string Title = "Sentinel — Governed Publish";
+
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
-        var uidoc = c.Application.ActiveUIDocument;
-        if (uidoc?.Document is not { } doc) return Result.Cancelled;
-
-        // The gate + exporter certify what the active view shows — require a 3D view (same rule as IFC Gate).
-        if (doc.ActiveView is not View3D)
-        {
-            TaskDialog.Show("Sentinel — Governed Publish",
-                "Open a 3D view first — Governed Publish certifies and publishes what that view shows.");
-            return Result.Cancelled;
-        }
+        if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
 
         // The web project this document publishes into (Project Setup → Web project). None → nothing is exported.
-        var ctx = Sentinel.Engine.ProjectContext.For(doc);
+        var ctx = ProjectContext.For(doc);
         if (!ctx.IsBound)
         {
-            TaskDialog.Show("Sentinel — Governed Publish", Sentinel.Engine.ProjectContext.NotBound + "\n\nNothing was exported or published.");
+            TaskDialog.Show(Title, ProjectContext.NotBound + "\n\nNothing was exported or published.");
             return Result.Cancelled;
         }
         var projectKey = ctx.Key;
 
-        // 0) The delivery contract in force (project → office → none), resolved OFF the API thread before the export so
-        //    the export can use the schema it asks for. The command waits here as it waits on /propose below.
-        var (contract, contractSource) = Task.Run(() => Sentinel.Engine.DeliveryContract.Load(projectKey)).GetAwaiter().GetResult();
-
-        // 1) Export the active view to a TEMP IFC (not the outbox — we publish only on pass) in the contract's schema
-        //    (IFC4 → IFC4 Reference View). With no contract it exports IFC 2x3 as before, and the gate below judges nothing.
-        var tempDir = Path.Combine(Path.GetTempPath(), "Sentinel", "governed");
-        var ifcName = SafeName(doc.Title) + ".ifc";
-        var (state, tempPath, bytes, error) =
-            Sentinel.Engine.PlatformExporter.ExportToDir(doc, doc.ActiveView.Id, tempDir, ifcName, contract?.IfcSchema ?? "IFC2X3");
-        if (state != Sentinel.Engine.PlatformExporter.State.Ok)
+        // Auto-publish between its Prepare and its Stage would write the same outbox name this command does.
+        if (AutoPublish.InFlight)
         {
-            TaskDialog.Show("Sentinel — Governed Publish",
-                state == Sentinel.Engine.PlatformExporter.State.MissingOrEmpty
-                    ? "IFC export contained no geometry — nothing to publish. Check the view and mappings."
-                    : "IFC export failed: " + (error ?? state.ToString()));
-            TryDelete(tempPath);
-            return Result.Failed;
+            TaskDialog.Show(Title, "Auto-publish is judging this model right now — its Doctor line lands when it finishes. " +
+                                   "Run Governed Publish after that.\n\nNothing was exported.");
+            return Result.Cancelled;
         }
 
-        // 2) IFC Delivery Gate (the contract@n above) → certificate; record the verdict on the ledger and WAIT for the
-        //    answer (off this thread, ≤ 6 s) before /propose, so the gate row lands first; every dialog below prints its
-        //    line. A gate FAIL stops here. NOT CHECKED (no contract installed) continues to the IDS, and every dialog
-        //    below says the gate was not checked.
-        var gate = Sentinel.Engine.IfcDeliveryGate.Validate(tempPath, contract, contractSource);
-        var gateLedger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(ifcName, gate, projectKey)).GetAwaiter().GetResult();
-        var gateRow = "Gate row: " + Sentinel.Coordination.LedgerLine.For(gateLedger);
-        if (gate.Outcome == Sentinel.Engine.GateOutcome.Fail)
+        // 1) Prepare on this (API) thread: the contract, the whole-model export to TEMP (never the outbox — a reject
+        //    must not leak a model into it), the gate and its ledger row, the extraction. Not Ready = refused before
+        //    the referee (an export that produced nothing, or a gate FAIL): the dialog says which; the temp IFC is
+        //    already discarded and nothing is staged.
+        var plan = Publisher.Prepare(doc, Path.Combine(Path.GetTempPath(), "Sentinel", "governed"),
+                                     (kind, timeout) => ArtefactClient.Resolve(projectKey, kind, timeout));
+        if (!plan.Ready)
         {
-            TaskDialog.Show("Sentinel — Governed Publish", Sentinel.Engine.GateLines.PublishRejected(gate) + "\n\n" + gateRow);
-            TryDelete(tempPath);
-            return Result.Succeeded;
+            TaskDialog.Show(Title, PublishLines.Dialog(plan));
+            return plan.GateFailed ? Result.Succeeded : Result.Failed;
         }
+        // Without an office code the Pset_<org>.* rows were dropped from the read table (PsetMap), so the referee
+        // sees them as missing. Say so out loud — the verdict is still honest and still recorded.
+        if (plan.OrgWarning is not null) TaskDialog.Show(Title, plan.OrgWarning);
 
-        // 3) Adjudicate the model against the project IDS (referee). Extract read-only from the live model.
-        // Without an office code the Pset_<org>.* rows are dropped from the read table (PsetMap), so the
-        // referee sees them as missing. Say so out loud — the verdict is still honest and still recorded.
-        if (string.IsNullOrWhiteSpace(App.OrgFor(doc)))
-            TaskDialog.Show("Sentinel — Governed Publish",
-                "This document's ruleset (" + (App.Engine?.SourceFor(doc).Label ?? "none") + ") has no \"org\" code — " +
-                "office property sets (Pset_<org>.*) were NOT read for this publish; the referee will report them " +
-                "missing. Install a ruleset@n with an \"org\" on " + projectKey + " or its office, then retry.");
-        var elements = Sentinel.Engine.GovernedElementExtractor.Extract(doc, projectKey);
-        // No IDS is posted: the bridge judges by the project's ids@n (else its office's) and names it in the verdict.
-        var verdict = Sentinel.Coordination.GovernedNotify.Propose(elements, versionId: null, actor: "Revit", containerName: ifcName, projectKey: projectKey);
-
-        if (!verdict.Reached)
-        {
-            // Bridge/CDE unreachable. The gate did not fail (it passed, or was not checked; the line says which), so
-            // let the modeller publish manually rather than lose work.
-            TaskDialog.Show("Sentinel — Governed Publish",
-                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" + gateRow + "\n\n" +
-                "The Sentinel bridge did not return a verdict — nothing was published, and no verdict row is confirmed.\n\n" +
-                (verdict.Error is { Length: > 0 } ? "Reason: " + verdict.Error + "\n\n" : "") +
-                "Start the bridge (npm run bcf:serve) and retry, or publish manually:\n\n" +
-                $"    cd WebApp\n    node bridge/upload-ifc.mjs \"{tempPath}\"");
-            return Result.Succeeded;
-        }
-
-        // The deciding proposal row: /propose hands back its audit_id and receipt.ledger_hash (ProposalResult).
-        var verdictRow = "Verdict row: " + Sentinel.Coordination.LedgerLine.For(
-            Sentinel.Coordination.LedgerResult.FromReceipt(verdict.AuditId, verdict.ReceiptHash));
-
-        if (verdict.Verdict == "rejected")
-        {
-            var nameFailed = verdict.NamingOk == false;
-            var head = nameFailed
-                ? $"✕ REJECTED — model name does not follow the ISO 19650 convention (not published)\n\nName checked: {ifcName}\n\n"
-                : $"✕ REJECTED — {verdict.Failing} of {verdict.InScope} in-scope element check(s) failed (not published)\n\n";
-            TaskDialog.Show("Sentinel — Governed Publish",
-                head +
-                Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" +
-                gateRow + "\n" +
-                verdictRow + "\n\n" +
-                (nameFailed ? "NAMING:\n• " + string.Join("\n• ", verdict.NamingFailures) + "\n\n" : "") +
-                (verdict.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", verdict.Failures) + "\n\n" : "") +
-                (verdict.BcfRaised > 0
-                    ? $"{verdict.BcfRaised} BCF issue(s) opened on the failing elements — they're now in the web " +
-                      "Issues panel and will live-sync into Revit. Fix them and run Governed Publish again."
-                    : nameFailed
-                        ? "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again."
-                        : "Fix the failures and retry."));
-            TryDelete(tempPath);
-            return Result.Succeeded;
-        }
-
-        // 4) ACCEPTED, or RECORDED (no IDS installed: nothing was judged): publish. Copy into the outbox for the
-        //    bridge to upload, register the version, then stamp a real verdict onto that version (the web ✓ badge).
-        var judged = verdict.Verdict != "recorded";
-        var copied = false; // the dialog claims the outbox (and so an upload) only when the copy landed
-        try
-        {
-            var outboxPath = Path.Combine(Sentinel.Engine.PlatformExporter.OutboxDir(), ifcName);
-            File.Copy(tempPath, outboxPath, overwrite: true);
-            copied = true;
-            Sentinel.Engine.PlatformExporter.WriteOutboxMeta(ifcName, doc); // → the right web project
-        }
-        catch (Exception ex)
-        {
-            TaskDialog.Show("Sentinel — Governed Publish",
-                "Verdict " + verdict.Verdict.ToUpperInvariant() + ", but copying the IFC into the upload outbox failed: " + ex.Message +
-                "\n\n" + verdictRow + "\nThe IFC is kept for a manual upload: " + tempPath);
-        }
-
-        // The version and its badge are claimed only when measured: RegisterVersionId handed back the new version's
-        // id, and the stamp call (a second adjudication that writes verdict:<v> onto that version) answered with the
-        // same verdict. Otherwise `badge` says why the badge is not confirmed.
-        var versionId = Sentinel.Coordination.GovernedNotify.RegisterVersionId(doc.Title, bytes, "Revit", projectKey: projectKey);
-        string? badge = null;
-        if (versionId is null) badge = "the version was not registered (the bridge returned no version id)";
-        else if (judged)
-        {
-            var stamp = Sentinel.Coordination.GovernedNotify.Propose(elements, versionId, actor: "Revit", containerName: ifcName, projectKey: projectKey);
-            badge = !stamp.Reached ? "the stamp call failed (" + stamp.Error + ")"
-                  : stamp.Verdict != verdict.Verdict ? "the stamp call judged it " + stamp.Verdict + ", not " + verdict.Verdict
-                  : null;
-        }
-
-        var live = versionId is null ? null : Sentinel.Coordination.GovernedQuery.LiveVersion(doc.Title, projectKey);
-        var revLine = !copied ? "NOT in the upload outbox (the copy failed); " + (versionId is null ? "no new version is confirmed" : "a version was registered with nothing to upload")
-                    : versionId is null ? "copied to the upload outbox; the new version is not confirmed"
-                    : live is null ? "published as a new version" : $"published as {live.Revision} · {live.State}";
-        var uploadLine = copied ? "The Sentinel bridge uploads the geometry." : "Nothing was queued for upload — the copy into the outbox failed.";
-        // Every line names what judged, from the bridge's answer — never from a local file.
-        var idsLine = judged
-            ? $"IDS {verdict.IdsLabel}: {verdict.Passing}/{verdict.InScope} in-scope element checks passed" +
-              (verdict.Warned ? $" — {verdict.Failing} failure(s) kept as warnings (enforce: {verdict.IdsEnforce ?? "not reported"})." : ".")
-            : $"IDS: none — no IDS installed for {projectKey} or its office. The model was NOT judged.";
-        var namingLine = verdict.NamingRef is null
-            ? "Naming: not judged — no naming standard installed."
-            : $"Naming {verdict.NamingLabel}: " + (verdict.NamingOk == false ? "failed (warn — recorded, not blocking)." : "passed.");
-
-        TaskDialog.Show("Sentinel — Governed Publish",
-            (judged ? $"✓ ACCEPTED — {revLine}\n" : $"Published — not judged: no IDS installed ({revLine})\n") +
-            $"Project: {projectKey}\n\n" +
-            idsLine + "\n" +
-            namingLine + "\n" +
-            Sentinel.Engine.GateLines.PublishLine(gate, projectKey) + "\n" +
-            (judged && gate.Outcome == Sentinel.Engine.GateOutcome.NotChecked ? Sentinel.Engine.GateLines.JudgedAlone(gate) + "\n" : "") +
-            "SHA-256: " + gate.FileSha256.Substring(0, Math.Min(16, gate.FileSha256.Length)) + "…\n" +
-            gateRow + "\n" +
-            verdictRow + "\n\n" +
-            (judged
-                ? uploadLine + "\n" +
-                  (badge is null ? $"Version badge: ✓ {verdict.Verdict} stamped on this version." : "Version badge: not confirmed — " + badge + ".")
-                : uploadLine + " No verdict badge: nothing was judged — the verdict is " +
-                  "\"recorded\"." + (badge is null ? "" : "\nVersion: not confirmed — " + badge + ".") +
-                  "\nInstall an IDS on the project or its office to judge the next one."));
-        if (copied) TryDelete(tempPath); // a failed copy leaves the only IFC for the manual upload the dialog named
+        // 2) Judge OFF this thread and wait for it (the 120 s /propose): a modal command may block on the bridge; a
+        //    save handler may not. 3) Stage: accepted or recorded → the sidecar {project, container, version_id},
+        //    then the IFC into the outbox; anything else → the temp IFC is deleted and nothing is staged.
+        var outcome = Task.Run(() => Publisher.Judge(plan)).GetAwaiter().GetResult();
+        var stage = Publisher.Stage(plan, outcome, PlatformExporter.OutboxDir());
+        TaskDialog.Show(Title, PublishLines.Dialog(plan, outcome, stage));
         return Result.Succeeded;
     }
-
-    private static string SafeName(string s)
-    {
-        s = Path.GetFileNameWithoutExtension(s);
-        foreach (var ch in Path.GetInvalidFileNameChars()) s = s.Replace(ch, '_');
-        return string.IsNullOrWhiteSpace(s) ? "SentinelModel" : s;
-    }
-
-    private static void TryDelete(string path) { try { File.Delete(path); } catch { /* best-effort */ } }
 }

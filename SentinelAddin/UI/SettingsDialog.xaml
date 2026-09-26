@@ -38,9 +38,6 @@
             <TextBlock x:Name="WebProjectScopeNote" FontSize="10" Foreground="#B26B00" Margin="0,0,0,10"
                        TextWrapping="Wrap"/>
 
-            <CheckBox x:Name="LinkedModelsBox" FontSize="12" Margin="0,0,0,14"
-                      Content="Include linked models when publishing (each link exports as its own IFC — Quick/Auto publish)"/>
-
             <TextBlock Text="Ghost source folder (DWGs, specs, sketches — drives Datum &amp; Ghost Builder)"
                        FontSize="11" Foreground="#667"/>
             <DockPanel Margin="0,4,0,16">

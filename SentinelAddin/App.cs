@@ -124,8 +124,6 @@ public sealed class App : IExternalApplication
     private static void OnDocumentOpened(object? sender, DocumentOpenedEventArgs e)
     {
         if (e.Document is not { IsFamilyDocument: false } doc) return;
-        // A linked model Sentinel opens itself to export it is never loaded, scanned or judged.
-        if (PlatformExporter.IsOpenedForExport(doc.PathName)) return;
         SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
         CdeSyncGuard.Prefetch(ProjectContext.For(doc)); // CDE-01's naming@n, off Revit's thread
         Workflow.RequestManager.RefreshSnapshot(doc); // old-value capture baseline
@@ -212,7 +210,7 @@ public sealed class App : IExternalApplication
             report = report.Plus(cde, judged);
         }
         PanelVm!.PublishReport(report);
-        Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync-to-central → refresh the web copy too
+        Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync → auto-publish, when the project's publish@n says so
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled;
         // posted on a task and never waited for — a sync must not block. When the bridge has answered, its ledger line
         // goes to the Doctor log and the journey is re-read, so the `model` step is never read before its report
@@ -249,7 +247,7 @@ public sealed class App : IExternalApplication
         PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc));
     }
 
-    // Local save (non-workshared, or a local save before sync) → push the latest model to the web.
+    // Local save (non-workshared, or a local save before sync) → auto-publish, when the project's publish@n says so.
     private static void OnSaved(object? sender, DocumentSavedEventArgs e)
         => Sentinel.Engine.AutoPublish.Trigger(e.Document);
 
@@ -304,27 +302,23 @@ public sealed class App : IExternalApplication
         Push(va, "Sentinel_NamingManager", "Naming\nManager", "Sentinel.Commands.NamingManagerCommand", "family",
             "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Each batch is one ledger row, and the window says whether it landed.");
 
-        // ── Publish — governed delivery (flagship) + ungoverned options ──────────────────────
+        // ── Publish — the one governed path (auto-publish is the project's publish@n, not a button) + sheets and views ──
         var pu = app.CreateRibbonPanel(tab, "Publish");
         Push(pu, "Sentinel_GovernedPublish", "Governed\nPublish", "Sentinel.Commands.GovernedPublishCommand", "govern",
-            "One governed action: export the active view to IFC, run the delivery gate, adjudicate against the project IDS, record the verdict on the ledger, and publish + version ONLY if it passes. A fail is recorded and each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit).");
+            "The one publish path: export the whole model to IFC in the contract's schema, run the delivery gate, adjudicate against the project IDS and naming, and — on accepted or recorded — register one version (the container is named from the central file) with its verdict on the ledger and stage the upload. A reject uploads nothing; each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit). The dialog names the version and both ledger rows.");
         var pub = Pull(pu, "Sentinel_Publish", "Publish", "publish",
-            "Ungoverned publishing: quick publish, auto-publish on save, and sheet rendering. Prefer Governed Publish for delivery.");
-        Sub(pub, "Sentinel_QuickPublish", "Quick Publish (ungoverned)", "Sentinel.Commands.PublishToPlatformCommand", "publish",
-            "Export the active view to IFC into the Sentinel outbox; the Bridge uploads it to That Open Platform. No verdict — prefer Governed Publish.");
-        Sub(pub, "Sentinel_AutoPublish", "Auto-Publish on save", "Sentinel.Commands.ToggleAutoPublishCommand", "autopublish",
-            "Toggle push-on-save: when ON, every save/sync re-exports the model and the Bridge uploads it. Throttled; turn off for very large models.");
+            "Sheets and views for the web app's Sheets and Views tabs — images keyed by model name under %AppData%, outside the governed IFC path (no version, no verdict). The model itself publishes only through Governed Publish, or on save when the project's publish@n says auto: true (the pane's strip names it).");
         Sub(pub, "Sentinel_PublishSheets", "Publish Sheets", "Sentinel.Commands.PublishSheetsCommand", "sheets",
-            "Render all Revit sheets to PNG (sheets never survive IFC export). The Bridge serves them to the web app's Sheets tab.");
+            "Render all Revit sheets to PNG (sheets never survive IFC export). The Bridge serves them to the web app's Sheets tab. Keyed by model name under %AppData%, not by the web project — outside the governed IFC path.");
         Sub(pub, "Sentinel_PublishViews", "Publish Views", "Sentinel.Commands.PublishViewsCommand", "views",
-            "Choose which views (plans, sections, elevations, 3D, drafting) to publish. Only checked views appear in the web app's Views tab.");
+            "Choose which views (plans, sections, elevations, 3D, drafting) to publish. Only checked views appear in the web app's Views tab. Keyed by model name under %AppData%, not by the web project — outside the governed IFC path.");
 
         // ── Standards & Build — office standards + generation ────────────────────────────────
         var st = app.CreateRibbonPanel(tab, "Standards & Build");
         var std = Pull(st, "Sentinel_Standards", "Standards", "standards",
             "Set up and apply office standards: project setup, build/apply a standards pack, or ingest from documents.");
         Sub(std, "Sentinel_Setup", "Project Setup", "Sentinel.Commands.ProjectSetupCommand", "setup",
-            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path and publishing options.");
+            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path.");
         Sub(std, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
             "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
         Sub(std, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",

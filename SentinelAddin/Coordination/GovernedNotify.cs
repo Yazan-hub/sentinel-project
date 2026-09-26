@@ -16,15 +16,13 @@ namespace Sentinel.Coordination
     /// timeline shows authoring events alongside coordination + governance. A ledger event (<see cref="Event"/> and
     /// the wrappers that return a <see cref="LedgerResult"/>) is BLOCKING — 6 s cap — and says what the ledger
     /// answered: callers run it OFF the Revit API thread and wait (a modal tool) or continue on the task (save, sync),
-    /// then print <see cref="LedgerLine"/> on their own thread. Nothing here throws; only <see cref="FileVersion"/>'s
-    /// not-bound Doctor line touches UI, on the caller's thread. The bridge comes from <see cref="BcfConfig"/>
-    /// (ServiceUrl + ServiceToken); the project is ALWAYS the caller's document key (ProjectContext) — there is
-    /// no machine default, and an empty key records nothing and says so.
+    /// then print <see cref="LedgerLine"/> on their own thread. Nothing here throws and nothing here touches UI. The
+    /// bridge comes from <see cref="BcfConfig"/> (ServiceUrl + ServiceToken); the project is ALWAYS the caller's
+    /// document key (ProjectContext) — there is no machine default, and an empty key records nothing and says so.
+    /// A version is registered only by <see cref="Propose"/>'s <c>register</c> (one call judges, registers and stamps).
     /// </summary>
     internal static class GovernedNotify
     {
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) };
-
         // Governed Publish is a deliberate, interactive action whose /propose call adjudicates the whole model
         // AND (on a reject) creates a BCF issue per failing requirement across several Supabase round-trips —
         // seconds, not milliseconds, on a large model. Give the blocking governed calls a generous timeout so
@@ -59,35 +57,6 @@ namespace Sentinel.Coordination
         {
             var cfg = BcfConfig.Load(); // never throws: the file, else the environment, else localhost
             return LedgerResult.Post(cfg.ServiceUrl, cfg.ServiceToken, projectKey, path, payload, timeout ?? LedgerResult.DefaultTimeout);
-        }
-
-        /// <summary>Record a "model published from Revit" event on the ledger (AutoPublish continues on the task and
-        /// logs the line).</summary>
-        public static LedgerResult ModelPublished(string modelName, long bytes, string projectKey) =>
-            Event("/audit", new
-            {
-                entity_type = "model",
-                actor = "Revit",
-                action = "Model published from Revit: " + modelName,
-                new_value = new { model = modelName, kb = bytes / 1024, source = "revit", at = DateTime.UtcNow.ToString("o") },
-            }, projectKey);
-
-        /// <summary>
-        /// Register a Revit publish as a new version in the web app's file-version history (migration 0011,
-        /// <c>POST /cde/:key/files</c>). The model's title is the file key, so repeated publishes append
-        /// v1 → v2 → … and the newest becomes the live version — the same version timeline a web upload feeds.
-        /// Fire-and-forget; a bridge without the CDE configured just no-ops (503).
-        /// </summary>
-        public static void FileVersion(string modelName, long bytes, string projectKey)
-        {
-            var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
-            Post("/files", new
-            {
-                name,
-                author = "Revit",
-                size_bytes = bytes,
-                notes = "published from Revit",
-            }, projectKey);
         }
 
         /// <summary>
@@ -129,13 +98,16 @@ namespace Sentinel.Coordination
         /// set, the bridge also stamps the verdict onto that file version (the web verdict badge, G3); on a reject
         /// it auto-opens a BCF issue per failing requirement (G2) unless <paramref name="raiseBcf"/> is false —
         /// a fix-in-place check or re-check must never open topics. <paramref name="source"/> and
-        /// <paramref name="note"/> land on the audit row. Blocking (120s cap); never throws:
-        /// <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
+        /// <paramref name="note"/> land on the audit row. With <paramref name="register"/> (the Publisher: one
+        /// adjudication per publish, spec 2026-09-26 Decision 3) the bridge registers the version on an accepted or
+        /// recorded verdict and stamps it, answering <see cref="ProposalResult.Version"/> and
+        /// <see cref="ProposalResult.VerdictAuditId"/>; a rejected verdict registers nothing. Blocking (120s cap);
+        /// never throws: <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
         public static ProposalResult Propose(object elements, string? versionId, string actor,
                                              string projectKey, string? containerName = null,
                                              string? source = null, string? note = null, bool raiseBcf = true,
-                                             string? failuresRequirement = null)
+                                             string? failuresRequirement = null, RegisterRequest? register = null)
         {
             var r = new ProposalResult();
             var key = KeyOf(projectKey);
@@ -144,19 +116,7 @@ namespace Sentinel.Coordination
             {
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/propose";
-                var body = new Dictionary<string, object?>
-                {
-                    ["source"] = source ?? "Governed Publish",
-                    ["actor"] = actor,
-                    ["elements"] = elements,
-                };
-                if (versionId != null) body["version_id"] = versionId;
-                if (containerName != null) body["container_name"] = containerName; // ISO 19650 naming gate
-                if (note != null) body["note"] = note;
-                if (!raiseBcf) body["raise_bcf"] = false;
-                // One requirement's failures only (fix-in-place): the bridge then returns up to 1000 of them
-                // plus failures_total / failures_matched, so truncation is detected by count, not guessed.
-                if (!string.IsNullOrWhiteSpace(failuresRequirement)) body["failures_requirement"] = failuresRequirement;
+                var body = ProposalResult.RequestBody(elements, versionId, actor, containerName, source, note, raiseBcf, failuresRequirement, register);
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
@@ -172,34 +132,6 @@ namespace Sentinel.Coordination
                     : ex.InnerException?.Message ?? ex.Message;
             }
             return r;
-        }
-
-        /// <summary>
-        /// Register a Revit publish as a new file version and return its id (or null if unreachable) — the
-        /// blocking counterpart to <see cref="FileVersion"/>, used by Governed Publish so it can stamp the
-        /// verdict badge onto the exact version it just created. <c>POST /cde/:key/files</c> → the new version's id.
-        /// </summary>
-        public static string? RegisterVersionId(string modelName, long bytes, string author, string projectKey, string? notes = null)
-        {
-            var key = KeyOf(projectKey);
-            if (key.Length == 0) return null;
-            try
-            {
-                var name = modelName.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase) ? modelName : modelName + ".ifc";
-                var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/files";
-                var body = new { name, author, size_bytes = bytes, notes = notes ?? "published from Revit (Governed Publish)" };
-                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
-                var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (!resp.IsSuccessStatusCode) return null;
-
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("version", out var ver) && ver.TryGetProperty("id", out var id))
-                    return id.GetString();
-            }
-            catch { /* unreachable */ }
-            return null;
         }
 
         /// <summary>
@@ -289,30 +221,6 @@ namespace Sentinel.Coordination
                 return Event("/office/scan", wire.RootElement, projectKey);
             }
             catch (Exception e) { return LedgerResult.NotRecorded("the scan report could not be written (" + e.Message + ")"); }
-        }
-
-        /// <summary>POST a governed event to <c>{ServiceUrl}/cde/{key}{path}</c>; fire-and-forget, never throws.
-        /// An empty key posts nothing and says so in the Doctor log — never a silent "default".</summary>
-        private static void Post(string path, object payload, string projectKey)
-        {
-            var key = KeyOf(projectKey);
-            if (key.Length == 0)
-            {
-                App.PanelVm?.LogDoctor($"Not recorded on the web ({path.TrimStart('/')}): {NotBoundError}.");
-                return;
-            }
-            try
-            {
-                var cfg = BcfConfig.Load();
-                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + path;
-                var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-                var msg = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
-                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
-                    msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
-                // observe the task's exception so a failed POST never surfaces as an unobserved exception
-                _ = Http.SendAsync(msg).ContinueWith(t => { _ = t.Exception; msg.Dispose(); }, TaskScheduler.Default);
-            }
-            catch { /* never throw into Revit */ }
         }
     }
 }

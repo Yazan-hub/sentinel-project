@@ -1003,7 +1003,9 @@ function readRegister(b) {
 /** Adjudicate a proposal (POST /cde/:key/propose, intake, the AI tools, MCP, changesets): validate `elements` (the
  *  ElementProperties shape) against the IDS — the project's installed artefact → the office's → the caller's `ids` →
  *  none, named in ids_source / ids_ref — and the container name against the naming standard, write one proposal row,
- *  and return { verdict, downgraded, summary, failures, naming, ids_*, audit_id, version, verdict_audit_id, receipt }.
+ *  and return { verdict, downgraded, summary, failures, naming, ids_*, audit_id, version, verdict_audit_id,
+ *  verdict_hash, receipt } (verdict_hash: the verdict row's own chain hash, so Revit can print its receipt; null when
+ *  nothing was stamped).
  *  No IDS → "recorded"; accepted with nothing in scope → "recorded", downgraded "nothing in scope". `version_id` stamps
  *  the key's own version (another's is a 400); `register` registers a wip version on accepted or recorded and stamps
  *  it (readRegister). A stamp is what publishing reads (migration 0031), so an IDS or a naming ruleset the caller sent
@@ -1101,7 +1103,7 @@ export async function adjudicateProposal(key, b = {}) {
     verdict, downgraded, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
-    version, verdict_audit_id: stamp?.id ?? null,
+    version, verdict_audit_id: stamp?.id ?? null, verdict_hash: stamp?.hash ?? null,
     agent,
     // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
     // ledger that cannot be rewritten — see POST /receipt/:key/verify.

@@ -119,10 +119,6 @@ def cloud(d, y=.0):
 def g_publish(d):
     cloud(d, .06);
     d.polygon(P(.50,.24,.62,.40,.38,.40), fill=W); d.rectangle(R(.455,.36,.545,.52), fill=W)
-def g_autopublish(d):
-    cloud(d, .08)
-    d.arc(R(.36,.24,.64,.52), 300, 210, fill=W, width=int(wln*.9))
-    d.polygon(P(.36,.30,.30,.40,.44,.40), fill=W)
 def g_sheets(d):
     d.rounded_rectangle(R(.36,.24,.70,.66), radius=int(S*.04), outline=W, width=int(wln*.85))
     d.rounded_rectangle(R(.28,.34,.62,.76), radius=int(S*.04), fill=None, outline=W, width=int(wln*.85))
@@ -172,7 +168,7 @@ ICONS = [
     ("scan", AMBER, g_scan), ("scorecard", AMBER, g_scorecard), ("rules", AMBER, g_rules),
     ("ifcgate", AMBER, g_ifcgate), ("preflight", AMBER, g_preflight), ("gate", AMBER, g_gate),
     ("family", AMBER, g_family), ("heal", AMBER, g_heal), ("mep", AMBER, g_mep),
-    ("govern", EMER, g_govern), ("publish", GREEN, g_publish), ("autopublish", GREEN, g_autopublish),
+    ("govern", EMER, g_govern), ("publish", GREEN, g_publish),
     ("sheets", GREEN, g_sheets), ("views", GREEN, g_views),
     ("standards", VIOLET, g_standards), ("setup", VIOLET, g_setup), ("office", VIOLET, g_office),
     ("apply", VIOLET, g_apply), ("ingest", VIOLET, g_ingest), ("ghost", VIOLET, g_ghost),

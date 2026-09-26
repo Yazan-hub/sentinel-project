@@ -1,6 +1,6 @@
 // Shared argv parsing for the bridge's CLIs: one positional file path plus --flag value pairs.
 // (The brief for this task assumed this module already existed from the Governed Intake work; it
-// didn't — intake.mjs/artefact-import.mjs/upload-ifc.mjs each inline the same few lines. This gives
+// didn't — intake.mjs and artefact-import.mjs each inline the same few lines. This gives
 // new CLIs, starting with manifest.mjs, one place to get it from without touching those in scope.)
 export function parseCliArgs(argv) {
   const file = argv.find((a) => !a.startsWith("--"));

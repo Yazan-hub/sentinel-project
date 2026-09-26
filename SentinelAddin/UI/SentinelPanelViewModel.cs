@@ -113,6 +113,10 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     public string StandardsLine { get => _standardsLine; private set { _standardsLine = value; OnChanged(); } }
     private string _nextLine = "";
     public string NextLine { get => _nextLine; private set { _nextLine = value; OnChanged(); } }
+    private string _publishLine = "";
+    /// "Auto-publish: on · publish@1 · office · 3f9a0c1d2e4b…" or "Auto-publish: off — publish: none — …": the
+    /// project's publish@n, read like the journey and decided the way AutoPublish decides it (Publisher.AutoEnabled).
+    public string PublishLine { get => _publishLine; private set { _publishLine = value; OnChanged(); } }
     private string _scanRulesetLine = "";
     public string ScanRulesetLine { get => _scanRulesetLine; private set { _scanRulesetLine = value; OnChanged(); } }
     private int _journeySeq;
@@ -121,9 +125,10 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     internal int JourneySeq => _journeySeq;
 
     /// Called on the Revit API thread (Revit's main thread, which owns this pane) with what was read there: the
-    /// document's web key and where the ruleset that judged the rows came from. The GET (up to 4 s) runs on a
-    /// background task; the result is set back on the pane's thread. A newer refresh wins over a slower older
-    /// one; a failure clears the strip and says so — never stale data.
+    /// document's web key and where the ruleset that judged the rows came from. The two GETs (the journey and the
+    /// project's publish@n, up to 4 s each, side by side) run on background tasks; the result is set back on the
+    /// pane's thread. A newer refresh wins over a slower older one; a failure clears the strip and says so — never
+    /// stale data.
     public void RefreshJourney(string projectKey, ResolvedArtefact local)
     {
         var seq = ++_journeySeq;
@@ -131,17 +136,21 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         {
             // Like the web strip: while loading, no line from the previous document or ruleset stays up.
             JourneyKey = $"Journey · {projectKey} — loading…";
-            StandardsLine = NextLine = ScanRulesetLine = "";
+            StandardsLine = NextLine = PublishLine = ScanRulesetLine = "";
         });
         // Same dispatcher OnUi uses: the pane's (WPF application) dispatcher when there is one.
         var ui = Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        Task.Run(() => { var info = GovernedQuery.Journey(projectKey, out var why); return (info, why); }).ContinueWith(t => ui.BeginInvoke(new Action(() =>
+        var journey = Task.Run(() => { var info = GovernedQuery.Journey(projectKey, out var why); return (info, why); });
+        var policy = Task.Run(() => ArtefactClient.Resolve(projectKey, "publish"));
+        Task.WhenAll(journey, policy).ContinueWith(_ => ui.BeginInvoke(new Action(() =>
         {
             if (seq != _journeySeq) return;
-            var (j, why) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, t.Exception?.GetBaseException().Message);
+            var (j, why) = journey.Status == TaskStatus.RanToCompletion ? journey.Result : (null, journey.Exception?.GetBaseException().Message);
             JourneyKey = j is null ? $"Journey · {projectKey}" : $"Journey · {j.Key} ({j.Kind})";
             StandardsLine = j?.StandardsLine ?? "";
             NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
+            PublishLine = PublishLines.Policy(policy.Status == TaskStatus.RanToCompletion ? policy.Result
+                : ArtefactClient.None("publish", "the policy read did not finish (" + (policy.Exception?.GetBaseException().Message ?? "unknown") + ")"));
             ScanRulesetLine = GovernedQuery.ScanRulesetLine(local, j);
         })));
     }
@@ -154,7 +163,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         OnUi(() =>
         {
             JourneyKey = "Journey — not bound — Sentinel ▸ Project Setup";
-            StandardsLine = NextLine = ScanRulesetLine = "";
+            StandardsLine = NextLine = PublishLine = ScanRulesetLine = "";
         });
     }
 
@@ -170,7 +179,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             Score = 0; // raises ScoreText, which reads _notScored
             Status = $"{docTitle} — loading its ruleset…";
             JourneyKey = "Journey — loading…";
-            StandardsLine = NextLine = ScanRulesetLine = "";
+            StandardsLine = NextLine = PublishLine = ScanRulesetLine = "";
         });
     }
 
