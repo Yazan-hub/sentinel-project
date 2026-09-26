@@ -62,6 +62,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const isLoaded = (f: FileRec, v: Version) => { try { return !!modelList()?.has?.(modelIdOf(f, v)); } catch { return false; } };
   let revByVersion = new Map<string, string>(); // container_version_id → model_revision id (for compare)
   let auditByEntity = new Map<string, AuditEvent[]>(); // entity_id → its audit events (for the version history)
+  let historyGap = ""; // set when the ledger read failed or was partial — an empty history then says so
   const expanded = new Set<string>();
   const historyOpen = new Set<string>(); // version ids whose history timeline is expanded
   const cmp: { a?: Version; b?: Version; fileId?: string } = {};
@@ -120,19 +121,25 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const revs = await fetchRevisions(base, pid());
       revByVersion = new Map();
       for (const r of revs) if (r.container_version_id) revByVersion.set(r.container_version_id, r.id);
-      // Immutable audit trail → per-version history (uploaded / set live / state transitions, with who + when).
-      // Keyed on entity_id, which the bridge sets to the container_version id for all version events.
+      // The ledger → per-version history (uploaded / set live / state transitions / verdicts, with who + when): only
+      // the rows of these files and their versions (entity_id), however old, with the exact total.
       auditByEntity = new Map();
-      try {
-        const rows = (await api(`${encodeURIComponent(pid())}/audit`)) as AuditEvent[];
-        for (const r of Array.isArray(rows) ? rows : []) {
-          if (!r.entity_id) continue;
-          const list = auditByEntity.get(r.entity_id) ?? auditByEntity.set(r.entity_id, []).get(r.entity_id)!;
-          list.push(r);
-        }
-      } catch { /* audit unavailable — history just shows empty, panel still works */ }
+      historyGap = "";
+      const ids = files.flatMap((f) => [f.id, ...f.versions.map((v) => v.id)]);
+      if (ids.length) {
+        try {
+          // ponytail: every id in one GET; batch the ids if a project's files and versions reach the hundreds.
+          const { rows, total } = (await api(`${encodeURIComponent(pid())}/audit?entity_id=${ids.join(",")}&limit=1000`)) as { rows: AuditEvent[]; total: number };
+          for (const r of rows) {
+            if (!r.entity_id) continue;
+            const list = auditByEntity.get(r.entity_id) ?? auditByEntity.set(r.entity_id, []).get(r.entity_id)!;
+            list.push(r);
+          }
+          if (rows.length < total) historyGap = `History read ${rows.length} of ${total} ledger rows (the newest).`;
+        } catch (e) { historyGap = `History unavailable — ${(e as Error).message}.`; }
+      }
       render();
-      status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s).`);
+      status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s).${historyGap ? " " + historyGap : ""}`);
     } catch (e) {
       files = [];
       el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Couldn't load versions: ${esc((e as Error).message)}.<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span></div>`;
@@ -310,7 +317,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   function historyBlock(f: FileRec, v: Version): string {
     const evs = [...(auditByEntity.get(v.id) || []), ...(auditByEntity.get(f.id) || [])].sort((a, b) => a.id - b.id);
     if (!evs.length)
-      return '<div style="padding:.3rem .6rem .45rem 2rem;border-top:1px dashed #2a2a30;background:#141418;color:#71717a;font-size:11px">No recorded history for this version yet.</div>';
+      return `<div style="padding:.3rem .6rem .45rem 2rem;border-top:1px dashed #2a2a30;background:#141418;color:#71717a;font-size:11px">${esc(historyGap || "No recorded history for this version yet.")}</div>`;
     const rows = evs.map((e) =>
       '<div style="display:flex;gap:.5rem;align-items:baseline;padding:.15rem 0;font-size:11.5px">' +
       '<span style="color:#8b5cf6">◆</span>' +

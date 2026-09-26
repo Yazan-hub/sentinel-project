@@ -597,10 +597,10 @@ describe("classifyReview (midp.review)", () => {
     expect(r.evidence[0].detail).toMatch(/unresolved identity/);
   });
 
-  it("missing transitions (outside the audit window) are unmeasured, not a pass", () => {
+  it("missing transitions (not on the ledger) are unmeasured, not a pass", () => {
     const r = classifyReview([file("A", [v("v1")])], []);
     expect(r.status).toBe("not_checkable");
-    expect(r.evidence[0].detail).toMatch(/outside the audit window/);
+    expect(r.evidence[0].detail).toBe("its state:wip->shared or state:shared->published row is not on the ledger, so review cannot be judged");
   });
 
   it("a real violation outranks unmeasured rows", () => {

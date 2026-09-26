@@ -31,6 +31,8 @@ interface Version { id: string; revision: string; state: State; suitability?: st
 interface Container { id: string; iso_name: string; title?: string; discipline?: string; container_type?: string; folder_id?: string | null; container_versions: Version[]; }
 interface Folder { id: string; project_id: string; parent_id: string | null; name: string; kind: string; sort: number; }
 interface Audit { id: number; action: string; actor?: string; at: string; entity_type?: string; }
+// GET /cde/:key/audit's reply: a page of the ledger, newest first, and the exact count of its rows.
+interface AuditPage { rows: Audit[]; total: number; }
 
 export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
@@ -218,8 +220,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       status("Loading…");
       await Promise.all([loadFolders(), loadContainers()]);
       refreshView();
-      const audit = (await api(`${encodeURIComponent(pid())}/audit`)) as Audit[];
-      renderAudit(audit);
+      renderAudit((await api(`${encodeURIComponent(pid())}/audit?limit=20`)) as AuditPage);
     } catch (e) {
       containers = []; folders = []; renderTree(); renderBoard([]);
       status(`Can't reach the CDE: ${(e as Error).message}. Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set.`);
@@ -295,11 +296,11 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     }
   }
 
-  function renderAudit(rows: Audit[]) {
+  function renderAudit({ rows, total }: AuditPage) {
     el("cde-audit").innerHTML =
-      '<div style="color:#71717a;margin-bottom:.2rem">Audit trail (append-only · hash-chained)</div>' +
+      `<div style="color:#71717a;margin-bottom:.2rem">Ledger (append-only · one hash chain across all projects) — newest ${rows.length} of ${total}</div>` +
       (rows.length
-        ? rows.slice(0, 20).map((a) => {
+        ? rows.map((a) => {
             const when = esc(a.at.replace("T", " ").slice(0, 19));
             // Verdict cue: gate/govern events read PASS (green) / FAIL (red) at a glance.
             const action = /\bFAIL\b/.test(a.action)

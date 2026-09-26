@@ -1055,7 +1055,9 @@ async function handleRequest(req, res) {
         const b = await readBody(req);
         return send(res, 200, await cde.deleteFile(p1, b.container_id, b.actor));
       }
-      if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1));
+      // GET /cde/:key/audit?entity_type=&action_prefix=&entity_id=&actor=&since=&until=&limit=&offset=
+      //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
+      if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, version_id?, raise_bcf? }
       //   → { verdict: accepted|rejected|recorded, summary, failures[], audit_id, bcf? }. Agents propose; the
