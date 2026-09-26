@@ -31,7 +31,9 @@ rulebook is private is just an opinion.
     "kind": "agent", "model": "gpt-6-astra", "tool": "revit-mcp",
     "prompt": "model the stair core to LOD300"              // hashed bridge-side, never stored
   },
-  "note": "optional"
+  "note": "optional",
+  "version_id": "…",                  // optional: also stamp verdict:<v> on this version (it must be on :project)
+  "register": { "name": "PRJ-BDS-XX-XX-M3-A-0001.ifc", "size_bytes": 5120000, "sha256": "…" }   // optional, §2; name = container_name
 }
 ```
 
@@ -59,6 +61,27 @@ rulebook is private is just an opinion.
 `ids_source: "none"` means **nothing was actually checked**. It is reported rather than dressed up:
 a verdict with no specification behind it is a record, not an adjudication, and the compliance layer
 treats it that way too (`ids.last_verdict` returns *not checkable*, never *met*).
+
+**Nothing in scope is `recorded`.** An installed IDS that found no element in its scope measured nothing, so the
+answer is `recorded`, never `accepted`, and the reply and the proposal row say why (`downgraded: "nothing in scope"`).
+The bridge decides it once, for every caller — Revit, Governed Intake, agents.
+
+**One call judges, registers and stamps.** With `register`, an accepted or recorded verdict registers a new version
+of the container `register.name` — always `wip`, with no geometry until the uploader attaches it by the version's
+id — and stamps `verdict:<v>` on it from this same result: one proposal row, one version, one verdict row. The reply
+adds `"version": { "id", "container_id", "revision", "state": "wip" }` and `"verdict_audit_id"`. A rejected verdict
+registers nothing. `version_id` stamps a version that already exists; one on another project is a 400
+(`version <id> is not on <project>`). `register.name` must equal `container_name` (the name judged is the name
+registered). The in-app AI tools and MCP `sentinel_propose` pass neither.
+
+**What a verdict unlocks.** A version moves shared → published only when its newest `verdict:` row on its project is
+`verdict:accepted` with `summary.in_scope` above 0. Anything else — `recorded`, `rejected`, no verdict — needs a
+signed-in lead's reason, `POST /cde/versions/:id/transition { "state": "published", "override": "<reason>" }`;
+without one the answer is a 409 saying the version needs the lead's reason. The bridge's service key, Revit, the
+bridge token and the AI tools cannot give one. The `state:shared->published` row records the `verdict` and the
+`verdict_audit_id` it read, and the `override`. A state changes only through `cde_transition` (migration 0031),
+every new version starts in `wip`, and `POST /cde/:project/audit` refuses `verdict:`, `state:`, `gate:` and `roi:`
+actions and `stage_gate` rows: Sentinel alone writes those.
 
 ## 3. Provenance is claimed, never verified
 

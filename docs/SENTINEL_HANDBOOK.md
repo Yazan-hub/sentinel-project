@@ -85,8 +85,8 @@ Everything here runs *inside Revit*, on the model open in front of you. The ribb
 
 | Tool | What it does | When | Who |
 |---|---|---|---|
-| **Governed Publish** ⭐ | The flagship. **One action**: export the active view to IFC → run the delivery gate → adjudicate against the project IDS → record the verdict **on the ledger** → publish + version **only if it passes**. A fail is recorded and each failing requirement **auto-opens as a BCF issue**, live-synced to the web and back into Revit. The dialog names the gate row's and the verdict's ledger entries (`ledger #<id> · receipt <16 hex>…`), and says `Version badge: not confirmed — <reason>.` rather than promise the ✓ badge when the version or its stamp is not confirmed. | Every real deliverable. This is the referee. | Coordinator |
-| **Publish → Quick Publish** | Ungoverned: export the active view to IFC into the outbox; the bridge uploads it. **No verdict.** | Quick share of work-in-progress. | Modeller |
+| **Governed Publish** ⭐ | The flagship. **One action**: export the active view to IFC → run the delivery gate → adjudicate against the project IDS → record the verdict **on the ledger** → publish + version **only if it passes**. A fail is recorded and each failing requirement **auto-opens as a BCF issue**, live-synced to the web and back into Revit. The dialog names the gate row's and the verdict's ledger entries (`ledger #<id> · receipt <16 hex>…`), and says `Version badge: not confirmed — <reason>.` rather than promise the ✓ badge when the version or its stamp is not confirmed. The version is registered in WIP; Publish on the web (the CDE panel) takes it further only on an accepted verdict that measured something, or with a lead's reason the ledger records (migration 0031). | Every real deliverable. This is the referee. | Coordinator |
+| **Publish → Quick Publish** | Ungoverned: export the active view to IFC into the outbox; the bridge uploads it. **No verdict**, so its version reaches Published only with a signed-in lead's reason. | Quick share of work-in-progress. | Modeller |
 | **Publish → Auto-Publish on save** | Toggle push-on-save: every save/sync re-exports + uploads. Throttled. Each publish's ledger line goes to the panel's Doctor log; the ledger post never holds up the save. | Turn on for a live-shared model; off for very large ones. | Modeller |
 | **Publish → Publish Sheets** | Renders all Revit sheets to PNG (sheets don't survive IFC) and serves them to the web app's Sheets tab. | When reviewers need the actual drawings, not just the model. | Modeller |
 
@@ -117,7 +117,7 @@ The web app is a browser BIM environment (viewer + CDE) built on That Open Compo
 | **Guide** | In-app guidance / help panel. | New users |
 | **Copilot** | The AI assistant (see §5). | Everyone |
 | **BIM Tools** | The viewer toolkit: **Model** loader, **Properties**, **Project Browser** (element tree), **Visibility** (isolate/hide), **Plans** (2D), **Sheets** (the rendered Revit sheets), **Views** (saved camera views), **Clash** panel. Plus viewer tools: measure, section/clip, exploded view, camera views. | Reviewer, Modeller |
-| **Coordination** | **Issues** (BCF: create + list + details, live-synced to Revit), **RFI**, **CDE** panel (the ISO 19650 state machine), clash. | Coordinator, Reviewer |
+| **Coordination** | **Issues** (BCF: create + list + details, live-synced to Revit), **RFI**, **CDE** panel (the ISO 19650 state machine; Publish → needs the version's accepted verdict with something in scope, or a lead's reason typed on the card and recorded on the ledger), clash. | Coordinator, Reviewer |
 | **Lifecycle** | **Timeline** (4D sequencing), **Cost** (5D), **Carbon** (6D embodied carbon), **COBie** (handover data), **Owner** (owner dashboard), **Tender** (bid packages). | QS, Sustainability, Client, Manager |
 | **Explorer** | The spatial tree + properties (platform built-in). | Reviewer |
 | **Assets** | **Governed version history** (model version · uploader · when · click-through history) on top, then the model loader + objects list. The project's version home. | Coordinator, Client |
@@ -140,7 +140,7 @@ A chat assistant that can *do things*, not just answer. It combines two modes an
 - **Governed tools (11):** the agent doesn't get raw database access — it gets a fixed set of governed actions, each going through the same rules as a human:
   `list_projects` · `list_containers` · `list_folders` · `create_folder` · `list_revisions` · `list_transmittals` · `list_issues` · `raise_issue` · `propose_elements` · `read_audit` · `set_live_version` · `transition_container`.
 
-So the Copilot can navigate the CDE, raise an issue, propose elements, set the live model version, or move a container through its ISO 19650 state — all recorded in the audit trail exactly as if a person did it.
+So the Copilot can navigate the CDE, raise an issue, propose elements, set the live model version, or move a container through its ISO 19650 state — all recorded in the audit trail. It cannot publish a version that lacks an accepted verdict (only a signed-in lead can give the reason), and `propose_elements` never stamps or registers a version.
 
 ---
 
@@ -194,7 +194,7 @@ This is *why* Sentinel exists, and it's worth stating plainly.
 Most BIM tools help you **make** things. Sentinel's distinctive job is to **judge** them at the boundary and keep an **immutable record** of the judgement:
 
 1. **One rule, both sides.** Every check lives in `sentinel-core`, so Revit and the web agree.
-2. **The gate.** *Governed Publish* is the referee: nothing reaches the CDE as an official version unless it passed the delivery gate + IDS. A pass publishes and versions; a fail is recorded and each failing requirement becomes a BCF issue.
+2. **The gate.** *Governed Publish* is the referee: no version becomes Published unless its newest verdict is an accepted one that measured something, or a signed-in lead recorded a reason — the database refuses anything else (migration 0031). A pass versions; a fail is recorded and each failing requirement becomes a BCF issue.
 3. **The record.** Verdicts are immutable and carry **provenance** (was this from a human, a photo, an LLM?) and a **source/verdict badge** in the audit timeline. A photo-massing element is never confidence-1; an LLM proposal is marked as such.
 4. **The loop.** Issues raised anywhere (web, gate failure, review) sync live to Revit and back, so coordination is one shared conversation, not email.
 
