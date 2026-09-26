@@ -32,8 +32,9 @@ Delete `%AppData%\Autodesk\Revit\Addins\<year>\Sentinel.addin` and the
 - Standards are not files on the workstation. A model judges and builds by the artefacts installed on its
   web project, or on that project's office: `ruleset@n`, `ids@n`, `naming@n`, `contract@n` (the IFC
   delivery contract) and, for Ghost Builder, Photo Massing and Annotate Views, `layers@n` (the DWG layer
-  mapping), `guideline@n` (the modelling guideline) and `type_catalog@n` (the office template's types).
-  Bind each model in Sentinel ▸ Project Setup. Install any of the seven kinds from the web (Project
+  mapping), `guideline@n` (the modelling guideline) and `type_catalog@n` (the office template's types);
+  `publish@n` (`{"auto": true}` or `{"auto": false}`, the lead's auto-publish policy) is read from phase 5b on.
+  Bind each model in Sentinel ▸ Project Setup. Install any of the eight kinds from the web (Project
   Settings ▸ Standards in force ▸ Install JSON…, as a lead or owner; Packs; Documents) or with
   `node bridge/artefact-import.mjs <file> --project <key> --kind <kind>`; the bridge refuses a body its judge
   could not use. Seeds to start from: `config/base-standard/`. No standard is read from `%AppData%`,

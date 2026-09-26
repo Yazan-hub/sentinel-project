@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { transitionVersion } from "./cde-transition";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
@@ -82,6 +83,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   let selected: string | null = null; // folder id, or null = All files
   let renaming: string | null = null; // folder id being inline-renamed
   let confirmDel = false;
+  // The Publish the database refused until a lead gives a reason (migration 0031): that version's card asks for it.
+  let needsReason: { versionId: string; message: string } | null = null;
 
   // ── folder-tree helpers ──
   const childrenOf = (parent: string | null) =>
@@ -262,6 +265,26 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
           actions.appendChild(b);
         }
         if (NEXT[s].length) card.appendChild(actions);
+        // The lead's reason, asked inline (the platform's iframe blocks window.prompt): the database's words, a box, and
+        // a retry that sends the reason as `override`, which the state: row records.
+        if (needsReason?.versionId === v.id) {
+          const ask = document.createElement("div");
+          ask.style.cssText = "display:flex;flex-direction:column;gap:.25rem;border-top:1px dashed #3a3a44;padding-top:.3rem";
+          const why = document.createElement("div");
+          why.style.cssText = "font-size:10.5px;color:#fca5a5";
+          why.textContent = needsReason.message;
+          const reason = document.createElement("input");
+          reason.placeholder = "Your reason — recorded on the ledger";
+          reason.style.cssText = "background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .35rem;font:11px system-ui";
+          const go = document.createElement("button");
+          go.textContent = "Publish with this reason";
+          go.disabled = true;
+          go.style.cssText = "border:1px solid #3a3a44;background:#23232b;color:#d4d4d8;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer";
+          reason.addEventListener("input", () => (go.disabled = !reason.value.trim()));
+          go.addEventListener("click", () => doTransition(v.id, "published", "Publish →", reason.value));
+          ask.append(why, reason, go);
+          card.appendChild(ask);
+        }
 
         // Encrypted-file row (Phase 2): download a decrypted copy, and attach/replace on the editable WIP state.
         const fileRow = document.createElement("div");
@@ -317,12 +340,20 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         : '<div style="color:#52525b">no entries yet</div>');
   }
 
-  async function doTransition(versionId: string, state: State, label: string) {
+  async function doTransition(versionId: string, state: State, label: string, override?: string) {
+    needsReason = null;
     try {
       status(`${label.replace(/[→←]/g, "").trim()}…`);
-      await api(`versions/${versionId}/transition`, "POST", { state, actor: "web", note: label });
+      const r = await transitionVersion(base, versionId, state, { actor: "web", note: label, override });
+      if ("needsReason" in r) {
+        needsReason = { versionId, message: r.needsReason };
+        renderBoard(inFolder(selected));
+        status("Not published — a lead can publish it with a reason, which the ledger records.");
+        return;
+      }
       await loadAll();
     } catch (e) {
+      renderBoard(inFolder(selected)); // needsReason is already cleared: drop a stale reason field and its red line
       status(`Transition rejected: ${(e as Error).message}`);
     }
   }

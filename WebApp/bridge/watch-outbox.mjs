@@ -1,8 +1,11 @@
 // Sentinel → That Open Platform bridge — outbox watcher.
 //
-// Watches the Sentinel outbox (%APPDATA%\Sentinel\outbox) that the Revit "Publish to Platform"
-// command exports into, and uploads each new IFC to the project's CDE via the shared, verified
-// upload path. Uploaded files are moved to outbox\sent\ so they are never re-uploaded.
+// Watches the Sentinel outbox (%APPDATA%\Sentinel\outbox) that Revit publishes into, and uploads each new IFC to
+// That Open Platform via the shared, verified upload path. Where the geometry lands in the CDE is read from the IFC's
+// sidecar (<name>.ifc.meta.json) and nothing else (spec Decision 6, outbox-logic.mjs): a sidecar version_id → attach
+// the platform item to that version; a pre-5b sidecar with no version_id → register a version by file name; no
+// sidecar, or one naming no project → the IFC moves to outbox\unbound\ with one log line, never uploaded or
+// registered. Uploaded files are moved to outbox\sent\ so they are never re-uploaded.
 //
 // Usage:
 //   node bridge/watch-outbox.mjs [--once] [--dry-run]
@@ -17,6 +20,7 @@ import { join, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { getConfig, createClient, uploadFile, uploadBytes } from "./thatopen-client.mjs";
 import { ifcToFrag } from "./ifc-to-frag.mjs";
+import { outboxDecision } from "./outbox-logic.mjs";
 
 const ONCE = process.argv.includes("--once");
 const DRY = process.argv.includes("--dry-run");
@@ -24,6 +28,7 @@ const DRY = process.argv.includes("--dry-run");
 const OUTBOX = process.env.SENTINEL_OUTBOX
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "outbox");
 const SENT = join(OUTBOX, "sent");
+const UNBOUND = join(OUTBOX, "unbound"); // an IFC whose sidecar names no project waits here, not uploaded
 const UPLOAD_EXTS = new Set([".ifc"]);
 
 // --dry-run only detects + reports, so it must not need credentials — resolve config lazily so the
@@ -31,32 +36,37 @@ const UPLOAD_EXTS = new Set([".ifc"]);
 const cfg = DRY ? null : getConfig();
 const client = DRY ? null : createClient(cfg);
 await mkdir(OUTBOX, { recursive: true });
-if (!DRY) await mkdir(SENT, { recursive: true });
+if (!DRY) for (const d of [SENT, UNBOUND]) await mkdir(d, { recursive: true });
 
 const inFlight = new Set();
 const ts = () => new Date().toISOString();
 
 /**
- * Register an uploaded outbox file as a version in the CDE file-version history (migration 0011), so files
- * that reach the platform via the watcher (e.g. Revit "Publish to Platform" → outbox) share the same version
- * timeline as web uploads and Revit auto-publish. Keys on the .ifc name (not the .frag) for consistent
- * grouping. Best-effort: no-op if the CDE isn't configured, never breaks the upload.
+ * Put an uploaded outbox file's geometry on its CDE version, as the sidecar decided (outboxDecision): "attach" → the
+ * platform item goes on the sidecar's version by id (cde.attachGeometry — that version of that project, once);
+ * "register" (a pre-5b sidecar with no version_id) → a version by the .ifc name, as before, with attach_geometry:
+ * true spelled out (the by-name attach is opt-in since 5a; this path goes in 5b). Never throws: the upload has
+ * already happened, so a failure logs one line naming the platform item that is on no version, and returns null.
  */
-async function registerVersion(name, sizeBytes, itemId, projectKey, hostName) {
-  if (DRY) return null;
+async function recordVersion(d, name, sizeBytes, itemId) {
+  const orphan = `platform item ${itemId || "(none returned)"} is on no version`;
   try {
     const cde = await import("./cde-store.mjs");
-    if (!cde.cdeConfigured()) return null;
-    const key = projectKey || cfg.projectId;
-    const r = await cde.registerFileVersion(key, {
-      name, author: "outbox", size_bytes: sizeBytes, platform_item_id: itemId || null,
-      parent_name: hostName || null, // linked model → nests under its host in the file tree
-      notes: hostName ? `linked model of ${hostName} (outbox watcher)` : "uploaded via outbox watcher",
+    if (!cde.cdeConfigured()) { console.error(`  ⚠ CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY) — ${name}: ${orphan}`); return null; }
+    if (d.action === "attach") {
+      const r = await cde.attachGeometry(d.project, d.version_id, itemId);
+      console.log(`  📎 geometry attached to ${r.iso_name} ${r.version.revision} (version ${r.version.id}, project ${d.project})${r.audit_id ? ` · ledger #${r.audit_id}` : " · ledger row not returned"}`);
+      return { key: d.project, ...r };
+    }
+    const r = await cde.registerFileVersion(d.project, {
+      name, author: "outbox", size_bytes: sizeBytes, platform_item_id: itemId || null, attach_geometry: true,
+      parent_name: d.host, // linked model → nests under its host in the file tree
+      notes: d.host ? `linked model of ${d.host} (outbox watcher)` : "uploaded via outbox watcher",
     });
-    console.log(`  📚 versioned ${name} in the CDE (project ${key}${hostName ? `, link of ${hostName}` : ""})`);
-    return { key, ...r };
+    console.log(`  📚 versioned ${name} in the CDE (project ${d.project}${d.host ? `, link of ${d.host}` : ""}; pre-5b sidecar, no version_id: ${r.linked ? "attached by name to the live version without geometry" : "a new version"})`);
+    return { key: d.project, ...r };
   } catch (e) {
-    console.error(`  ⚠ version register failed for ${name}: ${e?.message || e}`);
+    console.error(`  ⚠ ${d.action === "attach" ? `geometry not attached to version ${d.version_id}` : "version register failed"} for ${name} on ${d.project}: ${e?.message || e} — ${orphan}`);
     return null;
   }
 }
@@ -77,18 +87,9 @@ async function captureAfterRegister(reg, name, filePath) {
   }
 }
 
-/**
- * Sidecar the Revit plugin writes next to each outbox IFC ("<name>.ifc.meta.json") naming the
- * Sentinel web project the file belongs to (the ACC-style association). Absent/unreadable →
- * null, and the registration falls back to the bridge's configured default project.
- */
-async function readMeta(ifcPath) {
-  try {
-    const m = JSON.parse(await readFile(ifcPath + ".meta.json", "utf8"));
-    const key = typeof m?.project === "string" ? m.project.trim() : "";
-    const host = typeof m?.host === "string" ? m.host.trim() : "";
-    return key ? { project: key, host: host || null } : null;
-  } catch { return null; }
+/** The sidecar Revit writes next to each outbox IFC ("<name>.ifc.meta.json"), as text; null when there is none. */
+async function readSidecar(ifcPath) {
+  try { return await readFile(ifcPath + ".meta.json", "utf8"); } catch { return null; }
 }
 
 /** Wait until a file's size stops changing (so we don't upload a half-written export). */
@@ -112,15 +113,22 @@ async function handle(name) {
   inFlight.add(p);
   try {
     if (!(await waitStable(p))) return;
-    if (DRY) { console.log(`[${ts()}] would upload: ${name}`); return; }
+    // Where this publish goes is the sidecar's to say, and nothing else's. Read it again once after 2 s when it is
+    // missing or unreadable — Governed Publish copies the IFC in just before it writes the sidecar.
+    let d = outboxDecision(await readSidecar(p));
+    if (d.action === "unbound") { await new Promise((r) => setTimeout(r, 2000)); d = outboxDecision(await readSidecar(p)); }
+    if (d.action === "unbound") {
+      if (DRY) { console.log(`[${ts()}] would move ${name} to ${UNBOUND} — ${d.reason}`); return; }
+      const parked = join(UNBOUND, `${Date.now()}_${name}`);
+      await rename(p, parked);
+      await rename(p + ".meta.json", parked + ".meta.json").catch(() => {}); // a sidecar naming no project goes with it
+      console.log(`[${ts()}] ⛔ ${name} → ${parked} — ${d.reason}: not uploaded, not registered. Bind the model to a web project (Revit → Project Setup) and publish again.`);
+      return;
+    }
+    const target = d.action === "attach" ? `version ${d.version_id} on ${d.project}` : `${d.project} by file name (pre-5b sidecar, no version_id)`;
+    if (DRY) { console.log(`[${ts()}] would upload ${name} → ${target}`); return; }
 
-    console.log(`[${ts()}] uploading ${name} …`);
-    // Which Sentinel project this publish targets (sidecar from Revit). The plugin writes the sidecar
-    // BEFORE the IFC, but retry briefly anyway — a missed sidecar mis-files the version.
-    let meta = await readMeta(p);
-    if (!meta) { await new Promise((r) => setTimeout(r, 2000)); meta = await readMeta(p); }
-    if (meta) console.log(`  ↳ target web project: ${meta.project}${meta.host ? ` (link of ${meta.host})` : ""}`);
-    else console.log(`  ↳ no sidecar — falling back to the bridge default project`);
+    console.log(`[${ts()}] uploading ${name} → ${target} …`);
     // Keep the FULL filename (with .ifc) as the item name — the platform derives fileExtension from
     // it and only auto-converts recognised IFCs to viewable .frag. Stripping it left files unviewable.
     // Convert locally and upload ONLY the .frag (the viewable format). The .ifc upload is skipped —
@@ -132,13 +140,13 @@ async function handle(name) {
       const fragBytes = await ifcToFrag(p);
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
-      const reg = await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
+      const reg = await recordVersion(d, name, size, result?.item?._id);
       await captureAfterRegister(reg, name, p);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      const reg = await registerVersion(name, size, result?.item?._id, meta?.project, meta?.host);
+      const reg = await recordVersion(d, name, size, result?.item?._id);
       await captureAfterRegister(reg, name, p);
     }
 

@@ -438,3 +438,40 @@ describe("resolveContract — what judges Governed Intake: project → office �
     expect(r.label).toBe(`none — ${r.reason}`);
   });
 });
+
+// The lead's publish policy (cohesion phase 5, spec Decision 2): exactly {auto: boolean}; none installed = auto off.
+// Nothing in 5a reads it (the Revit Publisher does from 5b), so the body carries no field a reader would ignore.
+describe("validateArtefact — publish", () => {
+  it("accepts exactly {auto: true} and {auto: false}", () => {
+    expect(KINDS).toContain("publish");
+    expect(validateArtefact("publish", { auto: true })).toBe(true);
+    expect(validateArtefact("publish", { auto: false })).toBe(true);
+  });
+  it.each([
+    [{}, "publish: auto must be true or false"],
+    [{ auto: "true" }, "publish: auto must be true or false"],
+    [{ auto: 1 }, "publish: auto must be true or false"],
+    [{ auto: null }, "publish: auto must be true or false"],
+    [{ auto: true, mode: "auto" }, "publish: mode is not a publish field — the body is exactly {auto: true} or {auto: false}"],
+    [{ enabled: true }, "publish: enabled is not a publish field — the body is exactly {auto: true} or {auto: false}"],
+  ])("%j is a 400: %s", (body, message) => {
+    expect(fails("publish", body)).toMatchObject({ status: 400, message });
+  });
+  it("installs publish@n lead-only and audited; an office's policy reaches a project with none, the project's own outranks it", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    expect((await listArtefacts("aster-tower", d)).publish).toBeNull();
+    expect((await artefactReply("aster-tower", "publish", undefined, d)).body.reason).toBe("not_installed");
+    await putArtefact("aster-office", "publish", { auto: true }, { actor: "lead@example.test" }, d);
+    expect(await artefactReply("aster-tower", "publish", undefined, d)).toMatchObject({ status: 200, body: { kind: "publish", version: 1, ref: "publish@1", source: "office", body: { auto: true } } });
+    expect(await putArtefact("aster-tower", "publish", { auto: false }, { actor: "lead@example.test" }, d)).toMatchObject({ kind: "publish", version: 1 });
+    expect(await resolveArtefact("aster-tower", "publish", d)).toMatchObject({ source: "project", ref: "publish@1", body: { auto: false } });
+    expect(d.audits.map((a) => a.action)).toEqual(["artefact_installed publish@1", "artefact_installed publish@1"]);
+    await expect(putArtefact("aster-tower", "publish", { auto: true }, { actor: "x" }, memDeps({ role: "contributor" }))).rejects.toMatchObject({ status: 403 });
+  });
+  it("refuses an invalid policy at install, before anything is written", async () => {
+    const d = memDeps();
+    await expect(putArtefact("p", "publish", { auto: "yes" }, { actor: "x" }, d)).rejects.toMatchObject({ status: 400, message: "publish: auto must be true or false" });
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
+  });
+});

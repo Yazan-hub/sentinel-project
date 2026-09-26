@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 /** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
@@ -181,6 +181,13 @@ export function validateArtefact(kind, body) {
       for (const f of ["path", "extracted_at"]) if (body.template[f] != null && typeof body.template[f] !== "string") throw bad(kind, `template.${f}`, "must be a string");
     }
     if (body.view_templates != null && !Array.isArray(body.view_templates)) throw bad(kind, "view_templates", "must be an array");
+  }
+  if (kind === "publish") {
+    // The lead's auto-publish policy (cohesion phase 5, spec Decision 2): exactly {auto: boolean}; none installed = auto
+    // off. A stray key is refused, not kept: a reader that skipped it would publish by a policy nobody can see.
+    const stray = Object.keys(body).find((k) => k !== "auto");
+    if (stray !== undefined) throw bad(kind, stray, "is not a publish field — the body is exactly {auto: true} or {auto: false}");
+    if (typeof body.auto !== "boolean") throw bad(kind, "auto", "must be true or false");
   }
   return true;
 }

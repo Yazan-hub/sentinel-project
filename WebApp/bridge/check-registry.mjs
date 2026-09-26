@@ -155,13 +155,14 @@ export function classifyVerdicts(auditRows, total) {
   if (bad.length) {
     return result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${newest.size} adjudicated version(s) were rejected.` });
   }
-  // "recorded" means no IDS spec was configured, so nothing was actually adjudicated — reporting
-  // "met" here would be the exact fabricated pass this feature exists to prevent.
+  // "recorded" means nothing was adjudicated — no IDS installed, or an installed IDS found no element in its scope
+  // (adjudicateProposal, phase 5a) — so reporting "met" here would be the exact fabricated pass this feature exists
+  // to prevent.
   if (recordedCount) {
     return result(id, label, "not_checkable", {
       reason: acceptedCount
-        ? `${recordedCount} of ${newest.size} version(s) were merely recorded without an IDS spec, not adjudicated — the result cannot be confirmed as met.`
-        : `All ${recordedCount} version(s) were recorded without an IDS spec configured, so nothing was actually checked.`,
+        ? `${recordedCount} of ${newest.size} version(s) were merely recorded, not adjudicated (no IDS installed, or no element in its scope) — the result cannot be confirmed as met.`
+        : `All ${recordedCount} version(s) were recorded, not adjudicated (no IDS installed, or no element in its scope), so nothing was actually checked.`,
     });
   }
   return result(id, label, "met", { summary: `All ${newest.size} adjudicated version(s) were accepted.` });

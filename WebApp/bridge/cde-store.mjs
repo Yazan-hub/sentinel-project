@@ -70,6 +70,7 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
     // RLS/row-security denial gets a 403. Routes propagate this via `e?.status || 500`. Other upstream codes
     // (e.g. a malformed query) stay 500 by default — they signal a bridge bug, not a client-fixable one.
     if (r.status === 401 || r.status === 403) err.status = r.status;
+    err.body = data; // PostgREST's { code, message, … } — lets a caller map a function's own refusal (transition)
     throw err;
   }
   return data;
@@ -475,7 +476,7 @@ export async function archiveFile(key, container_id, actor) {
   const versions = c.container_versions || [];
   let archived = 0, discarded = 0;
   for (const v of versions) {
-    if (v.state === "published") { await transition(v.id, "archived", actor || "web", "file archived"); archived++; }
+    if (v.state === "published") { await transition(key, v.id, "archived", { actor: actor || "web", note: "file archived" }); archived++; }
     else if (v.state !== "archived") { await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=minimal" }); discarded++; }
   }
   await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
@@ -483,14 +484,15 @@ export async function archiveFile(key, container_id, actor) {
 }
 
 /** Restore an archived file: archived versions return to 'published' (the state they held before
- *  archiving — only published versions survive the archive step). Direct state write (the ISO machine
- *  has no archived→ transition; the immutability trigger only guards published rows), audited. */
+ *  archiving — only published versions survive the archive step) through cde_transition's archived→published
+ *  move (migration 0031): lead-only for a signed-in caller, one state: row per version. A refusal stops the loop
+ *  in the function's words (transition). */
 export async function unarchiveFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
   let restored = 0;
   for (const v of c.container_versions || []) {
     if (v.state !== "archived") continue;
-    await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { state: "published" }, prefer: "return=minimal" });
+    await transition(key, v.id, "published", { actor: actor || "web", note: "file restored" });
     restored++;
   }
   await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
@@ -515,7 +517,8 @@ export async function deleteFile(key, container_id, actor) {
   return { deleted: true, iso_name: c.iso_name };
 }
 
-/** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live. */
+/** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and
+ *  always starts in wip (a body's `state` is ignored — publishing is cde_transition's, migration 0031). */
 export async function registerFileVersion(key, b = {}) {
   const proj = await ensureProject(key);
   const name = (b.name || b.iso_name || "").trim();
@@ -537,15 +540,12 @@ export async function registerFileVersion(key, b = {}) {
     await sb(`information_containers?id=eq.${container.id}`, { method: "PATCH", body: { parent_id: parentId }, prefer: "return=minimal" });
   }
 
-  // Geometry link: Governed Publish creates the version at publish time (verdict-badged, but no platform
-  // geometry yet); the outbox watcher then uploads the IFC and calls back here with the platform item id. If
-  // the file's live version has no geometry yet, ATTACH the item to it rather than appending a second,
-  // unbadged version — so the badged version gets its geometry and "Open 3D" lights up.
-  // `attach_geometry: false` (Governed Intake) skips this: intake always carries its own sha256/size/revision
-  // and must land as its own version, never silently attached onto an unrelated stale liveNoGeom row left by
-  // an outbox publish that's still waiting on its callback (found live — the intake's verdict landed on the
-  // wrong version).
-  if (container && b.platform_item_id && b.attach_geometry !== false) {
+  // Geometry link, opt-in: only `attach_geometry: true` (the outbox watcher's pre-5b sidecar, which carries no
+  // version_id) attaches the platform item to the file's live version that has no geometry yet, so the version
+  // Governed Publish registered gets its geometry. Every other caller lands as its own version: a web upload
+  // whose name matched a Revit-judged version once attached onto it (files-panel.ts), and an intake's verdict
+  // once landed on a stale row (phase 5 spec, Decision 6).
+  if (container && b.platform_item_id && b.attach_geometry === true) {
     const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id);
     if (liveNoGeom) {
       await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=minimal" });
@@ -570,7 +570,7 @@ export async function registerFileVersion(key, b = {}) {
   const version = (await sb(`container_versions`, {
     method: "POST",
     body: {
-      container_id: container.id, revision, state: b.state || "wip", suitability: b.suitability || "S0",
+      container_id: container.id, revision, state: "wip", suitability: b.suitability || "S0",
       author: resolveActor(b.author, "web"), notes: b.notes || null, file_ref: b.file_ref || null,
       platform_item_id: b.platform_item_id || null,
       size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
@@ -585,11 +585,69 @@ export async function registerFileVersion(key, b = {}) {
   return { container_id: container.id, iso_name: name, version: { ...version, is_live: true } };
 }
 
-/** Run the DB state machine (validates the transition, writes the audit row, enforces immutability). */
-export async function transition(version_id, new_state, actor, note) {
+/** The outbox watcher's attach (spec Decision 6): put an uploaded platform item on the version a sidecar names, by
+ *  id — only a version of `key`'s project, and only while it has no geometry (platform_item_id is written once; the
+ *  PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked" (actor outbox);
+ *  returns the version and the ledger row's id. 400 for a blank item or a version not on `key`, 409 when the version
+ *  already has geometry — each decided before any write. */
+export async function attachGeometry(key, versionId, platformItemId) {
+  const item = String(platformItemId ?? "").trim();
+  const notOnKey = () => Object.assign(new Error(`version ${versionId} is not on ${key}`), { status: 400 });
+  if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
+  if (!isUuid(versionId)) throw notOnKey();
+  const proj = await ensureProject(key);
+  const v = (await sb(`container_versions?id=eq.${versionId}&select=id,container_id,revision,is_live,platform_item_id`))?.[0];
+  const c = v && (await sb(`information_containers?id=eq.${v.container_id}&project_id=eq.${proj.id}&select=iso_name`))?.[0];
+  if (!c) throw notOnKey();
+  const done = v.platform_item_id ? [] : await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation" });
+  if (!done?.length) {
+    const e = new Error(`version ${v.id} already has geometry${v.platform_item_id ? ` (platform item ${v.platform_item_id})` : ""} — a version's geometry is attached once`);
+    e.status = 409;
+    throw e;
+  }
+  const row = await audit(proj.id, "file_version", v.id, "geometry linked", "outbox", null, { file: c.iso_name, platform_item_id: item, by: "version_id" });
+  return { container_id: v.container_id, iso_name: c.iso_name, linked: true, version: { id: v.id, revision: v.revision, platform_item_id: item, is_live: v.is_live }, audit_id: row?.id ?? null };
+}
+
+/** The version when it is on the key's project: { proj, version: { id, container_id, revision, state } }. Any
+ *  other id — another project's version, an unknown or malformed one — is a 400 "version <id> is not on <key>". */
+export async function versionOnKey(key, version_id) {
+  const proj = await ensureProject(key);
+  const rows = isUuid(version_id)
+    ? await sb(`container_versions?id=eq.${version_id}&select=id,container_id,revision,state,information_containers(project_id)`)
+    : [];
+  const v = Array.isArray(rows) ? rows[0] : null;
+  if (!v || v.information_containers?.project_id !== proj.id) {
+    const e = new Error(`version ${version_id} is not on ${key}`); e.status = 400; throw e;
+  }
+  return { proj, version: { id: v.id, container_id: v.container_id, revision: v.revision, state: v.state } };
+}
+
+// cde_transition's raises (migration 0031) → the caller's status, in the function's own words: a refusal (P0001:
+// the state machine, the verdict guard, the state trigger) is a 409; an unknown version (no_data_found) a 404; a
+// role refusal (insufficient_privilege) a 403. Anything else stays the bridge's error (a 500 at the route, scrubbed).
+const TRANSITION_REFUSAL = { P0001: 409, P0002: 404, "42501": 403 };
+
+/** Run the DB state machine (validates the move and the verdict, writes the state: row, enforces immutability).
+ *  `key` given → the version must be on that project (versionOnKey); the keyless route and the assistant pass
+ *  null. `override` is the lead's reason to publish a version without an accepted verdict that measured
+ *  something: sent only when not blank, and cde_transition takes it only from a signed-in lead. */
+export async function transition(key, version_id, new_state, { actor, note, override } = {}) {
   if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
+  // The reason is recorded word for word on the state: row, so only a string is one ({} or 5 would be "[object Object]"/"5").
+  if (override != null && typeof override !== "string") { const e = new Error("override must be a string — the lead's reason to publish"); e.status = 400; throw e; }
+  if (key) await versionOnKey(key, version_id);
   // ISO 19650 state changes are the governed trail's spine — stamp the verified identity, not the claim.
-  return sb(`rpc/cde_transition`, { method: "POST", body: { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note } });
+  const body = { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note };
+  const reason = String(override ?? "").trim();
+  if (reason) body.p_override = reason;
+  try {
+    return await sb(`rpc/cde_transition`, { method: "POST", body });
+  } catch (e) {
+    const status = TRANSITION_REFUSAL[e?.body?.code];
+    if (status) { const r = new Error(e.body.message); r.status = status; throw r; }
+    throw e;
+  }
 }
 
 /** The ledger read's page: 200 rows unless asked, never more than 1000 (the db-max-rows SNAP_PAGE assumes). */
@@ -645,11 +703,25 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
   // audit_log has no authed-insert policy (writes bypass RLS by design) → force the service key.
   // A forwarded JWT's verified identity outranks any client-asserted actor (anti audit-trail poisoning, F3);
   // with no JWT (Revit/service path) we keep the supplied actor so the pilot is unaffected.
-  return sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: resolveActor(actor), old_value: oldv, new_value: newv }, service: true });
+  // return=representation: the caller gets the row the ledger stored ({id, at, hash, …}), so a line can name
+  // "ledger #id"; null when no row came back — never a made-up id. Callers that ignore the value are unchanged.
+  const rows = await sb(`audit_log`, { method: "POST", body: { project_id, entity_type, entity_id, action, actor: resolveActor(actor), old_value: oldv, new_value: newv }, prefer: "return=representation", service: true });
+  return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 
-/** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). */
+/** Ledger rows Sentinel writes itself and then reads as fact (spec Decision 7): cde_transition's `state:` rows and
+ *  recordVersionVerdict's `verdict:` stamps (the transition guard and ids.last_verdict read them), the stage gate
+ *  (`gate:`, entity_type stage_gate) and ROI (`roi:`). The open audit route may not write them. */
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:"];
+
+/** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
+ *  row (an action starting with one of RESERVED_ACTIONS, or entity_type stage_gate; case and surrounding spaces
+ *  ignored) is a 400 before any read. */
 export async function recordAudit(key, b) {
+  const type = String(b.entity_type ?? "").trim().toLowerCase();
+  const action = String(b.action ?? "").trim().toLowerCase();
+  const reserved = type === "stage_gate" ? "stage_gate" : RESERVED_ACTIONS.find((p) => action.startsWith(p));
+  if (reserved) { const e = new Error(`${reserved} rows are written by Sentinel, not through this route`); e.status = 400; throw e; }
   const proj = await ensureProject(key);
   return (await sb(`audit_log`, {
     method: "POST",
@@ -853,11 +925,6 @@ export async function projectNamingRuleset(key, deps = {}) {
   return { ruleset: r.body ?? null, source: r.source, ref: r.ref, sha256: r.sha256 };
 }
 
-/** Adjudicate a proposal: validate `elements` against an IDS (JSON spec or .ids XML string), record an
- *  immutable audit verdict, return { verdict, summary, failures, audit_id }. No IDS → the proposal is
- *  just "recorded". Elements use the ElementProperties shape ({identity:{Class,GlobalId,…}, psets, quantities}).
- *  IDS custody: the project's installed artefact (artefact-store.mjs) → the office's → the client's posted
- *  spec → none; the response says which judged in ids_source / ids_ref. */
 /**
  * One ledger entry, by id, scoped to the project — the backing read for a receipt check.
  * Returns null rather than throwing: "no such entry" is an answer a verifier needs to hear.
@@ -916,12 +983,54 @@ export function judgeContainerName(validate, name, rs) {
   return { ...validate(name, rs), enforce };
 }
 
+/** POST /cde/:key/propose's `register` (cohesion phase 5a, spec 2026-09-26 Decision 3), or null when absent. The name
+ *  registered is the name the naming standard judged, so it must equal container_name; size_bytes and sha256 tie the
+ *  version to the file that was judged. Pure: a bad body is a 400 before any read or ledger row. */
+function readRegister(b) {
+  if (b.register === undefined || b.register === null) return null;
+  const bad = (m) => Object.assign(new Error(m), { status: 400 });
+  const r = b.register;
+  if (typeof r !== "object" || Array.isArray(r)) throw bad("register must be {name, size_bytes, sha256}");
+  if (b.version_id) throw bad("pass version_id (stamp an existing version) or register (register a new one), not both");
+  const name = typeof r.name === "string" ? r.name.trim() : "";
+  if (!name) throw bad("register.name is required");
+  if (name !== b.container_name) throw bad("register.name must equal container_name — the name the naming standard judges is the name registered");
+  if (!Number.isSafeInteger(r.size_bytes) || r.size_bytes < 0) throw bad("register.size_bytes must be a whole number of bytes");
+  if (typeof r.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(r.sha256)) throw bad("register.sha256 must be 64 hex characters");
+  return { name, size_bytes: r.size_bytes, sha256: r.sha256.toLowerCase() };
+}
+
+/** Adjudicate a proposal (POST /cde/:key/propose, intake, the AI tools, MCP, changesets): validate `elements` (the
+ *  ElementProperties shape) against the IDS — the project's installed artefact → the office's → the caller's `ids` →
+ *  none, named in ids_source / ids_ref — and the container name against the naming standard, write one proposal row,
+ *  and return { verdict, downgraded, summary, failures, naming, ids_*, audit_id, version, verdict_audit_id, receipt }.
+ *  No IDS → "recorded"; accepted with nothing in scope → "recorded", downgraded "nothing in scope". `version_id` stamps
+ *  the key's own version (another's is a 400); `register` registers a wip version on accepted or recorded and stamps
+ *  it (readRegister). A stamp is what publishing reads (migration 0031), so an IDS or a naming ruleset the caller sent
+ *  together with version_id or register is a 400: only what is installed on the project or its office stamps. Every
+ *  400 comes before any ledger row. */
 export async function adjudicateProposal(key, b = {}) {
+  const reg = readRegister(b);
+  // The naming twin of the client-IDS rule below: a caller's own ruleset (even {fields: [], enforce: "off"}) may judge
+  // a plain proposal, never the name a stamped or registered version carries. Pure, so before any read.
+  if (b.naming != null && (b.version_id || reg)) {
+    throw Object.assign(new Error(`a version's name is judged only by the naming standard installed on ${key} or its office — send no naming ruleset, or propose without version_id/register`), { status: 400 });
+  }
+  const proj = await ensureProject(key);
+  // A verdict is stamped only on a version of the project that judged it (spec Decision 4): another project's version,
+  // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1).
+  if (b.version_id) await versionOnKey(key, b.version_id);
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const { resolveIdsSpec } = await import("./artefact-store.mjs");
   const resolved = await resolveIdsSpec(key, b);
   const spec = resolved.spec, idsSource = resolved.source, clientIdsIgnored = resolved.client_ids_ignored;
+  // An IDS the caller sent may judge a plain proposal, but its verdict never lands on a version (controller amendment,
+  // 5a): a stamp is what publishing reads, so only the project's or office's installed IDS may make one. Refused
+  // before any ledger row, registration or stamp.
+  if (idsSource === "client" && (b.version_id || reg)) {
+    throw Object.assign(new Error(`a version is stamped only by the IDS installed on ${key} or its office — install one (Packs or Documents ▸ EIR ▸ Install on this project) or propose without version_id/register`), { status: 400 });
+  }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const adj = c.adjudicate(spec, elements);
   const { summary, failures } = adj;
@@ -953,7 +1062,11 @@ export async function adjudicateProposal(key, b = {}) {
     if (naming && !naming.ok && naming.enforce === "reject") verdict = "rejected";
   }
 
-  const proj = await ensureProject(key);
+  // Nothing in scope is recorded (spec Decision 4), decided here once for every caller — /propose, intake, the AI
+  // tools, MCP, changesets: an installed IDS that found no element in its scope measured nothing, so it is never
+  // "accepted". Decided before the proposal row and any stamp; the row and the reply say why.
+  const downgraded = verdict === "accepted" && summary.in_scope === 0 ? "nothing in scope" : null;
+  if (downgraded) verdict = "recorded";
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
   const trustedActor = resolveActor(b.actor ?? b.source, "agent");
@@ -966,19 +1079,29 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
+      new_value: { source: b.source ?? null, verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
-  // When the proposal is about a specific file version (the Governed Publish loop), ALSO record the verdict
-  // against that version's id so the Versions panel can show a ✓/✗ badge on the row (entity_id = version id,
-  // action "verdict:<verdict>"). Kept separate from the proposal record above so the agent/propose surface is
-  // unchanged when no version is in play.
-  if (b.version_id) await recordVersionVerdict(key, b.version_id, { verdict, summary, failures, naming, warned, agent, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref }, trustedActor);
+  // The verdict on a file version (entity_id = version id, action "verdict:<verdict>"): the Versions panel's badge and
+  // what the transition guard reads (migration 0031). `version_id` stamps an existing version of this project (checked
+  // above). `register` (one adjudication per publish, spec Decision 3) registers the version on an accepted or recorded
+  // verdict — always wip, never attached to another version's geometry — and stamps this same result on it: one
+  // proposal row, one registration, one verdict row. A rejected verdict registers nothing. A failure here throws (a
+  // 500, its message scrubbed): the proposal row stays on the ledger, and a version left without its stamp cannot be
+  // published without a signed-in lead's reason.
+  const judged = { verdict, summary, failures, naming, warned, agent, downgraded, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref };
+  let version = null, stamp = null;
+  if (reg && verdict !== "rejected") {
+    const r = await registerFileVersion(key, { ...reg, author: trustedActor, attach_geometry: false });
+    version = { id: r.version.id, container_id: r.container_id, revision: r.version.revision, state: r.version.state };
+    stamp = await recordVersionVerdict(key, version.id, judged, trustedActor);
+  } else if (b.version_id) stamp = await recordVersionVerdict(key, b.version_id, judged, trustedActor);
   return {
-    verdict, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
+    verdict, downgraded, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
+    version, verdict_audit_id: stamp?.id ?? null,
     agent,
     // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
     // ledger that cannot be rewritten — see POST /receipt/:key/verify.
@@ -987,18 +1110,20 @@ export async function adjudicateProposal(key, b = {}) {
 }
 
 /** Stamp a verdict on a specific file version so the Versions panel badges the row
- *  (entity_id = version id, action "verdict:<verdict>"). Separate from the proposal row on purpose. */
+ *  (entity_id = version id, action "verdict:<verdict>"). Separate from the proposal row on purpose. Returns the
+ *  ledger row: its id is the verdict_audit_id /propose answers and the one the state: row names when the version is
+ *  published (migration 0031). */
 export async function recordVersionVerdict(key, version_id, r, actor) {
   const proj = await ensureProject(key);
-  await sb(`audit_log`, {
+  return (await sb(`audit_log`, {
     method: "POST",
     body: {
       project_id: proj.id, entity_type: "file_version", entity_id: version_id,
       action: `verdict:${r.verdict}`, actor: resolveActor(actor, "web"), old_value: null,
-      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, naming_ref: r.naming_ref ?? null, ...(r.agent ? { agent: r.agent } : {}) },
+      new_value: { ids: r.summary?.ids, summary: r.summary, failures: (r.failures || []).slice(0, 20), naming: r.naming ?? null, warned: !!r.warned, ids_ref: r.ids_ref ?? null, naming_ref: r.naming_ref ?? null, ...(r.downgraded ? { downgraded: r.downgraded } : {}), ...(r.agent ? { agent: r.agent } : {}) },
     },
-    prefer: "return=minimal", service: true,
-  });
+    prefer: "return=representation", service: true,
+  }))[0];
 }
 
 /** Latest governed verdict per version id (from the "verdict:<v>" rows recordVersionVerdict writes);

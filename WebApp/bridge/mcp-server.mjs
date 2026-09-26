@@ -163,7 +163,10 @@ export async function callTool(name, args = {}, deps = {}) {
 
   if (name === "sentinel_list_projects") return await getJson("/cde/projects");
   if (name === "sentinel_propose") {
-    const { project, ...body } = args;
+    // Only the declared fields reach the referee: an MCP client can neither stamp a verdict on a version (version_id),
+    // register one (register) nor override anything.
+    const { project, source, ids, elements, agent, note } = args;
+    const body = { source, ids, elements, agent, note };
     if (!project) throw new Error("project is required");
     const r = await f(`${BASE}/cde/${enc(project)}/propose`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);

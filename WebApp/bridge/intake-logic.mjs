@@ -61,10 +61,11 @@ export async function runIntake(deps, rawInput) {
   }
 
   // G4 — publish on pass: fragments + platform upload, then the CDE version with the verdict badge.
-  // An installed IDS that found NO element in its scope has checked nothing: that is a gate-only pass
-  // and is published as "recorded", never "accepted" (honesty rule; final review of 2026-09-23).
-  const nothingInScope = result.verdict === "accepted" && result.summary && result.summary.in_scope === 0;
-  const verdict = nothingInScope ? "recorded" : result.verdict; // "accepted" or "recorded"
+  // An installed IDS that found NO element in its scope has checked nothing: the referee (adjudicateProposal) already
+  // answered "recorded" with downgraded "nothing in scope" (spec 2026-09-26 Decision 4). Intake only words it, and the
+  // stamp below carries the referee's own verdict.
+  const nothingInScope = result.downgraded === "nothing in scope";
+  const verdict = result.verdict; // "accepted" or "recorded"
   // The note says what judged: the gate alone, the IDS alone, or nothing at all (no contract and no IDS).
   const unchecked = `the delivery gate was not checked (contract: ${gate.contract_label})`;
   const scope = `IDS ${result.ids_ref ?? ""} is installed but no element was in its scope (${extracted.counts?.elements ?? 0} read, ${extracted.counts?.skipped ?? 0} skipped)`.replace("IDS  is", "IDS is");

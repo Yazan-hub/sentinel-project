@@ -1000,7 +1000,7 @@ async function handleRequest(req, res) {
 
   // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──
   //   GET/POST /cde/:key/containers · GET /cde/:key/audit · GET/POST /cde/:key/transmittals
-  //   POST /cde/containers/:cid/versions · POST /cde/versions/:vid/transition  { state, actor, note }
+  //   POST /cde/containers/:cid/versions · POST /cde/versions/:vid/transition  { state, actor, note, override? }
   if (url.pathname.startsWith("/cde/")) {
     const cde = await import("./cde-store.mjs");
     if (!cde.cdeConfigured()) {
@@ -1112,10 +1112,16 @@ async function handleRequest(req, res) {
       // GET /cde/:key/audit?entity_type=&action_prefix=&entity_id=&actor=&since=&until=&limit=&offset=
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
+      // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
+      //   verdict:, gate:, roi: and state: actions and stage_gate rows are Sentinel's own → 400 (cde-store.mjs recordAudit).
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
-      // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, version_id?, raise_bcf? }
-      //   → { verdict: accepted|rejected|recorded, summary, failures[], audit_id, bcf? }. Agents propose; the
-      //   governed core (IDS + rules) adjudicates deterministically and records the verdict immutably.
+      // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
+      //   version_id? | register?: {name, size_bytes, sha256}, raise_bcf? }
+      //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, bcf? }.
+      //   Agents propose; the governed core (IDS + rules) adjudicates deterministically and records the verdict
+      //   immutably. Nothing in scope answers recorded (downgraded "nothing in scope"); a version_id must be this
+      //   project's (400); register registers the version on accepted/recorded and stamps it (cde-store adjudicateProposal);
+      //   a client-sent IDS or naming ruleset never stamps or registers a version (400).
       //   G2: on a REJECT, each failing requirement auto-opens as a BCF issue (live-synced to web + Revit),
       //   unless the caller passes raise_bcf:false. Best-effort — a BCF hiccup never changes the verdict.
       if (p2 === "propose" && !p3 && req.method === "POST") {
@@ -1134,7 +1140,8 @@ async function handleRequest(req, res) {
       //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version
       //   PUT /cde/:key/artefacts/:kind  body = the artefact JSON (ids: {title, specifications, enforce?};
       //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields};
-      //   contract, layers, guideline, type_catalog: the shapes artefact-store validateArtefact checks — 400 names the field)
+      //   contract, layers, guideline, type_catalog: the shapes artefact-store validateArtefact checks — 400 names the field;
+      //   publish: exactly {auto: true} or {auto: false}, the lead's auto-publish policy, read by the add-in from phase 5b)
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
         // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so
@@ -1296,9 +1303,12 @@ async function handleRequest(req, res) {
       if (p1 === "containers" && p3 === "versions" && req.method === "POST") {
         return send(res, 201, await cde.addVersion(p2, await readBody(req)));
       }
+      // override: the lead's reason to publish a version with no accepted verdict that measured something, passed
+      // through as given (a non-string is a 400); cde_transition (0031) takes it only from a signed-in lead. A refusal
+      // is a 409 in the function's words, a role refusal a 403, an unknown version a 404 (cde-store.mjs transition).
       if (p1 === "versions" && p3 === "transition" && req.method === "POST") {
         const body = await readBody(req);
-        return send(res, 200, await cde.transition(p2, body.state, body.actor, body.note));
+        return send(res, 200, await cde.transition(null, p2, body.state, { actor: body.actor, note: body.note, override: body.override }));
       }
       return send(res, 404, { message: "CDE route not found" });
     } catch (e) {
