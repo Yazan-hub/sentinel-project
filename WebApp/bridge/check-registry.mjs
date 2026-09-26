@@ -8,8 +8,9 @@
 //
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
-import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, listTransmittals, NO_NAMING_REASON } from "./cde-store.mjs";
+import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, listTransmittals, NO_NAMING_REASON, projectStage } from "./cde-store.mjs";
 import { refLabel, resolveArtefact } from "./artefact-store.mjs";
+import { measureGate, readGateInputs } from "./stage-gate.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
 
 let _core;
@@ -99,21 +100,22 @@ export function classifyVersioned(files) {
     : result(id, label, "met", { summary: `All ${files.length} container(s) have a live version.` });
 }
 
+/** `gate` is measureGate's answer (stage-gate.mjs): each check carries `source` — what the bridge read, or why it could
+ *  not — which the evidence repeats, so "no server source" is never a bare claim. */
 export function classifyGate(stage, gate) {
   const id = "gate.stage", label = "Stage gate";
   if (!gate.checks.length) return result(id, label, "not_checkable", { reason: `Stage “${stage}” has no gate defined (it is terminal).` });
-  if (gate.checks.every((c) => c.na)) return result(id, label, "not_checkable", { reason: `No data is available for the “${stage}” gate yet — run a model scan from the browser to populate it.` });
   const failing = gate.checks.filter((c) => !c.na && !c.ok).map((c) => ({ label: c.label, detail: c.detail || "not met" }));
   if (failing.length) return result(id, label, "violations", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” gate check(s) not met.` });
   // Partial measurement is not a pass. Some metrics passed but others were never collected — reporting
   // this as "met" would claim compliance that was never actually measured. That's the exact failure
   // mode this feature exists to prevent, so an unmeasured metric caps the result at not_checkable.
-  const unmeasured = gate.checks.filter((c) => c.na).map((c) => ({ label: c.label, detail: c.detail || "not measured" }));
+  const unmeasured = gate.checks.filter((c) => c.na).map((c) => ({ label: c.label, detail: c.source || c.detail || "not measured" }));
   if (unmeasured.length) {
     return result(id, label, "not_checkable", {
       count: unmeasured.length,
       evidence: unmeasured,
-      reason: `${unmeasured.length} of ${gate.checks.length} gate metrics were never measured (${unmeasured.map((c) => c.label).join(", ")}) — the gate cannot be confirmed. Run a model scan from the browser to populate them.`,
+      reason: `${unmeasured.length} of ${gate.checks.length} gate metrics have no server source (${unmeasured.map((c) => c.label).join(", ")}) — the gate cannot be confirmed.`,
     });
   }
   return result(id, label, "met", { summary: `The “${stage}” stage gate passes.` });
@@ -459,18 +461,12 @@ export const CHECKS = [
   {
     id: "gate.stage",
     label: "Stage gate",
-    description: "The project passes the gate for its current stage.",
+    description: "The project passes the gate for its current stage, measured by the bridge on the ledger's stage.",
     params_schema: {},
     async run(key) {
-      const [meta, c, rs] = await Promise.all([getProjectMeta(key), core(), resolveArtefact(key, "ruleset")]);
-      const s = meta.snapshot || {};
-      const metrics = {
-        health: s.health ?? null, compliance: s.compliance ?? null,
-        blockViolations: s.block_violations ?? 0, hardClashes: s.hard_clashes ?? 0,
-        openIssues: s.open_issues ?? 0, openRfis: s.open_rfis ?? 0,
-        hasStandardsPack: rs.source !== "none", cobieComplete: s.handover_readiness ?? null,
-      };
-      return classifyGate(meta.stage, c.evaluateGate(meta.stage, metrics));
+      // The bridge's own measurement on the ledger's stage (phase 5c) — never the browser's snapshot, never a "?? 0".
+      const stage = await projectStage(key);
+      return classifyGate(stage, measureGate(stage, await readGateInputs(key)));
     },
   },
   {

@@ -118,7 +118,6 @@ const PROJ_STORE = process.env.SENTINEL_PROJECT_STORE
 let pdb = loadJson(PROJ_STORE, { projects: [] });
 const persistProj = () => writeJsonAtomic(PROJ_STORE, pdb);
 
-const STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
 const defaultProject = (pid) => ({
   project_id: pid, name: pid, stage: "design", standards_pack: "",
   dimensions: { "2d": true, "3d": true, "4d": false, "5d": true, "6d": false, "7d": false },
@@ -756,13 +755,15 @@ async function handleRequest(req, res) {
     }
   }
 
-  // ── Sentinel project store: /projects[/:pid[/gate/:stage]] ──
+  // ── Sentinel project store: /projects[/:pid] ──
   // Single source of truth = Supabase projects.metadata (0007) when the CDE is configured (team-wide);
   // else the per-machine local JSON store. Existing local metadata is lazy-migrated into Supabase on first
-  // read (the `seed`), and the local file is kept as an untouched backup.
-  const pm = url.pathname.match(/^\/projects(?:\/([^/]+))?(?:\/gate\/([^/]+))?$/);
+  // read (the `seed`), and the local file is kept as an untouched backup. The stage and the gates in a
+  // project's shape come from the ledger (cde-store.mjs projectStage/projectGates, phase 5c); the gate is run
+  // with POST /cde/:key/gate — the old POST /projects/:pid/gate/:stage is gone (a 404 like any unknown path).
+  const pm = url.pathname.match(/^\/projects(?:\/([^/]+))?$/);
   if (pm) {
-    const [, ppid, gateStage] = pm;
+    const [, ppid] = pm;
     try {
       const cde = await import("./cde-store.mjs");
       const useCde = cde.cdeConfigured();
@@ -784,26 +785,17 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, migrated ? await cde.listProjectMeta() : remote);
       }
-      if (req.method === "GET" && ppid && !gateStage) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, localSeed(ppid)) : getProject(ppid));
-      if (req.method === "PUT" && ppid && !gateStage) {
+      if (req.method === "GET" && ppid) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, localSeed(ppid)) : getProject(ppid));
+      if (req.method === "PUT" && ppid) {
         const b = await readBody(req);
         if (useCde) return send(res, 200, await cde.patchProjectMeta(ppid, b));
         const p = getProject(ppid); // local fallback (original behaviour)
-        for (const k of ["name", "stage", "standards_pack"]) if (b[k] !== undefined) p[k] = b[k];
+        for (const k of ["name", "standards_pack"]) if (b[k] !== undefined) p[k] = b[k];
         if (b.dimensions) p.dimensions = { ...p.dimensions, ...b.dimensions };
         if (b.snapshot) p.snapshot = { ...p.snapshot, ...b.snapshot };
         if (b.rate_pack) p.rate_pack = b.rate_pack;             // 5D: the project's editable rate library
         if (b.boq_baseline) p.boq_baseline = b.boq_baseline;    // 5D: cost baseline reference
         if (b.carbon_baseline) p.carbon_baseline = b.carbon_baseline; // 6D: carbon baseline (was dropped — fixed)
-        p.updated_at = new Date().toISOString();
-        persistProj(); return send(res, 200, p);
-      }
-      if (req.method === "POST" && ppid && gateStage) {
-        const b = await readBody(req);
-        if (useCde) return send(res, 200, await cde.recordGate(ppid, gateStage, b));
-        const p = getProject(ppid); // local fallback
-        p.gates[gateStage] = { status: b.status || "hold", checks: b.checks || [], at: new Date().toISOString() };
-        if (b.status === "pass" && b.advance_to && STAGES.includes(b.advance_to)) p.stage = b.advance_to;
         p.updated_at = new Date().toISOString();
         persistProj(); return send(res, 200, p);
       }
@@ -999,7 +991,7 @@ async function handleRequest(req, res) {
   }
 
   // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──
-  //   GET/POST /cde/:key/containers · GET /cde/:key/audit · GET/POST /cde/:key/transmittals
+  //   GET/POST /cde/:key/containers · GET /cde/:key/audit · GET/POST /cde/:key/transmittals · POST /cde/:key/gate
   //   POST /cde/containers/:cid/versions · POST /cde/versions/:vid/transition  { state, actor, note, override? }
   if (url.pathname.startsWith("/cde/")) {
     const cde = await import("./cde-store.mjs");
@@ -1115,6 +1107,16 @@ async function handleRequest(req, res) {
       // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
       //   verdict:, gate:, roi: and state: actions and stage_gate rows are Sentinel's own → 400 (cde-store.mjs recordAudit).
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
+      // The stage gate (cohesion phase 5c, spec Decision 10): POST /cde/:key/gate {stage, actor?} → the run — {stage, status:
+      //   pass|hold|not_checkable, checks[{label, ok, na, detail, source}], next_stage, ledger: {id, hash}}. Lead only (403);
+      //   the bridge measures the gate's inputs itself and writes the stage_gate row (cde-store.mjs runStageGate); the
+      //   project's stage is then its newest gate:pass row (GET /projects/:key). A stage outside the six is a 400; not
+      //   the current stage a 409. The actor is the signed-in identity, else the claim, else web — as every ledger sink.
+      if (p2 === "gate" && !p3 && req.method === "POST") {
+        const b = (await readBody(req)) || {};
+        if (!cde.STAGES.includes(b.stage)) return send(res, 400, { message: `stage must be one of ${cde.STAGES.join(", ")}` });
+        return send(res, 200, await cde.runStageGate(p1, b.stage, b.actor));
+      }
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
       //   version_id? | register?: {name, size_bytes, sha256}, raise_bcf? }
       //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, bcf? }.
