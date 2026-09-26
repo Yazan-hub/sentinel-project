@@ -204,11 +204,22 @@ static class GuidelineChecks
         // The provisioners' decision (F43): a type the catalogue names is cloned from a sibling of its catalogue family
         // that this document holds; a name the catalogue lacks, or a catalogue of none, has no sibling — a gap, never a clone.
         _ok(m.CatalogSiblings("Walls", "OFF_EXT_200 mm").SequenceEqual(new[] { "OFF_EXT_300 mm" }),
-            "CatalogSiblings: the catalogue's other types of the named type's family");
+            "CatalogSiblings: the catalogue's other sizes of the name's stem — what Available lists for a guideline gap");
+        _ok(m.CatalogSiblings("Walls", "OFF_EXT_250 mm").SequenceEqual(new[] { "OFF_EXT_200 mm", "OFF_EXT_300 mm" }),
+            "CatalogSiblings: a size the catalogue lacks still has its stem's siblings, smallest first (the standard extended by one size)");
         _ok(m.CatalogSiblings("Walls", "off_ext_300 MM").SequenceEqual(new[] { "OFF_EXT_200 mm" }),
             "CatalogSiblings: the name compares case-insensitively; the catalogue's spelling is returned");
-        _ok(m.CatalogSiblings("Walls", "OTHER_250 mm").Count == 0 && m.CatalogSiblings("Floors", "OFF_EXT_200 mm").Count == 0,
-            "CatalogSiblings: a name the catalogue lacks, or in another category, has no siblings");
+        var mates = GuidelineMatcher.FromBodies(Guideline,
+            Catalog.Replace("],\"view_templates\"", ",{\"category\":\"Walls\",\"family\":\"Basic Wall\",\"type\":\"OFF_INT_250 mm\"}],\"view_templates\""),
+            out _, out var mateError);
+        _ok(mateError == null && mates.CatalogSiblings("Walls", "OFF_EXT_200 mm").SequenceEqual(new[] { "OFF_EXT_300 mm" }),
+            "CatalogSiblings: another stem of the same Revit family (OFF_INT_250 mm, Basic Wall) is not a sibling — no build-up renamed as another type");
+        _ok(m.CatalogSiblings("Walls", "Basic Wall").Count == 0 && m.CatalogSiblings("Walls", "OTHER_250 mm").Count == 0
+            && m.CatalogSiblings("Floors", "OFF_EXT_200 mm").Count == 0,
+            "CatalogSiblings: a name with no thickness, a stem the catalogue lacks, or another category has no siblings");
+        _ok(TypeNameParse.ThicknessPattern("OFF_EXT_200 mm") == "OFF_EXT_{thickness} mm" && TypeNameParse.ThicknessPattern("OFF_EXT_200mm") == "OFF_EXT_{thickness}mm"
+            && TypeNameParse.ThicknessPattern("Basic Wall") == null && TypeNameParse.ThicknessPattern(null) == null,
+            "ThicknessPattern: the trailing thickness becomes {thickness}; no thickness → null");
         var uncatalogued = GuidelineMatcher.FromBodies(Guideline, null, out _, out _);
         _ok(!uncatalogued.HasCatalog && uncatalogued.CatalogSiblings("Walls", "OFF_EXT_200 mm").Count == 0,
             "CatalogSiblings: type_catalog none names no sibling — nothing to clone");

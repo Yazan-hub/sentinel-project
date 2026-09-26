@@ -31,7 +31,7 @@ namespace Sentinel.GhostBuilder
         {
             public int Created;
             public int AlreadyPresent;
-            /// <summary>Names not created: no sibling from the type catalogue in this document (each in Warnings).</summary>
+            /// <summary>Names not created — no catalogue sibling in this document, or a clone that failed (each in Warnings with its reason).</summary>
             public int Gaps;
             public readonly List<string> Warnings = new List<string>();
         }

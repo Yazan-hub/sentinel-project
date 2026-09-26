@@ -57,18 +57,18 @@ namespace Sentinel.GhostBuilder
                 return null;
             }
 
+            WallType dup = null;
             try
             {
-                var dup = (WallType)baseType.Duplicate(newName);
+                dup = (WallType)baseType.Duplicate(newName);
                 if (thicknessMm > 0 && !SetCoreThickness(dup, thicknessMm / FeetToMm, out reason))
                 {
-                    doc.Delete(dup.Id); // don't leave a wrong-width type behind
+                    Discard(doc, dup); // don't leave a wrong-width type behind
                     return null;
                 }
                 return dup;
             }
-            catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = ex.Message; return null; }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { reason = ex.Message; return null; }
+            catch (Autodesk.Revit.Exceptions.ApplicationException ex) { reason = ex.Message; Discard(doc, dup); return null; }
         }
 
         /// <summary>
@@ -92,19 +92,19 @@ namespace Sentinel.GhostBuilder
             FloorType baseType = Nearest(floors, siblingNames, thicknessMm);
             if (baseType == null) { reason = "no sibling type in this document"; return null; }
 
+            FloorType dup = null;
             try
             {
-                var dup = (FloorType)baseType.Duplicate(newName);
+                dup = (FloorType)baseType.Duplicate(newName);
                 // Only resize when we actually have a target thickness (from the name or a measurement).
                 if (thicknessMm > 0 && !SetCoreThickness(dup, thicknessMm / FeetToMm, out reason))
                 {
-                    doc.Delete(dup.Id);
+                    Discard(doc, dup);
                     return null;
                 }
                 return dup;
             }
-            catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = ex.Message; return null; }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { reason = ex.Message; return null; }
+            catch (Autodesk.Revit.Exceptions.ApplicationException ex) { reason = ex.Message; Discard(doc, dup); return null; }
         }
 
         /// <summary>
@@ -134,21 +134,21 @@ namespace Sentinel.GhostBuilder
             FamilySymbol baseSym = cols.FirstOrDefault(s => names.Contains(s.Name)) ?? cols.FirstOrDefault();
             if (baseSym == null) { reason = "no structural column family loaded to duplicate"; return null; }
 
+            FamilySymbol dup = null;
             try
             {
-                var dup = (FamilySymbol)baseSym.Duplicate(newName);
+                dup = (FamilySymbol)baseSym.Duplicate(newName);
                 bool w = SetDimension(dup, widthMm / FeetToMm, "b", "Width", "Depth-Width");
                 bool d = SetDimension(dup, depthMm / FeetToMm, "h", "Depth", "Height");
                 if (!w || !d)
                 {
-                    doc.Delete(dup.Id);
+                    Discard(doc, dup);
                     reason = "the column family exposes no editable width/depth parameter to set";
                     return null;
                 }
                 return dup;
             }
-            catch (Autodesk.Revit.Exceptions.ArgumentException ex) { reason = ex.Message; return null; }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { reason = ex.Message; return null; }
+            catch (Autodesk.Revit.Exceptions.ApplicationException ex) { reason = ex.Message; Discard(doc, dup); return null; }
         }
 
         // Set the first writable dimension parameter found among the given names. Column families disagree
@@ -219,6 +219,15 @@ namespace Sentinel.GhostBuilder
                 return false;
             }
             return true;
+        }
+
+        // A clone that could not be finished is removed, whatever threw — the caller reports the gap, and the document
+        // is never left holding a type under the standard's name with the wrong build-up or size.
+        private static void Discard(Document doc, ElementType dup)
+        {
+            if (dup == null) return;
+            try { doc.Delete(dup.Id); }
+            catch (Autodesk.Revit.Exceptions.ApplicationException) { /* already gone, or the transaction is failing anyway */ }
         }
 
         // ---- pure size parsing (offline-testable; the Revit calls above are not) ----

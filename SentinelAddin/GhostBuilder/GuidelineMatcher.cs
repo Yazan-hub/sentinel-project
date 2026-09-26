@@ -414,17 +414,17 @@ namespace Sentinel.GhostBuilder
                 .ToList();
         }
 
-        /// <summary>The catalogue's other types of the family that lists <paramref name="typeName"/> under
-        /// <paramref name="category"/> — what a provisioner may clone for it. Empty when no catalogue is installed or it
-        /// does not name the type: nothing the standard stands behind, so nothing to clone (F43).</summary>
+        /// <summary>The catalogue's types a provisioner may clone for <paramref name="typeName"/> under
+        /// <paramref name="category"/>: what <see cref="GuidelineResolution.Available"/> lists for a guideline gap — the
+        /// same name stem at another thickness (BDS_EXT_ARC_CMU_{thickness} mm), smallest first, the name itself left
+        /// out. Never merely the same Revit family: in a template every wall is "Basic Wall", and a plaster build-up
+        /// renamed as a metal type would be the F43 lie under the standard's own name. Empty when no catalogue is
+        /// installed, the name carries no thickness (no stem to share), or the catalogue has no other size of it.</summary>
         public List<string> CatalogSiblings(string category, string typeName)
         {
-            var entry = _catalog.FirstOrDefault(c => Norm(c.Category) == Norm(category) && Norm(c.Type) == Norm(typeName));
-            if (entry == null) return new List<string>();
-            return _catalog
-                .Where(c => Norm(c.Category) == Norm(category) && Norm(c.Family) == Norm(entry.Family) && Norm(c.Type) != Norm(typeName))
-                .Select(c => c.Type)
-                .ToList();
+            string pattern = TypeNameParse.ThicknessPattern(typeName);
+            if (pattern == null || !HasCatalog) return new List<string>();
+            return PatternOptions(pattern, category).Where(t => Norm(t) != Norm(typeName)).ToList();
         }
 
         /// <summary>Of <paramref name="siblings"/> (catalogue types), the one <paramref name="inDocument"/> holds whose

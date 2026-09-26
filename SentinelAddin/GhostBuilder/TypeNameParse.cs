@@ -17,6 +17,14 @@ namespace Sentinel.GhostBuilder
             return m.Success ? double.Parse(m.Groups[1].Value) : double.MaxValue;
         }
 
+        /// <summary>The name with its trailing thickness as the guideline's placeholder (BDS_EXT_ARC_CMU_200 mm →
+        /// BDS_EXT_ARC_CMU_{thickness} mm): the pattern its siblings share. Null when the name carries no thickness.</summary>
+        public static string ThicknessPattern(string name)
+        {
+            var m = Regex.Match(name ?? "", @"\d+(?:\.\d+)?(?=\s*mm\s*$)", RegexOptions.IgnoreCase);
+            return m.Success ? name.Substring(0, m.Index) + "{thickness}" + name.Substring(m.Index + m.Length) : null;
+        }
+
         /// <summary>Parse a "W x H mm" section (BDS_INT_STR_CONC_300 X 1500 mm → 300, 1500), in mm.
         /// False when the name has no W×H, so a caller can't create a column by section from it.</summary>
         public static bool TrySection(string name, out double widthMm, out double depthMm)
