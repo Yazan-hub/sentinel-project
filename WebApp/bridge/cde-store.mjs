@@ -870,6 +870,18 @@ export async function getAuditEntry(key, id) {
   return (Array.isArray(rows) ? rows[0] : rows) ?? null;
 }
 
+/** The row an anonymous receipt check names (cohesion phase 4c), or null. Service key only, whatever
+ *  Authorization the caller sent; never ensureProject — no "default" self-heal, no key-specific 404 or 403.
+ *  An unknown key still costs the second read (against the nil uuid), so it takes as long as an unknown id. */
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+export async function publicAuditRow(key, id) {
+  if (!Number.isSafeInteger(id) || id < 1) return null;
+  const proj = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=id`, { service: true });
+  const pid = Array.isArray(proj) && proj[0]?.id ? proj[0].id : NIL_UUID;
+  const rows = await sb(`audit_log?id=eq.${id}&project_id=eq.${pid}&select=id,at,hash,new_value`, { service: true });
+  return (Array.isArray(rows) ? rows[0] : null) ?? null;
+}
+
 /** Re-derive the receipt for a recorded adjudication straight from the ledger. */
 export async function receiptFor(key, id) {
   const row = await getAuditEntry(key, id);

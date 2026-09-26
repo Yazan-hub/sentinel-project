@@ -11,7 +11,9 @@ const originOf = (url) => {
 // With the auth gate armed (`armed`), `null` is accepted from any page: every route then needs a bearer
 // (a Supabase JWT or BCF_TOKEN) that a browser never attaches on its own, so reading a response needs a stolen
 // credential, not a forged origin — and the platform frame loads with referrerPolicy no-referrer, so a
-// Referer cannot be relied on there.
+// Referer cannot be relied on there. The one exception is POST /receipt/:key/verify (cohesion phase 4c): it
+// answers any page, with Access-Control-Allow-Origin: *, hash-only — a yes/no and field names, never a ledger
+// value — and bcf-service.mjs decides that before this function is asked (public-verify.mjs isPublicRoute).
 export function corsOrigin(origin, referer, { allow = [], wildcard = false, armed = false } = {}) {
   if (wildcard) return origin || "*";
   if (!origin) return "";

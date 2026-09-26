@@ -81,6 +81,9 @@ describe("verdictBadge", () => {
     },
   });
   const text = (el) => [el.textContent, ...el.children.map(text)].join(" ").trim();
+  // The public reply when the receipt's verdict was compared, and when only the id and hash were.
+  const verdictChecked = { matches: true, checked: ["audit_id", "ledger_hash", "project", "recorded_at", "verdict"], mismatched: [], not_checked: [] };
+  const hashOnly = { matches: true, checked: ["audit_id", "ledger_hash", "project"], mismatched: [], not_checked: ["recorded_at", "verdict"] };
 
   it("reads UNVERIFIED until the receipt has actually been checked", () => {
     const el = verdictBadge({ verdict: "accepted", ledger_hash: "abc12345" }, undefined, doc());
@@ -89,13 +92,13 @@ describe("verdictBadge", () => {
   });
 
   it("only claims acceptance once verification confirmed it", () => {
-    const el = verdictBadge({ verdict: "accepted", ledger_hash: "abc12345", audit_id: 5 }, { matches: true }, doc());
+    const el = verdictBadge({ verdict: "accepted", ledger_hash: "abc12345", audit_id: 5 }, verdictChecked, doc());
     expect(text(el)).toMatch(/accepted by Sentinel/);
     expect(el.attrs["data-sentinel-confirmed"]).toBe("true");
   });
 
   it("shows a confirmed rejection as a rejection", () => {
-    const el = verdictBadge({ verdict: "rejected", ledger_hash: "h" }, { matches: true }, doc());
+    const el = verdictBadge({ verdict: "rejected", ledger_hash: "h" }, verdictChecked, doc());
     expect(text(el)).toMatch(/rejected by Sentinel/);
   });
 
@@ -105,7 +108,23 @@ describe("verdictBadge", () => {
   });
 
   it("shows a short ledger hash when there is one, and nothing when there isn't", () => {
-    expect(text(verdictBadge({ verdict: "accepted", ledger_hash: "abcdef1234" }, { matches: true }, doc()))).toMatch(/abcdef12/);
-    expect(verdictBadge({ verdict: "accepted" }, { matches: true }, doc()).children).toHaveLength(2);
+    expect(text(verdictBadge({ verdict: "accepted", ledger_hash: "abcdef1234" }, verdictChecked, doc()))).toMatch(/abcdef12/);
+    expect(verdictBadge({ verdict: "accepted" }, verdictChecked, doc()).children).toHaveLength(2);
+  });
+
+  it("a match that did not compare the verdict shows the entry, never the verdict the receipt claims", () => {
+    const el = verdictBadge({ verdict: "accepted", ledger_hash: "abcdef1234", audit_id: 702 }, hashOnly, doc());
+    expect(text(el)).toMatch(/on the ledger — verdict not checked/);
+    expect(text(el)).not.toMatch(/accepted/);
+    expect(el.attrs["data-sentinel-confirmed"]).toBe("true");
+    expect(el.attrs["data-sentinel-verdict"]).toBe("not-checked");
+    // a member's full reply carries no `checked` either: the badge under-claims rather than assumes
+    expect(text(verdictBadge({ verdict: "accepted" }, { matches: true, reasons: [], ledger: {} }, doc()))).toMatch(/verdict not checked/);
+  });
+
+  it("says what a match is: the ledger's stored hash, the chain not recomputed", () => {
+    const el = verdictBadge({ verdict: "accepted", ledger_hash: "abcdef1234", audit_id: 702 }, verdictChecked, doc());
+    expect(el.children[2].title).toBe("Entry 702 matches the ledger's stored hash (chain not recomputed).");
+    expect(el.children[2].title).not.toMatch(/immutable/);
   });
 });

@@ -58,7 +58,11 @@ export class Sentinel {
     });
   }
 
-  /** Re-check a receipt against the ledger. The point of the whole exercise: do not take my word for it. */
+  /**
+   * Re-check a receipt against the ledger. The point of the whole exercise: do not take my word for it.
+   * No token needed: without one the bridge answers hash-only — {matches, checked, mismatched, not_checked, note},
+   * field names and never a ledger value; with a member's token it answers {matches, reasons, ledger}.
+   */
   verify(receipt) {
     return this._call(`/receipt/${encodeURIComponent(this.project)}/verify`, {
       method: "POST",
@@ -78,25 +82,29 @@ export class Sentinel {
  *
  * It renders UNVERIFIED until `verify()` has confirmed the receipt against the ledger. A badge that
  * looked authoritative on the proposer's say-so would defeat its own purpose: the whole value is
- * that the reader checked, not that the writer asserted.
+ * that the reader checked, not that the writer asserted. And it shows a verdict only when the check
+ * compared it (`"verdict"` in `check.checked`): a hash match proves the entry, not the verdict the
+ * receipt claims for it.
  */
 export function verdictBadge(receipt, check, doc = globalThis.document) {
   if (!doc) throw new Error("no document available — pass one for non-browser use");
   const verdict = receipt?.verdict ?? "unknown";
   const confirmed = check?.matches === true;
+  const verdictChecked = confirmed && Array.isArray(check.checked) && check.checked.includes("verdict");
   const accepted = verdict === "accepted";
-  const color = !confirmed ? "#9ca3af" : accepted ? "#16a34a" : "#dc2626";
+  const color = !confirmed ? "#9ca3af" : !verdictChecked ? "#2563eb" : accepted ? "#16a34a" : "#dc2626";
 
   const el = doc.createElement("span");
-  el.setAttribute("data-sentinel-verdict", verdict);
+  el.setAttribute("data-sentinel-verdict", !confirmed || verdictChecked ? verdict : "not-checked");
   el.setAttribute("data-sentinel-confirmed", String(confirmed));
   el.style.cssText = `display:inline-flex;gap:.4rem;align-items:baseline;border:1px solid ${color};color:${color};border-radius:.35rem;padding:.1rem .45rem;font:600 12px system-ui`;
 
   const mark = doc.createElement("span");
-  mark.textContent = !confirmed ? "?" : accepted ? "✓" : "✗";
+  mark.textContent = !confirmed ? "?" : !verdictChecked ? "•" : accepted ? "✓" : "✗";
   const label = doc.createElement("span");
   label.textContent = !confirmed
     ? `${verdict} — unverified`
+    : !verdictChecked ? "on the ledger — verdict not checked"
     : accepted ? "accepted by Sentinel" : "rejected by Sentinel";
   el.append(mark, label);
 
@@ -105,7 +113,7 @@ export function verdictBadge(receipt, check, doc = globalThis.document) {
     hash.textContent = String(receipt.ledger_hash).slice(0, 8);
     hash.style.cssText = "font:11px ui-monospace,Consolas,monospace;opacity:.7";
     hash.title = confirmed
-      ? `Confirmed against the immutable ledger (entry ${receipt.audit_id}).`
+      ? `Entry ${receipt.audit_id} matches the ledger's stored hash (chain not recomputed).`
       : "Not confirmed — call verify() before believing this badge.";
     el.append(hash);
   }
