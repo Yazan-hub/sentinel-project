@@ -58,7 +58,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   };
   const knownReady = loadKnownFromServer();
   const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[]) =>
-    bfetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
+    bwrite(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
   const resetKnownOnServer = () => bwrite(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" });
 
   let clashes: Clash[] = [];
@@ -306,14 +306,17 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
           await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${topic.guid}/viewpoints`, { components: { selection: sel } }).catch(() => {});
         }
         // The "Clash raised" ledger row is the bridge's now, written when the register below records the clash (H0 D11).
-        known.add(c.id);
         raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${la} ↔ ${lb}`, bcf_guid: topic?.guid ?? null, elements, overlap: c.overlap });
         raised++;
       } catch (e) { refusal ??= (e as Error).message; /* keep going */ }
     }
     if (!raised && refusal) { status(`Nothing raised — ${refusal}`); return; }
+    // The register (team-wide, carries provenance, writes the ledger rows) must take them before they count as known: a
+    // refusal is said in the bridge's words, and the clashes re-surface on the next run instead of vanishing from this browser.
+    try { await pushKnownToServer(raisedItems); }
+    catch (e) { status(`Raised ${raised} clash(es) → Issues + Revit, but the clash register refused them — ${(e as Error).message}. Not recorded and not on the ledger; they will re-surface on the next run.`); return; }
+    for (const it of raisedItems) known.add(it.signature);
     persistKnown();
-    if (raisedItems.length) pushKnownToServer(raisedItems); // team-wide, survives browser/machine, carries provenance
     clashes = clashes.filter((c) => !known.has(c.id));
     renderList();
     loadRegister(); // reflect the newly-recorded clashes in the Register view
