@@ -322,6 +322,13 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect((await call("POST", T, "contributor", { title: "x".repeat(600) })).status).toBe(201);
   });
 
+  it("PUT checks the title only when it changes — a stored title over 600 characters rides along on an ordinary edit (H0 minor N34/N50)", async () => {
+    seedTopic(topic("G1", "x".repeat(601))); // e.g. a Sentinel-built rejection note, already over the cap
+    expect((await call("PUT", `${T}/G1`, "contributor", { title: "x".repeat(601), priority: "High" })).status).toBe(200);
+    const no = { status: 400, body: { message: "a topic title is text of at most 600 characters — nothing was saved" } };
+    expect(await call("PUT", `${T}/G1`, "contributor", { title: "y".repeat(601) })).toEqual(no); // an actual change is still checked
+  });
+
   it("a user's IDS raises are budgeted as notes are: the 61st in a minute is a 429 and writes no topic and no ledger row", async () => {
     const raise = (i, description = "") => call("POST", T, "lead", { title: `IDS: Doors — P${i} (1 failing)`, description });
     expect((await raise(0, `IDS “${"x".repeat(10_000)}” — 1 element(s) fail`)).status).toBe(201);

@@ -79,7 +79,7 @@ export async function addMember(key, { email, role } = {}, actor, deps) {
   // of an office or of a project attached to one (offices are made by platform admins and attached to by their leads —
   // migration 0033, D3). A lead of a project outside any office is not enough: any account owns the projects it
   // creates. Everyone else gets the same 403 before the lookup; the machine credential passes as service.
-  const mine = await myRole(key, deps);
+  const mine = await myRole(key, { ...deps, ensureProject: async () => proj }); // proj is already fetched — no second read (H0 minor N39)
   if (mine !== "service") {
     if ((ROLE_RANK[mine] || 0) < ROLE_RANK.lead) throw err(403, `this action requires the lead role (you are ${mine || "not a member"})`);
     if (proj.kind !== "office" && !proj.office_key) throw err(403, "adding people by e-mail needs a project that belongs to an office — a lead of the office attaches it in Project settings, then add them");

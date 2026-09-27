@@ -122,6 +122,12 @@ describe("JSON bodies — 16 MB by default, 1 MB for prompts, a 413 in words, th
     expect(bodyOf(reply).message).toBe("the request body is over the 1 MB limit for this route — nothing was read or saved");
   });
 
+  it("POST /ai/run-tool over 1 MB (declared) is a 413 before a byte is read (H0 minor N2)", async () => {
+    const reply = await open(b.port, "POST", "/ai/run-tool", { ...machine, ...keepAlive, "Content-Type": "application/json", "Content-Length": String(2 * MB) }).reply;
+    expect(statusOf(reply), reply).toBe(413);
+    expect(reply).toMatch(/^Connection: close$/im);
+  });
+
   it("POST /bimdocs/compile-ids over 1 MB is a 413 (the compiler runs synchronously)", async () => {
     const reply = await open(b.port, "POST", "/bimdocs/compile-ids", { ...machine, "Content-Length": String(2 * MB) }).reply;
     expect(statusOf(reply), reply).toBe(413);

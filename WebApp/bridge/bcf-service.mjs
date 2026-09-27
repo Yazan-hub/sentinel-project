@@ -1906,7 +1906,9 @@ async function handleRequest(req, res) {
     // PUT — edit fields (status/priority/assignee/etc.); each change is logged to history.
     if (req.method === "PUT" && guid && !sub) {
       const b = await readBody(req);
-      cde.checkTopicTitle(b?.title);
+      // Only a changed title is checked (H0 minor N34/N50): a client that PUTs the topic back with its stored title
+      // — including one Sentinel built past 600 characters (a rejection note) — edits status/priority/etc. undisturbed.
+      if (b?.title !== undefined && b.title !== topic.title) cde.checkTopicTitle(b.title);
       if (governedEditNeedsLead(topic, b)) await requireMinRole(pid, "lead");
       const who = resolveActor(b.author, "web");
       const now = new Date().toISOString();
