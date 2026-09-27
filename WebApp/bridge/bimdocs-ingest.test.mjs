@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -62,6 +62,13 @@ describe("ingestDocument chunk-count cap", () => {
     chunkPages.mockReturnValueOnce(Array.from({ length: 61 }, (_, i) => ({ text: `chunk ${i}`, pages: [i + 1] })));
     await expect(ingestDocument(buf, opts)).rejects.toMatchObject({ status: 413, message: expect.stringMatching(/61.*60|60.*limit/i) });
     expect(chat).not.toHaveBeenCalled(); // cap is enforced before any AI call
+  });
+
+  it("keeps nothing on disk when it refuses (the original is stored only for a document it will map)", async () => {
+    chunkPages.mockReturnValueOnce(Array.from({ length: 61 }, (_, i) => ({ text: `chunk ${i}`, pages: [i + 1] })));
+    await expect(ingestDocument(buf, opts)).rejects.toMatchObject({ status: 413 });
+    // Files, not entries: SPEND-9 later keeps originals in a per-project folder it creates before the chunk check.
+    expect(readdirSync(dir, { recursive: true }).map(String).filter((f) => /\.[a-z0-9]+$/i.test(f))).toEqual([]);
   });
 
   it("a small document (well under the cap) still succeeds", async () => {

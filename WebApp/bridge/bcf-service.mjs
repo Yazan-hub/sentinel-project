@@ -17,12 +17,12 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSy
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { runWithAuth, resolveActor } from "./bridge-auth.mjs";
+import { runWithAuth, resolveActor, currentSub } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, SMALL_JSON } from "./request-limits.mjs";
+import { readBody, readRaw, uploadSlot, SMALL_JSON } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -58,8 +58,7 @@ const warnNullOrigin = (referer) => {
   nullOriginSeen.add(from);
   console.warn(`[bridge] refused Origin: null from Referer ${from} — if that is the platform's app frame, add it to BCF_CORS_ORIGIN`);
 };
-const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
-// EIR/BEP documents are text, not IFC models — cap far below MAX_UPLOAD so one huge upload can't hold
+// EIR/BEP documents are text, not IFC models — cap far below the 2 GB upload cap so one huge upload can't hold
 // an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
 const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
 
@@ -931,7 +930,7 @@ async function handleRequest(req, res) {
   // fragments and uploads via the same @thatopen/services client the outbox watcher uses.
   if (url.pathname === "/ifc" && req.method === "POST") {
     try {
-      if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+      res.once("close", uploadSlot(currentSub())); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
@@ -953,7 +952,7 @@ async function handleRequest(req, res) {
   // Deliberately ABOVE the Supabase /cde/ block so it never hits the service-key 503 guard.
   if (url.pathname === "/cde/files" && req.method === "POST") {
     try {
-      if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+      res.once("close", uploadSlot(currentSub())); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body" });
       const id = randomUUID();
@@ -1216,7 +1215,10 @@ async function handleRequest(req, res) {
       //   POST /cde/:key/intake?name=<ISO name.ifc>&source=<who>[&actor=&revision=&note=&raise_bcf=false
       //        &agent_model=&agent_tool=&agent_prompt_sha256=]   body = raw .ifc bytes
       if (p2 === "intake" && !p3 && req.method === "POST") {
-        if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+        // A trusted caller first (D2): the key is in the URL, so a refusal reads no byte of the upload.
+        const { requireSpend } = await import("./members-store.mjs");
+        await requireSpend(p1);
+        res.once("close", uploadSlot(currentSub())); // held until this answer is done
         const bytes = await readRaw(req);
         const q = (k) => url.searchParams.get(k) || undefined;
         const agent = (q("agent_model") || q("agent_tool") || q("agent_prompt_sha256")) ? { kind: "agent", model: q("agent_model"), tool: q("agent_tool"), prompt_sha256: q("agent_prompt_sha256") } : undefined;
@@ -1262,7 +1264,10 @@ async function handleRequest(req, res) {
         if (!p3 && req.method === "GET") return send(res, 200, await ms.listManifests(p1));
         if (p3 && req.method === "POST") {
           if (!cde.isUuid(p3)) return send(res, 400, { message: "not a version id" });
-          if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD) return send(res, 413, { message: `File too large (> ${Math.round(MAX_UPLOAD / 1048576)} MB).` });
+          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read.
+          const { requireMinRole } = await import("./members-store.mjs");
+          await requireMinRole(p1, "lead");
+          res.once("close", uploadSlot(currentSub())); // held until this answer is done
           const bytes = await readRaw(req);
           if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
           return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
@@ -1485,11 +1490,12 @@ async function handleRequest(req, res) {
 
       // Ingest: raw document bytes -> AI mapping proposal. Writes nothing; /ingest/commit does.
       if (p2 === "ingest" && !p3 && req.method === "POST") {
-        const len = Number(req.headers["content-length"] || 0);
-        if (len > MAX_DOC_UPLOAD) return send(res, 413, { message: `File too large (${(len / 1048576).toFixed(1)} MB, max ${(MAX_DOC_UPLOAD / 1048576) | 0} MB)` });
-        const { ensureProject } = await import("./cde-store.mjs");
-        await ensureProject(p1); // cheap existence gate before burning disk/model time on a bad project key
-        const raw = await readRaw(req);
+        // A trusted caller first (D2: a stored original spends the founder's disk and the model's time); the key is in
+        // the URL, so a refusal reads no byte of the upload. The project row is kept for ingestDocument (SPEND-9).
+        const { requireSpend } = await import("./members-store.mjs");
+        const proj = await requireSpend(p1);
+        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        const raw = await readRaw(req, { max: MAX_DOC_UPLOAD });
         if (!raw.length) return send(res, 400, { message: "empty upload" });
         const ingest = await import("./bimdocs-ingest.mjs");
         const name = url.searchParams.get("name") || "document.pdf";

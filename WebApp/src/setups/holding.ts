@@ -56,7 +56,7 @@ export async function uploadThroughIntake(baseUrl: string, key: string, file: Bl
 
 // The answers the bridge gives before it stores anything (the rule Revit keeps, tools/event-check). Any other status,
 // or no answer at all, may come after the bridge uploaded or registered the file.
-const NOT_STORED = [400, 401, 403, 404, 413, 503];
+const NOT_STORED = [400, 401, 403, 404, 413, 429, 503];
 
 /** The status line for an upload that threw: "Not uploaded" only when the bridge's answer says nothing was stored;
  *  a transport error or any other status (a 500 after the platform upload, a 504 through the tunnel) is not confirmed. */

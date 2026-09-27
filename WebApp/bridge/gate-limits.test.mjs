@@ -140,3 +140,72 @@ describe("JSON bodies — 16 MB by default, 1 MB for prompts, a 413 in words, th
     expect(b.child.exitCode, b.stderr).toBeNull();
   });
 });
+
+describe("raw uploads — capped on the bytes that arrive, two at once, one per caller", () => {
+  let b, supa;
+  beforeAll(async () => {
+    // requireSpend reads the project even for the machine credential, so this copy needs a CDE: a stand-in PostgREST
+    // that knows one project, "gl", and answers [] to everything else.
+    const gl = { id: "0a0a0a0a-0000-4000-8000-000000000001", key: "gl", name: "gl", kind: "project", office_key: null };
+    supa = createServer((q, s) => {
+      s.writeHead(200, { "Content-Type": "application/json" });
+      s.end(q.method === "GET" && q.url.startsWith("/rest/v1/projects") ? JSON.stringify([gl]) : "[]");
+    });
+    const supaPort = await freePort();
+    await new Promise((r) => supa.listen(supaPort, "127.0.0.1", r));
+    b = await startBridge({
+      BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET, SUPABASE_URL: `http://127.0.0.1:${supaPort}`,
+      SUPABASE_SERVICE_KEY: "stand-in-service-key", SUPABASE_ANON_KEY: "stand-in-anon-key",
+    });
+  }, 30_000);
+  afterAll(() => new Promise((r) => supa.close(r)));
+  const ingest = "/bimdocs/gl/ingest?name=eir.txt&doc_type=EIR";
+
+  it("a chunked document past 32 MB (no Content-Length) is a 413, and nothing is stored", async () => {
+    const reply = await streamed(b.port, "POST", ingest, 32 * MB + 1, machine);
+    expect(statusOf(reply), reply).toBe(413);
+    expect(bodyOf(reply).message).toBe("the request body is over the 32 MB limit for this route — nothing was read or saved");
+    const docs = join(b.appdata, "Sentinel", "bimdocs");
+    expect(existsSync(docs) ? readdirSync(docs) : []).toEqual([]);
+  });
+
+  it("a caller's second upload while the first runs is a 429, and a cut-off upload frees its slot", async () => {
+    const first = open(b.port, "POST", ingest, { ...machine, "Transfer-Encoding": "chunked" });
+    await first.chunk(1024); // the first upload is now reading its body
+    await new Promise((r) => setTimeout(r, 100));
+    const second = await open(b.port, "POST", ingest, { ...machine, "Content-Length": "10" }).reply;
+    expect(statusOf(second), second).toBe(429);
+    expect(bodyOf(second).message).toContain("you already have an upload running");
+    first.socket.destroy(); // the caller goes away mid-upload
+    let third;
+    for (let i = 0; i < 30; i++) { // the bridge notices the close on its next turn
+      third = await open(b.port, "POST", ingest, { ...machine, "Content-Length": String(33 * MB) }).reply;
+      if (statusOf(third) !== 429) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(statusOf(third), third).toBe(413); // it got the slot, then the cap refused it unread
+  });
+});
+
+describe("raw uploads — the role is decided before a byte of the body is read", () => {
+  let b, supa;
+  beforeAll(async () => {
+    // A stand-in PostgREST that knows no project: every read is [], so any membership check ends in a refusal.
+    supa = createServer((q, s) => { s.writeHead(200, { "Content-Type": "application/json" }); s.end("[]"); });
+    const supaPort = await freePort();
+    await new Promise((r) => supa.listen(supaPort, "127.0.0.1", r));
+    b = await startBridge({
+      BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET, SUPABASE_URL: `http://127.0.0.1:${supaPort}`,
+      SUPABASE_SERVICE_KEY: "stand-in-service-key", SUPABASE_ANON_KEY: "stand-in-anon-key",
+    });
+  }, 30_000);
+  afterAll(() => new Promise((r) => supa.close(r)));
+
+  for (const path of ["/cde/ghost/intake?name=a.ifc&source=web", `/cde/ghost/manifests/${randomUUID()}`, "/bimdocs/ghost/ingest?name=a.txt&doc_type=EIR"]) {
+    it(`POST ${path.split("?")[0]} from a signed-in non-member is refused with only the head sent`, async () => {
+      const r = open(b.port, "POST", path, { Authorization: `Bearer ${userJwt()}`, "Transfer-Encoding": "chunked" });
+      const reply = await r.reply; // no body byte was ever sent: an answer proves the body was not awaited
+      expect([403, 404], reply).toContain(statusOf(reply));
+    });
+  }
+});

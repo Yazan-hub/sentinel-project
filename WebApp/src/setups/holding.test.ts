@@ -39,7 +39,7 @@ describe("uploadThroughIntake — POST /cde/:key/intake", () => {
   });
 
   it("an upload that threw is 'Not uploaded' only on an answer given before anything is stored; else not confirmed", () => {
-    for (const status of [400, 401, 403, 404, 413, 503]) expect(uploadFailedLine(Object.assign(new Error("refused"), { status }))).toBe("Not uploaded — refused");
+    for (const status of [400, 401, 403, 404, 413, 429, 503]) expect(uploadFailedLine(Object.assign(new Error("refused"), { status }))).toBe("Not uploaded — refused");
     const unsure = "Not confirmed — HTTP 500 (the bridge may have stored it; ↻ to check)";
     expect(uploadFailedLine(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe(unsure);
     expect(uploadFailedLine(Object.assign(new Error("HTTP 500"), { status: 200 }))).toBe(unsure);

@@ -47,17 +47,15 @@ export async function ingestDocument(buffer, { filename, doc_type } = {}) {
 
   const { pages, kind } = await extractText(buffer, filename);
 
+  const chunks = chunkPages(pages);
+  // A document too large to map is refused before its original is stored: a refusal keeps nothing on disk.
+  if (chunks.length > MAX_INGEST_CHUNKS) {
+    throw err(413, `document produced ${chunks.length} chunks, over the ${MAX_INGEST_CHUNKS} limit — split the document or raise SENTINEL_MAX_DOC_MB/the chunk limit`);
+  }
   // Store the original BEFORE the AI work: a 503 from an unreachable model must not cost the upload.
   const file_id = `${randomUUID()}${extname(String(filename || "")).toLowerCase()}`;
   writeFileSync(join(sourceDir(), file_id), Buffer.from(buffer));
   const source = { file_id, name: basename(String(filename || "document")), kind, pages: pages.length, ingested_at: new Date().toISOString() };
-
-  const chunks = chunkPages(pages);
-  // Storing the original above is deliberate: the upload itself succeeded, so the file is kept even
-  // when the document turns out to be too large to map — the check below only stops AI work.
-  if (chunks.length > MAX_INGEST_CHUNKS) {
-    throw err(413, `document produced ${chunks.length} chunks, over the ${MAX_INGEST_CHUNKS} limit — split the document or raise SENTINEL_MAX_DOC_MB/the chunk limit`);
-  }
   const results = [];
   for (const chunk of chunks) {
     const { system, user } = buildMappingPrompt(tpl.sections, chunk);
