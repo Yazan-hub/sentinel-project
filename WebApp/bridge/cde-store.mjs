@@ -76,6 +76,16 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
   return data;
 }
 
+/** A write the database refused is not an error to PostgREST: RLS filters the rows an UPDATE or DELETE may touch, so
+ *  a refused one answers 200/204 having changed nothing (inserts and upserts do raise — 42501, a 403). Every PATCH and
+ *  DELETE that is followed by a ledger row asks for its rows (Prefer: return=representation) and passes them here
+ *  BEFORE the row is written: none back is a 403 in `what`'s words, never a 200 and never a ledger row over nothing
+ *  (H0 D5; patchProjectMeta and updateProject were the first). → the rows. */
+export function requireRows(rows, what) {
+  if (Array.isArray(rows) && rows.length) return rows;
+  throw Object.assign(new Error(`${what} — nothing was saved`), { status: 403 });
+}
+
 /** Resolve a project KEY to its CDE row. Projects are created ONLY through the web hub's explicit
  *  "+ New project" (createProject) — an unknown key here is a 404, never an implicit INSERT. (The old
  *  create-on-first-use left test residue: every script that touched a key spawned a project row.) The
