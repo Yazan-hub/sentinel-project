@@ -1701,8 +1701,8 @@ async function handleRequest(req, res) {
         if (!ref) return send(res, 404, { message: "this document has no original file" });
         const ingest = await import("./bimdocs-ingest.mjs");
         const { readFileSync } = await import("node:fs");
-        // The document's own project folder; the flat folder too, only for a document committed before H0 bound originals.
-        const buf = readFileSync(ingest.sourceFilePath(ref.project_id, ref.file_id, { legacy: true }));
+        // The document's own project folder only — never the pre-H0 flat folder (bimdocs-4; move-legacy-originals.mjs).
+        const buf = readFileSync(ingest.sourceFilePath(ref.project_id, ref.file_id));
         res.writeHead(200, {
           "Content-Type": "application/octet-stream",
           "Content-Disposition": `attachment; filename="${encodeURIComponent(ref.name)}"`,

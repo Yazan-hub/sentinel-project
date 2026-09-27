@@ -35,15 +35,15 @@ export function projectSourceDir(projectId) {
   return dir;
 }
 
-/** Traversal-safe path for a stored original of `projectId`. `legacy` also looks in the flat folder originals went to
- *  before H0 — only for reading a document committed then; the ingest commit check never passes it. */
-export function sourceFilePath(projectId, file_id, { legacy = false } = {}) {
+/** Traversal-safe path for a stored original of `projectId` — its project's folder only. The flat folder originals
+ *  went to before H0 is never read: bim_documents.source is writable by a contributor, so reading it would serve any
+ *  pre-H0 original to whoever names its file_id (bimdocs-4). bridge/move-legacy-originals.mjs moves those files. */
+export function sourceFilePath(projectId, file_id) {
   const name = basename(String(file_id || ""));
   if (!/^[a-f0-9-]{36}(\.[a-z0-9]{1,8})?$/i.test(name)) throw err(404, "source not found");
-  for (const dir of legacy ? [projectSourceDir(projectId), sourceDir()] : [projectSourceDir(projectId)]) {
-    const path = join(dir, name);
-    if (resolve(path).startsWith(resolve(dir) + sep) && existsSync(path) && statSync(path).isFile()) return path;
-  }
+  const dir = projectSourceDir(projectId);
+  const path = join(dir, name);
+  if (resolve(path).startsWith(resolve(dir) + sep) && existsSync(path) && statSync(path).isFile()) return path;
   throw err(404, "source not found");
 }
 

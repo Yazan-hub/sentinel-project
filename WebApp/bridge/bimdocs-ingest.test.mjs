@@ -105,16 +105,42 @@ describe("originals are bound to their project (H0, bimdocs-4)", () => {
     expect(statusOf(() => sourceFilePath(OTHER, source.file_id))).toBe(404);
   });
 
-  it("a file from before H0 (the flat folder) is found only with legacy — the commit check never passes it", () => {
+  it("a file from before H0 (the flat folder) is never read — not by the commit check, not by the source route", () => {
     const old = "12345678-1234-4123-8123-123456789abc.txt";
     writeFileSync(join(dir, old), "old original");
     expect(statusOf(() => sourceFilePath(P, old))).toBe(404);
-    expect(sourceFilePath(P, old, { legacy: true })).toBe(join(dir, old));
+    expect(statusOf(() => sourceFilePath(P, old, { legacy: true }))).toBe(404); // the old option is gone, not honoured
+  });
+
+  it("move-legacy-originals moves a flat file into its one project's folder; a file named by two projects stays", async () => {
+    const { moveLegacyOriginals } = await import("./move-legacy-originals.mjs");
+    const mine = "12345678-1234-4123-8123-123456789abc.pdf";
+    const contested = "abcdefab-1234-4123-8123-123456789abc.pdf";
+    writeFileSync(join(dir, mine), "mine");
+    writeFileSync(join(dir, contested), "contested");
+    const rows = [
+      { project_id: P, source: { file_id: mine } },
+      { project_id: P, source: { file_id: contested } },
+      { project_id: OTHER, source: { file_id: contested } }, // e.g. a pointer planted before H0
+      { project_id: P, source: { file_id: "../../etc/passwd" } },
+      { project_id: P, source: { file_id: "99999999-1234-4123-8123-123456789abc" } }, // never stored
+    ];
+    const dry = moveLegacyOriginals(rows);
+    expect(dry.moved).toEqual([{ file_id: mine, project_id: P }]);
+    expect(existsSync(join(dir, mine))).toBe(true); // a dry run moves nothing
+    const r = moveLegacyOriginals(rows, { apply: true });
+    expect(r.moved).toEqual([{ file_id: mine, project_id: P }]);
+    expect(r.ambiguous).toEqual([{ file_id: contested, projects: [P, OTHER] }]);
+    expect(r.missing).toEqual(["99999999-1234-4123-8123-123456789abc"]);
+    expect(sourceFilePath(P, mine)).toBe(join(dir, P, mine));
+    expect(existsSync(join(dir, mine))).toBe(false);
+    expect(existsSync(join(dir, contested))).toBe(true);
+    expect(statusOf(() => sourceFilePath(OTHER, contested))).toBe(404);
   });
 
   it("a project folder is never read as a file", () => {
     mkdirSync(join(dir, OTHER), { recursive: true });
-    expect(statusOf(() => sourceFilePath(P, OTHER, { legacy: true }))).toBe(404);
+    expect(statusOf(() => sourceFilePath(P, OTHER))).toBe(404);
   });
 
   it("no project id: 400 before anything is stored or asked", async () => {
