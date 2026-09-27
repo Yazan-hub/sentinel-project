@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
-import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, BACK_TO_WIP, type ReviewItem, type ReviewDecision } from "./review-chain";
+import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, BACK_TO_WIP, type ReviewItem, type ReviewDecision } from "./review-chain";
 import { transitionVersion } from "./cde-transition";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
@@ -106,6 +106,15 @@ describe("the lines on the card and in the status", () => {
       .toBe("Rejected at step 1 of 2 — Design check · B13-D.ifc back to WIP · ledger #950 · receipt 9a8b7c6d5e4f3021… · BCF topic 4f2a9c1e-0000-4000-8000-000000000003");
     expect(decisionLine("B13-D.ifc", { ...r, bcf: { error: "BCF store not configured" } }))
       .toBe("Rejected at step 1 of 2 — Design check · B13-D.ifc back to WIP · ledger #950 · receipt 9a8b7c6d5e4f3021… · BCF topic not raised — BCF store not configured");
+  });
+});
+
+describe("reviewsInView — the bar counts only the chains whose cards the board shows", () => {
+  it("counts mine and under review among the versions in view, and names the rest as elsewhere", () => {
+    const rs = [item({ version_id: "a", can_decide: true }), item({ version_id: "b", can_decide: false }), item({ version_id: "c", can_decide: true })];
+    expect(reviewsInView(rs, new Set(["a", "b"]))).toEqual({ mine: 1, here: 2, elsewhere: 1 });
+    expect(reviewsInView(rs, new Set())).toEqual({ mine: 0, here: 0, elsewhere: 3 });
+    expect(reviewsInView([], new Set(["a"]))).toEqual({ mine: 0, here: 0, elsewhere: 0 });
   });
 });
 
