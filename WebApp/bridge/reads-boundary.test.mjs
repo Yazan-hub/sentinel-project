@@ -229,3 +229,33 @@ describe("GET /projects — this machine's local rows are migrated for the machi
     expect(seen.filter((s) => s.includes("key=eq.beta"))).toEqual([]);
   });
 });
+
+describe("GET /sheets and /views — the machine credential and platform admins only, no local paths (D7; sheets-1)", () => {
+  it.each(["/sheets", "/views", "/sheets/img/Tower/A101.png", "/views/img/Tower/FloorPlan_L1.png"])(
+    "a signed-in member gets a 403 in words for %s", async (path) => {
+      const r = await get(path, as.member);
+      expect(r.status).toBe(403);
+      expect((await r.json()).message).toMatch(/^(Revit sheets|Published views) are shown only to platform admins for now — they are not yet scoped to project members\.$/);
+    });
+
+  it("the machine credential gets the sets, with no local root path", async () => {
+    for (const path of ["/sheets", "/views"]) {
+      const r = await get(path, as.token);
+      expect(r.status).toBe(200);
+      const text = await r.text();
+      const body = JSON.parse(text);
+      expect(body).not.toHaveProperty("root");
+      expect(body.sets.map((s) => s.set)).toEqual(["Tower"]);
+      expect(text).not.toMatch(/appdata/i);
+    }
+  });
+
+  it("a platform admin gets the sets and the images", async () => {
+    const r = await get("/sheets", as.admin);
+    expect(r.status).toBe(200);
+    expect((await r.json()).sets[0].sheets[0].url).toBe("/sheets/img/Tower/A101.png");
+    const img = await get("/views/img/Tower/FloorPlan_L1.png", as.admin);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toBe("image/png");
+  });
+});

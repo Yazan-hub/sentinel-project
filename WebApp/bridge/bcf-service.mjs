@@ -724,6 +724,17 @@ async function handleRequest(req, res) {
     }
   }
 
+  // D7 (sheets-1): sheet and view PNGs are client drawings from every project Revit published on this machine, in one
+  // folder per machine. Until the lists are scoped to project members (H3), only the machine credential and platform
+  // admins may list or open them. The refusal is in words the panels show — never an empty list that reads as "nothing
+  // published". isPlatformAdmin is true for the machine credential; a check that throws grants nothing.
+  const renders = /^\/(sheets|views)(?:\/|$)/.exec(url.pathname);
+  if (renders && req.method === "GET") {
+    let admin = false;
+    try { admin = await (await import("./members-store.mjs")).isPlatformAdmin(); } catch { /* not answered: not an admin */ }
+    if (!admin) return send(res, 403, { message: `${renders[1] === "sheets" ? "Revit sheets" : "Published views"} are shown only to platform admins for now — they are not yet scoped to project members.` });
+  }
+
   // ── Revit sheets (rendered PNGs the plugin pushes): GET /sheets  +  GET /sheets/img/:set/:file ──
   // GET /sheets → all sheet sets with their manifests (each sheet carries a ready-to-use image url).
   if (url.pathname === "/sheets" && req.method === "GET") {
@@ -744,7 +755,7 @@ async function handleRequest(req, res) {
       }
     } catch { /* SHEETS_ROOT doesn't exist yet — no sheets published */ }
     sets.sort((a, b) => String(b.exportedAt).localeCompare(String(a.exportedAt)));
-    return send(res, 200, { root: SHEETS_ROOT, sets });
+    return send(res, 200, { sets }); // no root: a reply never carries an absolute local path (D7)
   }
   // GET /sheets/img/:set/:file → serve one PNG (path-traversal-guarded via basename()).
   const simg = url.pathname.match(/^\/sheets\/img\/([^/]+)\/([^/]+)$/);
@@ -791,7 +802,7 @@ async function handleRequest(req, res) {
       }
     } catch { /* VIEWS_ROOT doesn't exist yet — no views published */ }
     sets.sort((a, b) => String(b.exportedAt).localeCompare(String(a.exportedAt)));
-    return send(res, 200, { root: VIEWS_ROOT, sets });
+    return send(res, 200, { sets }); // no root: a reply never carries an absolute local path (D7)
   }
   // GET /views/img/:set/:file → serve one PNG (path-traversal-guarded via basename()).
   const vimg = url.pathname.match(/^\/views\/img\/([^/]+)\/([^/]+)$/);
