@@ -1,0 +1,5 @@
+[
+  { "id": "fileId", "label": "IFC File ID", "type": "string" },
+  { "id": "versionTag", "label": "Version tag (blank = latest)", "type": "string" },
+  { "id": "projectId", "label": "Project ID (blank = the launching project)", "type": "string" }
+]
