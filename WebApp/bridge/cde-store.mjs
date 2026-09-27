@@ -579,7 +579,11 @@ export async function archiveFile(key, container_id, actor) {
   let archived = 0, discarded = 0;
   for (const v of versions) {
     if (v.state === "published") { await transition(key, v.id, "archived", { actor: actor || "web", note: "file archived" }); archived++; }
-    else if (v.state !== "archived") { await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=minimal" }); discarded++; }
+    else if (v.state !== "archived") {
+      // cv_delete is a lead's: a draft the database would not discard comes back as no row — a refusal, not "discarded".
+      requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=representation" }), "a file's draft versions are discarded by a lead or owner");
+      discarded++;
+    }
   }
   await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
   return { ok: true, archived, discarded };
@@ -597,17 +601,20 @@ export async function unarchiveFile(key, container_id, actor) {
     await transition(key, v.id, "published", { actor: actor || "web", note: "file restored" });
     restored++;
   }
-  await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
+  // Nothing restored is nothing to record: no "unarchived" row over a file that had no archived version (cde-11).
+  if (restored) await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
   return { ok: true, restored };
 }
 
 /** Delete a file (container + versions, cascading). PUBLISHED versions are immutable — the DB trigger
- *  refuses, surfaced as a 409 telling the caller to archive instead. Audit trail survives (no FK). */
+ *  refuses, surfaced as a 409 telling the caller to archive instead. ic_delete is a lead's: a delete the database
+ *  refused comes back as no row, a 403. The "deleted" row is written only after a delete that happened (it used to go
+ *  first, whatever the delete did); audit_log has no FK, so it outlives the container. */
 export async function deleteFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
-  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name }, null);
+  let gone;
   try {
-    await sb(`information_containers?id=eq.${c.id}`, { method: "DELETE", prefer: "return=minimal" });
+    gone = await sb(`information_containers?id=eq.${c.id}`, { method: "DELETE", prefer: "return=representation" });
   } catch (e) {
     if (String(e?.message || "").includes("published versions are immutable")) {
       const err = new Error("This file has PUBLISHED versions, which are immutable by design — it cannot be deleted. Archive it instead.");
@@ -616,6 +623,8 @@ export async function deleteFile(key, container_id, actor) {
     }
     throw e;
   }
+  requireRows(gone, "a file is deleted by a lead or owner");
+  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name }, null);
   return { deleted: true, iso_name: c.iso_name };
 }
 

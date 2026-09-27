@@ -11,7 +11,8 @@ vi.hoisted(() => {
 });
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
-import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion } from "./cde-store.mjs";
+import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
+  deleteFile, archiveFile, unarchiveFile } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const F = "ffffffff-0000-4000-8000-000000000001";
@@ -113,5 +114,48 @@ describe("files — a rename, the live pointer and a geometry link are refusals 
     expect(await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" })).toMatchObject({ linked: true, version: { id: V1 } });
     expect(await setLiveVersion(V1, "web")).toEqual({ ok: true, version_id: V1, container_id: C });
     expect(ledger().map((c) => c.body.action)).toEqual(["geometry linked", "set live"]);
+  });
+});
+
+describe("files — delete, archive and restore record only what happened (cde-11)", () => {
+  beforeEach(() => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc" }];
+    db.container_versions = [{ id: V1, container_id: C, revision: "v1", state: "wip", is_live: true }];
+  });
+
+  it("deleteFile: a delete the database refused is a 403 and no 'deleted' row (the row used to be written first)", async () => {
+    serve(["information_containers"]);
+    await expect(deleteFile("demo", C, "web")).rejects.toMatchObject({ status: 403, message: "a file is deleted by a lead or owner — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("deleteFile: the 'deleted' row follows the delete", async () => {
+    expect(await deleteFile("demo", C, "web")).toEqual({ deleted: true, iso_name: "A.ifc" });
+    const order = rest.calls.map((c) => `${c.method} ${c.table}`);
+    expect(order.indexOf("DELETE information_containers")).toBeLessThan(order.indexOf("POST audit_log"));
+  });
+
+  it("deleteFile: published versions are still a 409, and still no row", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "DELETE"
+      ? new Response(JSON.stringify({ code: "P0001", message: "published versions are immutable" }), { status: 400 })
+      : rest.fetch(url, init)));
+    await expect(deleteFile("demo", C, "web")).rejects.toMatchObject({ status: 409 });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("archiveFile: a draft the database would not discard is a 403 and no 'archived' row", async () => {
+    serve(["container_versions"]);
+    await expect(archiveFile("demo", C, "web")).rejects.toMatchObject({ status: 403, message: "a file's draft versions are discarded by a lead or owner — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("archiveFile: discarded counts the drafts that went", async () => {
+    expect(await archiveFile("demo", C, "web")).toEqual({ ok: true, archived: 0, discarded: 1 });
+    expect(ledger()[0].body).toMatchObject({ action: "archived", new_value: { iso_name: "A.ifc", archived: 0, discarded: 1 } });
+  });
+
+  it("unarchiveFile: nothing archived is nothing restored, and no 'unarchived' row", async () => {
+    expect(await unarchiveFile("demo", C, "web")).toEqual({ ok: true, restored: 0 });
+    expect(ledger()).toHaveLength(0);
   });
 });
