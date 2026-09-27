@@ -175,3 +175,30 @@ export async function canUseCloudAi(deps) {
     ? { ok: true, why: "office member" }
     : { ok: false, why: "Cloud AI is for office members — it needs the contributor role on a project that belongs to an office, or lead of an office. Local AI still works." };
 }
+
+/** D3 (H0, migration 0033): is the caller a platform admin — the only signed-in caller who makes an office. The machine
+ *  credential is one. A signed-in caller is one when public.is_platform_admin() answers true under their own session.
+ *  Anything else is no — the function missing (0033 not applied), PostgREST down, an answer that is not true — so this
+ *  question never fails open. */
+export async function isPlatformAdmin(deps) {
+  const d = wire(deps);
+  if ((!subOf(d) && !currentUserToken() && d.sub === undefined) || d.sub === null) return true; // as myRole's "service"
+  try { return (await d.sb("rpc/is_platform_admin", { method: "POST", body: {} })) === true; }
+  catch { return false; }
+}
+
+/** D3 (H0, migration 0033): a project joins an office (office_key set or changed) only through a lead or owner OF THAT
+ *  OFFICE, a platform admin, or the machine credential. The office row is read with the service key rather than
+ *  through requireMinRole's ensureProject, whose 404 would tell a stranger which office keys exist: "no such office"
+ *  and "not yours" get the same words, the words 0033's projects_office_guard gives a direct PostgREST write. */
+export async function requireOfficeLead(officeKey, deps) {
+  const d = wire(deps);
+  const sub = subOf(d);
+  if (sub) {
+    const office = (await d.sb(`projects?key=eq.${enc(String(officeKey))}&select=id`, { service: true }))?.[0];
+    const role = office ? (await memberRows(d, office.id)).find((m) => m.user_id === sub)?.role : null;
+    if ((ROLE_RANK[role] || 0) >= ROLE_RANK.lead) return;
+  }
+  if (await isPlatformAdmin(deps)) return;
+  throw err(403, "attaching a project to an office needs the lead role on that office — nothing was saved");
+}
