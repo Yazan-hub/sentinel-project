@@ -1079,7 +1079,22 @@ async function handleRequest(req, res) {
         }
         if (req.method === "DELETE") return send(res, 200, await cde.deleteProject(key, "web"));
       }
-      if (p1 === "projects" && p2 && p3 === "scope" && req.method === "GET") return send(res, 200, await cde.projectScope(decodeURIComponent(p2)));
+      // GET /cde/projects/:key/scope — the office relation and, for an office, its projects' keys, read with the service
+      // key (projectScope). D7 (cde-9, cde-rem-8): a signed-in caller must be a member of the project or of its office;
+      // absent and not-yours are one 404 (projectNotFound). The check is here, not in projectScope: journey-store,
+      // check-registry and the artefact PUT call projectScope after their own checks.
+      if (p1 === "projects" && p2 && p3 === "scope" && req.method === "GET") {
+        const key = decodeURIComponent(p2);
+        let scope = null;
+        try { scope = await cde.projectScope(key); } catch (e) { if (e?.status !== 404) throw e; }
+        if (scope && currentUserToken()) {
+          const keys = [key, scope.office_key].filter(Boolean).map(encodeURIComponent).join(",");
+          const mine = await cde.sb(`projects?key=in.(${keys})&select=key`); // forwarded → RLS: only the caller's own projects
+          if (!mine?.length) scope = null;
+        }
+        if (!scope) throw cde.projectNotFound(key);
+        return send(res, 200, scope);
+      }
       // ── Office intake: the add-in's standards pack + type catalogue ("snapshot") and scan reports.
       //    Latest wins; each receipt is audited; the readiness checks (office.*) read them.
       if (p2 === "office" && p3 === "snapshot" && req.method === "POST") {

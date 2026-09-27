@@ -189,3 +189,33 @@ describe("GET /events — viewers of the project only, 8 streams per account (D7
     closeAll();
   }, 15_000);
 });
+
+describe("GET /cde/projects/:key/scope — members of the project or of its office (D7; cde-9, cde-rem-8)", () => {
+  it("a member of the project reads its scope", async () => {
+    const r = await get("/cde/projects/alpha/scope", as.member);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ key: "alpha", kind: "project", office_key: "office-a", keys: ["alpha"] });
+  });
+
+  it("a member of its office reads the project's scope and the office's", async () => {
+    expect((await get("/cde/projects/alpha/scope", as.office)).status).toBe(200);
+    const r = await get("/cde/projects/office-a/scope", as.office);
+    expect(await r.json()).toEqual({ key: "office-a", kind: "office", office_key: null, keys: ["office-a", "alpha"] });
+  });
+
+  it("anyone else gets the unknown key's 404, word for word", async () => {
+    const replies = await Promise.all([
+      get("/cde/projects/beta/scope", as.member),      // someone else's project
+      get("/cde/projects/office-a/scope", as.member),  // a project's member is not its office's
+      get("/cde/projects/nope/scope", as.member),      // no such key
+    ]);
+    for (const r of replies) expect(r.status).toBe(404);
+    const [beta, office, nope] = await Promise.all(replies.map((r) => r.json()));
+    expect(beta.message.replace('"beta"', '"K"')).toBe(nope.message.replace('"nope"', '"K"'));
+    expect(office.message.replace('"office-a"', '"K"')).toBe(nope.message.replace('"nope"', '"K"'));
+  });
+
+  it("the machine credential reads any scope", async () => {
+    expect((await get("/cde/projects/beta/scope", as.token)).status).toBe(200);
+  });
+});
