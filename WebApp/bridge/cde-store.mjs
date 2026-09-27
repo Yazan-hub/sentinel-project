@@ -290,6 +290,9 @@ export async function listProjects() {
   }));
 }
 
+// D3's words for an office asked for by anyone but a platform admin — the database's too (0033 projects_office_guard).
+const OFFICE_BY_ADMIN = "an office is created by a platform admin — nothing was saved";
+
 /** Create a CDE project (idempotent on the derived key) and seed its default folder tree. */
 export async function createProject(b = {}) {
   const key = slugKey(b.key || b.name);
@@ -302,6 +305,14 @@ export async function createProject(b = {}) {
     await ensureFolders(existing[0].id);
     return existing[0];
   }
+  const kind = b.kind === "office" ? "office" : "project";
+  const officeKey = b.office_key ? String(b.office_key).trim() || null : null;
+  // D3 (H0): an office is made by a platform admin, and a project joins an office only through a lead of that office
+  // (cde-1, cde-rem-1, bimdocs-5). Migration 0033 refuses both in the database as well; asking first answers in words
+  // before anything is written.
+  const members = await import("./members-store.mjs");
+  if (kind === "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
+  if (officeKey) await members.requireOfficeLead(officeKey);
   // return=minimal on purpose (same trap ensureProject documents): under a FORWARDED session the
   // returning-select runs the is_member policy before the owner-membership row the insert trigger
   // just created is visible → 42501/403 and the whole insert rolls back. Insert minimal, then
@@ -309,10 +320,7 @@ export async function createProject(b = {}) {
   try {
     await sb(`projects`, {
       method: "POST",
-      body: {
-        key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null,
-        kind: b.kind === "office" ? "office" : "project", office_key: b.office_key || null,
-      },
+      body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null, kind, office_key: officeKey },
       prefer: "return=minimal",
     });
   } catch (e) {
@@ -351,7 +359,7 @@ export async function updateProject(key, patch = {}, actor) {
   const body = {};
   if (patch.name !== undefined && String(patch.name).trim()) body.name = String(patch.name).trim();
   if (patch.appointing_party !== undefined) body.appointing_party = patch.appointing_party || null;
-  if (patch.office_key !== undefined) body.office_key = patch.office_key ? String(patch.office_key).trim() : null;
+  if (patch.office_key !== undefined) body.office_key = patch.office_key ? String(patch.office_key).trim() || null : null;
   if (patch.kind !== undefined) {
     if (!["project", "office"].includes(patch.kind)) { const e = new Error("kind must be project or office"); e.status = 400; throw e; }
     body.kind = patch.kind;
@@ -365,6 +373,11 @@ export async function updateProject(key, patch = {}, actor) {
     body.metadata = { ...meta, settings, updated_at: new Date().toISOString() };
   }
   if (!Object.keys(body).length) return proj;
+  // D3 (H0), as in createProject. Only a change is asked about: re-sending the office a project already has is no
+  // attach, and detaching (null) stays the project's own lead's write (projects_update).
+  const members = await import("./members-store.mjs");
+  if (body.kind === "office" && proj.kind !== "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
+  if (body.office_key && body.office_key !== (proj.office_key ?? null)) await members.requireOfficeLead(body.office_key);
 
   const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
   const row = Array.isArray(rows) ? rows[0] : null;
