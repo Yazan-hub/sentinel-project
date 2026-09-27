@@ -2,6 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { transitionVersion } from "./cde-transition";
+import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
@@ -13,6 +14,10 @@ import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-s
  * container. Backed by Supabase via the bridge (`/cde/...`), where the DB enforces the legal state graph,
  * published immutability, and a hash-chained append-only audit trail (migrations 0001/0002/0003). Every
  * platform project is scoped by its own projectId, so each gets its own independent folder structure.
+ *
+ * On a project whose lead installed `review@n` with steps (phase 6b, migration 0032), a Shared card under review shows
+ * its step and the approvals so far, and — for a signed-in caller who may decide — Approve / Reject with a note; it has
+ * no Publish: only the chain's last approval publishes it. "My reviews (n)" narrows the board to those cards.
  *
  * Plain-DOM, iframe-safe. Needs the bridge running with SUPABASE_URL + SUPABASE_SERVICE_KEY.
  */
@@ -61,6 +66,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     // ── right column: form + board ──
     '<div style="flex:1;display:flex;flex-direction:column;min-width:0">' +
     '<div id="cde-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;gap:.35rem;flex-direction:column"></div>' +
+    '<div id="cde-rbar" style="display:none;align-items:center;gap:.5rem;padding:.35rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px"></div>' +
     '<div id="cde-board" style="flex:1;overflow:auto;display:grid;grid-template-columns:repeat(4,minmax(8rem,1fr));gap:.5rem;padding:.6rem"></div>' +
     "</div></div>" +
     '<div id="cde-audit" style="border-top:1px solid #2a2a30;max-height:8rem;overflow:auto;padding:.5rem .6rem;font:11px ui-monospace,Consolas,monospace;color:#9ca3af"></div>' +
@@ -83,8 +89,15 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   let selected: string | null = null; // folder id, or null = All files
   let renaming: string | null = null; // folder id being inline-renamed
   let confirmDel = false;
-  // The Publish the database refused until a lead gives a reason (migration 0031): that version's card asks for it.
-  let needsReason: { versionId: string; message: string } | null = null;
+  // The Share or Publish the database refused until a lead gives a reason (migrations 0031, 0032): that version's card
+  // asks for it, and the retry sends it as `override` with the same move.
+  let needsReason: { versionId: string; state: State; message: string } | null = null;
+  // The review chains (phase 6b), read with the board: the open chain per version id. `reviewsError` is set when that
+  // read failed — the board then says "Reviews: not read — …" and its cards keep Publish (the database refuses a
+  // publish under review, in its own words); `myReviews` narrows the board to the cards the caller can decide.
+  let reviews = new Map<string, ReviewItem>();
+  let reviewsError: string | null = null;
+  let myReviews = false;
 
   // ── folder-tree helpers ──
   const childrenOf = (parent: string | null) =>
@@ -173,6 +186,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   function refreshView() {
     renderTree();
+    renderReviewBar();
     renderBoard(inFolder(selected));
     const f = folderById(selected);
     status(f ? `“${f.name}” · ${inFolder(selected).length} container(s).` : `All files · ${containers.length} container(s).`);
@@ -218,10 +232,16 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   async function loadFolders() { folders = (await api(`${encodeURIComponent(pid())}/folders`)) as Folder[]; }
   async function loadContainers() { containers = (await api(`${encodeURIComponent(pid())}/containers`)) as Container[]; }
 
+  // The open review chains. A failed read is said on the board, never an empty list.
+  async function loadReviews() {
+    try { reviews = new Map((await readReviews(base, pid())).map((r) => [r.version_id, r])); reviewsError = null; }
+    catch (e) { reviews = new Map(); reviewsError = (e as Error).message; }
+  }
+
   async function loadAll() {
     try {
       status("Loading…");
-      await Promise.all([loadFolders(), loadContainers()]);
+      await Promise.all([loadFolders(), loadContainers(), loadReviews()]);
       refreshView();
       renderAudit((await api(`${encodeURIComponent(pid())}/audit?limit=20`)) as AuditPage);
     } catch (e) {
@@ -230,10 +250,26 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     }
   }
 
+  // Over the board: "My reviews (n)" — the chains the caller can decide — and the toggle that narrows the board to
+  // them; a read that failed says so in their place.
+  function renderReviewBar() {
+    const bar = el("cde-rbar");
+    const mine = [...reviews.values()].filter((r) => r.can_decide).length;
+    bar.style.display = reviewsError || reviews.size ? "flex" : "none";
+    bar.innerHTML = reviewsError
+      ? `<span style="color:#fbbf24">Reviews: ${esc(reviewsError)}</span>`
+      : `<button id="cde-mine" style="${btn};padding:.2rem .5rem;font-size:11px;${myReviews ? "background:#1a2432;border-color:#3b82f6;color:#93c5fd" : ""}" title="Only the cards you can approve or reject">My reviews (${mine})</button>` +
+        `<span style="color:#9ca3af">${reviews.size} under review</span>`;
+    (bar.querySelector("#cde-mine") as HTMLButtonElement | null)?.addEventListener("click", () => { myReviews = !myReviews; refreshView(); });
+  }
+
   function renderBoard(list: Container[]) {
     const board = el("cde-board");
     board.innerHTML = "";
     const opts = flatFolders();
+    // ponytail: the board shows each container's newest version, so a chain on an older one is counted in "My
+    // reviews" but has no card; show every shared version if a container ever carries two at once.
+    if (myReviews && !reviewsError) list = list.filter((c) => reviews.get(latest(c)?.id ?? "")?.can_decide);
     for (const s of STATES) {
       const col = document.createElement("div");
       col.style.cssText = "display:flex;flex-direction:column;gap:.4rem;min-width:0";
@@ -255,16 +291,20 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         mv.addEventListener("change", () => moveContainer(c.id, mv.value));
         card.appendChild(mv);
 
+        // A version under review (phase 6b) is published only by its chain's last approval: its card has no Publish.
+        const chain = s === "shared" ? reviews.get(v.id) : undefined;
+        const moves = reviewMoves(NEXT[s], !!chain);
         const actions = document.createElement("div");
         actions.style.cssText = "display:flex;flex-wrap:wrap;gap:.25rem";
-        for (const t of NEXT[s]) {
+        for (const t of moves) {
           const b = document.createElement("button");
           b.textContent = t.label;
           b.style.cssText = "border:1px solid #3a3a44;background:#23232b;color:#d4d4d8;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer";
           b.addEventListener("click", () => doTransition(v.id, t.state, t.label));
           actions.appendChild(b);
         }
-        if (NEXT[s].length) card.appendChild(actions);
+        if (moves.length) card.appendChild(actions);
+        if (chain) card.appendChild(reviewBlock(c, v, chain));
         // The lead's reason, asked inline (the platform's iframe blocks window.prompt): the database's words, a box, and
         // a retry that sends the reason as `override`, which the state: row records.
         if (needsReason?.versionId === v.id) {
@@ -276,12 +316,13 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
           const reason = document.createElement("input");
           reason.placeholder = "Your reason — recorded on the ledger";
           reason.style.cssText = "background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .35rem;font:11px system-ui";
+          const move = needsReason.state;
           const go = document.createElement("button");
-          go.textContent = "Publish with this reason";
+          go.textContent = move === "shared" ? "Share with this reason" : "Publish with this reason";
           go.disabled = true;
           go.style.cssText = "border:1px solid #3a3a44;background:#23232b;color:#d4d4d8;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer";
           reason.addEventListener("input", () => (go.disabled = !reason.value.trim()));
-          go.addEventListener("click", () => doTransition(v.id, "published", "Publish →", reason.value));
+          go.addEventListener("click", () => doTransition(v.id, move, move === "shared" ? "Share →" : "Publish →", reason.value));
           ask.append(why, reason, go);
           card.appendChild(ask);
         }
@@ -319,6 +360,49 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     }
   }
 
+  // The review on a Shared card: the current step, who shared it, the approvals so far and — for a caller the bridge
+  // says may decide — Approve / Reject with an inline note (the platform's iframe blocks window.prompt; a reject needs
+  // the note); else why not, in muted text.
+  function reviewBlock(c: Container, v: Version, chain: ReviewItem): HTMLElement {
+    const small = "border:1px solid #3a3a44;background:#23232b;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer";
+    const box = document.createElement("div");
+    box.style.cssText = "display:flex;flex-direction:column;gap:.2rem;border-top:1px dashed #3a3a44;padding-top:.3rem;font-size:10.5px";
+    const line = (text: string, css: string) => { const d = document.createElement("div"); d.style.cssText = css; d.textContent = text; box.appendChild(d); };
+    line(reviewLine(chain), "color:#93c5fd;font-weight:600");
+    line(`shared for review by ${chain.submitter ?? "—"} · ${chain.ref}`, "color:#9ca3af");
+    for (const a of chain.approvals) line(approvalLine(a), "color:#86efac;font-family:ui-monospace,Consolas,monospace;word-break:break-all");
+    if (!chain.can_decide) { line(chain.why_not ?? "", "color:#71717a"); return box; }
+    const note = document.createElement("input");
+    note.placeholder = "Note — a rejection needs one; the ledger records it";
+    note.style.cssText = "background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .35rem;font:11px system-ui";
+    const approve = document.createElement("button");
+    approve.textContent = "Approve";
+    approve.style.cssText = `${small};color:#86efac`;
+    const reject = document.createElement("button");
+    reject.textContent = "Reject";
+    reject.disabled = true;
+    reject.style.cssText = `${small};color:#fca5a5`;
+    note.addEventListener("input", () => (reject.disabled = !note.value.trim()));
+    approve.addEventListener("click", () => void decide(c, v, "approve", note.value));
+    reject.addEventListener("click", () => void decide(c, v, "reject", note.value));
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:.25rem";
+    row.append(approve, reject);
+    box.append(note, row);
+    return box;
+  }
+
+  // A decision through the bridge (review_decide): the board reloads, then the status names the review row — or says
+  // it was not recorded, or is not confirmed.
+  async function decide(c: Container, v: Version, decision: "approve" | "reject", note: string) {
+    try {
+      status(decision === "approve" ? "Approving…" : "Rejecting…");
+      const r = await decideReview(base, pid(), v.id, decision, note);
+      await loadAll();
+      status(decisionLine(c.iso_name, r));
+    } catch (e) { status(decideFailedLine(e)); }
+  }
+
   function renderAudit({ rows, total }: AuditPage) {
     el("cde-audit").innerHTML =
       `<div style="color:#71717a;margin-bottom:.2rem">Ledger (append-only · one hash chain across all projects) — newest ${rows.length} of ${total}</div>` +
@@ -346,9 +430,11 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       status(`${label.replace(/[→←]/g, "").trim()}…`);
       const r = await transitionVersion(base, versionId, state, { actor: "web", note: label, override });
       if ("needsReason" in r) {
-        needsReason = { versionId, message: r.needsReason };
+        needsReason = { versionId, state, message: r.needsReason };
         renderBoard(inFolder(selected));
-        status("Not published — a lead can publish it with a reason, which the ledger records.");
+        status(state === "shared"
+          ? "Not shared — a lead can share it for review with a reason, which the ledger records."
+          : "Not published — a lead can publish it with a reason, which the ledger records.");
         return;
       }
       await loadAll();
