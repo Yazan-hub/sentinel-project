@@ -458,10 +458,10 @@ export async function createFolder(key, b) {
 }
 
 export async function renameFolder(folderId, b) {
-  const row = (await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, {
+  const [row] = requireRows(await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, {
     method: "PATCH", body: { name: (b.name || "").trim() }, prefer: "return=representation",
-  }))[0];
-  if (row) await audit(row.project_id, "folder", row.id, "renamed", b.actor || "web", null, { name: row.name });
+  }), "a folder is renamed by a contributor or above");
+  await audit(row.project_id, "folder", row.id, "renamed", b.actor || "web", null, { name: row.name });
   return row;
 }
 
@@ -469,17 +469,19 @@ export async function deleteFolder(folderId, b = {}) {
   const found = (await sb(`folders?id=eq.${encodeURIComponent(folderId)}&select=*`))?.[0];
   if (!found) return { ok: false, message: "Folder not found" };
   if (found.kind === "root") return { ok: false, message: "The root folder can't be deleted" };
-  await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, { method: "DELETE" }); // cascades to subfolders; containers unfiled (set null)
+  // Cascades to subfolders; containers are unfiled (set null). folders_delete is a lead's: a delete the database refused
+  // used to answer {ok:true} and write "deleted" over a folder that is still there (cde-rem-10).
+  requireRows(await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, { method: "DELETE", prefer: "return=representation" }), "a folder is deleted by a lead or owner");
   await audit(found.project_id, "folder", folderId, "deleted", b.actor || "web", { name: found.name }, null);
   return { ok: true };
 }
 
 /** File a container into a folder (folder_id null = project root / unfiled). */
 export async function moveContainer(containerId, b) {
-  const row = (await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}`, {
+  const [row] = requireRows(await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}`, {
     method: "PATCH", body: { folder_id: b.folder_id || null }, prefer: "return=representation",
-  }))[0];
-  if (row) await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
+  }), "a file is filed into a folder by a contributor or above");
+  await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
   return row;
 }
 
