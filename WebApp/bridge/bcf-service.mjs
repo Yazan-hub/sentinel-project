@@ -22,7 +22,7 @@ import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, uploadSlot, SMALL_JSON, startRefusal } from "./request-limits.mjs";
+import { readBody, readRaw, uploadSlot, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -452,7 +452,7 @@ async function startEventPoll() {
 // Extract the caller's forwarded Supabase session JWT (when the BCF_TOKEN gate isn't in use) and run the
 // whole request inside that auth context, so cde-store's sb() forwards it to PostgREST (RLS per-user) when
 // forwarding is armed. No JWT → service key (current behaviour). Non-browser callers (Revit) send none.
-createServer((req, res) => {
+const server = createServer((req, res) => {
   // One error boundary for every request: a throw that escapes the handler — sync here, or a rejection of the async
   // handleRequest — must answer this caller, never end the process (Node exits on an unhandled rejection). A request
   // target of "//" makes `new URL(req.url, …)` throw, so one anonymous `GET //` or `OPTIONS //` used to stop the bridge.
@@ -473,7 +473,9 @@ createServer((req, res) => {
     const userJwt = (bearer && !isToken(bearer) && JWT_SECRET && verifyJwt(bearer, JWT_SECRET)) ? bearer : null;
     runWithAuth(userJwt, () => handleRequest(req, res)).catch(failed);
   } catch (e) { failed(e); }
-}).listen(PORT, HOST, () => {
+});
+Object.assign(server, SERVER_LIMITS);
+server.listen(PORT, HOST, () => {
   // Supabase projects on asymmetric signing keys sign USER SESSIONS with ES256 — the JWKS makes
   // those verifiable at the gate. Without it, arming SUPABASE_JWT_SECRET 401s every signed-in user.
   initJwks(process.env.SUPABASE_URL);
@@ -499,6 +501,14 @@ createServer((req, res) => {
     }
   })();
   startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
+});
+// A service manager stops the bridge with SIGTERM, a console with Ctrl+C (SIGINT): take no new connection, give the
+// ones in flight up to 5 s to answer (the stores write synchronously, so no write is cut in half), then exit.
+for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
+  console.log(`[bridge] ${signal}: closing — no new connections, up to 5 s for the ones in flight`);
+  server.close(() => process.exit(0));
+  server.closeIdleConnections();
+  setTimeout(() => process.exit(0), 5000).unref();
 });
 
 // ── Public receipt check (cohesion phase 4c): POST /receipt/:key/verify from a caller the auth gate would refuse.
@@ -1368,7 +1378,10 @@ async function handleRequest(req, res) {
   //   POST /changesets/:key            · GET /changesets/:key?status=proposed
   //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
   //   POST /changesets/:key/:id/withdraw
-  if (url.pathname.startsWith("/changesets")) {
+  // The module dispatchers below match the whole first segment — /bimdocs, never /bimdocsZZ — so a rule keyed on a
+  // route (a rate limit, a proxy allowlist, a log alert) sees the route it names.
+  const top = url.pathname.split("/")[1];
+  if (top === "changesets") {
     const ch = await import("./changesets-store.mjs");
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
@@ -1395,7 +1408,7 @@ async function handleRequest(req, res) {
   //   bridge answers every other caller hash-only in publicReceiptVerify, before the gates — phase 4c)
   //   Both are READ-ONLY. Verification is offered as a service precisely so a client does not have
   //   to take the receipt-holder's word for it.
-  if (url.pathname.startsWith("/receipt")) {
+  if (top === "receipt") {
     const cde = await import("./cde-store.mjs");
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['receipt', key, idOrVerify]
@@ -1420,7 +1433,7 @@ async function handleRequest(req, res) {
   // ── Task teams: the ISO 19650 responsibility matrix a TIDP belongs to ──
   //   GET/POST /teams/:key · PATCH/DELETE /teams/:key/:id
   //   Role gating is RLS's job (0026: members read, leads write) — the bridge forwards the session.
-  if (url.pathname.startsWith("/teams")) {
+  if (top === "teams") {
     const tt = await import("./task-teams-store.mjs");
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['teams', key, id]
@@ -1448,7 +1461,7 @@ async function handleRequest(req, res) {
   //        — without `apply` this is a read-only preview of what moving the programme would do.
   //   POST /deliverables/:key            · POST /deliverables/:key/import { rows: [...] }
   //   PATCH/DELETE /deliverables/:key/:id
-  if (url.pathname.startsWith("/deliverables")) {
+  if (top === "deliverables") {
     const dl = await import("./deliverables-store.mjs");
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['deliverables', key, p2]
@@ -1487,7 +1500,7 @@ async function handleRequest(req, res) {
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
   //   GET  /bimdocs/:key/:docId/executability  (the strip test — how much of the doc controls anything)
   //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
-  if (url.pathname.startsWith("/bimdocs")) {
+  if (top === "bimdocs") {
     const bimdocs = await import("./bimdocs-store.mjs");
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['bimdocs', p1, p2, p3, p4]

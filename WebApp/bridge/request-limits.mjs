@@ -84,3 +84,7 @@ export function startRefusal(env) {
   if (!empty.length) return null;
   return `refusing to listen on ${host}: ${empty.join(", ")} ${empty.length === 1 ? "is" : "are"} empty — set ${empty.length === 1 ? "it" : "them"} in config/.env, or bind 127.0.0.1`;
 }
+
+/** The http server's own limits: request headers within 20 s, a whole request within 30 min (a 2 GB IFC over the
+ *  Funnel), at most 256 open sockets. */
+export const SERVER_LIMITS = { headersTimeout: 20_000, requestTimeout: 30 * 60_000, maxConnections: 256 };

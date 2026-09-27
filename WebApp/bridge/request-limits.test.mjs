@@ -1,7 +1,7 @@
 // The bridge's body and upload limits (H0, D8/D9), driven with plain streams — no bridge, no network.
 import { describe, it, expect, afterEach } from "vitest";
 import { Readable, PassThrough } from "node:stream";
-import { readBody, readRaw, uploadSlot, jsonCap, uploadCap, SMALL_JSON, startRefusal } from "./request-limits.mjs";
+import { readBody, readRaw, uploadSlot, jsonCap, uploadCap, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
 
 const MB = 1024 * 1024;
 const req = (chunks, headers = {}) => Object.assign(Readable.from(chunks.map((c) => Buffer.from(c))), { headers });
@@ -107,5 +107,11 @@ describe("startRefusal — when the bridge must not start", () => {
     expect(startRefusal({ BCF_HOST: "100.64.1.2", BCF_TOKEN: "t", SUPABASE_JWT_SECRET: "s" }))
       .toBe("refusing to listen on 100.64.1.2: SUPABASE_ANON_KEY is empty — set it in config/.env, or bind 127.0.0.1");
     expect(startRefusal({ BCF_HOST: "0.0.0.0", BCF_TOKEN: "t", SUPABASE_JWT_SECRET: "s", SUPABASE_ANON_KEY: "a" })).toBeNull();
+  });
+});
+
+describe("SERVER_LIMITS — the http server's own limits (D8)", () => {
+  it("headers in 20 s, a request in 30 min (a 2 GB IFC over the Funnel), 256 sockets", () => {
+    expect(SERVER_LIMITS).toEqual({ headersTimeout: 20000, requestTimeout: 1800000, maxConnections: 256 });
   });
 });

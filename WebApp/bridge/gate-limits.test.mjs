@@ -252,3 +252,39 @@ describe("the gate — a JWT counts only when the secret is set and it verifies"
     expect(b.stderr).toContain("refusing to listen on 192.0.2.1: SUPABASE_JWT_SECRET, SUPABASE_ANON_KEY are empty");
   });
 });
+
+describe("the server — whole-segment routes, a socket cap, a clean stop", () => {
+  let b;
+  beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);
+  const get = (path) => fetch(`http://127.0.0.1:${b.port}${path}`, { headers: machine });
+
+  it("a module route answers only on its whole segment: /bimdocsZZ, /teamsfoo, /receipts are 404s", async () => {
+    expect((await get("/bimdocs/templates")).status).toBe(200);
+    for (const path of ["/bimdocsZZ/templates", "/teamsfoo/k", "/changesets-x/k", "/deliverablesX/k", "/receipts/k/1"]) {
+      const r = await get(path);
+      expect(r.status, path).toBe(404);
+      expect(await r.json(), path).toEqual({ message: "Not found" }); // the last matcher's 404, not a module's
+    }
+  });
+
+  it("drops sockets past 256 open ones", async () => {
+    const sockets = [];
+    let dropped = 0;
+    for (let i = 0; i < 260; i++) {
+      const s = net.connect({ port: b.port, host: "127.0.0.1" });
+      s.on("error", () => {});
+      s.on("close", () => { dropped++; });
+      sockets.push(s);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    for (const s of sockets) s.destroy();
+    expect(dropped).toBeGreaterThanOrEqual(3); // 260 − 256, less the one keep-alive socket fetch may still hold
+  });
+
+  it.skipIf(process.platform === "win32")("exits 0 on SIGTERM (Windows cannot deliver a signal to a child: checked by hand there)", async () => {
+    const s = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET });
+    const exited = new Promise((r) => s.child.once("exit", (code) => r(code)));
+    s.child.kill("SIGTERM");
+    expect(await exited).toBe(0);
+  });
+});
