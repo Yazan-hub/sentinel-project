@@ -33,7 +33,8 @@ rulebook is private is just an opinion.
   },
   "note": "optional",
   "version_id": "…",                  // optional: also stamp verdict:<v> on this version (it must be on :project)
-  "register": { "name": "PRJ-BDS-XX-XX-M3-A-0001.ifc", "size_bytes": 5120000, "sha256": "…" }   // optional, §2; name = container_name
+  "register": { "name": "PRJ-BDS-XX-XX-M3-A-0001.ifc", "size_bytes": 5120000, "sha256": "…" },  // optional, §2; name = container_name
+  "gate_row_id": 811                  // optional: the ledger id of the delivery_gate row this file came through (Revit's Publisher sends it)
 }
 ```
 
@@ -58,6 +59,7 @@ one.
   "ids_ref": "ids@3" | null,          // the installed artefact version that judged
   "ids_sha256": "4c1e…" | null,       // hash of the spec body that judged (computed, never copied)
   "audit_id": 412,
+  "hold": { "id": 413, "hash": "…" } | null,   // a rejected register held on the project — see "A refusal is held, not kept"
   "agent": { "claimed": true, … } | null,
   "receipt": { /* §4 */ }
 }
@@ -88,8 +90,8 @@ signed-in lead's reason, `POST /cde/versions/:id/transition { "state": "publishe
 without one the answer is a 409 saying the version needs the lead's reason. The bridge's service key, Revit, the
 bridge token and the AI tools cannot give one. The `state:shared->published` row records the `verdict` and the
 `verdict_audit_id` it read, and the `override`. A state changes only through `cde_transition` (migration 0031),
-every new version starts in `wip`, and `POST /cde/:project/audit` refuses `verdict:`, `state:`, `gate:` and `roi:`
-actions and `stage_gate` rows: Sentinel alone writes those.
+every new version starts in `wip`, and `POST /cde/:project/audit` refuses `verdict:`, `state:`, `gate:`, `roi:` and
+`hold:` actions and `stage_gate`, `hold` and `delivery_gate` rows: Sentinel alone writes those.
 
 **The ledger also answers ROI and the stage.** `roi@n` is an artefact kind (`PUT /cde/:project/artefacts/roi`, lead
 and up, inherited from the office): `{ "currency": "EUR", "hourly_rate": 90, "minutes": { "delivery_gate": 20,
@@ -104,6 +106,30 @@ stay "not measured" — writes one `stage_gate` row (`gate:pass <stage>`, `gate:
 `gate:not_checkable <stage>`, `new_value.checks` naming each check's source) and answers it with the row's `id` and
 `hash`; the project's stage is the newest `gate:pass` row's `next_stage`. A gate with an unmeasured check is not
 checkable, never passed, and no client can post a status.
+
+**A refusal is held, not kept.** A rejected file that was to be registered — `/propose` with `register`, Governed
+Intake (the CLI, and the web Versions upload, which goes through `POST /cde/:project/intake?source=web` and is judged
+before anything is stored), Revit's Governed Publish and auto-publish — is recorded as held: one `hold` row,
+`hold:<stage> <container_name>` (`gate` for a delivery-gate FAIL, else `naming` when the naming standard rejected, else
+`ids`), whose `new_value` carries `container_name`, `sha256`, `size_bytes`, `stage`, `verdict`, up to 50 `failures`
+(`{requirement, detail}`), `source` (`revit`, `auto-publish`, `web` or `intake`), `gate_row_id`, `proposal_row_id`,
+`contract_ref`, `ids_ref` and `naming_ref`. The bridge writes it only for a refusal judged by the standards installed on
+the project or its office, for a caller who could register the file (the machine credential, or a signed-in
+contributor or above), and the reply names it (`"hold": {"id", "hash"}`, else null). No bytes are kept: the corrected
+file is sent again from its source. `GET /cde/:project/holding` derives the list — one item per container name whose
+newest refusal is newer than both its newest registered version and its newest `hold:dismissed` row —
+`{"items": [{container_name, stage, verdict, failures, source, actor, at, ledger: {id, hash}, refusals, naming_note?}],
+"cleared_recent": [...]}`; a registration clears an item whatever its verdict, one by a `recorded` registration is
+listed in `cleared_recent` ("cleared by a registration that was not judged (recorded)"), and a naming-stage item does
+not clear by name — the corrected file has another — and says so. A lead dismisses an item with
+`POST /cde/:project/holding/dismiss { "container_name", "reason" }` (`hold:dismissed <container_name>`, the reason on the
+ledger; the refusal rows stay). A failed read is a 502 `not read — <reason>`, never an empty list. Revit's delivery-gate
+row goes through `POST /cde/:project/delivery-gate` — refused (403) to every signed-in caller, open to Sentinel's
+machine credential — with the full failure list, `size_bytes`, `source` (`revit`, `auto-publish` or `check`) and
+`publish`; a FAIL with `publish: true` also writes the `hold:gate` row, and the reply is `{id, hash, hold}`. The proposal
+row names its file (`container_name`, `sha256`, `size_bytes`) and the gate row it followed (`gate_row_id`). A gate row
+stays Revit's attestation — the bridge never sees Revit's bytes — and a holder of the machine credential can still
+post one.
 
 ## 3. Provenance is claimed, never verified
 
