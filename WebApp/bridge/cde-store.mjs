@@ -308,12 +308,19 @@ export async function createProject(b = {}) {
 const SETTINGS_FIELDS = [
   "address", "location", "owner", "project_number", "project_type",
   "start_date", "completion_date", "project_value", "archived",
+  // The That Open platform project this Sentinel project opens in by itself (a lead links it in Settings): the
+  // published app cannot remember a choice between visits, so without it every visit starts on the projects list.
+  "platform_project_id",
 ];
 
 /** Update a project's identity + Forma-style settings (rename, owner, address, dates, archive…).
  *  The key is never changed — it's the stable identifier every store hangs off. RLS (when a JWT is
  *  forwarded) requires the 'lead' role via projects_update. */
 export async function updateProject(key, patch = {}, actor) {
+  if (patch.platform_project_id !== undefined && patch.platform_project_id !== null
+      && !(typeof patch.platform_project_id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(patch.platform_project_id))) {
+    throw Object.assign(new Error("platform_project_id must be a platform project id (letters, digits, - or _) or null to unlink"), { status: 400 });
+  }
   const proj = await ensureProject(key);
   const body = {};
   if (patch.name !== undefined && String(patch.name).trim()) body.name = String(patch.name).trim();
@@ -333,7 +340,10 @@ export async function updateProject(key, patch = {}, actor) {
   }
   if (!Object.keys(body).length) return proj;
 
-  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" }))[0];
+  const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  // As in patchProjectMeta: a write the projects_update policy refused comes back with no row — a 403, never a 200.
+  if (!row) throw Object.assign(new Error("the project's settings are changed by a lead or owner — nothing was saved"), { status: 403 });
   await audit(proj.id, "project", proj.id, "updated", actor || "web", null,
     {
       key, ...(body.name ? { name: body.name } : {}), ...(hasSettings ? { settings: body.metadata.settings } : {}),

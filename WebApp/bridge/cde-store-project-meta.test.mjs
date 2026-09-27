@@ -11,21 +11,22 @@ vi.hoisted(() => {
 });
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { patchProjectMeta } from "./cde-store.mjs";
+import { patchProjectMeta, updateProject } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "22222222-0000-4000-8000-00000000000b", email: "c@example.test", role: "authenticated" })).toString("base64url") + ".sig";
 const project = { id: P, key: "b13-review", name: "B13 review", metadata: {}, created_at: "2026-09-27T09:00:00+00:00" };
 
-let patchRows;
+let patchRows, patchBodies;
 const realFetch = globalThis.fetch;
 beforeEach(() => {
   patchRows = [];
+  patchBodies = [];
   globalThis.fetch = vi.fn(async (url, init = {}) => {
     const u = new URL(String(url));
     const table = u.pathname.replace(/^\/rest\/v1\//, "");
     const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-range": "0-0/0" } });
-    if (table === "projects" && (init.method || "GET") === "PATCH") return json(patchRows);
+    if (table === "projects" && (init.method || "GET") === "PATCH") { patchBodies.push(JSON.parse(init.body)); return json(patchRows); }
     if (table === "projects") return json([project]);
     return json([]); // audit_log (the project's gate rows): none
   });
@@ -42,5 +43,27 @@ describe("patchProjectMeta — a project's details are a lead's or owner's to ch
     patchRows = [{ ...project, metadata: { snapshot: { carbon_t: 12 } } }];
     const shape = await runWithAuth(jwt, () => patchProjectMeta("b13-review", { snapshot: { carbon_t: 12 } }));
     expect(shape).toMatchObject({ project_id: "b13-review" });
+  });
+});
+
+describe("updateProject — settings (PATCH /cde/projects/:key)", () => {
+  it("answers a settings save the database refused with a 403, never a silent 200 with nothing in it", async () => {
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { archived: true }, "web")))
+      .rejects.toMatchObject({ status: 403, message: "the project's settings are changed by a lead or owner — nothing was saved" });
+  });
+
+  it("stores the platform project a lead links, and unlinks with null", async () => {
+    patchRows = [{ ...project }];
+    await updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web");
+    await updateProject("b13-review", { platform_project_id: null }, "web");
+    expect(patchBodies.map((b) => b.metadata.settings.platform_project_id)).toEqual(["6a4c4df825f9ecf5f416d4c2", null]);
+  });
+
+  it("refuses a platform project id that is not one, before any write", async () => {
+    for (const bad of ["", "a b", "x".repeat(101), 42]) {
+      await expect(updateProject("b13-review", { platform_project_id: bad }, "web"))
+        .rejects.toMatchObject({ status: 400, message: "platform_project_id must be a platform project id (letters, digits, - or _) or null to unlink" });
+    }
+    expect(patchBodies).toEqual([]);
   });
 });

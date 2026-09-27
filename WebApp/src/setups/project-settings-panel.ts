@@ -1,6 +1,6 @@
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
+import { activePid, setActiveProjectKey, onActiveProjectChange, platformProjectId } from "./active-project";
 import { myRole, canGovernRole } from "./my-role";
 import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
@@ -19,7 +19,7 @@ interface ProjectRow {
   created_at: string; container_count: number;
   settings?: { address?: string; location?: string; owner?: string; project_number?: string;
     project_type?: string; start_date?: string; completion_date?: string; project_value?: string;
-    archived?: boolean } | null;
+    archived?: boolean; platform_project_id?: string | null } | null;
   kind?: "project" | "office";
   office_key?: string | null;
 }
@@ -51,6 +51,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     `<label style="${lbl}">Office</label><select id="ps-office" style="${inp}"><option value="">No office</option></select>` +
     `<label style="${lbl}">Address</label><input id="ps-address" style="${inp}"/>` +
     `<label style="${lbl}">Location</label><input id="ps-location" style="${inp}" placeholder="City, Country"/>` +
+    `<label style="${lbl}">Platform project</label>` +
+    '<div id="ps-link" style="display:flex;align-items:center;gap:.5rem;font-size:11.5px;color:#9ca3af"></div>' +
     '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-top:1.2rem">Advanced</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 .8rem">' +
     `<div><label style="${lbl}">Project number</label><input id="ps-number" style="${inp}" placeholder="e.g. P0075"/></div>` +
@@ -81,6 +83,29 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   const val = (id: string) => (root.querySelector("#" + id) as HTMLInputElement).value.trim();
   const setVal = (id: string, v?: string | null) => ((root.querySelector("#" + id) as HTMLInputElement).value = v ?? "");
   const status = (t: string) => (el("pset-status").textContent = t);
+
+  // The platform project this Sentinel project opens in by itself (platform-link.ts): the published app cannot remember a
+  // choice between visits, so a lead links the project to the platform project it belongs to.
+  function renderLink() {
+    const box = el("ps-link");
+    const here = platformProjectId();
+    const linked = current?.settings?.platform_project_id ?? null;
+    if (!here) {
+      box.textContent = linked ? `Opens by itself in platform project ${linked}.` : "Not linked — open Sentinel from a platform project to link it.";
+      return;
+    }
+    const on = linked === here;
+    box.innerHTML =
+      `<span style="flex:1">${on ? "✓ Opens by itself when Sentinel starts in this platform project."
+        : linked ? `Linked to another platform project (${esc(linked)}).`
+        : "Not linked — Sentinel starts on the projects list here."}</span>` +
+      `<button id="ps-link-btn" style="${btn}">${on ? "Unlink" : "Link to this platform project"}</button>`;
+    el("ps-link-btn").addEventListener("click", () => void patch(
+      { platform_project_id: on ? null : here, actor: "web" },
+      on ? "✓ Unlinked — Sentinel no longer opens this project by itself here."
+        : "✓ Linked — Sentinel opens this project when it starts in this platform project.",
+    ));
+  }
 
   function renderArchiveBtn() {
     const archived = !!current?.settings?.archived;
@@ -297,6 +322,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const isOffice = current.kind === "office";
       officeSel.disabled = isOffice;
       renderArchiveBtn();
+      renderLink();
       updateDeleteEnabled();
       const officeNote = isOffice
         ? ` · this project is an office (${rows.filter((p) => p.office_key === pid()).length} project(s))`
@@ -309,6 +335,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         for (const id of ["ps-name", "ps-owner", "ps-office", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"])
           (el(id) as HTMLInputElement).disabled = true;
         for (const id of ["pset-save", "ps-archive", "ps-delete"]) (el(id) as HTMLElement).style.display = "none";
+        const linkBtn = root.querySelector("#ps-link-btn") as HTMLElement | null;
+        if (linkBtn) linkBtn.style.display = "none";
         status(`your role: ${role} — project settings are read-only (a lead or owner can edit them).`);
       }
     } catch (e) {
