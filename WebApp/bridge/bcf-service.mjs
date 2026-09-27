@@ -185,6 +185,7 @@ const CLASH_STORE = process.env.SENTINEL_CLASH_STORE
 let cldb = loadJson(CLASH_STORE, { clashes: [] });
 const persistClash = () => writeJsonAtomic(CLASH_STORE, cldb);
 const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved"]; // new→raised→reviewed→approved→resolved
+const MAX_CLASH_ITEMS = 500; // one POST /clash/:pid; the web raises at most 100 at a time (clash-panel.ts raise)
 const clashItems = (pid) => cldb.clashes.filter((c) => c.project === pid);
 /** Upsert a batch of clash records (raise-time). Merge by signature; unknown status defaults to "raised". */
 const upsertClashes = (pid, items) => {
@@ -230,14 +231,17 @@ async function upsertClashesCde(cde, pid, items) {
       : { project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
   }
   await cde.docUpsertMany("clash", pid, [...touched].map(([sig, data]) => ({ doc_id: sig, data })));
+  // The records this call added (their signature was not on the register): each gets a "Clash raised" ledger row.
+  return [...touched].filter(([sig]) => !bySig.has(sig)).map(([, rec]) => rec);
 }
 async function updateClashStatusCde(cde, pid, signature, status) {
   if (!signature || !CLASH_STATUSES.includes(status)) return false;
   const rec = await cde.docGet("clash", pid, signature);
   if (!rec) return false;
+  const from = rec.status;
   rec.status = status; rec.updated_at = new Date().toISOString();
   await cde.docUpsert("clash", pid, signature, rec);
-  return true;
+  return { from, label: rec.label ?? null }; // what moved, for its ledger row
 }
 
 // res._cors is the per-request allowed origin (set in handleRequest); only reflect an allowlisted origin so
@@ -1770,19 +1774,34 @@ async function handleRequest(req, res) {
       const useCde = cde.cdeConfigured(); // Supabase (0009) when configured — genuinely team-wide; local file fallback + lazy migration
       if (req.method === "GET" && !sub)
         return send(res, 200, { items: useCde ? await cde.docListLazy("clash", cpid, cldb.clashes.filter((c) => c.project === cpid), (c) => c.signature) : clashItems(cpid) });
+      // H0 (D4, clash-1): recording clashes and moving their status is a contributor's work; clearing the register is a
+      // lead's (it re-surfaces every clash and changes the stage gate's hard-clash count). Asked before the body is read;
+      // the machine credential passes as service. Each change is on the ledger, by the verified identity: the web wrote
+      // these rows itself through POST /cde/:key/audit, which is a lead's notes since D11. A row that fails to write is
+      // logged — the register write it records already stands.
+      if (req.method === "POST" || req.method === "PUT") await (await import("./members-store.mjs")).requireMinRole(cpid, sub === "reset" ? "lead" : "contributor");
+      const ledger = async (action, value) => {
+        if (!useCde) return;
+        try { await cde.recordAudit(cpid, { entity_type: "clash", actor: "Clash", action, new_value: value }); }
+        catch (e) { console.warn(`[clash] ledger row "${action}" not written: ${e?.message || e}`); }
+      };
       if (req.method === "POST" && sub === "reset") {
         if (useCde) await cde.docDeleteProject("clash", cpid); else { cldb.clashes = cldb.clashes.filter((c) => c.project !== cpid); persistClash(); }
+        await ledger("Clash register reset — every clash re-surfaces on the next run", null);
         return send(res, 200, { ok: true });
       }
       if (req.method === "POST" && !sub) {
         const items = (await readBody(req)).items;
-        if (useCde) await upsertClashesCde(cde, cpid, items); else upsertClashes(cpid, items);
+        if (Array.isArray(items) && items.length > MAX_CLASH_ITEMS) return send(res, 400, { message: `at most ${MAX_CLASH_ITEMS} clash records a request — nothing was saved` });
+        const added = useCde ? await upsertClashesCde(cde, cpid, items) : (upsertClashes(cpid, items), []);
+        for (const it of added) await ledger(`Clash raised: ${it.label ?? it.signature}`, { signature: it.signature, volume: it.volume, overlap: it.overlap, elements: it.elements, bcf_guid: it.bcf_guid });
         return send(res, 201, { items: useCde ? await cde.docList("clash", cpid) : clashItems(cpid) });
       }
       if (req.method === "PUT" && !sub) {
         const b = await readBody(req);
-        const ok = useCde ? await updateClashStatusCde(cde, cpid, b.signature, b.status) : updateClashStatus(cpid, b.signature, b.status);
-        return send(res, 200, { ok });
+        const moved = useCde ? await updateClashStatusCde(cde, cpid, b.signature, b.status) : updateClashStatus(cpid, b.signature, b.status);
+        if (moved?.from) await ledger(`Clash ${moved.from} → ${b.status}: ${moved.label ?? b.signature}`, { signature: b.signature, status: b.status });
+        return send(res, 200, { ok: !!moved });
       }
       return send(res, 405, { message: "method not allowed" });
     } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }

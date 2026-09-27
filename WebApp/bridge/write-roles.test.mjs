@@ -212,3 +212,40 @@ describe("Tenders (tenders-1, tenders-2, uncovered-3): issue and award are a lea
     expect(writes("bridge_docs")).toHaveLength(before);
   });
 });
+
+describe("Clash register (clash-1): recording and moving a clash is a contributor's, clearing the register a lead's", () => {
+  const item = { signature: "a|b", status: "raised", label: "Wall ↔ Beam", volume: 0.2, bcf_guid: "g1", elements: [], overlap: [1, 1, 0.2] };
+
+  it("a viewer records and moves nothing (403), and no ledger row is written", async () => {
+    expect(await call("POST", "/clash/demo", "viewer", { items: [item] })).toEqual(refused("contributor", "viewer"));
+    expect(await call("PUT", "/clash/demo", "viewer", { signature: "a|b", status: "resolved" })).toEqual(refused("contributor", "viewer"));
+    expect(writes("bridge_docs")).toEqual([]);
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("a contributor records clashes — one ledger row per clash new to the register — and moves one, each by their identity", async () => {
+    expect((await call("POST", "/clash/demo", "contributor", { items: [item] })).status).toBe(201);
+    expect((await call("POST", "/clash/demo", "contributor", { items: [item] })).status).toBe(201); // already on the register: no second row
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "reviewed" })).toEqual({ status: 200, body: { ok: true } });
+    expect(db.audit_log.map((r) => [r.entity_type, r.action, r.actor])).toEqual([
+      ["clash", "Clash raised: Wall ↔ Beam", "contributor@example.test"],
+      ["clash", "Clash raised → reviewed: Wall ↔ Beam", "contributor@example.test"],
+    ]);
+    expect(db.audit_log[0].new_value).toEqual({ signature: "a|b", volume: 0.2, overlap: [1, 1, 0.2], elements: [], bcf_guid: "g1" });
+  });
+
+  it("a contributor's reset is a 403 and deletes nothing; a lead's clears the register and is on the ledger", async () => {
+    seedDoc("clash", "a|b", { ...item, project: "demo" });
+    expect(await call("POST", "/clash/demo/reset", "contributor")).toEqual(refused("lead", "contributor"));
+    expect(db.bridge_docs).toHaveLength(1);
+    expect(await call("POST", "/clash/demo/reset", "lead")).toEqual({ status: 200, body: { ok: true } });
+    expect(db.bridge_docs).toHaveLength(0);
+    expect(db.audit_log.map((r) => [r.action, r.actor])).toEqual([["Clash register reset — every clash re-surfaces on the next run", "lead@example.test"]]);
+  });
+
+  it("more than 500 records in one request is a 400 and nothing is written", async () => {
+    const items = Array.from({ length: 501 }, (_, i) => ({ ...item, signature: `s${i}` }));
+    expect(await call("POST", "/clash/demo", "contributor", { items })).toEqual({ status: 400, body: { message: "at most 500 clash records a request — nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+});
