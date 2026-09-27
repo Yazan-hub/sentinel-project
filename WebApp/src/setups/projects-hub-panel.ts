@@ -1,7 +1,8 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
+import { activePid, setActiveProjectKey, onActiveProjectChange, hasProjectOverride, platformProjectId } from "./active-project";
+import { linkedProject } from "./platform-link";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -21,7 +22,7 @@ interface Project {
   status_scheme: string | null;
   created_at: string;
   container_count: number;
-  settings?: { archived?: boolean } | null;
+  settings?: { archived?: boolean; platform_project_id?: string | null } | null;
   kind?: "project" | "office";
   office_key?: string | null;
   office_name?: string | null;
@@ -161,6 +162,17 @@ export function projectsHubPanel(
       projects = await r.json();
       renderGrid();
       status(`${projects.length} project${projects.length === 1 ? "" : "s"}.`);
+      // Nothing chosen in-app yet (always so in the published app, which cannot remember a choice): open the project a
+      // lead linked to this platform project (Settings ▸ General) — never a guess between two that claim it.
+      if (!hasProjectOverride()) {
+        const link = linkedProject(projects, platformProjectId());
+        if (link.key) {
+          open(link.key);
+          status(`Opened “${link.key}” — linked to this platform project.`, "#22c55e");
+        } else if (link.conflict) {
+          status(`${link.conflict.join(", ")} are all linked to this platform project — open one (a lead unlinks the others in Settings).`, "#eab308");
+        }
+      }
     } catch (e) {
       status(`Can’t reach the bridge at ${base}${/localhost|127\.0\.0\.1/.test(base) ? " — start it with: npm run bcf:serve" : ""}.`, "#ef4444");
     }

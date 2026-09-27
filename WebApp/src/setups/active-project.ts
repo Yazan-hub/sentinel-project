@@ -20,9 +20,11 @@ const CHANGE_EVENT = "sentinel:project-changed";
 type Listener = (key: string) => void;
 const listeners = new Set<Listener>();
 
-/** The project the platform launched us into — the fallback when nothing is chosen in-app. */
-const platformKey = (): string | undefined =>
+/** The project the platform launched us into — the fallback when nothing is chosen in-app, and what a Sentinel
+ *  project can be linked to (settings.platform_project_id) so it opens by itself here. */
+export const platformProjectId = (): string | undefined =>
   getAppManager().client?.context?.projectId ?? undefined;
+const platformKey = platformProjectId;
 
 let override: string | null = (() => {
   try {
