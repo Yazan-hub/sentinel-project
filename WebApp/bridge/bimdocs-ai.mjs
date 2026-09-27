@@ -2,7 +2,8 @@
 // stores, makes ONE chat() call per operation, and gates the reply through bimdocs-ai-logic.
 // WRITES NOTHING: no DB write, no audit row. An accepted draft is saved by the human through the
 // existing patchSection route, which audits it as a normal section edit.
-import { chat as realChat } from "./ai-gateway.mjs";
+import { chat as realChat, PROVIDERS } from "./ai-gateway.mjs";
+import * as members from "./members-store.mjs";
 import * as store from "./bimdocs-store.mjs";
 import * as registry from "./check-registry.mjs";
 import * as deliverables from "./deliverables-store.mjs";
@@ -24,7 +25,17 @@ const wire = (deps) => ({
   deliverableStatus: deps.deliverableStatus || deliverables.deliverableStatus,
   ensureProject: deps.ensureProject || cde.ensureProject,
   projectNamingRuleset: deps.projectNamingRuleset || cde.projectNamingRuleset,
+  requireMinRole: deps.requireMinRole || members.requireMinRole,
+  requireSpend: deps.requireSpend || members.requireSpend,
 });
+
+/** H0 (bimdocs-1): running the AI on a document is editing work — contributor or above, as the panel's canEdit — and
+ *  a cloud provider spends the founder's key, so it also needs a trusted caller for this project (members-store
+ *  requireSpend). Both before the document is read. */
+async function mayRunAi(key, provider, d) {
+  await d.requireMinRole(key, "contributor");
+  if (PROVIDERS[provider || "local"]?.cloud) await d.requireSpend(key);
+}
 
 async function assembleGrounding(key, docId, d) {
   const [project, naming, status, compliance] = await Promise.all([
@@ -55,6 +66,7 @@ const assertPromptWithinCap = (system, user, what) => {
 
 export async function draftSection(key, docId, sectionId, { provider, model } = {}, deps = {}) {
   const d = wire(deps);
+  await mayRunAi(key, provider, d);
   const doc = await d.getDoc(key, docId);
   if (doc.status === "published" || doc.status === "archived")
     throw err(409, `document is ${doc.status}; drafting requires an editable document`);
@@ -74,6 +86,7 @@ export async function draftSection(key, docId, sectionId, { provider, model } = 
 
 export async function integrityReport(key, docId, { provider, model } = {}, deps = {}) {
   const d = wire(deps);
+  await mayRunAi(key, provider, d);
   const doc = await d.getDoc(key, docId);
 
   const contentChars = doc.sections.reduce((n, s) => n + (s.body || "").trim().length, 0);
