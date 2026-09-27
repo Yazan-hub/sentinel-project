@@ -579,5 +579,25 @@ Every line is a reply, a ledger row or the board; ids are the ledger's.
 'localStorage' property … lacks the 'allow-same-origin' flag`) although every storage read in Sentinel's own code is
 guarded — a separate task; the local app is unaffected.
 
-**Left in place:** `b13-review` (ids@1, review@1-3, B13-A under review, B13-D published, B13-B and B13-C in wip) for the
-founder to archive; the founder is its owner.
+**Left in place (first run):** `b13-review` (ids@1, review@1-3, B13-A under review, B13-D published, B13-B and B13-C in
+wip); the founder is its owner.
+
+**The second-account run (same day, 09:38-09:47).** The founder signed up a second account (`yazanhijazeen32@gmail.com`);
+`b13-review` was unarchived, the account added as a contributor through the members route and `review@4` (one step,
+`Design check`, contributor, one approval) installed. The founder (owner, hotmail) shared B13-B on its accepted verdict and
+B13-C on the reason `b13 drill: second-account run` (`3 under review`, `My reviews (0)` for the submitter); the second
+account, on the board, read `My reviews (3)` and decided. Checked by `scratchpad/b13_api.py part6` — **13 of 13**:
+
+| Step | Result | Evidence |
+|---|---|---|
+| An approval publishes, with the approver as the actor | the second account **Approve** on B13-A.ifc → `Approved step 1 of 1 — Design check · B13-A.ifc published · ledger #1067 · receipt eae38a99367f3897…`; `review:approve 1` #1067 by the second account naming its chain (#1044, the founder's share from the first run on `review@1`); `state:shared->published` #1068 in the same call, actor the second account, `note` `review complete`, `verdict:accepted` #1028, `override` null | board, rows |
+| A reason-shared chain completes under its reason | **Approve** on B13-C.ifc → `… B13-C.ifc published · ledger #1069 · receipt 7ef46b7ae58e490b…`; `state:shared->published` #1070, actor the second account, `verdict` null, `override` `b13 drill: second-account run` — the reason the founder's share recorded | board, rows |
+| A reject returns it to WIP with a BCF topic | **Reject** disabled until a note; with `b13 drill: clash at level 2` → `Rejected at step 1 of 1 — Design check · B13-B.ifc back to WIP · ledger #1071 · receipt 7c2d5d5b30cc0b94… · BCF topic a5611bc2-…`; `review:reject 1` #1071 with the note; `state:shared->wip` #1072 in the same call, actor the second account, note `review: rejected at step 1 — b13 drill: clash at level 2`; one BCF topic `Review: B13-B.ifc rejected at step 1 — b13 drill: clash at level 2` | board, rows, BCF |
+| My reviews | the second account's bar read `My reviews (3)`, then `(2)`, `(1)` as it decided, and hid when nothing was left under review; `reviews` → `{"items":[]}` | board, reply |
+| Found | switching accounts in one window left the board showing the previous account's review view (`My reviews (0)`, `the submitter does not review their own share`) until ↻ — the board reloads on a project change, not on a sign-in change; the database still refuses a decision the wrong person makes. A follow-up | board |
+
+Still not run live: the viewer's refusal, two steps with a prior approver, a third account, and a contributor's `version_id`
+stamp (the probe and the bridge's vitest carry them).
+
+**Left in place:** `b13-review` (ids@1, review@1-4, B13-A, B13-C and B13-D published, B13-B in wip), archived again; the
+founder is its owner and the second account a contributor.
