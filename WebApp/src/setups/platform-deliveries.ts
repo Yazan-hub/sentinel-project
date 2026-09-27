@@ -53,7 +53,14 @@ export function deliveryCard(item: PlatformItem, versionTag: string, labels: Lab
   return { ...base, state: "running", headline: "Running", lines: ["no verdict yet — the platform's Sentinel gate has not written one for this version"], sha256: null, run: null };
 }
 
-const latestTag = (i: PlatformItem): string | null => (i.versions?.length ? i.versions[i.versions.length - 1].tag : null);
+/** The newest version: by createdAt when the platform gives it, else the FIRST entry — the platform lists versions
+ *  newest-first (measured 2026-09-28: `v13,v12,…,v1`); the last entry is the oldest. */
+export const latestTag = (i: PlatformItem): string | null => {
+  const vs = (i.versions ?? []).filter((v) => v && v.tag);
+  if (!vs.length) return null;
+  const dated = vs.every((v) => v.createdAt);
+  return (dated ? [...vs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) : vs)[0].tag;
+};
 
 /** Every .ifc of the platform project as a card. Throws "not read — <why>" when the list itself failed; a single
  *  item's labels or report that could not be read fall through to the next source (report → labels → running). */
