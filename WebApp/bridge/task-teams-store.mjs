@@ -5,7 +5,7 @@
 // The link to a deliverable is its CODE, matched case-insensitively (see 0026). Nothing here
 // rewrites deliverables.responsible_team — an undeclared team is a finding for
 // roles.responsibility, not a silent repair.
-import { sb, ensureProject, audit, isUuid } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid, requireRows } from "./cde-store.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -72,9 +72,10 @@ export async function updateTeam(key, id, patch, actor) {
   // Partial update: validate the MERGED row so an omitted field is kept, never wiped (the phase-4
   // PATCH full-row-replace bug, which cost a live `notes` field).
   const merged = validateTeam({ ...before, ...patch });
-  const updated = one(await sb(`task_teams?id=eq.${enc(id)}`, {
+  // task_teams writes are a lead's (0026): a refused PATCH comes back as no row — a 403, never an "updated" row (ledger-1).
+  const updated = one(requireRows(await sb(`task_teams?id=eq.${enc(id)}`, {
     method: "PATCH", body: { ...merged, updated_at: new Date().toISOString() }, prefer: "return=representation",
-  }));
+  }), "a task team is changed by a lead or owner"));
   await audit(proj.id, "task_team", id, "updated", actor || "web", { code: before.code, lead_email: before.lead_email }, { code: merged.code, lead_email: merged.lead_email });
   return updated;
 }
@@ -84,7 +85,7 @@ export async function deleteTeam(key, id, actor) {
   const proj = await ensureProject(key);
   const before = one(await sb(`task_teams?id=eq.${enc(id)}&project_id=eq.${enc(proj.id)}&select=*`));
   if (!before) throw err(404, "task team not found");
-  await sb(`task_teams?id=eq.${enc(id)}`, { method: "DELETE", prefer: "return=minimal" });
+  requireRows(await sb(`task_teams?id=eq.${enc(id)}`, { method: "DELETE", prefer: "return=representation" }), "a task team is deleted by a lead or owner");
   // Deliverables keep their responsible_team text. The team is now undeclared, which is precisely
   // what roles.responsibility will report — deleting a team must never silently orphan a plan.
   await audit(proj.id, "task_team", id, "deleted", actor || "web", { code: before.code }, null);
