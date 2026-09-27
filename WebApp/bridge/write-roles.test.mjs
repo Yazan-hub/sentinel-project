@@ -446,4 +446,12 @@ describe("POST /cde/:key/manifests/:versionId (cde-rem-7): a backfill is a lead'
     expect(await call("POST", "/cde/demo/manifests/aaaaaaaa-0000-4000-8000-000000000001", "contributor", "ISO-10303-21;")).toEqual(refused("lead", "contributor"));
     expect(log.filter((c) => c.method !== "GET")).toEqual([]);
   });
+
+  it("a lead's backfill of a version not on the key is a 400 and nothing is written (the route goes through backfillManifest)", async () => {
+    db.projects[0].office_key = "hq"; // requireSpend passes for a lead of an office project
+    const V = "aaaaaaaa-0000-4000-8000-000000000001"; // the fake keeps no container_versions row
+    expect(await call("POST", `/cde/demo/manifests/${V}`, "lead", "ISO-10303-21;"))
+      .toEqual({ status: 400, body: { message: `version ${V} is not on demo` } });
+    expect(log.filter((c) => c.method !== "GET")).toEqual([]);
+  });
 });
