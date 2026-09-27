@@ -299,14 +299,19 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect(db.audit_log[0].new_value).toEqual({ spec: "Aster IDS", requirement: "Doors — FireRating", failing: 3, bcf_guid: r.body.guid });
   });
 
-  it("a title the IDS parser would backtrack on is a topic in well under a second, and no ledger row", async () => {
+  it("a title over 600 characters, or not text, is a 400 in well under a second on POST and PUT — no topic, no ledger row", async () => {
     const title = `IDS: a${" ".repeat(200_000)}b`; // the unbounded parse took ~20 s of the bridge's one event loop on this
-    for (const t of [title, [title]]) { // an array is not coerced to the same string
+    const no = { status: 400, body: { message: "a topic title is text of at most 600 characters — nothing was saved" } };
+    seedTopic(topic("G1", "Door clash"));
+    for (const t of [title, [title], "x".repeat(601), 7]) { // an array is not coerced to the same string
       const t0 = Date.now();
-      expect((await call("POST", T, "contributor", { title: t })).status).toBe(201);
+      expect(await call("POST", T, "contributor", { title: t })).toEqual(no);
+      expect(await call("PUT", `${T}/G1`, "contributor", { title: t })).toEqual(no);
       expect(Date.now() - t0).toBeLessThan(1000);
     }
+    expect(writes("bcf_topics")).toEqual([]);
     expect(writes("audit_log")).toEqual([]);
+    expect((await call("POST", T, "contributor", { title: "x".repeat(600) })).status).toBe(201);
   });
 
   it("a user's IDS raises are budgeted as notes are: the 61st in a minute is a 429 and writes no topic and no ledger row", async () => {

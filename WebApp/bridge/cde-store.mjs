@@ -1657,6 +1657,14 @@ export async function bcfGetTopic(pid, guid) {
   return rows?.[0]?.data ?? null;
 }
 
+/** A title a caller sends (topic POST and PUT, the agent's create_topic) is text of at most 600 characters, else a 400 —
+ *  stored titles are parsed by the raise dedups on every propose and in every member's browser (H0, WR-4 review). Absent
+ *  or null passes (newTopicObject's "Untitled"). Titles Sentinel builds itself (raises, a review's rejection) aren't checked. */
+export function checkTopicTitle(title) {
+  if (title != null && !(typeof title === "string" && title.length <= 600))
+    throw Object.assign(new Error("a topic title is text of at most 600 characters — nothing was saved"), { status: 400 });
+}
+
 /** Insert a freshly-built topic. */
 /** The canonical BCF topic shape. Every producer must go through this — the web Issues panel, the
  *  Revit BcfSyncManager and the governed fail→BCF hook all expect these exact fields, and `guid` is

@@ -250,8 +250,9 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
       (Array.isArray(existing) ? existing : [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .filter((t: any) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+        // Trimmed, then an end-anchored suffix — `\s*\(…\)\s*$` backtracked quadratically over a stored whitespace run.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((t: any) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, "")),
+        .map((t: any) => String(t.title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd()),
     );
     const todo = reqs.filter(([req]) => !openReqs.has(req));
     const skipped = reqs.length - todo.length;

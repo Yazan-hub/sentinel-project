@@ -343,7 +343,8 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
   const openReqs = (existing || [])
     .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved" && !t?.superseded_by)
-    .map((t) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, ""));
+    // Trimmed, then an end-anchored suffix: `\s*\(…\)\s*$` backtracked quadratically over a stored whitespace run (WR-4 review).
+    .map((t) => String(t.title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd());
   // Pure, unit-tested grouping + dedup (sentinel-core) — one issue per still-open failing requirement.
   const core = await loadCore();
   const groups = core.groupFailuresForBcf(result.failures || [], openReqs);
@@ -428,7 +429,7 @@ async function raiseFederationTopics(cde, pid, run, opts = {}) {
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
   const open = new Set((existing || [])
     .filter((t) => /^Federation:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
-    .map((t) => String(t.title).replace(/\s*\(\d+\)\s*$/, "")));
+    .map((t) => String(t.title).trimEnd().replace(/\(\d+\)$/, "").trimEnd())); // linear — see raiseGovernedFailureTopics
   const failing = run.result.checks.filter((c) => c.status === "fail");
   const now = new Date().toISOString();
   const raised = [];
@@ -1860,6 +1861,7 @@ async function handleRequest(req, res) {
     // POST new topic
     if (req.method === "POST" && !guid) {
       const b = await readBody(req);
+      cde.checkTopicTitle(b?.title);
       const now = new Date().toISOString();
       const topic = cde.newTopicObject(pid, b, now);
       // The web's IDS raise (visibility-panel) wrote this ledger row itself through POST /cde/:key/audit, a lead's notes
@@ -1888,6 +1890,7 @@ async function handleRequest(req, res) {
     // PUT — edit fields (status/priority/assignee/etc.); each change is logged to history.
     if (req.method === "PUT" && guid && !sub) {
       const b = await readBody(req);
+      cde.checkTopicTitle(b?.title);
       if (governedEditNeedsLead(topic, b)) await requireMinRole(pid, "lead");
       const who = resolveActor(b.author, "web");
       const now = new Date().toISOString();

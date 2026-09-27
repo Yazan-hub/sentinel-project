@@ -6,7 +6,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { requireMinRole } = vi.hoisted(() => ({ requireMinRole: vi.fn(async () => {}) }));
 vi.mock("./members-store.mjs", () => ({ requireMinRole }));
-vi.mock("./cde-store.mjs", () => ({
+vi.mock("./cde-store.mjs", async (importOriginal) => ({
+  checkTopicTitle: (await importOriginal()).checkTopicTitle,
   adjudicateProposal: vi.fn(async () => ({ verdict: "recorded" })),
   transition: vi.fn(async () => ({ state: "published" })),
   setLiveVersion: vi.fn(async () => ({ ok: true })),
@@ -97,6 +98,11 @@ describe("what a write tool records", () => {
   it("raise_issue files the topic under the project key (bcf_topics resolves project_id as the key)", async () => {
     await runTool("raise_issue", { project: "aster-tower", title: "t" }, { allowWrites: true });
     expect(cde.newTopicObject.mock.calls[0][0]).toBe("aster-tower");
+  });
+
+  it("raise_issue refuses a title over 600 characters (a 400) and files nothing", async () => {
+    await expect(runTool("raise_issue", { project: "aster-tower", title: "x".repeat(601) }, { allowWrites: true })).rejects.toMatchObject({ status: 400 });
+    expect(cde.bcfCreateTopic).not.toHaveBeenCalled();
   });
 
   it("a signed-in caller's proposal is labelled copilot-agent, not a source the model claims; the machine credential keeps its label", async () => {

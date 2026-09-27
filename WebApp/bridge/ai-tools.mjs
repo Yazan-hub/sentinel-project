@@ -104,6 +104,7 @@ export const TOOLS = [
     // theory and died with a 23502 not-null violation in practice. `creation_author` records that a
     // machine raised it, so the trail distinguishes agent-raised from hand-raised issues.
     run: async ({ project, title, description, priority, assigned_to }) => {
+      cde.checkTopicTitle(title);
       await cde.ensureProject(project);
       // bcf_topics.project_id is the project KEY (RLS resolves it as the key, 0016) — the row id filed an orphan topic.
       return cde.bcfCreateTopic(
