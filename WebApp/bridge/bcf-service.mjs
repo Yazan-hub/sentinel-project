@@ -1830,8 +1830,10 @@ async function handleRequest(req, res) {
       }
       if (req.method === "PUT" && !sub) {
         const b = await readBody(req);
+        if (!CLASH_STATUSES.includes(b.status)) return send(res, 400, { message: `a clash status is one of ${CLASH_STATUSES.join(", ")} — nothing changed` });
         const moved = useCde ? await updateClashStatusCde(cde, cpid, b.signature, b.status) : updateClashStatus(cpid, b.signature, b.status);
-        if (moved?.from) await ledger(`Clash ${moved.from} → ${b.status}: ${moved.label ?? b.signature}`, { signature: b.signature, status: b.status });
+        if (!moved) return send(res, 404, { message: `no clash ${b.signature} on the register — nothing changed` });
+        if (moved.from && moved.from !== b.status) await ledger(`Clash ${moved.from} → ${b.status}: ${moved.label ?? b.signature}`, { signature: b.signature, status: b.status });
         return send(res, 200, { ok: !!moved });
       }
       return send(res, 405, { message: "method not allowed" });

@@ -234,6 +234,14 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(db.audit_log[0].new_value).toEqual({ signature: "a|b", volume: 0.2, overlap: [1, 1, 0.2], elements: [], bcf_guid: "g1" });
   });
 
+  it("a PUT that moves nothing says so: an unknown status is a 400, a clash not on the register a 404, the same status no ledger row", async () => {
+    seedDoc("clash", "a|b", { ...item, project: "demo" });
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "done" })).toEqual({ status: 400, body: { message: "a clash status is one of raised, reviewed, approved, resolved — nothing changed" } });
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "x|y", status: "reviewed" })).toEqual({ status: 404, body: { message: "no clash x|y on the register — nothing changed" } });
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "raised" })).toEqual({ status: 200, body: { ok: true } });
+    expect(db.audit_log).toEqual([]);
+  });
+
   it("a POST records clashes and moves none: a record on the register keeps its status, a new one is raised (moves are PUTs, on the ledger)", async () => {
     seedDoc("clash", "a|b", { ...item, project: "demo" });
     const items = [{ signature: "a|b", status: "resolved" }, { ...item, signature: "c|d", status: "resolved" }];
