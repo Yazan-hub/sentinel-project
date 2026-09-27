@@ -28,6 +28,11 @@ vi.mock("./cde-store.mjs", () => ({
     return data;
   },
   getProjectMeta: vi.fn(async () => ({})),
+  // The real guard's shape (cde-store requireRows): the rows, or a 403 in the caller's words.
+  requireRows: (rows, what) => {
+    if (Array.isArray(rows) && rows.length) return rows;
+    throw Object.assign(new Error(`${what} — nothing was saved`), { status: 403 });
+  },
 }));
 vi.mock("./members-store.mjs", () => ({
   requireMinRole: vi.fn(async (key, min) => {
@@ -44,7 +49,7 @@ vi.mock("./office-store.mjs", () => ({
   getScan: vi.fn(async () => null),
 }));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport, patchSection } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -280,5 +285,24 @@ describe("readinessReport — runs the bound checks, scores, derives the plan, n
     expect(rep.sections.find((s) => s.section_id === "m1").results[0].id).toBe("office.worksets");
     doc = makeDoc(); sb.mockResolvedValue([doc]);
     await expect(readinessReport("k", doc.id)).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("a document write the database refused (no row back) is a 403 — never a 200, never a ledger row (ledger-1, H0 D5)", () => {
+  beforeEach(() => {
+    globalThis.__testRole = undefined;
+    doc = readinessDoc();
+    sb.mockImplementation(async (path, opts) => (opts?.method === "PATCH" ? [] : [doc]));
+  });
+  it.each([
+    ["patchSection", () => patchSection("k", doc.id, "d1", { body: "named: Yara" })],
+    ["setSectionBindings", () => setSectionBindings("k", doc.id, "m1", { bindings: { checks: [] } })],
+    ["setSectionAnswer", () => setSectionAnswer("k", doc.id, "d1", { value: "yes" })],
+    ["setSectionPlan", () => setSectionPlan("k", doc.id, "m1", { owner: "lead@x" })],
+    ["transitionDoc", () => transitionDoc("k", doc.id, { to: "shared" })],
+    ["publishDoc", () => { doc.status = "shared"; return publishDoc("k", doc.id, {}); }],
+  ])("%s", async (_name, call) => {
+    await expect(call()).rejects.toMatchObject({ status: 403, message: "a document is edited by a contributor or above — nothing was saved" });
+    expect(audit).not.toHaveBeenCalled();
   });
 });
