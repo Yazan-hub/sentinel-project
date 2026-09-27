@@ -255,6 +255,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   function renderReviewBar() {
     const bar = el("cde-rbar");
     const mine = [...reviews.values()].filter((r) => r.can_decide).length;
+    if (!reviews.size) myReviews = false; // the bar (and its toggle) hides: a filter left on would empty the board for good
     bar.style.display = reviewsError || reviews.size ? "flex" : "none";
     bar.innerHTML = reviewsError
       ? `<span style="color:#fbbf24">Reviews: ${esc(reviewsError)}</span>`
