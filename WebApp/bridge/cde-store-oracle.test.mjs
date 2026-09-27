@@ -13,7 +13,7 @@ vi.hoisted(() => {
 });
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { ensureProject, createProject, projectNotFound } from "./cde-store.mjs";
+import { ensureProject, createProject, projectNotFound, docListLazy, bcfListTopics } from "./cde-store.mjs";
 
 const jwt = (sub) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub, email: `${sub}@example.test`, role: "authenticated" })).toString("base64url") + ".sig";
 const PROJECTS = [{ id: "11111111-1111-4111-8111-111111111111", key: "alpha" }, { id: "22222222-2222-4222-8222-222222222222", key: "beta" }];
@@ -63,5 +63,34 @@ describe("createProject — a key taken by a project the caller cannot see", () 
   it("is a 409 in words, not a scrubbed 500", async () => {
     await expect(runWithAuth(jwt("u-member"), () => createProject({ name: "Beta" })))
       .rejects.toMatchObject({ status: 409, message: 'The name "beta" is taken — choose another name (nothing was created).' });
+  });
+});
+
+// rfis-2: for a project the caller cannot read, docList is [] under RLS and the local file's rows were inserted under the
+// caller's session. The refusal came back as a 403 naming bridge_docs only when this machine held rows for the key.
+describe("docListLazy — only the machine credential migrates this machine's local rows", () => {
+  const local = [{ guid: "r1", project_id: "beta", subject: "Local RFI" }];
+  const inserts = () => calls.filter((c) => c.table === "bridge_docs" && c.method === "POST");
+  it("a signed-in caller reads what the database holds and writes nothing", async () => {
+    await expect(runWithAuth(jwt("u-member"), () => docListLazy("rfi", "beta", local, (r) => r.guid))).resolves.toEqual([]);
+    expect(inserts()).toEqual([]);
+  });
+  it("the machine credential still migrates them", async () => {
+    await docListLazy("rfi", "beta", local, (r) => r.guid);
+    expect(inserts()).toEqual([{ table: "bridge_docs", method: "POST", sub: null }]);
+  });
+});
+
+// The same path for BCF topics (bcfListTopics): after 0033 a viewer's insert is refused (bcf_topics_insert, contributor).
+describe("bcfListTopics — only the machine credential migrates this machine's local topics", () => {
+  const local = [{ guid: "t1", project_id: "beta", title: "Local topic", topic_status: "Open" }];
+  const inserts = () => calls.filter((c) => c.table === "bcf_topics" && c.method === "POST");
+  it("a signed-in caller reads what the database holds and writes nothing", async () => {
+    await expect(runWithAuth(jwt("u-member"), () => bcfListTopics("beta", {}, local))).resolves.toEqual([]);
+    expect(inserts()).toEqual([]);
+  });
+  it("the machine credential still migrates them", async () => {
+    await bcfListTopics("beta", {}, local);
+    expect(inserts()).toEqual([{ table: "bcf_topics", method: "POST", sub: null }]);
   });
 });

@@ -1510,10 +1510,13 @@ export async function docList(store, pid) {
   const rows = await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&select=data&order=created_at.asc`);
   return (rows || []).map((r) => r.data);
 }
-/** Same, but lazy-migrate the local file into Supabase the first time a store/project with no rows is read. */
+/** Same, but lazy-migrate the local file into Supabase the first time a store/project with no rows is read. The local
+ *  file is this machine's history, so only the machine credential migrates it (rfis-2): under a signed-in caller's
+ *  session a refused insert answered 403 only when the file held rows for the key, which told a stranger which keys
+ *  have local history. A signed-in caller reads what the database holds. */
 export async function docListLazy(store, pid, localDocs, idOf) {
   let rows = await docList(store, pid);
-  if (!rows.length && Array.isArray(localDocs) && localDocs.length) {
+  if (!rows.length && !currentUserToken() && Array.isArray(localDocs) && localDocs.length) {
     await sb(`bridge_docs`, { method: "POST", body: localDocs.map((d) => ({ store, project_id: pid, doc_id: String(idOf(d)), data: d })), prefer: "return=minimal" });
     rows = await docList(store, pid);
   }
@@ -1566,7 +1569,9 @@ const bcfRow = (t) => ({ guid: t.guid, project_id: t.project_id, topic_status: t
 export async function bcfListTopics(pid, { status, model } = {}, localTopics) {
   const q = `bcf_topics?project_id=eq.${encodeURIComponent(pid)}&select=data&order=created_at.asc`;
   let rows = await sb(q);
-  if ((!rows || !rows.length) && Array.isArray(localTopics) && localTopics.length) {
+  // As docListLazy (rfis-2): the local file is this machine's history, so only the machine credential migrates it.
+  // Under a signed-in caller's session the insert is refused below contributor once 0033 splits bcf_topics' writes.
+  if ((!rows || !rows.length) && !currentUserToken() && Array.isArray(localTopics) && localTopics.length) {
     await sb(`bcf_topics`, { method: "POST", body: localTopics.map(bcfRow), prefer: "return=minimal" });
     rows = await sb(q);
   }
