@@ -278,10 +278,14 @@ const send = (res, code, body, extra) => {
 
 // ── SSE live sync: clients subscribe per project; changes are pushed to them instantly ──
 const sseClients = new Map(); // project -> Set<res>
-// F14: the fan-out was unbounded — /events is auth-exempt (EventSource cannot send a header), so anything
-// that can reach the port could hold open arbitrarily many streams, each with a 25s keep-alive timer, until
-// the bridge ran out of sockets. Cap the total; a legitimate desktop uses one or two.
+// F14: the fan-out was unbounded — anything that could reach the port could hold open arbitrarily many streams, each
+// with a 25s keep-alive timer, until the bridge ran out of sockets. MAX_SSE caps the total for every caller but the
+// machine credential (Revit and MCP live sync must never be locked out by browser streams); SSE_PER_USER caps one
+// signed-in account (D7, events-2), so one account cannot take the whole budget from the office.
+// ponytail: several accounts still reach MAX_SSE together until sign-up is closed (D1); a per-office cap if that bites.
 const MAX_SSE = Number(process.env.BCF_MAX_SSE) || 64;
+const SSE_PER_USER = 8;
+const sseByUser = new Map(); // JWT sub -> open streams
 const sseCount = () => { let n = 0; for (const s of sseClients.values()) n += s.size; return n; };
 const INSTANCE_ID = randomUUID();                              // this bridge's id (skips its own events on poll)
 const EVENT_POLL_MS = Number(process.env.BCF_EVENT_POLL_MS ?? 3000); // 0 disables the cross-machine feed
@@ -637,10 +641,22 @@ async function handleRequest(req, res) {
     return send(res, 200, { ok: true, token: !!TOKEN, cde_configured: cdeConfigured });
   }
 
-  // ── SSE live stream: GET /events?project=<pid> (kept open; pushes topic/CDE changes) ──
+  // ── SSE live stream: GET /events?project=<key> (kept open; pushes topic/CDE changes) ──
+  // D7 (events-1): a signed-in caller names the project and must be at least its viewer — a non-member gets the unknown
+  // key's 404 (ensureProject), so the feed neither leaks live issue titles nor confirms a key. The machine credential
+  // passes as service. Membership is checked first and nothing awaits between the caps and the add, so two opens at
+  // once cannot both slip under a cap.
   if (url.pathname === "/events" && req.method === "GET") {
+    const signedIn = !!currentUserToken();
+    if (signedIn && !url.searchParams.get("project")) return send(res, 400, { message: "Name the project: /events?project=<key>" });
     const project = url.searchParams.get("project") || "default";
-    if (sseCount() >= MAX_SSE) return send(res, 503, { message: "Too many live connections" });
+    try { await (await import("./members-store.mjs")).requireMinRole(project, "viewer"); }
+    catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    if (req.socket.destroyed) return; // the caller left while membership was checked: nothing to hold open
+    const sub = signedIn ? currentSub() || "" : null;
+    if (!isToken(bearer) && sseCount() >= MAX_SSE) return send(res, 503, { message: "Too many live connections" });
+    if (sub !== null && (sseByUser.get(sub) || 0) >= SSE_PER_USER)
+      return send(res, 429, { message: `Too many live connections for this account (${SSE_PER_USER}) — close another Sentinel tab or window` });
     const sseHeaders = { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" };
     if (res._cors) sseHeaders["Access-Control-Allow-Origin"] = res._cors; // allowlisted origin only
     res.writeHead(200, sseHeaders);
@@ -648,8 +664,14 @@ async function handleRequest(req, res) {
     let set = sseClients.get(project);
     if (!set) { set = new Set(); sseClients.set(project, set); }
     set.add(res);
+    if (sub !== null) sseByUser.set(sub, (sseByUser.get(sub) || 0) + 1);
     const ka = setInterval(() => { try { res.write(": ka\n\n"); } catch { /* */ } }, 25000);
-    req.on("close", () => { clearInterval(ka); set.delete(res); });
+    req.on("close", () => {
+      clearInterval(ka);
+      set.delete(res);
+      if (!set.size) sseClients.delete(project); // events-2: an emptied project leaves no entry behind
+      if (sub !== null) { const n = sseByUser.get(sub) - 1; if (n > 0) sseByUser.set(sub, n); else sseByUser.delete(sub); }
+    });
     return; // keep the stream open — do NOT call send()
   }
 
