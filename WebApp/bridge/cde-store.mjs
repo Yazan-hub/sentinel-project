@@ -113,11 +113,12 @@ export async function ensureProject(key) {
     }
     return proj;
   }
-  if (key !== "default") throw projectNotFound(key);
-  // "default" self-heals. return=minimal on purpose: the returning-select policy (is_member) can't yet see
-  // the owner membership the trigger just created, so return=representation would 42501. Re-fetch with the
-  // service key.
-  await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal" });
+  // Only the machine re-creates "default": under a signed-in caller's JWT the insert would make that caller its owner
+  // (0004's trigger bootstraps auth.uid()), and every later fallback publish would be theirs to read. A signed-in
+  // caller meets an absent "default" as any absent key.
+  if (key !== "default" || currentUserToken()) throw projectNotFound(key);
+  // "default" self-heals, with the service key (auth.uid() null: no owner). return=minimal, then re-fetch.
+  await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal", service: true });
   const created = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true });
   return created[0];
 }
@@ -293,6 +294,9 @@ export async function listProjects() {
 export async function createProject(b = {}) {
   const key = slugKey(b.key || b.name);
   if (!key) throw new Error("A project name or key is required");
+  // The system fallback is the machine's (ensureProject self-heals it): a signed-in creator would become its owner.
+  if (key === "default" && currentUserToken())
+    throw Object.assign(new Error("'default' is the system fallback project — choose another key; nothing was created"), { status: 403 });
   const existing = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`);
   if (existing?.length) {
     await ensureFolders(existing[0].id);
