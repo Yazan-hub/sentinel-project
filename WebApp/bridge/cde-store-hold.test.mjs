@@ -27,7 +27,7 @@ vi.mock("./artefact-store.mjs", async (orig) => ({
     : { body: null, source: "none", ref: null, sha256: null })),
 }));
 
-import { adjudicateProposal, writeHold, recordDeliveryGate } from "./cde-store.mjs";
+import { adjudicateProposal, writeHold, recordDeliveryGate, holdIfCouldRegister } from "./cde-store.mjs";
 
 const P1 = "11111111-1111-4111-8111-111111111111";
 const C1 = "cccccccc-0000-4000-8000-000000000001";
@@ -112,7 +112,7 @@ describe("writeHold — one reserved row naming the refused file", () => {
 describe("recordDeliveryGate — Revit's gate row, open only to the machine credential", () => {
   const gate = { file: NAME, result: "fail", passed: false, contract: "parity-ifc4", contract_ref: "contract@1", contract_source: "office", contract_sha256: "CD".repeat(32), schema: "IFC4", entities: 40, failures: ["IFCPROJECT: 0 found, contract requires ≥ 1.", { requirement: "Pset_WallCommon", detail: "Required property set 'Pset_WallCommon' not found in the file." }], sha256: SHA, size_bytes: 1234, source: "revit", publish: true };
 
-  it.each(["owner", "lead", "contributor", "viewer", null])("a signed-in caller (%s) is refused before any read or validation", async (role) => {
+  it.each(["owner", "lead", "contributor", "viewer", null])("a signed-in caller (%s) is refused before any store read or validation", async (role) => {
     state.role = role;
     await expect(recordDeliveryGate("aster-tower", gate)).rejects.toMatchObject({ status: 403, message: "the delivery-gate route is for Sentinel's machine credential" });
     expect(calls).toHaveLength(0);
@@ -130,6 +130,8 @@ describe("recordDeliveryGate — Revit's gate row, open only to the machine cred
     [{ entities: -1 }, "entities must be a whole number or null"],
     [{ failures: [5] }, "failures must be a list of at most 200 lines, each a string or {requirement, detail}"],
     [{ failures: Array.from({ length: 201 }, () => "x") }, "failures must be a list of at most 200 lines, each a string or {requirement, detail}"],
+    [{ failures_total: 1 }, "failures_total must be a whole number, at least the number of failures sent"],
+    [{ failures_total: "250" }, "failures_total must be a whole number, at least the number of failures sent"],
     [{ source: "cli" }, "source must be revit, auto-publish or check"],
     [{ publish: "yes" }, "publish must be true or false"],
     [{ source: "check" }, "publish is true only for revit or auto-publish — the IFC Gate command checks a file, it publishes nothing"],
@@ -144,7 +146,7 @@ describe("recordDeliveryGate — Revit's gate row, open only to the machine cred
       ["delivery_gate", `IFC delivery gate FAIL: ${NAME}`, "Revit"],
       ["hold", `hold:gate ${NAME}`, "Revit"],
     ]);
-    expect(db.audit_log[0].new_value).toEqual({ ...gate, contract_sha256: "cd".repeat(32) });
+    expect(db.audit_log[0].new_value).toEqual({ ...gate, contract_sha256: "cd".repeat(32), failures_total: 2 });
     expect(db.audit_log[1].new_value).toMatchObject({ container_name: NAME, stage: "gate", verdict: "rejected", source: "revit", sha256: SHA, size_bytes: 1234, gate_row_id: 901, proposal_row_id: null, contract_ref: "contract@1", failures_total: 2,
       failures: [{ requirement: "delivery gate", detail: "IFCPROJECT: 0 found, contract requires ≥ 1." }, { requirement: "Pset_WallCommon", detail: "Required property set 'Pset_WallCommon' not found in the file." }] });
     expect(r).toEqual({ id: 901, hash: "901".padStart(64, "0"), hold: { id: 902, hash: "902".padStart(64, "0") } });
@@ -169,16 +171,49 @@ describe("recordDeliveryGate — Revit's gate row, open only to the machine cred
     expect(db.audit_log[0].new_value).not.toHaveProperty("extra");
   });
 
+  it("a cut list: the sender's failures_total is the gate row's and the hold's; a failure keeps its requirement and detail only", async () => {
+    const lines = [...Array.from({ length: 198 }, (_, i) => `failure ${i + 2}`), "… and 51 more — the certificate lists every one"];
+    await recordDeliveryGate("aster-tower", { ...gate, failures: [{ requirement: "IfcWall", detail: "0 found", note: "not kept" }, ...lines], failures_total: 250 });
+    expect(db.audit_log[0].new_value).toMatchObject({ failures_total: 250 });
+    expect(db.audit_log[0].new_value.failures[0]).toEqual({ requirement: "IfcWall", detail: "0 found" });
+    expect(db.audit_log[1].new_value).toMatchObject({ failures_total: 250 });
+    expect(db.audit_log[1].new_value.failures).toHaveLength(50);
+  });
+
   it("a ledger that returns no row is {id: null, hash: null} for the gate and the hold — never a made-up id", async () => {
     globalThis.fetch = vi.fn(async (url, init = {}) => ((init.method || "GET") === "POST" ? new Response("", { status: 201 }) : fakeRest(url, init)));
     expect(await recordDeliveryGate("aster-tower", gate)).toEqual({ id: null, hash: null, hold: { id: null, hash: null } });
   });
 });
 
+describe("holdIfCouldRegister — intake's gate FAIL is held only for a caller who could register the file", () => {
+  const h = { stage: "gate", container_name: NAME, sha256: SHA, size_bytes: 13, verdict: "rejected", failures: ["IFCPROJECT: 0 found, contract requires ≥ 1."], source: "web", gate_row_id: 700, proposal_row_id: null, contract_ref: "contract@1", ids_ref: null, naming_ref: null, actor: "web" };
+
+  it.each(["service", "contributor"])("%s: the hold row is written and returned", async (role) => {
+    state.role = role;
+    expect(await holdIfCouldRegister("aster-tower", h)).toMatchObject({ entity_type: "hold", action: `hold:gate ${NAME}`, new_value: { source: "web", gate_row_id: 700 } });
+  });
+
+  it.each(["viewer", null])("%s: nothing is written, null", async (role) => {
+    state.role = role;
+    expect(await holdIfCouldRegister("aster-tower", h)).toBeNull();
+    expect(rows("hold:")).toHaveLength(0);
+  });
+
+  it("written with no row back is {} — never a made-up id", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => ((init.method || "GET") === "POST" ? new Response("", { status: 201 }) : fakeRest(url, init)));
+    expect(await holdIfCouldRegister("aster-tower", h)).toEqual({});
+  });
+});
+
 describe("adjudicateProposal — the proposal row names the file; a refusal is held only for a registering file judged by installed standards from a caller who could register it", () => {
+  // The delivery_gate row Revit's gate_row_id claims (the route answered its id).
+  const gateRow = (id, over = {}) => db.audit_log.push({ id, project_id: P1, entity_type: "delivery_gate", action: `IFC delivery gate PASS: ${NAME}`, new_value: {}, ...over });
+
   it("register: the proposal row carries container_name, sha256, size_bytes and gate_row_id; an accepted verdict holds nothing", async () => {
+    gateRow(812);
     const r = await adjudicateProposal("aster-tower", { source: "Governed Publish", elements: GOOD, container_name: NAME, register: register(), gate_row_id: 812 });
-    expect(db.audit_log[0].new_value).toMatchObject({ container_name: NAME, sha256: SHA, size_bytes: 1234, gate_row_id: 812 });
+    expect(rows("Proposal")[0].new_value).toMatchObject({ container_name: NAME, sha256: SHA, size_bytes: 1234, gate_row_id: 812 });
     expect(r).toMatchObject({ verdict: "accepted", hold: null });
     expect(rows("hold:")).toHaveLength(0);
   });
@@ -188,9 +223,21 @@ describe("adjudicateProposal — the proposal row names the file; a refusal is h
     expect(db.audit_log[0].new_value).not.toHaveProperty("gate_row_id");
   });
 
+  it.each([
+    ["no row", () => {}],
+    ["another project's gate row", () => gateRow(812, { project_id: "22222222-2222-4222-8222-222222222222" })],
+    ["a row that is not a gate row", () => gateRow(812, { entity_type: "proposal" })],
+  ])("a claimed gate_row_id naming %s is not recorded on the proposal or the hold", async (_what, seedRow) => {
+    seedRow();
+    await adjudicateProposal("aster-tower", { source: "Governed Publish", elements: BAD, container_name: NAME, register: register(), gate_row_id: 812 });
+    expect(rows("Proposal")[0].new_value).not.toHaveProperty("gate_row_id");
+    expect(rows("hold:")[0].new_value.gate_row_id).toBeNull();
+  });
+
   it("an IDS refusal from Governed Publish is held: hold:ids, source revit, the IDS failures, the proposal and gate rows named; nothing registered", async () => {
+    gateRow(812);
     const r = await adjudicateProposal("aster-tower", { source: "Governed Publish", actor: "Revit", elements: BAD, container_name: NAME, register: register(), gate_row_id: 812 });
-    const [proposal, hold] = db.audit_log;
+    const [, proposal, hold] = db.audit_log;
     expect(hold).toMatchObject({ entity_type: "hold", entity_id: null, action: `hold:ids ${NAME}`, actor: "Revit" });
     expect(hold.new_value).toMatchObject({ container_name: NAME, sha256: SHA, size_bytes: 1234, stage: "ids", verdict: "rejected", source: "revit", gate_row_id: 812, proposal_row_id: proposal.id, contract_ref: null, ids_ref: "ids@1", naming_ref: null, failures_total: 1,
       failures: [{ requirement: "Pset_DoorCommon.FireRating", detail: "d1: REQUIRED but missing" }] });

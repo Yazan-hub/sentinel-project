@@ -6,7 +6,7 @@ import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { myRole, canEditRole, canGovernRole } from "./my-role";
 import { ledgerLine } from "./stage-gate";
-import { uploadThroughIntake, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem } from "./holding";
+import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem } from "./holding";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 
@@ -577,7 +577,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       await load();
       status(intakeLine(file.name, r));
     } catch (e) {
-      status(`Not uploaded — ${(e as Error).message}`);
+      status(uploadFailedLine(e));
     }
   }
 

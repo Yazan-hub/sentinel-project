@@ -119,8 +119,8 @@ static class Check
            "hold null, or a refused write, carries no hold");
         Is(JsonSerializer.Serialize(GateLines.AuditValue(Container, Gate(GateOutcome.Fail, "IFC2X3"), "auto-publish", true)),
            "{\"file\":\"" + Container + "\",\"result\":\"fail\",\"passed\":false,\"contract\":\"pilot-ifc4\",\"contract_ref\":\"contract@1\",\"contract_source\":\"office\",\"contract_sha256\":\"" + CSha + "\"," +
-           "\"schema\":\"IFC2X3\",\"entities\":40,\"failures\":[\"IFCCOLUMN: 0 found, contract requires \\u2265 1.\"],\"sha256\":\"" + FileSha + "\",\"size_bytes\":5120000,\"source\":\"auto-publish\",\"publish\":true}",
-           "Prepare's gate row body for /cde/:key/delivery-gate: the gate, every failure, sha256 and size_bytes, the caller's source, publish true");
+           "\"schema\":\"IFC2X3\",\"entities\":40,\"failures\":[\"IFCCOLUMN: 0 found, contract requires \\u2265 1.\"],\"failures_total\":1,\"sha256\":\"" + FileSha + "\",\"size_bytes\":5120000,\"source\":\"auto-publish\",\"publish\":true}",
+           "Prepare's gate row body for /cde/:key/delivery-gate: the gate, every failure and their count, sha256 and size_bytes, the caller's source, publish true");
     }
 
     // ── 3. PublishOutcome: what the answer allows ─────────────────────────────────────────────────────

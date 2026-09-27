@@ -1227,9 +1227,8 @@ async function handleRequest(req, res) {
           registerFileVersion: (key, body) => cde.registerFileVersion(key, body),
           recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
           audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); return cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
-          // A gate FAIL is held only when the caller could register the file (spec 2026-09-27 Decision 4): the stored
-          // row, {} when the ledger returned none, null when nothing was written.
-          writeHold: async (key, h) => ((await cde.couldRegister(key)) ? ((await cde.writeHold(await cde.ensureProject(key), h)) ?? {}) : null),
+          // A gate FAIL is held only when the caller could register the file (spec 2026-09-27 Decision 4).
+          writeHold: (key, h) => cde.holdIfCouldRegister(key, h),
         };
         const result = await runIntake(deps, { key: p1, name: q("name"), bytes, source: q("source"), actor: q("actor"), revision: q("revision"), note: q("note"), agent, raise_bcf: q("raise_bcf") !== "false" });
         // A published version gets its manifest for the Federation Gate. Never fails the publish.

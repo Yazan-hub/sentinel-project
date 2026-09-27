@@ -806,15 +806,17 @@ function holdFailure(f) {
 /** Write one hold row: entity_type hold, entity_id the container's uuid when a container of that name exists on the
  *  project (else null), action "hold:<stage> <container_name>", new_value {container_name, sha256, size_bytes, stage,
  *  verdict, failures (the first 50, each {requirement, detail}), failures_total, source, gate_row_id, proposal_row_id,
- *  contract_ref, ids_ref, naming_ref}. The callers decide whether a refusal is held (adjudicateProposal, the
- *  delivery-gate route, intake); this only writes it. Returns the stored row (audit()), null when none came back. */
-export async function writeHold(proj, { stage, container_name, sha256, size_bytes, verdict, failures, source, gate_row_id, proposal_row_id, contract_ref, ids_ref, naming_ref, actor }) {
+ *  contract_ref, ids_ref, naming_ref}. failures_total is the caller's count when its list was already cut (the
+ *  delivery-gate route's failures_total), else the list's length. The callers decide whether a refusal is held
+ *  (adjudicateProposal, the delivery-gate route, holdIfCouldRegister); this only writes it. Returns the stored row
+ *  (audit()), null when none came back. */
+export async function writeHold(proj, { stage, container_name, sha256, size_bytes, verdict, failures, failures_total, source, gate_row_id, proposal_row_id, contract_ref, ids_ref, naming_ref, actor }) {
   const name = String(container_name ?? "").trim();
   const found = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id`);
   const all = Array.isArray(failures) ? failures : [];
   return audit(proj.id, "hold", Array.isArray(found) ? found[0]?.id ?? null : null, `hold:${stage} ${name}`, actor, null, {
     container_name: name, sha256: sha256 ?? null, size_bytes: size_bytes ?? null, stage, verdict: verdict ?? "rejected",
-    failures: all.slice(0, 50).map(holdFailure), failures_total: all.length, source,
+    failures: all.slice(0, 50).map(holdFailure), failures_total: Math.max(failures_total ?? 0, all.length), source,
     gate_row_id: gate_row_id ?? null, proposal_row_id: proposal_row_id ?? null,
     contract_ref: contract_ref ?? null, ids_ref: ids_ref ?? null, naming_ref: naming_ref ?? null,
   });
@@ -828,13 +830,22 @@ export async function couldRegister(key) {
   return role === "service" || (ROLE_RANK[role] || 0) >= ROLE_RANK.contributor;
 }
 
+/** Intake's gate FAIL hold (runIntake's deps.writeHold): written only when the caller could register the file (spec
+ *  Decision 4's third condition) → the stored row, {} when the ledger returned none, null when nothing was written. */
+export async function holdIfCouldRegister(key, h) {
+  if (!(await couldRegister(key))) return null;
+  return (await writeHold(await ensureProject(key), h)) ?? {};
+}
+
 const GATE_PASSED = { pass: true, fail: false, not_checked: null };           // result → passed; null is not checked
 const GATE_WORDS = { pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }; // the words Revit's gate row always used
 const GATE_SOURCES = ["revit", "auto-publish", "check"];
 
 /** POST /cde/:key/delivery-gate's body → the delivery_gate row's new_value, or a 400 naming the field (spec 2026-09-27
  *  Decision 5). Pure. A nullable field left out is null; a key not listed is not kept. passed must agree with result;
- *  failures: at most 200, each a line (a string) or {requirement, detail}; publish is true only from a publish. */
+ *  failures: at most 200, each a line (a string) or {requirement, detail} (only those two keys are kept); failures_total:
+ *  the count before the sender cut its list (Revit sends 199 and a counting line past 200), at least the list's length,
+ *  the length when left out; publish is true only from a publish. */
 export function readDeliveryGate(b = {}) {
   const bad = (m) => Object.assign(new Error(m), { status: 400 });
   const v = (k) => (b[k] === undefined ? null : b[k]);
@@ -848,13 +859,16 @@ export function readDeliveryGate(b = {}) {
   const failures = v("failures") ?? [];
   const line = (f) => typeof f === "string" || (!!f && typeof f === "object" && typeof f.requirement === "string" && typeof f.detail === "string");
   if (!Array.isArray(failures) || failures.length > 200 || !failures.every(line)) throw bad("failures must be a list of at most 200 lines, each a string or {requirement, detail}");
+  const total = v("failures_total") ?? failures.length;
+  if (!(Number.isSafeInteger(total) && total >= failures.length)) throw bad("failures_total must be a whole number, at least the number of failures sent");
   if (!GATE_SOURCES.includes(b.source)) throw bad("source must be revit, auto-publish or check");
   if (typeof b.publish !== "boolean") throw bad("publish must be true or false");
   if (b.publish && b.source === "check") throw bad("publish is true only for revit or auto-publish — the IFC Gate command checks a file, it publishes nothing");
   return {
     file, result: b.result, passed: GATE_PASSED[b.result], contract: v("contract"), contract_ref: v("contract_ref"),
     contract_source: v("contract_source"), contract_sha256: v("contract_sha256")?.toLowerCase() ?? null, schema: v("schema"),
-    entities: v("entities"), failures, sha256: v("sha256")?.toLowerCase() ?? null, size_bytes: v("size_bytes"), source: b.source, publish: b.publish,
+    entities: v("entities"), failures: failures.map((f) => (typeof f === "string" ? f : { requirement: f.requirement, detail: f.detail })),
+    failures_total: total, sha256: v("sha256")?.toLowerCase() ?? null, size_bytes: v("size_bytes"), source: b.source, publish: b.publish,
   };
 }
 
@@ -874,7 +888,7 @@ export async function recordDeliveryGate(key, b = {}) {
   let hold = null;
   if (g.passed === false && g.publish) {
     const h = await writeHold(proj, {
-      stage: "gate", container_name: g.file, sha256: g.sha256, size_bytes: g.size_bytes, verdict: "rejected", failures: g.failures,
+      stage: "gate", container_name: g.file, sha256: g.sha256, size_bytes: g.size_bytes, verdict: "rejected", failures: g.failures, failures_total: g.failures_total,
       source: g.source, gate_row_id: row?.id ?? null, proposal_row_id: null, contract_ref: g.contract_ref, ids_ref: null, naming_ref: null, actor,
     });
     hold = { id: h?.id ?? null, hash: h?.hash ?? null };
@@ -1200,16 +1214,20 @@ function readRegister(b) {
  *  400 comes before any ledger row.
  *  The Holding Area (phase 6a, spec 2026-09-27 Decisions 4 and 6): the proposal row names the file it judged —
  *  container_name, sha256 and size_bytes from register or from intake's `opts.intake` {source, sha256, size_bytes,
- *  gate_row_id} (a second parameter: no HTTP body can set it) — and gate_row_id (intake's, else b.gate_row_id when a
- *  positive integer). A rejected verdict on such a file is held — one hold:naming (the naming judge rejected) or hold:ids
- *  row — only when the IDS and the naming standard that judged are the installed ones and the caller could register the
- *  file (couldRegister). The reply's `hold` is {id, hash} of that row, or null when nothing was held. */
+ *  gate_row_id} (a second parameter: no HTTP body can set it) — and gate_row_id: intake's, the bridge's own; else
+ *  b.gate_row_id, the caller's claim (Revit sends the id the delivery-gate route answered), kept only when one read finds
+ *  it is a delivery_gate row of this project. A rejected verdict on such a file is held — one hold:naming (the naming
+ *  judge rejected) or hold:ids row — only when the IDS and the naming standard that judged are the installed ones and
+ *  the caller could register the file (couldRegister). The reply's `hold` is {id, hash} of that row, or null when
+ *  nothing was held. couldRegister and writeHold run after the proposal row is on the ledger: a failure there throws (a
+ *  500, its message scrubbed) and the refusal stands on the ledger unheld, as a failed stamp does. */
 export async function adjudicateProposal(key, b = {}, opts = {}) {
   const reg = readRegister(b);
   const intake = opts.intake && typeof opts.intake === "object" ? opts.intake : null;
   const file = reg ? { container_name: reg.name, sha256: reg.sha256, size_bytes: reg.size_bytes }
     : intake && b.container_name ? { container_name: b.container_name, sha256: intake.sha256 ?? null, size_bytes: intake.size_bytes ?? null } : null;
-  const gateRowId = [intake?.gate_row_id, b.gate_row_id].find((n) => Number.isSafeInteger(n) && n > 0) ?? null;
+  const positive = (n) => Number.isSafeInteger(n) && n > 0;
+  let gateRowId = positive(intake?.gate_row_id) ? intake.gate_row_id : null;
   // The naming twin of the client-IDS rule below: a caller's own ruleset (even {fields: [], enforce: "off"}) may judge
   // a plain proposal, never the name a stamped or registered version carries. Pure, so before any read.
   if (b.naming != null && (b.version_id || reg)) {
@@ -1266,6 +1284,11 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
   // "accepted". Decided before the proposal row and any stamp; the row and the reply say why.
   const downgraded = verdict === "accepted" && summary.in_scope === 0 ? "nothing in scope" : null;
   if (downgraded) verdict = "recorded";
+  // The caller's gate_row_id is a claim: the proposal and hold rows name it only when it is this project's gate row.
+  if (!gateRowId && positive(b.gate_row_id)) {
+    const found = await sb(`audit_log?id=eq.${b.gate_row_id}&project_id=eq.${proj.id}&entity_type=eq.delivery_gate&select=id`, { service: true });
+    if (Array.isArray(found) && found.length) gateRowId = b.gate_row_id;
+  }
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
   const trustedActor = resolveActor(b.actor ?? b.source, "agent");

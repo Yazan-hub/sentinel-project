@@ -86,7 +86,8 @@ public static class GateLines
     /// <item>the contract's display key and its ref · source · sha, all null when none; schema null when not detected</item>
     /// <item>entities: null when not checked</item>
     /// <item>failures: the list itself — past <see cref="RouteFailures"/>, the first 199 and one line counting the rest
-    /// (the certificate beside the IFC keeps every one)</item>
+    /// (the certificate beside the IFC keeps every one); failures_total: how many there are, so the bridge's hold
+    /// counts the ones it does not keep</item>
     /// <item>sha256 and size_bytes of the certified file, both null when it was never read</item>
     /// <item>source: "revit" (Governed Publish), "auto-publish" or "check" (the IFC Delivery Gate command); publish:
     /// true when a publish is judging the file — the bridge then holds a FAIL on the web (Project Files ▸ On hold)</item>
@@ -111,6 +112,7 @@ public static class GateLines
             ["schema"] = r.DetectedSchema.Length > 0 ? r.DetectedSchema : null,
             ["entities"] = judged ? r.TotalEntities : (int?)null,
             ["failures"] = failures,
+            ["failures_total"] = r.Failures.Count,
             ["sha256"] = read ? r.FileSha256 : null,
             ["size_bytes"] = read ? r.FileSizeBytes : (long?)null,
             ["source"] = source,

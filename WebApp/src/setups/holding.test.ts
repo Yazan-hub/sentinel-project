@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
-import { uploadThroughIntake, intakeLine, readHolding, dismissHold, resubmitFor, type IntakeReply, type Holding } from "./holding";
+import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismissHold, resubmitFor, type IntakeReply, type Holding } from "./holding";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "6e7f8091a2b3c4d5".padEnd(64, "0");
@@ -28,14 +28,22 @@ describe("uploadThroughIntake — POST /cde/:key/intake", () => {
     expect(await uploadThroughIntake("http://b/", "aster-tower", file, { name: "B12-W.ifc", revision: "v2", who: "lead@example.com" })).toEqual(reply());
     expect(bfetch).toHaveBeenCalledTimes(1);
     expect(bfetch.mock.calls[0][0]).toBe("http://b/cde/aster-tower/intake?name=B12-W.ifc&source=web&revision=v2&note=uploaded%20via%20web%20by%20lead%40example.com");
-    expect(bfetch.mock.calls[0][1]).toMatchObject({ method: "POST", body: file });
+    expect(bfetch.mock.calls[0][1]).toMatchObject({ method: "POST", headers: { "Content-Type": "application/x-step" }, body: file });
   });
 
-  it("a refusal before any judgement throws the bridge's words; one without words names the status", async () => {
+  it("a refusal throws the bridge's words with its status; one without words names the status", async () => {
     bfetch.mockResolvedValue(res(400, { message: "name must be the container's ISO name ending in .ifc" }));
-    await expect(uploadThroughIntake("http://b", "k", new Blob(["x"]), { name: "a.txt", revision: "v1", who: "web" })).rejects.toThrow("name must be the container's ISO name ending in .ifc");
+    await expect(uploadThroughIntake("http://b", "k", new Blob(["x"]), { name: "a.txt", revision: "v1", who: "web" })).rejects.toMatchObject({ message: "name must be the container's ISO name ending in .ifc", status: 400 });
     bfetch.mockResolvedValue(res(502, null));
-    await expect(uploadThroughIntake("http://b", "k", new Blob(["x"]), { name: "a.ifc", revision: "v1", who: "web" })).rejects.toThrow("HTTP 502");
+    await expect(uploadThroughIntake("http://b", "k", new Blob(["x"]), { name: "a.ifc", revision: "v1", who: "web" })).rejects.toMatchObject({ message: "HTTP 502", status: 502 });
+  });
+
+  it("an upload that threw is 'Not uploaded' only on an answer given before anything is stored; else not confirmed", () => {
+    for (const status of [400, 401, 403, 404, 413, 503]) expect(uploadFailedLine(Object.assign(new Error("refused"), { status }))).toBe("Not uploaded — refused");
+    const unsure = "Not confirmed — HTTP 500 (the bridge may have stored it; ↻ to check)";
+    expect(uploadFailedLine(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe(unsure);
+    expect(uploadFailedLine(Object.assign(new Error("HTTP 500"), { status: 200 }))).toBe(unsure);
+    expect(uploadFailedLine(new TypeError("Failed to fetch"))).toBe("Not confirmed — Failed to fetch (the bridge may have stored it; ↻ to check)");
   });
 });
 
@@ -44,9 +52,9 @@ describe("intakeLine — what the upload did", () => {
     expect(intakeLine("B12-W.ifc", reply())).toBe("Uploaded B12-W.ifc v2 — accepted (ids@1: 3/3 passed) · ledger #812 · receipt 6e7f8091a2b3c4d5…");
   });
 
-  it("recorded: says it was not judged and carries the bridge's note", () => {
+  it("recorded: says the IDS did not judge it and carries the bridge's note", () => {
     const r = reply({ verdict: "recorded", ids_ref: null, version: { revision: "v1" }, note: "No contract and no IDS installed for b12-hold or its office — nothing was judged." });
-    expect(intakeLine("B12-R.ifc", r)).toBe("Uploaded B12-R.ifc v1 — recorded, not judged · No contract and no IDS installed for b12-hold or its office — nothing was judged. · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+    expect(intakeLine("B12-R.ifc", r)).toBe("Uploaded B12-R.ifc v1 — recorded (the IDS did not judge it) · No contract and no IDS installed for b12-hold or its office — nothing was judged. · ledger #812 · receipt 6e7f8091a2b3c4d5…");
   });
 
   it("a gate FAIL uploads nothing and is held, with the hold row's line", () => {
@@ -62,6 +70,8 @@ describe("intakeLine — what the upload did", () => {
   it("an IDS reject names the IDS and counts its failures; a naming warning does not make it a naming refusal", () => {
     const r = rejected({ naming: { ok: false, enforce: "warn", failures: [{}] }, failures: [{}, {}, {}, {}] });
     expect(intakeLine("B12-W.ifc", r)).toBe("Not uploaded — the IDS refused B12-W.ifc (4 failure(s)) · On hold · ledger #915 · receipt a1b2c3d4e5f60718…");
+    // the referee cuts its list at 200: the count is its failures_total, never the list's length
+    expect(intakeLine("B12-W.ifc", { ...r, failures_total: 250 })).toBe("Not uploaded — the IDS refused B12-W.ifc (250 failure(s)) · On hold · ledger #915 · receipt a1b2c3d4e5f60718…");
   });
 
   it("a refusal the bridge did not hold says so; a hold row without a chain hash is not confirmed", () => {
@@ -71,7 +81,7 @@ describe("intakeLine — what the upload did", () => {
 
   it("an upload that failed after the verdict: judged, not uploaded, nothing registered", () => {
     expect(intakeLine("B12-W.ifc", reply({ stage: "upload_failed", version: null, error: "platform upload HTTP 503" })))
-      .toBe("Judged accepted, not uploaded — platform upload HTTP 503. Nothing was registered · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+      .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Nothing was registered · ledger #812 · receipt 6e7f8091a2b3c4d5…");
   });
 });
 

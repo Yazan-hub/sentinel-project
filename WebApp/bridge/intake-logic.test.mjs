@@ -5,7 +5,7 @@ import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
 const bytes = Buffer.from("ISO-10303-21;");
 const contractSha = "cd".repeat(32);
 const noneLabel = "none — not installed for aster-tower or its office";
-function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1, namingRefused = false, held = { id: 701, hash: "71".repeat(32) } } = {}) {
+function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1, namingRefused = false, failuresTotal, held = { id: 701, hash: "71".repeat(32) } } = {}) {
   const calls = [];
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
   const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
@@ -22,7 +22,7 @@ function stubs({ gatePass = true, contract = "office", verdict = "accepted", upl
     checkDelivery: rec("checkDelivery", { result: gatePass ? "pass" : "fail", passed: gatePass, contract_key: "parity-ifc4", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
     gateNotChecked: rec("gateNotChecked", (_bytes, reason) => ({ result: "not_checked", passed: null, reason, contract_key: null, detected_schema: "IFC4", total_entities: null, entity_counts: {}, failures: [], warnings: [], sha256: "ab".repeat(32), size: 13 })),
     extractElements: rec("extractElements", { elements: [{ identity: { Class: "IFCDOOR", GlobalId: "g1" }, psets: [], quantities: [] }], schema: "IFC4", counts: { elements: 1, skipped: 0, by_class: { IFCDOOR: 1 } } }),
-    adjudicate: rec("adjudicate", { verdict: downgraded ? "recorded" : verdict, downgraded, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: namingRefused ? { ok: false, enforce: "reject", failures: [{ field: "*", reason: "expected 11 fields, got 1" }] } : { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" }, hold: verdict === "rejected" ? { id: 902, hash: "92".repeat(32) } : null }),
+    adjudicate: rec("adjudicate", { verdict: downgraded ? "recorded" : verdict, downgraded, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, failures_total: failuresTotal ?? failures.length, naming: namingRefused ? { ok: false, enforce: "reject", failures: [{ field: "*", reason: "expected 11 fields, got 1" }] } : { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" }, hold: verdict === "rejected" ? { id: 902, hash: "92".repeat(32) } : null }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
     uploadIfc: uploadFails ? rec("uploadIfc", () => { throw new Error("platform 401"); }) : rec("uploadIfc", { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9 }),
     registerFileVersion: rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: "item-1", is_live: true } }),
@@ -57,10 +57,11 @@ describe("runIntake", () => {
     const noRow = await runIntake(stubs({ gatePass: false, held: {} }), input);
     expect(noRow.hold).toEqual({ id: null, hash: null });
   });
-  it("rejected by the IDS: gate PASS audited, BCF raised, no version; the referee gets intake's own argument and its hold is the reply's", async () => {
-    const d = stubs({ verdict: "rejected" });
+  it("rejected by the IDS: gate PASS audited, BCF raised, no version; the referee gets intake's own argument, its hold and its failures_total (the count before its cut at 200) are the reply's", async () => {
+    const d = stubs({ verdict: "rejected", failuresTotal: 250 });
     const r = await runIntake(d, input);
-    expect(r).toMatchObject({ verdict: "rejected", stage: "ids", published: false, ids_source: "project", ids_ref: "ids@1", hold: { id: 902, hash: "92".repeat(32) } });
+    expect(r).toMatchObject({ verdict: "rejected", stage: "ids", published: false, ids_source: "project", ids_ref: "ids@1", hold: { id: 902, hash: "92".repeat(32) }, failures_total: 250 });
+    expect(r.failures).toHaveLength(1);
     expect(r.bcf).toEqual({ raised: 1 });
     expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "raiseBcf"]);
     const [, , adjBody, adjOpts] = d.calls.find((c) => c[0] === "adjudicate");

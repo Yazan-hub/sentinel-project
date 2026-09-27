@@ -25,6 +25,7 @@ export interface IntakeReply {
   gate?: { failures?: unknown[] } | null;
   naming?: { ok: boolean; enforce?: string; failures?: unknown[] } | null;
   failures?: unknown[];
+  failures_total?: number; // the IDS failures before the referee cut its list at 200
   summary?: { in_scope?: number; passing?: number } | null;
   ids_ref?: string | null;
   audit_id?: number | null;
@@ -42,23 +43,36 @@ export const CLEARED_BY_RECORDED = "cleared by a registration that was not judge
 const at = (baseUrl: string, key: string, path: string) => `${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
 
 /** POST the file to /cde/:key/intake?name&source=web&revision&note — the only door a web upload takes (no /ifc, no
- *  /files). The bridge judges first and uploads and registers only an accepted or recorded file. A refusal before any
- *  judgement (a 4xx or 5xx) throws the bridge's words. */
+ *  /files). The bridge judges first and uploads and registers only an accepted or recorded file. Any other answer
+ *  throws the bridge's words with its HTTP status (uploadFailedLine words it). */
 export async function uploadThroughIntake(baseUrl: string, key: string, file: Blob, o: { name: string; revision: string; who: string }): Promise<IntakeReply> {
   const q = [["name", o.name], ["source", "web"], ["revision", o.revision], ["note", `uploaded via web by ${o.who}`]]
     .map(([n, v]) => `${n}=${encodeURIComponent(v)}`).join("&");
   const r = await bfetch(`${at(baseUrl, key, "intake")}?${q}`, { method: "POST", headers: { "Content-Type": "application/x-step" }, body: file });
   const j = (await r.json().catch(() => null)) as (IntakeReply & { message?: string }) | null;
-  if (!r.ok || !j) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok || !j) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { status: r.status });
   return j;
+}
+
+// The answers the bridge gives before it stores anything (the rule Revit keeps, tools/event-check). Any other status,
+// or no answer at all, may come after the bridge uploaded or registered the file.
+const NOT_STORED = [400, 401, 403, 404, 413, 503];
+
+/** The status line for an upload that threw: "Not uploaded" only when the bridge's answer says nothing was stored;
+ *  a transport error or any other status (a 500 after the platform upload, a 504 through the tunnel) is not confirmed. */
+export function uploadFailedLine(e: unknown): string {
+  const { message, status } = e as { message?: string; status?: number };
+  return status !== undefined && NOT_STORED.includes(status)
+    ? `Not uploaded — ${message}`
+    : `Not confirmed — ${message} (the bridge may have stored it; ↻ to check)`;
 }
 
 /** Which judge refused, in the panel's words: the gate; else the naming standard when it rejected under enforce reject
  *  (the bridge's own rule, cde-store adjudicateProposal); else the IDS. */
-function refusedBy(r: IntakeReply): { words: string; failures: unknown[] } {
-  if (r.stage === "gate") return { words: "the delivery gate", failures: r.gate?.failures ?? [] };
-  if (r.naming?.ok === false && r.naming.enforce === "reject") return { words: "the naming standard", failures: r.naming.failures ?? [] };
-  return { words: "the IDS", failures: r.failures ?? [] };
+function refusedBy(r: IntakeReply): { words: string; n: number } {
+  if (r.stage === "gate") return { words: "the delivery gate", n: (r.gate?.failures ?? []).length };
+  if (r.naming?.ok === false && r.naming.enforce === "reject") return { words: "the naming standard", n: (r.naming.failures ?? []).length };
+  return { words: "the IDS", n: r.failures_total ?? (r.failures ?? []).length };
 }
 
 /** The status line after an upload: what judged it, whether anything was stored, and the ledger row that says so. */
@@ -66,11 +80,11 @@ export function intakeLine(name: string, r: IntakeReply): string {
   if (r.verdict === "rejected") {
     const by = refusedBy(r);
     const held = r.hold ? `On hold · ${ledgerLine(r.hold)}` : "not on hold — the bridge returned no hold row";
-    return `Not uploaded — ${by.words} refused ${name} (${by.failures.length} failure(s)) · ${held}`;
+    return `Not uploaded — ${by.words} refused ${name} (${by.n} failure(s)) · ${held}`;
   }
   const row = ledgerLine({ id: r.audit_id ?? null, hash: r.receipt?.ledger_hash ?? null });
-  if (r.stage === "upload_failed") return `Judged ${r.verdict}, not uploaded — ${r.error ?? "the platform upload failed"}. Nothing was registered · ${row}`;
-  const judged = r.verdict === "accepted" ? `accepted (${r.ids_ref ?? "IDS"}: ${r.summary?.passing ?? 0}/${r.summary?.in_scope ?? 0} passed)` : "recorded, not judged";
+  const judged = r.verdict === "accepted" ? `accepted (${r.ids_ref ?? "IDS"}: ${r.summary?.passing ?? 0}/${r.summary?.in_scope ?? 0} passed)` : "recorded (the IDS did not judge it)";
+  if (r.stage === "upload_failed") return `${name} ${judged} — not uploaded: ${r.error ?? "the platform upload failed"}. Nothing was registered · ${row}`;
   return `Uploaded ${name}${r.version?.revision ? " " + r.version.revision : ""} — ${judged}${r.note ? " · " + r.note : ""} · ${row}`;
 }
 

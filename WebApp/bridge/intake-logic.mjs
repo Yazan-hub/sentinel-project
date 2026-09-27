@@ -44,7 +44,8 @@ export async function runIntake(deps, rawInput) {
   if (gate.result === "fail") {
     // A refused file is held (spec 2026-09-27 Decision 4) — a ledger row, never the bytes. deps.writeHold writes the
     // hold:gate row only when the caller could register the file and answers the stored row ({} when none came back),
-    // or null when it wrote nothing.
+    // or null when it wrote nothing (cde-store holdIfCouldRegister). It runs after the gate row is on the ledger: a
+    // failure there throws (a 500, its message scrubbed) and the FAIL stands on the ledger unheld.
     const h = await deps.writeHold(key, {
       stage: "gate", container_name: name, sha256: gate.sha256, size_bytes: gate.size, verdict: "rejected", failures: gate.failures,
       source: source === "web" ? "web" : "intake", gate_row_id: gateRowId, proposal_row_id: null, contract_ref: gate.contract_ref ?? null, ids_ref: null, naming_ref: null, actor,
@@ -59,7 +60,8 @@ export async function runIntake(deps, rawInput) {
   const result = await deps.adjudicate(key, { source, actor, agent, elements: extracted.elements, container_name: name, note },
     { intake: { source, sha256: gate.sha256, size_bytes: gate.size, gate_row_id: gateRowId } });
   const judged = {
-    ...base, naming: result.naming ?? null, summary: result.summary ?? null, failures: result.failures || [],
+    // failures_total: the referee's count before it cut the list at 200.
+    ...base, naming: result.naming ?? null, summary: result.summary ?? null, failures: result.failures || [], failures_total: result.failures_total,
     ids_source: result.ids_source, ids_ref: result.ids_ref ?? null, ids_enforce: result.ids_enforce ?? null, warned: !!result.warned,
     audit_id: result.audit_id ?? null, receipt: result.receipt ?? null,
     extracted: extracted.counts,
