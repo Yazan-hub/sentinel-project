@@ -39,12 +39,15 @@ beforeEach(() => {
     if (table === "rpc/is_platform_admin") { rpcCalls++; return json(auth === `Bearer ${jwt(ADMIN)}`); }
     if (table === "projects" && method === "POST") {
       const b = JSON.parse(init.body);
+      // 0029/0033's projects_office_guard: office_key must name a row of kind office. "tower" is a plain project.
+      if (b.office_key === "tower") return json({ code: "P0001", message: "office_key must name a project of kind office" }, 400);
       posts.push(b);
       created = { id: NEW_ID, metadata: {}, ...b };
       return new Response(null, { status: 201 });
     }
     if (table === "projects" && method === "PATCH") {
       const b = JSON.parse(init.body);
+      if (b.office_key === "tower") return json({ code: "P0001", message: "office_key must name a project of kind office" }, 400);
       patches.push(b);
       return json([{ ...project, ...b }]);
     }
@@ -98,6 +101,14 @@ describe("createProject — POST /cde/projects", () => {
     expect(posts).toMatchObject([{ key: "annex", office_key: "office-a" }]);
     expect(rpcCalls).toBe(0);
   });
+
+  it("a 400 in words, not a scrubbed 500, when office_key names a plain project (H0 minor N17)", async () => {
+    // requireOfficeLead checks lead/admin, not kind — the machine credential passes it and reaches 0029/0033's
+    // projects_office_guard, which raises P0001 for a non-office office_key.
+    await expect(createProject({ name: "annex", office_key: "tower" }))
+      .rejects.toMatchObject({ status: 400, message: "office_key must name a project of kind office" });
+    expect(posts).toEqual([]);
+  });
 });
 
 describe("updateProject — PATCH /cde/projects/:key", () => {
@@ -124,5 +135,11 @@ describe("updateProject — PATCH /cde/projects/:key", () => {
   it("lets the office's lead attach the project", async () => {
     await runWithAuth(jwt(LEAD), () => updateProject("tower", { office_key: "office-a" }, "web"));
     expect(patches).toEqual([{ office_key: "office-a" }]);
+  });
+
+  it("a 400 in words, not a scrubbed 500, when office_key names a plain project (H0 minor N17)", async () => {
+    await expect(runWithAuth(jwt(ADMIN), () => updateProject("tower", { office_key: "tower" }, "web")))
+      .rejects.toMatchObject({ status: 400, message: "office_key must name a project of kind office" });
+    expect(patches).toEqual([]);
   });
 });

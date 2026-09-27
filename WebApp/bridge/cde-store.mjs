@@ -332,6 +332,10 @@ export async function createProject(b = {}) {
     // hits projects.key unique (23505). Say so in words (409) instead of a scrubbed 500. A create on a taken key can only
     // fail, so this names nothing a prober lacks (ai-3, cde-9).
     if (e?.body?.code === "23505") throw Object.assign(new Error(`The name "${key}" is taken — choose another name (nothing was created).`), { status: 409 });
+    // 0029/0033's projects_office_guard (H0 minor N17): office_key must name a row of kind office. requireOfficeLead
+    // checks lead/admin, not kind, so an admin or the machine credential naming a plain project's key as office_key
+    // reaches the database guard, which raises P0001 with no SQLSTATE the client would use — say so in words (400).
+    if (e?.body?.code === "P0001") throw Object.assign(new Error(String(e.body.message || "office_key must name a project of kind office")), { status: 400 });
     throw e;
   }
   const row = (await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }))[0];
@@ -383,7 +387,16 @@ export async function updateProject(key, patch = {}, actor) {
   if (body.kind === "office" && proj.kind !== "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
   if (body.office_key && body.office_key !== (proj.office_key ?? null)) await members.requireOfficeLead(body.office_key);
 
-  const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+  let rows;
+  try {
+    rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+  } catch (e) {
+    // 0029/0033's projects_office_guard (H0 minor N17): office_key must name a row of kind office. requireOfficeLead
+    // checks lead/admin, not kind, so an admin or the machine credential naming a plain project's key as office_key
+    // reaches the database guard, which raises P0001 with no SQLSTATE the client would use — say so in words (400).
+    if (e?.body?.code === "P0001") throw Object.assign(new Error(String(e.body.message || "office_key must name a project of kind office")), { status: 400 });
+    throw e;
+  }
   const row = Array.isArray(rows) ? rows[0] : null;
   // As in patchProjectMeta: a write the projects_update policy refused comes back with no row — a 403, never a 200.
   if (!row) throw Object.assign(new Error("the project's settings are changed by a lead or owner — nothing was saved"), { status: 403 });
