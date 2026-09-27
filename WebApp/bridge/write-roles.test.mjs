@@ -257,3 +257,43 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(writes("bridge_docs")).toEqual([]);
   });
 });
+
+describe("BCF topics (topics-1): a contributor's work; closing or renaming a governed topic a lead's", () => {
+  const topic = (guid, title) => ({ guid, project_id: "demo", title, topic_type: "Issue", topic_status: "Open", creation_author: "IDS", comments: [], viewpoints: [], history: [] });
+  const seedTopic = (t) => db.bcf_topics.push({ guid: t.guid, project_id: "demo", topic_status: t.topic_status, model: "", data: t });
+  const T = "/bcf/3.0/projects/demo/topics";
+
+  it("a viewer creates, edits, comments on and adds a viewpoint to nothing — a 403, not a 500", async () => {
+    seedTopic(topic("G1", "Door clash"));
+    for (const [method, path, body] of [["POST", T, { title: "X" }], ["PUT", `${T}/G1`, { topic_status: "Closed" }], ["POST", `${T}/G1/comments`, { comment: "c" }], ["POST", `${T}/G1/viewpoints`, {}]])
+      expect(await call(method, path, "viewer", body)).toEqual(refused("contributor", "viewer"));
+    expect(writes("bcf_topics")).toEqual([]);
+  });
+
+  it("a contributor's close or rename of an IDS: or Federation: topic is a 403; their other edits and a lead's close go through", async () => {
+    seedTopic(topic("G1", "IDS: Doors — FireRating (3 failing)"));
+    seedTopic(topic("G2", "Federation: FG-01 Levels (2)"));
+    expect(await call("PUT", `${T}/G1`, "contributor", { topic_status: "Closed" })).toEqual(refused("lead", "contributor"));
+    expect(await call("PUT", `${T}/G1`, "contributor", { title: "Doors" })).toEqual(refused("lead", "contributor"));
+    expect(await call("PUT", `${T}/G2`, "contributor", { topic_status: "resolved" })).toEqual(refused("lead", "contributor"));
+    expect(writes("bcf_topics")).toEqual([]);
+    expect((await call("PUT", `${T}/G1`, "contributor", { priority: "Low" })).status).toBe(200);
+    expect((await call("PUT", `${T}/G1`, "lead", { topic_status: "Resolved" })).body.topic_status).toBe("Resolved");
+    expect((await call("PUT", `${T}/G2`, "machine", { topic_status: "Closed", author: "Revit" })).body.topic_status).toBe("Closed"); // Revit's status sync
+  });
+
+  it("a contributor closes a plain topic, and a resolving version is written to the history", async () => {
+    seedTopic(topic("G1", "Door clash"));
+    expect((await call("PUT", `${T}/G1`, "contributor", { topic_status: "Closed" })).status).toBe(200);
+    const r = await call("PUT", `${T}/G1`, "contributor", { resolved_by_version: "v-9" });
+    expect(r.body.resolved_by_version).toBe("v-9");
+    expect(r.body.history.at(-1)).toMatchObject({ author: "contributor@example.test", action: "Resolved by version: v-9" });
+  });
+
+  it("a contributor's IDS raise is on the ledger by their identity (the row the web used to write through POST /cde/:key/audit)", async () => {
+    const r = await call("POST", T, "contributor", { title: "IDS: Doors — FireRating (3 failing)", creation_author: "IDS", description: "IDS “Aster IDS” — 3 element(s) fail: Doors — FireRating." });
+    expect(r.status).toBe(201);
+    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["ids_validation", "Issue raised: Doors — FireRating", "contributor@example.test"]]);
+    expect(db.audit_log[0].new_value).toEqual({ spec: "Aster IDS", requirement: "Doors — FireRating", failing: 3, bcf_guid: r.body.guid });
+  });
+});

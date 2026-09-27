@@ -315,6 +315,14 @@ function broadcast(project, payload) {
 let _core = null;
 const loadCore = async () => (_core ??= await import("./sentinel-core.mjs"));
 
+// A governed topic — raised by the IDS or Federation judges, counted by the stage gate — is closed or renamed only by a
+// lead (H0 D4, topics-1): closing it lowers the gate's open-issue count, renaming it takes it out of this rule.
+const GOVERNED_TOPIC = /^(IDS|Federation):/;
+const CLOSED_TOPIC = /^(closed|resolved)$/i; // stage-gate.mjs readGateInputs' own rule for "not open"
+const governedEditNeedsLead = (topic, b) => GOVERNED_TOPIC.test(String(topic.title || ""))
+  && ((b.topic_status !== undefined && CLOSED_TOPIC.test(String(b.topic_status)) && !CLOSED_TOPIC.test(String(topic.topic_status || "")))
+    || (b.title !== undefined && b.title !== topic.title));
+
 /** The canonical BCF-3.0 topic object — one shape shared by the POST /topics route and the governed
  *  fail→BCF hook, so a machine-raised issue is byte-identical to a hand-raised one (same fields the web
  *  Issues panel + Revit BcfSyncManager expect). */
@@ -1819,6 +1827,11 @@ async function handleRequest(req, res) {
     // where the topic is read from / written to differs. The local bcf-store.json is kept as a backup.
     const cde = await import("./cde-store.mjs");
     const useCde = cde.cdeConfigured();
+    // H0 (D4, topics-1): creating, editing, commenting on and adding a viewpoint to a topic is a contributor's work; a
+    // viewer writes nothing. Closing or renaming a governed topic is a lead's — that needs the topic, so the PUT below
+    // asks. Asked before the body is read; the machine credential (Revit's sync) passes as service.
+    const { requireMinRole } = await import("./members-store.mjs");
+    if (req.method !== "GET") await requireMinRole(pid, "contributor");
 
     // GET topics (filter by status + model) — what BcfSyncManager.FetchActiveAsync calls
     if (req.method === "GET" && !guid) {
@@ -1838,6 +1851,14 @@ async function handleRequest(req, res) {
       const topic = cde.newTopicObject(pid, b, now);
       if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
       broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+      // The web's IDS raise (visibility-panel) wrote this ledger row itself through POST /cde/:key/audit, a lead's notes
+      // since H0 (D11): the bridge records the raise, by the verified identity, as raiseGovernedFailureTopics does.
+      const ids = useCde && /^IDS:\s*(.+?)\s*\((\d+) failing\)\s*$/.exec(topic.title);
+      if (ids) {
+        const spec = /^IDS “(.+?)”/.exec(topic.description || "")?.[1] ?? null;
+        try { await cde.recordAudit(pid, { entity_type: "ids_validation", actor: topic.creation_author, action: `Issue raised: ${ids[1]}`, new_value: { spec, requirement: ids[1], failing: Number(ids[2]), bcf_guid: topic.guid } }); }
+        catch (e) { console.warn(`[bcf] ids_validation row for ${topic.guid} not written: ${e?.message || e}`); }
+      }
       return send(res, 201, topic);
     }
     const topic = useCde ? await cde.bcfGetTopic(pid, guid) : db.topics.find((t) => inProject(t) && t.guid === guid);
@@ -1848,6 +1869,7 @@ async function handleRequest(req, res) {
     // PUT — edit fields (status/priority/assignee/etc.); each change is logged to history.
     if (req.method === "PUT" && guid && !sub) {
       const b = await readBody(req);
+      if (governedEditNeedsLead(topic, b)) await requireMinRole(pid, "lead");
       const who = resolveActor(b.author, "web");
       const now = new Date().toISOString();
       for (const [k, label] of [["topic_status", "Status"], ["priority", "Priority"], ["assigned_to", "Assignee"], ["due_date", "Due date"], ["title", "Title"], ["description", "Description"]]) {
@@ -1856,7 +1878,10 @@ async function handleRequest(req, res) {
           topic[k] = b[k];
         }
       }
-      if (b.resolved_by_version) topic.resolved_by_version = b.resolved_by_version;
+      if (b.resolved_by_version && b.resolved_by_version !== topic.resolved_by_version) {
+        topic.history.push({ date: now, author: who, action: `Resolved by version: ${b.resolved_by_version}` });
+        topic.resolved_by_version = b.resolved_by_version;
+      }
       topic.modified_date = now;
       await saveTopic();
       broadcast(pid, { type: "topic", action: "updated", guid: topic.guid, status: topic.topic_status });
