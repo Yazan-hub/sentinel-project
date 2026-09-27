@@ -1387,11 +1387,18 @@ async function handleRequest(req, res) {
             try {
               const ref = `ids@${pointer.version}`, who = resolveActor(actor, "web");
               pointer.superseded_topics = await markSupersededIdsTopics(cde, p1, ref, who);
-              // An office install also supersedes the office-raised topics of every project in its scope.
+              // An office install also supersedes the office-raised topics of every project in its scope. H0 minor
+              // N26: one refused project (e.g. its lead reset the register mid-loop) used to stop the whole loop —
+              // each project now gets its own try, so a refusal is recorded and the rest still run.
               const { projectScope } = await import("./office-scope.mjs");
               const scope = await projectScope(p1);
-              if (scope.kind === "office")
-                for (const k of scope.keys.slice(1)) pointer.superseded_topics.push(...await markSupersededIdsTopics(cde, k, ref, who, "supersededByOffice"));
+              if (scope.kind === "office") {
+                pointer.superseded_refused = [];
+                for (const k of scope.keys.slice(1)) {
+                  try { pointer.superseded_topics.push(...await markSupersededIdsTopics(cde, k, ref, who, "supersededByOffice")); }
+                  catch (e) { pointer.superseded_refused.push({ project: k, error: String(e?.message || e) }); }
+                }
+              }
             }
             catch (e) { pointer.superseded_error = String(e?.message || e); }
           }

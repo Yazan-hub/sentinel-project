@@ -180,6 +180,12 @@ describe("bcfSaveTopic — a topic save that changed nothing is a refusal, so no
     expect(rest.calls[0]).toMatchObject({ table: "bcf_topics", method: "PATCH", prefer: "return=representation" });
   });
 
+  it("asks PostgREST for only the guid back, not the full jsonb `data` column (H0 minor N27)", async () => {
+    db.bcf_topics = [{ guid: G, project_id: "demo", topic_status: "Open", model: "", data: {} }];
+    await bcfSaveTopic(topic);
+    expect(rest.calls.at(-1).search).toContain("select=guid");
+  });
+
   it("answers the topic when its row came back", async () => {
     db.bcf_topics = [{ guid: G, project_id: "demo", topic_status: "Open", model: "", data: {} }];
     expect(await bcfSaveTopic(topic)).toBe(topic);

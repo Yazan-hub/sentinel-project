@@ -1713,7 +1713,9 @@ export async function bcfCreateTopic(topic) {
 /** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). A save the database
  *  changed nothing with is a 403 — the IDS supersede writers put a ledger row after these saves (H0 D5). */
 export async function bcfSaveTopic(topic) {
-  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
+  // requireRows only needs to know a row came back — &select=guid (H0 minor N27) keeps PostgREST from also
+  // returning the full jsonb `data` column (comments, viewpoints, snapshots) on every save.
+  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}&select=guid`, {
     method: "PATCH",
     body: { data: topic, topic_status: topic.topic_status, model: topic.model || "", modified_at: new Date().toISOString() },
     prefer: "return=representation",

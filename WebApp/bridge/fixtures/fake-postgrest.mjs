@@ -12,7 +12,7 @@ export function fakePostgrest(db, { refuse = [] } = {}) {
     const method = init.method || "GET";
     const body = init.body ? JSON.parse(init.body) : null;
     const prefer = init.headers?.Prefer || "";
-    calls.push({ table, method, prefer, body });
+    calls.push({ table, method, prefer, body, search: u.search });
     const rows = (db[table] ||= []);
     const eqs = [...u.searchParams].filter(([, v]) => v.startsWith("eq."));
     const hit = (r) => eqs.every(([k, v]) => String(r[k]) === v.slice(3));

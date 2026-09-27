@@ -671,8 +671,11 @@ export function modelPanel(components: OBC.Components, opts: { baseUrl?: string 
       const resp = await bfetch(url, { method: "POST", headers: { "Content-Type": "application/x-step" }, body: ifc });
       const j = await resp.json().catch(() => ({}));
       if (!resp.ok) {
+        // A 503 can now also be requireSpendFor's own "CDE not configured" or "does not forward sign-ins" refusal
+        // (H0 minors N21/N47) — only append the THATOPEN advice when the bridge's own words actually name that
+        // platform's config, so those other refusals aren't shown with the wrong fix.
         status(
-          resp.status === 503
+          resp.status === 503 && /THATOPEN_/.test(String(j.message || ""))
             ? `Bridge reachable but not configured: ${j.message}. Set THATOPEN_API_KEY + THATOPEN_PROJECT_ID in config/.env and restart start.ps1.`
             : `Upload failed (${resp.status}): ${j.message || "see the bridge console"}.`,
         );
