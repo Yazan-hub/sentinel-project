@@ -55,8 +55,7 @@ export function comparePublic(row, claim, routeKey) {
   return { matches: mismatched.length === 0, checked, mismatched, not_checked, note: HIT_NOTE };
 }
 
-/** A global in-process fixed window: `max` takes per `windowMs`, then false until the window turns.
- *  ponytail: one window for every caller — per-IP limits wait until the Funnel's forwarded address is verified. */
+/** An in-process fixed window: `max` takes per `windowMs`, then false until the window turns. */
 export function createLimiter({ max = 60, windowMs = 60000, now = Date.now } = {}) {
   let start = now(), used = 0;
   return {
@@ -70,17 +69,67 @@ export function createLimiter({ max = 60, windowMs = 60000, now = Date.now } = {
   };
 }
 
+/** One fixed window per key (a caller's address), at most `maxKeys` of them: past that the oldest window is dropped,
+ *  so a flood of fresh keys can restart a window early but never grow memory. */
+export function createKeyedLimiter({ max = 60, windowMs = 60000, maxKeys = 10000, now = Date.now } = {}) {
+  const windows = new Map();
+  return {
+    take(key) {
+      let l = windows.get(key);
+      if (!l) {
+        if (windows.size >= maxKeys) windows.delete(windows.keys().next().value);
+        windows.set(key, (l = createLimiter({ max, windowMs, now })));
+      }
+      return l.take();
+    },
+    size: () => windows.size,
+  };
+}
+
+/** The caller's address as the proxy in front of the bridge (the Funnel) saw it: the LAST X-Forwarded-For entry — a
+ *  proxy appends the address it accepted the connection from, so anything a client wrote itself sits to its left —
+ *  else the socket's own address. This holds only behind a proxy that appends the header: on a direct non-loopback
+ *  bind a caller writes its own X-Forwarded-For, and behind a proxy that forwards none every caller shares the
+ *  proxy's address (the per-caller window then acts as one global window). */
+export const clientAddress = (req) =>
+  String(req.headers?.["x-forwarded-for"] || "").split(",").pop().trim() || req.socket?.remoteAddress || "unknown";
+
+/** One caller for the limits: an IPv4 address (or an IPv4-mapped one) as it is; an IPv6 address folded to its /64,
+ *  since a provider hands a single subscriber the whole block and every address in it would otherwise be a fresh
+ *  caller. */
+export function callerKey(address) {
+  const a = String(address).trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
+  if (mapped) return mapped[1];
+  if (!a.includes(":")) return a;
+  const [head, tail] = a.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+/** A receipt check is a few hundred bytes: it arrives whole within 3 s, or it is a 408. Without a deadline a check
+ *  that sends 1 byte of 100 held its socket for the server's 30 min, and 256 of them locked every caller out; the
+ *  shorter the hold, the more sources it takes to keep the read slots full. */
+export const PUBLIC_BODY_MS = 3_000;
+
 /** The request body as text, or null when it is over `max` bytes — declared (answered unread) or streamed (the rest
  *  drained unbuffered, never cut: a destroyed socket could not carry the 413, which the caller sends with
- *  Connection: close). */
-export const readCapped = (req, max = PUBLIC_BODY_MAX) => new Promise((resolve) => {
+ *  Connection: close). Rejects with .status 408 when the body is not whole within `ms`, and 400 when the caller
+ *  goes away first; send() closes the connection on either. */
+export const readCapped = (req, max = PUBLIC_BODY_MAX, ms = PUBLIC_BODY_MS) => new Promise((resolve, reject) => {
   if (Number(req.headers?.["content-length"] || 0) > max) return resolve(null);
   let chunks = [], total = 0;
+  const refuse = (status, message) => { clearTimeout(timer); chunks = null; reject(Object.assign(new Error(message), { status })); };
+  const timer = setTimeout(() => refuse(408, `a receipt check must arrive within ${ms / 1000} s`), ms);
+  const done = (v) => { clearTimeout(timer); resolve(v); };
   req.on("data", (c) => {
     if (!chunks) return; // over the cap: the stream keeps flowing, nothing is kept
     total += c.length;
-    if (total > max) { chunks = null; resolve(null); } else chunks.push(c);
+    if (total > max) { chunks = null; done(null); } else chunks.push(c);
   });
-  req.on("end", () => { if (chunks) resolve(Buffer.concat(chunks).toString("utf8")); });
-  req.on("error", () => resolve(null));
+  req.on("end", () => { if (chunks) done(Buffer.concat(chunks).toString("utf8")); });
+  req.on("error", () => done(null));
+  req.on("close", () => refuse(400, "the request ended before its body did")); // after "end" this is a no-op
 });

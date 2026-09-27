@@ -233,7 +233,8 @@ export function projectsHubPanel(
           actor: "web",
         }),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      // The bridge's refusal says why (an office is a platform admin's to make; a project joins an office through its lead).
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { message?: string }).message || `HTTP ${r.status}`);
       const created: Project = await r.json();
       toggleForm();
       await load();

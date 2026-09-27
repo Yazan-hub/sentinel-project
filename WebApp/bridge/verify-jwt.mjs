@@ -62,6 +62,7 @@ function claimsOk(payloadB64) {
   try {
     const payload = b64json(payloadB64);
     if (payload.role !== "authenticated") return false;
+    if (payload.is_anonymous === true) return false; // a Supabase anonymous sign-in is nobody's account (D1)
     return !payload.exp || payload.exp * 1000 > Date.now();
   } catch { return false; }
 }

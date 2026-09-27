@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -241,7 +241,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     const reqs = Object.entries(groupFailures(lastRes));
     if (!reqs.length) { status("Nothing to raise — all compliant."); return; }
     const post = (path: string, body: unknown) =>
-      bfetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      bwrite<{ guid?: string } | null>(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     // Dedup: skip requirements that already have an OPEN IDS topic (no duplicates on re-raise).
     status("Checking existing issues…");
     let existing: unknown = [];
@@ -250,35 +250,35 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
       (Array.isArray(existing) ? existing : [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .filter((t: any) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
+        // Trimmed, then an end-anchored suffix — `\s*\(…\)\s*$` backtracked quadratically over a stored whitespace run.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((t: any) => String(t.title).replace(/^IDS:\s*/, "").replace(/\s*\(\d+ failing\)\s*$/, "")),
+        .map((t: any) => String(t.title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd()),
     );
     const todo = reqs.filter(([req]) => !openReqs.has(req));
     const skipped = reqs.length - todo.length;
     if (!todo.length) { status(`All ${reqs.length} requirement(s) already have open BCF issues — nothing new to raise.`); return; }
     status(`Raising ${todo.length} new issue(s)${skipped ? ` (${skipped} already tracked)` : ""}…`);
-    let raised = 0;
+    let raised = 0, refusal: string | null = null;
     for (const [req, info] of todo) {
       try {
-        const topic = await (await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
+        // The bridge writes the ids_validation ledger row for this raise itself, by the verified identity (H0 D11).
+        const topic = await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
           title: `IDS: ${req} (${info.count} failing)`,
           topic_type: "Issue", priority: "High", creation_author: "IDS",
           description: `IDS “${idsSpec.title}” — ${info.count} element(s) fail: ${req}.` +
             (info.guids.length ? ` Sample GUIDs: ${info.guids.slice(0, 10).join(", ")}` : ""),
-        })).json().catch(() => ({}));
-        if ((topic as { guid?: string })?.guid && info.guids.length) {
-          await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${(topic as { guid: string }).guid}/viewpoints`, {
+        });
+        if (topic?.guid && info.guids.length) {
+          await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${topic.guid}/viewpoints`, {
             components: { selection: info.guids.slice(0, 500).map((g) => ({ ifc_guid: g })) },
           }).catch(() => {});
         }
-        await post(`/cde/${encodeURIComponent(pid())}/audit`, {
-          entity_type: "ids_validation", actor: "IDS", action: `Issue raised: ${req}`,
-          new_value: { spec: idsSpec.title, requirement: req, failing: info.count, bcf_guid: (topic as { guid?: string })?.guid ?? null },
-        }).catch(() => {});
         raised++;
-      } catch { /* keep going */ }
+      } catch (e) { refusal ??= (e as Error).message; /* keep going */ }
     }
-    status(`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in the CDE audit (hash-chained).`);
+    if (!raised && refusal) { status(`Nothing raised — ${refusal}`); return; }
+    status(`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in the CDE audit (hash-chained).` +
+      (refusal ? ` ${todo.length - raised} not raised — ${refusal}` : ""));
   }
 
   async function isolateRequirement(req: string) {

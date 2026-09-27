@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { runFederation, getFederation } from "./federation-store.mjs";
 import { refLabel } from "./artefact-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 const NONE = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
 
@@ -24,6 +25,7 @@ function memDeps({ manifests = { "v-1": mA, "v-2": mB }, verdicts = { "v-1": "ac
     getManifest: async (key, vid) => manifests[vid] ?? null,
     versionVerdicts: async () => verdicts,
     resolveArtefact: async () => NONE,
+    requireMinRole: async () => {}, // a role that passes; the role tests below replace it
   };
 }
 
@@ -129,5 +131,45 @@ describe("getFederation", () => {
       { container: "B-0102.ifc", container_id: "c-2", version_id: "v-2", revision: "P01", has_manifest: true, captured_at: "now" },
     ];
     expect((await getFederation("p", d)).stale).toBe(true);
+  });
+});
+
+// H0 (D4, cde-rem-6): a run writes the latest document, a federation_gate ledger row and (on a FAIL) BCF topics — a
+// contributor's; the bridge then writes the document with the service key, so the store can be closed to direct writes.
+describe("runFederation — who may run it", () => {
+  it("a viewer runs nothing: a 403 before any read, no latest document and no ledger row", async () => {
+    const d = { ...memDeps(), requireMinRole: async (_key, min) => { throw Object.assign(new Error(`this action requires the ${min} role (you are viewer)`), { status: 403 }); } };
+    let read = false;
+    d.listManifests = async () => { read = true; return []; };
+    await expect(runFederation("p", {}, { actor: "x" }, d)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    expect(read).toBe(false);
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
+  });
+
+  it("the latest run is written with the service key, after the check", async () => {
+    const d = memDeps();
+    const opts = [];
+    const upsert = d.docUpsert;
+    d.docUpsert = async (s, p, id, data, o) => { opts.push(o); return upsert(s, p, id, data); };
+    await runFederation("p", {}, { actor: "cli" }, d);
+    expect(opts).toEqual([{ service: true }]);
+  });
+});
+
+describe("who ran the gate comes from the sign-in (cde-rem-9, H0 D6)", () => {
+  const jwt = (email) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email })).toString("base64url") + ".sig";
+
+  it("a signed-in caller's run and row carry their verified identity, not ?actor", async () => {
+    const d = memDeps();
+    const run = await runWithAuth(jwt("member@example.test"), () => runFederation("p", {}, { actor: "The Director" }, d));
+    expect(run.actor).toBe("member@example.test");
+    expect(d.docs.get("federation|uuid-p|latest").actor).toBe("member@example.test");
+    expect(d.audits[0].actor).toBe("member@example.test");
+  });
+
+  it("the machine credential keeps its label; none is web", async () => {
+    expect((await runFederation("p", {}, { actor: "cli" }, memDeps())).actor).toBe("cli");
+    expect((await runFederation("p", {}, {}, memDeps())).actor).toBe("web");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -15,7 +15,7 @@ vi.mock("./ingest-logic.mjs", async (importOriginal) => {
   return { ...actual, chunkPages: (...args) => chunkPages(...args) };
 });
 
-const { ingestDocument } = await import("./bimdocs-ingest.mjs");
+const { ingestDocument, sourceFilePath } = await import("./bimdocs-ingest.mjs");
 
 let dir;
 beforeEach(() => {
@@ -29,7 +29,10 @@ afterEach(() => {
 });
 
 const buf = Buffer.from("hello world, this is the EIR text.");
-const opts = { filename: "doc.txt", doc_type: "EIR" };
+const P = "11111111-2222-4333-8444-555555555555";     // the project the upload is for
+const OTHER = "66666666-7777-4888-8999-aaaaaaaaaaaa"; // someone else's project
+const opts = { filename: "doc.txt", doc_type: "EIR", project_id: P };
+const statusOf = (fn) => { try { fn(); return "no throw"; } catch (e) { return e.status; } };
 
 describe("ingestDocument chunk-failure handling", () => {
   it("propagates a 503 (model unreachable)", async () => {
@@ -64,10 +67,85 @@ describe("ingestDocument chunk-count cap", () => {
     expect(chat).not.toHaveBeenCalled(); // cap is enforced before any AI call
   });
 
+  it("keeps nothing on disk when it refuses (the original is stored only for a document it will map)", async () => {
+    chunkPages.mockReturnValueOnce(Array.from({ length: 61 }, (_, i) => ({ text: `chunk ${i}`, pages: [i + 1] })));
+    await expect(ingestDocument(buf, opts)).rejects.toMatchObject({ status: 413 });
+    // Files, not entries: SPEND-9 later keeps originals in a per-project folder it creates before the chunk check.
+    expect(readdirSync(dir, { recursive: true }).map(String).filter((f) => /\.[a-z0-9]+$/i.test(f))).toEqual([]);
+  });
+
   it("a small document (well under the cap) still succeeds", async () => {
     chat.mockResolvedValue({ text: '{"assignments":[]}' });
     const result = await ingestDocument(buf, opts);
     expect(result.doc_type).toBe("EIR");
     expect(result.proposal).toBeDefined();
+  });
+});
+
+describe("ingest and the AI budget (H0, D2)", () => {
+  it("each chunk's model call is budget:false — one upload, whose route already required a trusted caller", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    await ingestDocument(buf, opts);
+    expect(chat.mock.calls[0][1]).toEqual({ budget: false });
+  });
+});
+
+describe("originals are bound to their project (H0, bimdocs-4)", () => {
+  it("ingest keeps the original in the project's own folder", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    const { source } = await ingestDocument(buf, opts);
+    expect(existsSync(join(dir, P, source.file_id))).toBe(true);
+    expect(existsSync(join(dir, source.file_id))).toBe(false);
+    expect(sourceFilePath(P, source.file_id)).toBe(join(dir, P, source.file_id));
+  });
+
+  it("another project's file_id names nothing here: 404", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    const { source } = await ingestDocument(buf, opts);
+    expect(statusOf(() => sourceFilePath(OTHER, source.file_id))).toBe(404);
+  });
+
+  it("a file from before H0 (the flat folder) is never read — not by the commit check, not by the source route", () => {
+    const old = "12345678-1234-4123-8123-123456789abc.txt";
+    writeFileSync(join(dir, old), "old original");
+    expect(statusOf(() => sourceFilePath(P, old))).toBe(404);
+    expect(statusOf(() => sourceFilePath(P, old, { legacy: true }))).toBe(404); // the old option is gone, not honoured
+  });
+
+  it("move-legacy-originals moves a flat file into its one project's folder; a file named by two projects stays", async () => {
+    const { moveLegacyOriginals } = await import("./move-legacy-originals.mjs");
+    const mine = "12345678-1234-4123-8123-123456789abc.pdf";
+    const contested = "abcdefab-1234-4123-8123-123456789abc.pdf";
+    writeFileSync(join(dir, mine), "mine");
+    writeFileSync(join(dir, contested), "contested");
+    const rows = [
+      { project_id: P, source: { file_id: mine } },
+      { project_id: P, source: { file_id: contested } },
+      { project_id: OTHER, source: { file_id: contested } }, // e.g. a pointer planted before H0
+      { project_id: P, source: { file_id: "../../etc/passwd" } },
+      { project_id: P, source: { file_id: "99999999-1234-4123-8123-123456789abc" } }, // never stored
+    ];
+    const dry = moveLegacyOriginals(rows);
+    expect(dry.moved).toEqual([{ file_id: mine, project_id: P }]);
+    expect(existsSync(join(dir, mine))).toBe(true); // a dry run moves nothing
+    const r = moveLegacyOriginals(rows, { apply: true });
+    expect(r.moved).toEqual([{ file_id: mine, project_id: P }]);
+    expect(r.ambiguous).toEqual([{ file_id: contested, projects: [P, OTHER] }]);
+    expect(r.missing).toEqual(["99999999-1234-4123-8123-123456789abc"]);
+    expect(sourceFilePath(P, mine)).toBe(join(dir, P, mine));
+    expect(existsSync(join(dir, mine))).toBe(false);
+    expect(existsSync(join(dir, contested))).toBe(true);
+    expect(statusOf(() => sourceFilePath(OTHER, contested))).toBe(404);
+  });
+
+  it("a project folder is never read as a file", () => {
+    mkdirSync(join(dir, OTHER), { recursive: true });
+    expect(statusOf(() => sourceFilePath(P, OTHER))).toBe(404);
+  });
+
+  it("no project id: 400 before anything is stored or asked", async () => {
+    await expect(ingestDocument(buf, { filename: "doc.txt", doc_type: "EIR" })).rejects.toMatchObject({ status: 400 });
+    expect(readdirSync(dir)).toEqual([]);
+    expect(chat).not.toHaveBeenCalled();
   });
 });

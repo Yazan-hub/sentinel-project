@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -58,8 +58,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   };
   const knownReady = loadKnownFromServer();
   const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[]) =>
-    bfetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
-  const resetKnownOnServer = () => bfetch(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" }).catch(() => {});
+    bwrite(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+  const resetKnownOnServer = () => bwrite(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" });
 
   let clashes: Clash[] = [];
   let tol = 0.02;
@@ -123,9 +123,12 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   el("cl-fed-run").onclick = async () => {
     const b = el("cl-fed-run") as HTMLButtonElement;
     b.disabled = true; b.textContent = "Running…";
-    try { await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
-    catch { /* the reload below reports the state */ }
+    // A refusal (running the gate is a contributor's — H0 D4) is said beside the last run, never hidden behind it.
+    let refusal = "";
+    try { await bwrite(`${base}/cde/${encodeURIComponent(pid())}/federation/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
+    catch (e) { refusal = (e as Error).message; }
     await loadFederation();
+    if (refusal) el("cl-fed-text").textContent += ` · not run — ${refusal}`;
     b.disabled = false; b.textContent = "Run gate";
   };
   void loadFederation();
@@ -162,12 +165,13 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   };
   const loadRegister = async () => { await loadKnownFromServer(); if (view === "register") renderRegister(); };
 
-  const setStatus = (rec: ClashRecord, next: string) => {
-    const prev = rec.status; rec.status = next;
+  // The bridge records the move on the ledger itself (H0 D11) and refuses it below the contributor role: the register
+  // shows the new status only once the bridge has taken it, and a refusal is said in the bridge's words.
+  const setStatus = async (rec: ClashRecord, next: string) => {
+    try { await bwrite(`${base}/clash/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signature: rec.signature, status: next }) }); }
+    catch (e) { renderRegister(); status(`Not changed — ${(e as Error).message}`); return; }
+    rec.status = next;
     renderRegister();
-    bfetch(`${base}/clash/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signature: rec.signature, status: next }) }).catch(() => {});
-    // audit the lifecycle transition — the immutable governance trail
-    bfetch(`${base}/cde/${encodeURIComponent(pid())}/audit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity_type: "clash", actor: "Clash", action: `Clash ${prev} → ${next}: ${rec.label ?? rec.signature}`, new_value: { signature: rec.signature, status: next } }) }).catch(() => {});
     status(`Clash marked ${next}.`);
   };
 
@@ -282,8 +286,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     status(`Raising ${top.length} clash(es) + recording…`);
     const info = await elemInfoFor(top.flatMap((c) => [c.a, c.b]));
     const post = (path: string, body: unknown) =>
-      bfetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    let raised = 0;
+      bwrite<{ guid?: string } | null>(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let raised = 0, refusal: string | null = null;
     const raisedItems: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[] = [];
     for (const c of top) {
       try {
@@ -295,30 +299,31 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
           { guid: gb ?? null, category: ib?.category ?? null, name: ib?.name ?? null, model_id: c.b.modelId, local_id: c.b.localId },
         ];
         const la = elemLabel(ia, c, "a"), lb = elemLabel(ib, c, "b");
-        const topic = await (await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
+        const topic = await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
           title: `Clash: ${la} ↔ ${lb} (${c.volume.toFixed(3)} m³)`,
           topic_type: "Clash", priority: "High", creation_author: "Clash",
           description: `Hard clash: ${la} ↔ ${lb}. Overlap ${c.overlap.map((o) => o.toFixed(2)).join("×")} m (${c.volume.toFixed(3)} m³). Signature ${c.id}.`,
-        })).json().catch(() => ({}));
+        });
         const sel = [ga, gb].filter(Boolean).map((g) => ({ ifc_guid: g }));
-        if ((topic as { guid?: string })?.guid && sel.length) {
-          await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${(topic as { guid: string }).guid}/viewpoints`, { components: { selection: sel } }).catch(() => {});
+        if (topic?.guid && sel.length) {
+          await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${topic.guid}/viewpoints`, { components: { selection: sel } }).catch(() => {});
         }
-        await post(`/cde/${encodeURIComponent(pid())}/audit`, {
-          entity_type: "clash", actor: "Clash", action: `Clash raised: ${la} ↔ ${lb}`,
-          new_value: { signature: c.id, volume: c.volume, overlap: c.overlap, elements, bcf_guid: (topic as { guid?: string })?.guid ?? null },
-        }).catch(() => {});
-        known.add(c.id);
-        raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${la} ↔ ${lb}`, bcf_guid: (topic as { guid?: string })?.guid ?? null, elements, overlap: c.overlap });
+        // The "Clash raised" ledger row is the bridge's now, written when the register below records the clash (H0 D11).
+        raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${la} ↔ ${lb}`, bcf_guid: topic?.guid ?? null, elements, overlap: c.overlap });
         raised++;
-      } catch { /* keep going */ }
+      } catch (e) { refusal ??= (e as Error).message; /* keep going */ }
     }
+    if (!raised && refusal) { status(`Nothing raised — ${refusal}`); return; }
+    // The register (team-wide, carries provenance, writes the ledger rows) must take them before they count as known: a
+    // refusal is said in the bridge's words, and the clashes re-surface on the next run instead of vanishing from this browser.
+    try { await pushKnownToServer(raisedItems); }
+    catch (e) { status(`Raised ${raised} clash(es) → Issues + Revit, but the clash register refused them — ${(e as Error).message}. Not recorded and not on the ledger; they will re-surface on the next run.`); return; }
+    for (const it of raisedItems) known.add(it.signature);
     persistKnown();
-    if (raisedItems.length) pushKnownToServer(raisedItems); // team-wide, survives browser/machine, carries provenance
     clashes = clashes.filter((c) => !known.has(c.id));
     renderList();
     loadRegister(); // reflect the newly-recorded clashes in the Register view
-    status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the CDE audit + clash register. They won't re-surface on the next run.`);
+    status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the clash register and on the ledger. They won't re-surface on the next run.`);
   }
 
   el("cl-view-new").addEventListener("click", () => setView("new"));
@@ -326,7 +331,11 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   el("cl-run").addEventListener("click", run);
   el("cl-colour").addEventListener("click", colourAll);
   el("cl-raise").addEventListener("click", raise);
-  el("cl-reset").addEventListener("click", () => { known.clear(); persistKnown(); resetKnownOnServer(); status("Cleared known clashes (this project, team-wide) — the next run re-surfaces all."); });
+  // Clearing the register is a lead's (H0 D4): this browser's list is cleared only once the bridge has cleared the team's.
+  el("cl-reset").addEventListener("click", async () => {
+    try { await resetKnownOnServer(); } catch (e) { status(`Not cleared — ${(e as Error).message}`); return; }
+    known.clear(); persistKnown(); status("Cleared known clashes (this project, team-wide) — the next run re-surfaces all.");
+  });
   el("cl-tol").addEventListener("change", (e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (v >= 0) tol = v; });
   return root;
 }

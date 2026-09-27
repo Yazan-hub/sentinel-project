@@ -1,5 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { validateRow } from "./deliverables-store.mjs";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.hoisted(() => {
+  // cde-store reads its config at import. config/.env wins where it exists; without one (CI) these make the store
+  // "configured". fetch is faked in the write tests, so neither is ever called.
+  process.env.SUPABASE_URL ||= "https://fixture.supabase.co";
+  process.env.SUPABASE_SERVICE_KEY ||= "fixture-service-key";
+});
+
+import { validateRow, updateDeliverable, deleteDeliverable, rebaselineApply } from "./deliverables-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
+import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 
 describe("validateRow", () => {
   it("accepts a full row and trims the name", () => {
@@ -67,5 +77,87 @@ describe("validateRow — expectations (evidence reconciliation)", () => {
 
   it("does NOT police the format — revision codes are convention-specific", () => {
     expect(validateRow({ container_name: "A", expected_revision: "Rev-7b/final" }).expected_revision).toBe("Rev-7b/final");
+  });
+});
+
+describe("deliverable writes — a write the database refused is a 403 and no ledger row (ledger-1)", () => {
+  const P = "11111111-1111-4111-8111-111111111111";
+  const D1 = "dddddddd-0000-4000-8000-000000000001";
+  const realFetch = globalThis.fetch;
+  let db, rest;
+  const serve = (refuse = []) => { rest = fakePostgrest(db, { refuse }); globalThis.fetch = vi.fn(rest.fetch); };
+  const ledger = () => rest.calls.filter((c) => c.table === "audit_log");
+  beforeEach(() => {
+    db = {
+      projects: [{ id: P, key: "demo" }], information_containers: [],
+      deliverables: [{ id: D1, project_id: P, container_name: "A-0101", title: null, responsible_team: "ARC", due_date: "2026-11-01", stage: "design", notes: null, expected_revision: null, expected_suitability: null, purpose: null }],
+    };
+    serve();
+  });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  it("updateDeliverable: refused → a 403 in words (it was a 500 reading the missing row), no 'updated' row", async () => {
+    serve(["deliverables"]);
+    await expect(updateDeliverable("demo", D1, { container_name: "A-0101", due_date: "2026-12-01" }, "web")).rejects.toMatchObject({ status: 403, message: "a deliverable is changed by a contributor or above — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("deleteDeliverable: refused → 403 and no 'deleted' row (it used to be written before the delete)", async () => {
+    serve(["deliverables"]);
+    await expect(deleteDeliverable("demo", D1, "web")).rejects.toMatchObject({ status: 403, message: "a deliverable is deleted by a lead or owner — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("deleteDeliverable: the 'deleted' row follows the delete", async () => {
+    expect(await deleteDeliverable("demo", D1, "web")).toEqual({ deleted: true, id: D1 });
+    const order = rest.calls.map((c) => `${c.method} ${c.table}`);
+    expect(order.indexOf("DELETE deliverables")).toBeLessThan(order.indexOf("POST audit_log"));
+  });
+
+  it("rebaselineApply: a move the database refused is a 403 and no 'rebaselined' row", async () => {
+    serve(["deliverables"]);
+    await expect(rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web"))
+      .rejects.toMatchObject({ status: 403, message: "a deliverable's due date is moved by a contributor or above — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("rebaselineApply: a stored move is written as rebaselined", async () => {
+    expect(await rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web")).toMatchObject({ applied: 1 });
+    expect(ledger()[0].body).toMatchObject({ entity_id: D1, action: "rebaselined", new_value: { due_date: "2026-12-01", delta_days: 30 } });
+  });
+});
+
+// H0 (D4, ledger-1): editing, deleting and rebaselining a planned deliverable is a lead's — asked before anything is
+// read. 0022 lets a contributor update a deliverable row, so for an edit and a rebaseline the bridge is the only check.
+describe("deliverable edits, deletes and rebaselines are a lead's (H0 D4, ledger-1)", () => {
+  const P = "11111111-1111-4111-8111-111111111111";
+  const D1 = "dddddddd-0000-4000-8000-000000000001";
+  const U = "33333333-0000-4000-8000-0000000000bb";
+  const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: U, email: "u@example.test", role: "authenticated" })).toString("base64url") + ".sig";
+  const realFetch = globalThis.fetch;
+  let db, rest;
+  const as = (role, fn) => { db.memberships = [{ project_id: P, user_id: U, role }]; return runWithAuth(jwt, fn); };
+  beforeEach(() => {
+    db = {
+      projects: [{ id: P, key: "demo" }], information_containers: [],
+      deliverables: [{ id: D1, project_id: P, container_name: "A-0101", title: null, responsible_team: "ARC", due_date: "2026-11-01", stage: "design", notes: null, expected_revision: null, expected_suitability: null, purpose: null }],
+    };
+    rest = fakePostgrest(db);
+    globalThis.fetch = vi.fn(rest.fetch);
+  });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  it("a contributor's edit, delete and rebaseline are a 403 naming the lead role; nothing is written, no deliverable read", async () => {
+    for (const call of [
+      () => updateDeliverable("demo", D1, { container_name: "A-0101", due_date: "2026-12-01" }, "web"),
+      () => deleteDeliverable("demo", D1, "web"),
+      () => rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web"),
+    ]) await expect(as("contributor", call)).rejects.toMatchObject({ status: 403, message: "this action requires the lead role (you are contributor)" });
+    expect(rest.calls.filter((c) => c.method !== "GET" || c.table === "deliverables")).toEqual([]);
+  });
+
+  it("a lead's rebaseline is stored and written as rebaselined", async () => {
+    expect(await as("lead", () => rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web"))).toMatchObject({ applied: 1 });
+    expect(rest.calls.filter((c) => c.table === "audit_log").map((c) => c.body.action)).toEqual(["rebaselined"]);
   });
 });

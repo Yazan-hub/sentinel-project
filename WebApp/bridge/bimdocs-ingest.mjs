@@ -2,7 +2,7 @@
 // with the AI gateway -> one merged proposal. Writes NOTHING to the document tables; the browser
 // reviews the proposal and commits it separately (bimdocs-store.createDocFromIngest).
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { join, resolve, sep, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { extractText } from "./doc-text.mjs";
@@ -25,13 +25,26 @@ export function sourceDir() {
   return dir;
 }
 
-/** Traversal-safe path for a stored original. */
-export function sourceFilePath(file_id) {
+/** Where one project's originals live — bound by folder, so a file_id copied from another project names nothing here
+ *  (H0, bimdocs-4). Project ids come from the database; anything else is refused before a path is built. */
+export function projectSourceDir(projectId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(projectId || "")))
+    throw err(400, "an original is stored under its project — project id required");
+  const dir = join(sourceDir(), projectId);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Traversal-safe path for a stored original of `projectId` — its project's folder only. The flat folder originals
+ *  went to before H0 is never read: bim_documents.source is writable by a contributor, so reading it would serve any
+ *  pre-H0 original to whoever names its file_id (bimdocs-4). bridge/move-legacy-originals.mjs moves those files. */
+export function sourceFilePath(projectId, file_id) {
   const name = basename(String(file_id || ""));
   if (!/^[a-f0-9-]{36}(\.[a-z0-9]{1,8})?$/i.test(name)) throw err(404, "source not found");
-  const path = join(sourceDir(), name);
-  if (!resolve(path).startsWith(resolve(sourceDir()) + sep) || !existsSync(path)) throw err(404, "source not found");
-  return path;
+  const dir = projectSourceDir(projectId);
+  const path = join(dir, name);
+  if (resolve(path).startsWith(resolve(dir) + sep) && existsSync(path) && statSync(path).isFile()) return path;
+  throw err(404, "source not found");
 }
 
 /**
@@ -41,29 +54,28 @@ export function sourceFilePath(file_id) {
  * every assignment was dropped (blank text, or all names landed in `malformed`) — either way the
  * chunk's text must not vanish silently.
  */
-export async function ingestDocument(buffer, { filename, doc_type } = {}) {
+export async function ingestDocument(buffer, { filename, doc_type, project_id } = {}) {
+  const dir = projectSourceDir(project_id); // no project, no work: refused before anything is stored or asked
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
 
   const { pages, kind } = await extractText(buffer, filename);
 
-  // Store the original BEFORE the AI work: a 503 from an unreachable model must not cost the upload.
-  const file_id = `${randomUUID()}${extname(String(filename || "")).toLowerCase()}`;
-  writeFileSync(join(sourceDir(), file_id), Buffer.from(buffer));
-  const source = { file_id, name: basename(String(filename || "document")), kind, pages: pages.length, ingested_at: new Date().toISOString() };
-
   const chunks = chunkPages(pages);
-  // Storing the original above is deliberate: the upload itself succeeded, so the file is kept even
-  // when the document turns out to be too large to map — the check below only stops AI work.
+  // A document too large to map is refused before its original is stored: a refusal keeps nothing on disk.
   if (chunks.length > MAX_INGEST_CHUNKS) {
     throw err(413, `document produced ${chunks.length} chunks, over the ${MAX_INGEST_CHUNKS} limit — split the document or raise SENTINEL_MAX_DOC_MB/the chunk limit`);
   }
+  // Store the original BEFORE the AI work: a 503 from an unreachable model must not cost the upload.
+  const file_id = `${randomUUID()}${extname(String(filename || "")).toLowerCase()}`;
+  writeFileSync(join(dir, file_id), Buffer.from(buffer));
+  const source = { file_id, name: basename(String(filename || "document")), kind, pages: pages.length, ingested_at: new Date().toISOString() };
   const results = [];
   for (const chunk of chunks) {
     const { system, user } = buildMappingPrompt(tpl.sections, chunk);
     let text;
     try {
-      ({ text } = await chat({ system, messages: [{ role: "user", content: user }], format: "json" }));
+      ({ text } = await chat({ system, messages: [{ role: "user", content: user }], format: "json" }, { budget: false }));
     } catch (e) {
       if (e?.status === 503 || e?.status === 400) throw e; // model unreachable / provider blocked: real failure
       // A gateway/model failure carries a recognizable non-{503,400} status (e.g. rate limit, 500).

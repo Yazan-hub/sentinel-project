@@ -1,8 +1,8 @@
 // The public receipt check (cohesion phase 4c): a yes/no and field names for anyone, never a ledger value, and one
 // byte-identical miss for every kind of "no". publicAuditRow is driven through a stubbed fetch — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Readable } from "node:stream";
-import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
+import { Readable, PassThrough } from "node:stream";
+import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 // cde-store reads SUPABASE_URL / _SERVICE_KEY / _ANON_KEY when it loads; where config/.env is absent (CI) stand-ins
@@ -167,6 +167,50 @@ describe("createLimiter — one global fixed window", () => {
   });
 });
 
+describe("createKeyedLimiter — one window per caller, a bounded number of callers", () => {
+  it("gives each key its own window", () => {
+    let t = 0;
+    const l = createKeyedLimiter({ max: 2, windowMs: 60000, now: () => t });
+    expect([l.take("a"), l.take("a"), l.take("a")]).toEqual([true, true, false]);
+    expect(l.take("b")).toBe(true); // a's flood does not starve b
+    t += 60000;
+    expect(l.take("a")).toBe(true);
+  });
+  it("keeps at most maxKeys windows: a flood of fresh keys drops the oldest, never grows memory", () => {
+    const l = createKeyedLimiter({ max: 1, windowMs: 60000, maxKeys: 3, now: () => 0 });
+    for (const k of ["a", "b", "c", "d"]) expect(l.take(k)).toBe(true);
+    expect(l.size()).toBe(3);
+    expect(l.take("a")).toBe(true); // a's window was the oldest, dropped for d: it starts again
+  });
+});
+
+describe("clientAddress — the address the proxy in front of the bridge saw", () => {
+  const r = (xff, remote = "127.0.0.1") => ({ headers: xff === undefined ? {} : { "x-forwarded-for": xff }, socket: { remoteAddress: remote } });
+  it("is the LAST X-Forwarded-For entry: what a client wrote itself sits to its left", () => {
+    expect(clientAddress(r("203.0.113.7"))).toBe("203.0.113.7");
+    expect(clientAddress(r("1.2.3.4, 203.0.113.7"))).toBe("203.0.113.7");
+    expect(clientAddress(r(" 1.2.3.4 ,203.0.113.8 "))).toBe("203.0.113.8");
+  });
+  it("is the socket's address when no proxy forwarded the call", () => {
+    expect(clientAddress(r(undefined, "::1"))).toBe("::1");
+    expect(clientAddress(r(""))).toBe("127.0.0.1");
+  });
+});
+
+describe("callerKey — one caller per IPv4 address, one per IPv6 /64", () => {
+  it("keeps an IPv4 address (and an IPv4-mapped one) whole", () => {
+    expect(callerKey("203.0.113.7")).toBe("203.0.113.7");
+    expect(callerKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
+  });
+  it("folds an IPv6 address to its /64: a provider hands one caller the whole block", () => {
+    expect(callerKey("2001:db8:1:2:aaaa::1")).toBe("2001:db8:1:2::/64");
+    expect(callerKey("2001:0db8:0001:0002:bbbb:cccc:dddd:eeee")).toBe("2001:db8:1:2::/64");
+    expect(callerKey("[2001:db8::7]")).toBe("2001:db8:0:0::/64");
+    expect(callerKey("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+    expect(callerKey("::1")).toBe("0:0:0:0::/64");
+  });
+});
+
 describe("readCapped — 8 KB, then 413", () => {
   const req = (chunks, headers = {}) => Object.assign(Readable.from(chunks.map((c) => Buffer.from(c))), { headers });
   it("returns the body as text at or under the cap", async () => {
@@ -179,6 +223,17 @@ describe("readCapped — 8 KB, then 413", () => {
     expect(await readCapped(r)).toBeNull();
     expect(r.readableFlowing).toBeNull(); // nothing attached a reader: the stream was never consumed
     expect(r.listenerCount("data")).toBe(0);
+  });
+  it("is a 408 when the body has not all arrived within 3 s — a slow anonymous check cannot hold a socket", async () => {
+    vi.useFakeTimers();
+    try {
+      const r = Object.assign(new PassThrough(), { headers: { "content-length": "100" } });
+      const p = readCapped(r);
+      const refused = expect(p).rejects.toMatchObject({ status: 408, message: "a receipt check must arrive within 3 s" });
+      r.write("{");
+      await vi.advanceTimersByTimeAsync(3_001);
+      await refused;
+    } finally { vi.useRealTimers(); }
   });
   it("is null for a streamed body that runs past the cap", async () => {
     const r = req(["a".repeat(5000), "a".repeat(5000), "a".repeat(5000)]);

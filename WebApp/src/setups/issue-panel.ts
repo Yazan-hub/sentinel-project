@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
-import { bfetch, bridgeEvents } from "./bridge-fetch";
+import { bfetch, bwrite, bridgeEvents } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { myRole, canGovernRole } from "./my-role";
 import * as OBC from "@thatopen/components";
@@ -94,16 +94,17 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     if (globalIds.length === 0) throw new Error("Select an element in the model first.");
     const H = { "Content-Type": "application/json" };
     const P = `${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics`;
-    const topic = await (await bfetch(P, {
+    // bwrite: a refusal (raising an issue is a contributor's — H0 D4) throws in the bridge's words instead of a topic.
+    const topic = await bwrite<{ guid: string }>(P, {
       method: "POST", headers: H,
       body: JSON.stringify({
         title: f.title || "Coordination issue", topic_type: f.topicType, topic_status: f.status,
         priority: f.priority, assigned_to: f.assignedTo, due_date: f.dueDate ? new Date(f.dueDate).toISOString() : null,
         labels: f.labels, description: f.description, model: (model?.modelId as string) ?? "unknown", creation_author: "Web coordinator",
       }),
-    })).json();
+    });
     const vp = await viewpoint(model);
-    await bfetch(`${P}/${topic.guid}/viewpoints`, {
+    await bwrite(`${P}/${topic.guid}/viewpoints`, {
       method: "POST", headers: H,
       body: JSON.stringify({ ...vp, components: { selection: globalIds.map((g) => ({ ifc_guid: g })) } }),
     });

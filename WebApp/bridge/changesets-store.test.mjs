@@ -185,3 +185,38 @@ describe("CAS — the exact race window: clean first read, then the PATCH loses"
     expect(deps.audit).not.toHaveBeenCalled();
   });
 });
+
+// H0 (D4, changesets-1): proposing and withdrawing are a contributor's; a result is the Revit add-in's report on the
+// machine credential, never a signed-in caller's. Each refusal comes before any adjudication, read or write.
+describe("changeset roles (changesets-1)", () => {
+  const belowMin = (you) => vi.fn(async (_key, min) => { throw Object.assign(new Error(`this action requires the ${min} role (you are ${you})`), { status: 403 }); });
+
+  it("a viewer proposes nothing: a 403 before the referee runs or anything is written", async () => {
+    const deps = baseDeps({ requireMinRole: belowMin("viewer") });
+    await expect(proposeChangeset("demo", BODY, "agent", deps)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    expect(deps.adjudicateProposal).not.toHaveBeenCalled();
+    expect(deps.docInsert).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("a viewer withdraws nothing", async () => {
+    const deps = baseDeps();
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    deps.requireMinRole = belowMin("viewer");
+    await expect(withdrawChangeset("demo", cs.id, "agent", deps)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    expect(deps.docReplaceIfStatus).not.toHaveBeenCalled();
+  });
+
+  it("a signed-in caller's result is a 403 before the changeset is read — even a lead's; the machine credential's lands", async () => {
+    const deps = baseDeps();
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const result = { applied: [], rejected: cs.elements.map((e) => e.proposal_guid) };
+    deps.myRole = vi.fn(async () => "lead");
+    deps.docGet.mockClear();
+    await expect(reportResult("demo", cs.id, result, "revit", deps))
+      .rejects.toMatchObject({ status: 403, message: "a changeset's result is reported by the Revit add-in (Sentinel's machine credential) — nothing was saved" });
+    expect(deps.docGet).not.toHaveBeenCalled();
+    deps.myRole = vi.fn(async () => "service");
+    await expect(reportResult("demo", cs.id, result, "revit", deps)).resolves.toMatchObject({ status: "declined" });
+  });
+});

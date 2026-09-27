@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { loadEnv } from "./thatopen-client.mjs";
 import { normalizeAgent, buildReceipt, verifyReceipt } from "./agent-provenance.mjs";
 import { currentUserToken, currentActor, resolveActor, currentSub } from "./bridge-auth.mjs";
+import { createLimiter, createKeyedLimiter } from "./public-verify.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -76,6 +77,24 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
   return data;
 }
 
+/** A write the database refused is not an error to PostgREST: RLS filters the rows an UPDATE or DELETE may touch, so
+ *  a refused one answers 200/204 having changed nothing (inserts and upserts do raise — 42501, a 403). Every PATCH and
+ *  DELETE that is followed by a ledger row asks for its rows (Prefer: return=representation) and passes them here
+ *  BEFORE the row is written: none back is a 403 in `what`'s words, never a 200 and never a ledger row over nothing
+ *  (H0 D5; patchProjectMeta and updateProject were the first). → the rows. */
+export function requireRows(rows, what) {
+  if (Array.isArray(rows) && rows.length) return rows;
+  throw Object.assign(new Error(`${what} — nothing was saved`), { status: 403 });
+}
+
+/** One answer for "no such project" and "not yours" (D7; audit ai-3, projects-2): keys are slugs of names, so a
+ *  403-for-not-a-member next to a 404-for-unknown let any signed-in account walk the key space. Every route that
+ *  resolves a key comes through ensureProject, so the answer is decided once, here. */
+export const projectNotFound = (key) => Object.assign(
+  new Error(`Project "${key}" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Projects → + New project).`),
+  { status: 404 },
+);
+
 /** Resolve a project KEY to its CDE row. Projects are created ONLY through the web hub's explicit
  *  "+ New project" (createProject) — an unknown key here is a 404, never an implicit INSERT. (The old
  *  create-on-first-use left test residue: every script that touched a key spawned a project row.) The
@@ -83,7 +102,7 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
  *  self-heals so a wiped database can't brick zero-config publishing.
  *  Multi-user safe: when a caller's JWT is being forwarded (RLS on), existence is checked with the SERVICE
  *  key (authoritative — sees every project regardless of membership), then a forwarded RLS-filtered read
- *  confirms the caller is a member. A non-member gets a 403. */
+ *  confirms the caller is a member. A non-member gets the unknown key's 404 (projectNotFound). */
 export async function ensureProject(key) {
   const forwarding = !!(currentUserToken() && ANON);
   const found = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }); // authoritative
@@ -91,19 +110,16 @@ export async function ensureProject(key) {
     const proj = found[0];
     if (forwarding) {
       const visible = await sb(`projects?id=eq.${proj.id}&select=id`); // forwarded → RLS; a member sees it, a non-member doesn't
-      if (!visible?.length) { const e = new Error("Not authorized: you are not a member of this project"); e.status = 403; throw e; }
+      if (!visible?.length) throw projectNotFound(key);
     }
     return proj;
   }
-  if (key !== "default") {
-    const e = new Error(`Project "${key}" does not exist — create it in the web app (Projects → + New project) first.`);
-    e.status = 404;
-    throw e;
-  }
-  // "default" self-heals. return=minimal on purpose: the returning-select policy (is_member) can't yet see
-  // the owner membership the trigger just created, so return=representation would 42501. Re-fetch with the
-  // service key.
-  await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal" });
+  // Only the machine re-creates "default": under a signed-in caller's JWT the insert would make that caller its owner
+  // (0004's trigger bootstraps auth.uid()), and every later fallback publish would be theirs to read. A signed-in
+  // caller meets an absent "default" as any absent key.
+  if (key !== "default" || currentUserToken()) throw projectNotFound(key);
+  // "default" self-heals, with the service key (auth.uid() null: no owner). return=minimal, then re-fetch.
+  await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal", service: true });
   const created = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true });
   return created[0];
 }
@@ -275,27 +291,49 @@ export async function listProjects() {
   }));
 }
 
+// D3's words for an office asked for by anyone but a platform admin — the database's too (0033 projects_office_guard).
+const OFFICE_BY_ADMIN = "an office is created by a platform admin — nothing was saved";
+
 /** Create a CDE project (idempotent on the derived key) and seed its default folder tree. */
 export async function createProject(b = {}) {
   const key = slugKey(b.key || b.name);
   if (!key) throw new Error("A project name or key is required");
+  // The system fallback is the machine's (ensureProject self-heals it): a signed-in creator would become its owner.
+  if (key === "default" && currentUserToken())
+    throw Object.assign(new Error("'default' is the system fallback project — choose another key; nothing was created"), { status: 403 });
   const existing = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`);
   if (existing?.length) {
     await ensureFolders(existing[0].id);
     return existing[0];
   }
+  const kind = b.kind === "office" ? "office" : "project";
+  const officeKey = b.office_key ? String(b.office_key).trim() || null : null;
+  // D3 (H0): an office is made by a platform admin, and a project joins an office only through a lead of that office
+  // (cde-1, cde-rem-1, bimdocs-5). Migration 0033 refuses both in the database as well; asking first answers in words
+  // before anything is written.
+  const members = await import("./members-store.mjs");
+  if (kind === "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
+  if (officeKey) await members.requireOfficeLead(officeKey);
+  // H0 (cde-6): any account may create projects (each one 8 folder rows and a ledger row), so a signed-in caller's new
+  // projects are budgeted (takeWriteBudget); the machine credential's are not.
+  takeWriteBudget("new projects", { perUser: 5, all: 30 });
   // return=minimal on purpose (same trap ensureProject documents): under a FORWARDED session the
   // returning-select runs the is_member policy before the owner-membership row the insert trigger
   // just created is visible → 42501/403 and the whole insert rolls back. Insert minimal, then
   // re-fetch with the service key.
-  await sb(`projects`, {
-    method: "POST",
-    body: {
-      key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null,
-      kind: b.kind === "office" ? "office" : "project", office_key: b.office_key || null,
-    },
-    prefer: "return=minimal",
-  });
+  try {
+    await sb(`projects`, {
+      method: "POST",
+      body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null, kind, office_key: officeKey },
+      prefer: "return=minimal",
+    });
+  } catch (e) {
+    // The existence read above is RLS-filtered, so a key held by a project the caller cannot see reaches the insert and
+    // hits projects.key unique (23505). Say so in words (409) instead of a scrubbed 500. A create on a taken key can only
+    // fail, so this names nothing a prober lacks (ai-3, cde-9).
+    if (e?.body?.code === "23505") throw Object.assign(new Error(`The name "${key}" is taken — choose another name (nothing was created).`), { status: 409 });
+    throw e;
+  }
   const row = (await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }))[0];
   await ensureFolders(row.id);
   await audit(row.id, "project", row.id, "created", b.actor || "web", null,
@@ -325,7 +363,7 @@ export async function updateProject(key, patch = {}, actor) {
   const body = {};
   if (patch.name !== undefined && String(patch.name).trim()) body.name = String(patch.name).trim();
   if (patch.appointing_party !== undefined) body.appointing_party = patch.appointing_party || null;
-  if (patch.office_key !== undefined) body.office_key = patch.office_key ? String(patch.office_key).trim() : null;
+  if (patch.office_key !== undefined) body.office_key = patch.office_key ? String(patch.office_key).trim() || null : null;
   if (patch.kind !== undefined) {
     if (!["project", "office"].includes(patch.kind)) { const e = new Error("kind must be project or office"); e.status = 400; throw e; }
     body.kind = patch.kind;
@@ -339,6 +377,11 @@ export async function updateProject(key, patch = {}, actor) {
     body.metadata = { ...meta, settings, updated_at: new Date().toISOString() };
   }
   if (!Object.keys(body).length) return proj;
+  // D3 (H0), as in createProject. Only a change is asked about: re-sending the office a project already has is no
+  // attach, and detaching (null) stays the project's own lead's write (projects_update).
+  const members = await import("./members-store.mjs");
+  if (body.kind === "office" && proj.kind !== "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
+  if (body.office_key && body.office_key !== (proj.office_key ?? null)) await members.requireOfficeLead(body.office_key);
 
   const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
   const row = Array.isArray(rows) ? rows[0] : null;
@@ -355,22 +398,19 @@ export async function updateProject(key, patch = {}, actor) {
 
 /** Delete a project and everything the schema cascades (containers, versions, folders, parties,
  *  memberships, transmittals, snapshots). Deliberately preserved: the audit_log trail (immutable
- *  evidence, undeletable by design). Projects with PUBLISHED versions cannot be deleted — the DB's
- *  trg_protect_published raises, surfaced here as a 409 with an archive-instead message. RLS (when a
- *  JWT is forwarded) requires the 'owner' role via projects_delete. */
+ *  evidence, undeletable by design). H0 (D12, finding cde-3): the owner's alone — a 403 before anything is
+ *  touched — and the database's delete comes FIRST: a delete projects_delete refused (no row back) is a 403
+ *  and nothing else is touched; a project with PUBLISHED versions is a 409 with an archive-instead message
+ *  (trg_protect_published). Only then the ledger row (audit_log has no FK, so it outlives the project — the
+ *  golden thread) and the text-keyed side stores (no FK — they would orphan silently), cleared with the
+ *  service key: the caller's membership went with the project, so a forwarded delete would match no row. */
 export async function deleteProject(key, actor) {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "owner");
   const proj = await ensureProject(key);
-  // Best-effort cleanup of the text-keyed side stores first (no FK → they'd orphan silently).
-  for (const store of ["clash", "rfi", "tender", "keystore"]) {
-    try { await docDeleteProject(store, key); } catch { /* side store cleanup must not block the delete */ }
-  }
-  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
-  catch { /* best-effort */ }
-
-  // The audit row is written BEFORE the delete (audit_log has no FK, so it survives — the golden thread).
-  await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
+  let gone;
   try {
-    await sb(`projects?id=eq.${proj.id}`, { method: "DELETE", prefer: "return=minimal" });
+    gone = await sb(`projects?id=eq.${proj.id}`, { method: "DELETE", prefer: "return=representation" });
   } catch (e) {
     if (String(e?.message || "").includes("published versions are immutable")) {
       const err = new Error("This project has PUBLISHED versions, which are immutable by design — the project cannot be hard-deleted. Archive it instead (Settings → Danger zone).");
@@ -379,6 +419,13 @@ export async function deleteProject(key, actor) {
     }
     throw e;
   }
+  requireRows(gone, "the database refused to delete the project (a project is deleted by its owner)");
+  await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
+  for (const store of ["clash", "rfi", "tender", "keystore"]) {
+    try { await docDeleteProject(store, key, { service: true }); } catch { /* best-effort: the project is already gone */ }
+  }
+  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
+  catch { /* best-effort */ }
   return { deleted: true, key };
 }
 
@@ -419,10 +466,10 @@ export async function createFolder(key, b) {
 }
 
 export async function renameFolder(folderId, b) {
-  const row = (await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, {
+  const [row] = requireRows(await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, {
     method: "PATCH", body: { name: (b.name || "").trim() }, prefer: "return=representation",
-  }))[0];
-  if (row) await audit(row.project_id, "folder", row.id, "renamed", b.actor || "web", null, { name: row.name });
+  }), "a folder is renamed by a contributor or above");
+  await audit(row.project_id, "folder", row.id, "renamed", b.actor || "web", null, { name: row.name });
   return row;
 }
 
@@ -430,17 +477,19 @@ export async function deleteFolder(folderId, b = {}) {
   const found = (await sb(`folders?id=eq.${encodeURIComponent(folderId)}&select=*`))?.[0];
   if (!found) return { ok: false, message: "Folder not found" };
   if (found.kind === "root") return { ok: false, message: "The root folder can't be deleted" };
-  await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, { method: "DELETE" }); // cascades to subfolders; containers unfiled (set null)
+  // Cascades to subfolders; containers are unfiled (set null). folders_delete is a lead's: a delete the database refused
+  // used to answer {ok:true} and write "deleted" over a folder that is still there (cde-rem-10).
+  requireRows(await sb(`folders?id=eq.${encodeURIComponent(folderId)}`, { method: "DELETE", prefer: "return=representation" }), "a folder is deleted by a lead or owner");
   await audit(found.project_id, "folder", folderId, "deleted", b.actor || "web", { name: found.name }, null);
   return { ok: true };
 }
 
 /** File a container into a folder (folder_id null = project root / unfiled). */
 export async function moveContainer(containerId, b) {
-  const row = (await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}`, {
+  const [row] = requireRows(await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}`, {
     method: "PATCH", body: { folder_id: b.folder_id || null }, prefer: "return=representation",
-  }))[0];
-  if (row) await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
+  }), "a file is filed into a folder by a contributor or above");
+  await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
   return row;
 }
 
@@ -502,7 +551,8 @@ export async function setLiveVersion(version_id, actor) {
   if (!v) { const e = new Error("version not found"); e.status = 404; throw e; }
   // Clear the container's current live row FIRST so the partial unique index never sees two live rows.
   await sb(`container_versions?container_id=eq.${v.container_id}&is_live=eq.true`, { method: "PATCH", body: { is_live: false }, prefer: "return=minimal" });
-  await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}`, { method: "PATCH", body: { is_live: true }, prefer: "return=minimal" });
+  // cv_update is a contributor's: a pointer the database would not move comes back as no row — a refusal, not "set live".
+  requireRows(await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}`, { method: "PATCH", body: { is_live: true }, prefer: "return=representation" }), "the live version is set by a contributor or above");
   const c = await sb(`information_containers?id=eq.${v.container_id}&select=project_id,iso_name`);
   const meta = Array.isArray(c) ? c[0] : null;
   if (meta) await audit(meta.project_id, "file_version", version_id, "set live", actor || "web", null, { file: meta.iso_name, revision: v.revision });
@@ -523,7 +573,7 @@ export async function renameFile(key, container_id, name, actor) {
   const clean = String(name || "").trim();
   if (!clean) { const e = new Error("a file name is required"); e.status = 400; throw e; }
   const { proj, c } = await containerOf(key, container_id);
-  await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=minimal" });
+  requireRows(await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=representation" }), "a file is renamed by a contributor or above");
   await audit(proj.id, "container", c.id, "renamed", actor || "web", { iso_name: c.iso_name }, { iso_name: clean });
   return { ok: true, iso_name: clean };
 }
@@ -537,9 +587,14 @@ export async function archiveFile(key, container_id, actor) {
   let archived = 0, discarded = 0;
   for (const v of versions) {
     if (v.state === "published") { await transition(key, v.id, "archived", { actor: actor || "web", note: "file archived" }); archived++; }
-    else if (v.state !== "archived") { await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=minimal" }); discarded++; }
+    else if (v.state !== "archived") {
+      // cv_delete is a lead's: a draft the database would not discard comes back as no row — a refusal, not "discarded".
+      requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=representation" }), "a file's draft versions are discarded by a lead or owner");
+      discarded++;
+    }
   }
-  await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
+  // Nothing archived or discarded is nothing to record: no "archived" row over a file that was already archived (cde-11).
+  if (archived || discarded) await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
   return { ok: true, archived, discarded };
 }
 
@@ -555,17 +610,20 @@ export async function unarchiveFile(key, container_id, actor) {
     await transition(key, v.id, "published", { actor: actor || "web", note: "file restored" });
     restored++;
   }
-  await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
+  // Nothing restored is nothing to record: no "unarchived" row over a file that had no archived version (cde-11).
+  if (restored) await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
   return { ok: true, restored };
 }
 
 /** Delete a file (container + versions, cascading). PUBLISHED versions are immutable — the DB trigger
- *  refuses, surfaced as a 409 telling the caller to archive instead. Audit trail survives (no FK). */
+ *  refuses, surfaced as a 409 telling the caller to archive instead. ic_delete is a lead's: a delete the database
+ *  refused comes back as no row, a 403. The "deleted" row is written only after a delete that happened (it used to go
+ *  first, whatever the delete did); audit_log has no FK, so it outlives the container. */
 export async function deleteFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
-  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name }, null);
+  let gone;
   try {
-    await sb(`information_containers?id=eq.${c.id}`, { method: "DELETE", prefer: "return=minimal" });
+    gone = await sb(`information_containers?id=eq.${c.id}`, { method: "DELETE", prefer: "return=representation" });
   } catch (e) {
     if (String(e?.message || "").includes("published versions are immutable")) {
       const err = new Error("This file has PUBLISHED versions, which are immutable by design — it cannot be deleted. Archive it instead.");
@@ -574,6 +632,8 @@ export async function deleteFile(key, container_id, actor) {
     }
     throw e;
   }
+  requireRows(gone, "a file is deleted by a lead or owner");
+  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name }, null);
   return { deleted: true, iso_name: c.iso_name };
 }
 
@@ -608,7 +668,7 @@ export async function registerFileVersion(key, b = {}) {
   if (container && b.platform_item_id && b.attach_geometry === true) {
     const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id);
     if (liveNoGeom) {
-      await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=minimal" });
+      requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation" }), "geometry is linked to a version by a contributor or above");
       await audit(proj.id, "file_version", liveNoGeom.id, "geometry linked", b.author || "web", null, { file: name, platform_item_id: b.platform_item_id });
       return { container_id: container.id, iso_name: name, linked: true, version: { id: liveNoGeom.id, revision: liveNoGeom.revision, platform_item_id: b.platform_item_id, is_live: true } };
     }
@@ -817,6 +877,42 @@ export async function recordAudit(key, b) {
     prefer: "return=representation",
     service: true, // audit_log bypasses RLS by design
   }))[0];
+}
+
+/** H0 (cde-6): a signed-in caller's writes that grow the append-only ledger or add projects are budgeted — per verified
+ *  user and across every user, one-minute windows (createLimiter) — so neither one account nor a crowd of fresh
+ *  sign-ups grows them without bound. Over budget is a 429 before anything is written; the machine credential (no
+ *  signed-in user) is not budgeted. */
+const budgets = new Map(); // what → { all, bySub } — one per kind of write
+export function takeWriteBudget(what, { perUser, all }) {
+  const sub = currentSub();
+  if (!sub) return;
+  let b = budgets.get(what);
+  if (!b) budgets.set(what, (b = { all: createLimiter({ max: all }), bySub: createKeyedLimiter({ max: perUser }) }));
+  // The user's own window first: a caller over it does not use up everyone's.
+  if (!b.bySub.take(sub) || !b.all.take()) throw Object.assign(new Error(`too many ${what} in a minute — nothing was saved; try again shortly`), { status: 429 });
+}
+
+const NOTE_MAX = 8 * 1024; // a note's new_value, serialized
+
+/** POST /cde/:key/audit (H0 D11, finding cde-6). The machine credential writes as before — Revit's naming and
+ *  family_heal rows, which the ROI dashboard counts (recordAudit). A signed-in caller writes a lead's NOTE only: lead or
+ *  owner (403), entity_type "note" (400: Sentinel writes its other rows itself, from the route that did the work — the
+ *  clash register's from /clash, an IDS raise's from the topic route), the note in `action` (1-500 characters) with an
+ *  optional new_value of at most 8 KB (413), budgeted (429), stamped with the verified identity — each refusal before
+ *  anything is written. → the stored row. */
+export async function recordNote(key, b = {}) {
+  const { myRole, ROLE_RANK } = await import("./members-store.mjs");
+  const role = await myRole(key);
+  if (role === "service") return recordAudit(key, b);
+  if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note on the ledger is a lead's (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
+  const bad = (status, message) => Object.assign(new Error(message), { status });
+  if (String(b.entity_type ?? "note").trim().toLowerCase() !== "note") throw bad(400, 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved');
+  const text = typeof b.action === "string" ? b.action.trim() : "";
+  if (!text || text.length > 500) throw bad(400, "a note is 1 to 500 characters (action) — nothing was saved");
+  if (JSON.stringify(b.new_value ?? null).length > NOTE_MAX) throw bad(413, `a note's new_value is at most ${NOTE_MAX / 1024} KB — nothing was saved`);
+  takeWriteBudget("notes", { perUser: 20, all: 60 });
+  return recordAudit(key, { entity_type: "note", action: text, new_value: b.new_value ?? null });
 }
 
 // ── The Holding Area's writers (phase 6a, spec 2026-09-27 Decisions 4-6). A held file keeps no bytes: a hold is one
@@ -1317,15 +1413,15 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     throw Object.assign(new Error(`a version's name is judged only by the naming standard installed on ${key} or its office — send no naming ruleset, or propose without version_id/register`), { status: 400 });
   }
   const proj = await ensureProject(key);
-  // A verdict is stamped only on a version of the project that judged it (spec Decision 4): another project's version,
-  // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1). The stamp needs
-  // the lead role (phase 6b, spec 2026-09-27 Decision 11: a stamp is what lets a version into a review chain) — a 403
-  // before the version is read; the machine credential passes as service (requireMinRole).
-  if (b.version_id) {
-    const { requireMinRole } = await import("./members-store.mjs");
-    await requireMinRole(key, "lead");
-    await versionOnKey(key, b.version_id);
-  }
+  // A proposal writes a ledger row and may raise BCF topics: the contributor role or above (H0 D4, cde-rem-6 — a viewer
+  // writes nothing), asked here so every route that proposes asks it (/propose, changesets, intake, the AI tool). A stamp
+  // needs the lead role (phase 6b, spec 2026-09-27 Decision 11: a stamp is what lets a version into a review chain) — a
+  // 403 before the version is read; the machine credential passes as service (requireMinRole). A verdict is stamped only
+  // on a version of the project that judged it (spec Decision 4): another project's version, an unknown id and a
+  // malformed one are the same 400, before any ledger row (versionOnKey, Task 1).
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, b.version_id ? "lead" : "contributor");
+  if (b.version_id) await versionOnKey(key, b.version_id);
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const { resolveIdsSpec } = await import("./artefact-store.mjs");
@@ -1381,6 +1477,11 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
   const trustedActor = resolveActor(b.actor ?? b.source, "agent");
+  // The source is a self-label too. The machine credential's (no forwarded session — myRole's "service") names the action
+  // and may mark a hold as Revit's; a signed-in caller's is kept as claimed_source only, so no member writes "Proposal
+  // accepted from Governed Publish" or holds a file as Revit's (cde-rem-9).
+  const machine = !currentUserToken();
+  const source = machine ? b.source ?? null : null;
   // CLAIMED, never verified (see agent-provenance.mjs). Recorded so that "which model proposed this,
   // from which prompt" is answerable later — the question every AI-authored-BIM thread ends on.
   const agent = normalizeAgent(b.agent);
@@ -1388,9 +1489,9 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     method: "POST",
     body: {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
-      action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
+      action: `Proposal ${verdict}${source ? " from " + source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}) },
+      new_value: { source, ...(!machine && b.source != null ? { claimed_source: b.source } : {}), verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -1418,7 +1519,7 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     const row = await writeHold(proj, {
       stage: namingRefused ? "naming" : "ids", ...file, verdict,
       failures: [...(namingRefused ? naming.failures || [] : []), ...(idsRefused ? failures : [])],
-      source: intake ? (intake.source === "web" ? "web" : "intake") : b.source === "Governed Publish" ? "revit" : b.source === "Auto-Publish" ? "auto-publish" : "intake",
+      source: intake ? (intake.source === "web" ? "web" : "intake") : source === "Governed Publish" ? "revit" : source === "Auto-Publish" ? "auto-publish" : "intake",
       gate_row_id: gateRowId, proposal_row_id: audit?.id ?? null, contract_ref: null, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref, actor: trustedActor,
     });
     hold = { id: row?.id ?? null, hash: row?.hash ?? null };
@@ -1484,10 +1585,13 @@ export async function docList(store, pid) {
   const rows = await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&select=data&order=created_at.asc`);
   return (rows || []).map((r) => r.data);
 }
-/** Same, but lazy-migrate the local file into Supabase the first time a store/project with no rows is read. */
+/** Same, but lazy-migrate the local file into Supabase the first time a store/project with no rows is read. The local
+ *  file is this machine's history, so only the machine credential migrates it (rfis-2): under a signed-in caller's
+ *  session a refused insert answered 403 only when the file held rows for the key, which told a stranger which keys
+ *  have local history. A signed-in caller reads what the database holds. */
 export async function docListLazy(store, pid, localDocs, idOf) {
   let rows = await docList(store, pid);
-  if (!rows.length && Array.isArray(localDocs) && localDocs.length) {
+  if (!rows.length && !currentUserToken() && Array.isArray(localDocs) && localDocs.length) {
     await sb(`bridge_docs`, { method: "POST", body: localDocs.map((d) => ({ store, project_id: pid, doc_id: String(idOf(d)), data: d })), prefer: "return=minimal" });
     rows = await docList(store, pid);
   }
@@ -1527,8 +1631,8 @@ export async function docUpsertMany(store, pid, items) { // items: [{doc_id, dat
   if (!items.length) return;
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: items.map((i) => ({ store, project_id: pid, doc_id: String(i.doc_id), data: i.data, updated_at: new Date().toISOString() })), prefer: "resolution=merge-duplicates,return=minimal" });
 }
-export async function docDeleteProject(store, pid) {
-  await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}`, { method: "DELETE", prefer: "return=minimal" });
+export async function docDeleteProject(store, pid, { service = false } = {}) {
+  await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}`, { method: "DELETE", prefer: "return=minimal", service });
 }
 
 // ── BCF topics (migration 0008) — team-wide topic store. One JSONB document per topic so the exact BCF-API
@@ -1540,7 +1644,9 @@ const bcfRow = (t) => ({ guid: t.guid, project_id: t.project_id, topic_status: t
 export async function bcfListTopics(pid, { status, model } = {}, localTopics) {
   const q = `bcf_topics?project_id=eq.${encodeURIComponent(pid)}&select=data&order=created_at.asc`;
   let rows = await sb(q);
-  if ((!rows || !rows.length) && Array.isArray(localTopics) && localTopics.length) {
+  // As docListLazy (rfis-2): the local file is this machine's history, so only the machine credential migrates it.
+  // Under a signed-in caller's session the insert is refused below contributor once 0033 splits bcf_topics' writes.
+  if ((!rows || !rows.length) && !currentUserToken() && Array.isArray(localTopics) && localTopics.length) {
     await sb(`bcf_topics`, { method: "POST", body: localTopics.map(bcfRow), prefer: "return=minimal" });
     rows = await sb(q);
   }
@@ -1554,6 +1660,14 @@ export async function bcfListTopics(pid, { status, model } = {}, localTopics) {
 export async function bcfGetTopic(pid, guid) {
   const rows = await sb(`bcf_topics?guid=eq.${encodeURIComponent(guid)}&project_id=eq.${encodeURIComponent(pid)}&select=data`);
   return rows?.[0]?.data ?? null;
+}
+
+/** A title a caller sends (topic POST and PUT, the agent's create_topic) is text of at most 600 characters, else a 400 —
+ *  stored titles are parsed by the raise dedups on every propose and in every member's browser (H0, WR-4 review). Absent
+ *  or null passes (newTopicObject's "Untitled"). Titles Sentinel builds itself (raises, a review's rejection) aren't checked. */
+export function checkTopicTitle(title) {
+  if (title != null && !(typeof title === "string" && title.length <= 600))
+    throw Object.assign(new Error("a topic title is text of at most 600 characters — nothing was saved"), { status: 400 });
 }
 
 /** Insert a freshly-built topic. */
@@ -1583,13 +1697,14 @@ export async function bcfCreateTopic(topic) {
   return topic;
 }
 
-/** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). */
+/** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). A save the database
+ *  changed nothing with is a 403 — the IDS supersede writers put a ledger row after these saves (H0 D5). */
 export async function bcfSaveTopic(topic) {
-  await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
+  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
     method: "PATCH",
     body: { data: topic, topic_status: topic.topic_status, model: topic.model || "", modified_at: new Date().toISOString() },
-    prefer: "return=minimal",
-  });
+    prefer: "return=representation",
+  }), "a topic is changed by a contributor or above");
   return topic;
 }
 
@@ -1598,11 +1713,21 @@ export async function listTransmittals(key) {
   return sb(`transmittals?project_id=eq.${proj.id}&select=*&order=issued_at.desc`);
 }
 
-export async function createTransmittal(key, b) {
+/** Issue a transmittal (transmittals_write: a lead's). The sender is the signed-in caller's verified identity (the machine
+ *  credential keeps its label); every listed version must be on this project — another project's, an unknown or a
+ *  malformed id is versionOnKey's 400 before any write; the issue is one "issued" ledger row (cde-14). */
+export async function createTransmittal(key, b = {}) {
+  if (b.version_ids !== undefined && !Array.isArray(b.version_ids)) throw Object.assign(new Error("version_ids must be a list of version ids on this project"), { status: 400 });
+  const ids = [...new Set(b.version_ids || [])];
+  // ponytail: one read per listed version; one in.() read if transmittals start listing hundreds of versions.
+  for (const id of ids) await versionOnKey(key, id);
   const proj = await ensureProject(key);
-  return (await sb(`transmittals`, {
+  const [row] = requireRows(await sb(`transmittals`, {
     method: "POST",
-    body: { project_id: proj.id, reference: b.reference, sender: b.sender, recipients: b.recipients || [], purpose: b.purpose, suitability: b.suitability, version_ids: b.version_ids || [], note: b.note },
+    body: { project_id: proj.id, reference: b.reference, sender: resolveActor(b.sender), recipients: b.recipients || [], purpose: b.purpose, suitability: b.suitability, version_ids: ids, note: b.note },
     prefer: "return=representation",
-  }))[0];
+  }), "a transmittal is issued by a lead or owner");
+  await audit(proj.id, "transmittal", row.id, "issued", b.sender || "web", null,
+    { reference: row.reference ?? null, purpose: row.purpose ?? null, suitability: row.suitability ?? null, recipients: row.recipients ?? [], version_ids: ids });
+  return row;
 }

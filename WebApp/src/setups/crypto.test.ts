@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// unlockAndVerify's bridge calls (the keystore GET and the first-use POST) — the envelope tests below make none.
+const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
+vi.mock("./bridge-fetch", () => ({ bfetch }));
+
 import {
   createKeystore, openKeystore, rewrapKeystore,
-  setUnlocked, isUnlocked, lockProject, encryptBytes, decryptBytes, b64, unb64,
+  setUnlocked, isUnlocked, lockProject, encryptBytes, decryptBytes, b64, unb64, unlockAndVerify,
 } from "./crypto";
 
 const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -79,5 +84,28 @@ describe("file crypto (AES-GCM under the DEK)", () => {
   it("base64 helpers round-trip", () => {
     const u = new Uint8Array([0, 1, 2, 250, 255]);
     expect([...unb64(b64(u))]).toEqual([...u]);
+  });
+});
+
+// H0 (D4): setting up a project's passphrase is a lead's. A first use the bridge refuses is not a first use — holding the
+// new key would encrypt this session's files under a key the project never stored, unreadable to everyone afterwards.
+describe("unlockAndVerify — a refused first-time setup", () => {
+  const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
+
+  it("is not ok, says the bridge's words, and leaves the project locked", async () => {
+    bfetch.mockResolvedValueOnce(reply(200, null)) // no keystore yet
+      .mockResolvedValueOnce(reply(403, { message: "this action requires the lead role (you are contributor)" }));
+    const r = await unlockAndVerify("http://bridge", "demo-refused", "correct horse battery staple");
+    expect(r).toEqual({ ok: false, firstUse: true, reason: "Not set up — this action requires the lead role (you are contributor)" });
+    expect(isUnlocked("demo-refused")).toBe(false);
+  });
+
+  it("a 409 whose keystore cannot be read is not ok and leaves the project locked", async () => {
+    bfetch.mockResolvedValueOnce(reply(200, null)) // no keystore yet
+      .mockResolvedValueOnce(reply(409, { message: "exists" }))
+      .mockResolvedValueOnce(reply(200, {})); // a leftover without wrapped_dek
+    const r = await unlockAndVerify("http://bridge", "demo-unreadable", "correct horse battery staple");
+    expect(r).toEqual({ ok: false, firstUse: false, reason: "A keystore exists for this project but could not be read — nothing was set up" });
+    expect(isUnlocked("demo-unreadable")).toBe(false);
   });
 });

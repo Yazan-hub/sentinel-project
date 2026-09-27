@@ -1,6 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch, bridgeImage } from "./bridge-fetch";
+import { bfetch, bridgeImage, refusalText } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -74,6 +74,14 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
     status("Loading sheets from the Bridge…");
     try {
       const r = await bfetch(`${base}/sheets`);
+      // A refused list is said in the bridge's words — shown empty it would read as "nothing published" (D7).
+      const refused = await refusalText(r);
+      if (refused) {
+        sets = []; renderSets();
+        el("sh-list").innerHTML = `<div style="color:#fbbf24;font-size:12px;padding:.6rem;line-height:1.6">${esc(refused)}</div>`;
+        status(refused);
+        return;
+      }
       if (!r.ok) throw new Error(`Bridge ${r.status}`);
       const data = await r.json() as { sets: SheetSet[] };
       // Project-scoped: sets published against a specific web project only show inside that project.

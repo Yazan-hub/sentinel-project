@@ -2096,7 +2096,7 @@ Closes: cde-rem-7 (bridge side; 0033 closes stores `manifest` and `federation` t
 **Interfaces:**
 - Consumes: `requireMinRole`; `cde-store.mjs` `versionOnKey(key, version_id)` (400 `version <id> is not on <key>`; its return shape is pinned elsewhere, so the sha256 is read beside it) and `sb`.
 - Produces (`manifest-store.mjs`): `export async function backfillManifest(key, versionId, bytes, opts, deps)` → `versionOnKey`; the version's recorded `container_versions.sha256` (read with `sb`); a mismatch → `409 "these bytes are not version <id>'s file (sha256 <12 hex>… ≠ <12 hex>…) — nothing was saved"`; no recorded sha → the lead's upload stands; then `captureManifest`. `captureManifest` writes the manifest document with `{ service: true }`. `wire` gains `versionOnKey`, `sb` seams.
-- Produces (`bcf-service.mjs`): `POST /cde/:key/manifests/:versionId` → `backfillManifest` in place of `captureManifest`. The route's `requireMinRole(p1, "lead")` after the uuid check and before the upload slot and `readRaw` (D8: the role before the upload body) is gate-limits' Task 3's.
+- Produces (`bcf-service.mjs`): `POST /cde/:key/manifests/:versionId` → `backfillManifest` in place of `captureManifest`. The route's `requireMinRole(p1, "lead")` and `requireSpend(p1)` after the uuid check and before the upload slot and `readRaw` (D8: the role before the upload body) is gate-limits' Task 3's.
 
 - [ ] **Step 1: Write the failing tests.** In `WebApp/bridge/manifest-store.test.mjs`, replace:
 
@@ -2227,7 +2227,7 @@ export async function backfillManifest(key, versionId, bytes, opts = {}, deps) {
 export async function getManifest(key, versionId, deps) {
 ```
 
-In `WebApp/bridge/bcf-service.mjs`, in the manifests backfill (as gate-limits' Task 3 left it: the uuid check, `requireMinRole(p1, "lead")`, `res.once("close", uploadSlot(currentSub()))`, `readRaw(req)`, the empty-body 400 — all unchanged), replace
+In `WebApp/bridge/bcf-service.mjs`, in the manifests backfill (as gate-limits' Task 3 and its batch 2 review fixes left it: the uuid check, `requireMinRole(p1, "lead")`, `requireSpend(p1)`, `holdUpload(req, res, currentSub())`, `readRaw(req)`, the empty-body 400 — all unchanged), replace
 
 ```js
           return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));

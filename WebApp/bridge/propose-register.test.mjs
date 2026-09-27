@@ -24,11 +24,13 @@ vi.mock("./artefact-store.mjs", async (orig) => ({
   resolveArtefact: vi.fn(async () => ({ body: null, source: "none", ref: null, sha256: null })),
 }));
 // requireMinRole as members-store has it, the caller's role set per test (state.role): the machine credential passes as
-// service, a signed-in member below the minimum is a 403 (phase 6b: stamping an existing version needs the lead role).
+// service, a signed-in member ranked below the minimum is a 403 (H0: proposing needs the contributor role; phase 6b:
+// stamping an existing version needs the lead role).
 vi.mock("./members-store.mjs", async (orig) => ({
   ...(await orig()),
   requireMinRole: vi.fn(async (_key, min) => {
-    if (!["lead", "owner", "service"].includes(state.role)) throw Object.assign(new Error(`this action requires the ${min} role (you are ${state.role})`), { status: 403 });
+    const rank = { viewer: 1, contributor: 2, lead: 3, owner: 4 };
+    if (state.role !== "service" && (rank[state.role] || 0) < rank[min]) throw Object.assign(new Error(`this action requires the ${min} role (you are ${state.role})`), { status: 403 });
   }),
 }));
 
@@ -91,8 +93,10 @@ function fakeRest(url, init = {}) {
     }));
   }
   if (method === "PATCH") {
-    for (const r of db[table].filter(hit)) Object.assign(r, body);
-    return new Response(null, { status: 204 });
+    const patched = db[table].filter(hit);
+    for (const r of patched) Object.assign(r, body);
+    // The rows come back only when asked (return=representation): the stores' requireRows reads none as a refusal.
+    return /return=representation/.test(init.headers?.Prefer || "") ? json(patched) : new Response(null, { status: 204 });
   }
   const row = table === "audit_log"
     ? { ...body, id: ++nextId, at: new Date(Date.UTC(2026, 8, 26, 0, 0, nextId - 900)).toISOString(), hash: String(nextId).padStart(64, "0") }
@@ -284,5 +288,22 @@ describe("a naming ruleset the caller sent never judges a stamped or registered 
     const r = await adjudicateProposal("aster-tower", { source: "revit", naming: OFF, elements: GOOD, container_name: NAME });
     expect(r).toMatchObject({ verdict: "accepted", naming_ref: "client", naming_source: "client", version: null, verdict_audit_id: null });
     expect(actions()).toEqual(["Proposal accepted from revit"]);
+  });
+});
+
+// H0 (D4, cde-rem-6): a proposal writes a ledger row and may raise BCF topics — a contributor's; a viewer proposes
+// nothing, whichever route asks (/propose, a changeset, intake, the AI tool).
+describe("proposing needs the contributor role (H0 D4)", () => {
+  it("a viewer's plain proposal is a 403 after the project is found and before any ledger row", async () => {
+    state.role = "viewer";
+    await expect(adjudicateProposal("aster-tower", { source: "web", elements: GOOD }))
+      .rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    expect(calls.map((c) => c.table)).toEqual(["projects"]);
+  });
+
+  it("a contributor's plain proposal is judged and recorded", async () => {
+    state.role = "contributor";
+    expect(await adjudicateProposal("aster-tower", { source: "web", elements: GOOD })).toMatchObject({ verdict: "accepted" });
+    expect(actions()).toEqual(["Proposal accepted from web"]);
   });
 });

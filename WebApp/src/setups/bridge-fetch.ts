@@ -28,6 +28,24 @@ export async function bfetch(url: string, init: RequestInit = {}): Promise<Respo
   return res;
 }
 
+/** The bridge's words when it refuses a read (403), else null. A refused list must be shown as a refusal — rendered as
+ *  an empty list it would read as "nothing published" (D7). Reads the body only on a 403. */
+export async function refusalText(res: Response): Promise<string | null> {
+  if (res.status !== 403) return null;
+  const fallback = "The bridge refused this (HTTP 403).";
+  try { return String((await res.json())?.message || "") || fallback; } catch { return fallback; }
+}
+
+/** A write to the bridge that never reads a refusal as success: the parsed reply of a 2xx (null when it is empty), else
+ *  an Error carrying the bridge's own words ("this action requires the lead role (you are contributor)"). A panel that
+ *  wrote with `bfetch` alone said "done" whatever came back. */
+export async function bwrite<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
+  const r = await bfetch(url, init);
+  const j = (await r.json().catch(() => null)) as (T & { message?: string }) | null;
+  if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  return j as T;
+}
+
 /** Split an SSE text stream: the `data:` payloads of every complete line, plus the unfinished tail. Pure. */
 export function sseSplit(rest: string, chunk: string): { data: string[]; rest: string } {
   const text = rest + chunk;
@@ -41,7 +59,7 @@ export function sseSplit(rest: string, chunk: string): { data: string[]; rest: s
 
 /** The bridge's event feed (GET …/events) read as a fetch stream, so it carries the Authorization header that
  *  EventSource cannot send (the feed requires sign-in once the bridge is reachable from the internet).
- *  Reconnects 3 s after the stream ends or fails. Returns a stop function. */
+ *  Reconnects 3 s after the stream ends or fails; stops for good on a refusal (400/403/404). Returns a stop function. */
 export function bridgeEvents(url: string, onData: (data: string) => void): () => void {
   let stopped = false;
   const ctrl = new AbortController();
@@ -49,6 +67,11 @@ export function bridgeEvents(url: string, onData: (data: string) => void): () =>
     while (!stopped) {
       try {
         const res = await bfetch(url, { signal: ctrl.signal, headers: { Accept: "text/event-stream" } });
+        // No project named, not a member, no such project: asking again every 3 s cannot change the answer (D7).
+        if (res.status === 400 || res.status === 403 || res.status === 404) {
+          console.warn(`[bridge] live events refused (${res.status}): ${url}`);
+          return;
+        }
         if (res.ok && res.body) {
           const reader = res.body.getReader();
           const dec = new TextDecoder();

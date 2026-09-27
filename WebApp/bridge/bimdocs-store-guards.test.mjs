@@ -1,4 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 // setSectionBindings/complianceReport guard tests need a mocked cde-store.mjs (Supabase network layer)
 // so we can assert on the 409/404 guard paths and prove complianceReport never writes. This mirrors
@@ -28,6 +33,11 @@ vi.mock("./cde-store.mjs", () => ({
     return data;
   },
   getProjectMeta: vi.fn(async () => ({})),
+  // The real guard's shape (cde-store requireRows): the rows, or a 403 in the caller's words.
+  requireRows: (rows, what) => {
+    if (Array.isArray(rows) && rows.length) return rows;
+    throw Object.assign(new Error(`${what} — nothing was saved`), { status: 403 });
+  },
 }));
 vi.mock("./members-store.mjs", () => ({
   requireMinRole: vi.fn(async (key, min) => {
@@ -44,7 +54,7 @@ vi.mock("./office-store.mjs", () => ({
   getScan: vi.fn(async () => null),
 }));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport, patchSection, createDoc, createDocFromIngest, getSourceRef } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -280,5 +290,98 @@ describe("readinessReport — runs the bound checks, scores, derives the plan, n
     expect(rep.sections.find((s) => s.section_id === "m1").results[0].id).toBe("office.worksets");
     doc = makeDoc(); sb.mockResolvedValue([doc]);
     await expect(readinessReport("k", doc.id)).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("a document write the database refused (no row back) is a 403 — never a 200, never a ledger row (ledger-1, H0 D5)", () => {
+  beforeEach(() => {
+    globalThis.__testRole = undefined;
+    doc = readinessDoc();
+    sb.mockImplementation(async (path, opts) => (opts?.method === "PATCH" ? [] : [doc]));
+  });
+  it.each([
+    ["patchSection", () => patchSection("k", doc.id, "d1", { body: "named: Yara" })],
+    ["setSectionBindings", () => setSectionBindings("k", doc.id, "m1", { bindings: { checks: [] } })],
+    ["setSectionAnswer", () => setSectionAnswer("k", doc.id, "d1", { value: "yes" })],
+    ["setSectionPlan", () => setSectionPlan("k", doc.id, "m1", { owner: "lead@x" })],
+    ["transitionDoc", () => transitionDoc("k", doc.id, { to: "shared" })],
+    ["publishDoc", () => { doc.status = "shared"; return publishDoc("k", doc.id, {}); }],
+  ])("%s", async (_name, call) => {
+    await expect(call()).rejects.toMatchObject({ status: 403, message: "a document is edited by a contributor or above — nothing was saved" });
+    expect(audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
+  it("a viewer's section edit is a 403 before the document is read, and nothing reaches the ledger", async () => {
+    globalThis.__testRole = "viewer";
+    sb.mockClear();
+    audit.mockClear();
+    try {
+      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { body: "x" }))
+        .rejects.toMatchObject({ status: 403, message: "this action requires the contributor role" });
+      expect(sb).not.toHaveBeenCalled();
+      expect(audit).not.toHaveBeenCalled();
+    } finally { globalThis.__testRole = undefined; }
+  });
+});
+
+describe("a document's recorded names come from the sign-in (bimdocs-3, H0 D6)", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email: "lead@example.test" })).toString("base64url") + ".sig";
+  const posted = (table) => sb.mock.calls.find(([p, o]) => p === table && o?.method === "POST")?.[1].body;
+  beforeEach(() => { globalThis.__testRole = undefined; });
+
+  it("publishDoc: published_by is the signed-in lead, not the body's name", async () => {
+    doc.status = "shared";
+    await runWithAuth(jwt, () => publishDoc("k", doc.id, { actor: "The Director" }));
+    expect(posted("bim_document_versions").published_by).toBe("lead@example.test");
+  });
+
+  it("createDoc and createDocFromIngest: created_by is the signed-in caller", async () => {
+    await runWithAuth(jwt, () => createDoc("k", { doc_type: "BEP", actor: "The Director" }));
+    expect(posted("bim_documents").created_by).toBe("lead@example.test");
+    sb.mockClear();
+    await runWithAuth(jwt, () => createDocFromIngest("k", { doc_type: "BEP", sections: [{ heading: "A" }], actor: "The Director" }));
+    expect(posted("bim_documents").created_by).toBe("lead@example.test");
+  });
+
+  it("the machine credential keeps its label", async () => {
+    doc.status = "shared";
+    await publishDoc("k", doc.id, { actor: "Revit" });
+    expect(posted("bim_document_versions").published_by).toBe("Revit");
+  });
+});
+
+describe("ingest commit — the original must belong to this project (H0, bimdocs-4)", () => {
+  const P = "22222222-2222-4222-8222-222222222222", OTHER = "33333333-3333-4333-8333-333333333333";
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sentinel-bind-"));
+    process.env.SENTINEL_BIMDOCS = dir;
+    ensureProject.mockResolvedValue({ id: P });
+    sb.mockResolvedValue([{ id: "d1", doc_type: "EIR", title: "t" }]);
+  });
+  afterEach(() => {
+    delete process.env.SENTINEL_BIMDOCS;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const put = (sub, fid) => { mkdirSync(join(dir, ...sub), { recursive: true }); writeFileSync(join(dir, ...sub, fid), "x"); return fid; };
+  const commit = (file_id) => createDocFromIngest("k", { doc_type: "EIR", sections: [{ heading: "A" }], source: { file_id, name: "a.txt" } });
+
+  it("a file uploaded to this project commits", async () => {
+    await expect(commit(put([P], `${randomUUID()}.txt`))).resolves.toMatchObject({ id: "d1" });
+  });
+
+  it("another project's file, or a pre-H0 file in the flat folder, is a 400 and nothing is saved", async () => {
+    for (const fid of [put([OTHER], `${randomUUID()}.txt`), put([], `${randomUUID()}.txt`)])
+      await expect(commit(fid)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/not uploaded to this project/) });
+    expect(sb).not.toHaveBeenCalled();
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("getSourceRef names the document's project, so the source route reads that project's folder", async () => {
+    doc = makeDoc({ source: { file_id: "f.txt", name: "a.txt" } });
+    sb.mockImplementation(async () => [doc]);
+    expect(await getSourceRef("k", doc.id)).toEqual({ file_id: "f.txt", name: "a.txt", project_id: "proj1" });
   });
 });

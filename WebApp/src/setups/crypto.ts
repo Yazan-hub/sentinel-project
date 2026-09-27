@@ -191,6 +191,14 @@ export async function unlockAndVerify(
           return { ok: false, firstUse: false };
         }
       }
+      // A keystore exists but can't be read (a GET refused, or a leftover without wrapped_dek): holding the new DEK
+      // would encrypt this session's files under a key the project never stored.
+      return { ok: false, firstUse: false, reason: "A keystore exists for this project but could not be read — nothing was set up" };
+    } else if (!r.ok) {
+      // Refused (setting up the project's passphrase is a lead's — H0 D4): not a first use. Holding the new DEK would
+      // encrypt this session's files under a key the project never stored — unreadable to everyone afterwards.
+      const j = (await r.json().catch(() => null)) as { message?: string } | null;
+      return { ok: false, firstUse: true, reason: `Not set up — ${j?.message || `the bridge answered HTTP ${r.status}`}` };
     }
   } catch {
     /* offline — hold the DEK for this session; it'll persist on the next successful setup */

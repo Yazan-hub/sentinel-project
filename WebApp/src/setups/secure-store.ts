@@ -54,15 +54,22 @@ export interface StoredFile {
   mime: string;
 }
 
-/** Encrypt a file client-side, upload only the ciphertext, cache it locally, and return its ref. */
+/** The bridge's own words for a refusal (a 403 names the missing role or office), else the status. */
+async function failure(r: Response, what: string): Promise<string> {
+  const j = (await r.json().catch(() => null)) as { message?: string } | null;
+  return `${what} failed (HTTP ${r.status})${j?.message ? `: ${j.message}` : ""}`;
+}
+
+/** Encrypt a file client-side, upload only the ciphertext, cache it locally, and return its ref. The bridge keeps each
+ *  blob in its project's folder and checks the caller against that project (H0), so the upload names it. */
 export async function putEncryptedFile(base: string, projectKey: string, file: File): Promise<StoredFile> {
   const cipher = await encryptBytes(projectKey, await file.arrayBuffer());
-  const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files`, {
+  const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files?project=${encodeURIComponent(projectKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: cipher,
   });
-  if (!r.ok) throw new Error(`Upload failed (HTTP ${r.status})`);
+  if (!r.ok) throw new Error(await failure(r, "Upload"));
   const { id } = await r.json();
   await cachePut(id, cipher.buffer);
   return { id, name: file.name, size: file.size, mime: file.type || "application/octet-stream" };
@@ -72,8 +79,8 @@ export async function putEncryptedFile(base: string, projectKey: string, file: F
 export async function getDecryptedFile(base: string, projectKey: string, id: string): Promise<ArrayBuffer> {
   let cipher = await cacheGet(id);
   if (!cipher) {
-    const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files/${encodeURIComponent(id)}`);
-    if (!r.ok) throw new Error(`Download failed (HTTP ${r.status})`);
+    const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files/${encodeURIComponent(id)}?project=${encodeURIComponent(projectKey)}`);
+    if (!r.ok) throw new Error(await failure(r, "Download"));
     cipher = await r.arrayBuffer();
     await cachePut(id, cipher);
   }

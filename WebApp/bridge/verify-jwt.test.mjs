@@ -32,6 +32,8 @@ describe("verifyJwt — HS256 (legacy shared secret, behavior preserved)", () =>
   it("rejects a wrong secret", () => expect(verifyJwt(hs256(authed, "other"), SECRET)).toBe(false));
   it("rejects role anon (the public anon key ships in every bundle)", () =>
     expect(verifyJwt(hs256({ ...authed, role: "anon" }), SECRET)).toBe(false));
+  it("rejects a Supabase anonymous sign-in (role authenticated, is_anonymous true): it is nobody's account", () =>
+    expect(verifyJwt(hs256({ ...authed, is_anonymous: true }), SECRET)).toBe(false));
   it("rejects an expired token", () =>
     expect(verifyJwt(hs256({ ...authed, exp: Math.floor(Date.now() / 1000) - 10 }), SECRET)).toBe(false));
   it("rejects garbage", () => {

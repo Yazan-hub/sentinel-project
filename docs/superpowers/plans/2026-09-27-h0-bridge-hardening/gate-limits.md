@@ -591,7 +591,7 @@ Closes: **cde-rem-3** (intake and the manifests backfill decide the role before 
 
 **Prerequisite:** area **spend**'s SPEND-1 (`requireSpend(key, deps)` in `WebApp/bridge/members-store.mjs`).
 
-**Ownership:** this task owns the `requireSpend` line on intake and on document ingest (SPEND-7 and SPEND-10 add tests only), and the manifests backfill's `requireMinRole(p1, "lead")` (WR-11 then only swaps `captureManifest` for `backfillManifest`). `/ifc` and `/cde/files` carry no project key today: area spend's SPEND-5 puts `await requireSpendFor(…)` on the line above this task's `res.once("close", uploadSlot(currentSub()));` in `/ifc`, and SPEND-6 replaces the whole `/cde/files` block, checking the caller before it takes its slot. Either way the check comes before the slot and before every byte.
+**Ownership:** this task owns the `requireSpend` line on intake and on document ingest (SPEND-7 and SPEND-10 add tests only), and the manifests backfill's `requireMinRole(p1, "lead")` and `requireSpend(p1)` (the second added in batch 2's review fix: a lead of a project anyone can make by signing up is not a trusted caller; WR-11 then only swaps `captureManifest` for `backfillManifest`). `/ifc` and `/cde/files` carry no project key today: area spend's SPEND-5 puts `await requireSpendFor(…)` on the line above this task's `holdUpload(req, res, currentSub());` in `/ifc` (the slot line as batch 2's second review left it), and SPEND-6 replaces the whole `/cde/files` block, checking the caller before it takes its slot. Either way the check comes before the slot and before every byte.
 
 **Files:**
 - Modify: `WebApp/bridge/bcf-service.mjs`:
@@ -617,8 +617,8 @@ Closes: **cde-rem-3** (intake and the manifests backfill decide the role before 
   - `currentSub()` (bridge-auth);
   - `uploadSlot`, `readRaw` (Task 1).
 - Produces:
-  - Every raw-upload route runs, in order: its role check, then `res.once("close", uploadSlot(currentSub()))` (held until the answer is done, freed by an answer or a client that goes away), then `readRaw(req[, { max }])`.
-  - Intake: `await requireSpend(p1);` first in the route. Ingest: `const proj = await requireSpend(p1);` first in the route (SPEND-9 passes `proj.id` to `ingestDocument`). Manifests backfill: `await requireMinRole(p1, "lead");` after the uuid check.
+  - Every raw-upload route runs, in order: its role check, then `holdUpload(req, res, currentSub())` (held until the answer is done, freed by an answer or a client that goes away; a client that went away during the role check is refused and its slot freed at once — batch 2's second review, which replaced `res.once("close", uploadSlot(currentSub()))`: that line never released a slot taken after the close), then `readRaw(req[, { max }])`.
+  - Intake: `await requireSpend(p1);` first in the route. Ingest: `const proj = await requireSpend(p1);` first in the route (SPEND-9 passes `proj.id` to `ingestDocument`). Manifests backfill: `await requireMinRole(p1, "lead");` after the uuid check, then `await requireSpend(p1);` (batch 2's review fix).
   - Ingest reads with `{ max: MAX_DOC_UPLOAD }`.
   - `ingestDocument` stores no original for a document it refuses.
   - The web counts a 429 as "Not uploaded".
@@ -768,7 +768,7 @@ with
 with
 
 ```js
-      res.once("close", uploadSlot(currentSub())); // held until this answer is done
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
@@ -785,7 +785,7 @@ with
 with
 
 ```js
-      res.once("close", uploadSlot(currentSub())); // held until this answer is done
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body" });
 ```
@@ -805,7 +805,7 @@ with
         // A trusted caller first (D2): the key is in the URL, so a refusal reads no byte of the upload.
         const { requireSpend } = await import("./members-store.mjs");
         await requireSpend(p1);
-        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        holdUpload(req, res, currentSub()); // held until this answer is done
         const bytes = await readRaw(req);
 ```
 
@@ -821,10 +821,12 @@ with
 
 ```js
           if (!cde.isUuid(p3)) return send(res, 400, { message: "not a version id" });
-          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read.
-          const { requireMinRole } = await import("./members-store.mjs");
+          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read — and,
+          // like every upload, a trusted caller's (D2): a lead of a project anyone can make by signing up is not enough.
+          const { requireMinRole, requireSpend } = await import("./members-store.mjs");
           await requireMinRole(p1, "lead");
-          res.once("close", uploadSlot(currentSub())); // held until this answer is done
+          await requireSpend(p1);
+          holdUpload(req, res, currentSub()); // held until this answer is done
           const bytes = await readRaw(req);
 ```
 
@@ -847,7 +849,7 @@ with
         // the URL, so a refusal reads no byte of the upload. The project row is kept for ingestDocument (SPEND-9).
         const { requireSpend } = await import("./members-store.mjs");
         const proj = await requireSpend(p1);
-        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        holdUpload(req, res, currentSub()); // held until this answer is done
         const raw = await readRaw(req, { max: MAX_DOC_UPLOAD });
 ```
 
@@ -1896,7 +1898,7 @@ EOF
 
 - **spend**:
   - `requireSpend(key, deps)` in `members-store.mjs`. Task 3 calls it on intake and document ingest, before the upload slot and before any byte is read.
-  - For `/ifc` and `/cde/files`, spend adds `await requireSpend(<the key its web callers now send>)` on the line directly above Task 3's `res.once("close", uploadSlot(currentSub()));`.
+  - For `/ifc` and `/cde/files`, spend adds `await requireSpend(<the key its web callers now send>)` on the line directly above Task 3's `holdUpload(req, res, currentSub());`.
   - Spend's own edits to the `/ai/chat` and `/ai/run-tool` blocks must keep `readBody(req, { max: SMALL_JSON })` (Task 2).
   - `createKeyedLimiter` (Task 8) is used by SPEND-2's per-user /ai/* limiter.
 - **write-roles**: nothing for cde-7. Its memory half is closed here (Tasks 1-2: every JSON body is capped and the bytes being parsed at once are budgeted), and that bound holds on every JSON route alike — any signed-in caller can send the same 16 MB body to POST /cde/projects — so moving `requireMinRole` before `readBody` on office snapshot/scan and the members routes would bound nothing further; `office-store` `saveSnapshot`/`saveScan` already refuse below contributor, and the members writes below lead (WR-8, 0004), before anything is written. WR-12 records the same decision. ledger-1's role half is WR-12.
@@ -1906,8 +1908,10 @@ EOF
 
 ### Deferred
 
-- **cde-rem-3 (part): streaming raw uploads to a temp file instead of memory, and running web-ifc parsing (`extractElements`, `extractManifest`, the delivery-gate `Buffer.from` copies) in a worker_thread.** This is pure hardening with no live exposure left to strangers once Task 3 lands:
-  - intake and the manifests backfill are reached only by a trusted caller (the machine, a contributor+ on an office-attached project per D2, or a lead for the backfill);
-  - at most one upload per caller and two in total, each capped.
+- **cde-rem-3 (part): streaming raw uploads to a temp file instead of memory, and running web-ifc parsing (`extractElements`, `extractManifest`, the delivery-gate `Buffer.from` copies) in a worker_thread.** This is hardening with no exposure left to strangers once this branch lands whole: once SPEND-6 has landed, not once Task 3 has (corrected in batch 2's review):
+  - intake, document ingest and the manifests backfill are reached only by a trusted caller (`requireSpend`: the machine, a contributor+ on an office-attached project per D2); the backfill also needs lead. The backfill's `requireSpend` was added in batch 2's review fix. With the lead check alone, any account could sign up, create a project, take an upload slot on it as its owner, and send up to 2 GB;
+  - `/ifc` and `/cde/files` check nothing before their slot until spend's SPEND-5 and SPEND-6 land. Between Task 3 and SPEND-6, any signed-in account can take both slots and hold each for up to 30 min (a body dripped a byte at a time, `SERVER_LIMITS.requestTimeout`), and every upload on the bridge, the machine's included, gets a 429. Do not deploy the branch in between;
+  - at most one upload per caller and two in total, each capped. A body that sends nothing for 30 s is a 408 (batch 2's second review), but a trusted caller who drips a byte at a time can still hold a slot for 30 min. A slot kept for the machine would close that if it is ever needed.
 
   A worker plus a temp-file pipeline costs far more than a few lines. The ceiling is marked `ponytail:` in `request-limits.mjs`: two uploads of up to 2 GB are held in memory at once.
+- **server-1 (part): the 256-socket cap against slow callers.** Batch 2's second review found that `maxConnections` 256 with the 30 min `requestTimeout` let 256 slow bodies (anonymous receipt checks, or any signed-in caller's JSON body, read before membership is checked) drop every new connection, Revit and the web on loopback included. Bodies are now bounded in time and in number: any body 30 s without a byte, a JSON body not whole within 2 min, and a receipt check not whole within 10 s is a 408; at most 32 receipt checks read at once (the rest 429 at once); a signed-in account reads at most 8 JSON bodies at once (the machine is not counted); every answer given before the whole body arrived closes its connection. What is left: many accounts multiply the 8 while sign-up is open (D1; a global cap on signed-in body reads would close it), and a flood of new connections can still fill the cap for a moment (inherent to any socket cap; the Funnel passes only complete request heads, so slow heads never reach the bridge from the internet).

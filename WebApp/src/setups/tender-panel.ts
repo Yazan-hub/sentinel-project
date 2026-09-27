@@ -1,6 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, type RateTable } from "../sentinel-core";
@@ -93,7 +93,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
       const boq = buildBoQ(await quantityTakeoff(fragments), rates);
       if (!boq.lines.length) { msg("No priced quantities to tender.", "#eab308"); return; }
       const scope: ScopeLine[] = boq.lines.map((l) => ({ code: l.code, description: l.description, unit: l.unit, qty: l.qty, rate: l.rate, amount: l.amount }));
-      await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`, {
+      await bwrite(`${base}/tenders/${encodeURIComponent(pid())}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: val("tn-title") || "Main works package", due_date: val("tn-due") || null, currency: boq.currency, scope, estimate_total: boq.total, author: "Web coordinator" }),
       });
@@ -172,14 +172,14 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     root.querySelectorAll<HTMLInputElement>(".tn-rate").forEach((i) => { const v = Number(i.value); if (Number.isFinite(v)) rates[i.dataset.code!] = v; });
     msg("Submitting bid…");
     try {
-      await bfetch(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
+      await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
       await refreshCurrent(); addingBid = false; renderDetail(); msg(`Bid recorded for ${bidder}.`, "#22c55e");
     } catch (e) { msg("Bid failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
   const award = async (bidder: string) => {
     if (!current) return;
-    try { await bfetch(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); await refreshCurrent(); renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
+    try { await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); await refreshCurrent(); renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
     catch (e) { msg("Award failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 

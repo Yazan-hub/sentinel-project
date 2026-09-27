@@ -2,7 +2,7 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField, requireRows } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireMinRole } from "./members-store.mjs";
@@ -15,6 +15,9 @@ const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
 const enc = encodeURIComponent;
 const h8 = (text) => createHash("sha256").update(text).digest("hex").slice(0, 8);
+// bim_documents_update (0024) is a contributor's: a refused PATCH comes back as no row. Every document write passes its
+// rows through requireRows with these words BEFORE its ledger row (H0 D5, ledger-1).
+const EDITED = "a document is edited by a contributor or above";
 
 export const listTemplates = () =>
   loadTemplates().map((t) => ({ doc_type: t.doc_type, title: t.title, sections: t.sections.length }));
@@ -29,7 +32,8 @@ export async function createDoc(key, { doc_type, title, actor } = {}) {
   const proj = await ensureProject(key);
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
-  const body = { ...instantiateTemplate(tpl, { title, actor }), project_id: proj.id };
+  // created_by is the signed-in caller's verified identity, never the body's name (bimdocs-3); the machine credential keeps its label.
+  const body = { ...instantiateTemplate(tpl, { title, actor: resolveActor(actor, "web") }), project_id: proj.id };
   const row = one(await sb("bim_documents", { method: "POST", body, prefer: "return=representation" }));
   await audit(proj.id, "bim_document", row.id, "created", actor || "web", null, { doc_type: row.doc_type, title: row.title });
   return row;
@@ -46,6 +50,7 @@ export async function getDoc(key, docId) {
 }
 
 export async function patchSection(key, docId, sectionId, { body, owner, state, updated_at, actor } = {}) {
+  await requireMinRole(key, "contributor"); // H0 (D4, ledger-1): editing a section is a contributor's, asked before the document is read
   const doc = await getDoc(key, docId);
   if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
   if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
@@ -55,7 +60,7 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   if (state && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
   const next = { ...old, ...(body !== undefined && { body }), ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
-  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  const row = one(requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED));
   await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web",
     { section: old.heading, state: old.state, owner: old.owner, body_chars: old.body.length, body_sha8: h8(old.body) },
     { section: next.heading, state: next.state, owner: next.owner, body_chars: next.body.length, body_sha8: h8(next.body) });
@@ -66,7 +71,7 @@ export async function transitionDoc(key, docId, { to, actor } = {}) {
   await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const doc = await getDoc(key, docId);
   if (!validateTransition(doc.status, to)) throw err(400, `invalid transition ${doc.status} → ${to}`);
-  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: to, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  const row = one(requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: to, updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED));
   await audit(doc.project_id, "bim_document", docId, "transitioned", actor || "web", { status: doc.status }, { status: to });
   return row;
 }
@@ -77,8 +82,10 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`);
   const version_no = (one(versions)?.version_no || 0) + 1;
-  await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, actor || "web", version_no) });
-  await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: "published", updated_at: new Date().toISOString() } });
+  // published_by is the append-only, contractual record of who issued this version: the signed-in lead's verified
+  // identity, never the body's name (bimdocs-3). The machine credential keeps its label.
+  await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no) });
+  requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: "published", updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED);
   await audit(doc.project_id, "bim_document", docId, "published", actor || "web", null, { version_no, label: label || `v${version_no}` });
   return { version_no };
 }
@@ -137,12 +144,19 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   const normalizedSections = validateSections(sections);
   const normalizedSource = normalizeSource(source);
   const proj = await ensureProject(key);
+  // H0 (bimdocs-4): the original must have been uploaded to THIS project — it lives in the project's own folder, so a
+  // file_id copied from another project, or one from before H0, names nothing here.
+  if (normalizedSource?.file_id !== undefined) {
+    const { sourceFilePath } = await import("./bimdocs-ingest.mjs");
+    try { sourceFilePath(proj.id, normalizedSource.file_id); }
+    catch { throw err(400, "the original file was not uploaded to this project — ingest it here again; nothing was saved"); }
+  }
   const body = {
     project_id: proj.id,
     doc_type,
     title: title || `Ingested ${doc_type}`,
     status: "wip",
-    created_by: actor || "web",
+    created_by: resolveActor(actor, "web"), // the verified identity, as createDoc (bimdocs-3)
     source: normalizedSource,
     sections: normalizedSections,
   };
@@ -157,10 +171,11 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   return row;
 }
 
-/** The original uploaded file's descriptor for a document, or null when hand-authored. */
+/** The original uploaded file's descriptor for a document, or null when hand-authored — with the document's project id,
+ *  whose folder holds the file (H0, bimdocs-4). */
 export async function getSourceRef(key, docId) {
   const doc = await getDoc(key, docId);
-  return doc.source || null;
+  return doc.source ? { ...doc.source, project_id: doc.project_id } : null;
 }
 
 const PLANNED_BINDABLE = new Set(PLANNED_CHECKS.map((p) => p.id));
@@ -207,7 +222,7 @@ export async function setSectionBindings(key, docId, sectionId, payload = {}) {
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   const sections = doc.sections.map((s, j) => (j === i ? { ...s, bindings: next } : s));
-  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  const row = one(requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED));
   await audit(doc.project_id, "bim_document", docId, "section_bindings_set", actor || "web",
     { section: old.heading, checks: (old.bindings?.checks || []).map((c) => c.id) },
     { section: old.heading, checks: next.checks.map((c) => c.id) });
@@ -234,7 +249,7 @@ export async function setSectionAnswer(key, docId, sectionId, { value, note, upd
   if (old.kind !== "declared") throw err(409, "this item is measured by a check — it takes no declared answer");
   const answer = { value, note: text, by: resolveActor(actor, "web"), at: new Date().toISOString() };
   const sections = doc.sections.map((s, j) => (j === i ? { ...s, answer } : s));
-  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  const row = one(requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED));
   await audit(doc.project_id, "bim_document", docId, "declared", actor || "web",
     { section: old.heading, value: old.answer?.value ?? null },
     { section: old.heading, value, note_chars: text.length });
@@ -255,7 +270,7 @@ export async function setSectionPlan(key, docId, sectionId, { owner, due, update
   const old = doc.sections[i];
   const next = { ...old, ...(owner !== undefined && { owner: owner === null ? null : owner.trim() || null }), ...(due !== undefined && { due }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
-  const row = one(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  const row = one(requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED));
   await audit(doc.project_id, "bim_document", docId, "plan_set", actor || "web",
     { section: old.heading, owner: old.owner ?? null, due: old.due ?? null },
     { section: old.heading, owner: next.owner ?? null, due: next.due ?? null });

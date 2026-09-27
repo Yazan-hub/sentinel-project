@@ -17,6 +17,8 @@ async function wire(deps = {}) {
     docGet: deps.docGet || cde.docGet,
     docUpsert: deps.docUpsert || cde.docUpsert,
     listFiles: deps.listFiles || cde.listFiles,
+    versionOnKey: deps.versionOnKey || cde?.versionOnKey,
+    sb: deps.sb || cde?.sb,
     extractManifest: deps.extractManifest || (await import("./ifc-manifest.mjs")).extractManifest,
   };
 }
@@ -34,8 +36,24 @@ export async function captureManifest(key, versionId, bytes, { actor = "bridge",
     levels: m.levels, grids: m.grids, site: m.site, counts: m.counts,
     sha256: createHash("sha256").update(bytes).digest("hex"), captured_at: new Date().toISOString(), source,
   };
-  await d.docUpsert(STORE, proj.id, versionId, doc);
+  // Written with the service key: every caller has been checked first (intake, the backfill's lead, the outbox's
+  // machine credential), and the store can then be closed to direct writes (migration 0033).
+  await d.docUpsert(STORE, proj.id, versionId, doc, { service: true });
   return { revision_id: rev.revision_id, elements: m.counts.elements, skipped: m.counts.skipped, levels: m.levels.length, grids: m.grids.length, has_site: !!(m.site && (m.site.lat != null || m.site.map_conversion)) };
+}
+
+/** POST /cde/:key/manifests/:versionId, the CLI backfill (H0 cde-rem-7): it rewrites what the Federation Gate judges, so
+ *  the bytes must be the version's own file — the version on `key` (versionOnKey's 400) and, when it was registered with
+ *  a sha256, the bytes hashing to it (409) — before anything is captured. A version registered without a sha256 cannot
+ *  be matched; the lead's upload stands (the route asks the lead role before it reads the body). */
+export async function backfillManifest(key, versionId, bytes, opts = {}, deps) {
+  const d = await wire(deps);
+  await d.versionOnKey(key, versionId);
+  const recorded = String((await d.sb(`container_versions?id=eq.${versionId}&select=sha256`))?.[0]?.sha256 || "").toLowerCase();
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  if (recorded && recorded !== sha)
+    throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (sha256 ${sha.slice(0, 12)}… ≠ ${recorded.slice(0, 12)}…) — nothing was saved`), { status: 409 });
+  return captureManifest(key, versionId, bytes, opts, d);
 }
 
 export async function getManifest(key, versionId, deps) {

@@ -6,6 +6,7 @@
 // Deps are injected (the changesets-store idiom) so the sequencing is unit-tested without Supabase;
 // the defaults are loaded lazily to keep cde-store → artefact-store → cde-store from being a cycle.
 import { createHash } from "node:crypto";
+import { resolveActor } from "./bridge-auth.mjs";
 
 export const STORE = "artefact";
 export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review"];
@@ -236,7 +237,9 @@ export async function putArtefact(key, kind, body, { actor, source } = {}, deps)
   const version = (prev?.version || 0) + 1;
   const pointer = {
     kind, version, sha256: sha256(body),
-    installed_by: actor || "web", installed_at: new Date().toISOString(),
+    // Shown in Settings as who installed the standard, and carried into the ledger row's new_value: the signed-in lead's
+    // verified identity, never ?actor or body.installed_by (cde-13). The machine credential keeps its label.
+    installed_by: resolveActor(actor, "web"), installed_at: new Date().toISOString(),
     source: source && typeof source === "object" ? source : null,
   };
   await d.docInsert(STORE, proj.id, `${kind}@${version}`, { ...pointer, body });

@@ -3,6 +3,7 @@
 // here touches model data — the Revit add-in executes only what a human ticks (A2).
 import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
+import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures } from "./changesets-logic.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 
@@ -17,11 +18,16 @@ const wire = (deps = {}) => ({
   docList: deps.docList || cde.docList,
   docReplaceIfStatus: deps.docReplaceIfStatus || cde.docReplaceIfStatus,
   audit: deps.audit || cde.audit,
+  requireMinRole: deps.requireMinRole || members.requireMinRole,
+  myRole: deps.myRole || members.myRole,
 });
 
 export async function proposeChangeset(key, body, actor, deps) {
   const d = wire(deps);
-  const v = validateChangeset(body);                      // 400/413 before any network call
+  // H0 (D4, changesets-1): proposing is a contributor's (a ledger row, and a place in the add-in's queue); a viewer
+  // proposes nothing. The machine credential (the MCP server, the add-in) passes as service.
+  await d.requireMinRole(key, "contributor");
+  const v = validateChangeset(body);                      // 400/413 before any store call
   const proj = await d.ensureProject(key);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
@@ -69,6 +75,10 @@ export async function getChangeset(key, id, deps) {
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
 export async function reportResult(key, id, { applied, rejected, note } = {}, actor, deps) {
   const d = wire(deps);
+  // H0 (changesets-1): a result says what a human ticked in Revit and is written once — the add-in's report on the
+  // machine credential, never a signed-in caller's. (When Revit signs in per user — H4 — this becomes that user's
+  // contributor check.)
+  if ((await d.myRole(key)) !== "service") throw err(403, "a changeset's result is reported by the Revit add-in (Sentinel's machine credential) — nothing was saved");
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, "changeset not found");
@@ -114,6 +124,7 @@ export async function reportResult(key, id, { applied, rejected, note } = {}, ac
 
 export async function withdrawChangeset(key, id, actor, deps) {
   const d = wire(deps);
+  await d.requireMinRole(key, "contributor"); // H0 (D4): a viewer withdraws nothing
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, "changeset not found");

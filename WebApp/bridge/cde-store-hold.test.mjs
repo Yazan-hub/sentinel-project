@@ -28,6 +28,7 @@ vi.mock("./artefact-store.mjs", async (orig) => ({
 }));
 
 import { adjudicateProposal, writeHold, recordDeliveryGate, holdIfCouldRegister } from "./cde-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 const P1 = "11111111-1111-4111-8111-111111111111";
 const C1 = "cccccccc-0000-4000-8000-000000000001";
@@ -68,8 +69,10 @@ function fakeRest(url, init = {}) {
     return json(db[table].filter(hit).map((r) => (select.includes("container_versions(") ? { ...r, container_versions: db.container_versions.filter((v) => v.container_id === r.id) } : { ...r })));
   }
   if (method === "PATCH") {
-    for (const r of db[table].filter(hit)) Object.assign(r, body);
-    return new Response(null, { status: 204 });
+    const patched = db[table].filter(hit);
+    for (const r of patched) Object.assign(r, body);
+    // The rows come back only when asked (return=representation): the stores' requireRows reads none as a refusal.
+    return /return=representation/.test(init.headers?.Prefer || "") ? json(patched) : new Response(null, { status: 204 });
   }
   const row = table === "audit_log"
     ? { ...body, id: ++nextId, at: new Date(Date.UTC(2026, 8, 27, 0, 0, nextId - 900)).toISOString(), hash: String(nextId).padStart(64, "0") }
@@ -294,5 +297,32 @@ describe("adjudicateProposal — the proposal row names the file; a refusal is h
     expect(r).toMatchObject({ verdict: "rejected", hold: null });
     expect(db.audit_log[0].action).toMatch(/^Proposal rejected/);
     expect(rows("hold:")).toHaveLength(0);
+  });
+});
+
+describe("a signed-in caller's source is a claim (cde-rem-9, H0 D6)", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email: "member@example.test" })).toString("base64url") + ".sig";
+
+  it("is kept as claimed_source: not in the action, not the hold's source — a member's 'Governed Publish' is not Revit's", async () => {
+    state.role = "contributor";
+    // WR-10's requireMinRole(key, "contributor") in adjudicateProposal uses members-store's own myRole (the mock above
+    // replaces only the export), which reads the membership through the fake PostgREST.
+    db.memberships = [{ project_id: P1, user_id: "33333333-0000-4000-8000-000000000001", role: "contributor" }];
+    const r = await runWithAuth(jwt, () => adjudicateProposal("aster-tower", { source: "Governed Publish", actor: "Revit", elements: BAD, container_name: NAME, register: register() }));
+    const [proposal, hold] = db.audit_log;
+    expect(proposal).toMatchObject({ action: "Proposal rejected", actor: "member@example.test" });
+    expect(proposal.new_value).toMatchObject({ source: null, claimed_source: "Governed Publish" });
+    expect(hold).toMatchObject({ action: `hold:ids ${NAME}`, actor: "member@example.test" });
+    expect(hold.new_value.source).toBe("intake");
+    expect(r.hold).toEqual({ id: hold.id, hash: hold.hash });
+  });
+
+  it("the machine credential's source still names the action and marks Revit's hold", async () => {
+    await adjudicateProposal("aster-tower", { source: "Governed Publish", elements: BAD, container_name: NAME, register: register() });
+    const [proposal, hold] = db.audit_log;
+    expect(proposal.action).toBe("Proposal rejected from Governed Publish");
+    expect(proposal.new_value.source).toBe("Governed Publish");
+    expect(proposal.new_value).not.toHaveProperty("claimed_source");
+    expect(hold.new_value.source).toBe("revit");
   });
 });
