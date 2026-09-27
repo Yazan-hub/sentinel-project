@@ -1656,11 +1656,21 @@ export async function listTransmittals(key) {
   return sb(`transmittals?project_id=eq.${proj.id}&select=*&order=issued_at.desc`);
 }
 
-export async function createTransmittal(key, b) {
+/** Issue a transmittal (transmittals_write: a lead's). The sender is the signed-in caller's verified identity (the machine
+ *  credential keeps its label); every listed version must be on this project — another project's, an unknown or a
+ *  malformed id is versionOnKey's 400 before any write; the issue is one "issued" ledger row (cde-14). */
+export async function createTransmittal(key, b = {}) {
+  if (b.version_ids !== undefined && !Array.isArray(b.version_ids)) throw Object.assign(new Error("version_ids must be a list of version ids on this project"), { status: 400 });
+  const ids = [...new Set(b.version_ids || [])];
+  // ponytail: one read per listed version; one in.() read if transmittals start listing hundreds of versions.
+  for (const id of ids) await versionOnKey(key, id);
   const proj = await ensureProject(key);
-  return (await sb(`transmittals`, {
+  const [row] = requireRows(await sb(`transmittals`, {
     method: "POST",
-    body: { project_id: proj.id, reference: b.reference, sender: b.sender, recipients: b.recipients || [], purpose: b.purpose, suitability: b.suitability, version_ids: b.version_ids || [], note: b.note },
+    body: { project_id: proj.id, reference: b.reference, sender: resolveActor(b.sender), recipients: b.recipients || [], purpose: b.purpose, suitability: b.suitability, version_ids: ids, note: b.note },
     prefer: "return=representation",
-  }))[0];
+  }), "a transmittal is issued by a lead or owner");
+  await audit(proj.id, "transmittal", row.id, "issued", b.sender || "web", null,
+    { reference: row.reference ?? null, purpose: row.purpose ?? null, suitability: row.suitability ?? null, recipients: row.recipients ?? [], version_ids: ids });
+  return row;
 }

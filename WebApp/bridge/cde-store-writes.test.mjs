@@ -12,12 +12,17 @@ vi.hoisted(() => {
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
-  deleteFile, archiveFile, unarchiveFile, bcfSaveTopic } from "./cde-store.mjs";
+  deleteFile, archiveFile, unarchiveFile, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const F = "ffffffff-0000-4000-8000-000000000001";
 const C = "cccccccc-0000-4000-8000-000000000001";
 const V1 = "aaaaaaaa-0000-4000-8000-000000000001";
+const OTHER = "22222222-2222-4222-8222-222222222222";
+const CX = "cccccccc-0000-4000-8000-000000000002";
+const VX = "bbbbbbbb-0000-4000-8000-000000000001"; // the other project's version
+const jwt = (email) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email })).toString("base64url") + ".sig";
 
 let db, rest;
 const realFetch = globalThis.fetch;
@@ -179,5 +184,34 @@ describe("bcfSaveTopic — a topic save that changed nothing is a refusal, so no
     db.bcf_topics = [{ guid: G, project_id: "demo", topic_status: "Open", model: "", data: {} }];
     expect(await bcfSaveTopic(topic)).toBe(topic);
     expect(db.bcf_topics[0].topic_status).toBe("Closed");
+  });
+});
+
+describe("createTransmittal — the sender is the sign-in, the versions are the project's, and the issue is on the ledger (cde-14)", () => {
+  beforeEach(() => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc" }, { id: CX, project_id: OTHER, iso_name: "X.ifc" }];
+    db.container_versions = [{ id: V1, container_id: C, revision: "P01", state: "published" }, { id: VX, container_id: CX, revision: "P01", state: "published" }];
+  });
+
+  it("a signed-in lead's transmittal names them as sender, keeps each version once, and writes one 'issued' row", async () => {
+    const row = await runWithAuth(jwt("lead@example.test"), () => createTransmittal("demo", { reference: "TR-001", sender: "The Director", purpose: "for coordination", suitability: "S2", version_ids: [V1, V1] }));
+    expect(row).toMatchObject({ sender: "lead@example.test", version_ids: [V1] });
+    expect(ledger()).toHaveLength(1);
+    expect(ledger()[0].body).toMatchObject({ entity_type: "transmittal", entity_id: row.id, action: "issued", actor: "lead@example.test", new_value: { reference: "TR-001", version_ids: [V1] } });
+  });
+
+  it.each([["another project's version", VX], ["an unknown id", "aaaaaaaa-0000-4000-8000-00000000dead"], ["a malformed id", "nope"]])("%s is a 400 before any write", async (_what, id) => {
+    await expect(createTransmittal("demo", { reference: "TR-002", version_ids: [id] })).rejects.toMatchObject({ status: 400, message: `version ${id} is not on demo` });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("version_ids that is not a list is a 400 before any read", async () => {
+    await expect(createTransmittal("demo", { version_ids: V1 })).rejects.toMatchObject({ status: 400, message: "version_ids must be a list of version ids on this project" });
+    expect(rest.calls).toHaveLength(0);
+  });
+
+  it("the machine credential keeps its sender label", async () => {
+    expect(await createTransmittal("demo", { reference: "TR-003", sender: "Revit", version_ids: [] })).toMatchObject({ sender: "Revit", version_ids: [] });
+    expect(ledger()[0].body.actor).toBe("Revit");
   });
 });
