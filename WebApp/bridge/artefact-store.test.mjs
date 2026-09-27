@@ -521,3 +521,48 @@ describe("validateArtefact — roi", () => {
     expect(d.audits).toHaveLength(0);
   });
 });
+
+// The review chain's template (phase 6b, spec 2026-09-27 Decision 10): exactly {steps}; 0-6 steps, each exactly {name,
+// role, approvals}. The database reads it (review_template, migration 0032), so a key it would not read is refused, not
+// kept; steps [] is no chain, and a project's own review@n with no steps turns its office's off.
+describe("validateArtefact — review", () => {
+  const review = { steps: [{ name: "Coordination check", role: "contributor", approvals: 2 }, { name: "Lead sign-off", role: "lead", approvals: 1 }] };
+  const step = review.steps[0];
+  it("accepts steps of every role, both bounds of every range, and no steps at all", () => {
+    expect(KINDS).toContain("review");
+    expect(validateArtefact("review", review)).toBe(true);
+    expect(validateArtefact("review", { steps: [] })).toBe(true);
+    const six = Array.from({ length: 6 }, (_, i) => ({ name: "x".repeat(80), role: ["contributor", "lead", "owner"][i % 3], approvals: i % 2 ? 5 : 1 }));
+    expect(validateArtefact("review", { steps: six })).toBe(true);
+  });
+  it.each([
+    [{}, "review: steps must be an array of 0 to 6 steps"],
+    [{ steps: null }, "review: steps must be an array of 0 to 6 steps"],
+    [{ steps: "lead" }, "review: steps must be an array of 0 to 6 steps"],
+    [{ steps: Array.from({ length: 7 }, () => step) }, "review: steps must be an array of 0 to 6 steps"],
+    [{ ...review, folder: "Architecture" }, "review: folder is not a review field — the body is exactly {steps: [{name, role, approvals}]}"],
+    [{ steps: ["lead"] }, "review: steps[0] must be an object"],
+    [{ steps: [{ ...step, due: "5d" }] }, "review: steps[0].due is not a step field — a step is exactly {name, role, approvals}"],
+    [{ steps: [{ ...step, name: "" }] }, "review: steps[0].name must be a non-empty string of at most 80 characters"],
+    [{ steps: [{ ...step, name: "   " }] }, "review: steps[0].name must be a non-empty string of at most 80 characters"],
+    [{ steps: [{ ...step, name: "x".repeat(81) }] }, "review: steps[0].name must be a non-empty string of at most 80 characters"],
+    [{ steps: [step, { ...review.steps[1], role: "viewer" }] }, "review: steps[1].role must be contributor, lead or owner"],
+    [{ steps: [{ ...step, role: "Lead" }] }, "review: steps[0].role must be contributor, lead or owner"],
+    [{ steps: [{ ...step, approvals: 0 }] }, "review: steps[0].approvals must be an integer 1..5"],
+    [{ steps: [{ ...step, approvals: 6 }] }, "review: steps[0].approvals must be an integer 1..5"],
+    [{ steps: [{ ...step, approvals: 1.5 }] }, "review: steps[0].approvals must be an integer 1..5"],
+    [{ steps: [{ ...step, approvals: "2" }] }, "review: steps[0].approvals must be an integer 1..5"],
+    [{ steps: [{ name: "Check", role: "lead" }] }, "review: steps[0].approvals must be an integer 1..5"],
+  ])("%j is a 400: %s", (body, message) => {
+    expect(fails("review", body)).toMatchObject({ status: 400, message });
+  });
+  it("installs review@1 lead-only and audited; an office's template reaches a project with none; the project's own steps [] outranks it", async () => {
+    const d = memDeps({ parentKey: "aster-office" });
+    await putArtefact("aster-office", "review", review, { actor: "lead@example.test" }, d);
+    expect(await resolveArtefact("aster-tower", "review", d)).toMatchObject({ source: "office", ref: "review@1", body: review });
+    await putArtefact("aster-tower", "review", { steps: [] }, { actor: "lead@example.test" }, d);
+    expect(await resolveArtefact("aster-tower", "review", d)).toMatchObject({ source: "project", ref: "review@1", body: { steps: [] } });
+    expect(d.audits.map((a) => a.action)).toEqual(["artefact_installed review@1", "artefact_installed review@1"]);
+    await expect(putArtefact("aster-tower", "review", review, { actor: "x" }, memDeps({ role: "contributor" }))).rejects.toMatchObject({ status: 403 });
+  });
+});

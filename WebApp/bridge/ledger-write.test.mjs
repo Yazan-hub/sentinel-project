@@ -1,6 +1,6 @@
 // The ledger's writers (cohesion phase 5a, spec Decision 7): audit() returns the row the ledger stored, and the open
 // audit route cannot write the rows Sentinel reads as its own (verdict:, gate:, roi:, state:, stage_gate; since phase 6a
-// hold:, hold and delivery_gate).
+// hold:, hold and delivery_gate; since phase 6b review: and review).
 // globalThis.fetch is a fake PostgREST — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -70,6 +70,11 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     [{ entity_type: " Hold ", action: "recorded" }, "hold rows are written by Sentinel, not through this route"],
     [{ entity_type: "delivery_gate", action: "IFC delivery gate PASS: tower.ifc" }, "delivery_gate rows are written by Sentinel, not through this route"],
     [{ entity_type: " Delivery_Gate", action: "IFC delivery gate FAIL: tower.ifc" }, "delivery_gate rows are written by Sentinel, not through this route"],
+    // The review chain (phase 6b): review:start is cde_transition's, review:approve and review:reject are review_decide's.
+    [{ entity_type: "event", entity_id: V, action: "review:approve 1" }, "review: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "event", entity_id: V, action: " Review:start" }, "review: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "review", entity_id: V, action: "recorded" }, "review rows are written by Sentinel, not through this route"],
+    [{ entity_type: " REVIEW ", action: "recorded" }, "review rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);
@@ -82,6 +87,7 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     ["family_heal", "Family heal: 2 healed, 0 for a human, 0 failed of 5"],
     ["model", "Model published from Revit: tower"],
     ["event", "verdicts reviewed"],
+    ["event", "reviewed: the drawing register"],
   ])("today's writers still land: %s %s", async (entity_type, action) => {
     const row = await recordAudit("aster-tower", { entity_type, action, actor: "Revit" });
     expect(row).toMatchObject({ id: 812, project_id: P, entity_type, action });

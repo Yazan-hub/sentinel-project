@@ -127,7 +127,7 @@ export const TOOLS = [
   {
     name: "transition_container",
     policy: "write",
-    description: "Move an information container version through the ISO 19650 state machine (wip → shared → published → archived; archived → published restores). Publishing needs the version's latest verdict to be accepted with elements in scope, judged by the IDS installed on the project or its office; otherwise only a signed-in lead can publish it, with a reason, on the web — this tool cannot give one. The transition is audited.",
+    description: "Move an information container version through the ISO 19650 state machine (wip → shared → published → archived; archived → published restores). Publishing needs the version's latest verdict to be accepted with elements in scope, judged by the IDS installed on the project or its office; otherwise only a signed-in lead can publish it, with a reason, on the web — this tool cannot give one. On a project whose review@n has steps, a version under review is published only by its last approval — the database refuses this tool that move, whoever runs it — and sharing a version into review or sending one back to wip needs a signed-in lead's session. The transition is audited.",
     input_schema: {
       type: "object", required: ["version_id", "state"],
       properties: {

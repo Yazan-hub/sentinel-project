@@ -8,7 +8,7 @@ vi.mock("./cde-store.mjs", () => ({
 }));
 
 import * as cde from "./cde-store.mjs";
-import { runTool } from "./ai-tools.mjs";
+import { runTool, TOOLS } from "./ai-tools.mjs";
 
 const V = "aaaaaaaa-0000-4000-8000-000000000001";
 
@@ -27,5 +27,11 @@ describe("the agent's write tools pass only what they declare", () => {
     await runTool("transition_container", { version_id: V, state: "published", actor: "copilot", note: "n", override: "because" }, { allowWrites: true });
     expect(cde.transition).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(cde.transition.mock.calls[0])).not.toMatch(/override|because/);
+  });
+
+  it("transition_container tells the model that a version under review is published only by its last approval (phase 6b)", () => {
+    const d = TOOLS.find((t) => t.name === "transition_container").description;
+    expect(d).toMatch(/a version under review is published only by its last approval/);
+    expect(d).toMatch(/the database refuses this tool/);
   });
 });

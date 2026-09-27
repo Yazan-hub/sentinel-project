@@ -1105,8 +1105,8 @@ async function handleRequest(req, res) {
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
-      //   verdict:, gate:, roi:, state: and hold: actions and stage_gate, hold and delivery_gate rows are Sentinel's own
-      //   → 400 (cde-store.mjs recordAudit).
+      //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate and review rows are
+      //   Sentinel's own → 400 (cde-store.mjs recordAudit).
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
       // The stage gate (cohesion phase 5c, spec Decision 10): POST /cde/:key/gate {stage, actor?} → the run — {stage, status:
       //   pass|hold|not_checkable, checks[{label, ok, na, detail, source}], next_stage, ledger: {id, hash}}. Lead only (403);
@@ -1129,6 +1129,30 @@ async function handleRequest(req, res) {
       //   required (400), a name on hold (409) — one hold:dismissed row (cde-store.mjs readHolding, dismissHold).
       if (p2 === "holding" && !p3 && req.method === "GET") return send(res, 200, await cde.readHolding(p1));
       if (p2 === "holding" && p3 === "dismiss" && !p4 && req.method === "POST") return send(res, 201, await cde.dismissHold(p1, (await readBody(req)) || {}));
+      // The review chain (phase 6b, spec 2026-09-27 Decisions 12-14). GET /cde/:key/reviews → 200 {items}: the open chains
+      //   on the project's shared versions, each with the step it waits on, the approvals so far and whether this caller
+      //   may decide it (can_decide, why_not); a read that fails is a 502 "not read — …", never an empty list (cde-store.mjs
+      //   readReviews). POST /cde/:key/versions/:vid/review {decision: approve|reject, note} → 200 review_decide's answer
+      //   {id, hash, decision, step, of, name, role, published, state, container_name, bcf}: a signed-in person's only (a
+      //   403 before any call — the machine never decides); the database's refusals in its words (409 / 404 / 403). A
+      //   rejection raises one BCF topic "Review: <container> rejected at step <k> — <note>", best-effort: bcf {guid}, or
+      //   {error} — it never fails the decision; null on an approval.
+      if (p2 === "reviews" && !p3 && req.method === "GET") return send(res, 200, await cde.readReviews(p1));
+      if (p2 === "versions" && p3 && p4 === "review" && req.method === "POST") {
+        const b = (await readBody(req)) || {};
+        const r = await cde.reviewDecide(p1, p3, { decision: b.decision, note: b.note });
+        let bcf = null;
+        if (r.decision === "reject") {
+          try {
+            const { rejectionTopic } = await import("./review-logic.mjs");
+            const topic = cde.newTopicObject(p1, { ...rejectionTopic(r, b.note), topic_type: "Issue", priority: "High" }, new Date().toISOString());
+            await cde.bcfCreateTopic(topic);
+            broadcast(p1, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+            bcf = { guid: topic.guid };
+          } catch (e) { bcf = { error: String(e?.message || e) }; }
+        }
+        return send(res, 200, { ...r, bcf });
+      }
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
       //   version_id? | register?: {name, size_bytes, sha256}, gate_row_id?, raise_bcf? }
       //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, hold, bcf? }.
@@ -1136,7 +1160,8 @@ async function handleRequest(req, res) {
       //   (hold:naming | hold:ids) — {id, hash} of that row, else null (phase 6a).
       //   Agents propose; the governed core (IDS + rules) adjudicates deterministically and records the verdict
       //   immutably. Nothing in scope answers recorded (downgraded "nothing in scope"); a version_id must be this
-      //   project's (400); register registers the version on accepted/recorded and stamps it (cde-store adjudicateProposal);
+      //   project's (400) and needs the lead role (403; phase 6b — a stamp lets a version into a review chain); register
+      //   registers the version on accepted/recorded and stamps it (cde-store adjudicateProposal);
       //   a client-sent IDS or naming ruleset never stamps or registers a version (400).
       //   G2: on a REJECT, each failing requirement auto-opens as a BCF issue (live-synced to web + Revit),
       //   unless the caller passes raise_bcf:false. Best-effort — a BCF hiccup never changes the verdict.

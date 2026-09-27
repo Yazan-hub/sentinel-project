@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 import { loadEnv } from "./thatopen-client.mjs";
 import { normalizeAgent, buildReceipt, verifyReceipt } from "./agent-provenance.mjs";
-import { currentUserToken, currentActor, resolveActor } from "./bridge-auth.mjs";
+import { currentUserToken, currentActor, resolveActor, currentSub } from "./bridge-auth.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -745,6 +745,19 @@ export async function listAudit(key, filters = {}) {
   return { rows: data, total, limit, offset };
 }
 
+/** Every ledger row of `key` matching `filters` (auditQuery's), newest first: listAudit read page after page (AUDIT_MAX
+ *  each) to the exact total. The pages are read by offset, newest first, so a row written between two reads pushes a
+ *  row into the next page a second time: each id is kept once (the ledger is append-only, so none is skipped). */
+async function auditAll(key, filters) {
+  const byId = new Map();
+  for (let offset = 0; ;) {
+    const page = await listAudit(key, { ...filters, limit: AUDIT_MAX, offset });
+    for (const r of page.rows) byId.set(r.id, r);
+    offset += page.rows.length;
+    if (!page.rows.length || offset >= page.total) return [...byId.values()];
+  }
+}
+
 export async function audit(project_id, entity_type, entity_id, action, actor, oldv, newv) {
   // audit_log has no authed-insert policy (writes bypass RLS by design) → force the service key.
   // A forwarded JWT's verified identity outranks any client-asserted actor (anti audit-trail poisoning, F3);
@@ -757,11 +770,13 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 
 /** Ledger rows Sentinel writes itself and then reads as fact (spec Decision 7): cde_transition's `state:` rows and
  *  recordVersionVerdict's `verdict:` stamps (the transition guard and ids.last_verdict read them), the stage gate
- *  (`gate:`, entity_type stage_gate), ROI (`roi:`) and the Holding Area (`hold:`, entity_type hold — phase 6a). The
- *  delivery gate's rows (entity_type delivery_gate) are written by intake and by POST /cde/:key/delivery-gate, open only
- *  to the machine credential (spec 2026-09-27 Decision 5). The open audit route may not write any of them. */
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate"];
+ *  (`gate:`, entity_type stage_gate), ROI (`roi:`), the Holding Area (`hold:`, entity_type hold — phase 6a) and the
+ *  review chain (`review:`, entity_type review — phase 6b: review:start written by cde_transition, review:approve and
+ *  review:reject by review_decide, migration 0032; the chain and its publish read them). The delivery gate's rows
+ *  (entity_type delivery_gate) are written by intake and by POST /cde/:key/delivery-gate, open only to the machine
+ *  credential (spec 2026-09-27 Decision 5). The open audit route may not write any of them. */
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding
@@ -902,15 +917,9 @@ export async function recordDeliveryGate(key, b = {}) {
  *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
 export async function readHolding(key) {
   const { heldItems, clearedRecent } = await import("./holding-logic.mjs");
-  let rows = [], files, verdicts;
+  let rows, files, verdicts;
   try {
-    // ponytail: offset paging, newest first — a hold written between two pages is read twice (one refusal counted
-    // twice); page by id (id=lt.<last id>) if a project ever writes holds that fast.
-    for (;;) {
-      const page = await listAudit(key, { entity_type: "hold", limit: AUDIT_MAX, offset: rows.length });
-      rows = rows.concat(page.rows);
-      if (!page.rows.length || rows.length >= page.total) break;
-    }
+    rows = await auditAll(key, { entity_type: "hold" });
     [files, verdicts] = await Promise.all([listFiles(key), listVersionVerdictRows(key)]);
   } catch (e) {
     if (e?.status) throw e;
@@ -940,6 +949,65 @@ export async function dismissHold(key, b = {}) {
   const proj = await ensureProject(key);
   const row = await audit(proj.id, "hold", null, `hold:dismissed ${name}`, b.actor || "web", null, { container_name: name, reason });
   return { id: row?.id ?? null, hash: row?.hash ?? null };
+}
+
+// ── The review chain (phase 6b, spec 2026-09-27 Decisions 10-14). The database runs it (migration 0032): cde_transition
+// opens a chain when a signed-in lead shares a version on a project whose review@n has steps (review:start), and
+// review_decide records each signed-in person's decision (review:approve <k> | review:reject <k>) and publishes on the
+// last approval or sends the version back to wip on a rejection. The bridge only reads the chain and forwards a decision.
+
+const REVIEW_NO_FORWARDING = "this bridge does not forward the session (SUPABASE_ANON_KEY is not set) — no review decision can be recorded here";
+
+/** GET /cde/:key/reviews (spec 2026-09-27 Decisions 13-14): the open review chains, derived — {items} from
+ *  review-logic.mjs over every review row and every state:shared->wip row of the project (auditAll), its versions with
+ *  their state (listFiles), and this caller: uid, the forwarded JWT's sub — only when this bridge forwards the session,
+ *  the one way a decision reaches review_decide — and rank, the role's (myRole; the machine credential ranks 0). A read
+ *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
+export async function readReviews(key) {
+  const { openChains } = await import("./review-logic.mjs");
+  const { myRole, ROLE_RANK } = await import("./members-store.mjs");
+  let reviewRows, backRows, files, role;
+  try {
+    [reviewRows, backRows, files, role] = await Promise.all([
+      auditAll(key, { entity_type: "review" }),
+      auditAll(key, { entity_type: "container_version", action_prefix: "state:shared->wip" }),
+      listFiles(key),
+      myRole(key),
+    ]);
+  } catch (e) {
+    if (e?.status) throw e;
+    console.error(`[reviews] ${key}: ${e?.message || e}`);
+    throw Object.assign(new Error("not read — the review rows or the file list could not be read (the bridge log has the cause)"), { status: 502 });
+  }
+  const versions = files.flatMap((f) => f.versions.map((v) => ({ id: v.id, container_name: f.iso_name, revision: v.revision, state: v.state })));
+  const sub = currentSub();
+  const uid = sub && forwardingConfigured() ? sub : null;
+  return { items: openChains(reviewRows, backRows, versions, { uid, rank: ROLE_RANK[role] || 0, ...(sub && !uid ? { unsigned: REVIEW_NO_FORWARDING } : {}) }) };
+}
+
+/** POST /cde/:key/versions/:vid/review {decision, note} (spec 2026-09-27 Decision 12): a signed-in person's decision on
+ *  the step a version under review waits on. review_decide (migration 0032) checks the rest — the step's role, not the
+ *  submitter, not a second approval on the chain, a rejection's note — and in the same transaction publishes on the last
+ *  approval or sends the version back to wip on a rejection. The machine credential never decides: with no user JWT
+ *  forwarded this is a 403 before any call. decision approve | reject and a note (≤ 500) are 400s before any call; the
+ *  version must be on the key (versionOnKey, a 400). review_decide's refusals keep its words (TRANSITION_REFUSAL: P0001 a
+ *  409, P0002 a 404, 42501 a 403). → its answer {id, hash, decision, step, of, name, role, published, state} and the
+ *  container's name (the rejection topic's). */
+export async function reviewDecide(key, version_id, { decision, note } = {}) {
+  const refuse = (status, m) => Object.assign(new Error(m), { status });
+  if (!currentUserToken() || !forwardingConfigured()) throw refuse(403, "a review decision is a signed-in person's — sign in (and the bridge must forward the session: SUPABASE_ANON_KEY)");
+  if (decision !== "approve" && decision !== "reject") throw refuse(400, "decision must be approve or reject");
+  if (note != null && !(typeof note === "string" && note.length <= 500)) throw refuse(400, "note must be a string of at most 500 characters — the reviewer's words");
+  const { version } = await versionOnKey(key, version_id);
+  const c = await sb(`information_containers?id=eq.${version.container_id}&select=iso_name`);
+  try {
+    const r = await sb(`rpc/review_decide`, { method: "POST", body: { p_version: version_id, p_decision: decision, p_note: note ?? null } });
+    return { ...r, container_name: Array.isArray(c) ? c[0]?.iso_name ?? null : null };
+  } catch (e) {
+    const status = TRANSITION_REFUSAL[e?.body?.code];
+    if (status) throw refuse(status, e.body.message);
+    throw e;
+  }
 }
 
 // ── Element snapshots (revision tracking) — migration 0005 ─────────────────────────────────────────────
@@ -1208,7 +1276,8 @@ function readRegister(b) {
  *  verdict_hash, receipt } (verdict_hash: the verdict row's own chain hash, so Revit can print its receipt; null when
  *  nothing was stamped).
  *  No IDS → "recorded"; accepted with nothing in scope → "recorded", downgraded "nothing in scope". `version_id` stamps
- *  the key's own version (another's is a 400); `register` registers a wip version on accepted or recorded and stamps
+ *  the key's own version (another's is a 400; below the lead role a 403 — phase 6b); `register` registers a wip version
+ *  on accepted or recorded and stamps
  *  it (readRegister). A stamp is what publishing reads (migration 0031), so an IDS or a naming ruleset the caller sent
  *  together with version_id or register is a 400: only what is installed on the project or its office stamps. Every
  *  400 comes before any ledger row.
@@ -1235,8 +1304,14 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
   }
   const proj = await ensureProject(key);
   // A verdict is stamped only on a version of the project that judged it (spec Decision 4): another project's version,
-  // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1).
-  if (b.version_id) await versionOnKey(key, b.version_id);
+  // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1). The stamp needs
+  // the lead role (phase 6b, spec 2026-09-27 Decision 11: a stamp is what lets a version into a review chain) — a 403
+  // before the version is read; the machine credential passes as service (requireMinRole).
+  if (b.version_id) {
+    const { requireMinRole } = await import("./members-store.mjs");
+    await requireMinRole(key, "lead");
+    await versionOnKey(key, b.version_id);
+  }
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const { resolveIdsSpec } = await import("./artefact-store.mjs");

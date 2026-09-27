@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 /** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
@@ -63,6 +63,8 @@ const bad = (kind, path, want) => err(400, `${kind}: ${path} ${want}`);
 const IFC_SCHEMAS = ["IFC2X3", "IFC4"];                                  // what PlatformExporter can write
 const ROI_FIELDS = ["currency", "hourly_rate", "minutes", "basis"];       // the roi body (spec 2026-09-26 Decision 9)
 const ROI_KINDS = ["delivery_gate", "naming", "family_heal"];             // the ledger rows the ROI dashboard counts
+const REVIEW_STEP = ["name", "role", "approvals"];                       // a review step (spec 2026-09-27 Decision 10)
+const REVIEW_ROLES = ["contributor", "lead", "owner"];                    // the least role an approver of the step holds
 const IFC_ENTITY = /^IFC[A-Z0-9_]+$/;
 const LAYER_CATEGORIES = ["Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture"];
 const MAX_CATALOG_TYPES = 20000;                                         // = office-store MAX_CATALOG_TYPES (importing it would load cde-store)
@@ -205,6 +207,22 @@ export function validateArtefact(kind, body) {
     if (!Object.keys(body.minutes).length) throw bad(kind, "minutes", "needs at least one of delivery_gate, naming, family_heal");
     for (const k of ROI_KINDS) if (body.minutes[k] !== undefined && !(typeof body.minutes[k] === "number" && Number.isFinite(body.minutes[k]) && body.minutes[k] >= 0)) throw bad(kind, `minutes.${k}`, "must be a number ≥ 0");
     if (body.basis != null && !(typeof body.basis === "string" && body.basis.length <= 500)) throw bad(kind, "basis", "must be a string of at most 500 characters");
+  }
+  if (kind === "review") {
+    // The review chain's template (phase 6b, spec 2026-09-27 Decision 10): exactly {steps}, 0-6 steps, each exactly {name,
+    // role, approvals}. The database reads it (review_template, migration 0032) and a chain snapshots it at the share, so
+    // a key it would not read is refused, not kept. steps [] is no chain: a project's own review@n with no steps turns
+    // its office's off. approvals: the distinct people the step needs, which is how a step runs in parallel.
+    const stray = Object.keys(body).find((k) => k !== "steps");
+    if (stray !== undefined) throw bad(kind, stray, "is not a review field — the body is exactly {steps: [{name, role, approvals}]}");
+    if (!Array.isArray(body.steps) || body.steps.length > 6) throw bad(kind, "steps", "must be an array of 0 to 6 steps");
+    objects(kind, "steps", body.steps, (s, at) => {
+      const strayStep = Object.keys(s).find((k) => !REVIEW_STEP.includes(k));
+      if (strayStep !== undefined) throw bad(kind, `${at}.${strayStep}`, "is not a step field — a step is exactly {name, role, approvals}");
+      if (!filled(s.name) || s.name.length > 80) throw bad(kind, `${at}.name`, "must be a non-empty string of at most 80 characters");
+      if (!REVIEW_ROLES.includes(s.role)) throw bad(kind, `${at}.role`, "must be contributor, lead or owner");
+      if (!(Number.isInteger(s.approvals) && s.approvals >= 1 && s.approvals <= 5)) throw bad(kind, `${at}.approvals`, "must be an integer 1..5");
+    });
   }
   return true;
 }
