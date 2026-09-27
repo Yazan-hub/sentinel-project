@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { loadEnv } from "./thatopen-client.mjs";
 import { normalizeAgent, buildReceipt, verifyReceipt } from "./agent-provenance.mjs";
 import { currentUserToken, currentActor, resolveActor, currentSub } from "./bridge-auth.mjs";
+import { createLimiter, createKeyedLimiter } from "./public-verify.mjs";
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -313,6 +314,9 @@ export async function createProject(b = {}) {
   const members = await import("./members-store.mjs");
   if (kind === "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
   if (officeKey) await members.requireOfficeLead(officeKey);
+  // H0 (cde-6): any account may create projects (each one 8 folder rows and a ledger row), so a signed-in caller's new
+  // projects are budgeted (takeWriteBudget); the machine credential's are not.
+  takeWriteBudget("new projects", { perUser: 5, all: 30 });
   // return=minimal on purpose (same trap ensureProject documents): under a FORWARDED session the
   // returning-select runs the is_member policy before the owner-membership row the insert trigger
   // just created is visible → 42501/403 and the whole insert rolls back. Insert minimal, then
@@ -869,6 +873,42 @@ export async function recordAudit(key, b) {
     prefer: "return=representation",
     service: true, // audit_log bypasses RLS by design
   }))[0];
+}
+
+/** H0 (cde-6): a signed-in caller's writes that grow the append-only ledger or add projects are budgeted — per verified
+ *  user and across every user, one-minute windows (createLimiter) — so neither one account nor a crowd of fresh
+ *  sign-ups grows them without bound. Over budget is a 429 before anything is written; the machine credential (no
+ *  signed-in user) is not budgeted. */
+const budgets = new Map(); // what → { all, bySub } — one per kind of write
+export function takeWriteBudget(what, { perUser, all }) {
+  const sub = currentSub();
+  if (!sub) return;
+  let b = budgets.get(what);
+  if (!b) budgets.set(what, (b = { all: createLimiter({ max: all }), bySub: createKeyedLimiter({ max: perUser }) }));
+  // The user's own window first: a caller over it does not use up everyone's.
+  if (!b.bySub.take(sub) || !b.all.take()) throw Object.assign(new Error(`too many ${what} in a minute — nothing was saved; try again shortly`), { status: 429 });
+}
+
+const NOTE_MAX = 8 * 1024; // a note's new_value, serialized
+
+/** POST /cde/:key/audit (H0 D11, finding cde-6). The machine credential writes as before — Revit's naming and
+ *  family_heal rows, which the ROI dashboard counts (recordAudit). A signed-in caller writes a lead's NOTE only: lead or
+ *  owner (403), entity_type "note" (400: Sentinel writes its other rows itself, from the route that did the work — the
+ *  clash register's from /clash, an IDS raise's from the topic route), the note in `action` (1-500 characters) with an
+ *  optional new_value of at most 8 KB (413), budgeted (429), stamped with the verified identity — each refusal before
+ *  anything is written. → the stored row. */
+export async function recordNote(key, b = {}) {
+  const { myRole, ROLE_RANK } = await import("./members-store.mjs");
+  const role = await myRole(key);
+  if (role === "service") return recordAudit(key, b);
+  if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note on the ledger is a lead's (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
+  const bad = (status, message) => Object.assign(new Error(message), { status });
+  if (String(b.entity_type ?? "note").trim().toLowerCase() !== "note") throw bad(400, 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved');
+  const text = typeof b.action === "string" ? b.action.trim() : "";
+  if (!text || text.length > 500) throw bad(400, "a note is 1 to 500 characters (action) — nothing was saved");
+  if (JSON.stringify(b.new_value ?? null).length > NOTE_MAX) throw bad(413, `a note's new_value is at most ${NOTE_MAX / 1024} KB — nothing was saved`);
+  takeWriteBudget("notes", { perUser: 20, all: 60 });
+  return recordAudit(key, { entity_type: "note", action: text, new_value: b.new_value ?? null });
 }
 
 // ── The Holding Area's writers (phase 6a, spec 2026-09-27 Decisions 4-6). A held file keeps no bytes: a hold is one

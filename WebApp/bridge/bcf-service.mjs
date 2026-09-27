@@ -1264,8 +1264,10 @@ async function handleRequest(req, res) {
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
       //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate and review rows are
-      //   Sentinel's own → 400 (cde-store.mjs recordAudit).
-      if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
+      //   Sentinel's own → 400 (cde-store.mjs recordAudit). The machine credential writes any other row (Revit's naming
+      //   and family_heal); a signed-in caller a lead's note only — {action, new_value?}, entity_type "note" — 403 / 400 /
+      //   413 / 429 before anything is written (H0 D11, cde-store.mjs recordNote).
+      if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordNote(p1, (await readBody(req)) || {}));
       // The stage gate (cohesion phase 5c, spec Decision 10): POST /cde/:key/gate {stage, actor?} → the run — {stage, status:
       //   pass|hold|not_checkable, checks[{label, ok, na, detail, source}], next_stage, ledger: {id, hash}}. Lead only (403);
       //   the bridge measures the gate's inputs itself and writes the stage_gate row (cde-store.mjs runStageGate); the

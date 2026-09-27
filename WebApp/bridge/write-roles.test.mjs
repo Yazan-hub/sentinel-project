@@ -323,3 +323,47 @@ describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", (
     expect([403, 404]).toContain((await call("GET", "/cde/demo/keystore", "stranger")).status);
   });
 });
+
+describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's note, nothing else", () => {
+  const A = "/cde/demo/audit";
+
+  it("a contributor's note is a 403 and nothing reaches the ledger", async () => {
+    expect(await call("POST", A, "contributor", { action: "Kick-off held" }))
+      .toEqual({ status: 403, body: { message: "a note on the ledger is a lead's (you are contributor) — nothing was saved" } });
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("a lead writes notes only: a row the ROI dashboard counts is a 400, an oversized note a 413", async () => {
+    expect(await call("POST", A, "lead", { entity_type: "naming", action: "Naming Manager renamed 900 item(s)", new_value: { rows: [] } }))
+      .toEqual({ status: 400, body: { message: 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved' } });
+    expect(await call("POST", A, "lead", { action: "x", new_value: { t: "x".repeat(9000) } }))
+      .toEqual({ status: 413, body: { message: "a note's new_value is at most 8 KB — nothing was saved" } });
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("a lead's note is stamped with the verified identity, whatever the body claims", async () => {
+    const r = await call("POST", A, "lead", { action: "Kick-off held", actor: "Someone else", new_value: { attendees: 6 } });
+    expect(r.status).toBe(201);
+    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor, a.new_value])).toEqual([["note", "Kick-off held", "lead@example.test", { attendees: 6 }]]);
+  });
+
+  it("the machine credential writes its rows as before (Revit's naming batch)", async () => {
+    const r = await call("POST", A, "machine", { entity_type: "naming", actor: "Revit", action: "Naming Manager renamed 2 item(s) in Revit", new_value: { rows: [1, 2] } });
+    expect(r.status).toBe(201);
+    expect(db.audit_log[0]).toMatchObject({ entity_type: "naming", actor: "Revit" });
+  });
+
+  it("a user's notes are budgeted: the 21st in a minute is a 429", async () => {
+    for (let i = 0; i < 20; i++) expect((await call("POST", A, "owner", { action: `note ${i}` })).status).toBe(201);
+    expect(await call("POST", A, "owner", { action: "one too many" }))
+      .toEqual({ status: 429, body: { message: "too many notes in a minute — nothing was saved; try again shortly" } });
+    expect(writes("audit_log")).toHaveLength(20);
+  });
+
+  it("new projects are budgeted per user too: a sixth in a minute is a 429 and nothing is inserted", async () => {
+    for (let i = 1; i <= 5; i++) expect((await call("POST", "/cde/projects", "stranger", { name: `Stranger ${i}` })).status).toBe(201);
+    expect(await call("POST", "/cde/projects", "stranger", { name: "Stranger 6" }))
+      .toEqual({ status: 429, body: { message: "too many new projects in a minute — nothing was saved; try again shortly" } });
+    expect(writes("projects").filter((c) => c.method === "POST")).toHaveLength(5);
+  });
+});
