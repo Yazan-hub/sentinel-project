@@ -28,6 +28,16 @@ export async function bfetch(url: string, init: RequestInit = {}): Promise<Respo
   return res;
 }
 
+/** A write to the bridge that never reads a refusal as success: the parsed reply of a 2xx (null when it is empty), else
+ *  an Error carrying the bridge's own words ("this action requires the lead role (you are contributor)"). A panel that
+ *  wrote with `bfetch` alone said "done" whatever came back. */
+export async function bwrite<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
+  const r = await bfetch(url, init);
+  const j = (await r.json().catch(() => null)) as (T & { message?: string }) | null;
+  if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  return j as T;
+}
+
 /** Split an SSE text stream: the `data:` payloads of every complete line, plus the unfinished tail. Pure. */
 export function sseSplit(rest: string, chunk: string): { data: string[]; rest: string } {
   const text = rest + chunk;

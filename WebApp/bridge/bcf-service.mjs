@@ -903,6 +903,9 @@ async function handleRequest(req, res) {
     try {
       const cde = await import("./cde-store.mjs");
       const useCde = cde.cdeConfigured();
+      // H0 (D4, rfis-1): raising and answering an RFI is a contributor's work; a viewer writes nothing. Asked before the
+      // body is read; the machine credential passes as service.
+      if (req.method !== "GET") await (await import("./members-store.mjs")).requireMinRole(rpid, "contributor");
       const listRfis = async () => (useCde ? await cde.docListLazy("rfi", rpid, rdb.rfis.filter(inP), (r) => r.guid) : rdb.rfis.filter(inP));
       if (req.method === "GET" && !rguid) {
         const status = url.searchParams.get("status");
