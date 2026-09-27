@@ -1,6 +1,8 @@
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange, platformProjectId } from "./active-project";
+import { getAppManager } from "../app";
+import { publishContractToPlatform, mirrorLine, type ContractClient } from "./platform-contract";
 import { myRole, canGovernRole } from "./my-role";
 import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
@@ -275,8 +277,15 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       if (!file) return;
       try {
         const who = await currentUser().then((u) => u?.email || "web", () => "web");
-        const p = await installArtefactFile(base, key, kind, file.name, await file.text(), who);
-        await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…).` });
+        const text = await file.text();
+        const p = await installArtefactFile(base, key, kind, file.name, text, who);
+        // A contract also travels to the linked platform project, where the platform's Sentinel gate reads it (spec
+        // 2026-09-27 platform-delivery-gate Decision 7). The ledger row above is the record; this is a mirror, and a
+        // copy that could not be made is said, never hidden.
+        const mirror = kind === "contract"
+          ? ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, platformProjectId(), JSON.parse(text), `${kind}@${p.version}`))}`
+          : "";
+        await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
       } catch (e) {
         await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
       }
