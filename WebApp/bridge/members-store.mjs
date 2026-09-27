@@ -140,3 +140,38 @@ export async function requireMinRole(key, min, deps) {
   if (!role || (ROLE_RANK[role] || 0) < (ROLE_RANK[min] || 99))
     throw err(403, `this action requires the ${min} role (you are ${role || "not a member"})`);
 }
+
+/** H0 (D2): spending the founder's money or disk for a project — a platform upload (POST /ifc, intake), an encrypted
+ *  blob (/cde/files), a stored document original (bimdocs ingest), cloud AI on a document — needs a trusted caller:
+ *  the machine credential, a contributor or above of a project that belongs to an office, or a lead or above of an
+ *  office row itself (the rule canUseCloudAi applies to /ai/*). Attaching a project to an office is itself gated
+ *  (migration 0033), so a project anyone can make by signing up is not enough. Answers the project row; a refusal is a
+ *  403 in words, before anything is read or sent. */
+export async function requireSpend(key, deps) {
+  const d = wire(deps);
+  const proj = await d.ensureProject(key);
+  const role = await myRole(key, { ...deps, ensureProject: async () => proj }); // one project read, not two
+  if (role === "service") return proj;
+  const need = proj.kind === "office" ? "lead" : "contributor";
+  if ((ROLE_RANK[role] || 0) < ROLE_RANK[need])
+    throw err(403, `this spends the office's storage or AI and needs the ${need} role on ${key} (you are ${role || "not a member"}) — nothing was sent`);
+  if (!proj.office_key && proj.kind !== "office")
+    throw err(403, `${key} belongs to no office — uploads and cloud AI are for office projects (a lead of the office attaches it in Project settings ▸ Office) — nothing was sent`);
+  return proj;
+}
+
+/** H0 (D2) for /ai/* (a chat names no project): may this caller spend the founder's cloud AI keys? The machine
+ *  credential; or a signed-in user who is contributor or above on a project that belongs to an office, or lead or
+ *  above of an office. { ok, why } — `why` is what a refusal shows, in the picker and in the 403. */
+export async function canUseCloudAi(deps) {
+  const d = wire(deps);
+  if (d.sub === null || (d.sub === undefined && !currentUserToken())) return { ok: true, why: "machine credential" };
+  const sub = subOf(d);
+  const rows = sub ? (await d.sb(`memberships?user_id=eq.${enc(sub)}&select=role,projects(kind,office_key)`, { service: true })) || [] : [];
+  const rank = (role) => ROLE_RANK[role] || 0;
+  const trusted = rows.some((m) => (m.projects?.office_key && rank(m.role) >= ROLE_RANK.contributor)
+    || (m.projects?.kind === "office" && rank(m.role) >= ROLE_RANK.lead));
+  return trusted
+    ? { ok: true, why: "office member" }
+    : { ok: false, why: "Cloud AI is for office members — it needs the contributor role on a project that belongs to an office, or lead of an office. Local AI still works." };
+}

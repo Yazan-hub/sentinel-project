@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runWithAuth } from "./bridge-auth.mjs";
-import { ROLES, ROLE_RANK, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole } from "./members-store.mjs";
+import { ROLES, ROLE_RANK, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole, requireSpend, canUseCloudAi } from "./members-store.mjs";
 
 const jwt = (payload) =>
   "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify(payload)).toString("base64url") + ".sig";
@@ -138,5 +138,72 @@ describe("membership CAS — role predicate on writes", () => {
     await expect(changeRole("demo", "u-owner", "lead", "w", deps))
       .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/concurrently/) });
     expect(deps.audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("requireSpend — who may spend the founder's storage or AI on a project (H0, D2)", () => {
+  const office = { id: "o1", key: "office-a", kind: "office", office_key: null };
+  const attached = { id: "p1", key: "demo", kind: "project", office_key: "office-a" };
+  const lone = { id: "p1", key: "demo", kind: "project", office_key: null }; // anyone who signs up can make one
+  const on = (proj, over) => baseDeps({ ensureProject: vi.fn(async () => proj), ...over });
+
+  it("the machine credential passes, office or not, and gets the project row", async () => {
+    await expect(requireSpend("demo", on(lone, { sub: null }))).resolves.toEqual(lone);
+  });
+
+  it("a contributor or above of an office project passes; the project is read once", async () => {
+    const deps = on(attached, { sub: "u-owner" });
+    await expect(requireSpend("demo", deps)).resolves.toEqual(attached);
+    expect(deps.ensureProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("an office row is its lead's or owner's to spend on; its contributor is refused, as canUseCloudAi refuses them", async () => {
+    await expect(requireSpend("office-a", on(office, { sub: "u-owner" }))).resolves.toEqual(office);
+    const deps = on(office, { sub: "u-con" });
+    deps.rows.push({ project_id: "p1", user_id: "u-con", role: "contributor" });
+    await expect(requireSpend("office-a", deps))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/lead role on office-a.*you are contributor.*nothing was sent/) });
+  });
+
+  it("a viewer is refused in words that name the role", async () => {
+    await expect(requireSpend("demo", on(attached, { sub: "u-view" })))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/contributor role.*you are viewer.*nothing was sent/) });
+  });
+
+  it("the owner of a project with no office is refused — owning a self-made project is not trust", async () => {
+    await expect(requireSpend("demo", on(lone, { sub: "u-owner" })))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/belongs to no office.*nothing was sent/) });
+  });
+});
+
+describe("canUseCloudAi — /ai/* names no project, so the account is checked (H0, D2)", () => {
+  const deps = (sub, rows) => baseDeps({
+    sub,
+    sb: vi.fn(async (path, opts) => {
+      expect(path).toBe(`memberships?user_id=eq.${sub}&select=role,projects(kind,office_key)`);
+      expect(opts).toEqual({ service: true });
+      return rows;
+    }),
+  });
+  const row = (role, kind, office_key) => ({ role, projects: { kind, office_key } });
+
+  it("the machine credential may, with no read", async () => {
+    const d = deps(null, []);
+    await expect(canUseCloudAi(d)).resolves.toMatchObject({ ok: true });
+    expect(d.sb).not.toHaveBeenCalled();
+  });
+
+  it("a contributor of an office project may; a lead of an office may", async () => {
+    await expect(canUseCloudAi(deps("u1", [row("contributor", "project", "office-a")]))).resolves.toMatchObject({ ok: true });
+    await expect(canUseCloudAi(deps("u2", [row("lead", "office", null)]))).resolves.toMatchObject({ ok: true });
+  });
+
+  it("a viewer of an office project, a contributor of an office row, a self-made project's owner and a member of nothing may not — why says what is needed", async () => {
+    for (const rows of [[row("viewer", "project", "office-a")], [row("contributor", "office", null)], [row("owner", "project", null)], []]) {
+      const r = await canUseCloudAi(deps("u3", rows));
+      expect(r.ok).toBe(false);
+      expect(r.why).toMatch(/office/);
+      expect(r.why).toMatch(/Local AI still works/);
+    }
   });
 });
