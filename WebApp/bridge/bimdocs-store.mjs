@@ -49,6 +49,7 @@ export async function getDoc(key, docId) {
 }
 
 export async function patchSection(key, docId, sectionId, { body, owner, state, updated_at, actor } = {}) {
+  await requireMinRole(key, "contributor"); // H0 (D4, ledger-1): editing a section is a contributor's, asked before the document is read
   const doc = await getDoc(key, docId);
   if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
   if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");

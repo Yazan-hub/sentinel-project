@@ -306,3 +306,17 @@ describe("a document write the database refused (no row back) is a 403 — never
     expect(audit).not.toHaveBeenCalled();
   });
 });
+
+describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
+  it("a viewer's section edit is a 403 before the document is read, and nothing reaches the ledger", async () => {
+    globalThis.__testRole = "viewer";
+    sb.mockClear();
+    audit.mockClear();
+    try {
+      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { body: "x" }))
+        .rejects.toMatchObject({ status: 403, message: "this action requires the contributor role" });
+      expect(sb).not.toHaveBeenCalled();
+      expect(audit).not.toHaveBeenCalled();
+    } finally { globalThis.__testRole = undefined; }
+  });
+});

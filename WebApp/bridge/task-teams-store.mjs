@@ -6,6 +6,7 @@
 // rewrites deliverables.responsible_team — an undeclared team is a finding for
 // roles.responsibility, not a silent repair.
 import { sb, ensureProject, audit, isUuid, requireRows } from "./cde-store.mjs";
+import { requireMinRole } from "./members-store.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -49,6 +50,7 @@ export async function listTeams(key) {
 }
 
 export async function createTeam(key, body, actor) {
+  await requireMinRole(key, "lead"); // H0 (D4, ledger-1): declaring, editing and deleting a task team is a lead's (0026 agrees)
   const row = validateTeam(body);
   const proj = await ensureProject(key);
   let created;
@@ -65,6 +67,7 @@ export async function createTeam(key, body, actor) {
 }
 
 export async function updateTeam(key, id, patch, actor) {
+  await requireMinRole(key, "lead"); // H0 (D4, ledger-1): declaring, editing and deleting a task team is a lead's (0026 agrees)
   if (!isUuid(id)) throw err(404, "task team not found");
   const proj = await ensureProject(key);
   const before = one(await sb(`task_teams?id=eq.${enc(id)}&project_id=eq.${enc(proj.id)}&select=*`));
@@ -81,6 +84,7 @@ export async function updateTeam(key, id, patch, actor) {
 }
 
 export async function deleteTeam(key, id, actor) {
+  await requireMinRole(key, "lead"); // H0 (D4, ledger-1): declaring, editing and deleting a task team is a lead's (0026 agrees)
   if (!isUuid(id)) throw err(404, "task team not found");
   const proj = await ensureProject(key);
   const before = one(await sb(`task_teams?id=eq.${enc(id)}&project_id=eq.${enc(proj.id)}&select=*`));

@@ -8,6 +8,7 @@ vi.hoisted(() => {
 });
 
 import { validateRow, updateDeliverable, deleteDeliverable, rebaselineApply } from "./deliverables-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 
 describe("validateRow", () => {
@@ -123,5 +124,40 @@ describe("deliverable writes — a write the database refused is a 403 and no le
   it("rebaselineApply: a stored move is written as rebaselined", async () => {
     expect(await rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web")).toMatchObject({ applied: 1 });
     expect(ledger()[0].body).toMatchObject({ entity_id: D1, action: "rebaselined", new_value: { due_date: "2026-12-01", delta_days: 30 } });
+  });
+});
+
+// H0 (D4, ledger-1): editing, deleting and rebaselining a planned deliverable is a lead's — asked before anything is
+// read. 0022 lets a contributor update a deliverable row, so for an edit and a rebaseline the bridge is the only check.
+describe("deliverable edits, deletes and rebaselines are a lead's (H0 D4, ledger-1)", () => {
+  const P = "11111111-1111-4111-8111-111111111111";
+  const D1 = "dddddddd-0000-4000-8000-000000000001";
+  const U = "33333333-0000-4000-8000-0000000000bb";
+  const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: U, email: "u@example.test", role: "authenticated" })).toString("base64url") + ".sig";
+  const realFetch = globalThis.fetch;
+  let db, rest;
+  const as = (role, fn) => { db.memberships = [{ project_id: P, user_id: U, role }]; return runWithAuth(jwt, fn); };
+  beforeEach(() => {
+    db = {
+      projects: [{ id: P, key: "demo" }], information_containers: [],
+      deliverables: [{ id: D1, project_id: P, container_name: "A-0101", title: null, responsible_team: "ARC", due_date: "2026-11-01", stage: "design", notes: null, expected_revision: null, expected_suitability: null, purpose: null }],
+    };
+    rest = fakePostgrest(db);
+    globalThis.fetch = vi.fn(rest.fetch);
+  });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  it("a contributor's edit, delete and rebaseline are a 403 naming the lead role; nothing is written, no deliverable read", async () => {
+    for (const call of [
+      () => updateDeliverable("demo", D1, { container_name: "A-0101", due_date: "2026-12-01" }, "web"),
+      () => deleteDeliverable("demo", D1, "web"),
+      () => rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web"),
+    ]) await expect(as("contributor", call)).rejects.toMatchObject({ status: 403, message: "this action requires the lead role (you are contributor)" });
+    expect(rest.calls.filter((c) => c.method !== "GET" || c.table === "deliverables")).toEqual([]);
+  });
+
+  it("a lead's rebaseline is stored and written as rebaselined", async () => {
+    expect(await as("lead", () => rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web"))).toMatchObject({ applied: 1 });
+    expect(rest.calls.filter((c) => c.table === "audit_log").map((c) => c.body.action)).toEqual(["rebaselined"]);
   });
 });

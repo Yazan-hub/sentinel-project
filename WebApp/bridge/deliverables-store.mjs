@@ -2,6 +2,7 @@
 // Thin PostgREST wrapper in the idiom of cde-store.mjs / bimdocs-store.mjs. Writes are audited;
 // deliverableStatus writes NOTHING (it is a read model, not an event).
 import { sb, ensureProject, audit, listFiles, isUuid, requireRows } from "./cde-store.mjs";
+import { requireMinRole } from "./members-store.mjs";
 import { deriveStatus, rollUpTidp, rebaselineImpact, weeklyReport } from "./deliverables-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
@@ -57,6 +58,7 @@ export async function createDeliverable(key, body, actor) {
 }
 
 export async function updateDeliverable(key, id, patch, actor) {
+  await requireMinRole(key, "lead"); // H0 (D4, ledger-1): a planned deliverable is edited, deleted and rebaselined by a lead
   if (!isUuid(id)) throw err(404, "deliverable not found"); // non-UUID = uuid-cast 500 from PostgREST, and can never match
   // Partial-update semantics: validateRow normalises ALL fields (nulls for absent ones), so
   // spreading its full result would silently wipe any field the caller didn't send — the UI's edit
@@ -79,6 +81,7 @@ export async function updateDeliverable(key, id, patch, actor) {
 }
 
 export async function deleteDeliverable(key, id, actor) {
+  await requireMinRole(key, "lead"); // H0 (D4, ledger-1): a planned deliverable is edited, deleted and rebaselined by a lead
   if (!isUuid(id)) throw err(404, "deliverable not found");
   const proj = await ensureProject(key);
   const before = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}&select=*`));
@@ -135,6 +138,7 @@ export async function rebaselinePreview(key, programme) {
  * whole point of re-importing rather than hand-editing.
  */
 export async function rebaselineApply(key, programme, actor) {
+  await requireMinRole(key, "lead"); // H0 (D4, ledger-1): a planned deliverable is edited, deleted and rebaselined by a lead
   const preview = await rebaselinePreview(key, programme);
   const proj = await ensureProject(key);
   for (const u of preview.updates) {
