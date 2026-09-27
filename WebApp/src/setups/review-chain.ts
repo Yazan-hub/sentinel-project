@@ -25,6 +25,14 @@ export interface ReviewDecision {
   bcf?: { guid?: string; error?: string } | null;
 }
 
+/** The review bar's counts for what the board shows: chains on a version whose card is in view (the folder's
+ *  containers, newest version each) — mine are those the caller may decide; the rest of the project is elsewhere. */
+export function reviewsInView(items: Iterable<ReviewItem>, shown: Set<string>): { mine: number; here: number; elsewhere: number } {
+  const all = [...items];
+  const here = all.filter((r) => shown.has(r.version_id));
+  return { mine: here.filter((r) => r.can_decide).length, here: here.length, elsewhere: all.length - here.length };
+}
+
 /** The move back to WIP on a card under review: a signed-in lead's, and it closes the chain (spec Decision 13). */
 export const BACK_TO_WIP = "← Back to WIP (ends the review)";
 

@@ -2,7 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { transitionVersion } from "./cde-transition";
-import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, type ReviewItem } from "./review-chain";
+import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
@@ -186,7 +186,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   function refreshView() {
     renderTree();
-    renderReviewBar();
+    renderReviewBar(inFolder(selected));
     renderBoard(inFolder(selected));
     const f = folderById(selected);
     status(f ? `“${f.name}” · ${inFolder(selected).length} container(s).` : `All files · ${containers.length} container(s).`);
@@ -246,22 +246,23 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       renderAudit((await api(`${encodeURIComponent(pid())}/audit?limit=20`)) as AuditPage);
     } catch (e) {
       containers = []; folders = []; reviews = new Map(); reviewsError = "not read — the CDE could not be reached";
-      renderTree(); renderBoard([]); renderReviewBar();
+      renderTree(); renderBoard([]); renderReviewBar([]);
       status(`Can't reach the CDE: ${(e as Error).message}. Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set.`);
     }
   }
 
-  // Over the board: "My reviews (n)" — the chains the caller can decide — and the toggle that narrows the board to
-  // them; a read that failed says so in their place.
-  function renderReviewBar() {
+  // Over the board: "My reviews (n)" — the chains the caller can decide among the cards in view — and the toggle that
+  // narrows the board to them; chains not on this board (another folder, an older version) are named, not counted; a read that failed says so in their place.
+  function renderReviewBar(list: Container[]) {
     const bar = el("cde-rbar");
-    const mine = [...reviews.values()].filter((r) => r.can_decide).length;
+    const shown = new Set(list.map((c) => latest(c)?.id).filter((id): id is string => !!id));
+    const { mine, here, elsewhere } = reviewsInView(reviews.values(), shown);
     if (!reviews.size) myReviews = false; // the bar (and its toggle) hides: a filter left on would empty the board for good
     bar.style.display = reviewsError || reviews.size ? "flex" : "none";
     bar.innerHTML = reviewsError
       ? `<span style="color:#fbbf24">Reviews: ${esc(reviewsError)}</span>`
       : `<button id="cde-mine" style="${btn};padding:.2rem .5rem;font-size:11px;${myReviews ? "background:#1a2432;border-color:#3b82f6;color:#93c5fd" : ""}" title="Only the cards you can approve or reject">My reviews (${mine})</button>` +
-        `<span style="color:#9ca3af">${reviews.size} under review</span>`;
+        `<span style="color:#9ca3af">${here} under review here${elsewhere ? ` · ${elsewhere} not on this board` : ""}</span>`;
     (bar.querySelector("#cde-mine") as HTMLButtonElement | null)?.addEventListener("click", () => { myReviews = !myReviews; refreshView(); });
   }
 
@@ -269,8 +270,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     const board = el("cde-board");
     board.innerHTML = "";
     const opts = flatFolders();
-    // ponytail: the board shows each container's newest version, so a chain on an older one is counted in "My
-    // reviews" but has no card; show every shared version if a container ever carries two at once.
+    // ponytail: the board shows each container's newest version, so a chain on an older one has no card and counts
+    // as "not on this board"; show every shared version if a container ever carries two at once.
     if (myReviews && !reviewsError) list = list.filter((c) => reviews.get(latest(c)?.id ?? "")?.can_decide);
     for (const s of STATES) {
       const col = document.createElement("div");
