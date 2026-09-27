@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { canonical } from "./artefact-store.mjs";
 import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply, resolveContract } from "./artefact-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 // Only the default wiring (a test that omits docInsert/docUpsert) reaches this mock; memDeps tests never import cde-store.
 const cdeMock = vi.hoisted(() => ({
@@ -564,5 +565,23 @@ describe("validateArtefact — review", () => {
     expect(await resolveArtefact("aster-tower", "review", d)).toMatchObject({ source: "project", ref: "review@1", body: { steps: [] } });
     expect(d.audits.map((a) => a.action)).toEqual(["artefact_installed review@1", "artefact_installed review@1"]);
     await expect(putArtefact("aster-tower", "review", review, { actor: "x" }, memDeps({ role: "contributor" }))).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("installed_by comes from the sign-in (cde-13, H0 D6)", () => {
+  const jwt = (email) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email })).toString("base64url") + ".sig";
+
+  it("a signed-in lead's install names them — on the pointer, in Settings' source and in the ledger row — not ?actor", async () => {
+    const d = memDeps();
+    const p = await runWithAuth(jwt("lead@example.test"), () => putArtefact("aster-tower", "ids", spec, { actor: "The Director" }, d));
+    expect(p.installed_by).toBe("lead@example.test");
+    expect(d.docs.get("artefact|uuid-aster-tower|ids").installed_by).toBe("lead@example.test");
+    expect(d.audits[0]).toMatchObject({ actor: "lead@example.test", newv: { installed_by: "lead@example.test" } });
+  });
+
+  it("the machine credential keeps its label; none is web", async () => {
+    const d = memDeps();
+    expect((await putArtefact("p", "ids", spec, { actor: "Revit" }, d)).installed_by).toBe("Revit");
+    expect((await putArtefact("p", "ids", spec, {}, d)).installed_by).toBe("web");
   });
 });

@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { runFederation, getFederation } from "./federation-store.mjs";
 import { refLabel } from "./artefact-store.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 const NONE = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
 
@@ -153,5 +154,22 @@ describe("runFederation — who may run it", () => {
     d.docUpsert = async (s, p, id, data, o) => { opts.push(o); return upsert(s, p, id, data); };
     await runFederation("p", {}, { actor: "cli" }, d);
     expect(opts).toEqual([{ service: true }]);
+  });
+});
+
+describe("who ran the gate comes from the sign-in (cde-rem-9, H0 D6)", () => {
+  const jwt = (email) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email })).toString("base64url") + ".sig";
+
+  it("a signed-in caller's run and row carry their verified identity, not ?actor", async () => {
+    const d = memDeps();
+    const run = await runWithAuth(jwt("member@example.test"), () => runFederation("p", {}, { actor: "The Director" }, d));
+    expect(run.actor).toBe("member@example.test");
+    expect(d.docs.get("federation|uuid-p|latest").actor).toBe("member@example.test");
+    expect(d.audits[0].actor).toBe("member@example.test");
+  });
+
+  it("the machine credential keeps its label; none is web", async () => {
+    expect((await runFederation("p", {}, { actor: "cli" }, memDeps())).actor).toBe("cli");
+    expect((await runFederation("p", {}, {}, memDeps())).actor).toBe("web");
   });
 });
