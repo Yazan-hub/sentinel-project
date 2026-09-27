@@ -32,7 +32,8 @@ export async function createDoc(key, { doc_type, title, actor } = {}) {
   const proj = await ensureProject(key);
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
-  const body = { ...instantiateTemplate(tpl, { title, actor }), project_id: proj.id };
+  // created_by is the signed-in caller's verified identity, never the body's name (bimdocs-3); the machine credential keeps its label.
+  const body = { ...instantiateTemplate(tpl, { title, actor: resolveActor(actor, "web") }), project_id: proj.id };
   const row = one(await sb("bim_documents", { method: "POST", body, prefer: "return=representation" }));
   await audit(proj.id, "bim_document", row.id, "created", actor || "web", null, { doc_type: row.doc_type, title: row.title });
   return row;
@@ -81,7 +82,9 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`);
   const version_no = (one(versions)?.version_no || 0) + 1;
-  await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, actor || "web", version_no) });
+  // published_by is the append-only, contractual record of who issued this version: the signed-in lead's verified
+  // identity, never the body's name (bimdocs-3). The machine credential keeps its label.
+  await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no) });
   requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: "published", updated_at: new Date().toISOString() }, prefer: "return=representation" }), EDITED);
   await audit(doc.project_id, "bim_document", docId, "published", actor || "web", null, { version_no, label: label || `v${version_no}` });
   return { version_no };
@@ -146,7 +149,7 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
     doc_type,
     title: title || `Ingested ${doc_type}`,
     status: "wip",
-    created_by: actor || "web",
+    created_by: resolveActor(actor, "web"), // the verified identity, as createDoc (bimdocs-3)
     source: normalizedSource,
     sections: normalizedSections,
   };

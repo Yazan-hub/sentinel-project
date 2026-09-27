@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 // setSectionBindings/complianceReport guard tests need a mocked cde-store.mjs (Supabase network layer)
 // so we can assert on the 409/404 guard paths and prove complianceReport never writes. This mirrors
@@ -49,7 +50,7 @@ vi.mock("./office-store.mjs", () => ({
   getScan: vi.fn(async () => null),
 }));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport, patchSection } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport, patchSection, createDoc, createDocFromIngest } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -318,5 +319,31 @@ describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
       expect(sb).not.toHaveBeenCalled();
       expect(audit).not.toHaveBeenCalled();
     } finally { globalThis.__testRole = undefined; }
+  });
+});
+
+describe("a document's recorded names come from the sign-in (bimdocs-3, H0 D6)", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "33333333-0000-4000-8000-000000000001", email: "lead@example.test" })).toString("base64url") + ".sig";
+  const posted = (table) => sb.mock.calls.find(([p, o]) => p === table && o?.method === "POST")?.[1].body;
+  beforeEach(() => { globalThis.__testRole = undefined; });
+
+  it("publishDoc: published_by is the signed-in lead, not the body's name", async () => {
+    doc.status = "shared";
+    await runWithAuth(jwt, () => publishDoc("k", doc.id, { actor: "The Director" }));
+    expect(posted("bim_document_versions").published_by).toBe("lead@example.test");
+  });
+
+  it("createDoc and createDocFromIngest: created_by is the signed-in caller", async () => {
+    await runWithAuth(jwt, () => createDoc("k", { doc_type: "BEP", actor: "The Director" }));
+    expect(posted("bim_documents").created_by).toBe("lead@example.test");
+    sb.mockClear();
+    await runWithAuth(jwt, () => createDocFromIngest("k", { doc_type: "BEP", sections: [{ heading: "A" }], actor: "The Director" }));
+    expect(posted("bim_documents").created_by).toBe("lead@example.test");
+  });
+
+  it("the machine credential keeps its label", async () => {
+    doc.status = "shared";
+    await publishDoc("k", doc.id, { actor: "Revit" });
+    expect(posted("bim_document_versions").published_by).toBe("Revit");
   });
 });
