@@ -1,7 +1,7 @@
 // MIDP/TIDP deliverables — CRUD over the planned rows, plus the derived read model.
 // Thin PostgREST wrapper in the idiom of cde-store.mjs / bimdocs-store.mjs. Writes are audited;
 // deliverableStatus writes NOTHING (it is a read model, not an event).
-import { sb, ensureProject, audit, listFiles, isUuid } from "./cde-store.mjs";
+import { sb, ensureProject, audit, listFiles, isUuid, requireRows } from "./cde-store.mjs";
 import { deriveStatus, rollUpTidp, rebaselineImpact, weeklyReport } from "./deliverables-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
@@ -68,7 +68,9 @@ export async function updateDeliverable(key, id, patch, actor) {
   if (!before) throw err(404, "deliverable not found");
   // project_id in the WRITE filter too, not just the preceding ownership SELECT: sb() runs under the
   // service role for non-JWT callers, which bypasses RLS, so the tenant scope must be in the query.
-  const updated = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }));
+  // deliverables_update is a contributor's (0022): a refused PATCH comes back as no row — a 403 in words (it was a 500
+  // reading the missing row), never an "updated" row.
+  const updated = one(requireRows(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }), "a deliverable is changed by a contributor or above"));
   // Audit every planned field, not just name+date: a changed owner or stage is exactly the kind of
   // silent plan edit an audit trail exists to reconstruct.
   const fields = (r) => ({ container_name: r.container_name, title: r.title, responsible_team: r.responsible_team, due_date: r.due_date, stage: r.stage, expected_revision: r.expected_revision, expected_suitability: r.expected_suitability, purpose: r.purpose });
@@ -81,8 +83,10 @@ export async function deleteDeliverable(key, id, actor) {
   const proj = await ensureProject(key);
   const before = one(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}&select=*`));
   if (!before) throw err(404, "deliverable not found");
+  // deliverables_delete is a lead's: a refused delete comes back as no row. The "deleted" row follows a delete that
+  // happened — it used to be written first, whatever the delete did (ledger-1); audit_log has no FK, so it outlives the row.
+  requireRows(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "DELETE", prefer: "return=representation" }), "a deliverable is deleted by a lead or owner");
   await audit(proj.id, "deliverable", id, "deleted", actor || "web", { container_name: before.container_name, due_date: before.due_date }, null);
-  await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "DELETE", prefer: "return=minimal" });
   return { deleted: true, id };
 }
 
@@ -134,9 +138,9 @@ export async function rebaselineApply(key, programme, actor) {
   const preview = await rebaselinePreview(key, programme);
   const proj = await ensureProject(key);
   for (const u of preview.updates) {
-    await sb(`deliverables?id=eq.${enc(u.id)}`, {
-      method: "PATCH", body: { due_date: u.to, updated_at: new Date().toISOString() }, prefer: "return=minimal",
-    });
+    requireRows(await sb(`deliverables?id=eq.${enc(u.id)}`, {
+      method: "PATCH", body: { due_date: u.to, updated_at: new Date().toISOString() }, prefer: "return=representation",
+    }), "a deliverable's due date is moved by a contributor or above");
     await audit(proj.id, "deliverable", u.id, "rebaselined", actor || "web",
       { due_date: u.from }, { due_date: u.to, delta_days: u.delta_days, container_name: u.container_name });
   }
