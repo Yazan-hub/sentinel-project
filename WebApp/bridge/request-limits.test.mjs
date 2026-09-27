@@ -107,8 +107,9 @@ describe("slow bodies — 30 s without a byte is a 408; a JSON body arrives whol
     const r = open();
     const p = readBody(r);
     r.write("{");
+    const refused = expect(p).rejects.toThrow("the request body stopped arriving (nothing for 30 s) — nothing was saved");
     await vi.advanceTimersByTimeAsync(30_001);
-    await expect(p).rejects.toThrow("the request body stopped arriving (nothing for 30 s) — nothing was saved");
+    await refused;
   });
 
   it("a JSON body dripped a byte every 20 s is a 408 at 2 min; a raw upload may take longer (the server's 30 min)", async () => {
