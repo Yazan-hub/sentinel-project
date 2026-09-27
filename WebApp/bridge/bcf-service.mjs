@@ -576,6 +576,15 @@ async function publicReceiptVerify(req, res, url) {
   }
 }
 
+/** H0 (D2): an upload that spends the founder's platform storage or disk names its project in the query, and the caller
+ *  is checked against that project (members-store requireSpend) before one byte of the body is read. */
+async function requireSpendFor(key, param) {
+  if (!key) throw Object.assign(new Error(`name the project: ?${param}=<project key> — nothing was uploaded`), { status: 400 });
+  if (!(await import("./cde-store.mjs")).cdeConfigured())
+    throw Object.assign(new Error("CDE not configured — an upload is checked against its project's office, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env."), { status: 503 });
+  return (await import("./members-store.mjs")).requireSpend(key);
+}
+
 // The routes that fall back to the per-machine JSON stores when the CDE is not configured.
 const LOCAL_STORE_ROUTE = /^\/(projects|rfis|packs|tenders|clash|bcf)(\/|$)/;
 
@@ -1018,25 +1027,35 @@ async function handleRequest(req, res) {
   }
 
   // ── IFC upload → That Open Platform (Phase C: browser bakes → bridge uploads; token stays server-side) ──
-  //   POST /ifc?name=<x.ifc>&version=<vN>&projectId=<id>   body = raw .ifc bytes
+  //   POST /ifc?name=<x.ifc>&version=<vN>&projectId=<Sentinel project key>   body = raw .ifc bytes
   // The browser can't hold THATOPEN_API_KEY, so it POSTs the baked IFC here; the bridge converts it to
-  // fragments and uploads via the same @thatopen/services client the outbox watcher uses.
+  // fragments and uploads via the same @thatopen/services client the outbox watcher uses. That spends the founder's
+  // platform storage, so the caller must be trusted for the project it names before one byte is read (H0, D2).
   if (url.pathname === "/ifc" && req.method === "POST") {
     try {
+      await requireSpendFor(url.searchParams.get("projectId"), "projectId");
       holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
+      // Only an IFC reaches the platform: the shared publish path uploads the raw bytes when conversion fails (Governed
+      // Intake relies on that fallback), so a body that is not a STEP file is refused here.
+      const { uploadIfcAsFrag, isIfcStep } = await import("./platform-publish.mjs");
+      if (!isIfcStep(bytes)) return send(res, 400, { message: "Not an IFC file — it must start with ISO-10303-21; nothing was uploaded." });
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
       const versionTag = url.searchParams.get("version") || "v1";
-
-      const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
-      return send(res, 200, await uploadIfcAsFrag(bytes, name, versionTag));
+      let out;
+      try { out = await uploadIfcAsFrag(bytes, name, versionTag); }
+      catch (e) {
+        const msg = String(e?.message || e);
+        // A revoked/rotated platform token 401s "Token not found" here — turn that into an actionable message. Only the
+        // upload's errors: a refused caller above keeps its own 401/403 words.
+        if (e?.status === 401 || /token not found|unauthor/i.test(msg))
+          return send(res, 401, { message: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` });
+        throw e;
+      }
+      return send(res, 200, out);
     } catch (e) {
-      const msg = String(e?.message || e);
-      // A revoked/rotated platform token 401s "Token not found" here — turn that into an actionable message.
-      if (e?.status === 401 || /token not found|unauthor/i.test(msg))
-        return send(res, 401, { message: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` });
-      return send(res, e?.status || 500, { message: msg });
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
     }
   }
 

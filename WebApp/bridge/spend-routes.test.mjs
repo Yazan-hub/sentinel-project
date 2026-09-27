@@ -194,3 +194,29 @@ describe("/ai/run-tool — the caller's role, not the approved flag (D10)", () =
     expect(seen.slice(from)).toEqual([]);
   });
 });
+
+describe("POST /ifc — the founder's platform storage (D2, ifc-1)", () => {
+  it("names no project: 400 before the body is read", async () => {
+    const { status, json } = await partial("/ifc?name=a.ifc", "service");
+    expect(status).toBe(400);
+    expect(json.message).toMatch(/projectId/);
+  });
+
+  it("a viewer is refused before one byte of the body is read", async () => {
+    const { status, json } = await partial("/ifc?projectId=p-office&name=a.ifc", "u-view");
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/contributor role/);
+  });
+
+  it("the owner of a self-made project (no office) is refused before the body is read", async () => {
+    const { status, json } = await partial("/ifc?projectId=p-lone&name=a.ifc", "u-owner");
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/no office/);
+  });
+
+  it("an office contributor's body that is not an IFC is refused before it reaches the platform", async () => {
+    const { status, json } = await call("POST", "/ifc?projectId=p-office&name=a.ifc", { as: "u-contrib", body: "hello, not a model", headers: { "Content-Type": "application/x-step" } });
+    expect(status).toBe(400);
+    expect(json.message).toMatch(/Not an IFC/);
+  });
+});
