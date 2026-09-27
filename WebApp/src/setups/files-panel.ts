@@ -4,7 +4,9 @@ import { bfetch } from "./bridge-fetch";
 import { getAppManager } from "../app";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { myRole, canEditRole } from "./my-role";
+import { myRole, canEditRole, canGovernRole } from "./my-role";
+import { ledgerLine } from "./stage-gate";
+import { uploadThroughIntake, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem } from "./holding";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 
@@ -16,9 +18,11 @@ import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from 
  * data the CDE panel shows (one source of truth) — the CDE panel is the ISO 19650 state board; this panel is
  * the "which version is current, what changed, roll back" view a modeller expects.
  *
- * Actions: upload a new version (browser → bridge /ifc → platform, then register the version), set any version
- * live, and compare any two versions' take-off (cost / carbon / element count) from their stored element
- * snapshots — reusing the verified sentinel-core diff. Plain-DOM, iframe-safe; needs the bridge + CDE.
+ * Actions: upload a new version (browser → bridge /cde/:key/intake: judged first — delivery gate, naming, IDS — then
+ * uploaded and registered only when accepted or recorded; a refused file uploads nothing and is listed under
+ * "On hold (n)" until a corrected file is registered under its name or a lead dismisses it), set any version live,
+ * and compare any two versions' take-off (cost / carbon / element count) from their stored element snapshots —
+ * reusing the verified sentinel-core diff. Plain-DOM, iframe-safe; needs the bridge + CDE.
  */
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
@@ -46,6 +50,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
 
   let files: FileRec[] = [];
   let showArchived = false; // files whose every version is 'archived' hide behind a toggle (Forma-style)
+  // The Holding Area (phase 6a): the refusals on hold, read on every load. `holdError` is set when that read failed —
+  // the section then says "not read — …", never that nothing is held. `dismissing` = the held item whose inline
+  // reason input is open (window.prompt is blocked in the platform iframe); `role` is asked on every load.
+  let holding: Holding = { items: [], cleared_recent: [] };
+  let holdError: string | null = null;
+  let showHeld = false;
+  let dismissing: number | null = null;
+  let role = "viewer";
   // Inline action states — window.prompt/confirm are silently blocked in the platform's cross-origin
   // iframe (Chrome removed them), so rename uses an inline input and archive/delete a two-click confirm.
   let renaming: string | null = null;
@@ -104,17 +116,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   };
   const when = (s: string) => (s || "").replace("T", " ").slice(0, 16);
 
-  async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
-    try {
-      const buf = await crypto.subtle.digest("SHA-256", bytes);
-      return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, "0")).join("");
-    } catch { return null; }
-  }
-
   async function load() {
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = pid();
     status("Loading…");
+    const asked = gateUpload();
     try {
       files = (await api(`${encodeURIComponent(pid())}/files`)) as FileRec[];
       // Map each container_version to its snapshot revision (if a take-off was captured against it) for compare.
@@ -138,8 +144,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
           if (rows.length < total) historyGap = `History read ${rows.length} of ${total} ledger rows (the newest).`;
         } catch (e) { historyGap = `History unavailable — ${(e as Error).message}.`; }
       }
+      // The Holding Area (spec 2026-09-27 Decision 7) is its own read: a failure there is said, never "none on hold".
+      dismissing = null;
+      try { holding = await readHolding(base, pid()); holdError = null; }
+      catch (e) { holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
+      await asked;
       render();
-      status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s).${historyGap ? " " + historyGap : ""}`);
+      const held = holdError ? `on hold: ${holdError}` : `${holding.items.length} on hold`;
+      status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s) · ${held}.${historyGap ? " " + historyGap : ""}`);
     } catch (e) {
       files = [];
       el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Couldn't load versions: ${esc((e as Error).message)}.<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span></div>`;
@@ -166,19 +178,27 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   }
 
   function render() {
-    if (!files.length) {
-      el("fv-body").innerHTML = '<div style="color:#71717a;padding:1rem 0;text-align:center">No versioned files yet.<br><span style="font-size:11px">Upload an IFC to start a version history.</span></div>';
-      return;
-    }
+    // A project whose only uploads were refused has no file yet but has files on hold: the section renders either way.
     const active = files.filter((f) => !isArchivedFile(f));
     const archived = files.filter(isArchivedFile);
-    let html = treeBlocks(active);
+    let html = files.length ? treeBlocks(active)
+      : '<div style="color:#71717a;padding:1rem 0;text-align:center">No versioned files yet.<br><span style="font-size:11px">Upload an IFC to start a version history.</span></div>';
     if (archived.length) {
       html += `<button id="fv-arch-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showArchived ? "▾" : "▸"} Archived (${archived.length})</button>`;
       if (showArchived) html += `<div style="opacity:.55">${archived.map((f) => fileCard(f)).join("")}</div>`;
     }
+    html += heldSection();
     el("fv-body").innerHTML = html;
     root.querySelector("#fv-arch-toggle")?.addEventListener("click", () => { showArchived = !showArchived; render(); });
+    root.querySelector("#fv-held-toggle")?.addEventListener("click", () => { showHeld = !showHeld; render(); });
+    root.querySelectorAll<HTMLElement>("[data-hresubmit]").forEach((n) =>
+      n.addEventListener("click", () => (el("fv-file") as HTMLInputElement).click()));
+    root.querySelectorAll<HTMLElement>("[data-hdismiss]").forEach((n) =>
+      n.addEventListener("click", () => { dismissing = Number(n.dataset.hdismiss); render(); (root.querySelector("#fv-dismiss-input") as HTMLInputElement | null)?.focus(); }));
+    root.querySelectorAll<HTMLElement>("[data-hcancel]").forEach((n) =>
+      n.addEventListener("click", () => { dismissing = null; render(); }));
+    root.querySelectorAll<HTMLElement>("[data-hdismissok]").forEach((n) =>
+      n.addEventListener("click", () => void dismissHeld(Number(n.dataset.hdismissok))));
     root.querySelectorAll<HTMLElement>("[data-vers]").forEach((n) =>
       n.addEventListener("click", (e) => { e.stopPropagation(); const id = n.dataset.vers!; versionsOpen.has(id) ? versionsOpen.delete(id) : versionsOpen.add(id); render(); }));
     // wire per-file / per-version buttons
@@ -224,6 +244,51 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         if (armed?.id === id && armed.kind === "delete") { armed = null; void deleteFile(id); }
         else { armed = { id, kind: "delete" }; render(); }
       }));
+  }
+
+  // "On hold (n)" — built like "Archived (n)": the files the referee refused on this project (GET /cde/:key/holding),
+  // each with its stage, every failure, the refusal's ledger line and how to send it again (spec Decisions 7-9).
+  function heldSection(): string {
+    if (holdError) return `<div style="color:#fbbf24;font-size:11px;padding:.4rem .2rem">On hold: ${esc(holdError)}</div>`;
+    const { items, cleared_recent } = holding;
+    if (!items.length && !cleared_recent.length) return "";
+    const toggle = `<button id="fv-held-toggle" style="border:none;background:transparent;color:#f59e0b;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showHeld ? "▾" : "▸"} On hold (${items.length})</button>`;
+    if (!showHeld) return toggle;
+    return toggle + items.map(heldCard).join("") +
+      cleared_recent.map((c) => `<div style="color:#71717a;font-size:11px;padding:.15rem .2rem">✓ ${esc(c.container_name)} — ${esc(c.label || CLEARED_BY_RECORDED)} · ${when(c.at)}</div>`).join("");
+  }
+
+  function heldCard(h: HeldItem, i: number): string {
+    const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
+    const again = resubmitFor(h.source);
+    const resubmit = !again.upload ? `<span style="color:#9ca3af">${esc(again.text)}</span>`
+      : canEditRole(role) ? `<button data-hresubmit="${i}" style="${act};color:#c4b5fd" title="Pick the corrected file — it is judged before anything is stored">${again.text}</button>`
+      : '<span style="color:#71717a">a contributor or above uploads the corrected file</span>';
+    const dismiss = !canGovernRole(role) ? ""
+      : dismissing === i
+        ? `<input id="fv-dismiss-input" maxlength="500" placeholder="Why dismiss it? The ledger records the reason." style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #f59e0b;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+          `<button data-hdismissok="${i}" style="${act};color:#fbbf24">Dismiss with this reason</button><button data-hcancel="${i}" style="${act}">Cancel</button>`
+        : `<button data-hdismiss="${i}" style="${act}">Dismiss…</button>`;
+    return `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #4a3a12;border-radius:.4rem;font-size:12px">` +
+      `<div style="display:flex;gap:.5rem;align-items:baseline"><span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.container_name)}</span>` +
+      `<span style="color:#f59e0b;font-size:10.5px">refused by the ${esc(STAGE_WORDS[h.stage] ?? h.stage)}</span></div>` +
+      `<div style="color:#9ca3af;font-size:11px">${esc(SOURCE_WORDS[h.source] ?? h.source)} · ${esc(h.actor || "—")} · ${when(h.at)}${h.refusals > 1 ? ` · refused ${h.refusals} times since it went on hold` : ""}</div>` +
+      (h.failures || []).map((f) => `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">✗ ${esc(f.requirement)} — ${esc(f.detail)}</div>`).join("") +
+      ((h.failures_total ?? 0) > (h.failures || []).length ? `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">… and ${(h.failures_total ?? 0) - (h.failures || []).length} more (the ledger row keeps the first 50)</div>` : "") +
+      (h.naming_note ? `<div style="color:#fbbf24;font-size:11px">${esc(h.naming_note)}</div>` : "") +
+      `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(h.ledger)}</div>` +
+      `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem">${resubmit}<span style="flex:1"></span>${dismiss}</div></div>`;
+  }
+
+  async function dismissHeld(i: number) {
+    const h = holding.items[i];
+    if (!h) return;
+    const reason = (root.querySelector("#fv-dismiss-input") as HTMLInputElement | null)?.value ?? "";
+    try {
+      const row = await dismissHold(base, pid(), h.container_name, reason);
+      await load();
+      status(`✓ Dismissed ${h.container_name} from On hold · ${ledgerLine(row)}`);
+    } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
   }
 
   function fileCard(f: FileRec, isLink = false): string {
@@ -500,50 +565,38 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<span style="width:6rem;text-align:right;color:${col};font-family:ui-monospace,Consolas,monospace">${sign}${fmt(d)}</span></div>`;
   }
 
-  // ── upload a new version: browser → bridge /ifc (→ platform) → register the version ──
+  // ── upload a new version through Governed Intake: judged (gate, naming, IDS) before anything is stored — accepted or
+  //    recorded is uploaded to the platform and registered with its verdict; rejected uploads nothing and is held ──
   async function uploadNewVersion(file: File) {
-    status(`Uploading ${file.name}…`);
+    status(`Judging ${file.name} — nothing is stored unless the referee accepts or records it…`);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const name = file.name;
-      const existing = files.find((f) => f.iso_name === name);
-      const nextTag = `v${(existing?.version_count ?? 0) + 1}`;
-      const url = `${base}/ifc?name=${encodeURIComponent(name)}&version=${encodeURIComponent(nextTag)}&projectId=${encodeURIComponent(pid())}`;
-      const resp = await bfetch(url, { method: "POST", headers: { "Content-Type": "application/x-step" }, body: bytes });
-      const j = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        status(resp.status === 503 ? `Bridge not configured for upload: ${j.message}` : `Upload failed (${resp.status}): ${j.message || "see bridge console"}`);
-        return;
-      }
-      const sha = await sha256Hex(bytes);
-      const who = await whoami();
-      await api(`${encodeURIComponent(pid())}/files`, "POST", {
-        name, author: who, size_bytes: j.bytes ?? bytes.length, sha256: sha,
-        platform_item_id: j.itemId ?? null, notes: `uploaded ${j.format || "ifc"} via web by ${who}`,
-      });
-      status(`Uploaded ${name} (${nextTag}) ✓ — now the live version.`);
+      const existing = files.find((f) => f.iso_name === file.name);
+      const revision = `v${(existing?.version_count ?? 0) + 1}`;
+      const r = await uploadThroughIntake(base, pid(), file, { name: file.name, revision, who: await whoami() });
+      if (r.verdict === "rejected") showHeld = true;
       await load();
+      status(intakeLine(file.name, r));
     } catch (e) {
-      status(`Upload failed: ${esc((e as Error).message)}. Is the bridge running?`);
+      status(`Not uploaded — ${(e as Error).message}`);
     }
   }
 
   el("fv-refresh").addEventListener("click", load);
   el("fv-upload").addEventListener("click", () => (el("fv-file") as HTMLInputElement).click());
-  // Upload is a write: contributor and up. Re-asked on every load so a demotion takes effect on reload.
+  // Upload is a write: contributor and up; Dismiss… on a held file is a lead's. Re-asked on every load (load() calls
+  // it) so a demotion takes effect on reload.
   const gateUpload = async () => {
-    const role = await myRole(base, pid());
+    role = await myRole(base, pid());
     const btn = el("fv-upload") as HTMLElement;
     btn.style.display = canEditRole(role) ? "" : "none";
     btn.title = canEditRole(role) ? "" : `your role: ${role} — uploads need contributor or above`;
   };
-  void gateUpload();
   (el("fv-file") as HTMLInputElement).addEventListener("change", (ev) => {
     const f = (ev.target as HTMLInputElement).files?.[0];
     if (f) uploadNewVersion(f);
     (ev.target as HTMLInputElement).value = "";
   });
-  onActiveProjectChange(() => { void gateUpload(); load(); });
+  onActiveProjectChange(() => void load());
   void load();
   return root;
 }
