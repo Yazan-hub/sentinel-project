@@ -88,14 +88,31 @@ export function createKeyedLimiter({ max = 60, windowMs = 60000, maxKeys = 10000
 
 /** The caller's address as the proxy in front of the bridge (the Funnel) saw it: the LAST X-Forwarded-For entry — a
  *  proxy appends the address it accepted the connection from, so anything a client wrote itself sits to its left —
- *  else the socket's own address. Without a forwarding proxy every public caller shares one address: the per-caller
- *  window then acts as today's global one. */
+ *  else the socket's own address. This holds only behind a proxy that appends the header: on a direct non-loopback
+ *  bind a caller writes its own X-Forwarded-For, and behind a proxy that forwards none every caller shares the
+ *  proxy's address (the per-caller window then acts as one global window). */
 export const clientAddress = (req) =>
   String(req.headers?.["x-forwarded-for"] || "").split(",").pop().trim() || req.socket?.remoteAddress || "unknown";
 
-/** A receipt check is a few hundred bytes: it arrives whole within 10 s, or it is a 408. Without a deadline a check
- *  that sends 1 byte of 100 held its socket for the server's 30 min, and 256 of them locked every caller out. */
-export const PUBLIC_BODY_MS = 10_000;
+/** One caller for the limits: an IPv4 address (or an IPv4-mapped one) as it is; an IPv6 address folded to its /64,
+ *  since a provider hands a single subscriber the whole block and every address in it would otherwise be a fresh
+ *  caller. */
+export function callerKey(address) {
+  const a = String(address).trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
+  if (mapped) return mapped[1];
+  if (!a.includes(":")) return a;
+  const [head, tail] = a.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+/** A receipt check is a few hundred bytes: it arrives whole within 3 s, or it is a 408. Without a deadline a check
+ *  that sends 1 byte of 100 held its socket for the server's 30 min, and 256 of them locked every caller out; the
+ *  shorter the hold, the more sources it takes to keep the read slots full. */
+export const PUBLIC_BODY_MS = 3_000;
 
 /** The request body as text, or null when it is over `max` bytes — declared (answered unread) or streamed (the rest
  *  drained unbuffered, never cut: a destroyed socket could not carry the 413, which the caller sends with

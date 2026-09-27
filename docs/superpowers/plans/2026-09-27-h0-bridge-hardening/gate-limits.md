@@ -768,7 +768,7 @@ with
 with
 
 ```js
-      res.once("close", uploadSlot(currentSub())); // held until this answer is done
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
@@ -785,7 +785,7 @@ with
 with
 
 ```js
-      res.once("close", uploadSlot(currentSub())); // held until this answer is done
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body" });
 ```
@@ -805,7 +805,7 @@ with
         // A trusted caller first (D2): the key is in the URL, so a refusal reads no byte of the upload.
         const { requireSpend } = await import("./members-store.mjs");
         await requireSpend(p1);
-        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        holdUpload(req, res, currentSub()); // held until this answer is done
         const bytes = await readRaw(req);
 ```
 
@@ -826,7 +826,7 @@ with
           const { requireMinRole, requireSpend } = await import("./members-store.mjs");
           await requireMinRole(p1, "lead");
           await requireSpend(p1);
-          res.once("close", uploadSlot(currentSub())); // held until this answer is done
+          holdUpload(req, res, currentSub()); // held until this answer is done
           const bytes = await readRaw(req);
 ```
 
@@ -849,7 +849,7 @@ with
         // the URL, so a refusal reads no byte of the upload. The project row is kept for ingestDocument (SPEND-9).
         const { requireSpend } = await import("./members-store.mjs");
         const proj = await requireSpend(p1);
-        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        holdUpload(req, res, currentSub()); // held until this answer is done
         const raw = await readRaw(req, { max: MAX_DOC_UPLOAD });
 ```
 

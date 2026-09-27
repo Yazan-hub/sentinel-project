@@ -378,7 +378,7 @@ describe("slow bodies — answered 408 and closed, so slow callers cannot hold t
   let b;
   beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);
 
-  it("260 anonymous receipt checks that send 1 byte of 100: 32 are read and answered 408 within the 10 s deadline, the rest 429 at once, all closed; the machine gets through meanwhile", async () => {
+  it("260 anonymous receipt checks that send 1 byte of 100: 32 are read and answered 408 within the 3 s deadline, the rest 429 at once, all closed; the machine gets through meanwhile", async () => {
     const slow = Array.from({ length: 260 }, (_, i) => new Promise((resolve) => {
       const s = net.connect({ port: b.port, host: "127.0.0.1" });
       let data = "";
@@ -412,6 +412,24 @@ describe("the public receipt check — 60 a minute per caller address, not 60 fo
     method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": xff },
     body: JSON.stringify({ audit_id: 1, ledger_hash: "0".repeat(64) }),
   });
+
+  it("one address holds at most 2 slow checks at once: its 3rd to 5th are 429 at once, a second address is still read", async () => {
+    const slow = (xff) => new Promise((resolve) => {
+      const s = net.connect({ port: b.port, host: "127.0.0.1" });
+      let data = "";
+      s.setEncoding("utf8");
+      s.on("data", (d) => { data += d; });
+      s.on("error", () => {});
+      s.on("close", () => resolve(data));
+      s.write(`POST /receipt/k/verify HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: ${xff}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{`);
+    });
+    const one = Array.from({ length: 5 }, () => slow("192.0.2.9"));
+    await new Promise((r) => setTimeout(r, 300));
+    const other = slow("192.0.2.10");
+    const statuses = (await Promise.all(one)).map(statusOf).sort();
+    expect(statuses).toEqual([408, 408, 429, 429, 429]);
+    expect(statusOf(await other)).toBe(408); // read, then timed out: not turned away as busy
+  }, 15_000);
 
   it("one caller's 61st check is a 429, and another caller — even one that forges the first's address — still gets an answer", async () => {
     for (let i = 0; i < 60; i++) expect((await check("203.0.113.7")).status).not.toBe(429);

@@ -21,7 +21,7 @@ import { runWithAuth, resolveActor, currentSub, currentUserToken } from "./bridg
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
-import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, readCapped } from "./public-verify.mjs";
+import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped } from "./public-verify.mjs";
 import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
@@ -519,12 +519,14 @@ for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
 // Any page may ask (Access-Control-Allow-Origin: *, no credentials read or allowed); the answer is hash-only
 // (public-verify.mjs). At most 8 KB a check, 60 checks a minute per caller address and 600 across every caller (a
 // check is one indexed read); the log line names the method, the path and the outcome, never the body. At most 32
-// checks read their body at once, each within 10 s (readCapped): however many addresses they come from, anonymous
-// callers never hold more than 32 of the server's 256 sockets.
+// checks read their body at once, each within 3 s (readCapped), and at most 2 of them from one caller (callerKey: an
+// IPv4 address, an IPv6 /64): anonymous callers never hold more than 32 of the server's 256 sockets, and filling
+// those 32 takes 16 sources, not one.
 const publicPerCaller = createKeyedLimiter({ max: 60, windowMs: 60000 });
 const publicLimiter = createLimiter({ max: 600, windowMs: 60000 });
-const MAX_PUBLIC_READS = 32;
+const MAX_PUBLIC_READS = 32, MAX_PUBLIC_READS_PER_CALLER = 2;
 let publicReads = 0;
+const publicReadsBy = new Map();
 async function publicReceiptVerify(req, res, url) {
   res._cors = "*";
   if (req.method === "OPTIONS") {
@@ -539,14 +541,21 @@ async function publicReceiptVerify(req, res, url) {
     console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
     return send(res, code, body, extra);
   };
-  if (publicReads >= MAX_PUBLIC_READS) return done(429, { message: "Too many receipt checks at once — try again in a moment" }, "429 (busy)");
+  const who = callerKey(clientAddress(req));
+  if (publicReads >= MAX_PUBLIC_READS || (publicReadsBy.get(who) || 0) >= MAX_PUBLIC_READS_PER_CALLER)
+    return done(429, { message: "Too many receipt checks at once — try again in a moment" }, "429 (busy)");
   // The caller's own window first: a caller over it does not use up the shared one.
-  if (!publicPerCaller.take(clientAddress(req)) || !publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
+  if (!publicPerCaller.take(who) || !publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
   let text;
   publicReads++;
+  publicReadsBy.set(who, (publicReadsBy.get(who) || 0) + 1);
   try { text = await readCapped(req); }
-  catch (e) { return done(e.status, { message: e.message }, String(e.status)); } // not whole within 10 s (408), or cut off (400)
-  finally { publicReads--; }
+  catch (e) { return done(e.status, { message: e.message }, String(e.status)); } // not whole within 3 s (408), or cut off (400)
+  finally {
+    publicReads--;
+    const left = publicReadsBy.get(who) - 1;
+    if (left) publicReadsBy.set(who, left); else publicReadsBy.delete(who);
+  }
   // The rest of an over-cap body is drained, not read, and the connection closes after the 413.
   if (text === null) return done(413, { message: "A receipt check is at most 8 KB" }, "413", { Connection: "close" });
   let claim;

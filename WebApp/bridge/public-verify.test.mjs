@@ -2,7 +2,7 @@
 // byte-identical miss for every kind of "no". publicAuditRow is driven through a stubbed fetch — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Readable, PassThrough } from "node:stream";
-import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, createKeyedLimiter, clientAddress, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
+import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 // cde-store reads SUPABASE_URL / _SERVICE_KEY / _ANON_KEY when it loads; where config/.env is absent (CI) stand-ins
@@ -197,6 +197,20 @@ describe("clientAddress — the address the proxy in front of the bridge saw", (
   });
 });
 
+describe("callerKey — one caller per IPv4 address, one per IPv6 /64", () => {
+  it("keeps an IPv4 address (and an IPv4-mapped one) whole", () => {
+    expect(callerKey("203.0.113.7")).toBe("203.0.113.7");
+    expect(callerKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
+  });
+  it("folds an IPv6 address to its /64: a provider hands one caller the whole block", () => {
+    expect(callerKey("2001:db8:1:2:aaaa::1")).toBe("2001:db8:1:2::/64");
+    expect(callerKey("2001:0db8:0001:0002:bbbb:cccc:dddd:eeee")).toBe("2001:db8:1:2::/64");
+    expect(callerKey("[2001:db8::7]")).toBe("2001:db8:0:0::/64");
+    expect(callerKey("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+    expect(callerKey("::1")).toBe("0:0:0:0::/64");
+  });
+});
+
 describe("readCapped — 8 KB, then 413", () => {
   const req = (chunks, headers = {}) => Object.assign(Readable.from(chunks.map((c) => Buffer.from(c))), { headers });
   it("returns the body as text at or under the cap", async () => {
@@ -210,14 +224,14 @@ describe("readCapped — 8 KB, then 413", () => {
     expect(r.readableFlowing).toBeNull(); // nothing attached a reader: the stream was never consumed
     expect(r.listenerCount("data")).toBe(0);
   });
-  it("is a 408 when the body has not all arrived within 10 s — a slow anonymous check cannot hold a socket", async () => {
+  it("is a 408 when the body has not all arrived within 3 s — a slow anonymous check cannot hold a socket", async () => {
     vi.useFakeTimers();
     try {
       const r = Object.assign(new PassThrough(), { headers: { "content-length": "100" } });
       const p = readCapped(r);
-      const refused = expect(p).rejects.toMatchObject({ status: 408, message: "a receipt check must arrive within 10 s" });
+      const refused = expect(p).rejects.toMatchObject({ status: 408, message: "a receipt check must arrive within 3 s" });
       r.write("{");
-      await vi.advanceTimersByTimeAsync(10_001);
+      await vi.advanceTimersByTimeAsync(3_001);
       await refused;
     } finally { vi.useRealTimers(); }
   });
