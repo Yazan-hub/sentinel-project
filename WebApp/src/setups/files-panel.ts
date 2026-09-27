@@ -255,7 +255,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const toggle = `<button id="fv-held-toggle" style="border:none;background:transparent;color:#f59e0b;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showHeld ? "▾" : "▸"} On hold (${items.length})</button>`;
     if (!showHeld) return toggle;
     return toggle + items.map(heldCard).join("") +
-      cleared_recent.map((c) => `<div style="color:#71717a;font-size:11px;padding:.15rem .2rem">✓ ${esc(c.container_name)} — ${esc(c.label || CLEARED_BY_RECORDED)} · ${when(c.at)}</div>`).join("");
+      cleared_recent.map((c) => `<div style="color:#71717a;font-size:11px;padding:.15rem .2rem">✓ ${esc(c.container_name)} — ${esc(c.label || CLEARED_BY_RECORDED)} · ${esc(when(c.at))}</div>`).join("");
   }
 
   function heldCard(h: HeldItem, i: number): string {
@@ -272,7 +272,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     return `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #4a3a12;border-radius:.4rem;font-size:12px">` +
       `<div style="display:flex;gap:.5rem;align-items:baseline"><span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.container_name)}</span>` +
       `<span style="color:#f59e0b;font-size:10.5px">refused by the ${esc(STAGE_WORDS[h.stage] ?? h.stage)}</span></div>` +
-      `<div style="color:#9ca3af;font-size:11px">${esc(SOURCE_WORDS[h.source] ?? h.source)} · ${esc(h.actor || "—")} · ${when(h.at)}${h.refusals > 1 ? ` · refused ${h.refusals} times since it went on hold` : ""}</div>` +
+      `<div style="color:#9ca3af;font-size:11px">${esc(SOURCE_WORDS[h.source] ?? h.source)} · ${esc(h.actor || "—")} · ${esc(when(h.at))}${h.refusals > 1 ? ` · refused ${h.refusals} times since it went on hold` : ""}</div>` +
       (h.failures || []).map((f) => `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">✗ ${esc(f.requirement)} — ${esc(f.detail)}</div>`).join("") +
       ((h.failures_total ?? 0) > (h.failures || []).length ? `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">… and ${(h.failures_total ?? 0) - (h.failures || []).length} more (the ledger row keeps the first 50)</div>` : "") +
       (h.naming_note ? `<div style="color:#fbbf24;font-size:11px">${esc(h.naming_note)}</div>` : "") +
