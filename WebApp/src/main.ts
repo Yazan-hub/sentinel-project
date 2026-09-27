@@ -45,7 +45,9 @@ import { projectsHubPanel } from "./setups/projects-hub-panel";
 import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
-import { activePid, onActiveProjectChange } from "./setups/active-project";
+import { activePid, onActiveProjectChange, refreshActiveProject } from "./setups/active-project";
+import { onAuthChange } from "./setups/auth";
+import { userChangeFilter } from "./setups/user-change";
 import { nextStrip, tabIndex } from "./setups/next-strip";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
@@ -308,6 +310,10 @@ async function main() {
   onActiveProjectChange(() => {
     (spaceHeader.querySelector("#sp-name") as HTMLElement).textContent = activePid();
   });
+  // A different person signed in (or out): every panel reloads for them, as on a project switch — a role, a review's
+  // Approve/Reject and a lead's controls are the bridge's answer for the person asking (a token refresh is no change).
+  const userChanged = userChangeFilter();
+  onAuthChange((session) => { if (userChanged(session)) refreshActiveProject(); });
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
