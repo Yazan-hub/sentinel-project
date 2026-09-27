@@ -1294,9 +1294,11 @@ async function handleRequest(req, res) {
         if (!p3 && req.method === "GET") return send(res, 200, await ms.listManifests(p1));
         if (p3 && req.method === "POST") {
           if (!cde.isUuid(p3)) return send(res, 400, { message: "not a version id" });
-          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read.
-          const { requireMinRole } = await import("./members-store.mjs");
+          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read — and,
+          // like every upload, a trusted caller's (D2): a lead of a project anyone can make by signing up is not enough.
+          const { requireMinRole, requireSpend } = await import("./members-store.mjs");
           await requireMinRole(p1, "lead");
+          await requireSpend(p1);
           res.once("close", uploadSlot(currentSub())); // held until this answer is done
           const bytes = await readRaw(req);
           if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });

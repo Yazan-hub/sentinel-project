@@ -591,7 +591,7 @@ Closes: **cde-rem-3** (intake and the manifests backfill decide the role before 
 
 **Prerequisite:** area **spend**'s SPEND-1 (`requireSpend(key, deps)` in `WebApp/bridge/members-store.mjs`).
 
-**Ownership:** this task owns the `requireSpend` line on intake and on document ingest (SPEND-7 and SPEND-10 add tests only), and the manifests backfill's `requireMinRole(p1, "lead")` (WR-11 then only swaps `captureManifest` for `backfillManifest`). `/ifc` and `/cde/files` carry no project key today: area spend's SPEND-5 puts `await requireSpendFor(…)` on the line above this task's `res.once("close", uploadSlot(currentSub()));` in `/ifc`, and SPEND-6 replaces the whole `/cde/files` block, checking the caller before it takes its slot. Either way the check comes before the slot and before every byte.
+**Ownership:** this task owns the `requireSpend` line on intake and on document ingest (SPEND-7 and SPEND-10 add tests only), and the manifests backfill's `requireMinRole(p1, "lead")` and `requireSpend(p1)` (the second added in batch 2's review fix: a lead of a project anyone can make by signing up is not a trusted caller; WR-11 then only swaps `captureManifest` for `backfillManifest`). `/ifc` and `/cde/files` carry no project key today: area spend's SPEND-5 puts `await requireSpendFor(…)` on the line above this task's `res.once("close", uploadSlot(currentSub()));` in `/ifc`, and SPEND-6 replaces the whole `/cde/files` block, checking the caller before it takes its slot. Either way the check comes before the slot and before every byte.
 
 **Files:**
 - Modify: `WebApp/bridge/bcf-service.mjs`:
@@ -618,7 +618,7 @@ Closes: **cde-rem-3** (intake and the manifests backfill decide the role before 
   - `uploadSlot`, `readRaw` (Task 1).
 - Produces:
   - Every raw-upload route runs, in order: its role check, then `res.once("close", uploadSlot(currentSub()))` (held until the answer is done, freed by an answer or a client that goes away), then `readRaw(req[, { max }])`.
-  - Intake: `await requireSpend(p1);` first in the route. Ingest: `const proj = await requireSpend(p1);` first in the route (SPEND-9 passes `proj.id` to `ingestDocument`). Manifests backfill: `await requireMinRole(p1, "lead");` after the uuid check.
+  - Intake: `await requireSpend(p1);` first in the route. Ingest: `const proj = await requireSpend(p1);` first in the route (SPEND-9 passes `proj.id` to `ingestDocument`). Manifests backfill: `await requireMinRole(p1, "lead");` after the uuid check, then `await requireSpend(p1);` (batch 2's review fix).
   - Ingest reads with `{ max: MAX_DOC_UPLOAD }`.
   - `ingestDocument` stores no original for a document it refuses.
   - The web counts a 429 as "Not uploaded".
@@ -821,9 +821,11 @@ with
 
 ```js
           if (!cde.isUuid(p3)) return send(res, 400, { message: "not a version id" });
-          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read.
-          const { requireMinRole } = await import("./members-store.mjs");
+          // A backfill rewrites a Federation Gate input: a lead's call (D4), made before a byte of the IFC is read — and,
+          // like every upload, a trusted caller's (D2): a lead of a project anyone can make by signing up is not enough.
+          const { requireMinRole, requireSpend } = await import("./members-store.mjs");
           await requireMinRole(p1, "lead");
+          await requireSpend(p1);
           res.once("close", uploadSlot(currentSub())); // held until this answer is done
           const bytes = await readRaw(req);
 ```
@@ -1906,8 +1908,9 @@ EOF
 
 ### Deferred
 
-- **cde-rem-3 (part): streaming raw uploads to a temp file instead of memory, and running web-ifc parsing (`extractElements`, `extractManifest`, the delivery-gate `Buffer.from` copies) in a worker_thread.** This is pure hardening with no live exposure left to strangers once Task 3 lands:
-  - intake and the manifests backfill are reached only by a trusted caller (the machine, a contributor+ on an office-attached project per D2, or a lead for the backfill);
-  - at most one upload per caller and two in total, each capped.
+- **cde-rem-3 (part): streaming raw uploads to a temp file instead of memory, and running web-ifc parsing (`extractElements`, `extractManifest`, the delivery-gate `Buffer.from` copies) in a worker_thread.** This is hardening with no exposure left to strangers once this branch lands whole: once SPEND-6 has landed, not once Task 3 has (corrected in batch 2's review):
+  - intake, document ingest and the manifests backfill are reached only by a trusted caller (`requireSpend`: the machine, a contributor+ on an office-attached project per D2); the backfill also needs lead. The backfill's `requireSpend` was added in batch 2's review fix. With the lead check alone, any account could sign up, create a project, take an upload slot on it as its owner, and send up to 2 GB;
+  - `/ifc` and `/cde/files` check nothing before their slot until spend's SPEND-5 and SPEND-6 land. Between Task 3 and SPEND-6, any signed-in account can take both slots and hold each for up to 30 min (a slow body, `SERVER_LIMITS.requestTimeout`), and every upload on the bridge, the machine's included, gets a 429. Do not deploy the branch in between;
+  - at most one upload per caller and two in total, each capped. A trusted caller who sends a body slowly can still hold a slot for 30 min. A stall timeout in `readBytes`, or a slot kept for the machine, would close that if it is ever needed.
 
   A worker plus a temp-file pipeline costs far more than a few lines. The ceiling is marked `ponytail:` in `request-limits.mjs`: two uploads of up to 2 GB are held in memory at once.

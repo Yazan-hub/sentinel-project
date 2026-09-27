@@ -210,6 +210,36 @@ describe("raw uploads — the role is decided before a byte of the body is read"
   }
 });
 
+describe("the manifests backfill — a project anyone can make by signing up is not enough (cde-rem-3)", () => {
+  let b, supa;
+  const sub = randomUUID();
+  beforeAll(async () => {
+    // A stand-in PostgREST: one project, "lone", that belongs to no office, and the caller is its owner — what any
+    // account gets by signing up and creating a project.
+    const lone = { id: "0b0b0b0b-0000-4000-8000-000000000002", key: "lone", name: "lone", kind: "project", office_key: null };
+    supa = createServer((q, s) => {
+      s.writeHead(200, { "Content-Type": "application/json" });
+      if (q.url.startsWith("/rest/v1/projects")) return s.end(JSON.stringify([lone]));
+      if (q.url.startsWith("/rest/v1/memberships")) return s.end(JSON.stringify([{ user_id: sub, role: "owner" }]));
+      s.end("[]");
+    });
+    const supaPort = await freePort();
+    await new Promise((r) => supa.listen(supaPort, "127.0.0.1", r));
+    b = await startBridge({
+      BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET, SUPABASE_URL: `http://127.0.0.1:${supaPort}`,
+      SUPABASE_SERVICE_KEY: "stand-in-service-key", SUPABASE_ANON_KEY: "stand-in-anon-key",
+    });
+  }, 30_000);
+  afterAll(() => new Promise((r) => supa.close(r)));
+
+  it("its owner's backfill is a 403 in words with only the head sent — no upload slot, no byte read", async () => {
+    const r = open(b.port, "POST", `/cde/lone/manifests/${randomUUID()}`, { Authorization: `Bearer ${userJwt(SECRET, sub)}`, "Transfer-Encoding": "chunked" });
+    const reply = await r.reply; // no body byte was ever sent: an answer proves the body was not awaited
+    expect(statusOf(reply), reply).toBe(403);
+    expect(bodyOf(reply).message).toContain("lone belongs to no office");
+  });
+});
+
 describe("the gate — a JWT counts only when the secret is set and it verifies", () => {
   let armed, noSecret;
   beforeAll(async () => {
