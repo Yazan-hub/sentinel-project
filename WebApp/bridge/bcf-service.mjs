@@ -1691,7 +1691,7 @@ async function handleRequest(req, res) {
         const ingest = await import("./bimdocs-ingest.mjs");
         const name = url.searchParams.get("name") || "document.pdf";
         const docType = url.searchParams.get("doc_type") || "EIR";
-        return send(res, 200, await ingest.ingestDocument(raw, { filename: name, doc_type: docType }));
+        return send(res, 200, await ingest.ingestDocument(raw, { filename: name, doc_type: docType, project_id: proj.id }));
       }
       if (p2 === "ingest" && p3 === "commit" && req.method === "POST") {
         return send(res, 201, await bimdocs.createDocFromIngest(p1, { ...body, actor }));
@@ -1701,7 +1701,8 @@ async function handleRequest(req, res) {
         if (!ref) return send(res, 404, { message: "this document has no original file" });
         const ingest = await import("./bimdocs-ingest.mjs");
         const { readFileSync } = await import("node:fs");
-        const buf = readFileSync(ingest.sourceFilePath(ref.file_id));
+        // The document's own project folder; the flat folder too, only for a document committed before H0 bound originals.
+        const buf = readFileSync(ingest.sourceFilePath(ref.project_id, ref.file_id, { legacy: true }));
         res.writeHead(200, {
           "Content-Type": "application/octet-stream",
           "Content-Disposition": `attachment; filename="${encodeURIComponent(ref.name)}"`,

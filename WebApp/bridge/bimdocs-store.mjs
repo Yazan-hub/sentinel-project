@@ -144,6 +144,13 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   const normalizedSections = validateSections(sections);
   const normalizedSource = normalizeSource(source);
   const proj = await ensureProject(key);
+  // H0 (bimdocs-4): the original must have been uploaded to THIS project — it lives in the project's own folder, so a
+  // file_id copied from another project, or one from before H0, names nothing here.
+  if (normalizedSource?.file_id !== undefined) {
+    const { sourceFilePath } = await import("./bimdocs-ingest.mjs");
+    try { sourceFilePath(proj.id, normalizedSource.file_id); }
+    catch { throw err(400, "the original file was not uploaded to this project — ingest it here again; nothing was saved"); }
+  }
   const body = {
     project_id: proj.id,
     doc_type,
@@ -164,10 +171,11 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   return row;
 }
 
-/** The original uploaded file's descriptor for a document, or null when hand-authored. */
+/** The original uploaded file's descriptor for a document, or null when hand-authored — with the document's project id,
+ *  whose folder holds the file (H0, bimdocs-4). */
 export async function getSourceRef(key, docId) {
   const doc = await getDoc(key, docId);
-  return doc.source || null;
+  return doc.source ? { ...doc.source, project_id: doc.project_id } : null;
 }
 
 const PLANNED_BINDABLE = new Set(PLANNED_CHECKS.map((p) => p.id));

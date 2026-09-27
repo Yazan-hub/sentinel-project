@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 // setSectionBindings/complianceReport guard tests need a mocked cde-store.mjs (Supabase network layer)
@@ -50,7 +54,7 @@ vi.mock("./office-store.mjs", () => ({
   getScan: vi.fn(async () => null),
 }));
 
-const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport, patchSection, createDoc, createDocFromIngest } = await import("./bimdocs-store.mjs");
+const { setSectionBindings, complianceReport, MAX_COMPLIANCE_CHECKS, transitionDoc, publishDoc, setSectionAnswer, setSectionPlan, readinessReport, patchSection, createDoc, createDocFromIngest, getSourceRef } = await import("./bimdocs-store.mjs");
 
 const makeDoc = (overrides = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -345,5 +349,39 @@ describe("a document's recorded names come from the sign-in (bimdocs-3, H0 D6)",
     doc.status = "shared";
     await publishDoc("k", doc.id, { actor: "Revit" });
     expect(posted("bim_document_versions").published_by).toBe("Revit");
+  });
+});
+
+describe("ingest commit — the original must belong to this project (H0, bimdocs-4)", () => {
+  const P = "22222222-2222-4222-8222-222222222222", OTHER = "33333333-3333-4333-8333-333333333333";
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sentinel-bind-"));
+    process.env.SENTINEL_BIMDOCS = dir;
+    ensureProject.mockResolvedValue({ id: P });
+    sb.mockResolvedValue([{ id: "d1", doc_type: "EIR", title: "t" }]);
+  });
+  afterEach(() => {
+    delete process.env.SENTINEL_BIMDOCS;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const put = (sub, fid) => { mkdirSync(join(dir, ...sub), { recursive: true }); writeFileSync(join(dir, ...sub, fid), "x"); return fid; };
+  const commit = (file_id) => createDocFromIngest("k", { doc_type: "EIR", sections: [{ heading: "A" }], source: { file_id, name: "a.txt" } });
+
+  it("a file uploaded to this project commits", async () => {
+    await expect(commit(put([P], `${randomUUID()}.txt`))).resolves.toMatchObject({ id: "d1" });
+  });
+
+  it("another project's file, or a pre-H0 file in the flat folder, is a 400 and nothing is saved", async () => {
+    for (const fid of [put([OTHER], `${randomUUID()}.txt`), put([], `${randomUUID()}.txt`)])
+      await expect(commit(fid)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/not uploaded to this project/) });
+    expect(sb).not.toHaveBeenCalled();
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("getSourceRef names the document's project, so the source route reads that project's folder", async () => {
+    doc = makeDoc({ source: { file_id: "f.txt", name: "a.txt" } });
+    sb.mockImplementation(async () => [doc]);
+    expect(await getSourceRef("k", doc.id)).toEqual({ file_id: "f.txt", name: "a.txt", project_id: "proj1" });
   });
 });

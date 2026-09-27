@@ -2,7 +2,7 @@
 // with the AI gateway -> one merged proposal. Writes NOTHING to the document tables; the browser
 // reviews the proposal and commits it separately (bimdocs-store.createDocFromIngest).
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { join, resolve, sep, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { extractText } from "./doc-text.mjs";
@@ -25,13 +25,26 @@ export function sourceDir() {
   return dir;
 }
 
-/** Traversal-safe path for a stored original. */
-export function sourceFilePath(file_id) {
+/** Where one project's originals live — bound by folder, so a file_id copied from another project names nothing here
+ *  (H0, bimdocs-4). Project ids come from the database; anything else is refused before a path is built. */
+export function projectSourceDir(projectId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(projectId || "")))
+    throw err(400, "an original is stored under its project — project id required");
+  const dir = join(sourceDir(), projectId);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Traversal-safe path for a stored original of `projectId`. `legacy` also looks in the flat folder originals went to
+ *  before H0 — only for reading a document committed then; the ingest commit check never passes it. */
+export function sourceFilePath(projectId, file_id, { legacy = false } = {}) {
   const name = basename(String(file_id || ""));
   if (!/^[a-f0-9-]{36}(\.[a-z0-9]{1,8})?$/i.test(name)) throw err(404, "source not found");
-  const path = join(sourceDir(), name);
-  if (!resolve(path).startsWith(resolve(sourceDir()) + sep) || !existsSync(path)) throw err(404, "source not found");
-  return path;
+  for (const dir of legacy ? [projectSourceDir(projectId), sourceDir()] : [projectSourceDir(projectId)]) {
+    const path = join(dir, name);
+    if (resolve(path).startsWith(resolve(dir) + sep) && existsSync(path) && statSync(path).isFile()) return path;
+  }
+  throw err(404, "source not found");
 }
 
 /**
@@ -41,7 +54,8 @@ export function sourceFilePath(file_id) {
  * every assignment was dropped (blank text, or all names landed in `malformed`) — either way the
  * chunk's text must not vanish silently.
  */
-export async function ingestDocument(buffer, { filename, doc_type } = {}) {
+export async function ingestDocument(buffer, { filename, doc_type, project_id } = {}) {
+  const dir = projectSourceDir(project_id); // no project, no work: refused before anything is stored or asked
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
 
@@ -54,7 +68,7 @@ export async function ingestDocument(buffer, { filename, doc_type } = {}) {
   }
   // Store the original BEFORE the AI work: a 503 from an unreachable model must not cost the upload.
   const file_id = `${randomUUID()}${extname(String(filename || "")).toLowerCase()}`;
-  writeFileSync(join(sourceDir(), file_id), Buffer.from(buffer));
+  writeFileSync(join(dir, file_id), Buffer.from(buffer));
   const source = { file_id, name: basename(String(filename || "document")), kind, pages: pages.length, ingested_at: new Date().toISOString() };
   const results = [];
   for (const chunk of chunks) {

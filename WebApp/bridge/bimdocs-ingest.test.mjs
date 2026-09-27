@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -15,7 +15,7 @@ vi.mock("./ingest-logic.mjs", async (importOriginal) => {
   return { ...actual, chunkPages: (...args) => chunkPages(...args) };
 });
 
-const { ingestDocument } = await import("./bimdocs-ingest.mjs");
+const { ingestDocument, sourceFilePath } = await import("./bimdocs-ingest.mjs");
 
 let dir;
 beforeEach(() => {
@@ -29,7 +29,10 @@ afterEach(() => {
 });
 
 const buf = Buffer.from("hello world, this is the EIR text.");
-const opts = { filename: "doc.txt", doc_type: "EIR" };
+const P = "11111111-2222-4333-8444-555555555555";     // the project the upload is for
+const OTHER = "66666666-7777-4888-8999-aaaaaaaaaaaa"; // someone else's project
+const opts = { filename: "doc.txt", doc_type: "EIR", project_id: P };
+const statusOf = (fn) => { try { fn(); return "no throw"; } catch (e) { return e.status; } };
 
 describe("ingestDocument chunk-failure handling", () => {
   it("propagates a 503 (model unreachable)", async () => {
@@ -84,5 +87,39 @@ describe("ingest and the AI budget (H0, D2)", () => {
     chat.mockResolvedValue({ text: '{"assignments":[]}' });
     await ingestDocument(buf, opts);
     expect(chat.mock.calls[0][1]).toEqual({ budget: false });
+  });
+});
+
+describe("originals are bound to their project (H0, bimdocs-4)", () => {
+  it("ingest keeps the original in the project's own folder", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    const { source } = await ingestDocument(buf, opts);
+    expect(existsSync(join(dir, P, source.file_id))).toBe(true);
+    expect(existsSync(join(dir, source.file_id))).toBe(false);
+    expect(sourceFilePath(P, source.file_id)).toBe(join(dir, P, source.file_id));
+  });
+
+  it("another project's file_id names nothing here: 404", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    const { source } = await ingestDocument(buf, opts);
+    expect(statusOf(() => sourceFilePath(OTHER, source.file_id))).toBe(404);
+  });
+
+  it("a file from before H0 (the flat folder) is found only with legacy — the commit check never passes it", () => {
+    const old = "12345678-1234-4123-8123-123456789abc.txt";
+    writeFileSync(join(dir, old), "old original");
+    expect(statusOf(() => sourceFilePath(P, old))).toBe(404);
+    expect(sourceFilePath(P, old, { legacy: true })).toBe(join(dir, old));
+  });
+
+  it("a project folder is never read as a file", () => {
+    mkdirSync(join(dir, OTHER), { recursive: true });
+    expect(statusOf(() => sourceFilePath(P, OTHER, { legacy: true }))).toBe(404);
+  });
+
+  it("no project id: 400 before anything is stored or asked", async () => {
+    await expect(ingestDocument(buf, { filename: "doc.txt", doc_type: "EIR" })).rejects.toMatchObject({ status: 400 });
+    expect(readdirSync(dir)).toEqual([]);
+    expect(chat).not.toHaveBeenCalled();
   });
 });
