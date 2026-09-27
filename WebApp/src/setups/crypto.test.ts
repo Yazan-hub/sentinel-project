@@ -99,4 +99,13 @@ describe("unlockAndVerify — a refused first-time setup", () => {
     expect(r).toEqual({ ok: false, firstUse: true, reason: "Not set up — this action requires the lead role (you are contributor)" });
     expect(isUnlocked("demo-refused")).toBe(false);
   });
+
+  it("a 409 whose keystore cannot be read is not ok and leaves the project locked", async () => {
+    bfetch.mockResolvedValueOnce(reply(200, null)) // no keystore yet
+      .mockResolvedValueOnce(reply(409, { message: "exists" }))
+      .mockResolvedValueOnce(reply(200, {})); // a leftover without wrapped_dek
+    const r = await unlockAndVerify("http://bridge", "demo-unreadable", "correct horse battery staple");
+    expect(r).toEqual({ ok: false, firstUse: false, reason: "A keystore exists for this project but could not be read — nothing was set up" });
+    expect(isUnlocked("demo-unreadable")).toBe(false);
+  });
 });
