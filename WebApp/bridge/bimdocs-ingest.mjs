@@ -61,7 +61,7 @@ export async function ingestDocument(buffer, { filename, doc_type } = {}) {
     const { system, user } = buildMappingPrompt(tpl.sections, chunk);
     let text;
     try {
-      ({ text } = await chat({ system, messages: [{ role: "user", content: user }], format: "json" }));
+      ({ text } = await chat({ system, messages: [{ role: "user", content: user }], format: "json" }, { budget: false }));
     } catch (e) {
       if (e?.status === 503 || e?.status === 400) throw e; // model unreachable / provider blocked: real failure
       // A gateway/model failure carries a recognizable non-{503,400} status (e.g. rate limit, 500).

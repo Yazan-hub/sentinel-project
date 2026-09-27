@@ -78,3 +78,11 @@ describe("ingestDocument chunk-count cap", () => {
     expect(result.proposal).toBeDefined();
   });
 });
+
+describe("ingest and the AI budget (H0, D2)", () => {
+  it("each chunk's model call is budget:false — one upload, whose route already required a trusted caller", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    await ingestDocument(buf, opts);
+    expect(chat.mock.calls[0][1]).toEqual({ budget: false });
+  });
+});

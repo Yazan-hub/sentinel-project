@@ -12,6 +12,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readdirSync } from "node:fs";
 import { loadEnv } from "./thatopen-client.mjs";
+import { createLimiter, createKeyedLimiter } from "./public-verify.mjs";
+import { currentSub } from "./bridge-auth.mjs";
 
 // config/.env is NOT loaded into process.env by this project — `loadEnv()` parses it and each module
 // merges it (same pattern as cde-store.mjs), with the file authoritative over a stale shell var.
@@ -20,7 +22,8 @@ const env = { ...process.env, ...loadEnv() };
 
 // ── providers ────────────────────────────────────────────────────────────────────────────────────
 // `cloud: false` means it never leaves the machine. Everything else needs the opt-in above.
-// Model lists are the picker's defaults, not a whitelist — a caller may pass any model string.
+// For a cloud provider the list IS the allowlist (H0, D2): chat() refuses any other model, because every call is billed
+// to the founder's key. For local it is the picker's defaults — Ollama serves whatever is pulled.
 export const PROVIDERS = {
   local: {
     label: "Local (Ollama)",
@@ -64,8 +67,8 @@ export const PROVIDERS = {
     label: "NVIDIA Nemotron",
     cloud: true,
     env: "NVIDIA_API_KEY",
-    // Starting list only — NVIDIA rotates these often, so ask the provider rather than trusting
-    // this: GET /ai/models?provider=nemotron returns whatever the key can actually reach today.
+    // NVIDIA rotates these often, and this list is exactly what chat() allows (H0) — update it here when a model is
+    // retired (a retired one answers 404 at call time).
     models: [
       "nvidia/llama-3.3-nemotron-super-49b-v1.5",
       "nvidia/llama-3.1-nemotron-ultra-253b-v1",
@@ -77,6 +80,17 @@ export const PROVIDERS = {
 };
 
 const CLOUD_OPTIN = String(env.SENTINEL_AI_CLOUD || "").trim() === "1";
+
+// H0 (D2): signed-in callers share one AI budget a minute, and each has their own — a per-user limit alone is bypassed
+// by signing up again. Keyed on the verified sub (Funnel traffic all arrives from 127.0.0.1, so there is no per-IP);
+// the machine credential (no sub) is not counted. ponytail: in-process fixed windows, reset on restart; past 1000 users
+// the oldest user's window is dropped (createKeyedLimiter).
+const AI_PER_MIN = Number(env.SENTINEL_AI_PER_MIN) || 60;
+const AI_PER_USER_PER_MIN = Number(env.SENTINEL_AI_PER_USER_PER_MIN) || 20;
+const aiShared = createLimiter({ max: AI_PER_MIN, windowMs: 60000 });
+const aiPerUser = createKeyedLimiter({ max: AI_PER_USER_PER_MIN, windowMs: 60000, maxKeys: 1000 });
+// Their own window first: a caller over it never spends the shared one.
+const takeAiBudget = (sub) => !sub || (aiPerUser.take(sub) && aiShared.take());
 
 // Claude can authenticate two ways: a pasted API key, or an ACCOUNT LOGIN (`ant auth login`), which
 // stores an OAuth profile the SDK picks up from a bare `new Anthropic()`. The login path is what most
@@ -99,7 +113,7 @@ const keyOf = (id) => (PROVIDERS[id]?.env ? String(env[PROVIDERS[id].env] || "")
 /** Why a provider can't be used right now — null when it can. The UI shows this verbatim, so a
  *  misconfiguration explains itself instead of failing as a generic error at call time. */
 export function blockedReason(id) {
-  const p = PROVIDERS[id];
+  const p = Object.hasOwn(PROVIDERS, id) ? PROVIDERS[id] : undefined; // "__proto__" is not a provider
   if (!p) return "Unknown provider.";
   if (!p.cloud) return null;
   if (id === "claude" && !keyOf(id) && !hasAnthropicProfile())
@@ -109,58 +123,44 @@ export function blockedReason(id) {
   return null;
 }
 
-/** What the picker renders. Never leaks a key — only whether one is present. */
-export function listProviders() {
-  return Object.entries(PROVIDERS).map(([id, p]) => ({
-    id, label: p.label, cloud: p.cloud, models: p.models, note: p.note,
-    auth: !p.cloud ? "none" : id === "claude" ? "login-or-key" : "key",
-    configured: p.cloud ? !!keyOf(id) || (id === "claude" && hasAnthropicProfile()) : true,
-    available: blockedReason(id) === null,
-    blocked: blockedReason(id),
-  }));
+/** What the picker renders. Never leaks a key — only whether one is present, and not even that to a caller who may not
+ *  use cloud AI (`cloudRefusal`: members-store canUseCloudAi's why): their cloud rows say only why not. */
+export function listProviders({ cloudRefusal = null } = {}) {
+  return Object.entries(PROVIDERS).map(([id, p]) => {
+    const row = { id, label: p.label, cloud: p.cloud, models: p.models, note: p.note, auth: !p.cloud ? "none" : id === "claude" ? "login-or-key" : "key" };
+    if (p.cloud && cloudRefusal) return { ...row, available: false, blocked: cloudRefusal };
+    return {
+      ...row,
+      configured: p.cloud ? !!keyOf(id) || (id === "claude" && hasAnthropicProfile()) : true,
+      available: blockedReason(id) === null,
+      blocked: blockedReason(id),
+    };
+  });
 }
 
 /**
- * Ask a provider which models the configured key can actually reach, instead of trusting the
- * hardcoded list above. NVIDIA in particular rotates its catalogue often, and a stale picker entry
- * fails as an opaque 404 at call time — far worse than an empty dropdown.
- * Falls back to the static list for `local` (Ollama has its own endpoint) and on any error.
+ * The models a picker offers. A cloud provider offers exactly its list above — the list chat() allows (H0, D2) — and is
+ * never asked, so opening a picker spends nothing on the founder's key. Local asks Ollama what is pulled, curated
+ * first; the static list on any error.
  */
 export async function listModels(id) {
+  if (!Object.hasOwn(PROVIDERS, id)) throw Object.assign(new Error("Unknown provider."), { status: 404 });
   const p = PROVIDERS[id];
-  if (!p) throw Object.assign(new Error("Unknown provider."), { status: 404 });
-  if (blockedReason(id)) return p.models;
-
+  if (p.cloud || blockedReason(id)) return p.models;
   try {
-    if (id === "local") {
-      const url = (env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
-      const r = await fetch(`${url}/api/tags`);
-      const j = await r.json();
-      const names = (j.models || []).map((m) => m.name).filter(Boolean);
-      if (!names.length) return p.models;
-      // Curated first here too — Ollama lists in its own order, which put "llava" (a VISION model)
-      // at the top and made it the chat default. Match loosely: a pulled model is "qwen2.5:7b-instruct"
-      // while the curated name may be "qwen2.5" or vice-versa.
-      const pref = p.models.flatMap((c) => names.filter((n) => n === c || n.startsWith(`${c}:`) || c.startsWith(`${n.split(":")[0]}`)));
-      const seen = new Set(pref);
-      return [...pref, ...names.filter((n) => !seen.has(n)).sort()];
-    }
-    const r = await fetch(`${p.base}/models`, { headers: { authorization: `Bearer ${keyOf(id)}` } });
-    if (!r.ok) return p.models;
+    const url = (env.OLLAMA_URL || "http://localhost:11434").replace(/\/$/, "");
+    const r = await fetch(`${url}/api/tags`);
     const j = await r.json();
-    // Gemini returns ids as "models/gemini-3.6-flash"; the chat endpoint wants the bare name, so a
-    // picker fed the raw id would 404 on every pick.
-    const names = (j.data || []).map((m) => String(m.id || "").replace(/^models\//, "")).filter(Boolean);
+    const names = (j.models || []).map((m) => m.name).filter(Boolean);
     if (!names.length) return p.models;
-    // CURATED FIRST, then the rest alphabetically. A plain .sort() put "01-ai/yi-large" at the top of
-    // NVIDIA's 118-model list — not a Nemotron model, not enabled on the account, and an instant 404
-    // for anyone who just opened the dropdown. The picker takes [0] as its default, so ordering here
-    // IS the default. Curated entries are kept even if absent from the live list; they are the ones
-    // actually verified against this product.
-    const rest = names.filter((n) => !p.models.includes(n)).sort();
-    return [...p.models, ...rest];
+    // Curated first here too — Ollama lists in its own order, which put "llava" (a VISION model)
+    // at the top and made it the chat default. Match loosely: a pulled model is "qwen2.5:7b-instruct"
+    // while the curated name may be "qwen2.5" or vice-versa.
+    const pref = p.models.flatMap((c) => names.filter((n) => n === c || n.startsWith(`${c}:`) || c.startsWith(`${n.split(":")[0]}`)));
+    const seen = new Set(pref);
+    return [...pref, ...names.filter((n) => !seen.has(n)).sort()];
   } catch {
-    return p.models; // offline or an unexpected shape — the static list is still usable
+    return p.models; // Ollama offline or an unexpected shape — the static list is still usable
   }
 }
 
@@ -176,12 +176,24 @@ export async function listModels(id) {
  * Tools are what makes agent mode possible: the model returns a STRUCTURED PROPOSAL (toolCalls)
  * rather than prose, and the caller decides whether to run any of it. Nothing here executes anything.
  */
-export async function chat({ provider = "local", model, system, messages = [], tools = [], format } = {}) {
+export async function chat({ provider = "local", model, system, messages = [], tools = [], format } = {}, { budget = true } = {}) {
   const blocked = blockedReason(provider);
   if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
 
   const p = PROVIDERS[provider];
   const chosen = model || p.models[0];
+  // H0 (D2): a cloud call is billed to the founder's key — only a model on the list above, and only for a caller
+  // members-store's canUseCloudAi trusts (the machine credential, or an office member); both before anything is sent.
+  if (p.cloud) {
+    if (!p.models.includes(chosen))
+      throw Object.assign(new Error(`${p.label} model "${chosen}" is not on Sentinel's list — use one of: ${p.models.join(", ")}`), { status: 400 });
+    const may = await (await import("./members-store.mjs")).canUseCloudAi();
+    if (!may.ok) throw Object.assign(new Error(may.why), { status: 403 });
+  }
+  // Every signed-in caller's call counts, local too (it runs on the founder's GPU). `budget: false` is only for one
+  // document ingest's chunks (bimdocs-ingest), whose route already required a trusted caller for the project.
+  if (budget && !takeAiBudget(currentSub()))
+    throw Object.assign(new Error("Too many AI requests — wait a minute, then try again."), { status: 429 });
   const out =
     provider === "local"  ? await viaOllama(chosen, system, messages, tools, format)
   : provider === "claude" ? await viaClaude(chosen, system, messages, tools, format)
@@ -224,6 +236,7 @@ async function viaOpenAiCompatible(provider, model, system, messages, tools, for
   const p = PROVIDERS[provider];
   const body = {
     model,
+    max_tokens: 4096, // H0 (D2): capped as the Claude path is — an uncapped completion is billed in full
     messages: [
       ...(system ? [{ role: "system", content: system }] : []),
       ...messages.map((m) => ({ role: m.role, content: m.content })),
