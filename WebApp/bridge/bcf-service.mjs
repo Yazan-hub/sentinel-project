@@ -187,17 +187,17 @@ const persistClash = () => writeJsonAtomic(CLASH_STORE, cldb);
 const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved"]; // new→raised→reviewed→approved→resolved
 const MAX_CLASH_ITEMS = 500; // one POST /clash/:pid; the web raises at most 100 at a time (clash-panel.ts raise)
 const clashItems = (pid) => cldb.clashes.filter((c) => c.project === pid);
-/** Upsert a batch of clash records (raise-time). Merge by signature; unknown status defaults to "raised". */
+/** Upsert a batch of clash records (raise-time). Merge by signature. A POST records clashes and moves none (H0 clash-1): a
+ *  new record is "raised" whatever status it carries, and one already on the register keeps its status — a move is a PUT,
+ *  which is on the ledger. */
 const upsertClashes = (pid, items) => {
   const now = new Date().toISOString();
   for (const it of Array.isArray(items) ? items : []) {
     if (!it || !it.signature) continue;
-    const status = CLASH_STATUSES.includes(it.status) ? it.status : "raised";
     let rec = cldb.clashes.find((c) => c.project === pid && c.signature === it.signature);
     if (!rec) {
-      cldb.clashes.push({ project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
+      cldb.clashes.push({ project: pid, signature: it.signature, status: "raised", volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
     } else {
-      rec.status = status;
       if (it.bcf_guid) rec.bcf_guid = it.bcf_guid;
       if (it.volume != null) rec.volume = it.volume;
       if (it.label) rec.label = it.label;
@@ -215,7 +215,7 @@ const updateClashStatus = (pid, signature, status) => {
   rec.status = status; rec.updated_at = new Date().toISOString(); persistClash();
   return true;
 };
-// Supabase-backed twins (migration 0009) — identical merge semantics over bridge_docs (store="clash").
+// Supabase-backed twins (migration 0009) — identical merge semantics over bridge_docs (store="clash"), status rule included.
 async function upsertClashesCde(cde, pid, items) {
   const now = new Date().toISOString();
   const bySig = new Map((await cde.docList("clash", pid)).map((r) => [r.signature, r]));
@@ -224,11 +224,10 @@ async function upsertClashesCde(cde, pid, items) {
   const touched = new Map();
   for (const it of Array.isArray(items) ? items : []) {
     if (!it || !it.signature) continue;
-    const status = CLASH_STATUSES.includes(it.status) ? it.status : "raised";
     const prev = touched.get(it.signature) || bySig.get(it.signature);
     touched.set(it.signature, prev
-      ? { ...prev, status, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, elements: it.elements || prev.elements, overlap: it.overlap || prev.overlap, updated_at: now }
-      : { project: pid, signature: it.signature, status, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
+      ? { ...prev, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, elements: it.elements || prev.elements, overlap: it.overlap || prev.overlap, updated_at: now }
+      : { project: pid, signature: it.signature, status: "raised", volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
   }
   await cde.docUpsertMany("clash", pid, [...touched].map(([sig, data]) => ({ doc_id: sig, data })));
   // The records this call added (their signature was not on the register): each gets a "Clash raised" ledger row.
@@ -1764,7 +1763,7 @@ async function handleRequest(req, res) {
 
   // ── Clash status: GET/POST/PUT /clash/:pid · POST /clash/:pid/reset ──
   //   GET  → { items:[{signature,status,volume,label,bcf_guid,...}] }  (the team-wide "known" set)
-  //   POST → upsert body { items:[...] } (raise-time)   ·   PUT → body { signature, status } (lifecycle)
+  //   POST → upsert body { items:[...] } (raise-time; records, never moves)   ·   PUT → body { signature, status } (lifecycle)
   //   POST /clash/:pid/reset → clear this project's records (re-surface all)
   const cm = url.pathname.match(/^\/clash\/([^/]+)(?:\/(reset))?$/);
   if (cm) {

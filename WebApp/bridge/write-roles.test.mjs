@@ -234,6 +234,14 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(db.audit_log[0].new_value).toEqual({ signature: "a|b", volume: 0.2, overlap: [1, 1, 0.2], elements: [], bcf_guid: "g1" });
   });
 
+  it("a POST records clashes and moves none: a record on the register keeps its status, a new one is raised (moves are PUTs, on the ledger)", async () => {
+    seedDoc("clash", "a|b", { ...item, project: "demo" });
+    const items = [{ signature: "a|b", status: "resolved" }, { ...item, signature: "c|d", status: "resolved" }];
+    expect((await call("POST", "/clash/demo", "contributor", { items })).status).toBe(201);
+    expect(db.bridge_docs.map((r) => [r.doc_id, r.data.status])).toEqual([["a|b", "raised"], ["c|d", "raised"]]);
+    expect(db.audit_log.map((r) => r.action)).toEqual(["Clash raised: Wall ↔ Beam"]);
+  });
+
   it("a contributor's reset is a 403 and deletes nothing; a lead's clears the register and is on the ledger", async () => {
     seedDoc("clash", "a|b", { ...item, project: "demo" });
     expect(await call("POST", "/clash/demo/reset", "contributor")).toEqual(refused("lead", "contributor"));
