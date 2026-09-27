@@ -206,6 +206,11 @@ describe("createTransmittal — the sender is the sign-in, the versions are the 
     expect(ledger()[0].body).toMatchObject({ entity_type: "transmittal", entity_id: row.id, action: "issued", actor: "lead@example.test", new_value: { reference: "TR-001", version_ids: [V1] } });
   });
 
+  it("an uppercase id is de-duped against its lowercase twin and stored as versionOnKey's own canonical id (H0 minor N28)", async () => {
+    const row = await createTransmittal("demo", { reference: "TR-004", version_ids: [V1, V1.toUpperCase()] });
+    expect(row.version_ids).toEqual([V1]);
+  });
+
   it.each([["another project's version", VX], ["an unknown id", "aaaaaaaa-0000-4000-8000-00000000dead"], ["a malformed id", "nope"]])("%s is a 400 before any write", async (_what, id) => {
     await expect(createTransmittal("demo", { reference: "TR-002", version_ids: [id] })).rejects.toMatchObject({ status: 400, message: `version ${id} is not on demo` });
     expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);

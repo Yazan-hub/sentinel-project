@@ -15,7 +15,9 @@ export function fakePostgrest(db, { refuse = [] } = {}) {
     calls.push({ table, method, prefer, body, search: u.search });
     const rows = (db[table] ||= []);
     const eqs = [...u.searchParams].filter(([, v]) => v.startsWith("eq."));
-    const hit = (r) => eqs.every(([k, v]) => String(r[k]) === v.slice(3));
+    // Postgres uuid equality (used for every id column here) ignores case — match that so a test can pin the
+    // same case-fold behaviour the real database gives (H0 minor N28).
+    const hit = (r) => eqs.every(([k, v]) => String(r[k]).toLowerCase() === v.slice(3).toLowerCase());
     const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
     // Without return=representation PostgREST answers a write with no body: 201 for an insert, 204 for the rest.
     const back = (list, status) => (/return=representation/.test(prefer) ? json(list, status) : new Response(null, { status: status === 201 ? 201 : 204 }));

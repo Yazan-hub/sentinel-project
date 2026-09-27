@@ -1733,9 +1733,13 @@ export async function listTransmittals(key) {
  *  malformed id is versionOnKey's 400 before any write; the issue is one "issued" ledger row (cde-14). */
 export async function createTransmittal(key, b = {}) {
   if (b.version_ids !== undefined && !Array.isArray(b.version_ids)) throw Object.assign(new Error("version_ids must be a list of version ids on this project"), { status: 400 });
-  const ids = [...new Set(b.version_ids || [])];
+  // De-dup on the CALLER's strings first so [v, V] isn't read twice, then store versionOnKey's own canonical id
+  // (H0 minor N28): Postgres uuid equality ignores case, so an uppercase id was stored and audited as given —
+  // check-registry's classifyDistribution matches version_ids by exact string, so that read as a false un-issued gap.
   // ponytail: one read per listed version; one in.() read if transmittals start listing hundreds of versions.
-  for (const id of ids) await versionOnKey(key, id);
+  const seen = [];
+  for (const id of new Set(b.version_ids || [])) seen.push((await versionOnKey(key, id)).version.id);
+  const ids = [...new Set(seen)];
   const proj = await ensureProject(key);
   const [row] = requireRows(await sb(`transmittals`, {
     method: "POST",
