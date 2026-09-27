@@ -1639,13 +1639,14 @@ export async function bcfCreateTopic(topic) {
   return topic;
 }
 
-/** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). */
+/** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). A save the database
+ *  changed nothing with is a 403 — the IDS supersede writers put a ledger row after these saves (H0 D5). */
 export async function bcfSaveTopic(topic) {
-  await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
+  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
     method: "PATCH",
     body: { data: topic, topic_status: topic.topic_status, model: topic.model || "", modified_at: new Date().toISOString() },
-    prefer: "return=minimal",
-  });
+    prefer: "return=representation",
+  }), "a topic is changed by a contributor or above");
   return topic;
 }
 

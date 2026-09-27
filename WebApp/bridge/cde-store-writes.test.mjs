@@ -12,7 +12,7 @@ vi.hoisted(() => {
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
-  deleteFile, archiveFile, unarchiveFile } from "./cde-store.mjs";
+  deleteFile, archiveFile, unarchiveFile, bcfSaveTopic } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const F = "ffffffff-0000-4000-8000-000000000001";
@@ -157,5 +157,21 @@ describe("files — delete, archive and restore record only what happened (cde-1
   it("unarchiveFile: nothing archived is nothing restored, and no 'unarchived' row", async () => {
     expect(await unarchiveFile("demo", C, "web")).toEqual({ ok: true, restored: 0 });
     expect(ledger()).toHaveLength(0);
+  });
+});
+
+describe("bcfSaveTopic — a topic save that changed nothing is a refusal, so no supersede row follows it (H0 D5)", () => {
+  const G = "99999999-0000-4000-8000-000000000001";
+  const topic = { guid: G, project_id: "demo", topic_status: "Closed", model: "" };
+
+  it("asks for the row back; none is a 403", async () => {
+    await expect(bcfSaveTopic(topic)).rejects.toMatchObject({ status: 403, message: "a topic is changed by a contributor or above — nothing was saved" });
+    expect(rest.calls[0]).toMatchObject({ table: "bcf_topics", method: "PATCH", prefer: "return=representation" });
+  });
+
+  it("answers the topic when its row came back", async () => {
+    db.bcf_topics = [{ guid: G, project_id: "demo", topic_status: "Open", model: "", data: {} }];
+    expect(await bcfSaveTopic(topic)).toBe(topic);
+    expect(db.bcf_topics[0].topic_status).toBe("Closed");
   });
 });
