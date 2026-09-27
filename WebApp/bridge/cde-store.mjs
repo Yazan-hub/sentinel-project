@@ -882,6 +882,52 @@ export async function recordDeliveryGate(key, b = {}) {
   return { id: row?.id ?? null, hash: row?.hash ?? null, hold };
 }
 
+/** GET /cde/:key/holding (spec 2026-09-27 Decision 7): the held list, derived — {items, cleared_recent} from
+ *  holding-logic.mjs over every hold row (entity_type hold, paged through listAudit to the project's total), the
+ *  project's files and their versions (listFiles) and each version's newest verdict (listVersionVerdictRows). A read
+ *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
+export async function readHolding(key) {
+  const { heldItems, clearedRecent } = await import("./holding-logic.mjs");
+  let rows = [], files, verdicts;
+  try {
+    // ponytail: offset paging, newest first — a hold written between two pages is read twice (one refusal counted
+    // twice); page by id (id=lt.<last id>) if a project ever writes holds that fast.
+    for (;;) {
+      const page = await listAudit(key, { entity_type: "hold", limit: AUDIT_MAX, offset: rows.length });
+      rows = rows.concat(page.rows);
+      if (!page.rows.length || rows.length >= page.total) break;
+    }
+    [files, verdicts] = await Promise.all([listFiles(key), listVersionVerdictRows(key)]);
+  } catch (e) {
+    if (e?.status) throw e;
+    console.error(`[holding] ${key}: ${e?.message || e}`);
+    throw Object.assign(new Error("not read — the hold rows or the file list could not be read (the bridge log has the cause)"), { status: 502 });
+  }
+  const verdictOf = new Map();
+  for (const r of verdicts) if (!verdictOf.has(r.version_id)) verdictOf.set(r.version_id, r.verdict); // newest first
+  const versionsByName = {};
+  for (const f of files) (versionsByName[f.iso_name] ||= []).push(...f.versions.map((v) => ({ id: v.id, created_at: v.created_at, verdict: verdictOf.get(v.id) ?? null })));
+  return { items: heldItems(rows, rows, versionsByName), cleared_recent: clearedRecent(rows, rows, versionsByName) };
+}
+
+/** POST /cde/:key/holding/dismiss {container_name, reason} (spec 2026-09-27 Decision 8): a lead clears a held item —
+ *  lead or owner, the machine credential passes (requireMinRole); a reason is required (≤ 500); only a name that is on
+ *  hold (409 otherwise). One hold:dismissed row, new_value {container_name, reason}; the refusal rows stay. → {id,
+ *  hash} of that row (null when none came back). */
+export async function dismissHold(key, b = {}) {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "lead");
+  const bad = (m) => Object.assign(new Error(m), { status: 400 });
+  const name = typeof b.container_name === "string" ? b.container_name.trim() : "";
+  if (!name) throw bad("container_name is required — the held file's name");
+  const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+  if (!reason || reason.length > 500) throw bad("reason is required — a lead's dismissal says why, in at most 500 characters");
+  if (!(await readHolding(key)).items.some((i) => i.container_name === name)) throw Object.assign(new Error(`${name} is not on hold on ${key}`), { status: 409 });
+  const proj = await ensureProject(key);
+  const row = await audit(proj.id, "hold", null, `hold:dismissed ${name}`, b.actor || "web", null, { container_name: name, reason });
+  return { id: row?.id ?? null, hash: row?.hash ?? null };
+}
+
 // ── Element snapshots (revision tracking) — migration 0005 ─────────────────────────────────────────────
 // Persist per-element, per-revision quantities keyed on the IFC GlobalId. The shared revision-diff engine
 // (WebApp/src/sentinel-core/revision-diff.ts) diffs two revisions on guid to serve 5D cost, 6D carbon, and

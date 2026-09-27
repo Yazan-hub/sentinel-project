@@ -1123,6 +1123,12 @@ async function handleRequest(req, res) {
       //   source: revit|auto-publish|check, publish} → 201 {id, hash, hold: {id, hash} | null}. The machine credential
       //   only (a signed-in caller is a 403); a bad field a 400; a FAIL with publish true is also held (hold:gate).
       if (p2 === "delivery-gate" && !p3 && req.method === "POST") return send(res, 201, await cde.recordDeliveryGate(p1, (await readBody(req)) || {}));
+      // The Holding Area (phase 6a, spec 2026-09-27 Decisions 7-8): GET /cde/:key/holding → 200 {items, cleared_recent},
+      //   derived from the hold rows and the registered versions; a read that fails is a 502 "not read — …", never an
+      //   empty list. POST /cde/:key/holding/dismiss {container_name, reason} → 201 {id, hash}: lead only (403), a reason
+      //   required (400), a name on hold (409) — one hold:dismissed row (cde-store.mjs readHolding, dismissHold).
+      if (p2 === "holding" && !p3 && req.method === "GET") return send(res, 200, await cde.readHolding(p1));
+      if (p2 === "holding" && p3 === "dismiss" && !p4 && req.method === "POST") return send(res, 201, await cde.dismissHold(p1, (await readBody(req)) || {}));
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
       //   version_id? | register?: {name, size_bytes, sha256}, gate_row_id?, raise_bcf? }
       //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, hold, bcf? }.
