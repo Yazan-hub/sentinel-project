@@ -296,6 +296,16 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["ids_validation", "Issue raised: Doors — FireRating", "contributor@example.test"]]);
     expect(db.audit_log[0].new_value).toEqual({ spec: "Aster IDS", requirement: "Doors — FireRating", failing: 3, bcf_guid: r.body.guid });
   });
+
+  it("a title the IDS parser would backtrack on is a topic in well under a second, and no ledger row", async () => {
+    const title = `IDS: a${" ".repeat(200_000)}b`; // the unbounded parse took ~20 s of the bridge's one event loop on this
+    for (const t of [title, [title]]) { // an array is not coerced to the same string
+      const t0 = Date.now();
+      expect((await call("POST", T, "contributor", { title: t })).status).toBe(201);
+      expect(Date.now() - t0).toBeLessThan(1000);
+    }
+    expect(writes("audit_log")).toEqual([]);
+  });
 });
 
 describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", () => {
