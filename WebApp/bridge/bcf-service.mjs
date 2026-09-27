@@ -561,11 +561,11 @@ async function publicReceiptVerify(req, res, url) {
       res.setHeader("Access-Control-Allow-Private-Network", "true");
     return send(res, 204);
   }
+  const who = callerKey(clientAddress(req));
   const done = (code, body, outcome, extra) => {
-    console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
+    console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome} (caller ${who})`); // the address the limits key on: what the Funnel forwards
     return send(res, code, body, extra);
   };
-  const who = callerKey(clientAddress(req));
   if (publicReads >= MAX_PUBLIC_READS || (publicReadsBy.get(who) || 0) >= MAX_PUBLIC_READS_PER_CALLER)
     return done(429, { message: "Too many receipt checks at once — try again in a moment" }, "429 (busy)");
   // The caller's own window first: a caller over it does not use up the shared one.
