@@ -1659,6 +1659,15 @@ Order: merge every H0 task first (ORDER.md) — in particular area "write-roles"
 4. **Existing links** (D3 leaves them untouched): run the two read-only listing queries at the end of the migration file and show the founder the rows; a row he does not recognise is detached only with his yes (`update public.projects set office_key = null where key = '<key>';` with the service key).
 5. After the merge: `graphify update .` (the repo's CLAUDE.md).
 
+### Owed deploy rows (final whole-branch review — each is owed at deploy, none runs without the founder's yes)
+
+- **D-1 — 0033 + the founder's `platform_admins` row** (steps 2-3 above, each its own yes). Until both: a direct PostgREST PATCH of `projects.office_key` bypasses the office trust `requireSpend` and `canUseCloudAi` rely on, and the Sheets and Views panels are a 403 for every signed-in user, the founder included.
+- **D-2 — move the pre-H0 originals:** `node bridge/move-legacy-originals.mjs` as a dry run, then with `--apply`. Until then pre-H0 originals are a 404 (sentinel-first-test has 2 documents, default has 1).
+- **D-3 — attach an office** to sentinel-first-test, default and the drill projects (D3, a lead of that office). Until then a signed-in spend on them (POST /ifc, encrypted attach, intake, ingest, cloud AI) is a 403.
+- **D-4 — measure the Revit Governed Publish `/propose` body** on the pilot model against the 16 MB JSON cap; set `BCF_MAX_JSON_MB` if it comes close.
+- **D-5 — one live Funnel check** that the last `X-Forwarded-For` entry is the client's address (gate-limits Task 8's per-caller limiter keys on it).
+- **D-6 — the bridge config sets `SUPABASE_ANON_KEY`** (present today; since the final review an empty one makes every signed-in call a 503, not a fall-open).
+
 ## Cross-area notes (what other areas must know; no code of theirs is written here)
 
 - **Consumers of `isPlatformAdmin(deps)`:** area "reads" (the /sheets and /views listing). Semantics: machine credential → true; signed-in → the rpc under the caller's JWT; any failure → false. Before 0033 is applied every signed-in caller is not an admin.
