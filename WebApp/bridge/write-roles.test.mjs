@@ -367,3 +367,49 @@ describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's 
     expect(writes("projects").filter((c) => c.method === "POST")).toHaveLength(5);
   });
 });
+
+describe("DELETE /cde/projects/:key (cde-3, D12): the owner's, the database's delete first", () => {
+  const sides = () => {
+    for (const s of ["clash", "rfi", "tender", "keystore"]) seedDoc(s, `${s}-1`, { s });
+    db.bcf_topics.push({ guid: "G1", project_id: "demo", topic_status: "Open", model: "", data: {} });
+  };
+  const touched = () => log.filter((c) => c.method !== "GET").map((c) => `${c.method} ${c.table}${c.service ? " (service)" : ""}`);
+
+  it("a lead's delete is a 403 before anything is touched", async () => {
+    sides();
+    expect(await call("DELETE", "/cde/projects/demo", "lead")).toEqual(refused("owner", "lead"));
+    expect(touched()).toEqual([]);
+    expect(db.bridge_docs).toHaveLength(4);
+  });
+
+  it("a delete the database refuses is a 403 and every side store is untouched", async () => {
+    sides();
+    fake.refuseDelete = true;
+    expect(await call("DELETE", "/cde/projects/demo", "owner"))
+      .toEqual({ status: 403, body: { message: "the database refused to delete the project (a project is deleted by its owner) — nothing was saved" } });
+    expect(touched()).toEqual(["DELETE projects"]);
+    expect(db.bridge_docs).toHaveLength(4);
+    expect(db.bcf_topics).toHaveLength(1);
+  });
+
+  it("a project with published versions is a 409 and nothing else is touched", async () => {
+    sides();
+    fake.published = true;
+    expect((await call("DELETE", "/cde/projects/demo", "owner")).status).toBe(409);
+    expect(touched()).toEqual(["DELETE projects"]);
+    expect(db.bridge_docs).toHaveLength(4);
+  });
+
+  it("the owner's delete removes the project first, then writes the ledger row, then clears the side stores with the service key", async () => {
+    sides();
+    expect(await call("DELETE", "/cde/projects/demo", "owner")).toEqual({ status: 200, body: { deleted: true, key: "demo" } });
+    expect(touched()).toEqual([
+      "DELETE projects", "POST audit_log (service)",
+      "DELETE bridge_docs (service)", "DELETE bridge_docs (service)", "DELETE bridge_docs (service)", "DELETE bridge_docs (service)",
+      "DELETE bcf_topics (service)",
+    ]);
+    expect(db.audit_log[0]).toMatchObject({ entity_type: "project", action: "deleted", actor: "owner@example.test" });
+    expect(db.bridge_docs).toEqual([]);
+    expect(db.bcf_topics).toEqual([]);
+  });
+});

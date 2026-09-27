@@ -398,22 +398,19 @@ export async function updateProject(key, patch = {}, actor) {
 
 /** Delete a project and everything the schema cascades (containers, versions, folders, parties,
  *  memberships, transmittals, snapshots). Deliberately preserved: the audit_log trail (immutable
- *  evidence, undeletable by design). Projects with PUBLISHED versions cannot be deleted — the DB's
- *  trg_protect_published raises, surfaced here as a 409 with an archive-instead message. RLS (when a
- *  JWT is forwarded) requires the 'owner' role via projects_delete. */
+ *  evidence, undeletable by design). H0 (D12, finding cde-3): the owner's alone — a 403 before anything is
+ *  touched — and the database's delete comes FIRST: a delete projects_delete refused (no row back) is a 403
+ *  and nothing else is touched; a project with PUBLISHED versions is a 409 with an archive-instead message
+ *  (trg_protect_published). Only then the ledger row (audit_log has no FK, so it outlives the project — the
+ *  golden thread) and the text-keyed side stores (no FK — they would orphan silently), cleared with the
+ *  service key: the caller's membership went with the project, so a forwarded delete would match no row. */
 export async function deleteProject(key, actor) {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "owner");
   const proj = await ensureProject(key);
-  // Best-effort cleanup of the text-keyed side stores first (no FK → they'd orphan silently).
-  for (const store of ["clash", "rfi", "tender", "keystore"]) {
-    try { await docDeleteProject(store, key); } catch { /* side store cleanup must not block the delete */ }
-  }
-  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
-  catch { /* best-effort */ }
-
-  // The audit row is written BEFORE the delete (audit_log has no FK, so it survives — the golden thread).
-  await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
+  let gone;
   try {
-    await sb(`projects?id=eq.${proj.id}`, { method: "DELETE", prefer: "return=minimal" });
+    gone = await sb(`projects?id=eq.${proj.id}`, { method: "DELETE", prefer: "return=representation" });
   } catch (e) {
     if (String(e?.message || "").includes("published versions are immutable")) {
       const err = new Error("This project has PUBLISHED versions, which are immutable by design — the project cannot be hard-deleted. Archive it instead (Settings → Danger zone).");
@@ -422,6 +419,13 @@ export async function deleteProject(key, actor) {
     }
     throw e;
   }
+  requireRows(gone, "the database refused to delete the project (a project is deleted by its owner)");
+  await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
+  for (const store of ["clash", "rfi", "tender", "keystore"]) {
+    try { await docDeleteProject(store, key, { service: true }); } catch { /* best-effort: the project is already gone */ }
+  }
+  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
+  catch { /* best-effort */ }
   return { deleted: true, key };
 }
 
@@ -1622,8 +1626,8 @@ export async function docUpsertMany(store, pid, items) { // items: [{doc_id, dat
   if (!items.length) return;
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: items.map((i) => ({ store, project_id: pid, doc_id: String(i.doc_id), data: i.data, updated_at: new Date().toISOString() })), prefer: "resolution=merge-duplicates,return=minimal" });
 }
-export async function docDeleteProject(store, pid) {
-  await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}`, { method: "DELETE", prefer: "return=minimal" });
+export async function docDeleteProject(store, pid, { service = false } = {}) {
+  await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}`, { method: "DELETE", prefer: "return=minimal", service });
 }
 
 // ── BCF topics (migration 0008) — team-wide topic store. One JSONB document per topic so the exact BCF-API
