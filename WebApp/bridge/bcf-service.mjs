@@ -832,8 +832,11 @@ async function handleRequest(req, res) {
 
       if (req.method === "GET" && !ppid) {
         if (!useCde) return send(res, 200, pdb.projects);
-        // Union-safe: migrate any local project not yet in Supabase so none vanish from the switcher.
         const remote = await cde.listProjectMeta();
+        // projects-2: the local file is this machine's history, so only the machine credential migrates it. A signed-in
+        // caller gets the projects they are a member of; a local key they could not see used to fail their whole list.
+        if (currentUserToken()) return send(res, 200, remote);
+        // Union-safe: migrate any local project not yet in Supabase so none vanish from the switcher.
         const known = new Set(remote.map((r) => r.project_id));
         const missing = pdb.projects.filter((l) => !known.has(l.project_id));
         // A local row whose project no longer exists in the CDE (a deleted smoke project) must not fail the

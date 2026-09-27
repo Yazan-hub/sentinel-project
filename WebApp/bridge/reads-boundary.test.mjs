@@ -219,3 +219,13 @@ describe("GET /cde/projects/:key/scope — members of the project or of its offi
     expect((await get("/cde/projects/beta/scope", as.token)).status).toBe(200);
   });
 });
+
+describe("GET /projects — this machine's local rows are migrated for the machine credential only (projects-2)", () => {
+  it("a signed-in caller gets their own projects, and the bridge never asks about the local 'beta' row for them", async () => {
+    seen.length = 0;
+    const r = await get("/projects", as.member);
+    expect(r.status).toBe(200);
+    expect((await r.json()).map((p) => p.project_id)).toEqual(["alpha"]);
+    expect(seen.filter((s) => s.includes("key=eq.beta"))).toEqual([]);
+  });
+});
