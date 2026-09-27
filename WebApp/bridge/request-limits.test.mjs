@@ -1,7 +1,7 @@
 // The bridge's body and upload limits (H0, D8/D9), driven with plain streams — no bridge, no network.
 import { describe, it, expect, afterEach } from "vitest";
 import { Readable, PassThrough } from "node:stream";
-import { readBody, readRaw, uploadSlot, jsonCap, uploadCap, SMALL_JSON } from "./request-limits.mjs";
+import { readBody, readRaw, uploadSlot, jsonCap, uploadCap, SMALL_JSON, startRefusal } from "./request-limits.mjs";
 
 const MB = 1024 * 1024;
 const req = (chunks, headers = {}) => Object.assign(Readable.from(chunks.map((c) => Buffer.from(c))), { headers });
@@ -94,5 +94,18 @@ describe("uploadSlot — two uploads at once, one per caller", () => {
     const m = uploadSlot(null);
     expect(() => uploadSlot(undefined)).toThrow(expect.objectContaining({ status: 429 }));
     m();
+  });
+});
+
+describe("startRefusal — when the bridge must not start", () => {
+  it("starts on loopback whatever is set", () => {
+    for (const h of [undefined, "127.0.0.1", "127.0.0.2", "::1", "localhost"]) expect(startRefusal({ BCF_HOST: h })).toBeNull();
+  });
+  it("refuses a non-loopback bind while the token, the JWT secret or the anon key is empty, naming them", () => {
+    expect(startRefusal({ BCF_HOST: "0.0.0.0", BCF_TOKEN: "t" }))
+      .toBe("refusing to listen on 0.0.0.0: SUPABASE_JWT_SECRET, SUPABASE_ANON_KEY are empty — set them in config/.env, or bind 127.0.0.1");
+    expect(startRefusal({ BCF_HOST: "100.64.1.2", BCF_TOKEN: "t", SUPABASE_JWT_SECRET: "s" }))
+      .toBe("refusing to listen on 100.64.1.2: SUPABASE_ANON_KEY is empty — set it in config/.env, or bind 127.0.0.1");
+    expect(startRefusal({ BCF_HOST: "0.0.0.0", BCF_TOKEN: "t", SUPABASE_JWT_SECRET: "s", SUPABASE_ANON_KEY: "a" })).toBeNull();
   });
 });

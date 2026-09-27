@@ -16,13 +16,13 @@ import { createServer } from "node:http";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
-import { runWithAuth, resolveActor, currentSub } from "./bridge-auth.mjs";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import { runWithAuth, resolveActor, currentSub, currentUserToken } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, uploadSlot, SMALL_JSON } from "./request-limits.mjs";
+import { readBody, readRaw, uploadSlot, SMALL_JSON, startRefusal } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -34,6 +34,10 @@ const PORT = Number(process.env.BCF_PORT) || 4100;
 // BCF_HOST=0.0.0.0 behind real auth + a reverse proxy. CORS defaults to * for dev; lock it to the
 // platform origin in shared/hosted deployments via BCF_CORS_ORIGIN.
 const HOST = process.env.BCF_HOST || "127.0.0.1";
+// Beyond loopback the bridge faces the network: it does not start without a gate that is armed and can verify and
+// forward a sign-in (D9). On loopback the legacy single-desktop modes still start.
+const refusal = startRefusal(process.env);
+if (refusal) { console.error(`[bridge] ${refusal}`); process.exit(1); }
 // CSRF hardening: the bridge holds the Supabase SERVICE key (full RLS bypass), so a malicious web page must
 // not be able to drive state-changing requests against it. We allowlist the app's web origin(s); browser
 // mutations (POST/PUT/DELETE) from any other origin are refused. Non-browser clients (the Revit plugin, curl)
@@ -94,6 +98,13 @@ const VIEWS_ROOT = process.env.SENTINEL_VIEWS
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "views");
 const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Bearer <TOKEN>"
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
+/** The shared machine credential, compared in constant time (byte lengths first: timingSafeEqual throws on a
+ *  mismatch); never matches while BCF_TOKEN is unset. */
+const TOKEN_BYTES = Buffer.from(TOKEN);
+const isToken = (bearer) => {
+  const b = Buffer.from(bearer);
+  return !!TOKEN && b.length === TOKEN_BYTES.length && timingSafeEqual(b, TOKEN_BYTES);
+};
 const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
 
@@ -455,10 +466,11 @@ createServer((req, res) => {
   try {
     const auth = req.headers.authorization || "";
     const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    // A three-segment bearer is a Supabase JWT → forward for per-user RLS. The opaque BCF_TOKEN (if configured)
-    // marks a trusted desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN now
-    // coexist (previously mutually exclusive), so the SPA keeps per-user RLS even with the token gate armed.
-    const userJwt = (bearer && bearer !== TOKEN && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET))) ? bearer : null;
+    // A Supabase JWT that verifies → forward for per-user RLS. The opaque BCF_TOKEN (if configured) marks a trusted
+    // desktop client and must never be forwarded as a user token. Forwarding and BCF_TOKEN coexist, so the SPA keeps
+    // per-user RLS with the token gate armed. With SUPABASE_JWT_SECRET empty no JWT is accepted (D9): an unverified
+    // one would hand the bridge a sub and an email the caller wrote themselves.
+    const userJwt = (bearer && !isToken(bearer) && JWT_SECRET && verifyJwt(bearer, JWT_SECRET)) ? bearer : null;
     runWithAuth(userJwt, () => handleRequest(req, res)).catch(failed);
   } catch (e) { failed(e); }
 }).listen(PORT, HOST, () => {
@@ -467,9 +479,9 @@ createServer((req, res) => {
   initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; /health exempt; POST /receipt/:key/verify answers anyone hash-only)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
-  if (HOST !== "127.0.0.1" && !TOKEN) console.warn("[bridge] WARNING: non-loopback bind without BCF_TOKEN — the service-key proxy is network-exposed. Set BCF_TOKEN.");
+  if (TOKEN && !JWT_SECRET) console.warn("[bridge] WARNING: BCF_TOKEN set without SUPABASE_JWT_SECRET — no sign-in is accepted, so every signed-in web user gets 401. Set SUPABASE_JWT_SECRET.");
   if (JWT_SECRET && !TOKEN) console.warn("[bridge] WARNING: SUPABASE_JWT_SECRET set without BCF_TOKEN — a wrong secret silently downgrades signed-in users to the service key; arm BCF_TOKEN or unset the secret.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
   // Platform API-token health-check: one cheap authenticated read at startup so a revoked/rotated
@@ -529,11 +541,10 @@ async function publicReceiptVerify(req, res, url) {
 async function handleRequest(req, res) {
   const origin = req.headers.origin;
   const url = new URL(req.url, "http://localhost");
-  // The credential the auth gate below accepts: the shared BCF_TOKEN, or a Supabase JWT (checked against
-  // SUPABASE_JWT_SECRET when that is set).
+  // The credential the auth gate below accepts: the shared BCF_TOKEN, or the Supabase JWT the server callback
+  // verified and put in this request's auth context.
   const bearer = (req.headers.authorization || "").startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
-  const credentialOk = bearer === TOKEN
-    || (!!bearer && bearer.split(".").length === 3 && (!JWT_SECRET || verifyJwt(bearer, JWT_SECRET)));
+  const credentialOk = isToken(bearer) || !!currentUserToken();
   // With the gate armed, a caller it would refuse may still ask whether a receipt is on the ledger: answered
   // hash-only, ahead of the CSRF and bearer gates. A caller with a credential takes the /receipt route below and
   // gets today's full reply; with the gate off every caller already does.
@@ -565,7 +576,7 @@ async function handleRequest(req, res) {
   // With BCF_TOKEN unset, behaviour is unchanged (legacy service-key mode). Activation = set BCF_TOKEN.
   // (POST /receipt/:key/verify from a caller with neither was already answered hash-only, above.)
   if (TOKEN) {
-    const exempt = url.pathname === "/health";
+    const exempt = url.pathname === "/health" && req.method === "GET";
     if (!exempt && !credentialOk) {
       // Why-log for rejected calls: no secrets, just the credential's shape.
       const why = !bearer ? "no-bearer"
@@ -575,14 +586,12 @@ async function handleRequest(req, res) {
     }
   }
 
-  // Health/posture (no secrets): confirms config without ever returning keys.
+  // Health (no secrets, no posture): up, gate armed, CDE configured. The bind host and the CORS allowlist are in the
+  // startup log, not on a route anyone on the internet can read.
   if (url.pathname === "/health" && req.method === "GET") {
     let cdeConfigured = false;
     try { cdeConfigured = (await import("./cde-store.mjs")).cdeConfigured(); } catch { /* */ }
-    return send(res, 200, {
-      ok: true, host: HOST, token: !!TOKEN, cde_configured: cdeConfigured,
-      cors: CORS_WILDCARD ? "wildcard (INSECURE)" : "allowlist", origins: CORS_WILDCARD ? "*" : CORS_ALLOW,
-    });
+    return send(res, 200, { ok: true, token: !!TOKEN, cde_configured: cdeConfigured });
   }
 
   // ── SSE live stream: GET /events?project=<pid> (kept open; pushes topic/CDE changes) ──

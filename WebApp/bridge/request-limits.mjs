@@ -73,3 +73,14 @@ export function uploadSlot(sub) {
   let held = true;
   return () => { if (held) { held = false; uploading.delete(who); } };
 }
+
+const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/;
+/** Why the bridge must not start, or null. Bound beyond loopback it faces the network, so the gate must be armed
+ *  (BCF_TOKEN) and able to verify a sign-in (SUPABASE_JWT_SECRET) and forward it (SUPABASE_ANON_KEY). */
+export function startRefusal(env) {
+  const host = env.BCF_HOST || "127.0.0.1";
+  if (LOOPBACK.test(host)) return null;
+  const empty = ["BCF_TOKEN", "SUPABASE_JWT_SECRET", "SUPABASE_ANON_KEY"].filter((k) => !env[k]);
+  if (!empty.length) return null;
+  return `refusing to listen on ${host}: ${empty.join(", ")} ${empty.length === 1 ? "is" : "are"} empty — set ${empty.length === 1 ? "it" : "them"} in config/.env, or bind 127.0.0.1`;
+}

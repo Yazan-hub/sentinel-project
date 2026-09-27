@@ -209,3 +209,46 @@ describe("raw uploads — the role is decided before a byte of the body is read"
     });
   }
 });
+
+describe("the gate — a JWT counts only when the secret is set and it verifies", () => {
+  let armed, noSecret;
+  beforeAll(async () => {
+    [armed, noSecret] = await Promise.all([
+      startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }),
+      startBridge({ BCF_TOKEN: TOKEN }), // the trap: gate armed, secret empty
+    ]);
+  }, 30_000);
+  const templates = (b, bearer) => fetch(`http://127.0.0.1:${b.port}/bimdocs/templates`, { headers: { Authorization: `Bearer ${bearer}` } });
+
+  it("with the secret empty, any three-part string and any signed token are a 401 — never a signed-in user", async () => {
+    expect((await templates(noSecret, "a.b.c")).status).toBe(401);
+    expect((await templates(noSecret, userJwt("whatever-secret"))).status).toBe(401);
+    expect((await templates(noSecret, TOKEN)).status).toBe(200); // the machine credential still works
+  });
+
+  it("with the secret set, a session it signed passes and a forged one does not", async () => {
+    expect((await templates(armed, userJwt())).status).toBe(200);
+    expect((await templates(armed, userJwt("another-secret"))).status).toBe(401);
+    expect((await templates(armed, "a.b.c")).status).toBe(401);
+  });
+
+  it("the machine credential must match exactly: one character off, or a non-ASCII look-alike, is a 401 (never a 500)", async () => {
+    const off = TOKEN.slice(0, -1) + (TOKEN.endsWith("0") ? "1" : "0");
+    expect((await templates(armed, off)).status).toBe(401);
+    // One latin1 byte on the wire: the same length in characters as the token, one byte longer in UTF-8.
+    const r = await open(armed.port, "GET", "/bimdocs/templates", { Authorization: `Bearer ${TOKEN.slice(0, -1)}\u00e9` }).reply;
+    expect(statusOf(r), r).toBe(401);
+  });
+
+  it("GET /health tells anyone only ok, token and cde_configured; any other /health method needs a credential", async () => {
+    const r = await fetch(`http://127.0.0.1:${armed.port}/health`);
+    expect(Object.keys(await r.json()).sort()).toEqual(["cde_configured", "ok", "token"]);
+    expect((await fetch(`http://127.0.0.1:${armed.port}/health`, { method: "POST", body: "{}" })).status).toBe(401);
+  });
+
+  it("refuses to start beyond loopback while the JWT secret or the anon key is empty", async () => {
+    const b = await startBridge({ BCF_HOST: "192.0.2.1", BCF_TOKEN: TOKEN }); // TEST-NET-1: nothing here could bind it anyway
+    expect(b.child.exitCode).toBe(1);
+    expect(b.stderr).toContain("refusing to listen on 192.0.2.1: SUPABASE_JWT_SECRET, SUPABASE_ANON_KEY are empty");
+  });
+});
