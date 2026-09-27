@@ -288,3 +288,26 @@ describe("the server — whole-segment routes, a socket cap, a clean stop", () =
     expect(await exited).toBe(0);
   });
 });
+
+describe("the local stores — the single desktop's only, never a signed-in caller's (gate armed, CDE not configured)", () => {
+  let b;
+  beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);
+  const as = (bearer, path, init = {}) => fetch(`http://127.0.0.1:${b.port}${path}`, { ...init, headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" } });
+
+  it("a signed-in caller gets a 503 in words on every local-store route, reads and writes alike", async () => {
+    const jwt = userJwt();
+    for (const [path, init] of [["/projects"], ["/projects/gl"], ["/rfis/gl"], ["/packs"], ["/tenders/gl"], ["/clash/gl"], ["/bcf/3.0/projects/gl/topics"],
+      ["/rfis/gl", { method: "POST", body: JSON.stringify({ subject: "s" }) }], ["/packs", { method: "POST", body: JSON.stringify({ key: "k", version: "1" }) }]]) {
+      const r = await as(jwt, path, init);
+      expect(r.status, path).toBe(503);
+      expect((await r.json()).message, path).toContain("the team store is not configured on this bridge");
+    }
+  });
+
+  it("the machine credential keeps the local stores, and a signed-in caller keeps the routes that have none", async () => {
+    const r = await as(TOKEN, "/rfis/gl");
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual([]);
+    expect((await as(userJwt(), "/bimdocs/templates")).status).toBe(200);
+  });
+});
