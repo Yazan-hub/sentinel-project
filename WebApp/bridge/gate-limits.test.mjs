@@ -311,3 +311,18 @@ describe("the local stores — the single desktop's only, never a signed-in call
     expect((await as(userJwt(), "/bimdocs/templates")).status).toBe(200);
   });
 });
+
+describe("the public receipt check — 60 a minute per caller address, not 60 for everyone", () => {
+  let b;
+  beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);
+  const check = (xff) => fetch(`http://127.0.0.1:${b.port}/receipt/gl/verify`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": xff },
+    body: JSON.stringify({ audit_id: 1, ledger_hash: "0".repeat(64) }),
+  });
+
+  it("one caller's 61st check is a 429, and another caller — even one that forges the first's address — still gets an answer", async () => {
+    for (let i = 0; i < 60; i++) expect((await check("203.0.113.7")).status).not.toBe(429);
+    expect((await check("203.0.113.7")).status).toBe(429);
+    expect((await check("203.0.113.7, 203.0.113.8")).status).not.toBe(429); // the proxy appended .8: that is the caller
+  });
+});

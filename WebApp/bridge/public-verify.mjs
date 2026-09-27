@@ -55,8 +55,7 @@ export function comparePublic(row, claim, routeKey) {
   return { matches: mismatched.length === 0, checked, mismatched, not_checked, note: HIT_NOTE };
 }
 
-/** A global in-process fixed window: `max` takes per `windowMs`, then false until the window turns.
- *  ponytail: one window for every caller — per-IP limits wait until the Funnel's forwarded address is verified. */
+/** An in-process fixed window: `max` takes per `windowMs`, then false until the window turns. */
 export function createLimiter({ max = 60, windowMs = 60000, now = Date.now } = {}) {
   let start = now(), used = 0;
   return {
@@ -69,6 +68,30 @@ export function createLimiter({ max = 60, windowMs = 60000, now = Date.now } = {
     },
   };
 }
+
+/** One fixed window per key (a caller's address), at most `maxKeys` of them: past that the oldest window is dropped,
+ *  so a flood of fresh keys can restart a window early but never grow memory. */
+export function createKeyedLimiter({ max = 60, windowMs = 60000, maxKeys = 10000, now = Date.now } = {}) {
+  const windows = new Map();
+  return {
+    take(key) {
+      let l = windows.get(key);
+      if (!l) {
+        if (windows.size >= maxKeys) windows.delete(windows.keys().next().value);
+        windows.set(key, (l = createLimiter({ max, windowMs, now })));
+      }
+      return l.take();
+    },
+    size: () => windows.size,
+  };
+}
+
+/** The caller's address as the proxy in front of the bridge (the Funnel) saw it: the LAST X-Forwarded-For entry — a
+ *  proxy appends the address it accepted the connection from, so anything a client wrote itself sits to its left —
+ *  else the socket's own address. Without a forwarding proxy every public caller shares one address: the per-caller
+ *  window then acts as today's global one. */
+export const clientAddress = (req) =>
+  String(req.headers?.["x-forwarded-for"] || "").split(",").pop().trim() || req.socket?.remoteAddress || "unknown";
 
 /** The request body as text, or null when it is over `max` bytes — declared (answered unread) or streamed (the rest
  *  drained unbuffered, never cut: a destroyed socket could not carry the 413, which the caller sends with

@@ -21,7 +21,7 @@ import { runWithAuth, resolveActor, currentSub, currentUserToken } from "./bridg
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
-import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, readCapped } from "./public-verify.mjs";
+import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, readCapped } from "./public-verify.mjs";
 import { readBody, readRaw, uploadSlot, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
@@ -513,9 +513,10 @@ for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
 
 // ── Public receipt check (cohesion phase 4c): POST /receipt/:key/verify from a caller the auth gate would refuse.
 // Any page may ask (Access-Control-Allow-Origin: *, no credentials read or allowed); the answer is hash-only
-// (public-verify.mjs). At most 8 KB a check and 60 checks a minute across every caller; the log line names the
-// method, the path and the outcome, never the body.
-const publicLimiter = createLimiter({ max: 60, windowMs: 60000 });
+// (public-verify.mjs). At most 8 KB a check, 60 checks a minute per caller address and 600 across every caller (a
+// check is one indexed read); the log line names the method, the path and the outcome, never the body.
+const publicPerCaller = createKeyedLimiter({ max: 60, windowMs: 60000 });
+const publicLimiter = createLimiter({ max: 600, windowMs: 60000 });
 async function publicReceiptVerify(req, res, url) {
   res._cors = "*";
   if (req.method === "OPTIONS") {
@@ -530,7 +531,8 @@ async function publicReceiptVerify(req, res, url) {
     console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
     return send(res, code, body, extra);
   };
-  if (!publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
+  // The caller's own window first: a caller over it does not use up the shared one.
+  if (!publicPerCaller.take(clientAddress(req)) || !publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
   const text = await readCapped(req);
   // The rest of an over-cap body is drained, not read, and the connection closes after the 413.
   if (text === null) return done(413, { message: "A receipt check is at most 8 KB" }, "413", { Connection: "close" });

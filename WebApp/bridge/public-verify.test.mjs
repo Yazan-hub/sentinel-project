@@ -2,7 +2,7 @@
 // byte-identical miss for every kind of "no". publicAuditRow is driven through a stubbed fetch — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Readable } from "node:stream";
-import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
+import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, createKeyedLimiter, clientAddress, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 // cde-store reads SUPABASE_URL / _SERVICE_KEY / _ANON_KEY when it loads; where config/.env is absent (CI) stand-ins
@@ -164,6 +164,36 @@ describe("createLimiter — one global fixed window", () => {
     expect(l.take()).toBe(false);
     t += 1;
     expect(l.take()).toBe(true);
+  });
+});
+
+describe("createKeyedLimiter — one window per caller, a bounded number of callers", () => {
+  it("gives each key its own window", () => {
+    let t = 0;
+    const l = createKeyedLimiter({ max: 2, windowMs: 60000, now: () => t });
+    expect([l.take("a"), l.take("a"), l.take("a")]).toEqual([true, true, false]);
+    expect(l.take("b")).toBe(true); // a's flood does not starve b
+    t += 60000;
+    expect(l.take("a")).toBe(true);
+  });
+  it("keeps at most maxKeys windows: a flood of fresh keys drops the oldest, never grows memory", () => {
+    const l = createKeyedLimiter({ max: 1, windowMs: 60000, maxKeys: 3, now: () => 0 });
+    for (const k of ["a", "b", "c", "d"]) expect(l.take(k)).toBe(true);
+    expect(l.size()).toBe(3);
+    expect(l.take("a")).toBe(true); // a's window was the oldest, dropped for d: it starts again
+  });
+});
+
+describe("clientAddress — the address the proxy in front of the bridge saw", () => {
+  const r = (xff, remote = "127.0.0.1") => ({ headers: xff === undefined ? {} : { "x-forwarded-for": xff }, socket: { remoteAddress: remote } });
+  it("is the LAST X-Forwarded-For entry: what a client wrote itself sits to its left", () => {
+    expect(clientAddress(r("203.0.113.7"))).toBe("203.0.113.7");
+    expect(clientAddress(r("1.2.3.4, 203.0.113.7"))).toBe("203.0.113.7");
+    expect(clientAddress(r(" 1.2.3.4 ,203.0.113.8 "))).toBe("203.0.113.8");
+  });
+  it("is the socket's address when no proxy forwarded the call", () => {
+    expect(clientAddress(r(undefined, "::1"))).toBe("::1");
+    expect(clientAddress(r(""))).toBe("127.0.0.1");
   });
 });
 
