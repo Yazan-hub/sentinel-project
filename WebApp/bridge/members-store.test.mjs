@@ -207,3 +207,31 @@ describe("canUseCloudAi — /ai/* names no project, so the account is checked (H
     }
   });
 });
+
+// H0 (cde-10): the account lookup tells "no account" (404) from "added" (201) — an e-mail oracle — and an add needs no
+// consent, so it runs only for a lead or owner of an office or of a project attached to one. Anyone else gets the same
+// 403 before any lookup, whether or not the address has an account; the machine credential passes as before.
+describe("addMember — the lookup is a lead's, on an office's project (cde-10)", () => {
+  it("a contributor is refused before any lookup — the same 403 for an address with an account and one without", async () => {
+    const deps = baseDeps({ sub: "u-contrib" });
+    deps.rows.push({ project_id: "p1", user_id: "u-contrib", role: "contributor" });
+    for (const email of ["known@x.com", "ghost@x.com"])
+      await expect(addMember("demo", { email, role: "viewer" }, "w", deps)).rejects.toMatchObject({ status: 403, message: "this action requires the lead role (you are contributor)" });
+    expect(deps.adminFetch).not.toHaveBeenCalled();
+  });
+
+  it("the owner of a project outside any office is refused before the lookup — any account owns the projects it creates", async () => {
+    const deps = baseDeps({ sub: "u-owner" });
+    await expect(addMember("demo", { email: "known@x.com", role: "viewer" }, "w", deps))
+      .rejects.toMatchObject({ status: 403, message: "adding people by e-mail needs a project that belongs to an office — a lead of the office attaches it in Project settings, then add them" });
+    expect(deps.adminFetch).not.toHaveBeenCalled();
+    expect(deps.sb.mock.calls.some(([, o]) => o?.method === "POST")).toBe(false);
+  });
+
+  it("a lead or owner of an office's project, or of an office, adds as before", async () => {
+    const child = baseDeps({ sub: "u-owner", ensureProject: vi.fn(async () => ({ id: "p1", key: "demo", kind: "project", office_key: "hq" })) });
+    await expect(addMember("demo", { email: "known@x.com", role: "viewer" }, "w", child)).resolves.toMatchObject({ user_id: "u-new", role: "viewer" });
+    const office = baseDeps({ sub: "u-owner", ensureProject: vi.fn(async () => ({ id: "p1", key: "hq", kind: "office", office_key: null })) });
+    await expect(addMember("hq", { email: "known@x.com", role: "viewer" }, "w", office)).resolves.toMatchObject({ user_id: "u-new" });
+  });
+});
