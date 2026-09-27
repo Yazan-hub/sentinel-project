@@ -34,6 +34,19 @@ public sealed class ProjectSetupCommand : IExternalCommand
     }
 }
 
+/// <summary>Sentinel ▸ Sign in (H4): the person's Supabase session for every governed call (UserSession).</summary>
+[Transaction(TransactionMode.Manual)]
+public sealed class SignInCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
+    {
+        var win = new Sentinel.UI.SignInDialog();
+        new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
+        win.ShowDialog();
+        return Result.Succeeded;
+    }
+}
+
 /// <summary>
 /// One-time project setup (Decision 7): creates the ZZZ_ReviewStatus text
 /// parameter on Views / Sheets / Levels / Grids so pending changes are

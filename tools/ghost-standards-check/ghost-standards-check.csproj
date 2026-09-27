@@ -15,6 +15,7 @@
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostStandards.cs" />
     <!-- the layers@n loader, the mapping tiers and the per-project cache -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostBuilder_Architecture.cs" />
@@ -26,5 +27,8 @@
     <Compile Include="..\..\SentinelAddin\Standards\TypeCatalogExport.cs" />
     <Compile Include="..\..\SentinelAddin\Standards\StandardsPack.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />
   </ItemGroup>
 </Project>

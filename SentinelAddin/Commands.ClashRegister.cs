@@ -25,8 +25,13 @@ public sealed class ClashRegisterCommand : IExternalCommand
             TaskDialog.Show("Sentinel — Clash Register", Sentinel.Engine.ProjectContext.NotBound);
             return Result.Cancelled;
         }
-        var rows = Sentinel.Coordination.GovernedQuery.ClashRegister(ctx.Key);
+        var rows = Sentinel.Coordination.GovernedQuery.ClashRegister(ctx.Key, out var why);
 
+        if (rows is null && why == Sentinel.Coordination.GovernedQuery.SignedOutLine)
+        {
+            TaskDialog.Show("Sentinel — Clash Register", "The bridge refused this call for project '" + ctx.Key + "': " + why + ".");
+            return Result.Cancelled;
+        }
         if (rows is null)
         {
             TaskDialog.Show("Sentinel — Clash Register",

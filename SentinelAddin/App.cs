@@ -318,6 +318,8 @@ public sealed class App : IExternalApplication
             "Set up and apply office standards: project setup, build/apply a standards pack, or ingest from documents.");
         Sub(std, "Sentinel_Setup", "Project Setup", "Sentinel.Commands.ProjectSetupCommand", "setup",
             "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path.");
+        Sub(std, "Sentinel_SignIn", "Sign in", "Sentinel.Commands.SignInCommand", "setup",
+            "Sign in with your Sentinel account (the same as on the web): every governed call from Revit then carries your name on the ledger instead of this PC's shared token. Sign out forgets it on this PC only.");
         Sub(std, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
             "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
         Sub(std, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",

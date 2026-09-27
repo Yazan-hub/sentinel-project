@@ -85,7 +85,8 @@ public sealed class LedgerResult
             var row = FromReceipt(id, hash);
             return hold is null ? row : new LedgerResult(row.State, row.Reason, row.Id, row.Hash, hold);
         }
-        var what = "HTTP " + status + (string.IsNullOrWhiteSpace(message) ? "" : ": " + Clip(message!));
+        // A 401 is no session and no machine token (H4): said as signed out, never as a bridge fault.
+        var what = status == 401 ? "HTTP 401: signed out — Sentinel ▸ Sign in" : "HTTP " + status + (string.IsNullOrWhiteSpace(message) ? "" : ": " + Clip(message!));
         return status is 400 or 401 or 403 or 404 or 503 ? NotRecorded(what) : NotConfirmed(what + MayHaveLanded);
     }
 

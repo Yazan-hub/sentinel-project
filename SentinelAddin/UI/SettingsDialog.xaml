@@ -60,6 +60,7 @@
                 </StackPanel>
             </Border>
 
+            <TextBlock x:Name="WhoText" FontSize="11" Foreground="#667" Margin="0,0,0,6" TextWrapping="Wrap"/>
             <TextBlock x:Name="StatusText" FontSize="11" Foreground="#2E7D4F" Margin="0,0,0,8"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
