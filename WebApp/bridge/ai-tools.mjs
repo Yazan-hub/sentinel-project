@@ -10,11 +10,15 @@
 // So capability is broad and CONTROL is per-tool:
 //   policy "read"  — no side effects. Runs immediately, no approval, no ledger entry.
 //   policy "write" — changes project state. NEVER auto-runs. The model can only ever PROPOSE it; a
-//                    human ticks it in the review gate, and the result lands in the audit trail.
+//                    human ticks it in the review gate, and the result lands in the audit trail. The tick is a UX
+//                    step, not a permission: runTool also needs the caller's contributor role on the project the call
+//                    names (H0, D10).
 //
 // That's the same shape as GhostBuilder's review window, for the same reason: the model proposes, a
 // person disposes, and the record is written either way.
 import * as cde from "./cde-store.mjs";
+import { requireMinRole } from "./members-store.mjs";
+import { currentUserToken } from "./bridge-auth.mjs";
 
 /** Every tool: name, what it's for (the model reads this), its JSON schema, its policy, and how to run it. */
 export const TOOLS = [
@@ -100,9 +104,10 @@ export const TOOLS = [
     // theory and died with a 23502 not-null violation in practice. `creation_author` records that a
     // machine raised it, so the trail distinguishes agent-raised from hand-raised issues.
     run: async ({ project, title, description, priority, assigned_to }) => {
-      const proj = await cde.ensureProject(project);
+      await cde.ensureProject(project);
+      // bcf_topics.project_id is the project KEY (RLS resolves it as the key, 0016) — the row id filed an orphan topic.
       return cde.bcfCreateTopic(
-        cde.newTopicObject(proj.id, { title, description, priority, assigned_to, creation_author: "copilot-agent" }),
+        cde.newTopicObject(project, { title, description, priority, assigned_to, creation_author: "copilot-agent" }),
       );
     },
   },
@@ -121,16 +126,19 @@ export const TOOLS = [
       },
     },
     // Only the declared fields reach the referee: an agent can neither stamp a verdict on a version (version_id),
-    // register one (register) nor override anything — whatever else the model puts in the call is dropped.
-    run: ({ project, source, elements, note }) => cde.adjudicateProposal(project, { source, elements, note }),
+    // register one (register) nor override anything — whatever else the model puts in the call is dropped. A signed-in
+    // caller's proposal is labelled by the tool, not by a source the model claims ("from Revit"); the ledger's actor
+    // column carries the verified identity (D6). The machine credential keeps its own label.
+    run: ({ project, source, elements, note }) => cde.adjudicateProposal(project, { source: currentUserToken() ? "copilot-agent" : source, elements, note }),
   },
   {
     name: "transition_container",
     policy: "write",
     description: "Move an information container version through the ISO 19650 state machine (wip → shared → published → archived; archived → published restores). Publishing needs the version's latest verdict to be accepted with elements in scope, judged by the IDS installed on the project or its office; otherwise only a signed-in lead can publish it, with a reason, on the web — this tool cannot give one. On a project whose review@n has steps, a version under review is published only by its last approval — the database refuses this tool that move, whoever runs it — and sharing a version into review or sending one back to wip needs a signed-in lead's session. The transition is audited.",
     input_schema: {
-      type: "object", required: ["version_id", "state"],
+      type: "object", required: ["project", "version_id", "state"],
       properties: {
+        project: { type: "string", description: "project key — the version must be on it" },
         version_id: { type: "string", description: "the container VERSION id, from list_containers" },
         state: { type: "string", enum: ["wip", "shared", "published", "archived"] },
         actor: { type: "string" },
@@ -144,8 +152,8 @@ export const TOOLS = [
     policy: "write",
     description: "Make a specific container version the live one that consumers see. High impact — this changes what everyone downstream reads.",
     input_schema: {
-      type: "object", required: ["version_id"],
-      properties: { version_id: { type: "string" }, actor: { type: "string" } },
+      type: "object", required: ["project", "version_id"],
+      properties: { project: { type: "string", description: "project key — the version must be on it" }, version_id: { type: "string" }, actor: { type: "string" } },
     },
     run: ({ version_id, actor }) => cde.setLiveVersion(version_id, actor),
   },
@@ -175,12 +183,20 @@ export const policyOf = (name) => byName.get(name)?.policy ?? "write"; // unknow
 /**
  * Execute one tool. `allowWrites` MUST come from a human decision, never from the model — a `write`
  * tool called without it throws rather than silently doing nothing, so a missing gate is a loud bug
- * instead of an agent that appears to work and quietly changes nothing.
+ * instead of an agent that appears to work and quietly changes nothing. It is a UX step, not a permission (H0, D10):
+ * a write also needs the caller's contributor role on the project the call names (the machine credential passes), and a
+ * version the call names must be on that project — all before the tool runs.
  */
 export async function runTool(name, args = {}, { allowWrites = false } = {}) {
   const t = byName.get(name);
   if (!t) throw Object.assign(new Error(`Unknown tool: ${name}`), { status: 400 });
-  if (t.policy === "write" && !allowWrites)
-    throw Object.assign(new Error(`"${name}" changes project state and needs explicit approval.`), { status: 403 });
+  if (t.policy === "write") {
+    if (!allowWrites)
+      throw Object.assign(new Error(`"${name}" changes project state and needs explicit approval.`), { status: 403 });
+    const project = typeof args.project === "string" ? args.project.trim() : "";
+    if (!project) throw Object.assign(new Error(`"${name}" changes a project and must name it (project) — nothing was run`), { status: 400 });
+    await requireMinRole(project, "contributor");
+    if (args.version_id !== undefined) await cde.versionOnKey(project, args.version_id);
+  }
   return t.run(args);
 }

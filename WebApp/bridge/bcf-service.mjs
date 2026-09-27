@@ -698,12 +698,13 @@ async function handleRequest(req, res) {
       tools: t.TOOLS.map(({ name, description, policy, input_schema }) => ({ name, description, policy, input_schema })),
     });
   }
-  // Run ONE tool. `approved:true` is the human's decision arriving from the review gate — without it
-  // a write-policy tool is refused, so a missing gate fails loudly instead of silently doing nothing.
+  // Run ONE tool. `approved:true` is the human's tick from the review gate: without it a write-policy tool is refused,
+  // so a missing gate fails loudly. It is not a permission — runTool checks the caller's role on the project the call
+  // names (H0, D10). The body is one tool call, at most SMALL_JSON (1 MB).
   if (url.pathname === "/ai/run-tool" && req.method === "POST") {
     const t = await import("./ai-tools.mjs");
-    const { name, args, approved } = await readBody(req, { max: SMALL_JSON });
     try {
+      const { name, args, approved } = await readBody(req, { max: SMALL_JSON });
       return send(res, 200, { name, result: await t.runTool(name, args || {}, { allowWrites: approved === true }) });
     } catch (e) {
       return send(res, e?.status || 500, { message: String(e?.message || e) });

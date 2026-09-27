@@ -176,3 +176,21 @@ describe("/ai/* — cloud AI only for a trusted caller (D2)", () => {
     expect(status).toBe(413);
   });
 });
+
+describe("/ai/run-tool — the caller's role, not the approved flag (D10)", () => {
+  it("a viewer's approved write is a 403 in words and nothing is written", async () => {
+    const from = seen.length;
+    const { status, json } = await call("POST", "/ai/run-tool", { as: "u-view", json: { name: "create_folder", args: { project: "p-office", name: "x" }, approved: true } });
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/contributor/);
+    expect(seen.slice(from).filter((line) => !line.startsWith("GET "))).toEqual([]);
+  });
+
+  it("a write that names no project: 400, nothing read or written", async () => {
+    const from = seen.length;
+    const { status, json } = await call("POST", "/ai/run-tool", { as: "u-contrib", json: { name: "set_live_version", args: { version_id: randomUUID() }, approved: true } });
+    expect(status).toBe(400);
+    expect(json.message).toMatch(/project/);
+    expect(seen.slice(from)).toEqual([]);
+  });
+});
