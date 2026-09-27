@@ -541,3 +541,43 @@ or a Doctor line; ids are the ledger's.
 
 **Left in place:** `b12-hold` (ids@1, naming@1, its holds and dismissals, two accepted versions) for the founder to archive;
 both pilots on `publish@… {auto: false}`; Revit open with the Demo and Aster locals, unsynced.
+
+## The review chain drill (Session B13), 2026-09-27
+
+Feature `feature/review-chain` (phase 6b). Every gate re-run on the branch first: npm 1365 in 94 files, tsc 23 (master's
+set, none new), `node --check` clean; no add-in change (nothing in the add-in moves a version between states). Before the
+apply the founder chose a dry run: migration 0032 and its probe ran on a local PGlite copy of the schema (migrations
+0001-0031, aligned to live by read-only catalog SELECTs; the 0031 probe 20 of 20 on it), which found a malformed-template
+crash and probe gaps — fixed in 7d3699a (the probe now 32 cases; 38 of 39 mutants of 0032 killed, the survivor
+unreachable). Then the founder said "apply 0032". The bridge rows were driven by `scratchpad/b13_api.py` with the bridge
+token; the signed-in rows by the founder on the web board (the local app, Chrome), one by Claude in the founder's tab.
+Every line is a reply, a ledger row or the board; ids are the ledger's.
+
+| Step | Result | Evidence |
+|---|---|---|
+| Drift check | the live md5 of every function 0032 touches or relies on (cde_transition, has_min_role, project_of_container, the state and audit triggers, auth.uid/jwt/role …) equal to the dry-run copy's; review_template and review_decide absent | catalog SELECTs |
+| Apply | 0032 applied (`schema_migrations` 20260927085918 `0032_review_chain`); the live md5 of cde_transition (8f173ca3…), review_decide (41647062…) and review_template (f2d7b541…) equal to the dry-run copy's after the same file; EXECUTE: cde_transition authenticated, postgres, service_role · review_decide authenticated, postgres · review_template postgres, service_role; the review mark in cde_transition | catalog SELECTs |
+| Migration probe | `PROBE 0032: 32 of 32 as expected.` — ledger ids 953-1020 taken and rolled back; projects 13, memberships 14, containers 34, versions 58, bridge_docs 88, audit rows 934 (max id 952) before and after, no probe project left | execute_sql as postgres |
+| PostgREST | `POST /rest/v1/rpc/review_decide` with the service key → 403 `42501 permission denied for function review_decide` (the schema cache knew it — no PGRST202; the machine holds no EXECUTE) | reply |
+| Deploy | the managed bridge (it had stopped) started on the branch after the apply: `JWT-forwarding: armed`; the web dev server on :4000 | bridge log |
+| Test project | `b13-review` created through the bridge (no office) and the founder added as its owner through the members route (as a web-created project would have it); `ids@1 · project · 121bbb222d04…`; B13-A, B13-B, B13-D accepted and registered wip (A's verdict row #1028); B13-C registered with no verdict; `reviews` → `{"items":[]}`; the review artefact → 404 `no review artefact installed for b13-review or its office (…)` | replies |
+| The audit route refuses the review rows | `review:approve 1` → 400 `review: rows are written by Sentinel, not through this route`; entity_type ` Review ` → 400 `review rows are written by Sentinel, not through this route`; review rows 0 | replies |
+| The review validator | the six bodies refused in the protocol's words (a role outside contributor/lead/owner, seven steps, six approvals, a blank name, a stray body key, a stray step key); artefact rows 1 | replies |
+| `review@1` installed | `Installed on b13-review: review@1 · project · b66325d02b9e… · by cli`; GET → `review@1`, `project`, the body, the importer's sha | CLI, reply |
+| The machine cannot share | the keyless route with the bridge token → 409 `this project requires review (review@1) — a version is shared by a signed-in lead, not by this call`, with a reason the same; B13-A still wip; review rows 0; the decide route with the bridge token → 403 `a review decision is a signed-in person's — sign in (and the bridge must forward the session: SUPABASE_ANON_KEY)` — **27 of 27 driver checks** | replies |
+| A signed-in lead shares — reviewer zero | the founder, **Share →** on B13-A.ifc: Shared, `Review: step 1 of 1 — Design check (contributor)`, `shared for review by <the founder's e-mail> · review@1`, no **Publish →**, `← Back to WIP (ends the review)`, the muted `the submitter does not review their own share`, `My reviews (0)`, `1 under review`; `review:start` #1044 stamped with the founder's e-mail, `submitter_uid` the founder's uid, `verdict:accepted`, `verdict_audit_id` 1028 | board, rows |
+| Sharing without a verdict asks for the lead's reason | the founder, **Share →** on B13-C.ifc: the card in red `version c3eb0180-… has no accepted verdict that measured something (latest: none) — sharing it for review needs the lead's reason`, a reason field and **Share with this reason** (disabled while blank), the status `Not shared — a lead can share it for review with a reason, which the ledger records.`; with `b13 drill: client asked for an early look` → Shared under review, `2 under review`; `review:start` #1047 keeps the reason word for word | board, rows |
+| Nothing publishes a version under review but its last approval | the machine's publish → 409 `version 7d404256-… is under review (chain ledger #1044) — it is published by its last approval, not by this call`, with a reason the same; its send-back → 409 `… is under review — only a signed-in lead can send it back to wip`; B13-A still shared | replies |
+| A template changed mid-review | `review@2 · project · 97fcacc8185c…` installed; both running chains still read `review@1`, 1 step — **11 of 11** | CLI, replies |
+| A lead sends it back | the founder, **← Back to WIP (ends the review)** on B13-C.ifc → WIP; `state:shared->wip` #1050 stamped with the founder's e-mail, `review_start_id` 1047; B13-C gone from `reviews`, B13-A still listed; the machine's decision on it still 403 — **4 of 4** | board, rows |
+| Web — a reviews list not read | in the founder's Chrome tab, the `reviews` request made to fail inside the app (a fetch stub, removed after) and ↻: over the board `Reviews: not read — Failed to fetch`, never `My reviews (0)`; B13-A shows **Publish →** again — not clicked (a publish control in the founder's session; the probe's P12 and the machine rows above prove the refusal) | board |
+| `steps: []` turns the chain off | `review@3 · project · 4430e7786edc…` (steps []); the machine shares B13-D.ifc → 200, no `review:start`, `state:wip->shared` with `review_start_id` null; the machine publishes it on its accepted verdict → 200 — **5 of 5** (47 of 47 driver checks in all) | replies |
+| A second account: My reviews, an approval publishing with that account as the actor, a reason-shared chain completing under its reason, two steps and a prior approver, a third account, a reject back to WIP with its BCF topic, a viewer refused; a contributor's `version_id` stamp → 403; the decide route with a signed-in token (`maybe` → 400, the submitter → 409, another project's version → 400) | **not run** — no second signed-in account, and a session token is the founder's to copy, not the drill's to take; on the live database the probe carries every one of these (P6-P19, P22-P23, P25-P31, with simulated JWT claims), the bridge's vitest the route's refusals, the stamp's role and the BCF raise | — |
+| Honesty | no call without a signed-in session shared, published or sent back a version on a project with a chain; nothing reached review_decide from the machine; every chain row is stamped with the signed-in person's e-mail and names its template; a template changed mid-review changed no running chain; a list not read said so | all of the above |
+
+**Found on the way:** the published Sentinel app now fails at load in the platform's sandbox (`Failed to read the
+'localStorage' property … lacks the 'allow-same-origin' flag`) although every storage read in Sentinel's own code is
+guarded — a separate task; the local app is unaffected.
+
+**Left in place:** `b13-review` (ids@1, review@1-3, B13-A under review, B13-D published, B13-B and B13-C in wip) for the
+founder to archive; the founder is its owner.

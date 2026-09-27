@@ -9,7 +9,7 @@ const state = vi.hoisted(() => {
   // "configured". fetch is faked either way, so neither is ever called.
   process.env.SUPABASE_URL ||= "https://fixture.supabase.co";
   process.env.SUPABASE_SERVICE_KEY ||= "fixture-service-key";
-  return { ids: null };
+  return { ids: null, role: "service" };
 });
 
 // resolveIdsSpec's order, as artefact-store has it: the installed IDS (state.ids) → the one the caller sent → none; a
@@ -22,6 +22,14 @@ vi.mock("./artefact-store.mjs", async (orig) => ({
       ? { spec: body.ids, source: "client", ref: null, sha256: "c1".repeat(32), client_ids_ignored: false }
       : { spec: null, source: "none", ref: null, sha256: null, client_ids_ignored: false })),
   resolveArtefact: vi.fn(async () => ({ body: null, source: "none", ref: null, sha256: null })),
+}));
+// requireMinRole as members-store has it, the caller's role set per test (state.role): the machine credential passes as
+// service, a signed-in member below the minimum is a 403 (phase 6b: stamping an existing version needs the lead role).
+vi.mock("./members-store.mjs", async (orig) => ({
+  ...(await orig()),
+  requireMinRole: vi.fn(async (_key, min) => {
+    if (!["lead", "owner", "service"].includes(state.role)) throw Object.assign(new Error(`this action requires the ${min} role (you are ${state.role})`), { status: 403 });
+  }),
 }));
 
 import { adjudicateProposal } from "./cde-store.mjs";
@@ -94,7 +102,7 @@ function fakeRest(url, init = {}) {
 }
 
 const realFetch = globalThis.fetch;
-beforeEach(() => { seed(); state.ids = IDS; globalThis.fetch = vi.fn(async (url, init) => fakeRest(url, init)); });
+beforeEach(() => { seed(); state.ids = IDS; state.role = "service"; globalThis.fetch = vi.fn(async (url, init) => fakeRest(url, init)); });
 afterEach(() => { globalThis.fetch = realFetch; });
 const actions = () => db.audit_log.map((r) => r.action);
 const posts = (table) => calls.filter((c) => c.method === "POST" && c.table === table);
@@ -148,6 +156,25 @@ describe("a version_id must be the key's own", () => {
     await expect(adjudicateProposal("aster-tower", { source: "revit", elements: GOOD, version_id: vid }))
       .rejects.toMatchObject({ status: 400, message: `version ${vid} is not on aster-tower` });
     expect(posts("audit_log")).toHaveLength(0);
+  });
+});
+
+describe("stamping a verdict on an existing version needs the lead role (phase 6b, spec 2026-09-27 Decision 11)", () => {
+  it.each(["contributor", "viewer"])("a %s is a 403 before the version is read and before any ledger row", async (role) => {
+    state.role = role;
+    await expect(adjudicateProposal("aster-tower", { source: "web", elements: GOOD, version_id: V_OWN }))
+      .rejects.toMatchObject({ status: 403, message: `this action requires the lead role (you are ${role})` });
+    expect(calls.map((c) => c.table)).toEqual(["projects"]);
+  });
+
+  it("a lead stamps; a contributor still proposes and registers — the rule is the stamp's", async () => {
+    state.role = "lead";
+    await adjudicateProposal("aster-tower", { source: "web", elements: GOOD, version_id: V_OWN });
+    expect(actions()).toEqual(["Proposal accepted from web", "verdict:accepted"]);
+    state.role = "contributor";
+    const r = await adjudicateProposal("aster-tower", { source: "web", elements: GOOD, container_name: NAME, register: { name: NAME, size_bytes: 1234, sha256: SHA } });
+    expect(r).toMatchObject({ verdict: "accepted", version: { state: "wip" } });
+    expect((await adjudicateProposal("aster-tower", { source: "web", elements: BAD })).verdict).toBe("rejected");
   });
 });
 

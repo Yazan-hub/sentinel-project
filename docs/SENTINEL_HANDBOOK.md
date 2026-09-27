@@ -116,7 +116,7 @@ The web app is a browser BIM environment (viewer + CDE) built on That Open Compo
 | **Guide** | In-app guidance / help panel. | New users |
 | **Copilot** | The AI assistant (see §5). | Everyone |
 | **BIM Tools** | The viewer toolkit: **Model** loader, **Properties**, **Project Browser** (element tree), **Visibility** (isolate/hide), **Plans** (2D), **Sheets** (the rendered Revit sheets), **Views** (saved camera views), **Clash** panel. Plus viewer tools: measure, section/clip, exploded view, camera views. | Reviewer, Modeller |
-| **Coordination** | **Issues** (BCF: create + list + details, live-synced to Revit), **RFI**, **CDE** panel (the ISO 19650 state machine; Publish → needs the version's accepted verdict with something in scope, judged by an IDS installed on the project or its office, or a lead's reason typed on the card and recorded on the ledger), clash. | Coordinator, Reviewer |
+| **Coordination** | **Issues** (BCF: create + list + details, live-synced to Revit), **RFI**, **CDE** panel (the ISO 19650 state machine; Publish → needs the version's accepted verdict with something in scope, judged by an IDS installed on the project or its office, or a lead's reason typed on the card and recorded on the ledger; on a project whose lead installed a review chain — `review@n` with steps — only a signed-in lead shares, with that verdict or a reason, and a shared version shows its review step and the approvals so far, with **Approve** / **Reject** and a note for a reviewer whose role reaches the step: its last approval publishes it and nothing else does, and **My reviews (n)** narrows the board to yours), clash. | Coordinator, Reviewer |
 | **Lifecycle** | **Timeline** (4D sequencing), **Cost** (5D), **Carbon** (6D embodied carbon), **COBie** (handover data), **Owner** (owner dashboard), **Tender** (bid packages). | QS, Sustainability, Client, Manager |
 | **Explorer** | The spatial tree + properties (platform built-in). | Reviewer |
 | **Assets** | **Governed version history** (model version · uploader · when · click-through history) on top, then the model loader + objects list. The project's version home. | Coordinator, Client |
@@ -139,7 +139,7 @@ A chat assistant that can *do things*, not just answer. It combines two modes an
 - **Governed tools (11):** the agent doesn't get raw database access — it gets a fixed set of governed actions, each going through the same rules as a human:
   `list_projects` · `list_containers` · `list_folders` · `create_folder` · `list_revisions` · `list_transmittals` · `list_issues` · `raise_issue` · `propose_elements` · `read_audit` · `set_live_version` · `transition_container`.
 
-So the Copilot can navigate the CDE, raise an issue, propose elements, set the live model version, or move a container through its ISO 19650 state — all recorded in the audit trail. It cannot publish a version that lacks an accepted verdict (only a signed-in lead can give the reason), and `propose_elements` never stamps or registers a version.
+So the Copilot can navigate the CDE, raise an issue, propose elements, set the live model version, or move a container through its ISO 19650 state — all recorded in the audit trail. It cannot publish a version that lacks an accepted verdict (only a signed-in lead can give the reason), nor one under review (only its chain's last approval publishes it, and no tool decides a review step), and `propose_elements` never stamps or registers a version.
 
 ---
 
@@ -153,7 +153,7 @@ The bridge is the only thing that talks to the outside world. Its endpoints:
 |---|---|
 | `/events` (SSE) | The live issue/coordination stream. |
 | `/ai/*` (`providers`, `models`, `tools`, `run-tool`, `chat`) | The Copilot — provider list, model list, tool registry, tool execution, chat. |
-| `/cde/*` | The CDE: projects, containers, folders, files, versions, transitions, snapshots, audit, transmittals, element-graph, propose, artefacts (the standards in force, `roi` among them), gate (the stage gate, measured on the bridge and recorded), intake (Governed Intake — the CLI and the web Versions upload), holding (the refused files on hold, and a lead's dismissal), delivery-gate (Revit's gate row — the machine credential only). The ISO 19650 heart. |
+| `/cde/*` | The CDE: projects, containers, folders, files, versions, transitions, snapshots, audit, transmittals, element-graph, propose, artefacts (the standards in force, `roi` among them), gate (the stage gate, measured on the bridge and recorded), intake (Governed Intake — the CLI and the web Versions upload), holding (the refused files on hold, and a lead's dismissal), reviews and versions/:vid/review (the open review chains, and a signed-in person's approve or reject), delivery-gate (Revit's gate row — the machine credential only). The ISO 19650 heart. |
 | `/projects/:pid/topics/*` | BCF issues (topics, comments, viewpoints). |
 | `/clash/*` | The team-wide clash register. |
 | `/sheets`, `/sheets/img/*` | The rendered Revit sheet images. |
@@ -193,7 +193,7 @@ This is *why* Sentinel exists, and it's worth stating plainly.
 Most BIM tools help you **make** things. Sentinel's distinctive job is to **judge** them at the boundary and keep an **immutable record** of the judgement:
 
 1. **One rule, both sides.** Every check lives in `sentinel-core`, so Revit and the web agree.
-2. **The gate.** *Governed Publish* is the referee: no version becomes Published unless its newest verdict is an accepted one that measured something, judged by an IDS installed on the project or its office, or a signed-in lead recorded a reason — the database refuses anything else (migration 0031). A pass versions; a fail is recorded, each failing requirement becomes a BCF issue, and the refused file is held on its project (Project Files ▸ On hold) until a corrected file is registered under its name or a lead dismisses it.
+2. **The gate.** *Governed Publish* is the referee: no version becomes Published unless its newest verdict is an accepted one that measured something, judged by an IDS installed on the project or its office, or a signed-in lead recorded a reason — the database refuses anything else (migration 0031). On a project with a review chain (`review@n` with steps) that verdict or reason only lets a signed-in lead share the version; it is then published by the last approval of the distinct signed-in reviewers the chain names — never its submitter, never a machine (migration 0032). A pass versions; a fail is recorded, each failing requirement becomes a BCF issue, and the refused file is held on its project (Project Files ▸ On hold) until a corrected file is registered under its name or a lead dismisses it.
 3. **The record.** Verdicts are immutable and carry **provenance** (was this from a human, a photo, an LLM?) and a **source/verdict badge** in the audit timeline. A photo-massing element is never confidence-1; an LLM proposal is marked as such.
 4. **The loop.** Issues raised anywhere (web, gate failure, review) sync live to Revit and back, so coordination is one shared conversation, not email.
 

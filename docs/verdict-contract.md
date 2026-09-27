@@ -32,7 +32,7 @@ rulebook is private is just an opinion.
     "prompt": "model the stair core to LOD300"              // hashed bridge-side, never stored
   },
   "note": "optional",
-  "version_id": "…",                  // optional: also stamp verdict:<v> on this version (it must be on :project)
+  "version_id": "…",                  // optional: also stamp verdict:<v> on this version (it must be on :project; lead and up)
   "register": { "name": "PRJ-BDS-XX-XX-M3-A-0001.ifc", "size_bytes": 5120000, "sha256": "…" },  // optional, §2; name = container_name
   "gate_row_id": 811                  // optional: the ledger id of the delivery_gate row this file came through (Revit's Publisher sends it)
 }
@@ -78,7 +78,8 @@ of the container `register.name` — always `wip`, with no geometry until the up
 id — and stamps `verdict:<v>` on it from this same result: one proposal row, one version, one verdict row. The reply
 adds `"version": { "id", "container_id", "revision", "state": "wip" }`, `"verdict_audit_id"` and `"verdict_hash"` (that
 verdict row's own chain hash, so Revit's `Version:` line can carry its receipt; both null when nothing was stamped). A rejected verdict
-registers nothing. `version_id` stamps a version that already exists; one on another project is a 400
+registers nothing. `version_id` stamps a version that already exists — lead and up (a contributor's is a 403), since the stamp is what opens a
+review chain; one on another project is a 400
 (`version <id> is not on <project>`). `register.name` must equal `container_name` (the name judged is the name
 registered). The in-app AI tools and MCP `sentinel_propose` pass neither.
 
@@ -90,8 +91,8 @@ signed-in lead's reason, `POST /cde/versions/:id/transition { "state": "publishe
 without one the answer is a 409 saying the version needs the lead's reason. The bridge's service key, Revit, the
 bridge token and the AI tools cannot give one. The `state:shared->published` row records the `verdict` and the
 `verdict_audit_id` it read, and the `override`. A state changes only through `cde_transition` (migration 0031),
-every new version starts in `wip`, and `POST /cde/:project/audit` refuses `verdict:`, `state:`, `gate:`, `roi:` and
-`hold:` actions and `stage_gate`, `hold` and `delivery_gate` rows: Sentinel alone writes those.
+every new version starts in `wip`, and `POST /cde/:project/audit` refuses `verdict:`, `state:`, `gate:`, `roi:`,
+`hold:` and `review:` actions and `stage_gate`, `hold`, `delivery_gate` and `review` rows: Sentinel alone writes those.
 
 **The ledger also answers ROI and the stage.** `roi@n` is an artefact kind (`PUT /cde/:project/artefacts/roi`, lead
 and up, inherited from the office): `{ "currency": "EUR", "hourly_rate": 90, "minutes": { "delivery_gate": 20,
@@ -132,6 +133,33 @@ row names its file (`container_name`, `sha256`, `size_bytes`) and the gate row i
 own, or the id Revit claims, kept only when it is a `delivery_gate` row of the project). A gate row
 stays Revit's attestation — the bridge never sees Revit's bytes — and a holder of the machine credential can still
 post one.
+
+**A project can require review.** `review@n` is an artefact kind (`PUT /cde/:project/artefacts/review`, lead and up,
+inherited from the office): exactly `{ "steps": [ { "name": "Design check", "role": "contributor", "approvals": 1 } ] }`
+— 0 to 6 steps, each a filled name of at most 80 characters, the least role that may approve it (`contributor`, `lead`
+or `owner`) and how many distinct people approve it (1 to 5); `steps: []` is no chain, and a project's own `review@n`
+overrides its office's. With steps in force (migration 0032), only a signed-in caller shares a version — the service
+key, Revit and any call with no signed-in session are refused (`this project requires review (review@n) — a version is
+shared by a signed-in lead, not by this call`) — and only on the verdict publishing reads, or the lead's reason
+(`override`), which the 409 asks for (`… — sharing it for review needs the lead's reason`). The share writes one
+`review:start` row (entity_type `review`, entity_id the version) whose `new_value` snapshots `submitter_uid`, the
+template's `ref`, `source`, stored `sha256` and `steps`, the `override`, and the `verdict` and `verdict_audit_id` it read,
+so a template changed later does not change a running chain. While the chain is open (its `review:start` is newer than
+the version's newest `state:shared->wip`), no call publishes the version, a lead's included (409 `version <id> is under
+review (chain ledger #<start>) — it is published by its last approval, not by this call`), and only a signed-in lead
+sends it back to wip, which closes the chain. A decision is
+`POST /cde/:project/versions/:id/review { "decision": "approve" | "reject", "note": "…" }` — a 403 before any call when
+the bridge forwards no signed-in session (`SUPABASE_ANON_KEY`), then judged by the database's `review_decide`: a
+signed-in caller of at least the current step's role, never the submitter, never twice on one chain, and a reject with
+a note. It writes `review:approve <k>` or `review:reject <k>` (`new_value {step, of, name, role, note, approver_uid,
+chain_start_id}`, the actor the person's e-mail) and answers `{ "id", "hash", "decision", "step", "of", "name", "role",
+"published", "state", "bcf" }`. The approval that completes the last step publishes the version in the same call, with
+that approver as the `state:` row's actor and the share's recorded reason as its `override`; a reject returns it to wip
+(`review: rejected at step <k> — <note>`) and the bridge raises one BCF topic, `Review: <container> rejected at step <k>
+— <note>`. `GET /cde/:project/reviews` lists the open chains — `{ "items": [ { version_id, container_name, revision,
+chain_start_id, ref, submitter, submitter_uid, step, of, name, role, approvals: [ { step, actor, at, ledger: { id, hash }
+} ], can_decide, why_not } ] }` — and a failed read is a 502 `not read — <reason>`, never an empty list. Every `state:`
+row names its chain (`review_start_id`), and a signed-in caller's is stamped with their e-mail.
 
 ## 3. Provenance is claimed, never verified
 
