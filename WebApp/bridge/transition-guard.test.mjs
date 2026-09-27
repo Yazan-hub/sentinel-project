@@ -46,6 +46,8 @@ function fakeRest(url, init = {}) {
   if (path === "information_containers" && q.get("id")) return json([{ project_id: DEMO, iso_name: "A.ifc" }]);
   if (path === "container_versions" && method === "POST") return json([{ ...body, id: V3 }], 201);
   if (path === "container_versions" && method === "GET") return json([{ id: V1, container_id: C1, revision: "v1" }]);
+  // A PATCH the database made answers its row (the stores ask with return=representation; requireRows reads none as a refusal).
+  if (method === "PATCH") return json([{ id: q.get("id")?.slice(3) ?? null, ...body }]);
   return json([]);
 }
 

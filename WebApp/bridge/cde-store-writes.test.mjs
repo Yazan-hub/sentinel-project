@@ -11,11 +11,12 @@ vi.hoisted(() => {
 });
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
-import { requireRows, deleteFolder, renameFolder, moveContainer } from "./cde-store.mjs";
+import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const F = "ffffffff-0000-4000-8000-000000000001";
 const C = "cccccccc-0000-4000-8000-000000000001";
+const V1 = "aaaaaaaa-0000-4000-8000-000000000001";
 
 let db, rest;
 const realFetch = globalThis.fetch;
@@ -75,5 +76,42 @@ describe("folders — a write the database refused is a 403 and leaves no ledger
     expect(await renameFolder(F, { name: "Mech" })).toMatchObject({ id: F, name: "Mech" });
     expect(await moveContainer(C, { folder_id: F })).toMatchObject({ id: C, folder_id: F });
     expect(ledger().map((c) => c.body.action)).toEqual(["renamed", "moved"]);
+  });
+});
+
+describe("files — a rename, the live pointer and a geometry link are refusals when the database changed nothing (cde-11)", () => {
+  beforeEach(() => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", title: "A.ifc", parent_id: null }];
+    db.container_versions = [{ id: V1, container_id: C, revision: "v1", state: "wip", is_live: true, platform_item_id: null }];
+  });
+
+  it("renameFile: a rename the database refused is a 403 and no 'renamed' row", async () => {
+    serve(["information_containers"]);
+    await expect(renameFile("demo", C, "B.ifc", "web")).rejects.toMatchObject({ status: 403, message: "a file is renamed by a contributor or above — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("renameFile: a stored rename is written", async () => {
+    expect(await renameFile("demo", C, "B.ifc", "web")).toEqual({ ok: true, iso_name: "B.ifc" });
+    expect(ledger()[0].body).toMatchObject({ entity_type: "container", entity_id: C, action: "renamed", new_value: { iso_name: "B.ifc" } });
+  });
+
+  it("setLiveVersion: a pointer the database would not move is a 403 and no 'set live' row", async () => {
+    serve(["container_versions"]);
+    await expect(setLiveVersion(V1, "web")).rejects.toMatchObject({ status: 403, message: "the live version is set by a contributor or above — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("registerFileVersion attach_geometry: a link the database refused is a 403 and no 'geometry linked' row", async () => {
+    serve(["container_versions"]);
+    await expect(registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" }))
+      .rejects.toMatchObject({ status: 403, message: "geometry is linked to a version by a contributor or above — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("a stored link and a stored pointer are written as before", async () => {
+    expect(await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" })).toMatchObject({ linked: true, version: { id: V1 } });
+    expect(await setLiveVersion(V1, "web")).toEqual({ ok: true, version_id: V1, container_id: C });
+    expect(ledger().map((c) => c.body.action)).toEqual(["geometry linked", "set live"]);
   });
 });

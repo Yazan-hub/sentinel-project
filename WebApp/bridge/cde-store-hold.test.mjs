@@ -68,8 +68,10 @@ function fakeRest(url, init = {}) {
     return json(db[table].filter(hit).map((r) => (select.includes("container_versions(") ? { ...r, container_versions: db.container_versions.filter((v) => v.container_id === r.id) } : { ...r })));
   }
   if (method === "PATCH") {
-    for (const r of db[table].filter(hit)) Object.assign(r, body);
-    return new Response(null, { status: 204 });
+    const patched = db[table].filter(hit);
+    for (const r of patched) Object.assign(r, body);
+    // The rows come back only when asked (return=representation): the stores' requireRows reads none as a refusal.
+    return /return=representation/.test(init.headers?.Prefer || "") ? json(patched) : new Response(null, { status: 204 });
   }
   const row = table === "audit_log"
     ? { ...body, id: ++nextId, at: new Date(Date.UTC(2026, 8, 27, 0, 0, nextId - 900)).toISOString(), hash: String(nextId).padStart(64, "0") }

@@ -543,7 +543,8 @@ export async function setLiveVersion(version_id, actor) {
   if (!v) { const e = new Error("version not found"); e.status = 404; throw e; }
   // Clear the container's current live row FIRST so the partial unique index never sees two live rows.
   await sb(`container_versions?container_id=eq.${v.container_id}&is_live=eq.true`, { method: "PATCH", body: { is_live: false }, prefer: "return=minimal" });
-  await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}`, { method: "PATCH", body: { is_live: true }, prefer: "return=minimal" });
+  // cv_update is a contributor's: a pointer the database would not move comes back as no row — a refusal, not "set live".
+  requireRows(await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}`, { method: "PATCH", body: { is_live: true }, prefer: "return=representation" }), "the live version is set by a contributor or above");
   const c = await sb(`information_containers?id=eq.${v.container_id}&select=project_id,iso_name`);
   const meta = Array.isArray(c) ? c[0] : null;
   if (meta) await audit(meta.project_id, "file_version", version_id, "set live", actor || "web", null, { file: meta.iso_name, revision: v.revision });
@@ -564,7 +565,7 @@ export async function renameFile(key, container_id, name, actor) {
   const clean = String(name || "").trim();
   if (!clean) { const e = new Error("a file name is required"); e.status = 400; throw e; }
   const { proj, c } = await containerOf(key, container_id);
-  await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=minimal" });
+  requireRows(await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=representation" }), "a file is renamed by a contributor or above");
   await audit(proj.id, "container", c.id, "renamed", actor || "web", { iso_name: c.iso_name }, { iso_name: clean });
   return { ok: true, iso_name: clean };
 }
@@ -649,7 +650,7 @@ export async function registerFileVersion(key, b = {}) {
   if (container && b.platform_item_id && b.attach_geometry === true) {
     const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id);
     if (liveNoGeom) {
-      await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=minimal" });
+      requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation" }), "geometry is linked to a version by a contributor or above");
       await audit(proj.id, "file_version", liveNoGeom.id, "geometry linked", b.author || "web", null, { file: name, platform_item_id: b.platform_item_id });
       return { container_id: container.id, iso_name: name, linked: true, version: { id: liveNoGeom.id, revision: liveNoGeom.revision, platform_item_id: b.platform_item_id, is_live: true } };
     }
