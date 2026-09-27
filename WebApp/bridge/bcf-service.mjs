@@ -112,9 +112,10 @@ const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
 
 // Encrypted CDE file blobs (Phase 2 — private CDE). The browser encrypts client-side and uploads ONLY
-// ciphertext; we persist each as an opaque <id>.bin. Zero-knowledge: the bridge never sees a key, the
-// plaintext, or even the filename. Independent of Supabase, so encrypted storage works without the CDE
-// service key. Override the location with SENTINEL_CDE_FILES.
+// ciphertext; we persist each as an opaque <id>.bin under CDE_FILES_ROOT/<project id>/. Zero-knowledge: the
+// bridge never sees a key, the plaintext, or even the filename. Storing one, or reading one back by project,
+// still needs the CDE configured (requireSpendFor / cdeConfigured — SPEND-6): only pre-H0 root blobs, read by
+// the machine credential, need no CDE. Override the location with SENTINEL_CDE_FILES.
 const CDE_FILES_ROOT = process.env.SENTINEL_CDE_FILES
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "cde-files");
 
@@ -498,6 +499,9 @@ const server = createServer((req, res) => {
     runWithAuth(userJwt, () => handleRequest(req, res)).catch(failed);
   } catch (e) { failed(e); }
 });
+// Sets headersTimeout, requestTimeout (overrides Node's own 300 s default — a 2 GB Funnel upload needs the full
+// 30 min) and maxConnections in one call — H0 minor N9: drop this and Node's 300 s requestTimeout comes back,
+// cutting long uploads, with only the constants test (not this running server) to notice.
 Object.assign(server, SERVER_LIMITS);
 server.listen(PORT, HOST, () => {
   // Supabase projects on asymmetric signing keys sign USER SESSIONS with ES256 — the JWKS makes
@@ -1609,7 +1613,7 @@ async function handleRequest(req, res) {
 
   // ── Task teams: the ISO 19650 responsibility matrix a TIDP belongs to ──
   //   GET/POST /teams/:key · PATCH/DELETE /teams/:key/:id
-  //   Role gating is RLS's job (0026: members read, leads write) — the bridge forwards the session.
+  //   The bridge asks requireMinRole(key, "lead") itself before a write (WR-12); 0026 enforces the same rule in the database.
   if (top === "teams") {
     const tt = await import("./task-teams-store.mjs");
     try {

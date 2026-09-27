@@ -99,7 +99,7 @@ namespace Sentinel.Coordination
         public static JourneyInfo? Journey(string projectKey) => Journey(projectKey, out _);
 
         /// <summary>As <see cref="Journey(string?)"/>, and says why it returned null: the bridge's own message on a
-        /// refusal ("403: Not authorized: you are not a member of this project"), else the transport error.</summary>
+        /// refusal (one 404 for an unknown project key or one you are not a member of), else the transport error.</summary>
         public static JourneyInfo? Journey(string projectKey, out string? failure)
         {
             failure = null;

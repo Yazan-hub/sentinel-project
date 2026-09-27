@@ -1662,7 +1662,7 @@ export async function bcfGetTopic(pid, guid) {
   return rows?.[0]?.data ?? null;
 }
 
-/** A title a caller sends (topic POST and PUT, the agent's create_topic) is text of at most 600 characters, else a 400 —
+/** A title a caller sends (topic POST and PUT, the agent's raise_issue) is text of at most 600 characters, else a 400 —
  *  stored titles are parsed by the raise dedups on every propose and in every member's browser (H0, WR-4 review). Absent
  *  or null passes (newTopicObject's "Untitled"). Titles Sentinel builds itself (raises, a review's rejection) aren't checked. */
 export function checkTopicTitle(title) {
