@@ -27,9 +27,14 @@ namespace Sentinel.Coordination
             if (!string.IsNullOrWhiteSpace(token))
                 msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
+            if ((int)resp.StatusCode == 401) throw new SignedOutException();
             resp.EnsureSuccessStatusCode();
             return resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
         }
+
+        /// <summary>The bridge answered 401: no session and no machine token (H4). The tools say so, never "unreachable".</summary>
+        public sealed class SignedOutException : Exception { public SignedOutException() : base(SignedOutLine) { } }
+        public const string SignedOutLine = "signed out — Sentinel ▸ Sign in";
 
         /// <summary>
         /// One line for the Clash Manager header: the project's Federation Gate status from the web
@@ -70,6 +75,7 @@ namespace Sentinel.Coordination
                      + (total > 0 && read < total ? $" · {read} of {total} read" : "")
                      + (stale ? " — STALE, a live version changed" : "") + $" on '{key}'";
             }
+            catch (SignedOutException) { return "Federation Gate: " + SignedOutLine; }
             catch { return null; }
         }
 
@@ -273,10 +279,14 @@ namespace Sentinel.Coordination
         /// The register is keyed by the web project, the same key the web clash panel writes under (the document's
         /// key, from ProjectContext); an empty key returns null.
         /// </summary>
-        public static List<ClashRow>? ClashRegister(string projectKey)
+        public static List<ClashRow>? ClashRegister(string projectKey) => ClashRegister(projectKey, out _);
+
+        /// <summary>As above; <paramref name="failure"/> says why a null came back ("signed out — …", "bridge unreachable").</summary>
+        public static List<ClashRow>? ClashRegister(string projectKey, out string failure)
         {
+            failure = "bridge unreachable";
             var key = (projectKey ?? "").Trim();
-            if (key.Length == 0) return null;
+            if (key.Length == 0) { failure = "not bound"; return null; }
             try
             {
                 var cfg = BcfConfig.Load();
@@ -300,6 +310,7 @@ namespace Sentinel.Coordination
                 }
                 return rows;
             }
+            catch (SignedOutException) { failure = SignedOutLine; return null; }
             catch { return null; } // unreachable — caller shows a "bridge not reachable" note
         }
     }

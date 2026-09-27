@@ -17,6 +17,10 @@ public partial class SettingsDialog : Window
     public SettingsDialog(Document? doc)
     {
         InitializeComponent();
+        // H4: who the bridge will see. The sign-in itself lives in Sentinel ▸ Sign in.
+        WhoText.Text = Sentinel.Coordination.UserSession.Email is { } who
+            ? "Signed in as " + who + " (Sentinel ▸ Sign in to sign out)."
+            : "Signed out — Sentinel ▸ Sign in to act under your own name; until then this PC's shared token (if any) is used.";
         _current = SettingsManager.Resolve(doc);
         TemplatePathBox.Text = _current.RevitTemplatePath;
         // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
@@ -65,6 +69,7 @@ public partial class SettingsDialog : Window
             if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
                 msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
             var resp = await http.SendAsync(msg);
+            if ((int)resp.StatusCode == 401) { WebProjectHint.Text = "Signed out — Sentinel ▸ Sign in, or type the project key."; return; }
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadAsStringAsync();
 

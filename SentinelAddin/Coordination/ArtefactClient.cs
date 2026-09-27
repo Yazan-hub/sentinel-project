@@ -121,6 +121,7 @@ namespace Sentinel.Coordination
                 return None(kind, $"no project {key} on the bridge");
             }
             if (status == 404 && reason == "unknown_kind") return None(kind, $"the bridge does not know the kind '{kind}'");
+            if (status == 401) return Fallback(kind, cached, SignedOutLine, null);
             return Fallback(kind, cached, $"the bridge answered HTTP {status}", message);
         }
 
@@ -144,6 +145,10 @@ namespace Sentinel.Coordination
         };
 
         // No confirmation from the bridge: the cached copy says so, else none.
+        /// <summary>A 401 in words (H4). The same words as GovernedQuery.SignedOutLine; kept here so the check tools that
+        /// compile this file alone still build.</summary>
+        internal const string SignedOutLine = "signed out — Sentinel ▸ Sign in";
+
         private static ResolvedArtefact Fallback(string kind, CachedArtefact? cached, string what, string? detail) =>
             cached != null
                 ? From(kind, cached, "cache", $"{what} — cached {cached.FetchedAt.ToLocalTime():HH:mm}")

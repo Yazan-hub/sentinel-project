@@ -15,5 +15,9 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\ProjectContext.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />
   </ItemGroup>
 </Project>

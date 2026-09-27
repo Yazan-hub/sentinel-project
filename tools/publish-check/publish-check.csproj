@@ -25,11 +25,15 @@
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\LedgerResult.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\ProposalResult.cs" />
     <!-- ProposalResult's ElementFailure lives in FixPlan.cs (fix-in-place), which reads PsetMap and IdsIssueRef. -->
     <Compile Include="..\..\SentinelAddin\Coordination\FixPlan.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\IdsIssueRef.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />
   </ItemGroup>
 </Project>

@@ -82,8 +82,10 @@ export async function signInWithPassword(email: string, password: string): Promi
   }
 }
 
+/** Sign out of THIS browser only. The default scope revokes every session of the account — a Revit signed in
+ *  with the same person (H4, spec 2026-09-28 Decision 7) would be signed out too. */
 export async function signOut(): Promise<void> {
-  await supabase().auth.signOut();
+  await supabase().auth.signOut({ scope: "local" });
 }
 
 export async function currentSession(): Promise<Session | null> {

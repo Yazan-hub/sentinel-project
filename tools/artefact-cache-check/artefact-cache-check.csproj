@@ -15,6 +15,7 @@
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
     <!-- Phase 4a Task 5: the pane's scan line (GovernedQuery.ScanRulesetLine) and the none that never scores. -->
     <Compile Include="..\..\SentinelAddin\Coordination\GovernedQuery.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
@@ -23,5 +24,8 @@
     <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RulesetStore.Revit.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\HealthScorecard.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />
   </ItemGroup>
 </Project>

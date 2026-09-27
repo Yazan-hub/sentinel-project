@@ -61,7 +61,7 @@ static class Check
         Ok(hashless.All(b => LedgerLine.For(LedgerResult.FromResponse(201, b)) == NoHash), "2xx without an id and a 64-hex hash → not confirmed, every shape");
 
         Is(LedgerLine.For(LedgerResult.FromResponse(400, "{\"message\":\"entity_type must be a string\"}")), "not recorded — HTTP 400: entity_type must be a string", "400 → not recorded, with the bridge's message");
-        Is(LedgerLine.For(LedgerResult.FromResponse(401, "{\"message\":\"Unauthorized\"}")), "not recorded — HTTP 401: Unauthorized", "401 → not recorded");
+        Is(LedgerLine.For(LedgerResult.FromResponse(401, "{\"message\":\"Unauthorized\"}")), "not recorded — HTTP 401: signed out — Sentinel ▸ Sign in", "401 → not recorded, worded as signed out (H4)");
         Is(LedgerLine.For(LedgerResult.FromResponse(403, "{\"message\":\"Origin not allowed\"}")), "not recorded — HTTP 403: Origin not allowed", "403 → not recorded");
         Is(LedgerLine.For(LedgerResult.FromResponse(404, "{\"message\":\"Project \\\"nope\\\" does not exist — create it in the web app (Projects → + New project) first.\"}")),
            "not recorded — HTTP 404: Project \"nope\" does not exist — create it in the web app (Projects → + New project) first.", "404 → not recorded");

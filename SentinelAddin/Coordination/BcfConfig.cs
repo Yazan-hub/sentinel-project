@@ -27,7 +27,7 @@ internal sealed class BcfConfig
     /// shared token; empty = no header. Decision 4: a signed-out PC keeps its shared token, an external install
     /// (no file token) gets a 401 that the tools word as "signed out".</summary>
     [JsonIgnore]
-    public string ServiceToken => Coordination.UserSession.AccessToken(SupabaseUrl, SupabaseAnonKey) ?? FileToken;
+    public string ServiceToken => global::Sentinel.Coordination.UserSession.AccessToken(SupabaseUrl, SupabaseAnonKey) ?? FileToken;
 
     public static BcfConfig Load()
     {
