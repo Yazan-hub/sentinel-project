@@ -191,6 +191,14 @@ test("the versions come from the project listing, not getFile (the cloud's getFi
   assert.equal(q.writes.files.length + q.writes.metadata.length, 0);
 });
 
+test("the message names the contract as the board does: its ref, with the contract's own key when that differs", async () => {
+  const p = platform({ items: [ifcItem()], contractBody: contract({ contract_key: "bds-pilot" }), contractTag: "contract@1" });
+  const r = await run(p, { fileId: "f1" });
+  assert.equal(r.message, "Passed — contract@1 (bds-pilot)");
+  assert.equal(JSON.parse(p.writes.files[0].text).contract.ref, "contract@1");
+  assert.equal(p.writes.metadata[0].metadata.sentinel_contract, "contract@1");
+});
+
 test("the platform's own error text never carries the run's token into a message", async () => {
   const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { labels: "Cannot PUT /api/item/f1/version/v2/metadata?accessToken=eyJabc.def.ghi&x=1" } });
   const r = await run(p, { fileId: "f1" });

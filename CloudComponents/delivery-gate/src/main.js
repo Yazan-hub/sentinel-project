@@ -58,8 +58,11 @@ async function contractOf(projectId, items) {
   return { body, ref: tag || body.contract_key };
 }
 
-const verdictLine = (r) => r.result === "pass" ? `Passed — ${r.contract_key}`
-  : r.result === "fail" ? `Refused — ${r.contract_key} — ${r.failures.length} failure${r.failures.length === 1 ? "" : "s"}: ${r.failures.join(" ")}`
+// The contract is named as the board names it — its ref (the mirrored version, "contract@1") — with the contract's
+// own key in brackets when it differs, so the execution log and the card agree.
+const contractName = (r, ref) => (!ref || ref === r.contract_key ? r.contract_key : `${ref} (${r.contract_key})`);
+const verdictLine = (r, ref) => r.result === "pass" ? `Passed — ${contractName(r, ref)}`
+  : r.result === "fail" ? `Refused — ${contractName(r, ref)} — ${r.failures.length} failure${r.failures.length === 1 ? "" : "s"}: ${r.failures.join(" ")}`
   : `Not checked — ${r.reason}`;
 
 export async function main() {
@@ -98,7 +101,7 @@ export async function main() {
   try { r = contract.body ? checkDelivery(bytes, contract.body) : gateNotChecked(bytes, contract.reason); }
   catch (e) { return fail(`the gate threw on ${name} ${versionTag}: ${words(e)}`); }
   if (r.result !== "not_checked") report(`${r.total_entities} entities · ${r.contract_key}: ${r.failures.length} failure(s)`);
-  const line = verdictLine(r);
+  const line = verdictLine(r, contract.ref);
 
   // The report: one item per IFC, a version per judged IFC version (Decision 4).
   const rep = {
