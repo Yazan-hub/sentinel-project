@@ -244,7 +244,10 @@ const send = (res, code, body, extra) => {
   // and 503 guidance ("CDE not configured — set SUPABASE_URL…") still reaches the user. The real text is
   // logged server-side, where it is a diagnostic rather than a disclosure.
   if (code === 500 && body && typeof body.message === "string") {
-    console.error(`[bridge] 500: ${body.message}`);
+    // The route, without its query (a query can carry a file name or a note): a 500 that does not say where it
+    // happened cannot be traced from the log.
+    const where = res.req ? `${res.req.method} ${String(res.req.url || "").split("?")[0]}` : "";
+    console.error(`[bridge] 500${where ? " " + where : ""}: ${body.message}`);
     body = { ...body, message: "Internal error — see the bridge log." };
   }
   const headers = {

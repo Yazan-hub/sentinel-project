@@ -191,7 +191,11 @@ export async function patchProjectMeta(key, patch = {}) {
   const metadata = mergeMeta((proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta(), patch);
   const body = { metadata };
   if (patch.name !== undefined) body.name = patch.name;
-  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" }))[0];
+  const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  // Under a forwarded session the database's projects_update policy lets only a lead or owner write: a refused write
+  // updates nothing and comes back with no row — say so, never read a missing row (it was a 500).
+  if (!row) throw Object.assign(new Error("the project's details are changed by a lead or owner — nothing was saved"), { status: 403 });
   return toProjectShape(row, await gateRows(proj.id));
 }
 
