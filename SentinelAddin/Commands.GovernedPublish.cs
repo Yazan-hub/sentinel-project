@@ -50,7 +50,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
         //    the referee (an export that produced nothing, or a gate FAIL): the dialog says which; the temp IFC is
         //    already discarded and nothing is staged.
         var plan = Publisher.Prepare(doc, Path.Combine(Path.GetTempPath(), "Sentinel", "governed"),
-                                     (kind, timeout) => ArtefactClient.Resolve(projectKey, kind, timeout));
+                                     (kind, timeout) => ArtefactClient.Resolve(projectKey, kind, timeout), "revit");
         if (!plan.Ready)
         {
             TaskDialog.Show(Title, PublishLines.Dialog(plan));

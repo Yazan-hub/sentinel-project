@@ -74,23 +74,32 @@ public static class GateLines
         (r.Failures.Count > 12 ? "… and " + (r.Failures.Count - 12) + " more\n" : "") +
         "\nFix the deliverable and run Governed Publish again.";
 
-    /// <summary>The audit row's action: "IFC delivery gate PASS | FAIL | NOT CHECKED: &lt;file&gt;". This is the
-    /// same message intake writes.</summary>
-    public static string AuditAction(string file, GateResult r) =>
-        "IFC delivery gate " + (r.Outcome switch { GateOutcome.Pass => "PASS", GateOutcome.Fail => "FAIL", _ => "NOT CHECKED" }) +
-        ": " + file;
+    /// <summary>The most failures the delivery-gate route takes in one row (it refuses a longer list).</summary>
+    public const int RouteFailures = 200;
 
-    /// <summary>The audit row's value, with the Node intake gate row's fields:
+    /// <summary>The body of <c>POST /cde/:key/delivery-gate</c> (spec 2026-09-27 Decision 5), which the bridge stores
+    /// as the delivery_gate row's value — it words the row "IFC delivery gate PASS | FAIL | NOT CHECKED: &lt;file&gt;"
+    /// itself, as intake's:
     /// <list type="bullet">
     /// <item>result: "pass" | "fail" | "not_checked"</item>
     /// <item>passed: true | false | null. Null means not checked, never a pass or a fail.</item>
-    /// <item>the contract's display key and its ref · source · sha, all null when none</item>
+    /// <item>the contract's display key and its ref · source · sha, all null when none; schema null when not detected</item>
     /// <item>entities: null when not checked</item>
-    /// <item>the failure count, the file's sha256, and source "revit"</item>
+    /// <item>failures: the list itself — past <see cref="RouteFailures"/>, the first 199 and one line counting the rest
+    /// (the certificate beside the IFC keeps every one); failures_total: how many there are, so the bridge's hold
+    /// counts the ones it does not keep</item>
+    /// <item>sha256 and size_bytes of the certified file, both null when it was never read</item>
+    /// <item>source: "revit" (Governed Publish), "auto-publish" or "check" (the IFC Delivery Gate command); publish:
+    /// true when a publish is judging the file — the bridge then holds a FAIL on the web (Project Files ▸ On hold)</item>
     /// </list></summary>
-    public static Dictionary<string, object?> AuditValue(string file, GateResult r)
+    public static Dictionary<string, object?> AuditValue(string file, GateResult r, string source, bool publish)
     {
         var judged = r.Outcome != GateOutcome.NotChecked;
+        var read = r.FileSha256.Length == 64; // IfcDeliveryGate.Seal hashed the file: its bytes were read
+        var failures = r.Failures.Count <= RouteFailures
+            ? r.Failures.ToList()
+            : r.Failures.Take(RouteFailures - 1)
+                        .Concat(new[] { "… and " + (r.Failures.Count - RouteFailures + 1) + " more — the certificate lists every one" }).ToList();
         return new Dictionary<string, object?>
         {
             ["file"] = file,
@@ -100,11 +109,14 @@ public static class GateLines
             ["contract_ref"] = r.ContractRef,
             ["contract_source"] = r.ContractSource,
             ["contract_sha256"] = r.ContractSha256,
-            ["schema"] = r.DetectedSchema,
+            ["schema"] = r.DetectedSchema.Length > 0 ? r.DetectedSchema : null,
             ["entities"] = judged ? r.TotalEntities : (int?)null,
-            ["failures"] = r.Failures.Count,
-            ["sha256"] = r.FileSha256,
-            ["source"] = "revit",
+            ["failures"] = failures,
+            ["failures_total"] = r.Failures.Count,
+            ["sha256"] = read ? r.FileSha256 : null,
+            ["size_bytes"] = read ? r.FileSizeBytes : (long?)null,
+            ["source"] = source,
+            ["publish"] = publish,
         };
     }
 

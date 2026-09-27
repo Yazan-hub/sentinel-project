@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Offline check for the one publish path (cohesion phase 5b, spec 2026-09-26 Decision 8): the container's name
        (the central file's, F12), the /propose body's register and the reply's version, the outbox staging order
-       (the sidecar before the IFC, on a temp folder), every line Governed Publish and Auto-Publish print, and the
-       publish@n policy decision. Compiles Publisher.cs's pure half under SENTINEL_CHECK (the Revit-typed Prepare and
+       (the sidecar before the IFC, on a temp folder), every line Governed Publish and Auto-Publish print, the
+       publish@n policy decision, and (phase 6a) the delivery-gate route's body, gate_row_id on /propose, the hold row
+       both replies return and the "Held on the web" lines. Compiles Publisher.cs's pure half under SENTINEL_CHECK (the Revit-typed Prepare and
        Judge are hidden) with the files it reads. No Revit API, no AppData, never the running bridge; `dotnet run`
        from this folder. -->
   <PropertyGroup>

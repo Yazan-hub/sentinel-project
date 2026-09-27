@@ -33,7 +33,7 @@ BUILD STATE PER TASK (measured; the RED/GREEN counts are the ones the plan state
   - Both builds give 0 errors with master's warning sets (2024: 6, 2025: 3).
   - The other ten harnesses are unchanged: event-check 44, fixplace-check 52, artefact-cache-check 53, roi-check 43, ghost-standards-check 135, naming-check 37, org-check 46, snapshot-check 21, heal-check 9, project-context-check 19.
   - `git grep AuditAction -- SentinelAddin tools` prints nothing. npm and tsc stay at 1271/90 and 23.
-- Task 5: B12 sits between B11 and Session C, as 27 table lines (header, separator, 25 rows), every row two cells. The five files stay CRLF. No code changes.
+- Task 5: B12 sits between B11 and Session C, as 28 table lines (header, separator, 26 rows), every row two cells. The five files stay CRLF. No code changes.
 
 Pre-existing, unrelated: on a CRLF checkout, canonical-fixture.test.mjs rewrites WebApp/bridge/fixtures/canonical-cases.json. Run `git checkout` on that file before every commit.
 
@@ -3079,7 +3079,7 @@ No change. Applied as written after Tasks 1-3 and measured.
 
 ### Task 5: Docs — Session B12 (the Holding Area) in the testing protocol, the Holding Area capability row (🟩 Built, naming what moves it to ✅), and every line the handbook, the user guide and the verdict contract say that 6a makes untrue (the web upload path, the gate row's route, the reserved rows, the held list)
 
-(Every block below was applied, as written, to the same archive `scratchpad\p6aB` (the applier `scratchpad\p6aB_t5_pairs.py` + `p6aB_apply_multi.py`; every quoted old text matched exactly once, the files stayed CRLF) and checked: B12 sits between B11 and Session C with 25 rows, every row exactly two cells (no `|` inside a cell); the setup block was run in a scratch folder against the working tree — it writes the twelve `.json` files and the three corrected `.ifc`s — and its fixtures were judged by the bridge's own `sentinel-core.mjs` and `ifc-extract.mjs`: `ids.json` rejects `minimal.ifc` (four failures, three of three elements failing) and accepts the corrected copy (three of three), `elements-draft.json` rejected with four failures, `elements-fixed.json` accepted six of six; `bds-naming-ruleset.json` (a valid `naming` artefact) rejects `B12-N.ifc` with `expected 11 '-'-separated fields (…), got 2` and accepts `BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03.ifc`. No code changes; the builds, the harnesses and the suite stay as Task 4 left them.)
+(Every block below was applied, as written, to the same archive `scratchpad\p6aB` (the applier `scratchpad\p6aB_t5_pairs.py` + `p6aB_apply_multi.py`; every quoted old text matched exactly once, the files stayed CRLF) and checked: B12 sits between B11 and Session C with 26 rows, every row exactly two cells (no `|` inside a cell); the setup block was run in a scratch folder against the working tree — it writes the twelve `.json` files and the three corrected `.ifc`s — and its fixtures were judged by the bridge's own `sentinel-core.mjs` and `ifc-extract.mjs`: `ids.json` rejects `minimal.ifc` (four failures, three of three elements failing) and accepts the corrected copy (three of three), `elements-draft.json` rejected with four failures, `elements-fixed.json` accepted six of six; `bds-naming-ruleset.json` (a valid `naming` artefact) rejects `B12-N.ifc` with `expected 11 '-'-separated fields (…), got 2` and accepts `BDS20268-BDS-M3-IFC4-ARC-ZZ-XX-XX-M001-S2-P03.ifc`. No code changes; the builds, the harnesses and the suite stay as Task 4 left them.)
 
 **Files:**
 - Modify: `docs/TESTING_PROTOCOL.md` (`## Session B12 — the Holding Area` inserted before `## Session C — Validate panel (the referee's home turf)`, after B11's Honesty row and its blank line)
@@ -3460,7 +3460,7 @@ grep -c "hold:" docs/verdict-contract.md
 file docs/TESTING_PROTOCOL.md docs/handbook/05-capability-status.md docs/SENTINEL_HANDBOOK.md SENTINEL-USER-GUIDE.md docs/verdict-contract.md | grep -c CRLF
 ```
 
-Expected (measured on the archive): `303:## Session B11 …`, `363:## Session B12 — the Holding Area`, `435:## Session C — Validate panel (the referee's home turf)`; `27` (the header, the separator and 25 rows); `0` (every row two cells); `SENTINEL-USER-GUIDE.md:1`, `docs/SENTINEL_HANDBOOK.md:2`, `docs/handbook/05-capability-status.md:1`, `docs/TESTING_PROTOCOL.md:3`; `23:| Holding Area (cohesion 6a: …` then `24:| One-button Revit command …`; `5`; `5` (all five still CRLF).
+Expected (measured on the archive): `303:## Session B11 …`, `363:## Session B12 — the Holding Area`, `435:## Session C — Validate panel (the referee's home turf)`; `28` (the header, the separator and 26 rows); `0` (every row two cells); `SENTINEL-USER-GUIDE.md:1`, `docs/SENTINEL_HANDBOOK.md:2`, `docs/handbook/05-capability-status.md:1`, `docs/TESTING_PROTOCOL.md:3`; `23:| Holding Area (cohesion 6a: …` then `24:| One-button Revit command …`; `5`; `5` (all five still CRLF).
 
 - [ ] **Step 7: Commit**
 
@@ -3479,7 +3479,7 @@ Build state: unchanged from Task 4.
 
 **Amendments (controller, after the cross-check — override the task where they conflict):**
 
-Five replacements, all inside Step 1's B12 block. Each old text occurs once in the plan and once in the applied doc. After them, B12 still has 25 rows, each exactly two cells.
+Five replacements, all inside Step 1's B12 block. Each old text occurs once in the plan and once in the applied doc. After them, B12 still has 26 rows, each exactly two cells.
 
 A5.1 (the gate route validates):
 - Replace ``(`result: "maybe"`) → ` 400` (Task 1's words for `result`)`` with ``(`result: "maybe"`) → ` 400` `result must be pass, fail or not_checked` ``.
@@ -3497,7 +3497,7 @@ A5.4 (Deploy, the measured totals):
 A5.5 (a recorded clearance is labelled; Task 2's entry carries its label):
 - Replace ``cleared_recent` holds `{"container_name":"B12-G.ifc","by":"recorded","version_id":"<vg>","at":…}` `` with ``cleared_recent` holds `{"container_name":"B12-G.ifc","by":"recorded","version_id":"<vg>","at":…,"label":"cleared by a registration that was not judged (recorded)"}` ``.
 
-Part B's cross-task notes 1, 3 and 8 are settled by A3.5-A3.7 and A5.1-A5.5. Note 3 is superseded: the CLI prints `REJECTED (naming)`. No other text in Task 5 changes. Its checks (Step 6) were measured as written: B12 at lines 363-435, 27 table lines, every row two cells, and the "Held on the web" counts 1/2/1/3.
+Part B's cross-task notes 1, 3 and 8 are settled by A3.5-A3.7 and A5.1-A5.5. Note 3 is superseded: the CLI prints `REJECTED (naming)`. No other text in Task 5 changes. Its checks (Step 6) were measured as written: B12 at lines 363-435, 28 table lines, every row two cells, and the "Held on the web" counts 1/2/1/3.
 
 (controller) **Name the tab the user sees.** The web tab that holds the Versions panel is labelled `Project Files` (`WebApp/src/main.ts`), so every surface prints `Project Files ▸ On hold`, never `Versions ▸ On hold`: in Task 4 the held line is `Held on the web: Project Files ▸ On hold · ` + `LedgerLine.For(hold)` (change the one string and the publish-check pins that quote it — the total stays 112/112), and in Task 5 every quote of that line and every instruction naming the list says `Project Files ▸ On hold` (the section's own heading in the panel stays `On hold (n)`).
 

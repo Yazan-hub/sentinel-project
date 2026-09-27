@@ -1,5 +1,6 @@
 // The ledger's writers (cohesion phase 5a, spec Decision 7): audit() returns the row the ledger stored, and the open
-// audit route cannot write the rows Sentinel reads as its own (verdict:, gate:, roi:, state:, stage_gate).
+// audit route cannot write the rows Sentinel reads as its own (verdict:, gate:, roi:, state:, stage_gate; since phase 6a
+// hold:, hold and delivery_gate).
 // globalThis.fetch is a fake PostgREST — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -62,6 +63,13 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     [{ entity_type: "stage_gate", action: "Stage advanced to coord" }, "stage_gate rows are written by Sentinel, not through this route"],
     [{ entity_type: "file_version", entity_id: V, action: "  Verdict:accepted" }, "verdict: rows are written by Sentinel, not through this route"],
     [{ entity_type: " Stage_Gate ", action: "recorded" }, "stage_gate rows are written by Sentinel, not through this route"],
+    // The Holding Area (phase 6a): a hold is the bridge's own row, and Revit's gate row goes through the machine-only route.
+    [{ entity_type: "event", action: "hold:ids Tower.ifc" }, "hold: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "event", action: " HOLD:dismissed Tower.ifc" }, "hold: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "hold", action: "recorded" }, "hold rows are written by Sentinel, not through this route"],
+    [{ entity_type: " Hold ", action: "recorded" }, "hold rows are written by Sentinel, not through this route"],
+    [{ entity_type: "delivery_gate", action: "IFC delivery gate PASS: tower.ifc" }, "delivery_gate rows are written by Sentinel, not through this route"],
+    [{ entity_type: " Delivery_Gate", action: "IFC delivery gate FAIL: tower.ifc" }, "delivery_gate rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);
@@ -70,7 +78,6 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
   it.each([
     ["clash", "Clash raised: Wall ↔ Duct"],
     ["ids_validation", "Issue raised: Pset_WallCommon.FireRating"],
-    ["delivery_gate", "IFC delivery gate PASS: tower.ifc"],
     ["naming", "Naming Manager renamed 3 item(s) in Revit"],
     ["family_heal", "Family heal: 2 healed, 0 for a human, 0 failed of 5"],
     ["model", "Model published from Revit: tower"],

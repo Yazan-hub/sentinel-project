@@ -36,16 +36,32 @@ export async function runIntake(deps, rawInput) {
   const notChecked = gate.result === "not_checked";
   const gateRow = { file: name, result: gate.result, passed: gate.passed, contract: gate.contract_key, contract_ref: gate.contract_ref, contract_source: gate.contract_source, contract_sha256: gate.contract_sha256, schema: gate.detected_schema, entities: gate.total_entities, failures: gate.failures.length, sha256: gate.sha256, source };
   // deps.audit is 4-arg here: (key, message, actor, value) — entity_type/entity_id are the wiring
-  // adapter's job (see task-5-brief.md), not this module's; the real cde.audit takes 7 args.
-  await deps.audit(key, `IFC delivery gate ${{ pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }[gate.result]}: ${name}`, actor, gateRow);
-  const base = { gate, sha256: gate.sha256, size: gate.size, naming: null, summary: null, failures: [], ids_source: null, ids_ref: null, ids_enforce: null, warned: false, audit_id: null, receipt: null, published: false };
-  if (gate.result === "fail") return { ...base, verdict: "rejected", stage: "gate" };
+  // adapter's job (see task-5-brief.md), not this module's; the real cde.audit takes 7 args. It returns the row the
+  // ledger stored (null when none came back): its id links the proposal row and the hold to this gate row (phase 6a).
+  const gateRec = await deps.audit(key, `IFC delivery gate ${{ pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }[gate.result]}: ${name}`, actor, gateRow);
+  const gateRowId = gateRec?.id ?? null;
+  const base = { gate, sha256: gate.sha256, size: gate.size, naming: null, summary: null, failures: [], ids_source: null, ids_ref: null, ids_enforce: null, warned: false, audit_id: null, receipt: null, published: false, hold: null };
+  if (gate.result === "fail") {
+    // A refused file is held (spec 2026-09-27 Decision 4) — a ledger row, never the bytes. deps.writeHold writes the
+    // hold:gate row only when the caller could register the file and answers the stored row ({} when none came back),
+    // or null when it wrote nothing (cde-store holdIfCouldRegister). It runs after the gate row is on the ledger: a
+    // failure there throws (a 500, its message scrubbed) and the FAIL stands on the ledger unheld.
+    const h = await deps.writeHold(key, {
+      stage: "gate", container_name: name, sha256: gate.sha256, size_bytes: gate.size, verdict: "rejected", failures: gate.failures,
+      source: source === "web" ? "web" : "intake", gate_row_id: gateRowId, proposal_row_id: null, contract_ref: gate.contract_ref ?? null, ids_ref: null, naming_ref: null, actor,
+    });
+    return { ...base, verdict: "rejected", stage: "gate", hold: h ? { id: h.id ?? null, hash: h.hash ?? null } : null };
+  }
 
-  // G1 + G3 — the referee: naming gate on the container name, IDS on the extracted elements.
+  // G1 + G3 — the referee: naming gate on the container name, IDS on the extracted elements. The third argument is
+  // intake's own (the file's source, sha256, size and gate row): the referee names the file on the proposal row and
+  // holds a refusal of it (adjudicateProposal's opts.intake — no HTTP body reaches it).
   const extracted = await deps.extractElements(bytes);
-  const result = await deps.adjudicate(key, { source, actor, agent, elements: extracted.elements, container_name: name, note });
+  const result = await deps.adjudicate(key, { source, actor, agent, elements: extracted.elements, container_name: name, note },
+    { intake: { source, sha256: gate.sha256, size_bytes: gate.size, gate_row_id: gateRowId } });
   const judged = {
-    ...base, naming: result.naming ?? null, summary: result.summary ?? null, failures: result.failures || [],
+    // failures_total: the referee's count before it cut the list at 200.
+    ...base, naming: result.naming ?? null, summary: result.summary ?? null, failures: result.failures || [], failures_total: result.failures_total,
     ids_source: result.ids_source, ids_ref: result.ids_ref ?? null, ids_enforce: result.ids_enforce ?? null, warned: !!result.warned,
     audit_id: result.audit_id ?? null, receipt: result.receipt ?? null,
     extracted: extracted.counts,
@@ -55,7 +71,10 @@ export async function runIntake(deps, rawInput) {
   // still tracked, not silently dropped from the loop just because the file came in through intake.
   const shouldRaiseBcf = input.raise_bcf && (result.failures || []).length > 0 && result.ids_enforce !== "off";
   if (result.verdict === "rejected") {
-    const out = { ...judged, verdict: "rejected", stage: "ids" };
+    // The stage that refused: the naming judge when it rejected the name, else the IDS — as the referee decided for the
+    // hold row it wrote (result.hold, null when nothing was held).
+    const namingRefused = result.naming?.ok === false && result.naming?.enforce === "reject";
+    const out = { ...judged, verdict: "rejected", stage: namingRefused ? "naming" : "ids", hold: result.hold ?? null };
     if (shouldRaiseBcf) out.bcf = await deps.raiseBcf(key, result, { author: actor });
     return out;
   }

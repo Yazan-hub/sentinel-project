@@ -113,11 +113,12 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
     {
         // No contract → NOT CHECKED: the file's sha and schema are recorded, nothing is judged, never a PASS.
         var r = Sentinel.Engine.IfcDeliveryGate.Validate(ifcPath, contract, contractSource);
-        // Record the gate verdict and the contract that judged on the document's web project ledger and wait for the
+        // Record the gate verdict and the contract that judged on the document's web project ledger (POST
+        // /cde/:key/delivery-gate, source "check", publish false: a check holds nothing on the web) and wait for the
         // answer OFF this thread (≤ 6 s) — both callers are API contexts: the command body and the export's event job.
         // The dialog ends with what the ledger answered: "Recorded: ledger #<id> · receipt <16 hex>…", not confirmed,
         // not recorded, or — unbound — nothing sent.
-        var ledger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey)).GetAwaiter().GetResult();
+        var ledger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey, "check", publish: false)).GetAwaiter().GetResult();
         TaskDialog.Show("Sentinel — IFC Delivery Gate",
             Sentinel.Engine.GateLines.GateDialog(r, projectKey) + "\n\n" + Sentinel.Coordination.LedgerLine.Sentence(ledger));
     }

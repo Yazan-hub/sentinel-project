@@ -34,13 +34,18 @@ public sealed class LedgerResult
     public readonly long? Id;
     public readonly string? Hash;
     public readonly string Reason;
+    /// <summary>The hold row the same write produced — the delivery-gate route's reply <c>hold {id, hash}</c> for a FAIL
+    /// judged in a publish (spec 2026-09-27 Decision 5), through <see cref="FromReceipt"/>; null when the bridge returned
+    /// none (a pass, a check, a refused or unreached write, a bridge before 6a).</summary>
+    public readonly LedgerResult? Hold;
 
-    private LedgerResult(LedgerState state, string reason, long? id = null, string? hash = null)
+    private LedgerResult(LedgerState state, string reason, long? id = null, string? hash = null, LedgerResult? hold = null)
     {
         State = state;
         Reason = reason;
         Id = id;
         Hash = hash;
+        Hold = hold;
     }
 
     public static LedgerResult NotConfirmed(string reason) => new(LedgerState.NotConfirmed, reason);
@@ -56,10 +61,12 @@ public sealed class LedgerResult
 
     /// <summary>An HTTP answer → what it proves. 2xx: the POST /cde/:key/audit row's id + hash, or a /propose body's
     /// audit_id + receipt.ledger_hash → Recorded, anything less → not confirmed. 400/401/403/404/503 are answered
-    /// before any write → not recorded "HTTP n: message". Any other status → not confirmed.</summary>
+    /// before any write → not recorded "HTTP n: message". Any other status → not confirmed. A 2xx body's
+    /// <c>hold {id, hash}</c> (the delivery-gate route's, phase 6a) is carried as <see cref="Hold"/>.</summary>
     public static LedgerResult FromResponse(int status, string? body)
     {
         string? message = null, id = null, hash = null;
+        LedgerResult? hold = null;
         try
         {
             using var d = JsonDocument.Parse(body ?? "");
@@ -69,10 +76,15 @@ public sealed class LedgerResult
                 message = Str(root, "message");
                 if (root.TryGetProperty("receipt", out var receipt)) { id = Scalar(root, "audit_id"); hash = Str(receipt, "ledger_hash"); }
                 else { id = Scalar(root, "id"); hash = Str(root, "hash"); }
+                if (root.TryGetProperty("hold", out var h) && h.ValueKind == JsonValueKind.Object) hold = FromReceipt(Scalar(h, "id"), Str(h, "hash"));
             }
         }
         catch (JsonException) { /* not JSON (a proxy's page, an empty body): the status alone speaks */ }
-        if (status >= 200 && status < 300) return FromReceipt(id, hash);
+        if (status >= 200 && status < 300)
+        {
+            var row = FromReceipt(id, hash);
+            return hold is null ? row : new LedgerResult(row.State, row.Reason, row.Id, row.Hash, hold);
+        }
         var what = "HTTP " + status + (string.IsNullOrWhiteSpace(message) ? "" : ": " + Clip(message!));
         return status is 400 or 401 or 403 or 404 or 503 ? NotRecorded(what) : NotConfirmed(what + MayHaveLanded);
     }

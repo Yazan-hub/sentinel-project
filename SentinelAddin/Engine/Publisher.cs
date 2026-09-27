@@ -141,12 +141,15 @@ public static class Publisher
     /// project's artefact reader, <c>(kind, timeout) → ResolvedArtefact</c>, asked for "contract"; null means
     /// <see cref="DeliveryContract.Load"/>); the WHOLE model exported (<see cref="PlatformExporter.Default3DView"/>)
     /// into a folder of its own under <paramref name="tempDir"/> in <c>contract.IfcSchema ?? "IFC2X3"</c>; the gate and
-    /// its ledger row (waited, ≤ 6 s, so the row lands before /propose); the elements read for the referee. An unbound
+    /// its ledger row (waited, ≤ 6 s, so the row lands before /propose) — posted to <c>/cde/:key/delivery-gate</c> with
+    /// <paramref name="source"/> ("revit" from Governed Publish, "auto-publish" from Auto-Publish) and publish true, so
+    /// the bridge holds a FAIL on the web and <see cref="PublishPlan.GateRow"/>'s <see cref="LedgerResult.Hold"/> names
+    /// that hold row; the elements read for the referee. An unbound
     /// document, a failed export, a gate FAIL or a throw after the export leaves <see cref="PublishPlan.Ready"/> false with the temp IFC
     /// discarded: <see cref="PublishLines.Dialog(PublishPlan,PublishOutcome?,StageResult?)"/> says which. Revit API
     /// only here; the plan carries no Revit object.
     /// </summary>
-    public static PublishPlan Prepare(Document doc, string tempDir, Func<string, TimeSpan?, ResolvedArtefact>? resolve = null)
+    public static PublishPlan Prepare(Document doc, string tempDir, Func<string, TimeSpan?, ResolvedArtefact>? resolve = null, string source = "revit")
     {
         var ctx = ProjectContext.For(doc);
         var plan = new PublishPlan { Key = ctx.Key, ContainerName = ContainerName(doc) };
@@ -155,9 +158,9 @@ public static class Publisher
 
         // 0) The delivery contract in force (project → office → none), resolved OFF this thread and waited, as
         //    Governed Publish did: the export below uses the schema it asks for.
-        var (contract, source) = Task.Run(() => resolve is null ? DeliveryContract.Load(key) : DeliveryContract.FromResolved(resolve("contract", null))).GetAwaiter().GetResult();
+        var (contract, contractSource) = Task.Run(() => resolve is null ? DeliveryContract.Load(key) : DeliveryContract.FromResolved(resolve("contract", null))).GetAwaiter().GetResult();
         plan.Contract = contract;
-        plan.ContractSource = source;
+        plan.ContractSource = contractSource;
 
         // 1) The whole model, to a temp folder of this plan's own (two runs never share a file), NOT the outbox: only
         //    a judged, registered version reaches the outbox (Stage).
@@ -179,12 +182,12 @@ public static class Publisher
         //    refusal that discards it, so nothing lingers under %TEMP% unnamed — on either caller's path.
         try
         {
-            plan.Gate = IfcDeliveryGate.Validate(path, contract, source);
+            plan.Gate = IfcDeliveryGate.Validate(path, contract, contractSource);
             plan.SizeBytes = plan.Gate.FileSizeBytes;
             plan.Sha256 = plan.Gate.FileSha256;
             var gate = plan.Gate;
             var name = plan.ContainerName;
-            plan.GateRow = Task.Run(() => GovernedNotify.DeliveryGate(name, gate, key)).GetAwaiter().GetResult();
+            plan.GateRow = Task.Run(() => GovernedNotify.DeliveryGate(name, gate, key, source, publish: true)).GetAwaiter().GetResult();
             if (plan.GateFailed) { Discard(plan); return plan; }
 
             // 3) The elements the referee judges, read-only from the live model. Without an office code the Pset_<org>.*
@@ -206,16 +209,19 @@ public static class Publisher
 
     /// <summary>
     /// The one referee call, OFF the API thread (the plan holds no Revit object): <c>POST /cde/:key/propose</c> with
-    /// the elements, <c>container_name</c> and <c>register {name, size_bytes, sha256}</c> — the bridge judges by the
-    /// project's ids@n and naming@n, writes one proposal row, and on accepted or recorded registers the version (wip,
-    /// no geometry) and stamps the verdict on it; a rejected verdict registers nothing. Blocking (120 s cap); never
-    /// throws — an unreached bridge is <see cref="PublishOutcome.Reached"/> false. <paramref name="source"/> is the
-    /// proposal row's "from": "Governed Publish", or "Auto-Publish".
+    /// the elements, <c>container_name</c>, <c>register {name, size_bytes, sha256}</c> and <c>gate_row_id</c> (the gate
+    /// row's ledger id, when it was recorded) — the bridge judges by the project's ids@n and naming@n, writes one
+    /// proposal row naming the file and its gate row, and on accepted or recorded registers the version (wip, no
+    /// geometry) and stamps the verdict on it; a rejected verdict registers nothing and, judged by installed standards,
+    /// is held on the web (<see cref="PublishOutcome.HoldRow"/>). Blocking (120 s cap); never throws — an unreached
+    /// bridge is <see cref="PublishOutcome.Reached"/> false. <paramref name="source"/> is the proposal row's "from":
+    /// "Governed Publish", or "Auto-Publish" (the bridge's hold names them revit and auto-publish).
     /// </summary>
     public static PublishOutcome Judge(PublishPlan plan, string source = "Governed Publish") =>
         PublishOutcome.From(GovernedNotify.Propose(plan.Elements, versionId: null, actor: "Revit", projectKey: plan.Key,
             containerName: plan.ContainerName, source: source,
-            register: new RegisterRequest { Name = plan.ContainerName, SizeBytes = plan.SizeBytes, Sha256 = plan.Sha256 }));
+            register: new RegisterRequest { Name = plan.ContainerName, SizeBytes = plan.SizeBytes, Sha256 = plan.Sha256 },
+            gateRowId: plan.GateRow.Id));
 #endif
 }
 
@@ -235,6 +241,7 @@ public sealed class PublishPlan
     public DeliveryContract? Contract;
     public ResolvedArtefact ContractSource = ArtefactClient.None("contract", "not loaded");
     public IfcDeliveryGate.GateResult Gate = new IfcDeliveryGate.GateResult();
+    /// <summary>The gate row as the bridge answered; on a FAIL its <see cref="LedgerResult.Hold"/> is the hold:gate row.</summary>
     public LedgerResult GateRow = LedgerResult.NotRecorded("the gate did not run");
     public IReadOnlyList<GovElement> Elements = Array.Empty<GovElement>();
     /// <summary>The gate judged and failed (a NOT CHECKED gate is not a fail).</summary>
@@ -260,6 +267,9 @@ public sealed class PublishOutcome
     /// <summary>The verdict:&lt;v&gt; row the bridge stamped on the registered version: verdict_audit_id and
     /// verdict_hash. Not confirmed when either is missing (a bridge before 5b answers no verdict_hash).</summary>
     public LedgerResult StampRow => LedgerResult.FromReceipt(Verdict.VerdictAuditId, Verdict.VerdictHash);
+    /// <summary>The hold:&lt;stage&gt; row the bridge wrote for a refused registration (the reply's hold {id, hash});
+    /// null when it returned none; not confirmed when the hold came back without its id or hash.</summary>
+    public LedgerResult? HoldRow => Reached && Verdict.Held ? LedgerResult.FromReceipt(Verdict.HoldId, Verdict.HoldHash) : null;
     public static PublishOutcome From(ProposalResult r) => new PublishOutcome { Verdict = r };
 }
 
@@ -279,11 +289,17 @@ public sealed class StageResult
 /// from the plan, the outcome and the stage alone — so tools/publish-check pins them. Every line names what judged (the
 /// existing <see cref="GateLines"/> and <see cref="LedgerLine"/> words, the IDS and naming labels from the bridge's
 /// answer); the version is claimed only from the reply; "receipt" appears only with a hash the bridge returned (the
-/// proposal row's receipt.ledger_hash, the stamp row's verdict_hash). Pure.</summary>
+/// proposal row's receipt.ledger_hash, the stamp row's verdict_hash, a hold row's hash); "Held on the web" only when
+/// the bridge returned the hold row it wrote. Pure.</summary>
 public static class PublishLines
 {
     public static string GateRow(PublishPlan p) => "Gate row: " + LedgerLine.For(p.GateRow);
     public static string VerdictRow(PublishOutcome o) => "Verdict row: " + LedgerLine.For(o.VerdictRow);
+
+    /// <summary>"Held on the web: Project Files ▸ On hold · ledger #815 · receipt 7a8b9c0d1e2f3041…" (spec 2026-09-27
+    /// Decision 9) — printed only when the bridge returned the hold row it wrote for this refusal (the /propose reply's
+    /// hold, or the delivery-gate route's for a gate FAIL); the ledger words are <see cref="LedgerLine"/>'s.</summary>
+    public static string Held(LedgerResult hold) => "Held on the web: Project Files ▸ On hold · " + LedgerLine.For(hold);
 
     /// <summary>"Version: &lt;container&gt; v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5…" from the reply — the
     /// stamp row through <see cref="LedgerLine"/>, so "… · wip · not confirmed — the bridge returned no chain hash"
@@ -338,7 +354,7 @@ public static class PublishLines
     {
         if (o is null || s is null)
             return p.Refusal is not null ? p.Refusal
-                 : p.GateFailed ? GateLines.PublishRejected(p.Gate) + "\n\n" + GateRow(p)
+                 : p.GateFailed ? GateLines.PublishRejected(p.Gate) + "\n\n" + GateRow(p) + (p.GateRow.Hold is { } gateHold ? "\n" + Held(gateHold) : "")
                  : "";
         var gateLine = GateLines.PublishLine(p.Gate, p.Key);
         if (!o.Reached)
@@ -354,7 +370,8 @@ public static class PublishLines
                        ? "✕ REJECTED — model name does not follow the ISO 19650 convention (not published)\n\nName checked: " + p.ContainerName + "\n\n"
                        : "✕ REJECTED — " + v.Failing + " of " + v.InScope + " in-scope element check(s) failed (not published)\n\n") +
                    gateLine + "\n" + GateRow(p) + "\n" + VerdictRow(o) + "\n" +
-                   "No version was registered and nothing was uploaded.\n\n" +
+                   "No version was registered and nothing was uploaded.\n" +
+                   (o.HoldRow is { } hold ? Held(hold) + "\n" : "") + "\n" +
                    (nameFailed ? "NAMING:\n• " + string.Join("\n• ", v.NamingFailures) + "\n\n" : "") +
                    (v.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", v.Failures) + "\n\n" : "") +
                    (v.BcfRaised > 0
@@ -397,14 +414,15 @@ public static class PublishLines
     public static string Doctor(PublishPlan p, PublishOutcome? o = null, StageResult? s = null)
     {
         if (p.Refusal is not null) return "Auto-publish failed — nothing uploaded — " + p.Refusal.Replace("\n", " ").Replace("  ", " ");
-        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow);
+        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow) +
+                                 (p.GateRow.Hold is { } gateHold ? " · " + Held(gateHold) : "");
         if (o is null || s is null) return "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded";
         var v = o.Verdict;
         if (!o.Reached) return "Auto-publish: no verdict — nothing uploaded — " + (v.Error is { Length: > 0 } ? v.Error : "the bridge returned no verdict");
         if (o.Rejected)
             return "Auto-publish rejected — nothing uploaded — " +
                    (v.NamingOk == false ? "the model name " + p.ContainerName + " failed naming " + v.NamingLabel : v.Failing + " of " + v.InScope + " element check(s) failed · " + v.IdsLabel) +
-                   " · " + LedgerLine.For(o.VerdictRow);
+                   " · " + LedgerLine.For(o.VerdictRow) + (o.HoldRow is { } hold ? " · " + Held(hold) : "");
         if (o.Version is null) return "Auto-publish: verdict " + v.Verdict + " but the bridge registered no version — nothing uploaded · " + LedgerLine.For(o.VerdictRow);
         var ver = o.Version;
         if (!s.Staged) return "Auto-publish: " + p.ContainerName + " " + ver.Revision + " · " + ver.State + " registered but NOT in the upload outbox — " + s.Reason + (s.KeptIfcPath is null ? "" : " — the IFC is kept at " + s.KeptIfcPath);

@@ -184,10 +184,10 @@ describe("register — one adjudication registers the version and stamps it", ()
     expect(r.verdict_audit_id).toBe(db.audit_log.at(-1).id);
   });
 
-  it("rejected registers nothing", async () => {
+  it("rejected registers nothing — the refusal is held instead (phase 6a): one hold row names the file", async () => {
     const r = await adjudicateProposal("aster-tower", { source: "revit", elements: BAD, container_name: NAME, register });
-    expect(r).toMatchObject({ verdict: "rejected", version: null, verdict_audit_id: null, verdict_hash: null });
-    expect(actions()).toEqual(["Proposal rejected from revit"]);
+    expect(r).toMatchObject({ verdict: "rejected", version: null, verdict_audit_id: null, verdict_hash: null, hold: { id: db.audit_log[1].id, hash: db.audit_log[1].hash } });
+    expect(actions()).toEqual(["Proposal rejected from revit", `hold:ids ${NAME}`]);
     expect(posts("information_containers")).toHaveLength(0);
     expect(posts("container_versions")).toHaveLength(0);
   });

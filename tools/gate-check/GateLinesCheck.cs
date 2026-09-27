@@ -97,37 +97,53 @@ static class GateLinesCheck
         ok(rej.Contains("• failure 12\n… and 3 more\n") && !rej.Contains("failure 13"),
            "reject: 12 failures shown, the rest counted");
 
-        // ── 5. the audit row: the Node intake gate row's shape, passed nullable ────────────────────────────────
-        ok(GateLines.AuditAction("a.ifc", pass) == "IFC delivery gate PASS: a.ifc"
-           && GateLines.AuditAction("a.ifc", fail) == "IFC delivery gate FAIL: a.ifc"
-           && GateLines.AuditAction("a.ifc", none) == "IFC delivery gate NOT CHECKED: a.ifc",
-           "audit action: PASS | FAIL | NOT CHECKED");
-        ok(string.Join(",", GateLines.AuditValue("a.ifc", pass).Keys) ==
-           "file,result,passed,contract,contract_ref,contract_source,contract_sha256,schema,entities,failures,sha256,source",
-           "audit value: the intake gate row's fields, in order");
-        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass))))
+        // ── 5. the delivery-gate route's body (6a): the gate row's fields, passed nullable, every failure ─────────
+        //    The bridge words the row ("IFC delivery gate PASS | FAIL | NOT CHECKED: <file>") itself: Revit sends no action.
+        ok(string.Join(",", GateLines.AuditValue("a.ifc", pass, "revit", true).Keys) ==
+           "file,result,passed,contract,contract_ref,contract_source,contract_sha256,schema,entities,failures,failures_total,sha256,size_bytes,source,publish",
+           "route body: the gate row's fields, in order, with failures_total, then size_bytes, source and publish");
+        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass, "revit", true))))
         {
             var e = j.RootElement;
             ok(e.GetProperty("result").GetString() == "pass" && e.GetProperty("passed").ValueKind == JsonValueKind.True
                && e.GetProperty("contract").GetString() == "pilot-ifc4" && e.GetProperty("contract_ref").GetString() == "contract@1"
                && e.GetProperty("contract_source").GetString() == "office" && e.GetProperty("contract_sha256").GetString() == Sha
                && e.GetProperty("schema").GetString() == "IFC4" && e.GetProperty("entities").GetInt32() == 40
-               && e.GetProperty("failures").GetInt32() == 0 && e.GetProperty("source").GetString() == "revit",
-               "audit value: PASS carries result, passed true and the contract's ref · source · sha");
+               && e.GetProperty("failures").GetArrayLength() == 0 && e.GetProperty("size_bytes").GetInt64() == 1048576
+               && e.GetProperty("source").GetString() == "revit" && e.GetProperty("publish").ValueKind == JsonValueKind.True,
+               "route body: PASS carries passed true, the contract's ref · source · sha, no failure, the size, the source and publish");
         }
-        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", fail))))
+        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", fail, "auto-publish", true))))
             ok(j.RootElement.GetProperty("result").GetString() == "fail" && j.RootElement.GetProperty("passed").ValueKind == JsonValueKind.False
-               && j.RootElement.GetProperty("failures").GetInt32() == 2,
-               "audit value: FAIL carries passed false and the failure count");
-        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", none))))
+               && string.Join(" | ", j.RootElement.GetProperty("failures").EnumerateArray().Select(f => f.GetString())) ==
+                  "Schema mismatch: contract requires IFC4, file is IFC2X3. | IFCCOLUMN: 0 found, contract requires ≥ 1."
+               && j.RootElement.GetProperty("source").GetString() == "auto-publish",
+               "route body: FAIL carries passed false and every failure itself — no longer a count");
+        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", none, "check", false))))
         {
             var e = j.RootElement;
             ok(e.GetProperty("result").GetString() == "not_checked" && e.GetProperty("passed").ValueKind == JsonValueKind.Null
                && e.GetProperty("contract").ValueKind == JsonValueKind.Null && e.GetProperty("contract_ref").ValueKind == JsonValueKind.Null
                && e.GetProperty("contract_source").ValueKind == JsonValueKind.Null && e.GetProperty("contract_sha256").ValueKind == JsonValueKind.Null
-               && e.GetProperty("entities").ValueKind == JsonValueKind.Null && e.GetProperty("failures").GetInt32() == 0
-               && e.GetProperty("sha256").GetString() == string.Concat(Enumerable.Repeat("cd", 32)),
-               "audit value: NOT CHECKED carries passed null, no contract, no entity count — but the file's sha");
+               && e.GetProperty("entities").ValueKind == JsonValueKind.Null && e.GetProperty("failures").GetArrayLength() == 0
+               && e.GetProperty("sha256").GetString() == string.Concat(Enumerable.Repeat("cd", 32))
+               && e.GetProperty("source").GetString() == "check" && e.GetProperty("publish").ValueKind == JsonValueKind.False,
+               "route body: NOT CHECKED carries passed null, no contract, no entity count — but the file's sha; the IFC gate's own check publishes nothing");
         }
+        Dictionary<string, object?> Flood(int n) => GateLines.AuditValue("a.ifc", Judged(GateOutcome.Fail, "IFC4", Enumerable.Range(1, n).Select(i => "failure " + i).ToArray()), "revit", true);
+        var flood = Flood(250);
+        var sent = (List<string>)flood["failures"]!;
+        ok(sent.Count == GateLines.RouteFailures && sent[0] == "failure 1" && sent[198] == "failure 199"
+           && sent[199] == "… and 51 more — the certificate lists every one" && (int)flood["failures_total"]! == 250,
+           "route body: past 200 failures, the first 199 and one line counting the rest (the route refuses a longer list); failures_total counts all 250");
+        var at200 = Flood(200); var s200 = (List<string>)at200["failures"]!;
+        ok(s200.Count == 200 && s200[199] == "failure 200" && (int)at200["failures_total"]! == 200,
+           "route body: exactly 200 failures are sent as they are");
+        var at201 = Flood(201); var s201 = (List<string>)at201["failures"]!;
+        ok(s201.Count == 200 && s201[198] == "failure 199" && s201[199] == "… and 2 more — the certificate lists every one" && (int)at201["failures_total"]! == 201,
+           "route body: 201 failures are the first 199 and '… and 2 more'");
+        var unread = GateLines.AuditValue("gone.ifc", missing, "check", false);
+        ok(unread["sha256"] is null && unread["size_bytes"] is null && unread["schema"] is null,
+           "route body: a file that was never read sends sha256, size_bytes and schema null — never an empty hash");
     }
 }

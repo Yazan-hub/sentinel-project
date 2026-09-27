@@ -21,6 +21,8 @@ static class Check
     const string ISha = "23bb57937fb0a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aa";    // ids@4's sha
     const string NSha = "77e1d2c3b4a5968778695a4b3c2d1e0f0f1e2d3c4b5a69788796a5b4c3d2e1f0";    // naming@2's sha
     const string PSha = "3f07a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddee";    // publish@1's sha
+    const string HoldHash = "7a8b9c0d1e2f30415263748596a7b8c9d0e1f20314253647586970a1b2c3d4e5"; // a hold:<stage> row's (the /propose reply's hold)
+    const string GateHoldHash = "8c9d0e1f20314253647586970a1b2c3d4e5f60718293a4b5c6d7e8f901122334"; // the hold:gate row's (the delivery-gate reply's hold)
     const string Vid = "9d2c6e1a-5b3f-4c7d-8e9f-0a1b2c3d4e5f";
     const string Cid = "1d2c6e1a-5b3f-4c7d-8e9f-0a1b2c3d4e5f";
     const string Container = "AST_ASTR26_Aster Tower.ifc";
@@ -87,6 +89,9 @@ static class Check
         Is(JsonSerializer.Serialize(ProposalResult.RequestBody(new object[0], "v1", "Revit", Container, null, "n", false, "REQ-1", null)),
            "{\"source\":\"Governed Publish\",\"actor\":\"Revit\",\"elements\":[],\"version_id\":\"v1\",\"container_name\":\"" + Container + "\",\"note\":\"n\",\"raise_bcf\":false,\"failures_requirement\":\"REQ-1\"}",
            "without register the body is the one every other caller sends today");
+        Is(JsonSerializer.Serialize(ProposalResult.RequestBody(new object[0], null, "Revit", Container, "Auto-Publish", null, true, null, reg, 812)),
+           "{\"source\":\"Auto-Publish\",\"actor\":\"Revit\",\"elements\":[],\"container_name\":\"" + Container + "\",\"register\":{\"name\":\"" + Container + "\",\"size_bytes\":5120000,\"sha256\":\"" + FileSha + "\"},\"gate_row_id\":812}",
+           "the Publisher's /propose names its recorded gate row: gate_row_id after register (6a)");
 
         var r = ProposalResult.Parse(Accepted);
         Ok(r.Reached && r.Verdict == "accepted" && r.Downgraded is null, "an accepted reply reads accepted, not downgraded");
@@ -101,6 +106,21 @@ static class Check
         Ok(rej.Verdict == "rejected" && rej.Version is null && rej.VerdictAuditId is null && rej.VerdictHash is null && rej.Failing == 3, "a rejected reply: version null, verdict_audit_id and verdict_hash null read as none");
         Ok(ProposalResult.Parse(Accepted.Replace("\"id\":\"" + Vid + "\",", "")).Version is null, "a version without an id is no version");
         Ok(ProposalResult.Parse("{\"verdict\":\"accepted\",\"summary\":{\"in_scope\":1,\"passing\":1,\"failing\":0},\"audit_id\":1}").Version is null, "a pre-5a reply (no version key) is no version");
+
+        // 6a: the hold row the bridge wrote for a refusal — in the /propose reply, and in the delivery-gate route's
+        var held = ProposalResult.Parse(Reply("rejected", null, 40, 37, 3, version: false).Replace("\"agent\":null", "\"agent\":null,\"hold\":{\"id\":815,\"hash\":\"" + HoldHash + "\"}"));
+        Ok(held.Held && held.HoldId == "815" && held.HoldHash == HoldHash, "a rejected reply's hold {id, hash} is read");
+        Ok(!ProposalResult.Parse(Reply("rejected", null, 40, 37, 3, version: false).Replace("\"agent\":null", "\"agent\":null,\"hold\":null")).Held && !rej.Held,
+           "hold null, or no hold key (a bridge before 6a), is no hold");
+        var gateReply = LedgerResult.FromResponse(201, "{\"id\":812,\"hash\":\"" + GateHash + "\",\"hold\":{\"id\":816,\"hash\":\"" + GateHoldHash + "\"}}");
+        Ok(gateReply is { State: LedgerState.Recorded, Id: 812 } && gateReply.Hold is { State: LedgerState.Recorded, Id: 816 } && gateReply.Hold.Hash == GateHoldHash,
+           "the delivery-gate route's 201 {id, hash, hold}: the gate row, and its hold row as Hold");
+        Ok(LedgerResult.FromResponse(201, "{\"id\":812,\"hash\":\"" + GateHash + "\",\"hold\":null}").Hold is null && LedgerResult.FromResponse(403, "{\"message\":\"the delivery-gate route is for Sentinel's machine credential\"}").Hold is null,
+           "hold null, or a refused write, carries no hold");
+        Is(JsonSerializer.Serialize(GateLines.AuditValue(Container, Gate(GateOutcome.Fail, "IFC2X3"), "auto-publish", true)),
+           "{\"file\":\"" + Container + "\",\"result\":\"fail\",\"passed\":false,\"contract\":\"pilot-ifc4\",\"contract_ref\":\"contract@1\",\"contract_source\":\"office\",\"contract_sha256\":\"" + CSha + "\"," +
+           "\"schema\":\"IFC2X3\",\"entities\":40,\"failures\":[\"IFCCOLUMN: 0 found, contract requires \\u2265 1.\"],\"failures_total\":1,\"sha256\":\"" + FileSha + "\",\"size_bytes\":5120000,\"source\":\"auto-publish\",\"publish\":true}",
+           "Prepare's gate row body for /cde/:key/delivery-gate: the gate, every failure and their count, sha256 and size_bytes, the caller's source, publish true");
     }
 
     // ── 3. PublishOutcome: what the answer allows ─────────────────────────────────────────────────────
@@ -335,6 +355,29 @@ static class Check
         Is(PublishLines.Doctor(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged), "Auto-publish: verdict accepted but the bridge registered no version — nothing uploaded · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, no version in the reply");
         Is(PublishLines.Doctor(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (x)", KeptIfcPath = @"C:\t\a.ifc" }), "Auto-publish: " + Container + " v1 · wip registered but NOT in the upload outbox — the IFC did not reach the upload outbox (x) — the IFC is kept at C:\\t\\a.ifc", "auto, the move failed: names the kept IFC");
         Is(PublishLines.Doctor(plan), "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded", "auto, a Judge task that never answered");
+
+        // held on the web (6a): only when the bridge returned the hold row it wrote; its words are LedgerLine's
+        const string HeldLine = "Held on the web: Project Files ▸ On hold · ledger #815 · receipt 7a8b9c0d1e2f3041…";
+        const string GateHeldLine = "Held on the web: Project Files ▸ On hold · ledger #816 · receipt 8c9d0e1f20314253…";
+        var heldName = Outcome(Reply("rejected", null, 40, 40, 0, version: false)
+            .Replace("\"naming\":{\"ok\":true,\"failures\":[],\"enforce\":\"reject\"}", "\"naming\":{\"ok\":false,\"failures\":[{\"reason\":\"field 2 must be the originator code\"}],\"enforce\":\"reject\"}")
+            .Replace("\"agent\":null", "\"agent\":null,\"hold\":{\"id\":815,\"hash\":\"" + HoldHash + "\"}"));
+        Is(PublishLines.Dialog(plan, heldName, NotStaged),
+           "✕ REJECTED — model name does not follow the ISO 19650 convention (not published)\n\nName checked: " + Container + "\n\n" +
+           GateLine + "\n" + GateRowLine + "\n" + VerdictRowLine + "\nNo version was registered and nothing was uploaded.\n" + HeldLine + "\n\n" +
+           "NAMING:\n• field 2 must be the originator code\n\n" +
+           "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again.",
+           "rejected and held: the hold row's line under 'nothing was uploaded'");
+        var heldUnconfirmed = Outcome(Reply("rejected", null, 40, 37, 3, version: false).Replace("\"agent\":null", "\"agent\":null,\"hold\":{\"id\":null,\"hash\":null}"));
+        Ok(PublishLines.Dialog(plan, heldUnconfirmed, NotStaged).Contains("\nNo version was registered and nothing was uploaded.\nHeld on the web: Project Files ▸ On hold · not confirmed — the bridge returned no chain hash\n\n"),
+           "a hold returned without its id and hash reads not confirmed — never a receipt without its hash");
+        Is(PublishLines.Doctor(plan, heldName, NotStaged),
+           "Auto-publish rejected — nothing uploaded — the model name " + Container + " failed naming naming@2 · office · 77e1d2c3b4a5… · ledger #813 · receipt 0a1b2c3d4e5f6071… · " + HeldLine,
+           "auto, rejected and held: the Doctor line ends with the hold row's line");
+        var failedHeld = Ready(Gate(GateOutcome.Fail, "IFC2X3"));
+        failedHeld.GateRow = LedgerResult.FromResponse(201, "{\"id\":812,\"hash\":\"" + GateHash + "\",\"hold\":{\"id\":816,\"hash\":\"" + GateHoldHash + "\"}}");
+        Is(PublishLines.Dialog(failedHeld), PublishLines.Dialog(failed) + "\n" + GateHeldLine, "gate FAIL and held: the gate dialog ends with the hold:gate row's line after the gate row");
+        Is(PublishLines.Doctor(failedHeld), PublishLines.Doctor(failed) + " · " + GateHeldLine, "auto, gate FAIL and held: the Doctor line ends with it");
     }
 
     // ── 6. the policy: publish@n {auto: true}, else off with the reason ────────────────────────────────
