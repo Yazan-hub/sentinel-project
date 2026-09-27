@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { checkDelivery } from "../../WebApp/bridge/delivery-gate.mjs";
-import { main, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
+import { main, newestTag, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
 
 const ifc = readFileSync(new URL("../../WebApp/bridge/fixtures/minimal.ifc", import.meta.url));
 const contract = (over = {}) => ({
@@ -57,7 +57,7 @@ const run = async ({ svc }, params, ctx = { projectId: "p1", executionId: "exec1
   const out = await main();
   return { ...out, log };
 };
-const ifcItem = (over = {}) => ({ _id: "f1", name: "tower.ifc", versions: [{ tag: "v1" }, { tag: "v2" }], bytes: ifc, ...over });
+const ifcItem = (over = {}) => ({ _id: "f1", name: "tower.ifc", versions: [{ tag: "v2" }, { tag: "v1" }], bytes: ifc, ...over }); // newest-first, as the platform lists them
 
 test("a pass: the report version, the labels and SUCCESS — the sha256 is the bridge's", async () => {
   const p = platform({ items: [ifcItem()], contractBody: contract() });
@@ -203,6 +203,17 @@ test("the platform's own error text never carries the run's token into a message
   const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { labels: "Cannot PUT /api/item/f1/version/v2/metadata?accessToken=eyJabc.def.ghi&x=1" } });
   const r = await run(p, { fileId: "f1" });
   assert.equal(r.message, "Passed — contract@1 — report written; the version labels were refused: Cannot PUT /api/item/f1/version/v2/metadata?accessToken=…&x=1");
+});
+
+test("the newest version is the first entry (the platform lists newest-first), or the newest by createdAt when dated", async () => {
+  assert.equal(newestTag([{ tag: "v3" }, { tag: "v2" }, { tag: "v1" }]), "v3");
+  assert.equal(newestTag([{ tag: "v1", createdAt: "2026-01-01" }, { tag: "v2", createdAt: "2026-02-01" }]), "v2");
+  assert.equal(newestTag([]), "");
+  const p = platform({ items: [ifcItem({ versions: [{ tag: "v2" }, { tag: "v1" }] })], contractBody: contract(), contractTag: "contract@2" });
+  p.svc.listFiles = async () => [ifcItem({ versions: [{ tag: "v2" }, { tag: "v1" }] }), { _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@2" }, { tag: "contract@1" }] }];
+  const r = await run(p, { fileId: "f1" });
+  assert.equal(p.writes.files[0].versionTag, "v2");
+  assert.equal(JSON.parse(p.writes.files[0].text).contract.ref, "contract@2");
 });
 
 test("no fileId, or no project: FAIL in words", async () => {

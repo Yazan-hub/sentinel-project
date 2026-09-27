@@ -20,6 +20,14 @@ const sha = (text) => createHash("sha256").update(text).digest("hex");
 const NO_CONTRACT = "no contract on the platform project — install one in Sentinel";
 
 const str = (v) => (typeof v === "string" ? v.trim() : "");
+/** The newest version of an item: by createdAt when the platform gives it, else the FIRST entry — the platform lists
+ *  versions newest-first (measured 2026-09-28: v13,v12,…,v1); the last entry is the oldest. */
+export function newestTag(versions) {
+  const vs = (Array.isArray(versions) ? versions : []).filter((v) => v && v.tag);
+  if (!vs.length) return "";
+  const dated = vs.every((v) => v.createdAt);
+  return (dated ? [...vs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) : vs)[0].tag;
+}
 const fail = (message) => ({ type: "FAIL", message: `Gate did not run — ${message}` });
 // The platform's own error text can carry the run's token in a URL (…?accessToken=…): never let it reach a message,
 // a report or a label.
@@ -48,7 +56,7 @@ async function bytesOf(fileId, versionTag) {
 async function contractOf(projectId, items) {
   const item = items.find((i) => i.name === CONTRACT_ITEM);
   if (!item) return { reason: NO_CONTRACT };
-  const tag = item.versions?.length ? item.versions[item.versions.length - 1].tag : undefined;
+  const tag = newestTag(item.versions) || undefined;
   const label = `${CONTRACT_ITEM} ${tag || "(no version)"}`;
   let body;
   try { body = JSON.parse((await bytesOf(item._id, tag)).toString("utf8")); }
@@ -87,7 +95,7 @@ export async function main() {
   const versions = Array.isArray(file?.versions) ? file.versions.filter((v) => v && v.tag) : [];
   let versionTag = str(executionParams?.versionTag);
   if (versionTag) { if (!versions.some((v) => v.tag === versionTag)) return fail(`${name} has no version ${versionTag}`); }
-  else versionTag = versions.length ? versions[versions.length - 1].tag : "";
+  else versionTag = newestTag(versions);
   if (!versionTag) return fail(`${name} has no version the platform names — nothing was judged`);
   report(`Reading ${name} ${versionTag}…`);
 
