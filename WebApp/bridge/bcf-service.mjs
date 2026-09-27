@@ -13,7 +13,7 @@
 //   POST   /bcf/3.0/projects/:pid/topics/:guid/viewpoints     add viewpoint { perspective_camera, components, ... }
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -65,6 +65,8 @@ const warnNullOrigin = (referer) => {
 // EIR/BEP documents are text, not IFC models — cap far below the 2 GB upload cap so one huge upload can't hold
 // an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
 const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
+// Encrypted CDE attachments (POST /cde/files): drawings and documents, not models — far below the 2 GB upload cap (request-limits uploadCap). H0 (cde-8).
+const MAX_BLOB = (Number(process.env.SENTINEL_MAX_BLOB_MB) || 100) * 1024 * 1024;
 
 // Crash-safe JSON persistence: write a temp file then atomically rename, so a crash mid-write can never
 // truncate the store. On read, a genuine ENOENT starts empty silently, but a CORRUPT/unreadable file is
@@ -1059,34 +1061,49 @@ async function handleRequest(req, res) {
     }
   }
 
-  // ── Encrypted file blobs (Phase 2, private CDE): POST /cde/files (store ciphertext) · GET /cde/files/:id ──
-  // The body is already AES-GCM ciphertext (IV‖ct) from the browser; we store/serve opaque bytes only.
-  // Deliberately ABOVE the Supabase /cde/ block so it never hits the service-key 503 guard.
+  // ── Encrypted file blobs (Phase 2, private CDE): POST /cde/files?project=<key> · GET /cde/files/:id?project=<key> ──
+  // The body is already AES-GCM ciphertext (IV‖ct) from the browser; we store/serve opaque bytes only. Each blob lives
+  // in its project's folder (CDE_FILES_ROOT/<project id>/<id>.bin): storing one spends the founder's disk, so the
+  // caller must be trusted for that project before one byte is read (H0 D2, cdefiles-1), and reading one needs
+  // membership of it (cdefiles-2). Above the /cde/ block: these routes answer their own 503 when the CDE is off.
   if (url.pathname === "/cde/files" && req.method === "POST") {
     try {
+      const proj = await requireSpendFor(url.searchParams.get("project"), "project");
       holdUpload(req, res, currentSub()); // held until this answer is done
-      const bytes = await readRaw(req);
-      if (!bytes.length) return send(res, 400, { message: "Empty body" });
+      const bytes = await readRaw(req, { max: MAX_BLOB });
+      if (!bytes.length) return send(res, 400, { message: "Empty body — nothing was stored." });
       const id = randomUUID();
-      mkdirSync(CDE_FILES_ROOT, { recursive: true });
-      writeFileSync(join(CDE_FILES_ROOT, `${id}.bin`), bytes);
+      const dir = join(CDE_FILES_ROOT, proj.id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${id}.bin`), bytes);
       return send(res, 201, { id, size: bytes.length });
     } catch (e) {
-      // Log server-side so a 500 on a real-model propose (e.g. a character Postgres rejects) is diagnosable
-      // instead of vanishing into a generic dialog on the Revit side.
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
       return send(res, e?.status || 500, { message: String(e?.message || e) });
     }
   }
   const fm = url.pathname.match(/^\/cde\/files\/([A-Za-z0-9-]+)$/);
   if (fm && req.method === "GET") {
-    const file = join(CDE_FILES_ROOT, `${basename(fm[1])}.bin`); // basename() guards path traversal
     try {
-      const buf = readFileSync(file);
-      // Document blobs are the more sensitive of the two binary routes — same fix (F11).
+      const key = url.searchParams.get("project");
+      const name = `${basename(fm[1])}.bin`; // basename() guards path traversal
+      let file = null;
+      if (key) {
+        const cde = await import("./cde-store.mjs");
+        if (!cde.cdeConfigured()) return send(res, 503, { message: "CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
+        file = join(CDE_FILES_ROOT, (await cde.ensureProject(key)).id, name); // a non-member is refused here
+      }
+      // Blobs stored before H0 sit unbound in the root folder: only the machine credential still reads those.
+      if (!currentUserToken() && (!file || !existsSync(file))) file = join(CDE_FILES_ROOT, name);
+      if (!file) return send(res, 400, { message: "name the project: GET /cde/files/<id>?project=<project key>" });
+      if (!existsSync(file)) return send(res, 404, { message: "Blob not found" });
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", ...corsHeaders(res) });
-      return res.end(buf);
-    } catch { return send(res, 404, { message: "Blob not found" }); }
+      const stream = createReadStream(file); // streamed: parallel reads of a large blob never hold it whole in memory
+      stream.on("error", () => res.destroy());
+      return stream.pipe(res);
+    } catch (e) {
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
   }
 
   // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──

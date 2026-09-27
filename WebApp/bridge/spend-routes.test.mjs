@@ -220,3 +220,48 @@ describe("POST /ifc — the founder's platform storage (D2, ifc-1)", () => {
     expect(json.message).toMatch(/Not an IFC/);
   });
 });
+
+describe("/cde/files — encrypted blobs belong to a project (D2, cdefiles-1/2, cde-8)", () => {
+  const blobs = () => join(tmp, "appdata", "Sentinel", "cde-files");
+  let id;
+
+  it("POST that names no project is a 400, a self-made project's owner a 403 — both before the body is read", async () => {
+    const none = await partial("/cde/files", "u-contrib");
+    expect(none.status).toBe(400);
+    expect(none.json.message).toMatch(/project/);
+    const lone = await partial("/cde/files?project=p-lone", "u-owner");
+    expect(lone.status).toBe(403);
+    expect(lone.json.message).toMatch(/no office/);
+  });
+
+  it("an office contributor stores a blob in the project's own folder", async () => {
+    const r = await call("POST", "/cde/files?project=p-office", { as: "u-contrib", body: "ciphertext-bytes", headers: { "Content-Type": "application/octet-stream" } });
+    expect(r.status).toBe(201);
+    id = r.json.id;
+    expect(existsSync(join(blobs(), P_OFF, `${id}.bin`))).toBe(true);
+    expect(existsSync(join(blobs(), `${id}.bin`))).toBe(false);
+  });
+
+  it("a viewer of the project reads it back; a non-member cannot", async () => {
+    const ok = await call("GET", `/cde/files/${id}?project=p-office`, { as: "u-view" });
+    expect(ok.status).toBe(200);
+    expect(ok.text).toBe("ciphertext-bytes");
+    const stranger = await call("GET", `/cde/files/${id}?project=p-office`, { as: "u-owner" });
+    expect([403, 404]).toContain(stranger.status);
+  });
+
+  it("a signed-in caller must name the project", async () => {
+    const r = await call("GET", `/cde/files/${id}`, { as: "u-contrib" });
+    expect(r.status).toBe(400);
+  });
+
+  it("a blob from before H0 (unbound, in the root folder) is read by the machine credential only", async () => {
+    const old = randomUUID();
+    mkdirSync(blobs(), { recursive: true });
+    writeFileSync(join(blobs(), `${old}.bin`), "old-cipher");
+    const machine = await call("GET", `/cde/files/${old}`, { as: "service" });
+    expect(machine.status).toBe(200);
+    expect(machine.text).toBe("old-cipher");
+    expect((await call("GET", `/cde/files/${old}?project=p-office`, { as: "u-contrib" })).status).toBe(404);
+  });
+});
