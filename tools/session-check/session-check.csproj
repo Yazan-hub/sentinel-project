@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for the Revit sign-in (H4, spec 2026-09-28): UserSession against a throwaway loopback "Supabase"
+       — sign-in stores a DPAPI file, the access token is reused until it nears expiry then refreshed once, two
+       refreshes at once spend one single-use refresh token, a refused refresh signs out, sign-out deletes the file;
+       and BcfConfig.ServiceToken prefers the session over the file's shared token. No Revit API, no real Supabase,
+       no %LOCALAPPDATA% (SENTINEL_SESSION_FILE points at a temp file); `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>session-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+  </ItemGroup>
+</Project>

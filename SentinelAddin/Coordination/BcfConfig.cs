@@ -9,30 +9,44 @@ namespace Sentinel.Commands; // kept: every caller already imports it
 /// fallback). modelId filters the BCF list (empty = all models). It is NOT a project-key source: a document's web
 /// project comes only from the document (ProjectContext). A legacy "projectId" in the file is ignored —
 /// System.Text.Json skips members the class does not declare. No Revit types: tools/*-check harnesses compile it.
+/// Since H4 (spec 2026-09-28) the bearer every call sends is the signed-in person's Supabase token when there is a
+/// session (<see cref="Coordination.UserSession"/>), else the file's shared token — one getter, no call-site change.
 /// </summary>
 internal sealed class BcfConfig
 {
     [JsonPropertyName("serviceUrl")] public string ServiceUrl { get; set; } = "http://localhost:4100";
     [JsonPropertyName("modelId")] public string ModelId { get; set; } = ""; // empty → service returns all models
-    // Shared secret for the bridge's auth gate (F2). When the bridge runs with BCF_TOKEN set, Revit must present
-    // it or the governed calls are rejected as anonymous. Empty = legacy bridge (no gate) → no header is sent.
-    [JsonPropertyName("serviceToken")] public string ServiceToken { get; set; } = "";
+    // The file's shared secret for the bridge's auth gate (F2): the machine credential. Empty on an external
+    // install (H6), where only a signed-in person can talk to the bridge. Empty on a legacy bridge = no header.
+    [JsonPropertyName("serviceToken")] public string FileToken { get; set; } = "";
+    // Where Revit signs people in (public values: the anon key is in every browser bundle).
+    [JsonPropertyName("supabaseUrl")] public string SupabaseUrl { get; set; } = "";
+    [JsonPropertyName("supabaseAnonKey")] public string SupabaseAnonKey { get; set; } = "";
+
+    /// <summary>The bearer to send: the signed-in person's access token (refreshed on demand), else the file's
+    /// shared token; empty = no header. Decision 4: a signed-out PC keeps its shared token, an external install
+    /// (no file token) gets a 401 that the tools word as "signed out".</summary>
+    [JsonIgnore]
+    public string ServiceToken => Coordination.UserSession.AccessToken(SupabaseUrl, SupabaseAnonKey) ?? FileToken;
 
     public static BcfConfig Load()
     {
         string path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "bcf-config.json");
+        BcfConfig cfg;
         try
         {
-            if (File.Exists(path)) return Parse(File.ReadAllText(path));
+            cfg = File.Exists(path) ? Parse(File.ReadAllText(path)) : new BcfConfig
+            {
+                ServiceUrl = Env("BCF_SERVICE_URL", "http://localhost:4100"),
+                FileToken = Env("BCF_TOKEN", ""),
+            };
         }
-        catch { /* fall through to env/defaults */ }
-
-        return new BcfConfig
-        {
-            ServiceUrl = Env("BCF_SERVICE_URL", "http://localhost:4100"),
-            ServiceToken = Env("BCF_TOKEN", ""),
-        };
+        catch { cfg = new BcfConfig { ServiceUrl = Env("BCF_SERVICE_URL", "http://localhost:4100"), FileToken = Env("BCF_TOKEN", "") }; }
+        // The Supabase address may live in the environment on a PC that also runs the bridge.
+        if (string.IsNullOrWhiteSpace(cfg.SupabaseUrl)) cfg.SupabaseUrl = Env("SUPABASE_URL", "");
+        if (string.IsNullOrWhiteSpace(cfg.SupabaseAnonKey)) cfg.SupabaseAnonKey = Env("SUPABASE_ANON_KEY", "");
+        return cfg;
     }
 
     /// <summary>The file's JSON → config (case-insensitive, unknown members ignored). Throws on malformed JSON.</summary>
