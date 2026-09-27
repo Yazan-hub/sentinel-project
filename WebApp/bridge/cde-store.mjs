@@ -1477,6 +1477,11 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
   // A forwarded JWT's verified identity outranks the client-asserted actor (anti audit-trail poisoning, F3);
   // no JWT (Revit/agent/service) falls back to the supplied value so the pilot is unaffected.
   const trustedActor = resolveActor(b.actor ?? b.source, "agent");
+  // The source is a self-label too. The machine credential's (no forwarded session — myRole's "service") names the action
+  // and may mark a hold as Revit's; a signed-in caller's is kept as claimed_source only, so no member writes "Proposal
+  // accepted from Governed Publish" or holds a file as Revit's (cde-rem-9).
+  const machine = !currentUserToken();
+  const source = machine ? b.source ?? null : null;
   // CLAIMED, never verified (see agent-provenance.mjs). Recorded so that "which model proposed this,
   // from which prompt" is answerable later — the question every AI-authored-BIM thread ends on.
   const agent = normalizeAgent(b.agent);
@@ -1484,9 +1489,9 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     method: "POST",
     body: {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
-      action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
+      action: `Proposal ${verdict}${source ? " from " + source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}) },
+      new_value: { source, ...(!machine && b.source != null ? { claimed_source: b.source } : {}), verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -1514,7 +1519,7 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     const row = await writeHold(proj, {
       stage: namingRefused ? "naming" : "ids", ...file, verdict,
       failures: [...(namingRefused ? naming.failures || [] : []), ...(idsRefused ? failures : [])],
-      source: intake ? (intake.source === "web" ? "web" : "intake") : b.source === "Governed Publish" ? "revit" : b.source === "Auto-Publish" ? "auto-publish" : "intake",
+      source: intake ? (intake.source === "web" ? "web" : "intake") : source === "Governed Publish" ? "revit" : source === "Auto-Publish" ? "auto-publish" : "intake",
       gate_row_id: gateRowId, proposal_row_id: audit?.id ?? null, contract_ref: null, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref, actor: trustedActor,
     });
     hold = { id: row?.id ?? null, hash: row?.hash ?? null };
