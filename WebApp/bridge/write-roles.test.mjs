@@ -276,6 +276,8 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect(await call("PUT", `${T}/G1`, "contributor", { topic_status: "Closed" })).toEqual(refused("lead", "contributor"));
     expect(await call("PUT", `${T}/G1`, "contributor", { title: "Doors" })).toEqual(refused("lead", "contributor"));
     expect(await call("PUT", `${T}/G2`, "contributor", { topic_status: "resolved" })).toEqual(refused("lead", "contributor"));
+    for (const s of ["Closed ", " resolved", "Closed\n"]) // the stage gate trims, so these count as closed there too
+      expect(await call("PUT", `${T}/G1`, "contributor", { topic_status: s })).toEqual(refused("lead", "contributor"));
     expect(writes("bcf_topics")).toEqual([]);
     expect((await call("PUT", `${T}/G1`, "contributor", { priority: "Low" })).status).toBe(200);
     expect((await call("PUT", `${T}/G1`, "lead", { topic_status: "Resolved" })).body.topic_status).toBe("Resolved");

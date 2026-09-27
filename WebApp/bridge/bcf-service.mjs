@@ -318,9 +318,10 @@ const loadCore = async () => (_core ??= await import("./sentinel-core.mjs"));
 // A governed topic — raised by the IDS or Federation judges, counted by the stage gate — is closed or renamed only by a
 // lead (H0 D4, topics-1): closing it lowers the gate's open-issue count, renaming it takes it out of this rule.
 const GOVERNED_TOPIC = /^(IDS|Federation):/;
-const CLOSED_TOPIC = /^(closed|resolved)$/i; // stage-gate.mjs readGateInputs' own rule for "not open"
+const CLOSED_TOPIC = /^(closed|resolved)$/i; // stage-gate.mjs readGateInputs' own rule for "not open" — trimmed, as it trims
+const isClosed = (s) => CLOSED_TOPIC.test(String(s ?? "").trim());
 const governedEditNeedsLead = (topic, b) => GOVERNED_TOPIC.test(String(topic.title || ""))
-  && ((b.topic_status !== undefined && CLOSED_TOPIC.test(String(b.topic_status)) && !CLOSED_TOPIC.test(String(topic.topic_status || "")))
+  && ((b.topic_status !== undefined && isClosed(b.topic_status) && !isClosed(topic.topic_status))
     || (b.title !== undefined && b.title !== topic.title));
 
 /** The canonical BCF-3.0 topic object — one shape shared by the POST /topics route and the governed
