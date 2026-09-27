@@ -264,6 +264,15 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(await call("POST", "/clash/demo", "contributor", { items })).toEqual({ status: 400, body: { message: "at most 500 clash records a request — nothing was saved" } });
     expect(writes("bridge_docs")).toEqual([]);
   });
+
+  it("a user's raise requests are budgeted (H0 minor N31): the 31st in a minute is a 429 and writes nothing", async () => {
+    // A lead (unused for /clash raises by any earlier test in this file) so this test's own budget window starts fresh.
+    const raise = (i) => call("POST", "/clash/demo", "lead", { items: [{ ...item, signature: `s${i}` }] });
+    for (let i = 0; i < 30; i++) expect((await raise(i)).status).toBe(201);
+    expect(await raise(30)).toEqual({ status: 429, body: { message: "too many clash raises in a minute — nothing was saved; try again shortly" } });
+    expect(writes("bridge_docs")).toHaveLength(30);
+    expect(writes("audit_log")).toHaveLength(30);
+  }, 30_000);
 });
 
 describe("BCF topics (topics-1): a contributor's work; closing or renaming a governed topic a lead's", () => {

@@ -1836,6 +1836,10 @@ async function handleRequest(req, res) {
       if (req.method === "POST" && !sub) {
         const items = (await readBody(req)).items;
         if (Array.isArray(items) && items.length > MAX_CLASH_ITEMS) return send(res, 400, { message: `at most ${MAX_CLASH_ITEMS} clash records a request — nothing was saved` });
+        // A raise grows the append-only ledger (up to MAX_CLASH_ITEMS rows a request), so a signed-in caller's raise
+        // requests are budgeted as notes and IDS raises are (H0 minor N31): over budget is a 429 before anything is
+        // written, never a partial write and a ledger row over nothing.
+        if (Array.isArray(items) && items.length) cde.takeWriteBudget("clash raises", { perUser: 30, all: 120 });
         const added = useCde ? await upsertClashesCde(cde, cpid, items) : (upsertClashes(cpid, items), []);
         for (const it of added) await ledger(`Clash raised: ${it.label ?? it.signature}`, { signature: it.signature, volume: it.volume, overlap: it.overlap, elements: it.elements, bcf_guid: it.bcf_guid });
         return send(res, 201, { items: useCde ? await cde.docList("clash", cpid) : clashItems(cpid) });
