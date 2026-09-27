@@ -51,19 +51,27 @@ export const setActiveProjectKey = (key: string): void => {
   } catch {
     /* storage blocked — the choice still applies for this session via `override` */
   }
+  notify(next);
+};
+
+function notify(key: string): void {
   try {
-    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { key: next } }));
+    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { key } }));
   } catch {
     /* CustomEvent unavailable — direct listeners below still fire */
   }
   for (const cb of listeners) {
     try {
-      cb(next);
+      cb(key);
     } catch {
       /* isolate a bad listener so the rest still run */
     }
   }
-};
+}
+
+/** Reload every panel for the same project — e.g. when the signed-in person changes, since what each panel may
+ *  show (a role, a review's Approve/Reject) is the bridge's answer for that person. */
+export const refreshActiveProject = (): void => notify(getActiveProjectKey());
 
 /** Subscribe to project switches. Returns an unsubscribe fn. */
 export const onActiveProjectChange = (cb: Listener): (() => void) => {
