@@ -68,9 +68,11 @@ function readBytes(req, max, lease) {
 const MAX_READS_PER_CALLER = 8;
 const readingBy = new Map();
 
-/** A JSON request body, parsed: {} when it is empty or not JSON (as before). Over `max` → 413; the shared budget
- *  full → 503; a ninth body at once from the same signed-in account → 429, unread. Bytes are collected before
- *  decoding, so a character split across two chunks survives. */
+/** A JSON request body, parsed: {} when it is empty, not JSON, or JSON that is not an object (`null`, `"x"`, `5`,
+ *  an array) — every route destructures the result as an object, and a route reading nothing back is a 400 in
+ *  words downstream, never a 500 TypeError. Over `max` → 413; the shared budget full → 503; a ninth body at once
+ *  from the same signed-in account → 429, unread. Bytes are collected before decoding, so a character split
+ *  across two chunks survives. */
 export async function readBody(req, { max = jsonCap() } = {}) {
   const who = currentSub();
   const mine = (who && readingBy.get(who)) || 0;
@@ -79,7 +81,10 @@ export async function readBody(req, { max = jsonCap() } = {}) {
   const lease = { held: 0 };
   try {
     const text = (await readBytes(req, max, lease)).toString("utf8");
-    try { return text ? JSON.parse(text) : {}; } catch { return {}; }
+    try {
+      const v = text ? JSON.parse(text) : {};
+      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    } catch { return {}; }
   } finally {
     json.used -= lease.held;
     if (who) { const n = readingBy.get(who) - 1; if (n) readingBy.set(who, n); else readingBy.delete(who); }

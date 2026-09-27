@@ -37,6 +37,12 @@ describe("readBody — parsed JSON, or a refusal in words", () => {
     expect(await readBody(req([]))).toEqual({});
     expect(await readBody(req(["not json"]))).toEqual({});
   });
+  it("is {} for JSON that parses but is not an object — null, a string, a number, an array (H0 minor N19/N48)", async () => {
+    expect(await readBody(req(["null"]))).toEqual({});
+    expect(await readBody(req(['"x"']))).toEqual({});
+    expect(await readBody(req(["5"]))).toEqual({});
+    expect(await readBody(req(["[1,2]"]))).toEqual({});
+  });
   it("refuses a declared length over the cap with a 413 before reading a byte", async () => {
     const r = req(["{}"], { "content-length": String(SMALL_JSON + 1) });
     await expect(readBody(r, { max: SMALL_JSON })).rejects.toMatchObject({ status: 413, message: "the request body is over the 1 MB limit for this route — nothing was read or saved" });
