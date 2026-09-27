@@ -374,6 +374,21 @@ describe("the local stores — the single desktop's only, never a signed-in call
   });
 });
 
+describe("the team store without the anon key — a verified sign-in is never served on the service key", () => {
+  let b;
+  beforeAll(async () => {
+    b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET, SUPABASE_URL: "http://127.0.0.1:9", SUPABASE_SERVICE_KEY: "stand-in-service-key", SUPABASE_ANON_KEY: "" });
+  }, 30_000);
+
+  it("a signed-in caller gets a 503 in words on a CDE route and on a route without a store", async () => {
+    for (const path of ["/projects", "/rfis/gl", "/bimdocs/templates"]) {
+      const r = await fetch(`http://127.0.0.1:${b.port}${path}`, { headers: { Authorization: `Bearer ${userJwt()}` } });
+      expect(r.status, path).toBe(503);
+      expect((await r.json()).message, path).toContain("this bridge does not forward sign-ins (SUPABASE_ANON_KEY)");
+    }
+  });
+});
+
 describe("slow bodies — answered 408 and closed, so slow callers cannot hold the bridge's 256 sockets", () => {
   let b;
   beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);

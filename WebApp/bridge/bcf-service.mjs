@@ -657,6 +657,14 @@ async function handleRequest(req, res) {
   // caller gets a 503 in words (D9).
   if (TOKEN && currentUserToken() && LOCAL_STORE_ROUTE.test(url.pathname) && !(await import("./cde-store.mjs")).cdeConfigured())
     return send(res, 503, { message: "the team store is not configured on this bridge (SUPABASE_URL + SUPABASE_SERVICE_KEY) — a signed-in user cannot use the single-desktop files; nothing was read or saved" });
+  // Gate armed, CDE configured, but no anon key: sb() would serve a "forwarded" call on the service key and
+  // ensureProject would skip its visibility check, so a verified JWT would become every project's member. An empty
+  // config value is never access: a signed-in caller gets a 503 in words (the machine credential is unaffected).
+  if (TOKEN && currentUserToken()) {
+    const cdeMod = await import("./cde-store.mjs");
+    if (cdeMod.cdeConfigured() && !cdeMod.forwardingConfigured())
+      return send(res, 503, { message: "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved" });
+  }
 
   // Health (no secrets, no posture): up, gate armed, CDE configured. The bind host and the CORS allowlist are in the
   // startup log, not on a route anyone on the internet can read.
