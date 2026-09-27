@@ -1485,13 +1485,23 @@ async function handleRequest(req, res) {
       // E2E crypto keystore (envelope scheme): the server-side wrapped DEK + salt for a project. Useless
       //   without the passphrase (zero-knowledge). GET → keystore|null · POST → create-only (409 if exists) ·
       //   PUT → replace (passphrase re-key).
+      //   H0 (D4, cde-4, cde-rem-5): reading it needs membership (a stranger's 403, not a 200 null); setting it up and
+      //   replacing it is a lead's — a replace leaves every file encrypted under the old key unreadable — asked before
+      //   the body is read, then written with the service key (the bridge made the check; the store can be closed to
+      //   direct writes, migration 0033). A body that is not a keystore is a 400: a PUT of {} was enough to lose them all.
       if (p2 === "keystore" && !p3) {
-        if (req.method === "GET") return send(res, 200, (await cde.docGet("keystore", p1, "keystore")) ?? null);
+        if (req.method === "GET") { await cde.ensureProject(p1); return send(res, 200, (await cde.docGet("keystore", p1, "keystore")) ?? null); }
+        if (req.method !== "POST" && req.method !== "PUT") return send(res, 405, { message: "Method not allowed" });
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead");
+        const ks = (await readBody(req)) || {};
+        if (!["salt", "wrap_iv", "wrapped_dek"].every((f) => typeof ks[f] === "string" && ks[f]))
+          return send(res, 400, { message: "a keystore is {v, alg, salt, iters, wrap_iv, wrapped_dek} — nothing was saved" });
         if (req.method === "POST") {
-          try { await cde.docInsert("keystore", p1, "keystore", await readBody(req)); return send(res, 201, { ok: true }); }
+          try { await cde.docInsert("keystore", p1, "keystore", ks, { service: true }); return send(res, 201, { ok: true }); }
           catch (e) { const m = String(e?.message || e); return send(res, /409|duplicate|conflict/i.test(m) ? 409 : 500, { message: m }); }
         }
-        if (req.method === "PUT") { await cde.docUpsert("keystore", p1, "keystore", await readBody(req)); return send(res, 200, { ok: true }); }
+        await cde.docUpsert("keystore", p1, "keystore", ks, { service: true });
+        return send(res, 200, { ok: true });
       }
       // Folders (per-project tree): GET/POST /cde/:key/folders · PUT/DELETE /cde/folders/:fid · PUT /cde/containers/:cid/folder
       if (p2 === "folders" && !p3) {

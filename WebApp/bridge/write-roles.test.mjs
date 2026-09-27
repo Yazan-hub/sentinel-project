@@ -297,3 +297,29 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect(db.audit_log[0].new_value).toEqual({ spec: "Aster IDS", requirement: "Doors — FireRating", failing: 3, bcf_guid: r.body.guid });
   });
 });
+
+describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", () => {
+  const KS = { v: 1, alg: "AES-GCM-256", salt: "c2FsdA", iters: 600000, wrap_iv: "aXY", wrapped_dek: "ZGVr" };
+
+  it("a contributor's setup and replace are 403s and nothing is written", async () => {
+    for (const method of ["POST", "PUT"]) expect(await call(method, "/cde/demo/keystore", "contributor", KS)).toEqual(refused("lead", "contributor"));
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+
+  it("a lead sets it up once, written with the service key after the bridge's check; a second setup is a 409", async () => {
+    expect(await call("POST", "/cde/demo/keystore", "lead", KS)).toEqual({ status: 201, body: { ok: true } });
+    expect(writes("bridge_docs").map((c) => c.service)).toEqual([true]);
+    expect((await call("POST", "/cde/demo/keystore", "lead", KS)).status).toBe(409);
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, salt: "bmV3" })).toEqual({ status: 200, body: { ok: true } });
+    expect(db.bridge_docs[0].data.salt).toBe("bmV3");
+  });
+
+  it("a body that is not a keystore is a 400 — a PUT of {} would leave every encrypted file unreadable", async () => {
+    expect(await call("PUT", "/cde/demo/keystore", "lead", {})).toEqual({ status: 400, body: { message: "a keystore is {v, alg, salt, iters, wrap_iv, wrapped_dek} — nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+
+  it("reading it needs membership: a stranger is refused, not answered 200 null", async () => {
+    expect([403, 404]).toContain((await call("GET", "/cde/demo/keystore", "stranger")).status);
+  });
+});
