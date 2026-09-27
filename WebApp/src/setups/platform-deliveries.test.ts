@@ -1,9 +1,9 @@
 // The "Platform deliveries" lane: five card states and the "not read" rule (spec 2026-09-27 platform-delivery-gate, Decision 8).
 import { describe, it, expect, vi } from "vitest";
-import { deliveryCard, readDeliveries, deliveriesSummary, reportName, REPORT_KIND, type GateReport, type PlatformItem } from "./platform-deliveries";
+import { deliveryCard, readDeliveries, deliveriesSummary, reportName, latestTag, REPORT_KIND, type GateReport, type PlatformItem } from "./platform-deliveries";
 
 const sha = "a".repeat(64);
-const item = (name = "tower.ifc", tags = ["v1", "v2"]): PlatformItem => ({ _id: `id-${name}`, name, versions: tags.map((tag) => ({ tag })) });
+const item = (name = "tower.ifc", tags = ["v2", "v1"]): PlatformItem => ({ _id: `id-${name}`, name, versions: tags.map((tag) => ({ tag })) });
 const report = (over: Partial<GateReport> = {}): GateReport => ({ kind: REPORT_KIND, result: "pass", passed: true, contract: { ref: "contract@1", sha256: "c".repeat(64) }, failures: [], warnings: [], sha256: sha, run: { executionId: "exec9" }, ...over });
 
 describe("deliveryCard", () => {
@@ -35,6 +35,14 @@ describe("deliveryCard", () => {
   });
   it("a report of another kind is ignored, not trusted", () => {
     expect(deliveryCard(item(), "v2", null, report({ kind: "something.else" })).state).toBe("running");
+  });
+});
+
+describe("latestTag — the platform lists versions newest-first", () => {
+  it("takes the first entry, or the newest by createdAt when dated; none without versions", () => {
+    expect(latestTag({ _id: "a", name: "a.ifc", versions: [{ tag: "v3" }, { tag: "v2" }, { tag: "v1" }] })).toBe("v3");
+    expect(latestTag({ _id: "a", name: "a.ifc", versions: [{ tag: "v1", createdAt: "2026-01-01" }, { tag: "v2", createdAt: "2026-02-01" }] })).toBe("v2");
+    expect(latestTag({ _id: "a", name: "a.ifc", versions: [] })).toBeNull();
   });
 });
 
