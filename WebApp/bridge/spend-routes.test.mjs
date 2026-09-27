@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, request } from "node:http";
 import { createHmac, randomUUID } from "node:crypto";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -127,16 +127,17 @@ const call = async (method, path, { as, json, body, headers = {} } = {}) => {
   return { status: r.status, json: parsed, text };
 };
 
-/** A POST whose head declares 10 MB and whose body stops after 16 bytes. A route that checks the caller first answers
- *  at once; one that reads the body first waits for bytes that never come, and this rejects after 3 s. */
-const partial = (path, as) => new Promise((resolve, reject) => {
-  const req = request({ host: "127.0.0.1", port, path, method: "POST", headers: { ...auth(as), "Content-Length": 10 * 1024 * 1024 } }, (res) => {
+/** A POST whose head declares `mb` MB (10 by default) and whose body stops after 16 bytes. A route that checks the
+ *  caller (or the declared size) first answers at once; one that reads the body first waits for bytes that never come,
+ *  and this rejects after 3 s. */
+const partial = (path, as, mb = 10) => new Promise((resolve, reject) => {
+  const req = request({ host: "127.0.0.1", port, path, method: "POST", headers: { ...auth(as), "Content-Length": mb * 1024 * 1024 } }, (res) => {
     let text = "";
     res.setEncoding("utf8");
     res.on("data", (d) => { text += d; });
     res.on("end", () => { req.destroy(); resolve({ status: res.statusCode, json: text ? JSON.parse(text) : null }); });
   });
-  req.setTimeout(3000, () => req.destroy(new Error(`no answer to POST ${path} within 3 s — the route read the body before it checked the caller`)));
+  req.setTimeout(3000, () => req.destroy(new Error(`no answer to POST ${path} within 3 s — the route read the body before it checked the caller or the declared size`)));
   req.on("error", reject);
   req.write(Buffer.alloc(16, 0x41));
 });
@@ -240,6 +241,15 @@ describe("/cde/files — encrypted blobs belong to a project (D2, cdefiles-1/2, 
     id = r.json.id;
     expect(existsSync(join(blobs(), P_OFF, `${id}.bin`))).toBe(true);
     expect(existsSync(join(blobs(), `${id}.bin`))).toBe(false);
+  });
+
+  it("a body declared over SENTINEL_MAX_BLOB_MB (100) is a 413 at once, and nothing is stored (cde-8)", async () => {
+    const bins = () => readdirSync(join(blobs(), P_OFF)).filter((f) => f.endsWith(".bin")).length;
+    const before = bins();
+    const { status, json } = await partial("/cde/files?project=p-office", "u-contrib", 101);
+    expect(status).toBe(413);
+    expect(json.message).toMatch(/100 MB limit/);
+    expect(bins()).toBe(before);
   });
 
   it("a viewer of the project reads it back; a non-member cannot", async () => {
