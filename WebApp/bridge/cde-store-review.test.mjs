@@ -101,6 +101,28 @@ describe("readReviews — the open chains, derived from the review rows, the sen
     expect(auditReads().filter((p) => p.get("entity_type") === "eq.review").map((p) => p.get("offset"))).toEqual(["0", "1000"]);
   });
 
+  it("keeps each ledger row once when one is written between two page reads (pages are read by offset, newest first)", async () => {
+    // Two approvals complete the step. Row 2 is the chain's only approval; a newer row written after the first page
+    // pushes row 2 into the second page as well — counted twice, it would read as a finished chain and vanish.
+    db.audit_log.push({ ...start(1), new_value: { ...start(1).new_value, steps: [{ name: "Coordination check", role: "contributor", approvals: 2 }] } });
+    db.audit_log.push(row(2, "review", "review:approve 1", { step: 1, chain_start_id: 1, approver_uid: ANA }));
+    for (let i = 0; i < 999; i++) db.audit_log.push(row(3 + i, "review", "review:approve 1", { step: 1, chain_start_id: 0, approver_uid: ANA }, V2));
+    const f = globalThis.fetch;
+    let written = false;
+    globalThis.fetch = vi.fn(async (url, init) => {
+      const res = await f(url, init);
+      if (!written && String(url).includes("audit_log") && String(url).includes("entity_type=eq.review")) {
+        written = true;
+        db.audit_log.push(row(5000, "review", "review:approve 1", { step: 1, chain_start_id: 0, approver_uid: ANA }, V2));
+      }
+      return res;
+    });
+    const r = await readReviews("aster-tower");
+    expect(written).toBe(true);
+    expect(r.items).toMatchObject([{ version_id: V1, step: 1, of: 1 }]);
+    expect(r.items[0].approvals.map((a) => a.ledger.id)).toEqual([2]);
+  });
+
   it("a read that fails is a 502 'not read — …', never an empty list; an unknown key stays a 404", async () => {
     const f = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url, init = {}) => (String(url).includes("audit_log") ? new Response("{\"code\":\"XX000\"}", { status: 500 }) : f(url, init)));

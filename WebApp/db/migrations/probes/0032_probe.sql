@@ -396,8 +396,8 @@ begin
   exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
   if outcome is distinct from 'review@2 1 2 Model check false shared' then failed := failed || ('P23 ' || coalesce(outcome, 'null')); end if;
 
-  -- P24 grants: only signed-in users execute review_decide (anon and the service key do not), no API role executes
-  -- review_template, and cde_transition is still the one 5-argument overload
+  -- P24 grants: only signed-in users execute review_decide (anon and the service key do not), no signed-in or anon
+  -- caller executes review_template (the service key keeps it and reads the same rows directly), and cde_transition is still the one 5-argument overload
   perform set_config('request.jwt.claims', '', true);
   n := n + 1;
   outcome := has_function_privilege('anon', 'public.review_decide(uuid, text, text)', 'execute')::text || ' '

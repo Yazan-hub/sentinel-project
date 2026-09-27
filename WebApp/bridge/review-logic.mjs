@@ -31,14 +31,14 @@ export function openChains(reviewRows, backToWipRows, versions, { uid = null, ra
     const approvals = (reviewRows || [])
       .filter((r) => APPROVAL.test(String(r.action)) && String(r.new_value?.chain_start_id) === String(start.id))
       .sort((a, b) => Number(a.id) - Number(b.id));
-    const k = steps.findIndex((st, i) => approvals.filter((a) => Number(a.new_value?.step) === i + 1).length < st.approvals) + 1;
+    const k = steps.findIndex((st, i) => approvals.filter((a) => Number(a.new_value?.step) === i + 1).length < (st.approvals ?? 1)) + 1;
     // Every step approved: the last approval published the version in the same transaction, so a shared version cannot
     // carry such a chain — and were one read, nothing is left to decide on it.
     if (!k) continue;
     const step = steps[k - 1];
     const mine = uid ? approvals.find((a) => a.new_value?.approver_uid === uid) : null;
     const why_not = !uid ? unsigned
-      : rank < (RANK[step.role] ?? Infinity) ? `step ${k} (${step.name}) needs ${step.role} or above`
+      : rank < (["contributor", "lead", "owner"].includes(step.role) ? RANK[step.role] : Infinity) ? `step ${k} (${step.name}) needs ${step.role} or above`
       : uid === s.submitter_uid ? "the submitter does not review their own share"
       : mine ? `you already approved step ${mine.new_value.step} of this chain`
       : null;

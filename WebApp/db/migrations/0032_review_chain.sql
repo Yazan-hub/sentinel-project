@@ -4,7 +4,8 @@
 -- probes/0032_probe.sql, then the bridge is restarted. Apply it first. The running bridge is safe on either side of
 -- it: cde_transition keeps 0031's signature and grants, and no project can hold a review@n until the 6b bridge is
 -- running (the master bridge's artefact kinds do not include it), so review_template answers null everywhere and
--- every move behaves as under 0031 (its state: row gains review_start_id: null). The 6b bridge without this migration
+-- every move is judged as under 0031 — two things change on every project (the last two bullets below: the stamped
+-- actor and review_start_id), and neither changes what the bridge writes. The 6b bridge without this migration
 -- enforces no chain and its decide route fails (PostgREST finds no review_decide: a 500).
 --
 -- After it, on a project whose review@n in force (its own, else its office's) has at least one step:
@@ -23,10 +24,11 @@
 --     at least the step's role, not the submitter, not an approver already on this chain; a rejection says why. It
 --     writes review:approve <k> or review:reject <k> and returns that row's id and hash. Only authenticated may
 --     execute it: the machine never decides.
+-- On every project, whatever is installed:
 --   * a signed-in caller's state: row is stamped coalesce(jwt email, uid), never a caller-sent p_actor (the bridge
 --     already stamps a signed-in user so); the service path keeps p_actor ('service' when none was sent).
 --   * every state: row's new_value gains review_start_id: the chain it opened or closed, null when none.
--- With no review@n in force, or one whose steps are [], nothing changes. A version shared while no chain was
+-- With no review@n in force, or one whose steps are [], nothing else changes. A version shared while no chain was
 -- required carries none and publishes as under 0031, even after one is installed.
 begin;
 

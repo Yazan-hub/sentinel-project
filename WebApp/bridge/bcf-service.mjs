@@ -1138,7 +1138,7 @@ async function handleRequest(req, res) {
       //   rejection raises one BCF topic "Review: <container> rejected at step <k> — <note>", best-effort: bcf {guid}, or
       //   {error} — it never fails the decision; null on an approval.
       if (p2 === "reviews" && !p3 && req.method === "GET") return send(res, 200, await cde.readReviews(p1));
-      if (p2 === "versions" && p3 && p4 === "review" && req.method === "POST") {
+      if (p2 === "versions" && p3 && p4 === "review" && !seg[5] && req.method === "POST") {
         const b = (await readBody(req)) || {};
         const r = await cde.reviewDecide(p1, p3, { decision: b.decision, note: b.note });
         let bcf = null;

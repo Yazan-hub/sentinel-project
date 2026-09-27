@@ -22,7 +22,7 @@ describe("migration 0032 — the review chain (written, not applied)", () => {
     "create or replace function public.review_decide(p_version uuid, p_decision text, p_note text default null)",
   ])("defines %s", (head) => expect(SQL).toContain(head));
 
-  it("grants: review_decide to signed-in users only (the machine never decides), review_template to no API role", () => {
+  it("grants: review_decide to signed-in users only (the machine never decides), review_template to no signed-in or anon caller", () => {
     expect(SQL).toContain("revoke execute on function public.review_decide(uuid, text, text) from public, anon, service_role;");
     expect(SQL).toContain("grant  execute on function public.review_decide(uuid, text, text) to authenticated;");
     expect(SQL).toContain("revoke execute on function public.review_template(uuid) from public, anon, authenticated;");

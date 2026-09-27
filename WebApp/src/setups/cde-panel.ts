@@ -245,7 +245,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       refreshView();
       renderAudit((await api(`${encodeURIComponent(pid())}/audit?limit=20`)) as AuditPage);
     } catch (e) {
-      containers = []; folders = []; renderTree(); renderBoard([]);
+      containers = []; folders = []; reviews = new Map(); reviewsError = "not read — the CDE could not be reached";
+      renderTree(); renderBoard([]); renderReviewBar();
       status(`Can't reach the CDE: ${(e as Error).message}. Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set.`);
     }
   }
@@ -375,6 +376,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     if (!chain.can_decide) { line(chain.why_not ?? "", "color:#71717a"); return box; }
     const note = document.createElement("input");
     note.placeholder = "Note — a rejection needs one; the ledger records it";
+    note.maxLength = 500; // the bridge refuses a longer note (reviewDecide)
     note.style.cssText = "background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .35rem;font:11px system-ui";
     const approve = document.createElement("button");
     approve.textContent = "Approve";
@@ -384,8 +386,13 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     reject.disabled = true;
     reject.style.cssText = `${small};color:#fca5a5`;
     note.addEventListener("input", () => (reject.disabled = !note.value.trim()));
-    approve.addEventListener("click", () => void decide(c, v, "approve", note.value));
-    reject.addEventListener("click", () => void decide(c, v, "reject", note.value));
+    // One decision at a time: a second click would only be refused, and its "Not recorded" would replace the receipt.
+    const go = (d: "approve" | "reject") => {
+      approve.disabled = reject.disabled = true;
+      void decide(c, v, d, note.value).finally(() => { approve.disabled = false; reject.disabled = !note.value.trim(); });
+    };
+    approve.addEventListener("click", () => go("approve"));
+    reject.addEventListener("click", () => go("reject"));
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:.25rem";
     row.append(approve, reject);
