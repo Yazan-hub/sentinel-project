@@ -1,3 +1,7 @@
+// FIRST, before any library evaluates: in the platform's sandbox (the published app, an opaque origin) reading
+// localStorage throws, and three's inspector reads it at module load — this swaps a throwing store for an
+// in-memory one and leaves a working one alone (storage-fallback.ts).
+import "./storage-fallback";
 import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
