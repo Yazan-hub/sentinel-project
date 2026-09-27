@@ -291,3 +291,18 @@ describe("POST /cde/:key/intake — the founder's platform storage (D2, cde-2, c
     expect(seen.slice(from).filter((line) => !line.startsWith("GET "))).toEqual([]);
   });
 });
+
+describe("POST /bimdocs/:key/ingest — an original on the founder's disk (D2)", () => {
+  it("a viewer is refused before one byte of the document is read", async () => {
+    const { status, json } = await partial("/bimdocs/p-office/ingest?name=a.txt&doc_type=EIR", "u-view");
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/contributor role/);
+  });
+
+  it("the owner of a self-made project (no office) is refused before the body is read, and nothing is stored", async () => {
+    const { status, json } = await partial("/bimdocs/p-lone/ingest?name=a.txt&doc_type=EIR", "u-owner");
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/no office/);
+    expect(existsSync(join(tmp, "appdata", "Sentinel", "bimdocs", P_LONE))).toBe(false);
+  });
+});
