@@ -265,3 +265,19 @@ describe("/cde/files — encrypted blobs belong to a project (D2, cdefiles-1/2, 
     expect((await call("GET", `/cde/files/${old}?project=p-office`, { as: "u-contrib" })).status).toBe(404);
   });
 });
+
+describe("POST /cde/:key/intake — the founder's platform storage (D2, cde-2, cde-rem-2)", () => {
+  it("a viewer is refused before one byte of the body is read", async () => {
+    const { status, json } = await partial("/cde/p-office/intake?name=a.ifc&source=cli", "u-view");
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/contributor role/);
+  });
+
+  it("the owner of a self-made project (no office) is refused before the body is read, and nothing reaches the ledger", async () => {
+    const from = seen.length;
+    const { status, json } = await partial("/cde/p-lone/intake?name=a.ifc&source=cli", "u-owner");
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/no office/);
+    expect(seen.slice(from).filter((line) => !line.startsWith("GET "))).toEqual([]);
+  });
+});
