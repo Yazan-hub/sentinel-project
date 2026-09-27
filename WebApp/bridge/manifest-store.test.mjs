@@ -1,6 +1,7 @@
 // Manifests per container version: elements into the revision tables, datum + site into one document.
 import { describe, it, expect } from "vitest";
-import { captureManifest, getManifest, listManifests } from "./manifest-store.mjs";
+import { createHash } from "node:crypto";
+import { captureManifest, getManifest, listManifests, backfillManifest } from "./manifest-store.mjs";
 
 const manifestA = { schema: "IFC4", elements: [{ guid: "g1", class: "IFCWALL", type_name: "Wall 1", storey: "Level 1" }, { guid: "g2", class: "IFCSLAB", type_name: null, storey: "Level 1" }], levels: [{ name: "Level 1", elevation_mm: 0 }], grids: ["A"], site: { lat: 51.5, lon: -0.1, elevation_m: 12, map_conversion: null }, counts: { elements: 2, skipped: 0 } };
 
@@ -55,5 +56,46 @@ describe("manifest store", () => {
       { container: "A-0101.ifc", container_id: "c-1", version_id: "v-1", revision: "P01", has_manifest: true, captured_at: expect.any(String) },
       { container: "B-0102.ifc", container_id: "c-2", version_id: "v-2", revision: "P01", has_manifest: false, captured_at: null },
     ]);
+  });
+});
+
+// H0 (cde-rem-7): the CLI backfill rewrites what the Federation Gate judges, so the bytes must be the version's own file —
+// the version on the key, and the bytes hashing to the sha256 it was registered with. (The lead check is the route's,
+// before the body is read.) The manifest document is written with the service key once the bridge has checked.
+describe("backfillManifest — only the version's own file", () => {
+  const bytes = Buffer.from("ISO-10303-21;");
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const withVersion = (recorded, onKey = true) => {
+    const d = memDeps();
+    d.versionOnKey = async (key, vid) => { if (!onKey) throw Object.assign(new Error(`version ${vid} is not on ${key}`), { status: 400 }); return { proj: { id: `uuid-${key}` }, version: { id: vid } }; };
+    d.sb = async () => [{ sha256: recorded }];
+    d.opts = [];
+    const upsert = d.docUpsert;
+    d.docUpsert = async (s, p, id, data, o) => { d.opts.push(o); return upsert(s, p, id, data); };
+    return d;
+  };
+
+  it("a version that is not on the key is a 400 and nothing is captured", async () => {
+    const d = withVersion(sha, false);
+    await expect(backfillManifest("p", "v-9", bytes, { actor: "cli", source: "backfill" }, d)).rejects.toMatchObject({ status: 400, message: "version v-9 is not on p" });
+    expect(d.calls).toHaveLength(0);
+    expect(d.docs.size).toBe(0);
+  });
+
+  it("bytes that are not the version's file are a 409 and nothing is captured", async () => {
+    const d = withVersion("ff".repeat(32));
+    await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, d))
+      .rejects.toMatchObject({ status: 409, message: `these bytes are not version v-1's file (sha256 ${sha.slice(0, 12)}… ≠ ffffffffffff…) — nothing was saved` });
+    expect(d.calls).toHaveLength(0);
+    expect(d.docs.size).toBe(0);
+  });
+
+  it("the version's own bytes are captured, the document written with the service key; a version with no recorded sha256 takes the lead's upload", async () => {
+    const d = withVersion(sha.toUpperCase());
+    await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, d)).resolves.toMatchObject({ revision_id: "rev-1", elements: 2 });
+    expect(d.docs.get("manifest|uuid-p|v-1")).toMatchObject({ sha256: sha, source: "backfill" });
+    expect(d.opts).toEqual([{ service: true }]);
+    const none = withVersion(null);
+    await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, none)).resolves.toMatchObject({ revision_id: "rev-1" });
   });
 });

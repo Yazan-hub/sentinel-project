@@ -440,3 +440,10 @@ describe("DELETE /cde/projects/:key (cde-3, D12): the owner's, the database's de
     expect(db.bcf_topics).toEqual([]);
   });
 });
+
+describe("POST /cde/:key/manifests/:versionId (cde-rem-7): a backfill is a lead's, asked before the body is read", () => {
+  it("a contributor's backfill is a 403 and nothing is written", async () => {
+    expect(await call("POST", "/cde/demo/manifests/aaaaaaaa-0000-4000-8000-000000000001", "contributor", "ISO-10303-21;")).toEqual(refused("lead", "contributor"));
+    expect(log.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+});

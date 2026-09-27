@@ -1447,7 +1447,8 @@ async function handleRequest(req, res) {
           holdUpload(req, res, currentSub()); // held until this answer is done
           const bytes = await readRaw(req);
           if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
-          return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
+          // H0 (cde-rem-7): backfillManifest takes only the version's own file (on the key, hashing to its sha256).
+          return send(res, 201, await ms.backfillManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
         }
       }
       // Federation Gate: GET /cde/:key/federation · POST /cde/:key/federation/run { versions?, raise_bcf? }
