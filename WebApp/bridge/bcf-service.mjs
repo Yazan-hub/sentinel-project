@@ -16,6 +16,7 @@ import { createServer } from "node:http";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { pipeline } from "node:stream";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { runWithAuth, resolveActor, currentSub, currentUserToken } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
@@ -1098,9 +1099,9 @@ async function handleRequest(req, res) {
       if (!file) return send(res, 400, { message: "name the project: GET /cde/files/<id>?project=<project key>" });
       if (!existsSync(file)) return send(res, 404, { message: "Blob not found" });
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", ...corsHeaders(res) });
-      const stream = createReadStream(file); // streamed: parallel reads of a large blob never hold it whole in memory
-      stream.on("error", () => res.destroy());
-      return stream.pipe(res);
+      // Streamed: parallel reads of a large blob never hold it whole in memory. pipeline(), not .pipe(): a client that
+      // aborts mid-download must close the file handle too, or aborted downloads leak fds towards EMFILE.
+      return pipeline(createReadStream(file), res, () => {});
     } catch (e) {
       return send(res, e?.status || 500, { message: String(e?.message || e) });
     }
