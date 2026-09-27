@@ -596,8 +596,18 @@ account, on the board, read `My reviews (3)` and decided. Checked by `scratchpad
 | My reviews | the second account's bar read `My reviews (3)`, then `(2)`, `(1)` as it decided, and hid when nothing was left under review; `reviews` → `{"items":[]}` | board, reply |
 | Found | switching accounts in one window left the board showing the previous account's review view (`My reviews (0)`, `the submitter does not review their own share`) until ↻ — the board reloads on a project change, not on a sign-in change; the database still refuses a decision the wrong person makes. A follow-up | board |
 
-Still not run live: the viewer's refusal, two steps with a prior approver, a third account, and a contributor's `version_id`
-stamp (the probe and the bridge's vitest carry them).
+**Two steps and a viewer (09:53-10:10).** `review@5` installed (two contributor steps, `Design check` then `Coordination
+check`); B13-B shared again by the founder on its accepted verdict (`review:start` #1076, `state:wip->shared` #1077, verdict
+#1033), Claude driving the founder's tab; the second account decided in its own (Incognito) window:
 
-**Left in place:** `b13-review` (ids@1, review@1-4, B13-A, B13-C and B13-D published, B13-B in wip), archived again; the
-founder is its owner and the second account a contributor.
+| Step | Result | Evidence |
+|---|---|---|
+| Two steps: one approval does not finish the chain | the second account **Approve** on B13-B → `review:approve 1` #1078 (`of` 2, `chain_start_id` 1076); B13-B stays **Shared**, now `Review: step 2 of 2 — Coordination check (contributor)` with `✓ step 1 · yazanhijazeen32@gmail.com · ledger #1078 · receipt f3c8647cc39fe1c7…` on both boards | rows, boards |
+| A viewer decides nothing | the second account's role → `viewer` (`member_role_changed` 09:57:02); its board, ↻ → B13-B's review line and approval, the muted `step 2 (Coordination check) needs contributor or above`, no **Approve** or **Reject**, `My reviews (0)` | board |
+| A prior approver waits | its role back to `contributor` (10:10:11); ↻ → the muted `you already approved step 1 of this chain`, no **Approve** or **Reject**, `My reviews (0)` — whoever approved step 1 does not take step 2 | board |
+
+Still not run live: a third account completing the two-step chain, and a contributor's `version_id` stamp (the probe and the
+bridge's vitest carry them).
+
+**Left in place:** `b13-review` (ids@1, review@1-5, B13-A, B13-C and B13-D published, B13-B shared under review at step 2 of
+`review@5`), archived again; the founder is its owner and the second account a contributor.
