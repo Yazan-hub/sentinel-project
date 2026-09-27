@@ -1862,15 +1862,19 @@ async function handleRequest(req, res) {
       const b = await readBody(req);
       const now = new Date().toISOString();
       const topic = cde.newTopicObject(pid, b, now);
-      if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
-      broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       // The web's IDS raise (visibility-panel) wrote this ledger row itself through POST /cde/:key/audit, a lead's notes
       // since H0 (D11): the bridge records the raise, by the verified identity, as raiseGovernedFailureTopics does.
       // A title is the caller's and this regex backtracks quadratically over a long whitespace run: only a string of a raise's
       // size (one requirement and a count) is parsed, so no body can hold the event loop (a non-string is never coerced).
       const ids = useCde && typeof topic.title === "string" && topic.title.length <= 600 && /^IDS:\s*(.+?)\s*\((\d+) failing\)\s*$/.exec(topic.title);
+      // A raise grows the append-only ledger, so a signed-in caller's raises are budgeted as notes are (cde-6): over budget is a
+      // 429 before the topic is written. The row stays bounded: the title is capped above, the spec read from the
+      // description's first 600 characters.
+      if (ids) cde.takeWriteBudget("IDS raises", { perUser: 60, all: 200 });
+      if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
+      broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       if (ids) {
-        const spec = /^IDS “(.+?)”/.exec(topic.description || "")?.[1] ?? null;
+        const spec = /^IDS “(.+?)”/.exec(String(topic.description || "").slice(0, 600))?.[1] ?? null;
         try { await cde.recordAudit(pid, { entity_type: "ids_validation", actor: topic.creation_author, action: `Issue raised: ${ids[1]}`, new_value: { spec, requirement: ids[1], failing: Number(ids[2]), bcf_guid: topic.guid } }); }
         catch (e) { console.warn(`[bcf] ids_validation row for ${topic.guid} not written: ${e?.message || e}`); }
       }

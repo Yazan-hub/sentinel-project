@@ -276,7 +276,8 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
       } catch (e) { refusal ??= (e as Error).message; /* keep going */ }
     }
     if (!raised && refusal) { status(`Nothing raised — ${refusal}`); return; }
-    status(`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in the CDE audit (hash-chained).`);
+    status(`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in the CDE audit (hash-chained).` +
+      (refusal ? ` ${todo.length - raised} not raised — ${refusal}` : ""));
   }
 
   async function isolateRequirement(req: string) {

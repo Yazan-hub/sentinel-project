@@ -308,6 +308,16 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     }
     expect(writes("audit_log")).toEqual([]);
   });
+
+  it("a user's IDS raises are budgeted as notes are: the 61st in a minute is a 429 and writes no topic and no ledger row", async () => {
+    const raise = (i, description = "") => call("POST", T, "lead", { title: `IDS: Doors — P${i} (1 failing)`, description });
+    expect((await raise(0, `IDS “${"x".repeat(10_000)}” — 1 element(s) fail`)).status).toBe(201);
+    expect(db.audit_log[0].new_value.spec).toBeNull(); // the spec is read from the description's first 600 characters only
+    for (let i = 1; i < 60; i++) expect((await raise(i)).status).toBe(201);
+    expect(await raise(60)).toEqual({ status: 429, body: { message: "too many IDS raises in a minute — nothing was saved; try again shortly" } });
+    expect(writes("bcf_topics")).toHaveLength(60);
+    expect(writes("audit_log")).toHaveLength(60);
+  }, 60_000);
 });
 
 describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", () => {
