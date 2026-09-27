@@ -90,7 +90,7 @@ public static class AutoPublish
         try
         {
             plan = Publisher.Prepare(doc, Path.Combine(Path.GetTempPath(), "Sentinel", "auto"),
-                                     (kind, timeout) => ArtefactClient.Resolve(key, kind, timeout));
+                                     (kind, timeout) => ArtefactClient.Resolve(key, kind, timeout), "auto-publish");
         }
         catch (Exception ex) // never let a background export crash Revit
         {

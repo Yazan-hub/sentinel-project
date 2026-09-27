@@ -60,22 +60,20 @@ namespace Sentinel.Coordination
         }
 
         /// <summary>
-        /// Record an IFC Delivery Gate verdict (KF-1) on the ledger. The web CDE timeline then shows the
-        /// certificate that decided whether a deliverable was fit for upload: PASS, FAIL or NOT CHECKED. The row names
-        /// the contract that judged (contract_ref · contract_source · contract_sha256), all null when none was
-        /// installed. <c>passed</c> is null when nothing was judged; every reader treats null as not checked, never as
-        /// a pass or a fail. The row is <see cref="Sentinel.Engine.GateLines.AuditValue"/>, which has the Node intake
-        /// gate row's shape and is pinned by tools/gate-check. <c>sha256</c> ties it to the exact bytes certified.
-        /// The IFC gate and Governed Publish wait for the answer and print its line.
+        /// Record an IFC Delivery Gate verdict (KF-1) on the ledger through <c>POST /cde/:key/delivery-gate</c> (spec
+        /// 2026-09-27 Decision 5), the route only the machine credential may call — the open audit route refuses
+        /// entity_type delivery_gate since 6a, so no signed-in member can forge a gate row. The web CDE timeline then
+        /// shows the certificate that decided whether a deliverable was fit for upload: PASS, FAIL or NOT CHECKED. The
+        /// bridge words the row itself and stores <see cref="Sentinel.Engine.GateLines.AuditValue"/> as its value (pinned
+        /// by tools/gate-check and tools/publish-check): the contract that judged (all null when none), <c>passed</c>
+        /// null when nothing was judged, every failure, and the file's sha256 and size. <paramref name="source"/> is
+        /// "revit" (Governed Publish), "auto-publish" or "check" (the IFC Delivery Gate command); with
+        /// <paramref name="publish"/> a FAIL is also held on the web and the reply's hold row comes back as
+        /// <see cref="LedgerResult.Hold"/>. The IFC gate and the Publisher wait for the answer and print its line.
         /// </summary>
-        public static LedgerResult DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey) =>
-            Event("/audit", new
-            {
-                entity_type = "delivery_gate",
-                actor = "Revit",
-                action = Sentinel.Engine.GateLines.AuditAction(fileName, gate),
-                new_value = Sentinel.Engine.GateLines.AuditValue(fileName, gate),
-            }, projectKey);
+        public static LedgerResult DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey,
+                                                string source, bool publish) =>
+            Event("/delivery-gate", Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish), projectKey);
 
         /// <summary>Record a Naming Manager batch on the ledger: one row for the batch (the window continues on the
         /// task and shows the line).</summary>
@@ -101,13 +99,16 @@ namespace Sentinel.Coordination
         /// <paramref name="note"/> land on the audit row. With <paramref name="register"/> (the Publisher: one
         /// adjudication per publish, spec 2026-09-26 Decision 3) the bridge registers the version on an accepted or
         /// recorded verdict and stamps it, answering <see cref="ProposalResult.Version"/> and
-        /// <see cref="ProposalResult.VerdictAuditId"/>; a rejected verdict registers nothing. Blocking (120s cap);
+        /// <see cref="ProposalResult.VerdictAuditId"/>; a rejected verdict registers nothing, and the bridge answers the
+        /// hold row it wrote for it, if any (<see cref="ProposalResult.Held"/>). <paramref name="gateRowId"/> (the
+        /// Publisher: its gate row's ledger id) lets the proposal row name the gate row it follows. Blocking (120s cap);
         /// never throws: <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
         public static ProposalResult Propose(object elements, string? versionId, string actor,
                                              string projectKey, string? containerName = null,
                                              string? source = null, string? note = null, bool raiseBcf = true,
-                                             string? failuresRequirement = null, RegisterRequest? register = null)
+                                             string? failuresRequirement = null, RegisterRequest? register = null,
+                                             long? gateRowId = null)
         {
             var r = new ProposalResult();
             var key = KeyOf(projectKey);
@@ -116,7 +117,7 @@ namespace Sentinel.Coordination
             {
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/propose";
-                var body = ProposalResult.RequestBody(elements, versionId, actor, containerName, source, note, raiseBcf, failuresRequirement, register);
+                var body = ProposalResult.RequestBody(elements, versionId, actor, containerName, source, note, raiseBcf, failuresRequirement, register, gateRowId);
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);

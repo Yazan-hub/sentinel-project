@@ -38,6 +38,11 @@ public sealed class ProposalResult
     public string? VerdictAuditId;
     public string? VerdictHash;
     public string? Downgraded;
+    // The hold:<stage> row the bridge wrote for this refusal (spec 2026-09-27 Decision 4): the reply's hold {id, hash}.
+    // Held is false when the reply's hold is null or absent — a refusal the bridge does not hold (no register, a client
+    // standard, a caller who could not register) or a bridge before 6a; HoldId / HoldHash stay null when it omits them.
+    public bool Held;
+    public string? HoldId, HoldHash;
     /// "ids@4 · office · 23bb57937fb0…" or "none" — the bridge's refLabel, as every other surface prints it.
     public string IdsLabel => RefLabel(IdsRef, IdsSource, IdsSha256);
     public string NamingLabel => RefLabel(NamingRef, NamingSource, NamingSha256);
@@ -53,10 +58,11 @@ public sealed class ProposalResult
 
     /// <summary>The /propose body, as <c>GovernedNotify.Propose</c> serializes it. Pure, so tools/publish-check pins
     /// the wire shape: <paramref name="register"/> goes as <c>{name, size_bytes, sha256}</c> (the bridge requires
-    /// name = container_name) and only when given; every other key as before.</summary>
+    /// name = container_name) and only when given; <paramref name="gateRowId"/> as <c>gate_row_id</c> only when it is a
+    /// ledger id (the Publisher's recorded gate row, phase 6a); every other key as before.</summary>
     public static Dictionary<string, object?> RequestBody(object elements, string? versionId, string actor, string? containerName,
                                                           string? source, string? note, bool raiseBcf, string? failuresRequirement,
-                                                          RegisterRequest? register)
+                                                          RegisterRequest? register, long? gateRowId = null)
     {
         var body = new Dictionary<string, object?>
         {
@@ -73,6 +79,7 @@ public sealed class ProposalResult
         if (!string.IsNullOrWhiteSpace(failuresRequirement)) body["failures_requirement"] = failuresRequirement;
         if (register != null)
             body["register"] = new Dictionary<string, object?> { ["name"] = register.Name, ["size_bytes"] = register.SizeBytes, ["sha256"] = register.Sha256 };
+        if (gateRowId is > 0) body["gate_row_id"] = gateRowId.Value;
         return body;
     }
 
@@ -88,6 +95,7 @@ public sealed class ProposalResult
             r.Version = new VersionInfo { Id = vid, ContainerId = Str(ver, "container_id"), Revision = Str(ver, "revision") ?? "", State = Str(ver, "state") ?? "" };
         r.VerdictAuditId = Scalar(root, "verdict_audit_id");
         r.VerdictHash = Str(root, "verdict_hash");
+        if (root.TryGetProperty("hold", out var hd) && hd.ValueKind == JsonValueKind.Object) { r.Held = true; r.HoldId = Scalar(hd, "id"); r.HoldHash = Str(hd, "hash"); }
         if (root.TryGetProperty("summary", out var s) && s.ValueKind == JsonValueKind.Object)
         {
             if (s.TryGetProperty("in_scope", out var i) && i.TryGetInt32(out var iv)) r.InScope = iv;
