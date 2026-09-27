@@ -187,6 +187,37 @@ describe("raw uploads — capped on the bytes that arrive, two at once, one per 
   });
 });
 
+describe("raw uploads — a caller that goes away while its role is still being checked leaves no slot behind", () => {
+  let b, supa;
+  beforeAll(async () => {
+    // A stand-in PostgREST that answers like one across the internet: 400 ms a read. It knows one project, "gl".
+    const gl = { id: "0a0a0a0a-0000-4000-8000-000000000001", key: "gl", name: "gl", kind: "project", office_key: null };
+    supa = createServer((q, s) => setTimeout(() => {
+      s.writeHead(200, { "Content-Type": "application/json" });
+      s.end(q.method === "GET" && q.url.startsWith("/rest/v1/projects") ? JSON.stringify([gl]) : "[]");
+    }, 400));
+    const supaPort = await freePort();
+    await new Promise((r) => supa.listen(supaPort, "127.0.0.1", r));
+    b = await startBridge({
+      BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET, SUPABASE_URL: `http://127.0.0.1:${supaPort}`,
+      SUPABASE_SERVICE_KEY: "stand-in-service-key", SUPABASE_ANON_KEY: "stand-in-anon-key",
+    });
+  }, 30_000);
+  afterAll(() => new Promise((r) => supa.close(r)));
+
+  it("a machine upload cut off during requireSpend (intake, then ingest) leaves the machine's next upload its slot — never a 429 until a restart", async () => {
+    for (const path of ["/cde/gl/intake?name=a.ifc&source=cli", "/bimdocs/gl/ingest?name=a.txt&doc_type=EIR"]) {
+      const gone = open(b.port, "POST", path, { ...machine, "Transfer-Encoding": "chunked" });
+      gone.reply.catch(() => {});
+      await new Promise((r) => setTimeout(r, 150));
+      gone.socket.destroy(); // a cancelled publish: the route is still awaiting its role check
+      await new Promise((r) => setTimeout(r, 1500)); // it finishes the check and reaches its upload slot
+      const next = await open(b.port, "POST", "/bimdocs/gl/ingest?name=a.txt&doc_type=EIR", { ...machine, "Content-Length": String(33 * MB) }).reply;
+      expect(statusOf(next), `after ${path.split("?")[0]}: ${next}`).toBe(413); // it got the slot, then the cap refused it unread
+    }
+  }, 20_000);
+});
+
 describe("raw uploads — the role is decided before a byte of the body is read", () => {
   let b, supa;
   beforeAll(async () => {

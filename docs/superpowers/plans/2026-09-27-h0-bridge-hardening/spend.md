@@ -1021,7 +1021,7 @@ EOF
 - Test: `WebApp/bridge/spend-routes.test.mjs` (append)
 
 **Interfaces:**
-- Consumes: `requireSpend(key)` (SPEND-1); gate-limits' Task 3 `uploadSlot` / `readRaw` lines in the /ifc block (kept as gate-limits leaves them; Task 3 deleted the `MAX_UPLOAD` line and the constant).
+- Consumes: `requireSpend(key)` (SPEND-1); gate-limits' Task 3 `holdUpload` / `readRaw` lines in the /ifc block (kept as gate-limits leaves them — batch 2's review made the slot line `holdUpload(req, res, currentSub())`; Task 3 deleted the `MAX_UPLOAD` line and the constant).
 - Produces:
   - `isIfcStep(bytes: Buffer|Uint8Array) -> boolean` (platform-publish.mjs) — the first 64 bytes open with `ISO-10303-21;` after an optional UTF-8 BOM and whitespace.
   - `requireSpendFor(key: string|null, param: string) -> Promise<projectRow>` (bcf-service.mjs module function) — 400 when `key` is empty, 503 when the CDE is not configured, else `requireSpend(key)`. Used again by SPEND-6.
@@ -1113,7 +1113,7 @@ async function requireSpendFor(key, param) {
 }
 ```
 
-The /ifc block (lines 943-964) changes as below. Lines without `+`/`-` are the text gate-limits' Task 3 left (its `uploadSlot` and `readRaw` lines):
+The /ifc block (lines 943-964) changes as below. Lines without `+`/`-` are the text gate-limits' Task 3 and its batch 2 review left (its `holdUpload` and `readRaw` lines):
 
 ```diff
    // ── IFC upload → That Open Platform (Phase C: browser bakes → bridge uploads; token stays server-side) ──
@@ -1126,7 +1126,7 @@ The /ifc block (lines 943-964) changes as below. Lines without `+`/`-` are the t
    if (url.pathname === "/ifc" && req.method === "POST") {
      try {
 +      await requireSpendFor(url.searchParams.get("projectId"), "projectId");
-       res.once("close", uploadSlot(currentSub())); // held until this answer is done
+       holdUpload(req, res, currentSub()); // held until this answer is done
        const bytes = await readRaw(req);
        if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
 +      // Only an IFC reaches the platform: the shared publish path uploads the raw bytes when conversion fails (Governed
@@ -1191,7 +1191,7 @@ EOF
 - Test: `WebApp/bridge/spend-routes.test.mjs` (append)
 
 **Interfaces:**
-- Consumes: `requireSpendFor(key, param)` (SPEND-5), `readRaw(req, { max })` and `uploadSlot(sub)` (from area gate-limits), `currentSub()`, `currentUserToken()` (bridge-auth.mjs; READS-3 adds the same import — whichever lands first adds it), `cde.ensureProject` (existing; a non-member is refused — 404 after READS-1).
+- Consumes: `requireSpendFor(key, param)` (SPEND-5), `readRaw(req, { max })` and `holdUpload(req, res, sub)` (from area gate-limits: the slot is held until the answer is done, and a caller that went away during the role check is refused with its slot freed), `currentSub()`, `currentUserToken()` (bridge-auth.mjs; READS-3 adds the same import — whichever lands first adds it), `cde.ensureProject` (existing; a non-member is refused — 404 after READS-1).
 - Produces:
   - `POST /cde/files?project=<key>` → 201 `{ id, size }`, blob at `CDE_FILES_ROOT/<project id>/<id>.bin`; 400 no project, 503 CDE off, 403 untrusted, 413 over `MAX_BLOB` (env `SENTINEL_MAX_BLOB_MB`, default 100), 429 no upload slot.
   - `GET /cde/files/<id>?project=<key>` → the blob streamed, for members of the project; without `?project` only the machine credential reads, and only a pre-H0 blob in the root folder.
@@ -1324,10 +1324,9 @@ Replace the whole encrypted-blob section — from the comment `// ── Encrypt
   // caller must be trusted for that project before one byte is read (H0 D2, cdefiles-1), and reading one needs
   // membership of it (cdefiles-2). Above the /cde/ block: these routes answer their own 503 when the CDE is off.
   if (url.pathname === "/cde/files" && req.method === "POST") {
-    let release = null;
     try {
       const proj = await requireSpendFor(url.searchParams.get("project"), "project");
-      release = uploadSlot(currentSub());
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req, { max: MAX_BLOB });
       if (!bytes.length) return send(res, 400, { message: "Empty body — nothing was stored." });
       const id = randomUUID();
@@ -1338,8 +1337,6 @@ Replace the whole encrypted-blob section — from the comment `// ── Encrypt
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
       return send(res, e?.status || 500, { message: String(e?.message || e) });
-    } finally {
-      release?.();
     }
   }
   const fm = url.pathname.match(/^\/cde\/files\/([A-Za-z0-9-]+)$/);

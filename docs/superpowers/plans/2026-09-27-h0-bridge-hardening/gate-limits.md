@@ -591,7 +591,7 @@ Closes: **cde-rem-3** (intake and the manifests backfill decide the role before 
 
 **Prerequisite:** area **spend**'s SPEND-1 (`requireSpend(key, deps)` in `WebApp/bridge/members-store.mjs`).
 
-**Ownership:** this task owns the `requireSpend` line on intake and on document ingest (SPEND-7 and SPEND-10 add tests only), and the manifests backfill's `requireMinRole(p1, "lead")` and `requireSpend(p1)` (the second added in batch 2's review fix: a lead of a project anyone can make by signing up is not a trusted caller; WR-11 then only swaps `captureManifest` for `backfillManifest`). `/ifc` and `/cde/files` carry no project key today: area spend's SPEND-5 puts `await requireSpendFor(…)` on the line above this task's `res.once("close", uploadSlot(currentSub()));` in `/ifc`, and SPEND-6 replaces the whole `/cde/files` block, checking the caller before it takes its slot. Either way the check comes before the slot and before every byte.
+**Ownership:** this task owns the `requireSpend` line on intake and on document ingest (SPEND-7 and SPEND-10 add tests only), and the manifests backfill's `requireMinRole(p1, "lead")` and `requireSpend(p1)` (the second added in batch 2's review fix: a lead of a project anyone can make by signing up is not a trusted caller; WR-11 then only swaps `captureManifest` for `backfillManifest`). `/ifc` and `/cde/files` carry no project key today: area spend's SPEND-5 puts `await requireSpendFor(…)` on the line above this task's `holdUpload(req, res, currentSub());` in `/ifc` (the slot line as batch 2's second review left it), and SPEND-6 replaces the whole `/cde/files` block, checking the caller before it takes its slot. Either way the check comes before the slot and before every byte.
 
 **Files:**
 - Modify: `WebApp/bridge/bcf-service.mjs`:
@@ -617,7 +617,7 @@ Closes: **cde-rem-3** (intake and the manifests backfill decide the role before 
   - `currentSub()` (bridge-auth);
   - `uploadSlot`, `readRaw` (Task 1).
 - Produces:
-  - Every raw-upload route runs, in order: its role check, then `res.once("close", uploadSlot(currentSub()))` (held until the answer is done, freed by an answer or a client that goes away), then `readRaw(req[, { max }])`.
+  - Every raw-upload route runs, in order: its role check, then `holdUpload(req, res, currentSub())` (held until the answer is done, freed by an answer or a client that goes away; a client that went away during the role check is refused and its slot freed at once — batch 2's second review, which replaced `res.once("close", uploadSlot(currentSub()))`: that line never released a slot taken after the close), then `readRaw(req[, { max }])`.
   - Intake: `await requireSpend(p1);` first in the route. Ingest: `const proj = await requireSpend(p1);` first in the route (SPEND-9 passes `proj.id` to `ingestDocument`). Manifests backfill: `await requireMinRole(p1, "lead");` after the uuid check, then `await requireSpend(p1);` (batch 2's review fix).
   - Ingest reads with `{ max: MAX_DOC_UPLOAD }`.
   - `ingestDocument` stores no original for a document it refuses.
@@ -1898,7 +1898,7 @@ EOF
 
 - **spend**:
   - `requireSpend(key, deps)` in `members-store.mjs`. Task 3 calls it on intake and document ingest, before the upload slot and before any byte is read.
-  - For `/ifc` and `/cde/files`, spend adds `await requireSpend(<the key its web callers now send>)` on the line directly above Task 3's `res.once("close", uploadSlot(currentSub()));`.
+  - For `/ifc` and `/cde/files`, spend adds `await requireSpend(<the key its web callers now send>)` on the line directly above Task 3's `holdUpload(req, res, currentSub());`.
   - Spend's own edits to the `/ai/chat` and `/ai/run-tool` blocks must keep `readBody(req, { max: SMALL_JSON })` (Task 2).
   - `createKeyedLimiter` (Task 8) is used by SPEND-2's per-user /ai/* limiter.
 - **write-roles**: nothing for cde-7. Its memory half is closed here (Tasks 1-2: every JSON body is capped and the bytes being parsed at once are budgeted), and that bound holds on every JSON route alike — any signed-in caller can send the same 16 MB body to POST /cde/projects — so moving `requireMinRole` before `readBody` on office snapshot/scan and the members routes would bound nothing further; `office-store` `saveSnapshot`/`saveScan` already refuse below contributor, and the members writes below lead (WR-8, 0004), before anything is written. WR-12 records the same decision. ledger-1's role half is WR-12.

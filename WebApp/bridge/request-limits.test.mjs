@@ -1,7 +1,8 @@
 // The bridge's body and upload limits (H0, D8/D9), driven with plain streams — no bridge, no network.
 import { describe, it, expect, afterEach } from "vitest";
+import { EventEmitter } from "node:events";
 import { Readable, PassThrough } from "node:stream";
-import { readBody, readRaw, uploadSlot, jsonCap, uploadCap, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
+import { readBody, readRaw, uploadSlot, holdUpload, jsonCap, uploadCap, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
 
 const MB = 1024 * 1024;
 const req = (chunks, headers = {}) => Object.assign(Readable.from(chunks.map((c) => Buffer.from(c))), { headers });
@@ -76,6 +77,12 @@ describe("readRaw — the bytes, capped on what actually arrives", () => {
   it("refuses a declared length over the cap unread", async () => {
     await expect(readRaw(req(["x"], { "content-length": String(2048 * MB + 1) }))).rejects.toMatchObject({ status: 413, message: expect.stringContaining("2048 MB limit") });
   });
+  it("refuses at once a request whose caller already went away (its events have fired: nothing would end the read)", async () => {
+    const r = open();
+    r.destroy();
+    await new Promise((ok) => r.once("close", ok));
+    await expect(readRaw(r)).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe("uploadSlot — two uploads at once, one per caller", () => {
@@ -94,6 +101,22 @@ describe("uploadSlot — two uploads at once, one per caller", () => {
     const m = uploadSlot(null);
     expect(() => uploadSlot(undefined)).toThrow(expect.objectContaining({ status: 429 }));
     m();
+  });
+});
+
+describe("holdUpload — the slot is held until the answer is done, never by a caller that already went away", () => {
+  const pair = () => ({ req: new EventEmitter(), res: new EventEmitter() });
+  it("holds the caller's slot until the answer closes", () => {
+    const { req, res } = pair();
+    holdUpload(req, res, "user-a");
+    expect(() => uploadSlot("user-a")).toThrow(expect.objectContaining({ status: 429 }));
+    res.emit("close");
+    uploadSlot("user-a")();
+  });
+  it("refuses, and frees the slot, when the caller left while the route was still checking its role", () => {
+    const gone = { req: Object.assign(new EventEmitter(), { destroyed: true }), res: Object.assign(new EventEmitter(), { destroyed: true }) };
+    expect(() => holdUpload(gone.req, gone.res, null)).toThrow(expect.objectContaining({ status: 400 }));
+    uploadSlot(null)(); // the machine's one slot is free
   });
 });
 

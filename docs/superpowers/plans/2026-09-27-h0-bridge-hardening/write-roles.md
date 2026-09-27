@@ -2227,7 +2227,7 @@ export async function backfillManifest(key, versionId, bytes, opts = {}, deps) {
 export async function getManifest(key, versionId, deps) {
 ```
 
-In `WebApp/bridge/bcf-service.mjs`, in the manifests backfill (as gate-limits' Task 3 and its batch 2 review fix left it: the uuid check, `requireMinRole(p1, "lead")`, `requireSpend(p1)`, `res.once("close", uploadSlot(currentSub()))`, `readRaw(req)`, the empty-body 400 — all unchanged), replace
+In `WebApp/bridge/bcf-service.mjs`, in the manifests backfill (as gate-limits' Task 3 and its batch 2 review fixes left it: the uuid check, `requireMinRole(p1, "lead")`, `requireSpend(p1)`, `holdUpload(req, res, currentSub())`, `readRaw(req)`, the empty-body 400 — all unchanged), replace
 
 ```js
           return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));

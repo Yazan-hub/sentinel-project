@@ -23,6 +23,9 @@ function readBytes(req, max, lease) {
   return new Promise((resolve, reject) => {
     const over = () => err(413, `the request body is over the ${Math.round(max / MB)} MB limit for this route — nothing was read or saved`);
     if (Number(req.headers?.["content-length"] || 0) > max) return reject(over());
+    // A caller that went away while the route was still deciding: its "end" or "close" has fired already, so nothing
+    // would ever settle this read.
+    if (req.destroyed || req.readableAborted) return reject(err(400, "the request ended before its body did — nothing was saved"));
     let chunks = [], total = 0, settled = false;
     const fail = (e) => { if (settled) return; settled = true; chunks = null; reject(e); };
     req.on("data", (c) => {
@@ -72,6 +75,15 @@ export function uploadSlot(sub) {
   uploading.add(who);
   let held = true;
   return () => { if (held) { held = false; uploading.delete(who); } };
+}
+
+/** Take `sub`'s upload slot for this request, released when its answer is done ("close" on res). A route checks the
+ *  caller's role first (a PostgREST read or two); a caller that went away meanwhile has had its "close" already, so
+ *  its slot would never be released — that is a refusal instead, with the slot freed at once. */
+export function holdUpload(req, res, sub) {
+  const release = uploadSlot(sub);
+  if (res.destroyed || req.destroyed) { release(); throw err(400, "the caller went away before the upload started — nothing was saved"); }
+  res.once("close", release);
 }
 
 const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/;

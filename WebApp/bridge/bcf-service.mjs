@@ -22,7 +22,7 @@ import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, uploadSlot, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
+import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -960,7 +960,7 @@ async function handleRequest(req, res) {
   // fragments and uploads via the same @thatopen/services client the outbox watcher uses.
   if (url.pathname === "/ifc" && req.method === "POST") {
     try {
-      res.once("close", uploadSlot(currentSub())); // held until this answer is done
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
       const name = url.searchParams.get("name") || "sentinel-model.ifc";
@@ -982,7 +982,7 @@ async function handleRequest(req, res) {
   // Deliberately ABOVE the Supabase /cde/ block so it never hits the service-key 503 guard.
   if (url.pathname === "/cde/files" && req.method === "POST") {
     try {
-      res.once("close", uploadSlot(currentSub())); // held until this answer is done
+      holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req);
       if (!bytes.length) return send(res, 400, { message: "Empty body" });
       const id = randomUUID();
@@ -1248,7 +1248,7 @@ async function handleRequest(req, res) {
         // A trusted caller first (D2): the key is in the URL, so a refusal reads no byte of the upload.
         const { requireSpend } = await import("./members-store.mjs");
         await requireSpend(p1);
-        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        holdUpload(req, res, currentSub()); // held until this answer is done
         const bytes = await readRaw(req);
         const q = (k) => url.searchParams.get(k) || undefined;
         const agent = (q("agent_model") || q("agent_tool") || q("agent_prompt_sha256")) ? { kind: "agent", model: q("agent_model"), tool: q("agent_tool"), prompt_sha256: q("agent_prompt_sha256") } : undefined;
@@ -1299,7 +1299,7 @@ async function handleRequest(req, res) {
           const { requireMinRole, requireSpend } = await import("./members-store.mjs");
           await requireMinRole(p1, "lead");
           await requireSpend(p1);
-          res.once("close", uploadSlot(currentSub())); // held until this answer is done
+          holdUpload(req, res, currentSub()); // held until this answer is done
           const bytes = await readRaw(req);
           if (!bytes.length) return send(res, 400, { message: "Empty body — POST the .ifc file as the request body." });
           return send(res, 201, await ms.captureManifest(p1, p3, bytes, { actor: url.searchParams.get("actor") || "cli", source: "backfill", rev_code: url.searchParams.get("revision") || null }));
@@ -1529,7 +1529,7 @@ async function handleRequest(req, res) {
         // the URL, so a refusal reads no byte of the upload. The project row is kept for ingestDocument (SPEND-9).
         const { requireSpend } = await import("./members-store.mjs");
         const proj = await requireSpend(p1);
-        res.once("close", uploadSlot(currentSub())); // held until this answer is done
+        holdUpload(req, res, currentSub()); // held until this answer is done
         const raw = await readRaw(req, { max: MAX_DOC_UPLOAD });
         if (!raw.length) return send(res, 400, { message: "empty upload" });
         const ingest = await import("./bimdocs-ingest.mjs");
