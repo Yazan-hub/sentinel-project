@@ -175,3 +175,40 @@ describe("RFIs (rfis-1): a viewer writes nothing; a contributor raises and answe
     expect((await call("POST", "/rfis/demo", "machine", { subject: "S", creation_author: "Revit" })).body.creation_author).toBe("Revit");
   });
 });
+
+describe("Tenders (tenders-1, tenders-2, uncovered-3): issue and award are a lead's, a bid a contributor's", () => {
+  const TENDER = { guid: "T1", project_id: "demo", title: "Main works", status: "Issued", scope: [{ code: "C1", qty: 2, rate: 10 }], bids: [], awarded_to: "", history: [] };
+
+  it("a contributor's issue and award are 403s and nothing reaches the table", async () => {
+    seedDoc("tender", "T1", structuredClone(TENDER));
+    expect(await call("POST", "/tenders/demo", "contributor", { title: "X" })).toEqual(refused("lead", "contributor"));
+    expect(await call("PUT", "/tenders/demo/T1", "contributor", { awarded_to: "Acme" })).toEqual(refused("lead", "contributor"));
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+
+  it("a lead issues and awards; the tender document is written with the service key after the bridge's check", async () => {
+    seedDoc("tender", "T1", structuredClone(TENDER));
+    expect((await call("POST", "/tenders/demo", "lead", { title: "X" })).status).toBe(201);
+    expect(await call("PUT", "/tenders/demo/T1", "lead", { awarded_to: "Acme" })).toMatchObject({ status: 200, body: { status: "Awarded", awarded_to: "Acme" } });
+    expect(writes("bridge_docs").map((c) => c.service)).toEqual([true, true]);
+  });
+
+  it("PUT on the /bids path is not a second way to award (405), even for a lead", async () => {
+    seedDoc("tender", "T1", structuredClone(TENDER));
+    expect((await call("PUT", "/tenders/demo/T1/bids", "lead", { awarded_to: "Acme" })).status).toBe(405);
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+
+  it("a viewer's bid is a 403; a contributor's names the firm and who entered it; an awarded tender takes none (409)", async () => {
+    seedDoc("tender", "T1", structuredClone(TENDER));
+    expect(await call("POST", "/tenders/demo/T1/bids", "viewer", { bidder: "Acme", rates: {} })).toEqual(refused("contributor", "viewer"));
+    const bid = await call("POST", "/tenders/demo/T1/bids", "contributor", { bidder: "Acme", submitted_by: "Someone else", rates: { C1: 12 } });
+    expect(bid).toMatchObject({ status: 201, body: { bidder: "Acme", submitted_by: "contributor@example.test", total: 24 } });
+    expect(db.bridge_docs[0].data.history.at(-1)).toMatchObject({ author: "contributor@example.test", action: "Bid received: Acme" });
+    db.bridge_docs[0].data = { ...db.bridge_docs[0].data, status: "Awarded", awarded_to: "Acme" };
+    const before = writes("bridge_docs").length;
+    expect(await call("POST", "/tenders/demo/T1/bids", "contributor", { bidder: "Late Ltd", rates: {} }))
+      .toEqual({ status: 409, body: { message: "tender Main works is awarded to Acme — it takes no more bids" } });
+    expect(writes("bridge_docs")).toHaveLength(before);
+  });
+});

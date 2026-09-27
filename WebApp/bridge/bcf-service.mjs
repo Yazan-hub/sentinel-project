@@ -997,6 +997,13 @@ async function handleRequest(req, res) {
     try {
       const cde = await import("./cde-store.mjs");
       const useCde = cde.cdeConfigured();
+      // H0 (D4, tenders-1): issuing and awarding a tender is a lead's governance; entering a bid is a contributor's work;
+      // a viewer writes nothing. Asked before the body is read; the machine credential passes as service.
+      if (req.method !== "GET") await (await import("./members-store.mjs")).requireMinRole(tpid, req.method === "POST" && tsub === "bids" ? "contributor" : "lead");
+      // Written with the service key after that check: one tender document carries the award and the bids together, so
+      // the database cannot tell a lead's award from a contributor's bid — the bridge decides, and the store can be closed
+      // to direct writes (migration 0033).
+      const saveDoc = (t) => cde.docUpsert("tender", tpid, t.guid, t, { service: true });
       const listTenders = async () => (useCde ? await cde.docListLazy("tender", tpid, tndb.tenders.filter(inP), (t) => t.guid) : tndb.tenders.filter(inP));
       if (req.method === "GET" && !tguid) return send(res, 200, await listTenders());
       if (req.method === "POST" && !tguid) {
@@ -1008,21 +1015,26 @@ async function handleRequest(req, res) {
           bids: [], awarded_to: "", creation_date: now, modified_date: now,
           history: [{ date: now, author: resolveActor(b.author, "web"), action: "Tender issued" }],
         };
-        if (useCde) await cde.docUpsert("tender", tpid, t.guid, t); else { tndb.tenders.push(t); persistTender(); }
+        if (useCde) await saveDoc(t); else { tndb.tenders.push(t); persistTender(); }
         return send(res, 201, t);
       }
       const t = useCde ? await cde.docGet("tender", tpid, tguid) : tndb.tenders.find((x) => inP(x) && x.guid === tguid);
       if (!t) return send(res, 404, { message: "Tender not found" });
       t.history = t.history || [];
-      const saveTender = async () => { if (useCde) await cde.docUpsert("tender", tpid, t.guid, t); else persistTender(); };
+      const saveTender = async () => { if (useCde) await saveDoc(t); else persistTender(); };
       if (req.method === "POST" && tsub === "bids") {
+        // An awarded tender takes no more bids (tenders-2): the award is the decision the bids were for.
+        if (t.status === "Awarded") return send(res, 409, { message: `tender ${t.title} is awarded to ${t.awarded_to} — it takes no more bids` });
         const b = await readBody(req); const now = new Date().toISOString();
         const rates = b.rates || {};
-        const bid = { id: randomUUID(), bidder: b.bidder || "Bidder", submitted_date: now, rates, total: bidTotal(t.scope, rates) };
-        t.bids.push(bid); t.history.push({ date: now, author: resolveActor(b.bidder, "web"), action: `Bid received: ${b.bidder || "Bidder"}` });
+        // bidder is the firm the bid is for (the team keys bids in for outside firms — tender-panel's "Bidder name");
+        // submitted_by is who entered it: the verified sign-in for a signed-in caller (D6), the machine's own label else.
+        const bid = { id: randomUUID(), bidder: b.bidder || "Bidder", submitted_by: resolveActor(b.submitted_by, "web"), submitted_date: now, rates, total: bidTotal(t.scope, rates) };
+        t.bids.push(bid); t.history.push({ date: now, author: bid.submitted_by, action: `Bid received: ${bid.bidder}` });
         t.modified_date = now; await saveTender(); return send(res, 201, bid);
       }
-      if (req.method === "PUT") {
+      // Only the tender's own path awards (uncovered-3): PUT /tenders/:pid/:guid/bids was a second URL for the same write.
+      if (req.method === "PUT" && !tsub) {
         const b = await readBody(req); const now = new Date().toISOString(); const who = resolveActor(b.author, "web");
         if (b.status && b.status !== t.status) { t.history.push({ date: now, author: who, action: `Status: ${t.status} → ${b.status}` }); t.status = b.status; }
         if (b.awarded_to !== undefined && b.awarded_to !== t.awarded_to) { t.awarded_to = b.awarded_to; t.status = "Awarded"; t.history.push({ date: now, author: who, action: `Awarded to ${b.awarded_to}` }); }
