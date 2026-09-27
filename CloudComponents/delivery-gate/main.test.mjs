@@ -177,6 +177,24 @@ test("the download failed or the file is unknown: FAIL with the reason, nothing 
   const r2 = await run(q, { fileId: "nope" });
   assert.equal(r2.type, "FAIL");
   assert.match(r2.message, /^Gate did not run — file nope: /);
+  assert.equal(q.writes.files.length + q.writes.metadata.length, 0);
+});
+
+test("the versions come from the project listing, not getFile (the cloud's getFile names none); an item with no named version is a FAIL", async () => {
+  const p = platform({ items: [ifcItem()], contractBody: contract() });
+  p.svc.getFile = async () => { throw new Error("getFile must not be needed for a listed item"); };
+  assert.equal((await run(p, { fileId: "f1" })).type, "SUCCESS");
+  const q = platform({ items: [ifcItem({ versions: [] })], contractBody: contract() });
+  const r = await run(q, { fileId: "f1" });
+  assert.equal(r.type, "FAIL");
+  assert.equal(r.message, "Gate did not run — tower.ifc has no version the platform names — nothing was judged");
+  assert.equal(q.writes.files.length + q.writes.metadata.length, 0);
+});
+
+test("the platform's own error text never carries the run's token into a message", async () => {
+  const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { labels: "Cannot PUT /api/item/f1/version/v2/metadata?accessToken=eyJabc.def.ghi&x=1" } });
+  const r = await run(p, { fileId: "f1" });
+  assert.equal(r.message, "Passed — contract@1 — report written; the version labels were refused: Cannot PUT /api/item/f1/version/v2/metadata?accessToken=…&x=1");
 });
 
 test("no fileId, or no project: FAIL in words", async () => {

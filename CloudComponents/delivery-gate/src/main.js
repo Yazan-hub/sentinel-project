@@ -21,7 +21,9 @@ const NO_CONTRACT = "no contract on the platform project — install one in Sent
 
 const str = (v) => (typeof v === "string" ? v.trim() : "");
 const fail = (message) => ({ type: "FAIL", message: `Gate did not run — ${message}` });
-const words = (e) => String(e?.message || e);
+// The platform's own error text can carry the run's token in a URL (…?accessToken=…): never let it reach a message,
+// a report or a label.
+const words = (e) => String(e?.message || e).replace(/accessToken=[^&\s"']+/g, "accessToken=…");
 const report = (m) => { try { executionReporter.message(m); } catch { /* the reporter is best effort */ } };
 
 /** The shape check a contract must pass before the gate reads it (the full validator lives in the bridge's
@@ -67,24 +69,29 @@ export async function main() {
   if (!fileId) return fail("fileId is required");
   if (!projectId) return fail("no project: launch from a project or pass projectId");
 
-  let file;
-  try { file = await thatOpenServices.getFile(fileId, { includeVersions: true }); }
-  catch (e) { return fail(`file ${fileId}: ${words(e)}`); }
+  // The project's files first: the listing carries each item's versions (getFile in the cloud does not — measured
+  // on the first run, 2026-09-27), and the contract and the report item are found in the same list.
+  let items;
+  try { items = await thatOpenServices.listFiles({ projectId }); }
+  catch (e) { return fail(`the project's files could not be listed: ${words(e)}`); }
+  let file = items.find((i) => i._id === fileId);
+  if (!file) {
+    try { file = await thatOpenServices.getFile(fileId, { includeVersions: true }); }
+    catch (e) { return fail(`file ${fileId}: ${words(e)}`); }
+  }
   const name = file?.name || fileId;
   if (name.endsWith(".gate.json") || name === CONTRACT_ITEM) return { type: "WARNING", message: `Skipped — ${name} is not an IFC` };
-  const versions = Array.isArray(file?.versions) ? file.versions : [];
+  const versions = Array.isArray(file?.versions) ? file.versions.filter((v) => v && v.tag) : [];
   let versionTag = str(executionParams?.versionTag);
   if (versionTag) { if (!versions.some((v) => v.tag === versionTag)) return fail(`${name} has no version ${versionTag}`); }
   else versionTag = versions.length ? versions[versions.length - 1].tag : "";
+  if (!versionTag) return fail(`${name} has no version the platform names — nothing was judged`);
   report(`Reading ${name} ${versionTag}…`);
 
   let bytes;
   try { bytes = await bytesOf(fileId, versionTag); }
   catch (e) { return fail(`${name} ${versionTag} could not be downloaded: ${words(e)}`); }
 
-  let items;
-  try { items = await thatOpenServices.listFiles({ projectId }); }
-  catch (e) { return fail(`the project's files could not be listed: ${words(e)}`); }
   const contract = await contractOf(projectId, items);
 
   let r;
