@@ -614,3 +614,16 @@ Update in place; date + reviews-file link on every non-⬜ entry.
 
 *The gap between the handbook's 🟩 Built rows and this ledger's ⬜ rows is
 the honest maturity picture. Close it session by session, not by adjective.*
+
+## Session B14 — The delivery gate on the platform (hackathon plan A)
+
+Precondition: the Sentinel Delivery Gate component is published and enabled in the platform project (Apps & Components ▸ ⋮ ▸ Enable in Project), the two automations exist (`Sentinel gate — new file`: file.uploaded, Extension `ifc`, `fileId ← itemId`; `Sentinel gate — new version`: file.updated, Extension `ifc`, Update kind = a new version, `fileId ← itemId`, `versionTag ← versionTag`), the Sentinel project is linked to the platform project (Settings ▸ Platform project) and the app in the sandbox is 1.0.24 or later. Platform reads below are made with the founder's CLI token through `@thatopen/services` (never printed).
+
+| Row | Do | Expect |
+|---|---|---|
+| No contract | in the platform's CDE app upload any `.ifc` into the project | within about 10 s the file's version carries `sentinel_gate not_checked`, `sentinel_contract none`, and a `<name>.gate.json` item has a version of the same tag with `result not_checked` and the reason `no contract on the platform project — install one in Sentinel`; the Sentinel board's **Platform deliveries** strip shows the file as **Not checked** with that reason; the execution log says `Not checked — …` |
+| The contract travels | as a lead, Project Settings ▸ Standards in force ▸ contract ▸ Install JSON… | the note reads `✓ contract@n installed … · also on the platform as sentinel-contract.json contract@n` (or `not copied to the platform — <the platform's words>`, never silence); the platform project holds `sentinel-contract.json` with a version `contract@n` |
+| Refused | upload a new version of the IFC that breaks the contract (proxies over the limit) | `sentinel_gate fail`, `sentinel_failures n`; the report's `failures` are the gate's sentences (`IFCBUILDINGELEMENTPROXY: 994 exceeds max 0.`); the strip card is **Refused — contract@n — n failures** with every sentence; the execution log says `Refused — contract@n (…) — n failures: …`, result WARNING |
+| Passed | upload a version that satisfies it | `sentinel_gate pass`; the report's `sha256` equals `sha256sum` of the uploaded bytes and equals `sentinel_sha256_a` + `sentinel_sha256_b`; the strip card is **Passed — contract@n** with `sha256 <12>…` and `run <id>`; the execution result is SUCCESS |
+| From Revit / the bridge | publish from the Sentinel pane in Revit (or `POST /ifc?projectId=<key>` with the machine credential) | the platform project gains `<name>.frag` and `<name>.ifc`; the `.ifc` is labelled by the new-file automation within about 10 s; the same card |
+| Honesty | read every run in ⋮ ▸ View runs | SUCCESS appears only on a pass whose report and labels both landed; a run that could not write says so in its message; no card ever shows `ledger #` or `receipt`; a strip whose read failed says `not read — …`, never an empty strip; a `.gate.json` or `sentinel-contract.json` item is never judged (`Skipped — … is not an IFC`) |
