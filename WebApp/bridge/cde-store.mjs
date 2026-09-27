@@ -757,16 +757,19 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 
 /** Ledger rows Sentinel writes itself and then reads as fact (spec Decision 7): cde_transition's `state:` rows and
  *  recordVersionVerdict's `verdict:` stamps (the transition guard and ids.last_verdict read them), the stage gate
- *  (`gate:`, entity_type stage_gate) and ROI (`roi:`). The open audit route may not write them. */
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:"];
+ *  (`gate:`, entity_type stage_gate), ROI (`roi:`) and the Holding Area (`hold:`, entity_type hold — phase 6a). The
+ *  delivery gate's rows (entity_type delivery_gate) are written by intake and by POST /cde/:key/delivery-gate, open only
+ *  to the machine credential (spec 2026-09-27 Decision 5). The open audit route may not write any of them. */
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
- *  row (an action starting with one of RESERVED_ACTIONS, or entity_type stage_gate; case and surrounding spaces
- *  ignored) is a 400 before any read. */
+ *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding
+ *  spaces ignored) is a 400 before any read. */
 export async function recordAudit(key, b) {
   const type = String(b.entity_type ?? "").trim().toLowerCase();
   const action = String(b.action ?? "").trim().toLowerCase();
-  const reserved = type === "stage_gate" ? "stage_gate" : RESERVED_ACTIONS.find((p) => action.startsWith(p));
+  const reserved = RESERVED_TYPES.includes(type) ? type : RESERVED_ACTIONS.find((p) => action.startsWith(p));
   if (reserved) { const e = new Error(`${reserved} rows are written by Sentinel, not through this route`); e.status = 400; throw e; }
   const proj = await ensureProject(key);
   return (await sb(`audit_log`, {
@@ -785,6 +788,98 @@ export async function recordAudit(key, b) {
     prefer: "return=representation",
     service: true, // audit_log bypasses RLS by design
   }))[0];
+}
+
+// ── The Holding Area's writers (phase 6a, spec 2026-09-27 Decisions 4-6). A held file keeps no bytes: a hold is one
+// reserved ledger row naming the refused file, the stage that refused it and its failures. What is on hold is derived
+// from these rows (readHolding), never stored.
+
+/** One hold failure {requirement, detail} from any judge's failure: a delivery-gate line (a string), an IDS failure
+ *  {element, requirement, reason}, a naming failure {field, reason}, or one that is already {requirement, detail}. */
+function holdFailure(f) {
+  if (typeof f === "string") return { requirement: "delivery gate", detail: f };
+  if (f?.requirement === undefined && f?.field !== undefined) return { requirement: f.field === "*" ? "naming (field count)" : `naming ${f.field}`, detail: String(f.reason ?? "") };
+  const detail = f?.detail ?? (f?.element ? `${f.element}: ${f?.reason ?? ""}` : f?.reason);
+  return { requirement: String(f?.requirement ?? ""), detail: String(detail ?? "") };
+}
+
+/** Write one hold row: entity_type hold, entity_id the container's uuid when a container of that name exists on the
+ *  project (else null), action "hold:<stage> <container_name>", new_value {container_name, sha256, size_bytes, stage,
+ *  verdict, failures (the first 50, each {requirement, detail}), failures_total, source, gate_row_id, proposal_row_id,
+ *  contract_ref, ids_ref, naming_ref}. The callers decide whether a refusal is held (adjudicateProposal, the
+ *  delivery-gate route, intake); this only writes it. Returns the stored row (audit()), null when none came back. */
+export async function writeHold(proj, { stage, container_name, sha256, size_bytes, verdict, failures, source, gate_row_id, proposal_row_id, contract_ref, ids_ref, naming_ref, actor }) {
+  const name = String(container_name ?? "").trim();
+  const found = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id`);
+  const all = Array.isArray(failures) ? failures : [];
+  return audit(proj.id, "hold", Array.isArray(found) ? found[0]?.id ?? null : null, `hold:${stage} ${name}`, actor, null, {
+    container_name: name, sha256: sha256 ?? null, size_bytes: size_bytes ?? null, stage, verdict: verdict ?? "rejected",
+    failures: all.slice(0, 50).map(holdFailure), failures_total: all.length, source,
+    gate_row_id: gate_row_id ?? null, proposal_row_id: proposal_row_id ?? null,
+    contract_ref: contract_ref ?? null, ids_ref: ids_ref ?? null, naming_ref: naming_ref ?? null,
+  });
+}
+
+/** Whether the caller could register a file on `key` (spec Decision 4's third condition): the machine credential, or a
+ *  signed-in member ranked contributor or above. A viewer's or a non-member's refusal is not held. */
+export async function couldRegister(key) {
+  const { myRole, ROLE_RANK } = await import("./members-store.mjs");
+  const role = await myRole(key);
+  return role === "service" || (ROLE_RANK[role] || 0) >= ROLE_RANK.contributor;
+}
+
+const GATE_PASSED = { pass: true, fail: false, not_checked: null };           // result → passed; null is not checked
+const GATE_WORDS = { pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }; // the words Revit's gate row always used
+const GATE_SOURCES = ["revit", "auto-publish", "check"];
+
+/** POST /cde/:key/delivery-gate's body → the delivery_gate row's new_value, or a 400 naming the field (spec 2026-09-27
+ *  Decision 5). Pure. A nullable field left out is null; a key not listed is not kept. passed must agree with result;
+ *  failures: at most 200, each a line (a string) or {requirement, detail}; publish is true only from a publish. */
+export function readDeliveryGate(b = {}) {
+  const bad = (m) => Object.assign(new Error(m), { status: 400 });
+  const v = (k) => (b[k] === undefined ? null : b[k]);
+  const file = typeof b.file === "string" ? b.file.trim() : "";
+  if (!/^.+\.ifc$/i.test(file)) throw bad("file must be the IFC file's name, ending .ifc");
+  if (!Object.keys(GATE_PASSED).includes(b.result)) throw bad("result must be pass, fail or not_checked");
+  if (v("passed") !== GATE_PASSED[b.result]) throw bad("passed must be true for pass, false for fail and null for not_checked");
+  for (const k of ["contract", "contract_ref", "contract_source", "schema"]) if (v(k) !== null && typeof b[k] !== "string") throw bad(`${k} must be a string or null`);
+  for (const k of ["contract_sha256", "sha256"]) if (v(k) !== null && !(typeof b[k] === "string" && /^[0-9a-f]{64}$/i.test(b[k]))) throw bad(`${k} must be 64 hex characters or null`);
+  for (const k of ["entities", "size_bytes"]) if (v(k) !== null && !(Number.isSafeInteger(b[k]) && b[k] >= 0)) throw bad(`${k} must be a whole number or null`);
+  const failures = v("failures") ?? [];
+  const line = (f) => typeof f === "string" || (!!f && typeof f === "object" && typeof f.requirement === "string" && typeof f.detail === "string");
+  if (!Array.isArray(failures) || failures.length > 200 || !failures.every(line)) throw bad("failures must be a list of at most 200 lines, each a string or {requirement, detail}");
+  if (!GATE_SOURCES.includes(b.source)) throw bad("source must be revit, auto-publish or check");
+  if (typeof b.publish !== "boolean") throw bad("publish must be true or false");
+  if (b.publish && b.source === "check") throw bad("publish is true only for revit or auto-publish — the IFC Gate command checks a file, it publishes nothing");
+  return {
+    file, result: b.result, passed: GATE_PASSED[b.result], contract: v("contract"), contract_ref: v("contract_ref"),
+    contract_source: v("contract_source"), contract_sha256: v("contract_sha256")?.toLowerCase() ?? null, schema: v("schema"),
+    entities: v("entities"), failures, sha256: v("sha256")?.toLowerCase() ?? null, size_bytes: v("size_bytes"), source: b.source, publish: b.publish,
+  };
+}
+
+/** POST /cde/:key/delivery-gate (spec 2026-09-27 Decision 5): Revit's gate result, written by the bridge. Open only to
+ *  the machine credential — a signed-in caller is a 403 before the body is validated, so no member can post a gate row
+ *  (the open audit route refuses entity_type delivery_gate). One delivery_gate row, "IFC delivery gate PASS | FAIL |
+ *  NOT CHECKED: <file>", new_value the validated body with the full failure list; a FAIL from a publish is also held
+ *  (hold:gate). The gate is Revit's attestation: the bridge never sees Revit's bytes. → {id, hash, hold: {id, hash} |
+ *  null}, each id and hash the stored row's (null when none came back — never a made-up id). */
+export async function recordDeliveryGate(key, b = {}) {
+  const { myRole } = await import("./members-store.mjs");
+  if ((await myRole(key)) !== "service") throw Object.assign(new Error("the delivery-gate route is for Sentinel's machine credential"), { status: 403 });
+  const g = readDeliveryGate(b);
+  const proj = await ensureProject(key);
+  const actor = typeof b.actor === "string" && b.actor.trim() ? b.actor.trim() : "Revit";
+  const row = await audit(proj.id, "delivery_gate", null, `IFC delivery gate ${GATE_WORDS[g.result]}: ${g.file}`, actor, null, g);
+  let hold = null;
+  if (g.passed === false && g.publish) {
+    const h = await writeHold(proj, {
+      stage: "gate", container_name: g.file, sha256: g.sha256, size_bytes: g.size_bytes, verdict: "rejected", failures: g.failures,
+      source: g.source, gate_row_id: row?.id ?? null, proposal_row_id: null, contract_ref: g.contract_ref, ids_ref: null, naming_ref: null, actor,
+    });
+    hold = { id: h?.id ?? null, hash: h?.hash ?? null };
+  }
+  return { id: row?.id ?? null, hash: row?.hash ?? null, hold };
 }
 
 // ── Element snapshots (revision tracking) — migration 0005 ─────────────────────────────────────────────
@@ -1056,9 +1151,19 @@ function readRegister(b) {
  *  the key's own version (another's is a 400); `register` registers a wip version on accepted or recorded and stamps
  *  it (readRegister). A stamp is what publishing reads (migration 0031), so an IDS or a naming ruleset the caller sent
  *  together with version_id or register is a 400: only what is installed on the project or its office stamps. Every
- *  400 comes before any ledger row. */
-export async function adjudicateProposal(key, b = {}) {
+ *  400 comes before any ledger row.
+ *  The Holding Area (phase 6a, spec 2026-09-27 Decisions 4 and 6): the proposal row names the file it judged —
+ *  container_name, sha256 and size_bytes from register or from intake's `opts.intake` {source, sha256, size_bytes,
+ *  gate_row_id} (a second parameter: no HTTP body can set it) — and gate_row_id (intake's, else b.gate_row_id when a
+ *  positive integer). A rejected verdict on such a file is held — one hold:naming (the naming judge rejected) or hold:ids
+ *  row — only when the IDS and the naming standard that judged are the installed ones and the caller could register the
+ *  file (couldRegister). The reply's `hold` is {id, hash} of that row, or null when nothing was held. */
+export async function adjudicateProposal(key, b = {}, opts = {}) {
   const reg = readRegister(b);
+  const intake = opts.intake && typeof opts.intake === "object" ? opts.intake : null;
+  const file = reg ? { container_name: reg.name, sha256: reg.sha256, size_bytes: reg.size_bytes }
+    : intake && b.container_name ? { container_name: b.container_name, sha256: intake.sha256 ?? null, size_bytes: intake.size_bytes ?? null } : null;
+  const gateRowId = [intake?.gate_row_id, b.gate_row_id].find((n) => Number.isSafeInteger(n) && n > 0) ?? null;
   // The naming twin of the client-IDS rule below: a caller's own ruleset (even {fields: [], enforce: "off"}) may judge
   // a plain proposal, never the name a stamped or registered version carries. Pure, so before any read.
   if (b.naming != null && (b.version_id || reg)) {
@@ -1127,7 +1232,7 @@ export async function adjudicateProposal(key, b = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${b.source ? " from " + b.source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source: b.source ?? null, verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}) },
+      new_value: { source: b.source ?? null, verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -1145,11 +1250,26 @@ export async function adjudicateProposal(key, b = {}) {
     version = { id: r.version.id, container_id: r.container_id, revision: r.version.revision, state: r.version.state };
     stamp = await recordVersionVerdict(key, version.id, judged, trustedActor);
   } else if (b.version_id) stamp = await recordVersionVerdict(key, b.version_id, judged, trustedActor);
+  // A refusal of a registering file, judged by the installed standards, for a caller who could register it, is held
+  // (spec 2026-09-27 Decision 4). The stage is the naming judge's when it rejected the name, else the IDS's; the
+  // failures are the ones that refused. Any other refusal writes its proposal row and no hold.
+  let hold = null;
+  if (verdict === "rejected" && file && idsSource !== "client" && namingProv.naming_source !== "client" && (await couldRegister(key))) {
+    const namingRefused = !!naming && !naming.ok && naming.enforce === "reject";
+    const idsRefused = adj.verdict === "rejected" && idsEnforce === "reject";
+    const row = await writeHold(proj, {
+      stage: namingRefused ? "naming" : "ids", ...file, verdict,
+      failures: [...(namingRefused ? naming.failures || [] : []), ...(idsRefused ? failures : [])],
+      source: intake ? (intake.source === "web" ? "web" : "intake") : b.source === "Governed Publish" ? "revit" : b.source === "Auto-Publish" ? "auto-publish" : "intake",
+      gate_row_id: gateRowId, proposal_row_id: audit?.id ?? null, contract_ref: null, ids_ref: resolved.ref, naming_ref: namingProv.naming_ref, actor: trustedActor,
+    });
+    hold = { id: row?.id ?? null, hash: row?.hash ?? null };
+  }
   return {
     verdict, downgraded, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
-    version, verdict_audit_id: stamp?.id ?? null, verdict_hash: stamp?.hash ?? null,
+    version, verdict_audit_id: stamp?.id ?? null, verdict_hash: stamp?.hash ?? null, hold,
     agent,
     // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
     // ledger that cannot be rewritten — see POST /receipt/:key/verify.

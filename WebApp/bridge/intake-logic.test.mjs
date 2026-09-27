@@ -5,7 +5,7 @@ import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
 const bytes = Buffer.from("ISO-10303-21;");
 const contractSha = "cd".repeat(32);
 const noneLabel = "none — not installed for aster-tower or its office";
-function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1 } = {}) {
+function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1, namingRefused = false, held = { id: 701, hash: "71".repeat(32) } } = {}) {
   const calls = [];
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
   const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
@@ -22,35 +22,56 @@ function stubs({ gatePass = true, contract = "office", verdict = "accepted", upl
     checkDelivery: rec("checkDelivery", { result: gatePass ? "pass" : "fail", passed: gatePass, contract_key: "parity-ifc4", detected_schema: "IFC4", total_entities: 40, entity_counts: {}, failures: gatePass ? [] : ["IFCPROJECT: 0 found, contract requires ≥ 1."], warnings: [], sha256: "ab".repeat(32), size: 13 }),
     gateNotChecked: rec("gateNotChecked", (_bytes, reason) => ({ result: "not_checked", passed: null, reason, contract_key: null, detected_schema: "IFC4", total_entities: null, entity_counts: {}, failures: [], warnings: [], sha256: "ab".repeat(32), size: 13 })),
     extractElements: rec("extractElements", { elements: [{ identity: { Class: "IFCDOOR", GlobalId: "g1" }, psets: [], quantities: [] }], schema: "IFC4", counts: { elements: 1, skipped: 0, by_class: { IFCDOOR: 1 } } }),
-    adjudicate: rec("adjudicate", { verdict: downgraded ? "recorded" : verdict, downgraded, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" } }),
+    adjudicate: rec("adjudicate", { verdict: downgraded ? "recorded" : verdict, downgraded, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, naming: namingRefused ? { ok: false, enforce: "reject", failures: [{ field: "*", reason: "expected 11 fields, got 1" }] } : { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" }, hold: verdict === "rejected" ? { id: 902, hash: "92".repeat(32) } : null }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
     uploadIfc: uploadFails ? rec("uploadIfc", () => { throw new Error("platform 401"); }) : rec("uploadIfc", { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9 }),
     registerFileVersion: rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: "item-1", is_live: true } }),
     recordVersionVerdict: rec("recordVersionVerdict", undefined),
-    audit: rec("audit", undefined),
+    // The wiring's audit adapter returns the stored row (phase 6a); writeHold the hold row, or null when nothing was held.
+    audit: rec("audit", { id: 700, hash: "70".repeat(32) }),
+    writeHold: rec("writeHold", held),
   };
 }
 const input = { key: "aster-tower", name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", bytes, source: "astra", actor: "agent:astra", revision: "P01" };
 const names = (d) => d.calls.map((c) => c[0]);
 
 describe("runIntake", () => {
-  it("stops at the delivery gate: audit row, no adjudication, no version", async () => {
+  it("stops at the delivery gate: audit row, the refusal held, no adjudication, no version", async () => {
     const d = stubs({ gatePass: false });
     const r = await runIntake(d, input);
-    expect(r).toMatchObject({ verdict: "rejected", stage: "gate", published: false, sha256: "ab".repeat(32) });
+    expect(r).toMatchObject({ verdict: "rejected", stage: "gate", published: false, sha256: "ab".repeat(32), hold: { id: 701, hash: "71".repeat(32) } });
     expect(r.gate.failures).toHaveLength(1);
-    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit"]);
+    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "writeHold"]);
     expect(d.calls.find((c) => c[0] === "audit")[2]).toBe("IFC delivery gate FAIL: ASTR26-AST-ZZ-XX-M3-A-0001.ifc");
+    expect(d.calls.find((c) => c[0] === "writeHold").slice(1)).toEqual(["aster-tower", {
+      stage: "gate", container_name: input.name, sha256: "ab".repeat(32), size_bytes: 13, verdict: "rejected", failures: ["IFCPROJECT: 0 found, contract requires ≥ 1."],
+      source: "intake", gate_row_id: 700, proposal_row_id: null, contract_ref: "contract@1", ids_ref: null, naming_ref: null, actor: "agent:astra",
+    }]);
   });
-  it("rejected by the IDS: gate PASS audited, BCF raised, no version", async () => {
+  it("a web upload's gate FAIL is held as web; a caller who could not register it holds nothing (hold null)", async () => {
+    const d = stubs({ gatePass: false });
+    await runIntake(d, { ...input, source: "web" });
+    expect(d.calls.find((c) => c[0] === "writeHold")[2]).toMatchObject({ source: "web" });
+    const r = await runIntake(stubs({ gatePass: false, held: null }), input);
+    expect(r).toMatchObject({ verdict: "rejected", stage: "gate", hold: null });
+    const noRow = await runIntake(stubs({ gatePass: false, held: {} }), input);
+    expect(noRow.hold).toEqual({ id: null, hash: null });
+  });
+  it("rejected by the IDS: gate PASS audited, BCF raised, no version; the referee gets intake's own argument and its hold is the reply's", async () => {
     const d = stubs({ verdict: "rejected" });
     const r = await runIntake(d, input);
-    expect(r).toMatchObject({ verdict: "rejected", stage: "ids", published: false, ids_source: "project", ids_ref: "ids@1" });
+    expect(r).toMatchObject({ verdict: "rejected", stage: "ids", published: false, ids_source: "project", ids_ref: "ids@1", hold: { id: 902, hash: "92".repeat(32) } });
     expect(r.bcf).toEqual({ raised: 1 });
     expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "raiseBcf"]);
-    const adjBody = d.calls.find((c) => c[0] === "adjudicate")[2];
+    const [, , adjBody, adjOpts] = d.calls.find((c) => c[0] === "adjudicate");
     expect(adjBody).toMatchObject({ source: "astra", actor: "agent:astra", container_name: input.name });
+    expect(adjBody).not.toHaveProperty("intake");
     expect(adjBody.elements).toHaveLength(1);
+    expect(adjOpts).toEqual({ intake: { source: "astra", sha256: "ab".repeat(32), size_bytes: 13, gate_row_id: 700 } });
+  });
+  it("rejected by the naming judge: stage naming", async () => {
+    const r = await runIntake(stubs({ verdict: "rejected", namingRefused: true }), input);
+    expect(r).toMatchObject({ verdict: "rejected", stage: "naming", hold: { id: 902 } });
   });
   it("raise_bcf:false skips the BCF step on a rejection", async () => {
     const d = stubs({ verdict: "rejected" });
@@ -61,7 +82,7 @@ describe("runIntake", () => {
   it("accepted: upload, register with sha and size, stamp the version verdict", async () => {
     const d = stubs();
     const r = await runIntake(d, input);
-    expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true });
+    expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true, hold: null });
     expect(r.version).toMatchObject({ container_id: "c-1", version_id: "v-1", revision: "P01", platform_item_id: "item-1", format: "frag" });
     expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "uploadIfc", "registerFileVersion", "recordVersionVerdict"]);
     const reg = d.calls.find((c) => c[0] === "registerFileVersion")[2];

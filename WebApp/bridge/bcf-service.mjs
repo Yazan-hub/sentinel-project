@@ -1105,7 +1105,8 @@ async function handleRequest(req, res) {
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
-      //   verdict:, gate:, roi: and state: actions and stage_gate rows are Sentinel's own → 400 (cde-store.mjs recordAudit).
+      //   verdict:, gate:, roi:, state: and hold: actions and stage_gate, hold and delivery_gate rows are Sentinel's own
+      //   → 400 (cde-store.mjs recordAudit).
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordAudit(p1, await readBody(req)));
       // The stage gate (cohesion phase 5c, spec Decision 10): POST /cde/:key/gate {stage, actor?} → the run — {stage, status:
       //   pass|hold|not_checkable, checks[{label, ok, na, detail, source}], next_stage, ledger: {id, hash}}. Lead only (403);
@@ -1117,9 +1118,16 @@ async function handleRequest(req, res) {
         if (!cde.STAGES.includes(b.stage)) return send(res, 400, { message: `stage must be one of ${cde.STAGES.join(", ")}` });
         return send(res, 200, await cde.runStageGate(p1, b.stage, b.actor));
       }
+      // Revit's delivery gate (phase 6a, spec 2026-09-27 Decision 5): POST /cde/:key/delivery-gate {file, result, passed,
+      //   contract, contract_ref, contract_source, contract_sha256, schema, entities, failures[], sha256, size_bytes,
+      //   source: revit|auto-publish|check, publish} → 201 {id, hash, hold: {id, hash} | null}. The machine credential
+      //   only (a signed-in caller is a 403); a bad field a 400; a FAIL with publish true is also held (hold:gate).
+      if (p2 === "delivery-gate" && !p3 && req.method === "POST") return send(res, 201, await cde.recordDeliveryGate(p1, (await readBody(req)) || {}));
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
-      //   version_id? | register?: {name, size_bytes, sha256}, raise_bcf? }
-      //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, bcf? }.
+      //   version_id? | register?: {name, size_bytes, sha256}, gate_row_id?, raise_bcf? }
+      //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, hold, bcf? }.
+      //   hold: a rejected register from a caller who could register it, judged by the installed standards, is held
+      //   (hold:naming | hold:ids) — {id, hash} of that row, else null (phase 6a).
       //   Agents propose; the governed core (IDS + rules) adjudicates deterministically and records the verdict
       //   immutably. Nothing in scope answers recorded (downgraded "nothing in scope"); a version_id must be this
       //   project's (400); register registers the version on accepted/recorded and stamps it (cde-store adjudicateProposal);
@@ -1202,7 +1210,7 @@ async function handleRequest(req, res) {
           // project → office → none, re-checked (spec 2026-09-25 4b decision 6): the office's contract judges intake as it judges Revit.
           loadContract: (key) => art.resolveContract(key),
           checkDelivery, gateNotChecked, extractElements,
-          adjudicate: (key, body) => cde.adjudicateProposal(key, body),
+          adjudicate: (key, body, opts) => cde.adjudicateProposal(key, body, opts),
           // Best-effort, same as the /propose route: a BCF hiccup after the verdict is already on the
           // ledger must not 500 the whole intake and drop the caller's audit_id/receipt.
           raiseBcf: async (key, result, opts) => {
@@ -1212,7 +1220,10 @@ async function handleRequest(req, res) {
           uploadIfc: uploadIfcAsFrag,
           registerFileVersion: (key, body) => cde.registerFileVersion(key, body),
           recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
-          audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); await cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
+          audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); return cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
+          // A gate FAIL is held only when the caller could register the file (spec 2026-09-27 Decision 4): the stored
+          // row, {} when the ledger returned none, null when nothing was written.
+          writeHold: async (key, h) => ((await cde.couldRegister(key)) ? ((await cde.writeHold(await cde.ensureProject(key), h)) ?? {}) : null),
         };
         const result = await runIntake(deps, { key: p1, name: q("name"), bytes, source: q("source"), actor: q("actor"), revision: q("revision"), note: q("note"), agent, raise_bcf: q("raise_bcf") !== "false" });
         // A published version gets its manifest for the Federation Gate. Never fails the publish.
