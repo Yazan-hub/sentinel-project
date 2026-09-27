@@ -22,6 +22,7 @@ import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, readCapped } from "./public-verify.mjs";
+import { readBody, readRaw, SMALL_JSON } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -61,9 +62,6 @@ const MAX_UPLOAD = (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * 1024 * 1024
 // EIR/BEP documents are text, not IFC models — cap far below MAX_UPLOAD so one huge upload can't hold
 // an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
 const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
-// JSON bodies (propose/audit/cde) are parsed fully into memory; cap them well above a large
-// governed-publish payload but far below a memory-exhaustion DoS. Tunable via BCF_MAX_JSON_MB.
-const MAX_JSON = (Number(process.env.BCF_MAX_JSON_MB) || 256) * 1024 * 1024;
 
 // Crash-safe JSON persistence: write a temp file then atomically rename, so a crash mid-write can never
 // truncate the store. On read, a genuine ENOENT starts empty silently, but a CORRUPT/unreadable file is
@@ -255,29 +253,14 @@ const send = (res, code, body, extra) => {
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     ...corsHeaders(res),
+    // A 401 or a 413 answers a request whose body was not read: closing the connection stops Node draining the rest
+    // of it (up to the request timeout) on the caller's behalf.
+    ...(code === 401 || code === 413 ? { Connection: "close" } : {}),
     ...extra,
   };
   res.writeHead(code, headers);
   res.end(body === undefined ? "" : JSON.stringify(body));
 };
-const readBody = (req) => new Promise((resolve) => {
-  // Reject early on a declared oversize body, and hard-stop mid-stream if the declared length lied.
-  if (Number(req.headers["content-length"] || 0) > MAX_JSON) { req.destroy(); return resolve({}); }
-  let s = "", total = 0;
-  req.on("data", (c) => { total += c.length; if (total > MAX_JSON) { req.destroy(); return resolve({}); } s += c; });
-  req.on("end", () => { try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); } });
-  req.on("error", () => resolve({}));
-});
-const readRaw = (req) => new Promise((resolve, reject) => {
-  const chunks = []; let total = 0;
-  req.on("data", (c) => {
-    total += c.length;
-    if (total > MAX_UPLOAD) { req.destroy(); reject(Object.assign(new Error(`payload exceeds ${Math.round(MAX_UPLOAD / 1048576)} MB cap`), { status: 413 })); return; }
-    chunks.push(c);
-  });
-  req.on("end", () => resolve(Buffer.concat(chunks)));
-  req.on("error", reject);
-});
 
 // ── SSE live sync: clients subscribe per project; changes are pushed to them instantly ──
 const sseClients = new Map(); // project -> Set<res>
@@ -465,7 +448,9 @@ createServer((req, res) => {
   // target of "//" makes `new URL(req.url, …)` throw, so one anonymous `GET //` or `OPTIONS //` used to stop the bridge.
   const failed = (e) => {
     const bad = e?.code === "ERR_INVALID_URL";
-    try { if (res.headersSent) res.end(); else send(res, bad ? 400 : 500, { message: bad ? "Bad request" : String(e?.message || e) }); }
+    // A refusal thrown outside a route's own try (a body over its cap, a full upload slot) keeps its status.
+    const status = bad ? 400 : e?.status >= 400 && e?.status < 600 ? e.status : 500;
+    try { if (res.headersSent) res.end(); else send(res, status, { message: bad ? "Bad request" : String(e?.message || e) }); }
     catch { /* the socket is already gone */ }
   };
   try {
@@ -639,7 +624,7 @@ async function handleRequest(req, res) {
   // a write-policy tool is refused, so a missing gate fails loudly instead of silently doing nothing.
   if (url.pathname === "/ai/run-tool" && req.method === "POST") {
     const t = await import("./ai-tools.mjs");
-    const { name, args, approved } = await readBody(req);
+    const { name, args, approved } = await readBody(req, { max: SMALL_JSON });
     try {
       return send(res, 200, { name, result: await t.runTool(name, args || {}, { allowWrites: approved === true }) });
     } catch (e) {
@@ -656,7 +641,7 @@ async function handleRequest(req, res) {
   }
   if (url.pathname === "/ai/chat" && req.method === "POST") {
     const ai = await import("./ai-gateway.mjs");
-    const body = await readBody(req);
+    const body = await readBody(req, { max: SMALL_JSON });
     try {
       return send(res, 200, await ai.chat(body));
     } catch (e) {
@@ -1494,7 +1479,8 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['bimdocs', p1, p2, p3, p4]
       const [, p1, p2, p3, p4] = seg;
       const isRawUpload = p2 === "ingest" && !p3;
-      const body = !isRawUpload && ["POST", "PATCH", "PUT"].includes(req.method) ? await readBody(req) : {};
+      // compile-ids runs synchronously over the whole text: a prompt-sized cap keeps one body from stalling the bridge.
+      const body = !isRawUpload && ["POST", "PATCH", "PUT"].includes(req.method) ? await readBody(req, { max: p1 === "compile-ids" ? SMALL_JSON : undefined }) : {};
       const actor = body.actor || "web";
 
       // Ingest: raw document bytes -> AI mapping proposal. Writes nothing; /ingest/commit does.
@@ -1713,6 +1699,6 @@ async function handleRequest(req, res) {
     }
     return send(res, 405, { message: "Method not allowed" });
   } catch (e) {
-    return send(res, 500, { message: String(e?.message || e) });
+    return send(res, e?.status || 500, { message: String(e?.message || e) });
   }
 }
