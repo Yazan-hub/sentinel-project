@@ -349,6 +349,14 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
   }, 60_000);
 });
 
+describe("POST /cde/:key/federation/run (WR-10) — the production requireMinRole default, end to end (H0 minor N36)", () => {
+  it("a viewer is refused before anything else runs, through the real bridge wiring, never a test seam", async () => {
+    const before = log.length;
+    expect(await call("POST", "/cde/demo/federation/run", "viewer", {})).toEqual(refused("contributor", "viewer"));
+    expect(log.slice(before).filter((c) => c.method !== "GET")).toEqual([]);
+  });
+});
+
 describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", () => {
   const KS = { v: 1, alg: "AES-GCM-256", salt: "c2FsdA", iters: 600000, wrap_iv: "aXY", wrapped_dek: "ZGVr" };
 
