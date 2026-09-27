@@ -21,6 +21,7 @@ async function wire(deps = {}) {
     getManifest: deps.getManifest || ms.getManifest,
     resolveArtefact: deps.resolveArtefact || art.resolveArtefact,
     checkFederation: deps.checkFederation || core.checkFederation,
+    requireMinRole: deps.requireMinRole || (await import("./members-store.mjs")).requireMinRole,
   };
 }
 
@@ -30,6 +31,9 @@ const notInstalled = (kind, effect) => `no ${kind} installed for this project or
 
 export async function runFederation(key, { versions } = {}, { actor = "web" } = {}, deps) {
   const d = await wire(deps);
+  // H0 (D4, cde-rem-6): a run writes the project's latest federation document, a federation_gate ledger row and (on a
+  // FAIL) BCF topics — a contributor's work; a viewer runs nothing. The machine credential passes as service.
+  await d.requireMinRole(key, "contributor");
   const proj = await d.ensureProject(key);
   let set = await d.listManifests(key);
   let ignored = [];
@@ -64,7 +68,7 @@ export async function runFederation(key, { versions } = {}, { actor = "web" } = 
     scope: Array.isArray(versions) && versions.length ? "explicit" : "all",
     ...(ignored.length ? { ignored_versions: ignored } : {}),
   };
-  await d.docUpsert(STORE, proj.id, "latest", run);
+  await d.docUpsert(STORE, proj.id, "latest", run, { service: true }); // after the check above; the store can be closed to direct writes (0033)
   const word = result.verdict === "pass" ? "PASS" : result.verdict === "fail" ? "FAIL" : "NOT CHECKABLE";
   const ignoredNote = ignored.length ? ` (${ignored.length} requested version(s) not live, ignored)` : "";
   await d.audit(proj.id, "federation_gate", null, `Federation gate ${word}: ${models.length} model(s)${ignoredNote}`, actor, null, {

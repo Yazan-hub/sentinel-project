@@ -24,6 +24,7 @@ function memDeps({ manifests = { "v-1": mA, "v-2": mB }, verdicts = { "v-1": "ac
     getManifest: async (key, vid) => manifests[vid] ?? null,
     versionVerdicts: async () => verdicts,
     resolveArtefact: async () => NONE,
+    requireMinRole: async () => {}, // a role that passes; the role tests below replace it
   };
 }
 
@@ -129,5 +130,28 @@ describe("getFederation", () => {
       { container: "B-0102.ifc", container_id: "c-2", version_id: "v-2", revision: "P01", has_manifest: true, captured_at: "now" },
     ];
     expect((await getFederation("p", d)).stale).toBe(true);
+  });
+});
+
+// H0 (D4, cde-rem-6): a run writes the latest document, a federation_gate ledger row and (on a FAIL) BCF topics — a
+// contributor's; the bridge then writes the document with the service key, so the store can be closed to direct writes.
+describe("runFederation — who may run it", () => {
+  it("a viewer runs nothing: a 403 before any read, no latest document and no ledger row", async () => {
+    const d = { ...memDeps(), requireMinRole: async (_key, min) => { throw Object.assign(new Error(`this action requires the ${min} role (you are viewer)`), { status: 403 }); } };
+    let read = false;
+    d.listManifests = async () => { read = true; return []; };
+    await expect(runFederation("p", {}, { actor: "x" }, d)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    expect(read).toBe(false);
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
+  });
+
+  it("the latest run is written with the service key, after the check", async () => {
+    const d = memDeps();
+    const opts = [];
+    const upsert = d.docUpsert;
+    d.docUpsert = async (s, p, id, data, o) => { opts.push(o); return upsert(s, p, id, data); };
+    await runFederation("p", {}, { actor: "cli" }, d);
+    expect(opts).toEqual([{ service: true }]);
   });
 });

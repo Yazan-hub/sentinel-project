@@ -1413,15 +1413,15 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     throw Object.assign(new Error(`a version's name is judged only by the naming standard installed on ${key} or its office — send no naming ruleset, or propose without version_id/register`), { status: 400 });
   }
   const proj = await ensureProject(key);
-  // A verdict is stamped only on a version of the project that judged it (spec Decision 4): another project's version,
-  // an unknown id and a malformed one are the same 400, before any ledger row (versionOnKey, Task 1). The stamp needs
-  // the lead role (phase 6b, spec 2026-09-27 Decision 11: a stamp is what lets a version into a review chain) — a 403
-  // before the version is read; the machine credential passes as service (requireMinRole).
-  if (b.version_id) {
-    const { requireMinRole } = await import("./members-store.mjs");
-    await requireMinRole(key, "lead");
-    await versionOnKey(key, b.version_id);
-  }
+  // A proposal writes a ledger row and may raise BCF topics: the contributor role or above (H0 D4, cde-rem-6 — a viewer
+  // writes nothing), asked here so every route that proposes asks it (/propose, changesets, intake, the AI tool). A stamp
+  // needs the lead role (phase 6b, spec 2026-09-27 Decision 11: a stamp is what lets a version into a review chain) — a
+  // 403 before the version is read; the machine credential passes as service (requireMinRole). A verdict is stamped only
+  // on a version of the project that judged it (spec Decision 4): another project's version, an unknown id and a
+  // malformed one are the same 400, before any ledger row (versionOnKey, Task 1).
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, b.version_id ? "lead" : "contributor");
+  if (b.version_id) await versionOnKey(key, b.version_id);
   const c = await core();
   const elements = Array.isArray(b.elements) ? b.elements : [];
   const { resolveIdsSpec } = await import("./artefact-store.mjs");

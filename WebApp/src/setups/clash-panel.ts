@@ -123,9 +123,12 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   el("cl-fed-run").onclick = async () => {
     const b = el("cl-fed-run") as HTMLButtonElement;
     b.disabled = true; b.textContent = "Running…";
-    try { await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
-    catch { /* the reload below reports the state */ }
+    // A refusal (running the gate is a contributor's — H0 D4) is said beside the last run, never hidden behind it.
+    let refusal = "";
+    try { await bwrite(`${base}/cde/${encodeURIComponent(pid())}/federation/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
+    catch (e) { refusal = (e as Error).message; }
     await loadFederation();
+    if (refusal) el("cl-fed-text").textContent += ` · not run — ${refusal}`;
     b.disabled = false; b.textContent = "Run gate";
   };
   void loadFederation();
