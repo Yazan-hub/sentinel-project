@@ -86,6 +86,14 @@ export function requireRows(rows, what) {
   throw Object.assign(new Error(`${what} — nothing was saved`), { status: 403 });
 }
 
+/** One answer for "no such project" and "not yours" (D7; audit ai-3, projects-2): keys are slugs of names, so a
+ *  403-for-not-a-member next to a 404-for-unknown let any signed-in account walk the key space. Every route that
+ *  resolves a key comes through ensureProject, so the answer is decided once, here. */
+export const projectNotFound = (key) => Object.assign(
+  new Error(`Project "${key}" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Projects → + New project).`),
+  { status: 404 },
+);
+
 /** Resolve a project KEY to its CDE row. Projects are created ONLY through the web hub's explicit
  *  "+ New project" (createProject) — an unknown key here is a 404, never an implicit INSERT. (The old
  *  create-on-first-use left test residue: every script that touched a key spawned a project row.) The
@@ -93,7 +101,7 @@ export function requireRows(rows, what) {
  *  self-heals so a wiped database can't brick zero-config publishing.
  *  Multi-user safe: when a caller's JWT is being forwarded (RLS on), existence is checked with the SERVICE
  *  key (authoritative — sees every project regardless of membership), then a forwarded RLS-filtered read
- *  confirms the caller is a member. A non-member gets a 403. */
+ *  confirms the caller is a member. A non-member gets the unknown key's 404 (projectNotFound). */
 export async function ensureProject(key) {
   const forwarding = !!(currentUserToken() && ANON);
   const found = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }); // authoritative
@@ -101,15 +109,11 @@ export async function ensureProject(key) {
     const proj = found[0];
     if (forwarding) {
       const visible = await sb(`projects?id=eq.${proj.id}&select=id`); // forwarded → RLS; a member sees it, a non-member doesn't
-      if (!visible?.length) { const e = new Error("Not authorized: you are not a member of this project"); e.status = 403; throw e; }
+      if (!visible?.length) throw projectNotFound(key);
     }
     return proj;
   }
-  if (key !== "default") {
-    const e = new Error(`Project "${key}" does not exist — create it in the web app (Projects → + New project) first.`);
-    e.status = 404;
-    throw e;
-  }
+  if (key !== "default") throw projectNotFound(key);
   // "default" self-heals. return=minimal on purpose: the returning-select policy (is_member) can't yet see
   // the owner membership the trigger just created, so return=representation would 42501. Re-fetch with the
   // service key.
@@ -298,14 +302,22 @@ export async function createProject(b = {}) {
   // returning-select runs the is_member policy before the owner-membership row the insert trigger
   // just created is visible → 42501/403 and the whole insert rolls back. Insert minimal, then
   // re-fetch with the service key.
-  await sb(`projects`, {
-    method: "POST",
-    body: {
-      key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null,
-      kind: b.kind === "office" ? "office" : "project", office_key: b.office_key || null,
-    },
-    prefer: "return=minimal",
-  });
+  try {
+    await sb(`projects`, {
+      method: "POST",
+      body: {
+        key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null,
+        kind: b.kind === "office" ? "office" : "project", office_key: b.office_key || null,
+      },
+      prefer: "return=minimal",
+    });
+  } catch (e) {
+    // The existence read above is RLS-filtered, so a key held by a project the caller cannot see reaches the insert and
+    // hits projects.key unique (23505). Say so in words (409) instead of a scrubbed 500. A create on a taken key can only
+    // fail, so this names nothing a prober lacks (ai-3, cde-9).
+    if (e?.body?.code === "23505") throw Object.assign(new Error(`The name "${key}" is taken — choose another name (nothing was created).`), { status: 409 });
+    throw e;
+  }
   const row = (await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }))[0];
   await ensureFolders(row.id);
   await audit(row.id, "project", row.id, "created", b.actor || "web", null,
