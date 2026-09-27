@@ -1,5 +1,7 @@
-// Request limits for the bridge (H0, decisions D8 and D9). Pure: the caps read process.env when a body is read
-// (bcf-service.mjs has merged config/.env into it by then), so tests drive them with plain streams.
+// Request limits for the bridge (H0, decisions D8 and D9). The caps read process.env when a body is read
+// (bcf-service.mjs has merged config/.env into it by then), so tests drive them with plain streams; the caller is the
+// request's auth context (bridge-auth.mjs), the machine credential when there is none.
+import { currentSub } from "./bridge-auth.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 const MB = 1024 * 1024;
@@ -16,9 +18,17 @@ export const SMALL_JSON = 1 * MB;
 // per-caller budgets if that ever happens.
 const json = { used: 0 };
 
+// Bodies are bounded in time as well as in size. The server's requestTimeout (30 min) is there for a 2 GB upload over
+// the Funnel; left alone, 256 bodies that never finish would hold every socket the server accepts (maxConnections) for
+// that long, and every caller — Revit and the web on loopback too — would be dropped.
+const STALL_MS = 30_000; // any body: this long without a byte is a 408
+const JSON_MS = 2 * 60_000; // a JSON body arrives whole within 2 min (16 MB needs ~1.1 Mbps). ponytail: one deadline;
+// a minimum-rate rule if a real 16 MB body over a slow link ever needs longer.
+
 /** The body's bytes, or a refusal in words: a declared length over `max` is a 413 before a byte is read, a streamed
  *  body (chunked, or a length that lied) a 413 the moment it passes `max`. The rest is never kept — send() closes the
- *  connection after a 413. A `lease` charges the bytes to the shared JSON budget (503 when it is full). */
+ *  connection after a 413. A `lease` charges the bytes to the shared JSON budget (503 when it is full). A body that
+ *  sends nothing for 30 s, or a JSON body not whole within 2 min, is a 408 (send() closes that connection too). */
 function readBytes(req, max, lease) {
   return new Promise((resolve, reject) => {
     const over = () => err(413, `the request body is over the ${Math.round(max / MB)} MB limit for this route — nothing was read or saved`);
@@ -27,9 +37,14 @@ function readBytes(req, max, lease) {
     // would ever settle this read.
     if (req.destroyed || req.readableAborted) return reject(err(400, "the request ended before its body did — nothing was saved"));
     let chunks = [], total = 0, settled = false;
-    const fail = (e) => { if (settled) return; settled = true; chunks = null; reject(e); };
+    const slow = (why) => () => fail(err(408, `the request body ${why} — nothing was saved`));
+    const stall = setTimeout(slow(`stopped arriving (nothing for ${STALL_MS / 1000} s)`), STALL_MS); // restarted by each chunk
+    const deadline = lease ? setTimeout(slow(`took over ${JSON_MS / 60_000} min to arrive`), JSON_MS) : null;
+    const stop = () => { settled = true; clearTimeout(stall); clearTimeout(deadline); };
+    const fail = (e) => { if (settled) return; stop(); chunks = null; reject(e); };
     req.on("data", (c) => {
       if (settled) return; // refused: the rest flows past, nothing is kept
+      stall.refresh();
       total += c.length;
       if (total > max) return fail(over());
       if (lease) {
@@ -39,22 +54,35 @@ function readBytes(req, max, lease) {
       }
       chunks.push(c);
     });
-    req.on("end", () => { if (settled) return; settled = true; resolve(Buffer.concat(chunks, total)); });
+    req.on("end", () => { if (settled) return; stop(); resolve(Buffer.concat(chunks, total)); });
     const cut = () => fail(err(400, "the request ended before its body did — nothing was saved"));
     req.on("error", cut);
     req.on("close", cut); // after "end" this is a no-op
   });
 }
 
+// A signed-in caller reads at most 8 JSON bodies at once (the machine credential is not counted): with the deadlines
+// above, one account cannot hold more than 8 of the server's sockets with bodies it never finishes, whereas a body is
+// read before the route checks membership. ponytail: per account — many accounts multiply the 8 while sign-up is open
+// (D1); a global cap on signed-in body reads if that is ever seen.
+const MAX_READS_PER_CALLER = 8;
+const readingBy = new Map();
+
 /** A JSON request body, parsed: {} when it is empty or not JSON (as before). Over `max` → 413; the shared budget
- *  full → 503. Bytes are collected before decoding, so a character split across two chunks survives. */
+ *  full → 503; a ninth body at once from the same signed-in account → 429, unread. Bytes are collected before
+ *  decoding, so a character split across two chunks survives. */
 export async function readBody(req, { max = jsonCap() } = {}) {
+  const who = currentSub();
+  const mine = (who && readingBy.get(who)) || 0;
+  if (mine >= MAX_READS_PER_CALLER) throw err(429, `you are sending more than ${MAX_READS_PER_CALLER} requests at once — nothing was saved; wait for them to finish`);
+  if (who) readingBy.set(who, mine + 1);
   const lease = { held: 0 };
   try {
     const text = (await readBytes(req, max, lease)).toString("utf8");
     try { return text ? JSON.parse(text) : {}; } catch { return {}; }
   } finally {
     json.used -= lease.held;
+    if (who) { const n = readingBy.get(who) - 1; if (n) readingBy.set(who, n); else readingBy.delete(who); }
   }
 }
 

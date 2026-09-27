@@ -245,6 +245,9 @@ const corsHeaders = (res) => (res._cors
   ? { "Access-Control-Allow-Origin": res._cors, ...(res._cors === "*" ? {} : { Vary: res._cors === "null" ? "Origin, Referer" : "Origin" }) }
   : {});
 
+/** The request declared a body (a length, or chunked) that has not all arrived yet. A bodiless GET or OPTIONS answered
+ *  in the same tick it arrived is not complete yet either, and keeps its connection. */
+const bodyPending = (req) => !!req && !req.complete && (!!req.headers["transfer-encoding"] || Number(req.headers["content-length"]) > 0);
 const send = (res, code, body, extra) => {
   // F14 (schema disclosure): a raw PostgREST/Postgres error names tables, columns and constraints, and the
   // bridge echoed one at ~10 call sites. Scrub it ONCE here instead — every current and future 5xx is
@@ -263,9 +266,10 @@ const send = (res, code, body, extra) => {
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     ...corsHeaders(res),
-    // A 401 or a 413 answers a request whose body was not read: closing the connection stops Node draining the rest
-    // of it (up to the request timeout) on the caller's behalf.
-    ...(code === 401 || code === 413 ? { Connection: "close" } : {}),
+    // An answer given before the whole body arrived (a 401, a 413, a 408, a refusal of a raw upload before its first
+    // byte) closes the connection: Node would otherwise drain the rest on the caller's behalf, for up to the 30 min
+    // request timeout, and 256 such sockets are every socket the server accepts.
+    ...(code === 401 || code === 413 || bodyPending(res.req) ? { Connection: "close" } : {}),
     ...extra,
   };
   res.writeHead(code, headers);
@@ -514,9 +518,13 @@ for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
 // ── Public receipt check (cohesion phase 4c): POST /receipt/:key/verify from a caller the auth gate would refuse.
 // Any page may ask (Access-Control-Allow-Origin: *, no credentials read or allowed); the answer is hash-only
 // (public-verify.mjs). At most 8 KB a check, 60 checks a minute per caller address and 600 across every caller (a
-// check is one indexed read); the log line names the method, the path and the outcome, never the body.
+// check is one indexed read); the log line names the method, the path and the outcome, never the body. At most 32
+// checks read their body at once, each within 10 s (readCapped): however many addresses they come from, anonymous
+// callers never hold more than 32 of the server's 256 sockets.
 const publicPerCaller = createKeyedLimiter({ max: 60, windowMs: 60000 });
 const publicLimiter = createLimiter({ max: 600, windowMs: 60000 });
+const MAX_PUBLIC_READS = 32;
+let publicReads = 0;
 async function publicReceiptVerify(req, res, url) {
   res._cors = "*";
   if (req.method === "OPTIONS") {
@@ -531,9 +539,14 @@ async function publicReceiptVerify(req, res, url) {
     console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
     return send(res, code, body, extra);
   };
+  if (publicReads >= MAX_PUBLIC_READS) return done(429, { message: "Too many receipt checks at once — try again in a moment" }, "429 (busy)");
   // The caller's own window first: a caller over it does not use up the shared one.
   if (!publicPerCaller.take(clientAddress(req)) || !publicLimiter.take()) return done(429, { message: "Too many receipt checks — try again within a minute" }, "429");
-  const text = await readCapped(req);
+  let text;
+  publicReads++;
+  try { text = await readCapped(req); }
+  catch (e) { return done(e.status, { message: e.message }, String(e.status)); } // not whole within 10 s (408), or cut off (400)
+  finally { publicReads--; }
   // The rest of an over-cap body is drained, not read, and the connection closes after the 413.
   if (text === null) return done(413, { message: "A receipt check is at most 8 KB" }, "413", { Connection: "close" });
   let claim;

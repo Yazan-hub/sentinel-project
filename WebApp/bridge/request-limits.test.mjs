@@ -1,8 +1,9 @@
 // The bridge's body and upload limits (H0, D8/D9), driven with plain streams — no bridge, no network.
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { Readable, PassThrough } from "node:stream";
 import { readBody, readRaw, uploadSlot, holdUpload, jsonCap, uploadCap, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 
 const MB = 1024 * 1024;
 const req = (chunks, headers = {}) => Object.assign(Readable.from(chunks.map((c) => Buffer.from(c))), { headers });
@@ -82,6 +83,61 @@ describe("readRaw — the bytes, capped on what actually arrives", () => {
     r.destroy();
     await new Promise((ok) => r.once("close", ok));
     await expect(readRaw(r)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("slow bodies — 30 s without a byte is a 408; a JSON body arrives whole within 2 min", () => {
+  afterEach(() => vi.useRealTimers());
+  /** The read's state as the test sees it: "pending", "resolved", or the refusal's status. */
+  const watch = (p) => { const w = { v: "pending" }; p.then(() => { w.v = "resolved"; }, (e) => { w.v = e.status; }); return w; };
+
+  it("a body that sends nothing for 30 s is refused with a 408, JSON and raw alike; each byte restarts the clock", async () => {
+    vi.useFakeTimers();
+    for (const read of [(r) => readBody(r), (r) => readRaw(r)]) {
+      const r = open();
+      const w = watch(read(r));
+      r.write('{"a":');
+      await vi.advanceTimersByTimeAsync(29_000);
+      r.write(" ");
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(w.v).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1_001);
+      expect(w.v).toBe(408);
+    }
+    const r = open();
+    const p = readBody(r);
+    r.write("{");
+    await vi.advanceTimersByTimeAsync(30_001);
+    await expect(p).rejects.toThrow("the request body stopped arriving (nothing for 30 s) — nothing was saved");
+  });
+
+  it("a JSON body dripped a byte every 20 s is a 408 at 2 min; a raw upload may take longer (the server's 30 min)", async () => {
+    vi.useFakeTimers();
+    const json = open(), raw = open();
+    const wj = watch(readBody(json)), wr = watch(readRaw(raw));
+    for (let t = 0; t < 9; t++) { json.write(" "); raw.write("x"); await vi.advanceTimersByTimeAsync(20_000); } // 3 min
+    expect(wj.v).toBe(408);
+    expect(wr.v).toBe("pending");
+    raw.end("y");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wr.v).toBe("resolved");
+  });
+});
+
+describe("readBody — at most 8 bodies at once per signed-in account (the machine is not counted)", () => {
+  /** Runs `fn` as a signed-in caller whose JWT names `sub` (only its payload is read here). */
+  const as = (sub, fn) => runWithAuth(`h.${Buffer.from(JSON.stringify({ sub })).toString("base64url")}.s`, fn);
+  it("a ninth body from the same account is a 429 before a byte is read; another account and the machine still read", async () => {
+    const held = Array.from({ length: 8 }, () => open());
+    const reads = held.map((r) => as("u1", () => readBody(r)));
+    const ninth = open();
+    await expect(as("u1", () => readBody(ninth))).rejects.toMatchObject({ status: 429, message: expect.stringContaining("more than 8 requests at once") });
+    expect(ninth.listenerCount("data")).toBe(0);
+    expect(await as("u2", () => readBody(req(['{"a":1}'])))).toEqual({ a: 1 });
+    expect(await readBody(req(['{"b":2}']))).toEqual({ b: 2 }); // the machine credential: no sub
+    for (const r of held) r.end("{}");
+    expect(await Promise.all(reads)).toEqual(Array(8).fill({}));
+    expect(await as("u1", () => readBody(req(["{}"])))).toEqual({}); // the count came back
   });
 });
 

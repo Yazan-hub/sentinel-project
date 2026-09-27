@@ -233,10 +233,11 @@ describe("raw uploads — the role is decided before a byte of the body is read"
   afterAll(() => new Promise((r) => supa.close(r)));
 
   for (const path of ["/cde/ghost/intake?name=a.ifc&source=web", `/cde/ghost/manifests/${randomUUID()}`, "/bimdocs/ghost/ingest?name=a.txt&doc_type=EIR"]) {
-    it(`POST ${path.split("?")[0]} from a signed-in non-member is refused with only the head sent`, async () => {
-      const r = open(b.port, "POST", path, { Authorization: `Bearer ${userJwt()}`, "Transfer-Encoding": "chunked" });
+    it(`POST ${path.split("?")[0]} from a signed-in non-member is refused with only the head sent, and the socket closed`, async () => {
+      const r = open(b.port, "POST", path, { Authorization: `Bearer ${userJwt()}`, "Transfer-Encoding": "chunked", ...keepAlive });
       const reply = await r.reply; // no body byte was ever sent: an answer proves the body was not awaited
       expect([403, 404], reply).toContain(statusOf(reply));
+      expect(reply).toMatch(/^Connection: close$/im); // Node would otherwise wait up to 30 min for the unread body
     });
   }
 });
@@ -371,6 +372,37 @@ describe("the local stores — the single desktop's only, never a signed-in call
     expect(await r.json()).toEqual([]);
     expect((await as(userJwt(), "/bimdocs/templates")).status).toBe(200);
   });
+});
+
+describe("slow bodies — answered 408 and closed, so slow callers cannot hold the bridge's 256 sockets", () => {
+  let b;
+  beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);
+
+  it("260 anonymous receipt checks that send 1 byte of 100: 32 are read and answered 408 within the 10 s deadline, the rest 429 at once, all closed; the machine gets through meanwhile", async () => {
+    const slow = Array.from({ length: 260 }, (_, i) => new Promise((resolve) => {
+      const s = net.connect({ port: b.port, host: "127.0.0.1" });
+      let data = "";
+      s.setEncoding("utf8");
+      s.on("data", (d) => { data += d; });
+      s.on("error", () => {});
+      const t = setTimeout(() => { s.destroy(); resolve("still open at 14 s"); }, 14_000);
+      s.on("close", () => { clearTimeout(t); resolve(data); });
+      // Distinct Funnel callers: the per-caller window is not what stops them.
+      s.write(`POST /receipt/k/verify HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 198.51.100.${i % 250}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{`);
+    }));
+    await new Promise((r) => setTimeout(r, 1000));
+    expect((await fetch(`http://127.0.0.1:${b.port}/bimdocs/templates`, { headers: machine })).status).toBe(200); // while 32 are held
+    const replies = await Promise.all(slow);
+    expect(replies.filter((r) => r === "still open at 14 s").length).toBe(0);
+    const answered = replies.filter(Boolean); // past 256 sockets the bridge drops a connection unanswered
+    expect(answered.length).toBeGreaterThanOrEqual(250);
+    expect(answered.filter((r) => statusOf(r) === 408).length).toBe(32);
+    for (const r of answered) {
+      expect([408, 429], r).toContain(statusOf(r));
+      expect(r).toMatch(/^Connection: close$/im);
+    }
+    expect((await fetch(`http://127.0.0.1:${b.port}/bimdocs/templates`, { headers: machine })).status).toBe(200);
+  }, 30_000);
 });
 
 describe("the public receipt check — 60 a minute per caller address, not 60 for everyone", () => {

@@ -1,7 +1,7 @@
 // The public receipt check (cohesion phase 4c): a yes/no and field names for anyone, never a ledger value, and one
 // byte-identical miss for every kind of "no". publicAuditRow is driven through a stubbed fetch — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Readable } from "node:stream";
+import { Readable, PassThrough } from "node:stream";
 import { isPublicRoute, parsePublicVerify, comparePublic, MISS, createLimiter, createKeyedLimiter, clientAddress, readCapped, PUBLIC_BODY_MAX } from "./public-verify.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
@@ -209,6 +209,17 @@ describe("readCapped — 8 KB, then 413", () => {
     expect(await readCapped(r)).toBeNull();
     expect(r.readableFlowing).toBeNull(); // nothing attached a reader: the stream was never consumed
     expect(r.listenerCount("data")).toBe(0);
+  });
+  it("is a 408 when the body has not all arrived within 10 s — a slow anonymous check cannot hold a socket", async () => {
+    vi.useFakeTimers();
+    try {
+      const r = Object.assign(new PassThrough(), { headers: { "content-length": "100" } });
+      const p = readCapped(r);
+      const refused = expect(p).rejects.toMatchObject({ status: 408, message: "a receipt check must arrive within 10 s" });
+      r.write("{");
+      await vi.advanceTimersByTimeAsync(10_001);
+      await refused;
+    } finally { vi.useRealTimers(); }
   });
   it("is null for a streamed body that runs past the cap", async () => {
     const r = req(["a".repeat(5000), "a".repeat(5000), "a".repeat(5000)]);

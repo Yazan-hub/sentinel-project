@@ -93,17 +93,26 @@ export function createKeyedLimiter({ max = 60, windowMs = 60000, maxKeys = 10000
 export const clientAddress = (req) =>
   String(req.headers?.["x-forwarded-for"] || "").split(",").pop().trim() || req.socket?.remoteAddress || "unknown";
 
+/** A receipt check is a few hundred bytes: it arrives whole within 10 s, or it is a 408. Without a deadline a check
+ *  that sends 1 byte of 100 held its socket for the server's 30 min, and 256 of them locked every caller out. */
+export const PUBLIC_BODY_MS = 10_000;
+
 /** The request body as text, or null when it is over `max` bytes — declared (answered unread) or streamed (the rest
  *  drained unbuffered, never cut: a destroyed socket could not carry the 413, which the caller sends with
- *  Connection: close). */
-export const readCapped = (req, max = PUBLIC_BODY_MAX) => new Promise((resolve) => {
+ *  Connection: close). Rejects with .status 408 when the body is not whole within `ms`, and 400 when the caller
+ *  goes away first; send() closes the connection on either. */
+export const readCapped = (req, max = PUBLIC_BODY_MAX, ms = PUBLIC_BODY_MS) => new Promise((resolve, reject) => {
   if (Number(req.headers?.["content-length"] || 0) > max) return resolve(null);
   let chunks = [], total = 0;
+  const refuse = (status, message) => { clearTimeout(timer); chunks = null; reject(Object.assign(new Error(message), { status })); };
+  const timer = setTimeout(() => refuse(408, `a receipt check must arrive within ${ms / 1000} s`), ms);
+  const done = (v) => { clearTimeout(timer); resolve(v); };
   req.on("data", (c) => {
     if (!chunks) return; // over the cap: the stream keeps flowing, nothing is kept
     total += c.length;
-    if (total > max) { chunks = null; resolve(null); } else chunks.push(c);
+    if (total > max) { chunks = null; done(null); } else chunks.push(c);
   });
-  req.on("end", () => { if (chunks) resolve(Buffer.concat(chunks).toString("utf8")); });
-  req.on("error", () => resolve(null));
+  req.on("end", () => { if (chunks) done(Buffer.concat(chunks).toString("utf8")); });
+  req.on("error", () => done(null));
+  req.on("close", () => refuse(400, "the request ended before its body did")); // after "end" this is a no-op
 });
