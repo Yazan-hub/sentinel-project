@@ -14,9 +14,13 @@ export const uploadCap = () => (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) *
 export const SMALL_JSON = 1 * MB;
 
 // JSON.parse holds many times its text in memory, so the JSON bytes being read and parsed at once across every request
-// are bounded too: four bodies at the cap. ponytail: one shared budget — a stranger can fill it (503s, never a crash);
-// per-caller budgets if that ever happens.
+// are bounded too: four bodies at the cap.
 const json = { used: 0 };
+// H0 minor N3: the shared budget above is 4 x jsonCap() for EVERYONE, signed-in or not — a signed-in caller could
+// fill it alone by holding ~4 bodies at the cap (or many small ones) and 503 every other JSON write, including the
+// machine credential's own. Charging each signed-in sub at most one jsonCap() in flight keeps the shared budget
+// available to others; the machine credential (no sub) is exempt, as it always was for the reads-in-flight cap below.
+const jsonBySub = new Map(); // sub -> bytes currently in flight
 
 // Bodies are bounded in time as well as in size. The server's requestTimeout (30 min) is there for a 2 GB upload over
 // the Funnel; left alone, 256 bodies that never finish would hold every socket the server accepts (maxConnections) for
@@ -29,7 +33,7 @@ const JSON_MS = 2 * 60_000; // a JSON body arrives whole within 2 min (16 MB nee
  *  body (chunked, or a length that lied) a 413 the moment it passes `max`. The rest is never kept — send() closes the
  *  connection after a 413. A `lease` charges the bytes to the shared JSON budget (503 when it is full). A body that
  *  sends nothing for 30 s, or a JSON body not whole within 2 min, is a 408 (send() closes that connection too). */
-function readBytes(req, max, lease) {
+function readBytes(req, max, lease, sub) {
   return new Promise((resolve, reject) => {
     const over = () => err(413, `the request body is over the ${Math.round(max / MB)} MB limit for this route — nothing was read or saved`);
     if (Number(req.headers?.["content-length"] || 0) > max) return reject(over());
@@ -49,6 +53,12 @@ function readBytes(req, max, lease) {
       if (total > max) return fail(over());
       if (lease) {
         if (json.used + c.length > 4 * jsonCap()) return fail(err(503, "the bridge is reading too many large requests at once — nothing was saved; try again in a moment"));
+        if (sub) {
+          const mine = jsonBySub.get(sub) || 0;
+          if (mine + c.length > jsonCap())
+            return fail(err(429, "you already have too much JSON in flight on this account — wait for it to finish; nothing was saved"));
+          jsonBySub.set(sub, mine + c.length);
+        }
         json.used += c.length;
         lease.held += c.length;
       }
@@ -68,9 +78,11 @@ function readBytes(req, max, lease) {
 const MAX_READS_PER_CALLER = 8;
 const readingBy = new Map();
 
-/** A JSON request body, parsed: {} when it is empty or not JSON (as before). Over `max` → 413; the shared budget
- *  full → 503; a ninth body at once from the same signed-in account → 429, unread. Bytes are collected before
- *  decoding, so a character split across two chunks survives. */
+/** A JSON request body, parsed: {} when it is empty, not JSON, or JSON that is not an object (`null`, `"x"`, `5`,
+ *  an array) — every route destructures the result as an object, and a route reading nothing back is a 400 in
+ *  words downstream, never a 500 TypeError. Over `max` → 413; the shared budget full → 503; a ninth body at once
+ *  from the same signed-in account → 429, unread. Bytes are collected before decoding, so a character split
+ *  across two chunks survives. */
 export async function readBody(req, { max = jsonCap() } = {}) {
   const who = currentSub();
   const mine = (who && readingBy.get(who)) || 0;
@@ -78,11 +90,17 @@ export async function readBody(req, { max = jsonCap() } = {}) {
   if (who) readingBy.set(who, mine + 1);
   const lease = { held: 0 };
   try {
-    const text = (await readBytes(req, max, lease)).toString("utf8");
-    try { return text ? JSON.parse(text) : {}; } catch { return {}; }
+    const text = (await readBytes(req, max, lease, who)).toString("utf8");
+    try {
+      const v = text ? JSON.parse(text) : {};
+      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    } catch { return {}; }
   } finally {
     json.used -= lease.held;
-    if (who) { const n = readingBy.get(who) - 1; if (n) readingBy.set(who, n); else readingBy.delete(who); }
+    if (who) {
+      const n = readingBy.get(who) - 1; if (n) readingBy.set(who, n); else readingBy.delete(who);
+      const held = (jsonBySub.get(who) || 0) - lease.held; if (held > 0) jsonBySub.set(who, held); else jsonBySub.delete(who);
+    }
   }
 }
 

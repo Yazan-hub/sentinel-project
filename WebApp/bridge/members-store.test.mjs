@@ -174,6 +174,11 @@ describe("requireSpend — who may spend the founder's storage or AI on a projec
     await expect(requireSpend("demo", on(lone, { sub: "u-owner" })))
       .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/belongs to no office.*nothing was sent/) });
   });
+
+  it("a signed-in non-member is refused, named as not a member (H0 minor N5)", async () => {
+    await expect(requireSpend("demo", on(attached, { sub: "u-stranger" })))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/you are not a member.*nothing was sent/) });
+  });
 });
 
 describe("canUseCloudAi — /ai/* names no project, so the account is checked (H0, D2)", () => {
@@ -205,6 +210,12 @@ describe("canUseCloudAi — /ai/* names no project, so the account is checked (H
       expect(r.why).toMatch(/office/);
       expect(r.why).toMatch(/Local AI still works/);
     }
+  });
+
+  it("the production path (a JWT sign-in, no deps.sub) reads the caller's own sub, not the machine credential's (H0 minor N5)", async () => {
+    const sb = vi.fn(async () => []);
+    await expect(runWithAuth(jwt({ sub: "u3" }), () => canUseCloudAi({ sb }))).resolves.toMatchObject({ ok: false });
+    expect(sb).toHaveBeenCalledWith("memberships?user_id=eq.u3&select=role,projects(kind,office_key)", { service: true });
   });
 });
 

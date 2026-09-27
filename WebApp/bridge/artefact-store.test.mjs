@@ -259,10 +259,11 @@ describe("artefactReply — the GET route's answer (ETag, 304, 404 reasons)", ()
   });
   it("404 no_project when the key is unknown to the bridge — never read as nothing installed", async () => {
     const d = memDeps();
-    d.ensureProject = async (key) => { throw Object.assign(new Error(`Project "${key}" does not exist — create it in the web app (Projects → + New project) first.`), { status: 404 }); };
+    // one 404 for unknown or not a member (projectNotFound), same wording the real cde-store throws
+    d.ensureProject = async (key) => { throw Object.assign(new Error(`Project "${key}" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Projects → + New project).`), { status: 404 }); };
     const r = await artefactReply("no-such-key", "ruleset", undefined, d);
     expect(r.status).toBe(404);
-    expect(r.body).toMatchObject({ reason: "no_project", message: expect.stringContaining('Project "no-such-key" does not exist') });
+    expect(r.body).toMatchObject({ reason: "no_project", message: expect.stringContaining('Project "no-such-key" was not found') });
   });
   it("404 unknown_kind before touching the store; a 403 still throws", async () => {
     const d = memDeps();

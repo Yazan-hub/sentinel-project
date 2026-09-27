@@ -37,6 +37,12 @@ describe("readBody — parsed JSON, or a refusal in words", () => {
     expect(await readBody(req([]))).toEqual({});
     expect(await readBody(req(["not json"]))).toEqual({});
   });
+  it("is {} for JSON that parses but is not an object — null, a string, a number, an array (H0 minor N19/N48)", async () => {
+    expect(await readBody(req(["null"]))).toEqual({});
+    expect(await readBody(req(['"x"']))).toEqual({});
+    expect(await readBody(req(["5"]))).toEqual({});
+    expect(await readBody(req(["[1,2]"]))).toEqual({});
+  });
   it("refuses a declared length over the cap with a 413 before reading a byte", async () => {
     const r = req(["{}"], { "content-length": String(SMALL_JSON + 1) });
     await expect(readBody(r, { max: SMALL_JSON })).rejects.toMatchObject({ status: 413, message: "the request body is over the 1 MB limit for this route — nothing was read or saved" });
@@ -65,6 +71,23 @@ describe("readBody — parsed JSON, or a refusal in words", () => {
     for (const r of held) r.end("{}");
     expect(await Promise.all(reads)).toEqual([{}, {}, {}, {}]);
     expect(await readBody(req([" ".repeat(MB - 10), "{}"]))).toEqual({}); // the budget came back
+  });
+
+  it("charges each signed-in sub at most one jsonCap() in flight, so one account cannot fill the shared budget alone (H0 minor N3); the machine credential is exempt", async () => {
+    process.env.BCF_MAX_JSON_MB = "1"; // cap 1 MB, so 0.6 + 0.6 MB from the same sub is over it
+    const as = (sub, fn) => runWithAuth(`h.${Buffer.from(JSON.stringify({ sub })).toString("base64url")}.s`, fn);
+    const a = open(), b = open();
+    const readA = as("u1", () => readBody(a));
+    a.write(Buffer.alloc(0.6 * MB, 32));
+    const refused = as("u1", () => readBody(b));
+    b.write(Buffer.alloc(0.6 * MB, 32));
+    await expect(refused).rejects.toMatchObject({ status: 429, message: expect.stringContaining("too much JSON in flight") });
+    // another account, and the machine credential, are unaffected by u1's in-flight bytes
+    expect(await as("u2", () => readBody(req([" ".repeat(Math.round(0.6 * MB)), "{}"])))).toEqual({});
+    expect(await readBody(req([" ".repeat(Math.round(0.6 * MB)), "{}"]))).toEqual({});
+    a.end("{}");
+    expect(await readA).toEqual({});
+    expect(await as("u1", () => readBody(req(["{}"])))).toEqual({}); // u1's held bytes came back
   });
 });
 

@@ -3,11 +3,11 @@
 // SAME code the browser uses. No OBC/DOM: the only OBC-touching import here (ElementProperties) is `import
 // type`, which esbuild erases, so nothing pulls in @thatopen.
 export * from "./index";
-export { validateElement, applies, adjudicate, groupFailuresForBcf, DEMO_IDS } from "./ids";
+export { validateElement, applies, adjudicate, groupFailuresForBcf, raisedIdsTitleKey, DEMO_IDS } from "./ids";
 export type { IdsSpec, IdsSpecification, IdsApplicability, ElementResult, Failure, Adjudication, RequirementGroup } from "./ids";
 export { parseIds } from "./ids-parse";
 export { validateContainerName } from "./naming";
 export type { NamingRuleset, NamingField, NamingResult, NamingFailure, NamingEnforce } from "./naming";
 export { mapLayer, validateLayers } from "./layers";
 export type { LayerRuleset, LayerDef, LayerExtension, LayerMapping, LayerValidation, LayerMatchKind, LayerEnforce } from "./layers";
-export { checkFederation, nameShape } from "./federation";
+export { checkFederation, nameShape, raisedFederationTitleKey } from "./federation";

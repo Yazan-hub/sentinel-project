@@ -112,9 +112,10 @@ const STORE = process.env.BCF_STORE
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "bcf-store.json");
 
 // Encrypted CDE file blobs (Phase 2 — private CDE). The browser encrypts client-side and uploads ONLY
-// ciphertext; we persist each as an opaque <id>.bin. Zero-knowledge: the bridge never sees a key, the
-// plaintext, or even the filename. Independent of Supabase, so encrypted storage works without the CDE
-// service key. Override the location with SENTINEL_CDE_FILES.
+// ciphertext; we persist each as an opaque <id>.bin under CDE_FILES_ROOT/<project id>/. Zero-knowledge: the
+// bridge never sees a key, the plaintext, or even the filename. Storing one, or reading one back by project,
+// still needs the CDE configured (requireSpendFor / cdeConfigured — SPEND-6): only pre-H0 root blobs, read by
+// the machine credential, need no CDE. Override the location with SENTINEL_CDE_FILES.
 const CDE_FILES_ROOT = process.env.SENTINEL_CDE_FILES
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "cde-files");
 
@@ -341,12 +342,12 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   // BCF-shape-specific inverse of the `IDS: <key> (N failing)` subject built below).
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  // Pure, unit-tested grouping + dedup (sentinel-core, H0 minor N33: raisedIdsTitleKey) — one issue per still-open
+  // failing requirement.
+  const core = await loadCore();
   const openReqs = (existing || [])
     .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved" && !t?.superseded_by)
-    // Trimmed, then an end-anchored suffix: `\s*\(…\)\s*$` backtracked quadratically over a stored whitespace run (WR-4 review).
-    .map((t) => String(t.title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd());
-  // Pure, unit-tested grouping + dedup (sentinel-core) — one issue per still-open failing requirement.
-  const core = await loadCore();
+    .map((t) => core.raisedIdsTitleKey(t.title));
   const groups = core.groupFailuresForBcf(result.failures || [], openReqs);
   if (!groups.length) return { raised: 0, skipped: openReqs.length, topics: [] };
   const now = new Date().toISOString();
@@ -427,9 +428,10 @@ async function raiseFederationTopics(cde, pid, run, opts = {}) {
   const author = resolveActor(opts.author, "Federation Gate");
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  const core = await loadCore(); // H0 minor N33: raisedFederationTitleKey — see raiseGovernedFailureTopics
   const open = new Set((existing || [])
     .filter((t) => /^Federation:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
-    .map((t) => String(t.title).trimEnd().replace(/\(\d+\)$/, "").trimEnd())); // linear — see raiseGovernedFailureTopics
+    .map((t) => core.raisedFederationTitleKey(t.title)));
   const failing = run.result.checks.filter((c) => c.status === "fail");
   const now = new Date().toISOString();
   const raised = [];
@@ -498,6 +500,9 @@ const server = createServer((req, res) => {
     runWithAuth(userJwt, () => handleRequest(req, res)).catch(failed);
   } catch (e) { failed(e); }
 });
+// Sets headersTimeout, requestTimeout (overrides Node's own 300 s default — a 2 GB Funnel upload needs the full
+// 30 min) and maxConnections in one call — H0 minor N9: drop this and Node's 300 s requestTimeout comes back,
+// cutting long uploads, with only the constants test (not this running server) to notice.
 Object.assign(server, SERVER_LIMITS);
 server.listen(PORT, HOST, () => {
   // Supabase projects on asymmetric signing keys sign USER SESSIONS with ES256 — the JWKS makes
@@ -557,11 +562,11 @@ async function publicReceiptVerify(req, res, url) {
       res.setHeader("Access-Control-Allow-Private-Network", "true");
     return send(res, 204);
   }
+  const who = callerKey(clientAddress(req));
   const done = (code, body, outcome, extra) => {
-    console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome}`);
+    console.log(`[receipt] public ${req.method} ${url.pathname} → ${outcome} (caller ${who})`); // the address the limits key on: what the Funnel forwards
     return send(res, code, body, extra);
   };
-  const who = callerKey(clientAddress(req));
   if (publicReads >= MAX_PUBLIC_READS || (publicReadsBy.get(who) || 0) >= MAX_PUBLIC_READS_PER_CALLER)
     return done(429, { message: "Too many receipt checks at once — try again in a moment" }, "429 (busy)");
   // The caller's own window first: a caller over it does not use up the shared one.
@@ -1383,11 +1388,18 @@ async function handleRequest(req, res) {
             try {
               const ref = `ids@${pointer.version}`, who = resolveActor(actor, "web");
               pointer.superseded_topics = await markSupersededIdsTopics(cde, p1, ref, who);
-              // An office install also supersedes the office-raised topics of every project in its scope.
+              // An office install also supersedes the office-raised topics of every project in its scope. H0 minor
+              // N26: one refused project (e.g. its lead reset the register mid-loop) used to stop the whole loop —
+              // each project now gets its own try, so a refusal is recorded and the rest still run.
               const { projectScope } = await import("./office-scope.mjs");
               const scope = await projectScope(p1);
-              if (scope.kind === "office")
-                for (const k of scope.keys.slice(1)) pointer.superseded_topics.push(...await markSupersededIdsTopics(cde, k, ref, who, "supersededByOffice"));
+              if (scope.kind === "office") {
+                pointer.superseded_refused = [];
+                for (const k of scope.keys.slice(1)) {
+                  try { pointer.superseded_topics.push(...await markSupersededIdsTopics(cde, k, ref, who, "supersededByOffice")); }
+                  catch (e) { pointer.superseded_refused.push({ project: k, error: String(e?.message || e) }); }
+                }
+              }
             }
             catch (e) { pointer.superseded_error = String(e?.message || e); }
           }
@@ -1609,7 +1621,7 @@ async function handleRequest(req, res) {
 
   // ── Task teams: the ISO 19650 responsibility matrix a TIDP belongs to ──
   //   GET/POST /teams/:key · PATCH/DELETE /teams/:key/:id
-  //   Role gating is RLS's job (0026: members read, leads write) — the bridge forwards the session.
+  //   The bridge asks requireMinRole(key, "lead") itself before a write (WR-12); 0026 enforces the same rule in the database.
   if (top === "teams") {
     const tt = await import("./task-teams-store.mjs");
     try {
@@ -1824,6 +1836,10 @@ async function handleRequest(req, res) {
       if (req.method === "POST" && !sub) {
         const items = (await readBody(req)).items;
         if (Array.isArray(items) && items.length > MAX_CLASH_ITEMS) return send(res, 400, { message: `at most ${MAX_CLASH_ITEMS} clash records a request — nothing was saved` });
+        // A raise grows the append-only ledger (up to MAX_CLASH_ITEMS rows a request), so a signed-in caller's raise
+        // requests are budgeted as notes and IDS raises are (H0 minor N31): over budget is a 429 before anything is
+        // written, never a partial write and a ledger row over nothing.
+        if (Array.isArray(items) && items.length) cde.takeWriteBudget("clash raises", { perUser: 30, all: 120 });
         const added = useCde ? await upsertClashesCde(cde, cpid, items) : (upsertClashes(cpid, items), []);
         for (const it of added) await ledger(`Clash raised: ${it.label ?? it.signature}`, { signature: it.signature, volume: it.volume, overlap: it.overlap, elements: it.elements, bcf_guid: it.bcf_guid });
         return send(res, 201, { items: useCde ? await cde.docList("clash", cpid) : clashItems(cpid) });
@@ -1902,7 +1918,9 @@ async function handleRequest(req, res) {
     // PUT — edit fields (status/priority/assignee/etc.); each change is logged to history.
     if (req.method === "PUT" && guid && !sub) {
       const b = await readBody(req);
-      cde.checkTopicTitle(b?.title);
+      // Only a changed title is checked (H0 minor N34/N50): a client that PUTs the topic back with its stored title
+      // — including one Sentinel built past 600 characters (a rejection note) — edits status/priority/etc. undisturbed.
+      if (b?.title !== undefined && b.title !== topic.title) cde.checkTopicTitle(b.title);
       if (governedEditNeedsLead(topic, b)) await requireMinRole(pid, "lead");
       const who = resolveActor(b.author, "web");
       const now = new Date().toISOString();

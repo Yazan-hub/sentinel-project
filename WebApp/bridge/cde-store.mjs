@@ -332,6 +332,10 @@ export async function createProject(b = {}) {
     // hits projects.key unique (23505). Say so in words (409) instead of a scrubbed 500. A create on a taken key can only
     // fail, so this names nothing a prober lacks (ai-3, cde-9).
     if (e?.body?.code === "23505") throw Object.assign(new Error(`The name "${key}" is taken — choose another name (nothing was created).`), { status: 409 });
+    // 0029/0033's projects_office_guard (H0 minor N17): office_key must name a row of kind office. requireOfficeLead
+    // checks lead/admin, not kind, so an admin or the machine credential naming a plain project's key as office_key
+    // reaches the database guard, which raises P0001 with no SQLSTATE the client would use — say so in words (400).
+    if (e?.body?.code === "P0001") throw Object.assign(new Error(String(e.body.message || "office_key must name a project of kind office")), { status: 400 });
     throw e;
   }
   const row = (await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true }))[0];
@@ -383,7 +387,16 @@ export async function updateProject(key, patch = {}, actor) {
   if (body.kind === "office" && proj.kind !== "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
   if (body.office_key && body.office_key !== (proj.office_key ?? null)) await members.requireOfficeLead(body.office_key);
 
-  const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+  let rows;
+  try {
+    rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+  } catch (e) {
+    // 0029/0033's projects_office_guard (H0 minor N17): office_key must name a row of kind office. requireOfficeLead
+    // checks lead/admin, not kind, so an admin or the machine credential naming a plain project's key as office_key
+    // reaches the database guard, which raises P0001 with no SQLSTATE the client would use — say so in words (400).
+    if (e?.body?.code === "P0001") throw Object.assign(new Error(String(e.body.message || "office_key must name a project of kind office")), { status: 400 });
+    throw e;
+  }
   const row = Array.isArray(rows) ? rows[0] : null;
   // As in patchProjectMeta: a write the projects_update policy refused comes back with no row — a 403, never a 200.
   if (!row) throw Object.assign(new Error("the project's settings are changed by a lead or owner — nothing was saved"), { status: 403 });
@@ -1662,7 +1675,7 @@ export async function bcfGetTopic(pid, guid) {
   return rows?.[0]?.data ?? null;
 }
 
-/** A title a caller sends (topic POST and PUT, the agent's create_topic) is text of at most 600 characters, else a 400 —
+/** A title a caller sends (topic POST and PUT, the agent's raise_issue) is text of at most 600 characters, else a 400 —
  *  stored titles are parsed by the raise dedups on every propose and in every member's browser (H0, WR-4 review). Absent
  *  or null passes (newTopicObject's "Untitled"). Titles Sentinel builds itself (raises, a review's rejection) aren't checked. */
 export function checkTopicTitle(title) {
@@ -1700,7 +1713,9 @@ export async function bcfCreateTopic(topic) {
 /** Persist a mutated topic (update / comment / viewpoint all read-modify-write the whole document). A save the database
  *  changed nothing with is a 403 — the IDS supersede writers put a ledger row after these saves (H0 D5). */
 export async function bcfSaveTopic(topic) {
-  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}`, {
+  // requireRows only needs to know a row came back — &select=guid (H0 minor N27) keeps PostgREST from also
+  // returning the full jsonb `data` column (comments, viewpoints, snapshots) on every save.
+  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}&select=guid`, {
     method: "PATCH",
     body: { data: topic, topic_status: topic.topic_status, model: topic.model || "", modified_at: new Date().toISOString() },
     prefer: "return=representation",
@@ -1718,9 +1733,13 @@ export async function listTransmittals(key) {
  *  malformed id is versionOnKey's 400 before any write; the issue is one "issued" ledger row (cde-14). */
 export async function createTransmittal(key, b = {}) {
   if (b.version_ids !== undefined && !Array.isArray(b.version_ids)) throw Object.assign(new Error("version_ids must be a list of version ids on this project"), { status: 400 });
-  const ids = [...new Set(b.version_ids || [])];
+  // De-dup on the CALLER's strings first so [v, V] isn't read twice, then store versionOnKey's own canonical id
+  // (H0 minor N28): Postgres uuid equality ignores case, so an uppercase id was stored and audited as given —
+  // check-registry's classifyDistribution matches version_ids by exact string, so that read as a false un-issued gap.
   // ponytail: one read per listed version; one in.() read if transmittals start listing hundreds of versions.
-  for (const id of ids) await versionOnKey(key, id);
+  const seen = [];
+  for (const id of new Set(b.version_ids || [])) seen.push((await versionOnKey(key, id)).version.id);
+  const ids = [...new Set(seen)];
   const proj = await ensureProject(key);
   const [row] = requireRows(await sb(`transmittals`, {
     method: "POST",

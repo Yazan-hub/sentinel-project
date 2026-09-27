@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { getJourney } from "./journey-store.mjs";
 import { refLabel } from "./artefact-store.mjs";
+import { projectNotFound } from "./cde-store.mjs";
 
 const SHA = "23bb57937fb0" + "a".repeat(52);
 const NONE = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
@@ -70,8 +71,8 @@ describe("getJourney", () => {
     for (const f of ["getScan", "listVersionVerdictRows", "listFiles", "getFederation", "listTransmittals"]) expect(d[f]).not.toHaveBeenCalled();
   });
   it("a non-member is refused before any fact is read", async () => {
-    const d = memDeps({ ensureProject: async () => { throw Object.assign(new Error("Not authorized: you are not a member of this project"), { status: 403 }); } });
-    await expect(getJourney("aster-villa", d)).rejects.toMatchObject({ status: 403 });
+    const d = memDeps({ ensureProject: async (key) => { throw projectNotFound(key); } });
+    await expect(getJourney("aster-villa", d)).rejects.toMatchObject({ status: 404 });
     expect(d.listMemberRows).not.toHaveBeenCalled();
     expect(d.projectScope).not.toHaveBeenCalled();
   });

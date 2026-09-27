@@ -48,6 +48,13 @@ describe("cloud calls (D2)", () => {
     expect(JSON.parse(fetchStub.mock.calls[0][1].body)).toMatchObject({ model: "gemini-flash-latest", max_tokens: 4096 });
   });
 
+  it("a caller canUseCloudAi refuses still spends their own AI-budget window (H0 minor N20) — the 4th of 3 is a 429, not a repeatable free 403", async () => {
+    canUseCloudAi.mockResolvedValue({ ok: false, why: "Cloud AI is for office members." });
+    for (let i = 0; i < 3; i++) await expect(as("u1", () => ai.chat({ provider: "gemini", messages: hi }))).rejects.toMatchObject({ status: 403 });
+    await expect(as("u1", () => ai.chat({ provider: "gemini", messages: hi }))).rejects.toMatchObject({ status: 429 });
+    expect(canUseCloudAi).toHaveBeenCalledTimes(3); // the 4th never reached the memberships read
+  });
+
   it("a local call never asks canUseCloudAi; a name that is not a provider is a 400", async () => {
     await as("u1", () => ai.chat({ provider: "local", messages: hi }));
     expect(canUseCloudAi).not.toHaveBeenCalled();

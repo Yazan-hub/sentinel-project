@@ -207,3 +207,7 @@ Coverage: I compared every url.pathname comparison and regex in bcf-service.mjs 
 - HEAD and unknown methods reach no handler and end at 404 after the auth gate.
 - Invalid request targets such as '//' are answered 400 by the per-request error boundary (:466-479) and never crash the process. 500 messages are scrubbed in send() (:246-252).
 
+
+## Live check — what the Funnel forwards as the caller (2026-09-27, after H0)
+
+`POST /receipt/aster-tower/verify` with a forged `X-Forwarded-For: 1.2.3.4`: through the Funnel (`https://4374ga.tailfae508.ts.net`) the bridge logged `caller 2a02:8071:68c3:91a0::/64` — the real client's IPv6 block, because Tailscale appends the address it accepted the connection from after anything the client wrote, and `clientAddress` reads the last entry; the same request straight to `127.0.0.1:4100` logged `caller 5.6.7.8` — a direct caller's own header is honoured, which is why the bridge binds loopback only and the per-caller limits are trusted only behind the Funnel. Closes the owed row from batch 2 (receipt-1).

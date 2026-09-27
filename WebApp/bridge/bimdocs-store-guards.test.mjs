@@ -324,6 +324,19 @@ describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
       expect(audit).not.toHaveBeenCalled();
     } finally { globalThis.__testRole = undefined; }
   });
+
+  it("a contributor's section edit reaches the document read — not another 403 (H0 minor N41)", async () => {
+    globalThis.__testRole = "contributor";
+    sb.mockClear();
+    audit.mockClear();
+    try {
+      // No document seeded for this id: a contributor passes requireMinRole and reaches docGet, which answers null —
+      // a 404 "not found", never requireMinRole's 403. If the minimum were raised to lead by mistake, this would
+      // 403 instead and catch it.
+      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { body: "x" }))
+        .rejects.toMatchObject({ status: 404 });
+    } finally { globalThis.__testRole = undefined; }
+  });
 });
 
 describe("a document's recorded names come from the sign-in (bimdocs-3, H0 D6)", () => {

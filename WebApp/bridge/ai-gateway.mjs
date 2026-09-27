@@ -182,6 +182,13 @@ export async function chat({ provider = "local", model, system, messages = [], t
 
   const p = PROVIDERS[provider];
   const chosen = model || p.models[0];
+  // Every signed-in caller's call counts, local too (it runs on the founder's GPU). `budget: false` is only for one
+  // document ingest's chunks (bimdocs-ingest), whose route already required a trusted caller for the project. This
+  // runs BEFORE canUseCloudAi (H0 minor N20): an untrusted caller repeating a 403-refused cloud call used to spend
+  // nothing but a service-key memberships read every time — it now spends its own per-sub window first, so it is
+  // rate-limited even while every call is refused, and a refused caller never dips into the shared 60/min lane.
+  if (budget && !takeAiBudget(currentSub()))
+    throw Object.assign(new Error("Too many AI requests — wait a minute, then try again."), { status: 429 });
   // H0 (D2): a cloud call is billed to the founder's key — only a model on the list above, and only for a caller
   // members-store's canUseCloudAi trusts (the machine credential, or an office member); both before anything is sent.
   if (p.cloud) {
@@ -190,10 +197,6 @@ export async function chat({ provider = "local", model, system, messages = [], t
     const may = await (await import("./members-store.mjs")).canUseCloudAi();
     if (!may.ok) throw Object.assign(new Error(may.why), { status: 403 });
   }
-  // Every signed-in caller's call counts, local too (it runs on the founder's GPU). `budget: false` is only for one
-  // document ingest's chunks (bimdocs-ingest), whose route already required a trusted caller for the project.
-  if (budget && !takeAiBudget(currentSub()))
-    throw Object.assign(new Error("Too many AI requests — wait a minute, then try again."), { status: 429 });
   const out =
     provider === "local"  ? await viaOllama(chosen, system, messages, tools, format)
   : provider === "claude" ? await viaClaude(chosen, system, messages, tools, format)

@@ -1039,6 +1039,9 @@ function validateContainerName(rawName, rs) {
 }
 
 // src/sentinel-core/federation.ts
+function raisedFederationTitleKey(title) {
+  return String(title).trimEnd().replace(/\(\d+\)$/, "").trimEnd();
+}
 var SEPS = [["_", "underscore"], ["-", "hyphen"], [" ", "space"], [".", "dot"]];
 function nameShape(name) {
   const s = String(name ?? "").trim();
@@ -1329,6 +1332,9 @@ function adjudicate(spec, elements) {
     failures
   };
 }
+function raisedIdsTitleKey(title) {
+  return String(title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd();
+}
 function groupFailuresForBcf(failures, openRequirements = []) {
   const open = new Set(typeof openRequirements === "string" ? [openRequirements] : openRequirements);
   const groups = /* @__PURE__ */ new Map();
@@ -1571,6 +1577,8 @@ export {
   parseIds,
   planViews,
   priceSnapshot,
+  raisedFederationTitleKey,
+  raisedIdsTitleKey,
   resolveFactor,
   resolveRate,
   resolveType,

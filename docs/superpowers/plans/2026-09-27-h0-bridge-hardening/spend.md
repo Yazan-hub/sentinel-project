@@ -1851,6 +1851,11 @@ Line 1521 becomes:
         const buf = readFileSync(ingest.sourceFilePath(ref.project_id, ref.file_id, { legacy: true }));
 ```
 
+**Fix-round update (H0 minor N42):** the `legacy` fallback above was removed — `sourceFilePath` and the source route
+now read only the project's own folder. Until `node bridge/move-legacy-originals.mjs --apply` runs, GET
+`/bimdocs/:key/:doc/source` is a 404 for any original ingested before H0 (it fails closed, not open). Put that
+script (dry run, then `--apply`) on the H0 deploy checklist next to migration 0033.
+
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run bridge/bimdocs-ingest.test.mjs bridge/bimdocs-store-guards.test.mjs bridge/bimdocs-store.test.mjs`

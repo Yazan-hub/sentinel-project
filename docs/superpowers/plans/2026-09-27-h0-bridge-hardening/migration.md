@@ -1661,7 +1661,7 @@ Order: merge every H0 task first (ORDER.md) — in particular area "write-roles"
 
 ### Owed deploy rows (final whole-branch review — each is owed at deploy, none runs without the founder's yes)
 
-- **D-1 — 0033 + the founder's `platform_admins` row** (steps 2-3 above, each its own yes). Until both: a direct PostgREST PATCH of `projects.office_key` bypasses the office trust `requireSpend` and `canUseCloudAi` rely on, and the Sheets and Views panels are a 403 for every signed-in user, the founder included.
+- **D-1 — 0033 + the founder's `platform_admins` row** (steps 2-3 above, each its own yes). Until both: a direct PostgREST PATCH of `projects.office_key` — or a self-made office, an INSERT of a project as `kind='office'`, which satisfies 0029's guard the same way — bypasses the office trust `requireSpend` and `canUseCloudAi` (members-store.mjs:167-196) rely on, and the Sheets and Views panels are a 403 for every signed-in user, the founder included.
 - **D-2 — move the pre-H0 originals:** `node bridge/move-legacy-originals.mjs` as a dry run, then with `--apply`. Until then pre-H0 originals are a 404 (sentinel-first-test has 2 documents, default has 1).
 - **D-3 — attach an office** to sentinel-first-test, default and the drill projects (D3, a lead of that office). Until then a signed-in spend on them (POST /ifc, encrypted attach, intake, ingest, cloud AI) is a 403.
 - **D-4 — measure the Revit Governed Publish `/propose` body** on the pilot model against the 16 MB JSON cap; set `BCF_MAX_JSON_MB` if it comes close.

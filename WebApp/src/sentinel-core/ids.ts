@@ -171,6 +171,14 @@ export function adjudicate(spec: IdsSpec | null, elements: ElementProperties[]):
   };
 }
 
+/** The dedup key of an already-raised `IDS: <requirement> (N failing)` BCF topic title — the inverse of the
+ *  title groupFailuresForBcf's caller builds, so a re-publish skips a requirement that already has an open
+ *  issue. PURE, and the ONE place this parsing lives (H0 minor N33): the bridge's raiseGovernedFailureTopics
+ *  and the web IDS panel (visibility-panel) each parsed the same regex independently, untested. */
+export function raisedIdsTitleKey(title: string): string {
+  return String(title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd();
+}
+
 // ── Failure → BCF grouping (the "governed reject raises one issue per broken requirement" decision) ─────────
 /** One BCF issue's worth of failures: a "<specification> — <requirement>" key, how many elements broke it,
  *  and their GlobalIds (the viewpoint selection). `key` doubles as the human-readable topic subject. */

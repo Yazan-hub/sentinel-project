@@ -264,6 +264,15 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(await call("POST", "/clash/demo", "contributor", { items })).toEqual({ status: 400, body: { message: "at most 500 clash records a request — nothing was saved" } });
     expect(writes("bridge_docs")).toEqual([]);
   });
+
+  it("a user's raise requests are budgeted (H0 minor N31): the 31st in a minute is a 429 and writes nothing", async () => {
+    // A lead (unused for /clash raises by any earlier test in this file) so this test's own budget window starts fresh.
+    const raise = (i) => call("POST", "/clash/demo", "lead", { items: [{ ...item, signature: `s${i}` }] });
+    for (let i = 0; i < 30; i++) expect((await raise(i)).status).toBe(201);
+    expect(await raise(30)).toEqual({ status: 429, body: { message: "too many clash raises in a minute — nothing was saved; try again shortly" } });
+    expect(writes("bridge_docs")).toHaveLength(30);
+    expect(writes("audit_log")).toHaveLength(30);
+  }, 30_000);
 });
 
 describe("BCF topics (topics-1): a contributor's work; closing or renaming a governed topic a lead's", () => {
@@ -322,6 +331,13 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect((await call("POST", T, "contributor", { title: "x".repeat(600) })).status).toBe(201);
   });
 
+  it("PUT checks the title only when it changes — a stored title over 600 characters rides along on an ordinary edit (H0 minor N34/N50)", async () => {
+    seedTopic(topic("G1", "x".repeat(601))); // e.g. a Sentinel-built rejection note, already over the cap
+    expect((await call("PUT", `${T}/G1`, "contributor", { title: "x".repeat(601), priority: "High" })).status).toBe(200);
+    const no = { status: 400, body: { message: "a topic title is text of at most 600 characters — nothing was saved" } };
+    expect(await call("PUT", `${T}/G1`, "contributor", { title: "y".repeat(601) })).toEqual(no); // an actual change is still checked
+  });
+
   it("a user's IDS raises are budgeted as notes are: the 61st in a minute is a 429 and writes no topic and no ledger row", async () => {
     const raise = (i, description = "") => call("POST", T, "lead", { title: `IDS: Doors — P${i} (1 failing)`, description });
     expect((await raise(0, `IDS “${"x".repeat(10_000)}” — 1 element(s) fail`)).status).toBe(201);
@@ -331,6 +347,14 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect(writes("bcf_topics")).toHaveLength(60);
     expect(writes("audit_log")).toHaveLength(60);
   }, 60_000);
+});
+
+describe("POST /cde/:key/federation/run (WR-10) — the production requireMinRole default, end to end (H0 minor N36)", () => {
+  it("a viewer is refused before anything else runs, through the real bridge wiring, never a test seam", async () => {
+    const before = log.length;
+    expect(await call("POST", "/cde/demo/federation/run", "viewer", {})).toEqual(refused("contributor", "viewer"));
+    expect(log.slice(before).filter((c) => c.method !== "GET")).toEqual([]);
+  });
 });
 
 describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", () => {

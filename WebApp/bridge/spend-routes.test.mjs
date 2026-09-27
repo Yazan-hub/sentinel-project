@@ -244,7 +244,7 @@ describe("/cde/files — encrypted blobs belong to a project (D2, cdefiles-1/2, 
   });
 
   it("a body declared over SENTINEL_MAX_BLOB_MB (100) is a 413 at once, and nothing is stored (cde-8)", async () => {
-    const bins = () => readdirSync(join(blobs(), P_OFF)).filter((f) => f.endsWith(".bin")).length;
+    const bins = () => { const dir = join(blobs(), P_OFF); return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".bin")).length : 0; }; // stands on its own even run in isolation (H0 minor N23)
     const before = bins();
     const { status, json } = await partial("/cde/files?project=p-office", "u-contrib", 101);
     expect(status).toBe(413);
@@ -304,5 +304,15 @@ describe("POST /bimdocs/:key/ingest — an original on the founder's disk (D2)",
     expect(status).toBe(403);
     expect(json.message).toMatch(/no office/);
     expect(existsSync(join(tmp, "appdata", "Sentinel", "bimdocs", P_LONE))).toBe(false);
+  });
+});
+
+describe("POST /bimdocs/:key/:doc/integrity — the production requireMinRole default, end to end (H0 minor N24)", () => {
+  it("a viewer is refused before the document is read — no bim_documents read reaches PostgREST", async () => {
+    const from = seen.length;
+    const { status, json } = await call("POST", "/bimdocs/p-office/doc-1/integrity", { as: "u-view" });
+    expect(status).toBe(403);
+    expect(json.message).toMatch(/contributor role/);
+    expect(seen.slice(from).filter((s) => s.includes("bim_documents"))).toEqual([]);
   });
 });
