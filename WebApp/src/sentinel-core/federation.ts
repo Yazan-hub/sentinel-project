@@ -24,6 +24,13 @@ export type CheckStatus = "pass" | "fail" | "not_checkable";
 export interface FederationCheck { id: string; title: string; status: CheckStatus; reason?: string; evidence: Record<string, unknown>[]; warnings: string[] }
 export interface FederationResult { verdict: CheckStatus; models: { container: string; version_id: string; has_manifest: boolean }[]; checks: FederationCheck[] }
 
+/** The dedup key of an already-raised `Federation: <id> <title> (N)` BCF topic title — mirrors
+ *  raisedIdsTitleKey (ids.ts), for the same reason (H0 minor N33): only raiseFederationTopics parsed this
+ *  before, untested. PURE. */
+export function raisedFederationTitleKey(title: string): string {
+  return String(title).trimEnd().replace(/\(\d+\)$/, "").trimEnd();
+}
+
 const SEPS: [string, string][] = [["_", "underscore"], ["-", "hyphen"], [" ", "space"], [".", "dot"]];
 
 /** The naming shape of a type name: which separator dominates and how many tokens it yields. "Wall 1" is

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkFederation, nameShape, type FederationModel, type Manifest, type MapConversion } from "./federation";
+import { checkFederation, nameShape, raisedFederationTitleKey, type FederationModel, type Manifest, type MapConversion } from "./federation";
 import type { Rule } from "./types";
 
 const site = (lat: number, lon: number, mc: Partial<MapConversion> | null = null) =>
@@ -29,6 +29,18 @@ describe("nameShape", () => {
     expect(nameShape("W-A1-Fin")).toBe("hyphen·3");
     expect(nameShape("ORG_EXT_ARC_CMU_200 mm")).toBe("underscore·5");
     expect(nameShape("Basic")).toBe("none·1");
+  });
+});
+
+describe("raisedFederationTitleKey — the dedup key of an already-raised topic title (H0 minor N33)", () => {
+  it("strips the trailing (N) count, pinning today's output", () => {
+    expect(raisedFederationTitleKey("Federation: FG-01 Duplicate GlobalId (2)")).toBe("Federation: FG-01 Duplicate GlobalId");
+  });
+  it("trims whitespace left before the suffix", () => {
+    expect(raisedFederationTitleKey("Federation: FG-01 Duplicate GlobalId   (12)")).toBe("Federation: FG-01 Duplicate GlobalId");
+  });
+  it("leaves a title with no trailing count unchanged", () => {
+    expect(raisedFederationTitleKey("Federation: FG-01 Duplicate GlobalId")).toBe("Federation: FG-01 Duplicate GlobalId");
   });
 });
 

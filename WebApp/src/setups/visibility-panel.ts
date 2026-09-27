@@ -6,7 +6,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
 import { buildProjectTree, type TreeCategory } from "../sentinel-core/adapter/project-tree";
-import { DEMO_IDS, type IdsSpec } from "../sentinel-core/ids";
+import { DEMO_IDS, raisedIdsTitleKey, type IdsSpec } from "../sentinel-core/ids";
 import { parseIds } from "../sentinel-core/ids-parse";
 import { validateModels, type ModelValidation } from "../sentinel-core/adapter/model-validate";
 import { getAppManager } from "../app";
@@ -250,9 +250,9 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
       (Array.isArray(existing) ? existing : [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .filter((t: any) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
-        // Trimmed, then an end-anchored suffix — `\s*\(…\)\s*$` backtracked quadratically over a stored whitespace run.
+        // H0 minor N33: raisedIdsTitleKey (sentinel-core/ids) — the same parsing raiseGovernedFailureTopics uses.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((t: any) => String(t.title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd()),
+        .map((t: any) => raisedIdsTitleKey(String(t.title))),
     );
     const todo = reqs.filter(([req]) => !openReqs.has(req));
     const skipped = reqs.length - todo.length;

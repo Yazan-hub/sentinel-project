@@ -342,12 +342,12 @@ async function raiseGovernedFailureTopics(cde, pid, result, opts = {}) {
   // BCF-shape-specific inverse of the `IDS: <key> (N failing)` subject built below).
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  // Pure, unit-tested grouping + dedup (sentinel-core, H0 minor N33: raisedIdsTitleKey) — one issue per still-open
+  // failing requirement.
+  const core = await loadCore();
   const openReqs = (existing || [])
     .filter((t) => /^IDS:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved" && !t?.superseded_by)
-    // Trimmed, then an end-anchored suffix: `\s*\(…\)\s*$` backtracked quadratically over a stored whitespace run (WR-4 review).
-    .map((t) => String(t.title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd());
-  // Pure, unit-tested grouping + dedup (sentinel-core) — one issue per still-open failing requirement.
-  const core = await loadCore();
+    .map((t) => core.raisedIdsTitleKey(t.title));
   const groups = core.groupFailuresForBcf(result.failures || [], openReqs);
   if (!groups.length) return { raised: 0, skipped: openReqs.length, topics: [] };
   const now = new Date().toISOString();
@@ -428,9 +428,10 @@ async function raiseFederationTopics(cde, pid, run, opts = {}) {
   const author = resolveActor(opts.author, "Federation Gate");
   let existing = [];
   try { existing = await cde.bcfListTopics(pid, { status: "all" }); } catch { /* offline — raise anyway */ }
+  const core = await loadCore(); // H0 minor N33: raisedFederationTitleKey — see raiseGovernedFailureTopics
   const open = new Set((existing || [])
     .filter((t) => /^Federation:/.test(t?.title || "") && t?.topic_status !== "Closed" && t?.topic_status !== "Resolved")
-    .map((t) => String(t.title).trimEnd().replace(/\(\d+\)$/, "").trimEnd())); // linear — see raiseGovernedFailureTopics
+    .map((t) => core.raisedFederationTitleKey(t.title)));
   const failing = run.result.checks.filter((c) => c.status === "fail");
   const now = new Date().toISOString();
   const raised = [];

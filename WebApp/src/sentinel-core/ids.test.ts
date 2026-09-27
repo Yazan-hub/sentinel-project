@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateElement, applies, adjudicate, groupFailuresForBcf, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
+import { validateElement, applies, adjudicate, groupFailuresForBcf, raisedIdsTitleKey, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
 import type { ElementProperties } from "./adapter/element-properties";
 
 const elem = (cls: string, name: string | undefined, psets: { name: string; rows: { name: string; value: string }[] }[] = [], guid = "G"): ElementProperties => ({
@@ -110,6 +110,26 @@ describe("adjudicate (the referee)", () => {
     const spec: any = { title: "t", specifications: [{ name: "s", applicability: { entity: "IFCWALL" } }] };
     expect(() => adjudicate(spec, [elem("IFCWALL", "w")])).not.toThrow();
     expect(adjudicate(spec, [elem("IFCWALL", "w")]).verdict).toBe("accepted");
+  });
+});
+
+describe("raisedIdsTitleKey — the dedup key of an already-raised topic title (H0 minor N33)", () => {
+  it("strips the IDS: prefix and the (N failing) suffix, pinning today's output", () => {
+    expect(raisedIdsTitleKey("IDS: Walls declare IsExternal — Pset_WallCommon.IsExternal (3 failing)"))
+      .toBe("Walls declare IsExternal — Pset_WallCommon.IsExternal");
+  });
+  it("trims whitespace left by either strip, including a run stored between the key and the suffix", () => {
+    expect(raisedIdsTitleKey("IDS: A — r1   (12 failing)")).toBe("A — r1");
+    expect(raisedIdsTitleKey("IDS:    A — r1")).toBe("A — r1");
+  });
+  it("runs in well under 100 ms on a title with a 1M-space run before the suffix", () => {
+    const title = `IDS: a${" ".repeat(1_000_000)}b (1 failing)`;
+    const start = Date.now();
+    expect(raisedIdsTitleKey(title)).toBe(`a${" ".repeat(1_000_000)}b`);
+    expect(Date.now() - start).toBeLessThan(100);
+  });
+  it("leaves a title with no prefix or suffix unchanged", () => {
+    expect(raisedIdsTitleKey("A — r1")).toBe("A — r1");
   });
 });
 
