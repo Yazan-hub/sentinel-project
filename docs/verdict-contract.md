@@ -112,22 +112,24 @@ Intake (the CLI, and the web Versions upload, which goes through `POST /cde/:pro
 before anything is stored), Revit's Governed Publish and auto-publish — is recorded as held: one `hold` row,
 `hold:<stage> <container_name>` (`gate` for a delivery-gate FAIL, else `naming` when the naming standard rejected, else
 `ids`), whose `new_value` carries `container_name`, `sha256`, `size_bytes`, `stage`, `verdict`, up to 50 `failures`
-(`{requirement, detail}`), `source` (`revit`, `auto-publish`, `web` or `intake`), `gate_row_id`, `proposal_row_id`,
+(`{requirement, detail}`), `failures_total` (the count before the cut), `source` (`revit`, `auto-publish`, `web` or `intake`), `gate_row_id`, `proposal_row_id`,
 `contract_ref`, `ids_ref` and `naming_ref`. The bridge writes it only for a refusal judged by the standards installed on
 the project or its office, for a caller who could register the file (the machine credential, or a signed-in
 contributor or above), and the reply names it (`"hold": {"id", "hash"}`, else null). No bytes are kept: the corrected
 file is sent again from its source. `GET /cde/:project/holding` derives the list — one item per container name whose
 newest refusal is newer than both its newest registered version and its newest `hold:dismissed` row —
-`{"items": [{container_name, stage, verdict, failures, source, actor, at, ledger: {id, hash}, refusals, naming_note?}],
+`{"items": [{container_name, stage, verdict, failures, failures_total, source, actor, at, ledger: {id, hash}, refusals, naming_note?}],
 "cleared_recent": [...]}`; a registration clears an item whatever its verdict, one by a `recorded` registration is
 listed in `cleared_recent` ("cleared by a registration that was not judged (recorded)"), and a naming-stage item does
 not clear by name — the corrected file has another — and says so. A lead dismisses an item with
 `POST /cde/:project/holding/dismiss { "container_name", "reason" }` (`hold:dismissed <container_name>`, the reason on the
 ledger; the refusal rows stay). A failed read is a 502 `not read — <reason>`, never an empty list. Revit's delivery-gate
 row goes through `POST /cde/:project/delivery-gate` — refused (403) to every signed-in caller, open to Sentinel's
-machine credential — with the full failure list, `size_bytes`, `source` (`revit`, `auto-publish` or `check`) and
+machine credential — with the full failure list (at most 200: past it Revit sends the first 199 and a line counting
+the rest) and `failures_total`, `size_bytes`, `source` (`revit`, `auto-publish` or `check`) and
 `publish`; a FAIL with `publish: true` also writes the `hold:gate` row, and the reply is `{id, hash, hold}`. The proposal
-row names its file (`container_name`, `sha256`, `size_bytes`) and the gate row it followed (`gate_row_id`). A gate row
+row names its file (`container_name`, `sha256`, `size_bytes`) and the gate row it followed (`gate_row_id`: intake's
+own, or the id Revit claims, kept only when it is a `delivery_gate` row of the project). A gate row
 stays Revit's attestation — the bridge never sees Revit's bytes — and a holder of the machine credential can still
 post one.
 
