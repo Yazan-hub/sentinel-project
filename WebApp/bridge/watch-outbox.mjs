@@ -122,15 +122,18 @@ async function handle(name) {
     console.log(`[${ts()}] uploading ${name} → ${target} …`);
     // Keep the FULL filename (with .ifc) as the item name — the platform derives fileExtension from
     // it and only auto-converts recognised IFCs to viewable .frag. Stripping it left files unviewable.
-    // Convert locally and upload ONLY the .frag (the viewable format). The .ifc upload is skipped —
-    // it just triggers the platform's slow, size-limited server-side conversion. If conversion fails,
-    // fall back to uploading the .ifc so the model still lands. (handle() only sees .ifc here.)
+    // Convert locally and upload the .frag (the viewable format) first, then the delivered .ifc beside it
+    // (spec 2026-09-27 platform-delivery-gate, Decision 9: the platform's Sentinel gate judges it there and the
+    // bytes behind the receipt are kept). If conversion fails, upload the .ifc alone so the model still lands.
     const fragName = name.replace(/\.ifc$/i, ".frag");
     try {
       console.log(`[${ts()}] converting ${name} → fragments …`);
       const fragBytes = await ifcToFrag(p);
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
-      console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (.ifc skipped)`);
+      console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}`);
+      const { uploadIfcBeside } = await import("./platform-publish.mjs");
+      const beside = await uploadIfcBeside(client, cfg.projectId, await readFile(p), name, "v1");
+      console.log(beside.ifcItemId ? `  ✅ ${name} → item ${beside.ifcItemId}  (the delivered IFC, judged by the platform's Sentinel gate)` : `  ⚠ ${beside.note}`);
       const reg = await recordVersion(d, name, result?.item?._id);
       await captureAfterRegister(reg, name, p);
     } catch (e) {

@@ -6,6 +6,15 @@
 export const isIfcStep = (bytes) =>
   /^(\xEF\xBB\xBF)?\s*ISO-10303-21;/.test(Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(64, bytes.byteLength)).toString("latin1"));
 
+/** The delivered IFC goes to the platform beside the .frag (spec 2026-09-27 platform-delivery-gate, Decision 9): the
+ *  platform's "Sentinel gate" automation judges every .ifc that lands there, and the bytes behind a receipt are kept.
+ *  Best effort after the .frag: a refused IFC upload never undoes a publish — {ifcItemId: null, note} says so. */
+export async function uploadIfcBeside(client, projectId, bytes, name, versionTag) {
+  const { uploadBytes } = await import("./thatopen-client.mjs");
+  try { const { result } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag); return { ifcItemId: result?.item?._id ?? null }; }
+  catch (e) { return { ifcItemId: null, note: `the delivered IFC is not on the platform: ${e?.message || e}` }; }
+}
+
 export async function uploadIfcAsFrag(bytes, name, versionTag = "v1") {
   const { getConfig, createClient, uploadBytes } = await import("./thatopen-client.mjs");
   let cfg;
@@ -18,9 +27,10 @@ export async function uploadIfcAsFrag(bytes, name, versionTag = "v1") {
     const frag = await ifcBytesToFrag(new Uint8Array(bytes));
     const fragName = name.replace(/\.ifc$/i, ".frag");
     const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
-    return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size };
+    const beside = await uploadIfcBeside(client, projectId, bytes, name, versionTag);
+    return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, ...beside };
   } catch (convErr) {
     const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
-    return { ok: true, format: "ifc", name, itemId: result?.item?._id, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` };
+    return { ok: true, format: "ifc", name, itemId: result?.item?._id, ifcItemId: result?.item?._id ?? null, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` };
   }
 }

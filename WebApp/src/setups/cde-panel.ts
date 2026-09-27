@@ -6,6 +6,7 @@ import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, 
 import { activePid, onActiveProjectChange } from "./active-project";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
+import { mountPlatformDeliveries } from "./platform-deliveries-panel";
 
 /**
  * Sentinel CDE panel (C3) — the ISO 19650 information-container board: WIP → Shared → Published →
@@ -66,6 +67,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     // ── right column: form + board ──
     '<div style="flex:1;display:flex;flex-direction:column;min-width:0">' +
     '<div id="cde-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;gap:.35rem;flex-direction:column"></div>' +
+    '<div id="cde-plat"></div>' +
     '<div id="cde-rbar" style="display:none;align-items:center;gap:.5rem;padding:.35rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px"></div>' +
     '<div id="cde-board" style="flex:1;overflow:auto;display:grid;grid-template-columns:repeat(4,minmax(8rem,1fr));gap:.5rem;padding:.6rem"></div>' +
     "</div></div>" +
@@ -238,7 +240,12 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     catch (e) { reviews = new Map(); reviewsError = (e as Error).message; }
   }
 
+  // The platform's own verdicts on the IFCs of the linked platform project (spec 2026-09-27 platform-delivery-gate
+  // Decision 8): read from the platform, beside the board, on every load.
+  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"));
+
   async function loadAll() {
+    void refreshPlatformDeliveries();
     try {
       status("Loading…");
       await Promise.all([loadFolders(), loadContainers(), loadReviews()]);
