@@ -122,6 +122,12 @@ begin
   -- 0032: sharing into a review chain — a signed-in lead, and the verdict predicate below (or the lead's reason).
   if cur.state = 'wip' and p_new_state = 'shared' then
     v_tpl := public.review_template(pid);
+    -- A template whose steps are not a list (only a write around the bridge's validator can store one) refuses the
+    -- share in words a lead can act on, for every caller: a broken template never switches the chain off unseen.
+    if v_tpl is not null and jsonb_typeof(v_tpl->'steps') is distinct from 'array' then
+      raise exception 'the review template in force (%) is malformed — its steps are a JSON %, not a list; a lead installs a corrected review@n',
+        v_tpl->>'ref', coalesce(jsonb_typeof(v_tpl->'steps'), 'nothing');
+    end if;
     if v_tpl is not null and jsonb_array_length(v_tpl->'steps') > 0 then
       if auth.uid() is null then
         raise exception 'this project requires review (%) — a version is shared by a signed-in lead, not by this call',

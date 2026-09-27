@@ -2,9 +2,13 @@
 -- One DO block: it builds an office and four throwaway projects (one with its own review@1 of two steps, one inheriting
 -- the office's review@2, one whose own review@1 has steps [], one with none), drives cde_transition and review_decide
 -- through every refusal and every allowed move of the review chain, then ALWAYS raises its summary, so every write it
--- made rolls back (projects, memberships, templates, versions, audit rows). The summary is the error text:
--- "PROBE 0032: 24 of 24 as expected …" is the pass, naming the 37 ledger ids its rolled-back rows took (6 verdict
--- rows, 7 review:start, 8 review:approve, 1 review:reject, 15 state:).
+-- made rolls back (projects, memberships, templates, versions, audit rows). P25-P32 (six more projects) were added
+-- after the 2026-09-27 PGlite dry run: its mutation test found rules no earlier case would notice breaking (a closed
+-- chain staying closed, the mark keyed to its version, the step roles, the decision word, a chain read on its own
+-- project, approvals counted per chain and per step, a missing count meaning one), and a malformed template. The
+-- summary is the error text: "PROBE 0032: 32 of 32 as expected …" is the pass, naming the ledger ids its rolled-back
+-- rows took (P1-P24: 6 verdict rows, 7 review:start, 8 review:approve, 1 review:reject, 15 state:; P25-P32 add 8
+-- verdict rows, 7 review:start — one written by hand for P29 — 3 review:approve and 13 state: — 68 in all).
 -- Side effects that survive the rollback: the audit rows' identity values are consumed (the summary names them, so
 -- the drill notes can say why those ledger ids do not exist), and the audit chain's advisory lock is held for the
 -- block's few milliseconds. A signed-in user is simulated with the transaction-local request.jwt.claims setting that
@@ -37,6 +41,10 @@ declare
   a_v1 bigint;
   s1 bigint; s2 bigint; s3 bigint; s4 bigint;
   x_id bigint; x_hash text;
+  -- P25-P32 (added after the 2026-09-27 PGlite dry run's mutation test): six more projects and their versions
+  q uuid; q2 uuid; q3 uuid; q4 uuid; q5 uuid; q6 uuid;
+  w1 uuid; w2 uuid; w3 uuid; w4 uuid; z1 uuid; y1 uuid; n1 uuid; m1 uuid;
+  vf jsonb := '{"summary":{"in_scope":2},"ids_ref":"ids@1"}';
   r jsonb; nv jsonb; sv jsonb; act text; act2 text;
   outcome text;
   n int := 0;
@@ -410,7 +418,168 @@ begin
   if outcome is distinct from 'false true false | false false | p_version,p_new_state,p_actor,p_note,p_override'
     then failed := failed || ('P24 ' || coalesce(outcome, 'null')); end if;
 
-  select array_agg(id order by id) into burned from public.audit_log where project_id in (o, p, p_inh, p_off, p_none);
+  -- P25-P32 run on their own projects (q .. q6), so nothing above changes: q has review@1 of one step needing two
+  -- approvals; q2 a step whose role is not a project role; q3 a step with no approvals count; q4 no template; q5 one
+  -- step of one approval; q6 a malformed template. Every version carries an accepted verdict that measured something.
+  perform set_config('request.jwt.claims', '', true);
+  insert into public.projects(key, name) values ('probe-0032-q-'  || substr(md5(random()::text), 1, 8), 'probe 0032 q')  returning id into q;
+  insert into public.projects(key, name) values ('probe-0032-q2-' || substr(md5(random()::text), 1, 8), 'probe 0032 q2') returning id into q2;
+  insert into public.projects(key, name) values ('probe-0032-q3-' || substr(md5(random()::text), 1, 8), 'probe 0032 q3') returning id into q3;
+  insert into public.projects(key, name) values ('probe-0032-q4-' || substr(md5(random()::text), 1, 8), 'probe 0032 q4') returning id into q4;
+  insert into public.projects(key, name) values ('probe-0032-q5-' || substr(md5(random()::text), 1, 8), 'probe 0032 q5') returning id into q5;
+  insert into public.projects(key, name) values ('probe-0032-q6-' || substr(md5(random()::text), 1, 8), 'probe 0032 q6') returning id into q6;
+  insert into public.memberships(project_id, user_id, role) values
+    (q, u_lead, 'lead'), (q, u_lead2, 'lead'), (q, u_c1, 'contributor'), (q, u_view, 'viewer'),
+    (q2, u_lead, 'lead'), (q2, u_view, 'viewer'), (q3, u_lead, 'lead'), (q3, u_c1, 'contributor'),
+    (q4, u_c1, 'contributor'), (q5, u_lead, 'lead'), (q5, u_lead2, 'lead'), (q5, u_c1, 'contributor'), (q6, u_lead, 'lead');
+  insert into public.bridge_docs(store, project_id, doc_id, data) values
+    ('artefact', q::text,  'review',   '{"kind":"review","version":1,"sha256":"aa"}'),
+    ('artefact', q::text,  'review@1', '{"kind":"review","version":1,"sha256":"aa","body":{"steps":[{"name":"Pair check","role":"contributor","approvals":2}]}}'),
+    ('artefact', q2::text, 'review',   '{"kind":"review","version":1,"sha256":"bb"}'),
+    ('artefact', q2::text, 'review@1', '{"kind":"review","version":1,"sha256":"bb","body":{"steps":[{"name":"Odd role","role":"approver","approvals":1}]}}'),
+    ('artefact', q3::text, 'review',   '{"kind":"review","version":1,"sha256":"cc"}'),
+    ('artefact', q3::text, 'review@1', '{"kind":"review","version":1,"sha256":"cc","body":{"steps":[{"name":"No count","role":"contributor"}]}}'),
+    ('artefact', q5::text, 'review',   '{"kind":"review","version":1,"sha256":"ee"}'),
+    ('artefact', q5::text, 'review@1', '{"kind":"review","version":1,"sha256":"ee","body":{"steps":[{"name":"One look","role":"contributor","approvals":1}]}}'),
+    ('artefact', q6::text, 'review',   '{"kind":"review","version":1,"sha256":"ff"}'),
+    ('artefact', q6::text, 'review@1', '{"kind":"review","version":1,"sha256":"ff","body":{"steps":{"name":"Not a list","role":"lead","approvals":1}}}');
+  insert into public.information_containers(project_id, iso_name) values (q, 'PROBE-0032-Q.ifc') returning id into c;
+  insert into public.container_versions(container_id, revision) values (c, 'v2') returning id into w2;
+  insert into public.container_versions(container_id, revision) values (c, 'v3') returning id into w3;
+  insert into public.container_versions(container_id, revision) values (c, 'v4') returning id into w4;
+  insert into public.information_containers(project_id, iso_name) values (q2, 'PROBE-0032-Q2.ifc') returning id into c;
+  insert into public.container_versions(container_id, revision) values (c, 'v1') returning id into z1;
+  insert into public.information_containers(project_id, iso_name) values (q3, 'PROBE-0032-Q3.ifc') returning id into c;
+  insert into public.container_versions(container_id, revision) values (c, 'v1') returning id into y1;
+  insert into public.information_containers(project_id, iso_name) values (q4, 'PROBE-0032-Q4.ifc') returning id into c;
+  insert into public.container_versions(container_id, revision) values (c, 'v1') returning id into n1;
+  insert into public.information_containers(project_id, iso_name) values (q5, 'PROBE-0032-Q5.ifc') returning id into c;
+  insert into public.container_versions(container_id, revision) values (c, 'v1') returning id into w1;
+  insert into public.information_containers(project_id, iso_name) values (q6, 'PROBE-0032-Q6.ifc') returning id into c;
+  insert into public.container_versions(container_id, revision) values (c, 'v1') returning id into m1;
+  insert into public.audit_log(project_id, entity_type, entity_id, action, actor, new_value) values
+    (q5, 'file_version', w1, 'verdict:accepted', 'probe', vf), (q, 'file_version', w2, 'verdict:accepted', 'probe', vf),
+    (q, 'file_version', w3, 'verdict:accepted', 'probe', vf), (q, 'file_version', w4, 'verdict:accepted', 'probe', vf),
+    (q2, 'file_version', z1, 'verdict:accepted', 'probe', vf), (q3, 'file_version', y1, 'verdict:accepted', 'probe', vf),
+    (q4, 'file_version', n1, 'verdict:accepted', 'probe', vf), (q6, 'file_version', m1, 'verdict:accepted', 'probe', vf);
+
+  -- P25 a chain closed by shared->wip stays closed: re-shared after the template is turned off (steps []), nobody
+  -- decides on it and the service key publishes it as under 0031
+  n := n + 1;
+  begin
+    perform set_config('request.jwt.claims', j_lead, true);
+    perform public.cde_transition(p_version => w1, p_new_state => 'shared');
+    perform set_config('request.jwt.claims', j_lead2, true);
+    perform public.cde_transition(p_version => w1, p_new_state => 'wip');
+    insert into public.bridge_docs(store, project_id, doc_id, data) values
+      ('artefact', q5::text, 'review@2', '{"kind":"review","version":2,"sha256":"ef","body":{"steps":[]}}');
+    update public.bridge_docs set data = '{"kind":"review","version":2,"sha256":"ef"}' where store = 'artefact' and project_id = q5::text and doc_id = 'review';
+    perform set_config('request.jwt.claims', '', true);
+    perform public.cde_transition(p_version => w1, p_new_state => 'shared', p_actor => 'probe');
+    perform set_config('request.jwt.claims', j_c1, true);
+    begin perform public.review_decide(w1, 'approve'); outcome := 'OK';
+    exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+    perform set_config('request.jwt.claims', '', true);
+    begin perform public.cde_transition(p_version => w1, p_new_state => 'published', p_actor => 'probe');
+      outcome := outcome || ' | ' || (select state::text from public.container_versions where id = w1);
+    exception when others then outcome := outcome || ' | ' || sqlstate || ' ' || sqlerrm; end;
+  exception when others then outcome := 'setup ' || sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from format('P0001 version %s is not under review', w1) || ' | published'
+    then failed := failed || ('P25 ' || coalesce(outcome, 'null')); end if;
+
+  -- P26 the sentinel.review mark skips the lead check only for the version it names
+  n := n + 1;
+  perform set_config('request.jwt.claims', j_view, true);
+  perform set_config('sentinel.review', gen_random_uuid()::text, true);
+  begin perform public.cde_transition(p_version => w3, p_new_state => 'shared'); outcome := 'OK';
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  perform set_config('sentinel.review', '', true);
+  if outcome is distinct from '42501 insufficient role to transition (needs lead or owner)'
+    then failed := failed || ('P26 ' || coalesce(outcome, 'null')); end if;
+
+  -- P27 a step naming a role outside contributor, lead and owner is decided by nobody
+  n := n + 1;
+  perform set_config('request.jwt.claims', j_lead, true);
+  perform public.cde_transition(p_version => z1, p_new_state => 'shared');
+  perform set_config('request.jwt.claims', j_view, true);
+  begin perform public.review_decide(z1, 'approve'); outcome := 'OK';
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from '42501 step 1 (Odd role) needs approver or above'
+    then failed := failed || ('P27 ' || coalesce(outcome, 'null')); end if;
+
+  -- P28 a decision is approve or reject
+  n := n + 1;
+  perform set_config('request.jwt.claims', j_lead, true);
+  perform public.cde_transition(p_version => w4, p_new_state => 'shared');
+  perform set_config('request.jwt.claims', j_c1, true);
+  begin perform public.review_decide(w4, 'maybe', 'hmm'); outcome := 'OK';
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from 'P0001 decision must be approve or reject'
+    then failed := failed || ('P28 ' || coalesce(outcome, 'null')); end if;
+
+  -- P29 a review:start another project wrote about this version id opens no chain here
+  n := n + 1;
+  perform set_config('request.jwt.claims', '', true);
+  perform public.cde_transition(p_version => n1, p_new_state => 'shared', p_actor => 'probe');
+  insert into public.audit_log(project_id, entity_type, entity_id, action, actor, new_value)
+    values (q, 'review', n1, 'review:start', 'probe',
+            jsonb_build_object('submitter_uid', gen_random_uuid()::text, 'steps', '[{"name":"x","role":"contributor","approvals":1}]'::jsonb));
+  perform set_config('request.jwt.claims', j_c1, true);
+  begin perform public.review_decide(n1, 'approve'); outcome := 'OK';
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  perform set_config('request.jwt.claims', '', true);
+  begin perform public.cde_transition(p_version => n1, p_new_state => 'published', p_actor => 'probe');
+    outcome := outcome || ' | ' || (select state::text from public.container_versions where id = n1);
+  exception when others then outcome := outcome || ' | ' || sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from format('P0001 version %s is not under review', n1) || ' | published'
+    then failed := failed || ('P29 ' || coalesce(outcome, 'null')); end if;
+
+  -- P30 a step of two approvals is not done by one, and approvals count per chain: after a send-back and a re-share
+  -- the same contributor approves the new chain's step 1 again, and it is still 1 of 2
+  n := n + 1;
+  begin
+    perform set_config('request.jwt.claims', j_lead, true);
+    perform public.cde_transition(p_version => w2, p_new_state => 'shared');
+    perform set_config('request.jwt.claims', j_c1, true);
+    r := public.review_decide(w2, 'approve');
+    outcome := (r->>'published') || ' ' || (r->>'state');
+    perform set_config('request.jwt.claims', j_lead2, true);
+    perform public.cde_transition(p_version => w2, p_new_state => 'wip');
+    perform public.cde_transition(p_version => w2, p_new_state => 'shared');
+    perform set_config('request.jwt.claims', j_c1, true);
+    begin r := public.review_decide(w2, 'approve');
+      outcome := outcome || ' | ' || (r->>'step') || ' ' || (r->>'published') || ' ' || (r->>'state');
+    exception when others then outcome := outcome || ' | ' || sqlstate || ' ' || sqlerrm; end;
+  exception when others then outcome := coalesce(outcome, '') || ' setup ' || sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from 'false shared | 1 false shared'
+    then failed := failed || ('P30 ' || coalesce(outcome, 'null')); end if;
+
+  -- P31 a step with no approvals count needs one
+  n := n + 1;
+  perform set_config('request.jwt.claims', j_lead, true);
+  perform public.cde_transition(p_version => y1, p_new_state => 'shared');
+  perform set_config('request.jwt.claims', j_c1, true);
+  begin r := public.review_decide(y1, 'approve');
+    outcome := (r->>'step') || ' ' || (r->>'of') || ' ' || (r->>'published') || ' ' || (r->>'state');
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from '1 1 true published'
+    then failed := failed || ('P31 ' || coalesce(outcome, 'null')); end if;
+
+  -- P32 a template whose steps are not a list refuses every share in words a lead can act on — an object as a signed-in
+  -- lead, then no steps at all as the service key — and never switches the chain off unseen
+  n := n + 1;
+  perform set_config('request.jwt.claims', j_lead, true);
+  begin perform public.cde_transition(p_version => m1, p_new_state => 'shared'); outcome := 'OK';
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  update public.bridge_docs set data = '{"kind":"review","version":1,"sha256":"ff","body":{}}' where store = 'artefact' and project_id = q6::text and doc_id = 'review@1';
+  perform set_config('request.jwt.claims', '', true);
+  begin perform public.cde_transition(p_version => m1, p_new_state => 'shared', p_actor => 'probe'); outcome := outcome || ' | OK';
+  exception when others then outcome := outcome || ' | ' || sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from 'P0001 the review template in force (review@1) is malformed — its steps are a JSON object, not a list; a lead installs a corrected review@n'
+       || ' | P0001 the review template in force (review@1) is malformed — its steps are a JSON null, not a list; a lead installs a corrected review@n'
+    then failed := failed || ('P32 ' || coalesce(outcome, 'null')); end if;
+
+  select array_agg(id order by id) into burned from public.audit_log where project_id in (o, p, p_inh, p_off, p_none, q, q2, q3, q4, q5, q6);
   raise exception 'PROBE 0032: % of % as expected%. Everything above is rolled back; its audit rows took ledger ids % (identity values are not returned, so those ids will not exist).',
     n - coalesce(array_length(failed, 1), 0), n,
     case when coalesce(array_length(failed, 1), 0) > 0 then ' — FAILED: ' || array_to_string(failed, ' | ') else '' end,

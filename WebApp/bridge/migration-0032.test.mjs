@@ -50,6 +50,8 @@ describe("migration 0032 — the review chain (written, not applied)", () => {
     "'the submitter does not review their own share'",
     "'you already approved step % of this chain'",
     "'a rejection says why'",
+    // a malformed template refuses the share (the 2026-09-27 dry run)
+    "'the review template in force (%) is malformed — its steps are a JSON %, not a list; a lead installs a corrected review@n'",
   ])("refuses in its own words: %s", (message) => expect(SQL).toContain(message));
 
   it("the probe raises its summary, so every probe write rolls back", () => {

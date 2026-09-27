@@ -102,6 +102,7 @@ begin
   begin
     perform public.cde_transition(p_version => v1, p_new_state => 'published', p_note => 'p9', p_override => '  client signed off by email  ');
     select new_value into nv from public.audit_log where entity_id = v1 and action = 'state:shared->published' order by id desc limit 1;
+    nv := nv - 'review_start_id'; -- 0032 adds this key to every state: row; the drill reads 0031's fields either side of it
     outcome := (select state::text from public.container_versions where id = v1) || ' ' || nv::text;
   exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
   if outcome is distinct from 'published ' || jsonb_build_object('state', 'published', 'note', 'p9', 'verdict', 'verdict:accepted',
@@ -146,6 +147,7 @@ begin
   begin
     perform public.cde_transition(p_version => v4, p_new_state => 'published', p_actor => 'probe', p_note => 'p12');
     select new_value into nv from public.audit_log where entity_id = v4 and action = 'state:shared->published' order by id desc limit 1;
+    nv := nv - 'review_start_id'; -- as in P9
     outcome := nv::text;
   exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
   if outcome is distinct from jsonb_build_object('state', 'published', 'note', 'p12', 'verdict', 'verdict:accepted',
