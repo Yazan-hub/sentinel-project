@@ -154,6 +154,12 @@ describe("files — delete, archive and restore record only what happened (cde-1
     expect(ledger()[0].body).toMatchObject({ action: "archived", new_value: { iso_name: "A.ifc", archived: 0, discarded: 1 } });
   });
 
+  it("archiveFile: nothing to archive or discard is no 'archived' row", async () => {
+    db.container_versions[0].state = "archived";
+    expect(await archiveFile("demo", C, "web")).toEqual({ ok: true, archived: 0, discarded: 0 });
+    expect(ledger()).toHaveLength(0);
+  });
+
   it("unarchiveFile: nothing archived is nothing restored, and no 'unarchived' row", async () => {
     expect(await unarchiveFile("demo", C, "web")).toEqual({ ok: true, restored: 0 });
     expect(ledger()).toHaveLength(0);

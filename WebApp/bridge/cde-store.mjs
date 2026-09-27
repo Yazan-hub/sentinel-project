@@ -585,7 +585,8 @@ export async function archiveFile(key, container_id, actor) {
       discarded++;
     }
   }
-  await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
+  // Nothing archived or discarded is nothing to record: no "archived" row over a file that was already archived (cde-11).
+  if (archived || discarded) await audit(proj.id, "container", c.id, "archived", actor || "web", null, { iso_name: c.iso_name, archived, discarded });
   return { ok: true, archived, discarded };
 }
 
