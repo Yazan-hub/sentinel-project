@@ -1,6 +1,6 @@
 // The ledger's writers (cohesion phase 5a, spec Decision 7): audit() returns the row the ledger stored, and the open
 // audit route cannot write the rows Sentinel reads as its own (verdict:, gate:, roi:, state:, stage_gate; since phase 6a
-// hold:, hold and delivery_gate; since phase 6b review: and review).
+// hold:, hold and delivery_gate; since phase 6b review: and review; since platform-native platform_gate).
 // globalThis.fetch is a fake PostgREST — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -75,6 +75,9 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     [{ entity_type: "event", entity_id: V, action: " Review:start" }, "review: rows are written by Sentinel, not through this route"],
     [{ entity_type: "review", entity_id: V, action: "recorded" }, "review rows are written by Sentinel, not through this route"],
     [{ entity_type: " REVIEW ", action: "recorded" }, "review rows are written by Sentinel, not through this route"],
+    // The platform gate's runs (spec 2026-09-29): one row per execution id, written by platform-gate-ledger.mjs only.
+    [{ entity_type: "platform_gate", action: "platform gate PASS: tower.ifc v1", new_value: { execution_id: "6ab9827413cf4cfc31e03d07" } }, "platform_gate rows are written by Sentinel, not through this route"],
+    [{ entity_type: " Platform_Gate ", action: "recorded" }, "platform_gate rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);

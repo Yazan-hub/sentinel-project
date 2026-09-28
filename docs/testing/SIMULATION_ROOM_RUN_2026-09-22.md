@@ -783,3 +783,17 @@ app on aster-tower, in Claude's tab:
 | B11 — the Dashboard, the pilot's stage | aster-tower as its owner: the rail on **Tender** (current), `Stage gate · Tender (current · preview — Run gate measures on the bridge)`, `GATE PASS`, **Run gate → advance to Design** offered to the lead | pressing Run gate advances aster-tower to Design — the founder's governance decision, not a drill's; the non-lead line needs a second account (pinned by `stage-gate.test.ts`, `gates.test.ts`) |
 | B14 — the web rows of the platform gate | the CDE board's **Platform deliveries** strip `1 IFC · 1 passed`, the card `Passed — contract@1`, its sha256 and run; Settings ▸ Standards in force `contract@1 · project · 9cc32c96f815… · the founder · 2026-09-27` (the install-time note `also on the platform as sentinel-contract.json` is in the recorded video) | the Revit-pane publish row: a Governed Publish of aster-tower adds a version and resets its Federation Gate pass right before the hackathon — after the deadline |
 | B12 — On hold in the web | not run: it needs a refused upload through the file picker and a lead's dismissal on a live project; left with B11's gate run for the founder's session after the deadline | pinned by `holding.test.ts` (16) and the bridge rows of B12 |
+
+## Session B24 — the platform gate's runs on Sentinel's ledger (roadmap item 3, 2026-09-29)
+
+The founder: "do everything on your own … continue the roadmap". Spec `docs/superpowers/specs/2026-09-29-platform-native-design.md`.
+
+| Row | Observed |
+|---|---|
+| Read-only first (the bridge token) | `listFolders({projectId})` answered (4 folders); `listExecutions` 9 runs with `result`/`resultMessage` (two with a `creatingToken` field); `getExecution` carries `Reading <name> <tag>…`; a `.frag` version's map already holds `sourceIfcId`; exactly one project (aster-tower) links the Welcome Project; no `platform_gate` row |
+| Dry run (the writer replaced by a printer) | 9 rows, oldest first: 4 NOT CHECKED, 2 FAIL, 3 PASS; the 1.0.0 run's `accessToken` scrubbed; no `creatingToken`, no JWT |
+| Review (3 lenses, adversarially verified) | 4 minor confirmed, all fixed (a tag with a space; a run whose detail is unreadable stalling later ones; two mirrors of one version racing; the strip's 200-row page); 7 refuted |
+| 0036 applied, probe | part 1: 3 of 3 true; part 2: `PROBE 0036: 4 of 4 as expected` (a duplicate run refused 23505 with the chain tip unchanged), rolled back — ledger ids 1150–1153 consumed |
+| `node bridge/platform-gate-ledger.mjs --once` | `{"written":9,"skipped":0}` → aster-tower #1154–#1162, each chaining to the one before, no token; a second run `{"written":0,"skipped":9}` |
+| The strip's read | `GET /cde/aster-tower/audit?entity_type=platform_gate` → 9 rows; the ASTR26 v3 card's run → `ledger #1162` (the card itself not seen live: the platform session had expired in the test tab) |
+| After 2026-10-04 | the bridge restart with the founder's Funnel toggle (the reserved type on the open route, the in-bridge poller); web 1.0.30; part B on a scratch `.frag` version (`SENTINEL_PLATFORM_STATE=on`) |

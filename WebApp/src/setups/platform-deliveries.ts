@@ -1,8 +1,9 @@
 // platform-deliveries — the CDE board's "Platform deliveries" lane (spec 2026-09-27 platform-delivery-gate, Decision
 // 8): every .ifc in the linked platform project, as the platform's Sentinel gate judged it. Read straight from the
 // platform (no bridge): the item's latest version, its labels (sentinel_*), and the matching <name>.gate.json report
-// version. A read that failed is "not read — …" (the holding rule), never an empty lane. No ledger line ever appears
-// here — a platform verdict has no ledger row; the card cites the report's sha256 and the run id instead.
+// version. A read that failed is "not read — …" (the holding rule), never an empty lane. The card cites the report's
+// sha256 and the run id, and a "ledger #<id>" line only when this project's ledger holds the platform_gate row of that
+// run (spec 2026-09-29 platform-native, Part A); else it says the run is not on the ledger yet, or that the ledger was not read.
 
 export const REPORT_KIND = "sentinel.gate-report";
 export const reportName = (ifcName: string): string => `${ifcName}.gate.json`;
@@ -92,3 +93,14 @@ export function deliveriesSummary(cards: DeliveryCard[]): string {
 }
 
 export const shortSha = short;
+
+/** A platform_gate row as GET /cde/<pid>/audit returns it — only what the card cites. */
+export interface GateLedgerRow { id: number; new_value?: { execution_id?: unknown } | null }
+
+/** The card's ledger line: the row whose execution_id is this card's run; none is "not on this project's ledger yet";
+ *  a read that failed is "ledger not read — <why>", never a claimed row. A card without a run never attaches a row. */
+export function ledgerLine(run: string | null, rows: GateLedgerRow[] | null, readErr: string | null): string {
+  if (readErr) return `ledger not read — ${readErr}`;
+  const row = run ? (rows ?? []).find((r) => r?.new_value?.execution_id === run) : undefined;
+  return row ? `ledger #${row.id}` : "not on this project's ledger yet";
+}

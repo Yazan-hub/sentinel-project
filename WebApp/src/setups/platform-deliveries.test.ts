@@ -1,6 +1,6 @@
 // The "Platform deliveries" lane: five card states and the "not read" rule (spec 2026-09-27 platform-delivery-gate, Decision 8).
 import { describe, it, expect, vi } from "vitest";
-import { deliveryCard, readDeliveries, deliveriesSummary, reportName, latestTag, REPORT_KIND, type GateReport, type PlatformItem } from "./platform-deliveries";
+import { deliveryCard, readDeliveries, deliveriesSummary, reportName, latestTag, ledgerLine, REPORT_KIND, type GateReport, type PlatformItem } from "./platform-deliveries";
 
 const sha = "a".repeat(64);
 const item = (name = "tower.ifc", tags = ["v2", "v1"]): PlatformItem => ({ _id: `id-${name}`, name, versions: tags.map((tag) => ({ tag })) });
@@ -79,5 +79,23 @@ describe("readDeliveries", () => {
     expect(deliveriesSummary([])).toBe("no IFC on the platform project yet");
     const cards = await readDeliveries(client([item("a.ifc"), item("b.ifc", ["v1"])], { labels: { sentinel_gate: "not_checked" } }), "p1");
     expect(deliveriesSummary(cards)).toBe("2 IFC · 2 not checked");
+  });
+});
+
+describe("ledgerLine — the card's platform_gate row (spec 2026-09-29 platform-native, Part A)", () => {
+  const row = (id: number, execution_id: unknown) => ({ id, new_value: { execution_id } });
+  it("a row whose execution_id is the card's run: ledger #<id>", () => {
+    expect(ledgerLine("exec9", [row(41, "exec8"), row(42, "exec9")], null)).toBe("ledger #42");
+  });
+  it("no row for the run: not on this project's ledger yet", () => {
+    expect(ledgerLine("exec9", [], null)).toBe("not on this project's ledger yet");
+  });
+  it("the read failed: ledger not read — the bridge's words, even with rows in hand", () => {
+    expect(ledgerLine("exec9", null, "project not found")).toBe("ledger not read — project not found");
+    expect(ledgerLine("exec9", [row(42, "exec9")], "HTTP 500")).toBe("ledger not read — HTTP 500");
+  });
+  it("a row of another run never attaches; a card without a run attaches none", () => {
+    expect(ledgerLine("exec9", [row(41, "exec90"), row(40, "EXEC9"), { id: 39, new_value: null }, { id: 38 }], null)).toBe("not on this project's ledger yet");
+    expect(ledgerLine(null, [row(41, null), row(40, undefined), { id: 39 }], null)).toBe("not on this project's ledger yet");
   });
 });
