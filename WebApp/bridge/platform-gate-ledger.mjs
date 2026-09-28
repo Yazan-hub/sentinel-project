@@ -57,7 +57,10 @@ function textOf(msg) {
  *  that far (a Skipped run, a run that failed before reading). */
 export function readingOf(messages) {
   for (const msg of Array.isArray(messages) ? messages : []) {
-    const m = /^Reading (.+) (\S+?)(?:…|\.\.\.)\s*$/.exec(scrub(textOf(msg)).trim());
+    const line = scrub(textOf(msg)).trim();
+    // The gated names end in .ifc (both automations filter Extension = ifc) and a tag is free text ("Rev A"): split at
+    // ".ifc " first, at the last space only for a name without it.
+    const m = /^Reading (.+?\.ifc) (.+?)(?:…|\.\.\.)\s*$/i.exec(line) ?? /^Reading (.+) (\S+?)(?:…|\.\.\.)\s*$/.exec(line);
     if (m) return { name: m[1], version_tag: m[2] };
   }
   return null;
@@ -103,6 +106,9 @@ const createdAt = (r) => Date.parse(r.createdAt) || 0;
  * throw ends the tick and is its reason — the next tick retries, and the index makes the retry safe.
  * → {written, skipped (finished runs already on the ledger), reason?}
  */
+const DETAIL_TRIES = 3;
+const DETAIL_FAILS = new Map(); // run id → ticks whose detail read failed (process memory; a restart starts again)
+
 export async function syncPlatformGate(deps, { componentId, platformProjectId, seen = SEEN }) {
   let written = 0, skipped = 0;
   let runs;
@@ -130,10 +136,21 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, s
     .sort((a, b) => createdAt(a) - createdAt(b) || String(a._id).localeCompare(String(b._id)));
   skipped += fresh.length - todo.length;
 
+  let detailGap = null;
   for (const run of todo) {
     const id = String(run._id);
+    // The run's detail (its messages) names the file. A detail that cannot be read skips this run for this tick and
+    // never stalls the later ones; after DETAIL_TRIES ticks the row is written from the list record, file unknown.
+    let detail;
+    try { detail = await deps.getExecution(id); DETAIL_FAILS.delete(id); }
+    catch (e) {
+      const n = (DETAIL_FAILS.get(id) ?? 0) + 1;
+      DETAIL_FAILS.set(id, n);
+      if (n < DETAIL_TRIES) { detailGap ??= `run ${id}'s detail was not read (try ${n} of ${DETAIL_TRIES}) — ${why(e)}`; continue; }
+      detail = null; DETAIL_FAILS.delete(id);
+    }
     try {
-      const row = rowOf(run, await deps.getExecution(id), platformProjectId);
+      const row = rowOf(run, detail, platformProjectId);
       await deps.audit(proj.id, row.entity_type, null, row.action, ACTOR, null, row.new_value);
       written++;
     } catch (e) {
@@ -142,7 +159,7 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, s
     }
     seen.add(id);
   }
-  return { written, skipped };
+  return detailGap ? { written, skipped, reason: detailGap } : { written, skipped };
 }
 
 /** The real deps: the bridge's platform client (THATOPEN_API_KEY, read by getConfig — never printed) and the CDE store

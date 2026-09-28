@@ -888,14 +888,31 @@ export async function transition(key, version_id, new_state, { actor, note, over
 /** Part B of spec 2026-09-29 (platform-native): after a committed state change, carry the version's state onto its
  *  platform copy (platform-state.mjs). Fire and forget — never awaited by a transition and never its error. Off unless
  *  SENTINEL_PLATFORM_STATE=on, and platform-state.mjs is imported only on that path. Resolves, never rejects. */
+// One mirror at a time per version: two in flight could otherwise write an older state last. Each queued mirror
+// re-reads the newest state: row, so the last to run writes the newest.
+const MIRROR_QUEUE = new Map();
 export function mirrorStateSafe(version_id) {
   if (process.env.SENTINEL_PLATFORM_STATE !== "on") return Promise.resolve({ mirrored: false, reason: "off" });
-  return import("./platform-state.mjs")
-    .then((m) => m.mirrorState(version_id))
-    .catch((e) => {
-      console.warn(`[platform-state] version ${version_id}: not mirrored — ${String(e?.message || e).replace(/accessToken=[^&\s"']+/gi, "accessToken=…")}`);
-      return { mirrored: false, reason: "the mirror failed (the bridge log has the cause)" };
+  // A platform call that never answers must not hold the queue: after SENTINEL_MIRROR_TIMEOUT_MS (30 s) the next one
+  // runs; the late one, if it ever answers, still cannot regress the label (it skips a map naming a newer row).
+  const ms = Number(process.env.SENTINEL_MIRROR_TIMEOUT_MS) || 30000;
+  const run = () => {
+    let t;
+    const timeout = new Promise((r) => {
+      t = setTimeout(() => { console.warn(`[platform-state] version ${version_id}: not mirrored — the platform did not answer in ${ms / 1000} s`); r({ mirrored: false, reason: `the platform did not answer in ${ms / 1000} s` }); }, ms);
+      t.unref?.();
     });
+    return Promise.race([import("./platform-state.mjs").then((m) => m.mirrorState(version_id)), timeout])
+      .catch((e) => {
+        console.warn(`[platform-state] version ${version_id}: not mirrored — ${String(e?.message || e).replace(/accessToken=[^&\s"']+/gi, "accessToken=…")}`);
+        return { mirrored: false, reason: "the mirror failed (the bridge log has the cause)" };
+      })
+      .finally(() => clearTimeout(t)); // a mirror that settled first never also logs a timeout
+  };
+  const next = (MIRROR_QUEUE.get(version_id) ?? Promise.resolve()).then(run, run);
+  MIRROR_QUEUE.set(version_id, next);
+  void next.finally(() => { if (MIRROR_QUEUE.get(version_id) === next) MIRROR_QUEUE.delete(version_id); });
+  return next;
 }
 
 /** The ledger read's page: 200 rows unless asked, never more than 1000 (the db-max-rows SNAP_PAGE assumes). */

@@ -175,6 +175,7 @@ describe("the hooks — after a committed state change only, never awaited, neve
   let rpc, warn;
   beforeEach(() => {
     process.env.SENTINEL_PLATFORM_STATE = "on";
+    process.env.SENTINEL_MIRROR_TIMEOUT_MS = "20"; // a hung mirror releases the version's queue quickly here
     hookMirror.mockReset();
     hookMirror.mockImplementation(async () => ({ mirrored: true }));
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -192,7 +193,28 @@ describe("the hooks — after a committed state change only, never awaited, neve
       return json([]);
     });
   });
-  afterEach(() => { globalThis.fetch = realFetch; warn.mockRestore(); });
+  afterEach(() => { globalThis.fetch = realFetch; warn.mockRestore(); delete process.env.SENTINEL_MIRROR_TIMEOUT_MS; });
+
+  it("two mirrors of one version run one at a time (the second starts after the first settled)", async () => {
+    let release;
+    const order = [];
+    hookMirror.mockImplementationOnce(() => new Promise((r) => { order.push("first started"); release = () => { order.push("first done"); r({ mirrored: true }); }; }))
+      .mockImplementationOnce(async () => { order.push("second started"); return { mirrored: true }; });
+    process.env.SENTINEL_MIRROR_TIMEOUT_MS = "5000";
+    const { mirrorStateSafe } = await import("./cde-store.mjs");
+    const a = mirrorStateSafe(V), b = mirrorStateSafe(V);
+    await vi.waitFor(() => expect(order).toEqual(["first started"]));
+    release();
+    await Promise.all([a, b]);
+    expect(order).toEqual(["first started", "first done", "second started"]);
+  });
+
+  it("a mirror that never answers releases the version's queue after the timeout", async () => {
+    hookMirror.mockImplementationOnce(() => new Promise(() => {})).mockImplementationOnce(async () => ({ mirrored: true }));
+    const { mirrorStateSafe } = await import("./cde-store.mjs");
+    expect(await mirrorStateSafe(V)).toEqual({ mirrored: false, reason: "the platform did not answer in 0.02 s" });
+    expect(await mirrorStateSafe(V)).toEqual({ mirrored: true });
+  });
 
   it("transition() mirrors the version once the RPC answered", async () => {
     expect(await transition(null, V, "shared")).toEqual({ id: V, state: "shared", platform_item_id: ITEM });

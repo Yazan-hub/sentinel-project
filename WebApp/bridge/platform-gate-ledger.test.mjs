@@ -118,6 +118,14 @@ function fakes({ runs, links = [ASTER], ledger = new Set(), overrides = {} } = {
 const opts = (seen = new Set()) => ({ componentId: "c", platformProjectId: PID, seen });
 const names = (calls, n) => calls.filter((c) => c[0] === n);
 
+describe("readingOf — a version tag is free text", () => {
+  it("splits at '.ifc ' first, so a tag with a space stays whole", () => {
+    expect(readingOf([{ content: "Reading Tower.ifc Rev A…" }])).toEqual({ name: "Tower.ifc", version_tag: "Rev A" });
+    expect(readingOf([{ content: "Reading My Tower v2.IFC P01..." }])).toEqual({ name: "My Tower v2.IFC", version_tag: "P01" });
+    expect(readingOf([{ content: "Reading notes.txt v1…" }])).toEqual({ name: "notes.txt", version_tag: "v1" });
+  });
+});
+
 describe("syncPlatformGate", () => {
   it("one row per finished run, oldest first; a second tick writes nothing and reads nothing more", async () => {
     const f = fakes({ runs: [run("r3", 30), run("r2", 20), run("r1", 10)] }); // the platform lists newest first
@@ -192,15 +200,26 @@ describe("syncPlatformGate", () => {
     expect(names(f.calls, "audit")).toEqual([]);
   });
 
-  it("any other throw ends the tick: the runs before it stay written, the next tick retries the rest", async () => {
+  it("a run whose detail is not read is skipped this tick and never stalls the later ones; it is written once read", async () => {
     const f = fakes({ runs: [run("r3", 30), run("r2", 20), run("r1", 10)] });
     const get = f.deps.getExecution;
     f.deps.getExecution = async (id) => { if (id === "r2") throw new Error("platform 502"); return get(id); };
     const seen = new Set();
-    expect(await syncPlatformGate(f.deps, opts(seen))).toEqual({ written: 1, skipped: 0, reason: "run r2 was not recorded — platform 502" });
+    expect(await syncPlatformGate(f.deps, opts(seen))).toEqual({ written: 2, skipped: 0, reason: "run r2's detail was not read (try 1 of 3) — platform 502" });
     f.deps.getExecution = get;
-    expect(await syncPlatformGate(f.deps, opts(seen))).toEqual({ written: 2, skipped: 1 });
-    expect(f.rows.map((r) => r[6].execution_id)).toEqual(["r1", "r2", "r3"]);
+    expect(await syncPlatformGate(f.deps, opts(seen))).toEqual({ written: 1, skipped: 2 });
+    expect(f.rows.map((r) => r[6].execution_id)).toEqual(["r1", "r3", "r2"]); // ran_at keeps the true order
+    expect(f.rows[2][6].file).not.toBeNull();
+  });
+
+  it("a detail that stays unread for three ticks is written from the list record, the file unknown", async () => {
+    const f = fakes({ runs: [run("rx", 10)] });
+    f.deps.getExecution = async () => { throw new Error("403 Forbidden"); };
+    const seen = new Set();
+    expect(await syncPlatformGate(f.deps, opts(seen))).toMatchObject({ written: 0, reason: expect.stringContaining("try 1 of 3") });
+    expect(await syncPlatformGate(f.deps, opts(seen))).toMatchObject({ written: 0, reason: expect.stringContaining("try 2 of 3") });
+    expect(await syncPlatformGate(f.deps, opts(seen))).toEqual({ written: 1, skipped: 0 });
+    expect(f.rows[0][6]).toMatchObject({ execution_id: "rx", file: null });
   });
 
   it("reads the ledger in chunks of 100 ids", async () => {
