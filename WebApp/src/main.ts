@@ -37,6 +37,7 @@ import { docsPanel } from "./setups/docs-panel";
 import { deliverablesPanel } from "./setups/deliverables-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
+import { perfPanel } from "./setups/perf-panel";
 import { visibilityPanel } from "./setups/visibility-panel";
 import { clashPanel } from "./setups/clash-panel";
 import { sheetsPanel } from "./setups/sheets-panel";
@@ -318,6 +319,8 @@ async function main() {
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.
   const browserEl = projectBrowserPanel(components);
+  // Performance — measure the viewer on the loaded models before changing how they load (3D spec Decision 5).
+  const perfEl = perfPanel(components);
   // Visibility / Graphics (Revit VG) — per-category hide/isolate/ghost/colour.
   const visEl = visibilityPanel(components, { baseUrl: SERVICE_URL });
   // Clash — headless, dedup.d AABB clash across loaded models -> BCF + CDE audit.
@@ -341,6 +344,7 @@ async function main() {
     { label: "Views", el: viewsEl },
     { label: "Sheets", el: sheetsEl },
     { label: "Model", el: modelEl },
+    { label: "Performance", el: perfEl },
   ]);
   const coordEl = tabbed([
     { label: "Issues", el: issuesEl },

@@ -701,3 +701,20 @@ v4 › Open 3D; Coordination › Clash › Hard, min. penetration 0.02 m › Run
 | Not run | two models (federated), clearance mode on the model, the ⚑ Raise of a confirmed clash into the register, the published app (not published) | — |
 | Also seen | the web Issues board lists the B17 issue raised from Revit (`Drill B17 … 1 el · unassigned`); Standards shows `ruleset@5 · office` | screenshots |
 | Ledger vs model | the ledger holds `Naming Manager renamed 56 item(s) in Revit [founder]` at 00:58 UTC, but the local model file was last saved 00:39 UTC and read 4 conforming names at 03:12 — the rename was not saved, the ledger row stands. A ledger row records the act in Revit at commit time, not the saved file | CDE ledger panel; Revit scan |
+
+## Session B19 — the viewer measured, the federation's tree, WebGPU tried (2026-09-28, ~10:20–10:45, Claude in the founder's Chrome)
+
+Local build (`feature/3d-readout`, `web-dev` on :4000) as the platform's local app, signed in as the founder;
+aster-tower › Project Files › Open 3D on `AST_ASTR26_Aster Tower_yazan.ifc` v4 and `ASTR26-AST-ZZ-XX-M3-A-0001.ifc` v2.
+
+| Row | Observed | Source |
+|---|---|---|
+| Browser, two models | `▣ AST_ASTR26_Aster Tower_yazan.ifc@v4 · 626` and `▣ ASTR26-AST-ZZ-XX-M3-A-0001.ifc@v2 · 401`, `2 models · 13 categories · 1,027 elements` | screenshot |
+| Found and fixed | PROJECT, DERIVEDUNIT, WALLTYPE, SLABTYPE, BUILDINGELEMENTPROXYTYPE listed as categories; after `isBrowsable`: `2 models · 8 categories · 1,014 elements` (Building, Doors, Floors/Slabs, Generic Models, Levels, Site, Walls, Windows) | screenshots |
+| The platform's tree with two models | Explorer › Tree shows two roots both named `Project Number - 30` (the IFC project name) — which model is which cannot be told; Sentinel's Browser names the model and version | screenshot |
+| First measure (before the review fixes) | `Renderer: webgl · AK · AUTO` · Intel UHD Graphics (ANGLE, D3D11) · `1,102 draw calls · 208,598 triangles` per drawn frame · 38 geometries, 23 textures · JS heap 149 MB · both models `culling/LOD follow the camera` · `Measured 10.4 s · 1 frames` | screenshot |
+| Found by the review, confirmed live | the draw calls and triangles counted the engine's hover/anchor pick passes and the frame before the window; after the fix the same scene reads `241 draw calls · 47,859 triangles` per drawn frame — the first reading was ~4.5× inflated; the renderer is named `PostproductionRenderer` | screenshot; review workflow (10 confirmed, 7 refuted) |
+| Frame time not measured | the browser gave the page 1 animation frame in 10–28 s: the Chrome window was covered (the Windows lock screen process was running); the readout now says so on its own line instead of printing a frame time | screenshot |
+| Streaming finding | both models already have culling/LOD bound to the viewer's camera (the platform binds it) — "bind the camera at load" is not needed; the next levers are the engine settings (graphicsQuality 0, lodThresholds, culling) | readout |
+| WebGPU | not tried in the browser: the build cannot be made — the engine packages import WebGL-only three add-ons at load (details in the 3D spec, Decision 6) | trial builds, scratchpad only |
+| Not run | a frame-time measurement with Chrome in front; the published app (not published) | — |
