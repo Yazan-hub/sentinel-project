@@ -19,6 +19,8 @@ public sealed class NamingContext
     public bool IsSystem;
     public double? WidthMm;                 // measured thickness (walls); null when the category has none
     public double? HeightMm;
+    public Dictionary<string, string> Facts = new(StringComparer.OrdinalIgnoreCase); // type parameter → value ("Function" → "Exterior")
+    public List<string> Materials = new();                                           // layer material names, finish layers first
     public ISet<string> ExistingNamesInFamily = new HashSet<string>(StringComparer.Ordinal);
     public ISet<string> SiblingProposals = new HashSet<string>(StringComparer.Ordinal); // other rows' proposals
 }
@@ -171,17 +173,15 @@ public static class NamingProposer
                 var allowed = def.Split('|').ToList();
                 var hit = segments.FirstOrDefault(s => allowed.Contains(Canon(s), StringComparer.OrdinalIgnoreCase));
                 if (hit != null) { slot.Value = allowed.First(a => a.Equals(Canon(hit), StringComparison.OrdinalIgnoreCase)); segments.Remove(hit); }
+                else if (Infer(token, rule, ctx, out _) is { } inferred && allowed.Contains(inferred, StringComparer.OrdinalIgnoreCase)) slot.Value = allowed.First(a => a.Equals(inferred, StringComparison.OrdinalIgnoreCase));
                 else slot.Options = allowed;
                 slots.Add(slot); continue;
             }
             if (rule.TokenAliases != null && rule.TokenAliases.TryGetValue(token, out var aliases) && aliases.Count > 0)
             {
-                // The office's own words for this token ("GWB" → "GYP"): the longest alias found as whole words wins;
-                // a code already in the name counts too. Found → fixed, like a value the name carries.
-                var hay = " " + Regex.Replace((current ?? "").ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim() + " ";
-                bool Has(string s) => hay.Contains(" " + Regex.Replace(s.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim() + " ");
-                var hit = aliases.Keys.OrderByDescending(k => k.Length).FirstOrDefault(Has);
-                var code = hit != null ? aliases[hit] : aliases.Values.Distinct().OrderByDescending(v => v.Length).FirstOrDefault(Has);
+                // The office's own words for this token ("GWB" → "GYP"), the earliest in the name winning, else the
+                // layer material's name. Found → fixed, like a value the name carries.
+                var code = AliasCode(aliases, current ?? "", out _) ?? ctx.Materials.Select(m => AliasCode(aliases, m, out _)).FirstOrDefault(c => c != null);
                 if (code != null) { slot.Value = code; slot.Options = null; slots.Add(slot); continue; }
             }
             slots.Add(slot); free.Add(slot);
@@ -247,6 +247,46 @@ public static class NamingProposer
         return wrong;
     }
 
+    /// <summary>The code for the alias mentioned EARLIEST in <paramref name="text"/> (whole words; a code itself
+    /// counts): the facing is named before the substrate ("GWB on Metal Stud" → GYP, not MTL).</summary>
+    private static string? AliasCode(Dictionary<string, string> aliases, string text, out string word)
+    {
+        word = "";
+        var hay = " " + Regex.Replace((text ?? "").ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim() + " ";
+        string? best = null; int bestAt = int.MaxValue;
+        foreach (var k in aliases.Keys.Concat(aliases.Values.Distinct()))
+        {
+            var needle = " " + Regex.Replace(k.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim() + " ";
+            var at = hay.IndexOf(needle, StringComparison.Ordinal);
+            if (at < 0) continue;
+            if (at < bestAt || (at == bestAt && k.Length > best!.Length)) { best = k; bestAt = at; }
+        }
+        if (best == null) return null;
+        word = best;
+        return aliases.TryGetValue(best, out var code) ? code : best;
+    }
+
+    /// <summary>A token value read from the model as the rule's token_infer says: a type parameter's value first,
+    /// the category second. Null when the rule says nothing or the model has no such fact. Never a guess.</summary>
+    private static string? Infer(string token, Rule rule, NamingContext ctx, out string source)
+    {
+        source = "";
+        if (rule.TokenInfer == null || !rule.TokenInfer.TryGetValue(token, out var inf) || inf == null) return null;
+        if (inf.ByParameter != null)
+            foreach (var kv in inf.ByParameter)
+                if (ctx.Facts.TryGetValue(kv.Key, out var val) && val != null)
+                {
+                    var m = kv.Value.FirstOrDefault(x => x.Key.Equals(val, StringComparison.OrdinalIgnoreCase));
+                    if (m.Key != null) { source = $"{kv.Key} = {val}"; return m.Value; }
+                }
+        if (inf.ByCategory != null)
+        {
+            var m = inf.ByCategory.FirstOrDefault(x => x.Key.Equals(ctx.Category, StringComparison.OrdinalIgnoreCase));
+            if (m.Key != null) { source = $"category {ctx.Category}"; return m.Value; }
+        }
+        return null;
+    }
+
     private static bool TryInches(string name, out double w, out double h)
     {
         w = h = 0;
@@ -269,6 +309,7 @@ public static class NamingProposer
             .ToList();
         var values = new Dictionary<string, string>();
         var freeText = new List<string>();
+        var fromFacts = false;
 
         // Pass 1: literal / enum / size tokens consume their segment; nothing is defaulted.
         foreach (var token in rule.Tokens)
@@ -289,12 +330,40 @@ public static class NamingProposer
             {
                 var allowed = def.Split('|');
                 var hit = segments.FirstOrDefault(s => allowed.Contains(Canon(s), StringComparer.OrdinalIgnoreCase));
-                if (hit == null) { Fail(p, $"no {token} in name (expected one of {def})"); return null; }
+                if (hit == null)
+                {
+                    var inferred = Infer(token, rule, ctx, out var src);
+                    if (inferred == null || !allowed.Contains(inferred, StringComparer.OrdinalIgnoreCase)) { Fail(p, $"no {token} in name (expected one of {def})"); return null; }
+                    values[token] = allowed.First(a => a.Equals(inferred, StringComparison.OrdinalIgnoreCase));
+                    p.Notes.Add($"{token} {values[token]} from {src}"); fromFacts = true; continue;
+                }
                 values[token] = allowed.First(a => a.Equals(Canon(hit), StringComparison.OrdinalIgnoreCase));
                 segments.Remove(hit); continue;
             }
             freeText.Add(token);
         }
+        // Pass 1b: a free-text token with aliases (MATERIAL) — the office's word in the name, else the layer's material.
+        foreach (var t in freeText.ToList())
+        {
+            if (rule.TokenAliases == null || !rule.TokenAliases.TryGetValue(t, out var al) || al == null || al.Count == 0) continue;
+            var code = AliasCode(al, current, out var word);
+            if (code != null)
+            {
+                values[t] = code; freeText.Remove(t);
+                var seg = segments.FirstOrDefault(s => AliasCode(al, s, out _) == code);
+                if (seg != null) segments.Remove(seg);
+                if (!word.Equals(code, StringComparison.OrdinalIgnoreCase)) p.Notes.Add($"{t} {code} from '{word}' in the name");
+                continue;
+            }
+            foreach (var m in ctx.Materials)
+            {
+                code = AliasCode(al, m, out word);
+                if (code == null) continue;
+                values[t] = code; freeText.Remove(t); p.Notes.Add($"{t} {code} from layer '{m}'"); fromFacts = true; break;
+            }
+        }
+        // Old descriptive words no token needs are dropped only when the model's facts supplied a token — said so.
+        if (fromFacts && freeText.Count == 0 && segments.Count > 0) { p.Notes.Add($"'{string.Join(" ", segments)}' dropped"); segments.Clear(); }
         // Pass 2: free-text tokens take the leftovers, in order, one segment each.
         if (segments.Count != freeText.Count)
         {

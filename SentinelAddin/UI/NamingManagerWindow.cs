@@ -155,7 +155,7 @@ public sealed class NamingManagerWindow : Window
         var (text, brush) = row.Verdict switch
         {
             NameVerdict.Conforming => ("✓ conforming", Brushes.LightGreen),
-            NameVerdict.Proposed => ("proposed", Brushes.DodgerBlue),
+            NameVerdict.Proposed => (row.Note.Length > 0 ? "proposed — " + row.Note : "proposed", Brushes.DodgerBlue),
             NameVerdict.NeedsHuman => ("needs a human — " + row.Note, Brushes.Orange),
             _ => ("BLOCKED — " + row.Note, Brushes.IndianRed),
         };

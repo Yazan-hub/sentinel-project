@@ -111,6 +111,32 @@
     },
     {
       "id": "TN-01",
+      "token_infer": {
+        "LOC": {
+          "by_parameter": {
+            "Function": {
+              "Exterior": "EXT",
+              "Interior": "INT",
+              "Foundation": "FND",
+              "Retaining": "FND",
+              "Soffit": "EXT",
+              "Core-shaft": "INT"
+            }
+          },
+          "by_category": {
+            "Ceilings": "INT",
+            "Floors": "INT"
+          }
+        },
+        "DISC": {
+          "by_category": {
+            "Walls": "ARC",
+            "Floors": "ARC",
+            "Ceilings": "ARC",
+            "Roofs": "ARC"
+          }
+        }
+      },
       "target": "type",
       "mode": "monitor",
       "tokens": [
@@ -175,6 +201,16 @@
     },
     {
       "id": "TN-02",
+      "token_infer": {
+        "LOC": {
+          "by_parameter": {
+            "Function": {
+              "Exterior": "EXT",
+              "Interior": "INT"
+            }
+          }
+        }
+      },
       "target": "type",
       "mode": "monitor",
       "tokens": [

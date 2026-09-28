@@ -36,6 +36,38 @@ public static class NamingManagerService
 {
     private const double FeetToMm = 304.8;
 
+    /// <summary>The type's thickness: a wall's Width, else a compound structure's (ceilings, floors, roofs). Null for
+    /// families — a door's nominal size lives in its name (audit §3), never in Width/Height.</summary>
+    private static double? MeasuredWidthMm(ElementType et) => et switch
+    {
+        WallType wt => wt.Width * FeetToMm,
+        HostObjAttributes h => h.GetCompoundStructure() is { } cs ? cs.GetWidth() * FeetToMm : null,
+        _ => null,
+    };
+
+    /// <summary>The type parameters the rule's token_infer names, as Revit shows them ("Function" → "Exterior").</summary>
+    private static Dictionary<string, string> Facts(ElementType et, List<string> names)
+    {
+        var facts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in names)
+        {
+            var prm = et.LookupParameter(n);
+            var v = prm == null ? null : prm.StorageType == StorageType.String ? prm.AsString() : prm.AsValueString();
+            if (!string.IsNullOrWhiteSpace(v)) facts[n] = v!.Trim();
+        }
+        return facts;
+    }
+
+    /// <summary>Layer material names of a compound type, finish layers first (the face a name describes), then the rest.</summary>
+    private static List<string> LayerMaterials(Document doc, ElementType et)
+    {
+        if (et is not HostObjAttributes h || h.GetCompoundStructure() is not { } cs) return new List<string>();
+        return cs.GetLayers()
+            .OrderBy(l => l.Function is MaterialFunctionAssignment.Finish1 or MaterialFunctionAssignment.Finish2 ? 0 : 1)
+            .Select(l => (doc.GetElement(l.MaterialId) as Material)?.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!).Distinct().ToList();
+    }
+
     public static List<NamingRow> BuildRows(Document doc, Ruleset rs)
     {
         var rows = new List<NamingRow>();
@@ -54,6 +86,7 @@ public static class NamingManagerService
         {
             if (rule.Target == RuleTarget.Type)
             {
+                var factNames = rule.TokenInfer?.Values.SelectMany(i => i?.ByParameter?.Keys ?? Enumerable.Empty<string>()).Distinct().ToList() ?? new List<string>();
                 var types = new FilteredElementCollector(doc).WhereElementIsElementType().OfType<ElementType>()
                     .Where(et => et.Category is { } c && (rule.Categories.Count == 0 || rule.Categories.Any(c.MatchesCategoryKey)))
                     .ToList();
@@ -66,7 +99,8 @@ public static class NamingManagerService
                         var ctx = new NamingContext
                         {
                             Category = et.Category!.Name, FamilyName = SafeFamilyName(et), IsSystem = et is not FamilySymbol,
-                            WidthMm = et is WallType wt ? wt.Width * FeetToMm : null,
+                            WidthMm = MeasuredWidthMm(et),
+                            Facts = Facts(et, factNames), Materials = LayerMaterials(doc, et),
                             ExistingNamesInFamily = existing, SiblingProposals = siblings,
                         };
                         var p = NamingProposer.Propose(et.Name, rule, org, ctx);

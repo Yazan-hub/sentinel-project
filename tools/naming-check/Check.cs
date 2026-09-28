@@ -189,6 +189,26 @@ static class Check
                 TokenAliases = new Dictionary<string, Dictionary<string, string>> { ["MATERIAL"] = new() { ["GWB"] = "GYP", ["GYPSUM BOARD"] = "GYP", ["ACT"] = "ACT" } } };
             var gwb2 = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", new NamingContext { Category = "Ceilings" });
             Ok(gwb2.Slots != null && gwb2.Slots[3].Value == "GYP" && gwb2.Suggestion == "AST_EXT_ARC_GYP_", "a material word the office maps (GWB) becomes its code, fixed: " + gwb2.Suggestion);
+            aliased.TokenAliases!["MATERIAL"]["METAL"] = "MTL"; aliased.TokenAliases["MATERIAL"]["WOOD"] = "TMB";
+            var facing = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", new NamingContext { Category = "Ceilings" });
+            Ok(facing.Slots![3].Value == "GYP", "the earliest material word wins over the substrate (GWB before Metal): " + facing.Slots[3].Value);
+            // ── the model's facts finish a name (token_infer): proposed, each token's source in the note ──
+            aliased.TokenInfer = new Dictionary<string, TokenInfer>
+            {
+                ["LOC"] = new TokenInfer { ByParameter = new() { ["Function"] = new() { ["Exterior"] = "EXT", ["Interior"] = "INT" } }, ByCategory = new() { ["Ceilings"] = "INT" } },
+                ["DISC"] = new TokenInfer { ByCategory = new() { ["Walls"] = "ARC", ["Ceilings"] = "ARC" } },
+            };
+            var wallCtx = new NamingContext { Category = "Walls", WidthMm = 200, Facts = { ["Function"] = "Exterior" }, Materials = { "Gypsum Board", "Metal Stud" } };
+            var auto1 = NamingProposer.Propose("Generic - 200mm", aliased, "AST", wallCtx);
+            Ok(auto1.Verdict == NameVerdict.Proposed && auto1.Name == "AST_EXT_ARC_GYP_200 mm", "a wall whose name says nothing is proposed from Function, category, the finish layer and the measured width: " + auto1.Name);
+            Ok(string.Join("; ", auto1.Notes) == "LOC EXT from Function = Exterior; DISC ARC from category Walls; MATERIAL GYP from layer 'Gypsum Board'; 'Generic - 200 mm' dropped", "…and the note says where each token came from: " + string.Join("; ", auto1.Notes));
+            var ceilCtx = new NamingContext { Category = "Ceilings", WidthMm = 15.9, Materials = { "Gypsum Wall Board" } };
+            var auto2 = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", ceilCtx);
+            Ok(auto2.Verdict == NameVerdict.Proposed && auto2.Name == "AST_INT_ARC_GYP_15.9 mm", "a ceiling: LOC by category, material from the name, thickness measured: " + auto2.Name);
+            var noFacts = NamingProposer.Propose("Generic", aliased, "AST", new NamingContext { Category = "Roofs" });
+            Ok(noFacts.Verdict == NameVerdict.NeedsHuman && noFacts.Slots![1].Options != null, "no fact for the token → still a human's, with the pick offered");
+            var wrongFact = NamingProposer.Propose("Generic - 200mm", aliased, "AST", new NamingContext { Category = "Walls", WidthMm = 200, Facts = { ["Function"] = "Retaining" } });
+            Ok(wrongFact.Verdict == NameVerdict.NeedsHuman, "a parameter value the map does not list is never guessed");
             var act = NamingProposer.Propose("2' x 2' ACT System", aliased, "AST", new NamingContext { Category = "Ceilings" });
             Ok(act.Slots != null && act.Slots[3].Value == "ACT", "a code already in the name is kept as the code");
             var doorRule = new Rule { Id = "TN-02", Target = RuleTarget.Type, Tokens = new List<string> { "ORG", "LOC", "LEAF", "MATERIAL", "SIZE" }, Separator = "_",
