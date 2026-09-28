@@ -41,8 +41,19 @@ public sealed class TokenSlot
     public string Token = "";
     public string? Value;                 // recovered from the name, the office code, or the measured size
     public List<string>? Options;         // the enum's allowed values, when the name carries none of them
-    public string Prefill = "";           // free text: the leftover words, uppercased
+    public string Prefill = "";           // free text: the leftover words, uppercased and sanitised to the token
     public string Hint = "";              // what the token wants, in the rule's words (its regex) for the tooltip
+    public string Pattern = "";           // the token's own anchored regex (org expanded); "" = anything goes
+
+    /// <summary>Does <paramref name="value"/> satisfy this token alone?</summary>
+    public bool Accepts(string value) =>
+        Pattern.Length == 0 ? Regex.IsMatch(value ?? "", @"^[A-Za-z0-9\-]+$")
+                            : Regex.IsMatch(value ?? "", "^(?:" + Pattern + ")$", RegexOptions.CultureInvariant);
+
+    /// <summary>What a person should type, in plain words: an example for a size, else the pattern.</summary>
+    public string Expects => Token.Equals("SIZE", StringComparison.OrdinalIgnoreCase)
+        ? (Pattern.Contains(" x ") ? "like 900 x 2100 mm" : "like 200 mm")
+        : Options != null ? "one of " + string.Join(", ", Options) : Hint;
 }
 
 /// <summary>
@@ -62,7 +73,7 @@ public static class NamingProposer
     public static NameProposal Propose(string current, Rule rule, string? org, NamingContext ctx)
     {
         var p = ProposeCore(current, rule, org, ctx);
-        if (p.Verdict == NameVerdict.NeedsHuman && rule.Target == RuleTarget.Type && rule.Tokens.Count > 0)
+        if (p.Verdict == NameVerdict.NeedsHuman && rule.Target is RuleTarget.Type or RuleTarget.Family && rule.Tokens.Count > 0)
         {
             try { p.Slots = Skeleton(current, rule, org, ctx); } catch { p.Slots = null; } // a skeleton is help, never a blocker
         }
@@ -129,7 +140,7 @@ public static class NamingProposer
         {
             rule.TokenDefs.TryGetValue(token, out var rawDef);
             var def = rawDef ?? "";
-            var slot = new TokenSlot { Token = token, Hint = def.Length == 0 ? "any letters, digits or dashes" : RuleRegex.DefWithOrg(def, org) };
+            var slot = new TokenSlot { Token = token, Hint = def.Length == 0 ? "any letters, digits or dashes" : RuleRegex.DefWithOrg(def, org), Pattern = def.Length == 0 ? "" : RuleRegex.DefWithOrg(def, org) };
             if (def == RuleRegex.OrgPlaceholder || (o.Length > 0 && (def == o || def == Regex.Escape(o))))
             { slot.Value = o.Length > 0 ? o : null; if (slot.Value == null) slot.Prefill = ""; slots.Add(slot); continue; }
             if (token.Equals("SIZE", StringComparison.OrdinalIgnoreCase))
@@ -159,8 +170,11 @@ public static class NamingProposer
         // The leftover words seed the free-text slots in order; the last one takes whatever remains.
         for (int i = 0; i < free.Count; i++)
         {
-            if (i < segments.Count)
-                free[i].Prefill = string.Join(" ", i == free.Count - 1 ? segments.Skip(i) : new[] { segments[i] }).ToUpperInvariant();
+            if (i >= segments.Count) continue;
+            var words = string.Join(" ", i == free.Count - 1 ? segments.Skip(i) : new[] { segments[i] });
+            rule.TokenDefs.TryGetValue(free[i].Token, out var d);
+            // Sanitised to the token's own characters (NameSynth uppercases when that is what the token wants).
+            free[i].Prefill = NameSynth.Sanitize(words, d == null ? null : RuleRegex.DefWithOrg(d, org));
         }
         return slots;
     }

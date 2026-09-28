@@ -167,6 +167,15 @@ static class Check
             Ok(p2.Slots != null && p2.Slots[1].Value == "EXT" && p2.Slots[3].Prefill == "BRICK" && p2.Slots[4].Value == null, "a value the name already carries is fixed; no width and no size in the name leaves SIZE to the person");
             var conf = NamingProposer.Propose("AST_EXT_ARC_CMU_200 mm", tnSk, "AST", ctx);
             Ok(conf.Verdict == NameVerdict.Conforming && conf.Slots == null, "a conforming name has no skeleton");
+            var ceil = NamingProposer.Propose("2' x 2' ACT System", tnSk, "AST", new NamingContext { Category = "Ceilings", WidthMm = null });
+            Ok(ceil.Slots != null && !ceil.Slots[3].Prefill.Contains("'") && ceil.Slots[3].Accepts(ceil.Slots[3].Prefill), "a free-text prefill is sanitised to the token's characters: " + ceil.Slots![3].Prefill);
+            Ok(!ceil.Slots[4].Accepts("2 X 2 ACT SYSTEM") && ceil.Slots[4].Accepts("200 mm") && ceil.Slots[4].Expects == "like 200 mm", "SIZE accepts '200 mm' and says so");
+            Ok(ceil.Slots[1].Expects == "one of EXT, INT, FND" && !ceil.Slots[1].Accepts("") && ceil.Slots[1].Accepts("INT"), "an enum slot says its choices and accepts one");
+            var fnSk = new Rule { Id = "FN-01", Target = RuleTarget.Family, Tokens = new List<string> { "ORG", "BODY" }, Separator = "_",
+                TokenDefs = new Dictionary<string, string> { ["ORG"] = "{org}", ["BODY"] = "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+" } };
+            var fam = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework" });
+            Ok(fam.Verdict == NameVerdict.NeedsHuman && fam.Slots != null && fam.Slots.Count == 2 && fam.Slots[0].Value == "AST" && fam.Slots[1].Value == null, "a family rule the recovery cannot finish gets a skeleton too: ORG fixed, BODY free");
+            Ok(!fam.Slots![1].Accepts("Base Cabinet-Double Door Sink Unit") && fam.Slots[1].Accepts("Base Cabinet_Double Door Sink Unit") && RuleRegex.For(fnSk, "AST").IsMatch(NamingProposer.Assemble(fnSk, new[] { "AST", "Base Cabinet_Double Door Sink Unit" })), "the body slot refuses the dash form and accepts the underscore form the rule wants");
         }
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

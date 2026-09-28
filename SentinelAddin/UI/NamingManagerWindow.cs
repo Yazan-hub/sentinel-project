@@ -130,12 +130,13 @@ public sealed class NamingManagerWindow : Window
             var parts = new WrapPanel();
             var preview = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
             var getters = new List<Func<string>>();
+            var boxes = new List<(TokenSlot Slot, Control? Ctl, Func<string> Get)>();
             foreach (var slot in row.Slots)
             {
                 if (slot.Value != null)
                 {
                     var fixedPart = new TextBlock { Text = slot.Value, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = slot.Token + " — from the name or the model" };
-                    parts.Children.Add(fixedPart); getters.Add(() => slot.Value!);
+                    parts.Children.Add(fixedPart); getters.Add(() => slot.Value!); boxes.Add((slot, null, () => slot.Value!));
                 }
                 else if (slot.Options != null)
                 {
@@ -143,13 +144,13 @@ public sealed class NamingManagerWindow : Window
                     foreach (var opt in slot.Options) pick.Items.Add(opt);
                     pick.Text = slot.Token + "?"; pick.IsEditable = true; pick.IsReadOnly = true;
                     pick.SelectionChanged += (_, _) => Update();
-                    parts.Children.Add(pick); getters.Add(() => pick.SelectedItem as string ?? "");
+                    parts.Children.Add(pick); getters.Add(() => pick.SelectedItem as string ?? ""); boxes.Add((slot, pick, () => pick.SelectedItem as string ?? ""));
                 }
                 else
                 {
                     var freeText = new TextBox { Text = slot.Prefill, MinWidth = 90, Margin = new Thickness(0, 0, 2, 0), ToolTip = slot.Token + " — " + slot.Hint };
                     freeText.TextChanged += (_, _) => Update();
-                    parts.Children.Add(freeText); getters.Add(() => freeText.Text);
+                    parts.Children.Add(freeText); getters.Add(() => freeText.Text); boxes.Add((slot, freeText, () => freeText.Text));
                 }
                 parts.Children.Add(new TextBlock { Text = row.Separator, Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center });
             }
@@ -160,7 +161,16 @@ public sealed class NamingManagerWindow : Window
             {
                 var name = Assembled();
                 var ok = row.Schema.IsMatch(name);
-                preview.Text = ok ? "→ " + name : "→ " + name + "   (not a valid name yet)";
+                // Say which part is wrong: an empty pick, or text the token does not accept.
+                var wrong = new List<string>();
+                foreach (var (slot, ctl, get) in boxes)
+                {
+                    var v = get();
+                    var bad = v.Trim().Length == 0 ? "pick " + slot.Token : !slot.Accepts(v) ? slot.Token + ": " + slot.Expects : null;
+                    if (ctl != null) ctl.BorderBrush = bad == null ? SystemColors.ControlDarkBrush : Brushes.IndianRed;
+                    if (bad != null) wrong.Add(bad);
+                }
+                preview.Text = ok ? "→ " + name : "→ " + name + (wrong.Count > 0 ? "   (" + string.Join("; ", wrong) + ")" : "   (not a valid name yet)");
                 preview.Foreground = ok ? Brushes.SeaGreen : Brushes.Gray;
                 box.IsEnabled = ok;
                 if (!ok) box.IsChecked = false;
