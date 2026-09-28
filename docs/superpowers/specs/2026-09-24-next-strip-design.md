@@ -61,8 +61,9 @@ step list depends on `facts.project.kind` (phase 2's `projects.kind`).
 | `issued` | Issued | at least one transmittal (`cde.listTransmittals`) | the transmittal id |
 
 Statuses: `done` (the predicate holds **and** an evidence object with a non-empty `ref` exists), `todo`,
-`not_checkable` (the fact source for that step failed, or the step cannot apply yet — `federated` when fewer than
-two live models exist: "one model only — federation needs two"). `next` is the id of the first step, in list
+`not_checkable` (the fact source for that step failed, or the step cannot apply yet — `federated` when no live model
+exists: "no live model — nothing to federate"; since 2026-09-28 (option B) one live model follows the gate like several,
+and a pass counts only when it judged every live model). `next` is the id of the first step, in list
 order, whose status is `todo`; `null` when none. `done` and `total` are counts; **no percentage** anywhere. A step
 never becomes `done` from a count or a flag without an evidence ref. Each step also carries `how`: `{ web: {tab,
 hint} | null, revit: string | null, who: "owner" | "lead" | "member" }` — static text naming where the step is
@@ -132,7 +133,7 @@ the pane's rows.
 ## Testing
 
 - `journey-logic.test.mjs`: both journeys; each step done/todo from minimal facts; `done` refused without an
-  evidence ref; `federated` not_checkable with one live model; `next` is the first todo; counts.
+  evidence ref; `federated` follows the gate for one live model and needs a pass covering every live model; `next` is the first todo; counts.
 - `journey-store.test.mjs`: gatherer with injected deps; one rejected source → that step `not_checkable` with the
   message, the others unaffected; standards labels via `refLabel`; `none` kinds.
 - Web: `next-strip.test.ts` for the pure line builders (standards line, next line, open-tab mapping); tsc and build.

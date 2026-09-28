@@ -102,18 +102,23 @@ export async function extractManifest(bytes) {
     }
 
     // GlobalIds as the file carries them, before anything keys on them: the stored manifest keeps one row per GlobalId
-    // (element_snapshots' primary key), so duplicates and blanks are counted here or never. The Federation Gate's
-    // one-model FG-01 reads this (3D spec Decision 4, option B, 2026-09-28).
+    // (element_snapshots' primary key), so duplicates and blanks are counted here or never. Counted over EVERY IfcProduct
+    // (walls and slabs, and proxies, MEP, furniture, openings, spatial elements — whatever a clash or an issue can key
+    // on), from the raw GlobalId: a $ is missing, never the express id the element row falls back to. The Federation
+    // Gate's one-model FG-01 reads this (3D spec Decision 4, option B, 2026-09-28; widened by its review).
     {
       const n = new Map();
-      let missing = 0;
-      for (const e of out.elements) {
-        const g = String(e.guid ?? "").trim();
+      let missing = 0, counted = 0;
+      for (const id of idsOf(api, mid, WebIFC.IFCPRODUCT)) {
+        let raw;
+        try { raw = val(api.GetLine(mid, id)?.GlobalId); } catch { continue; }
+        counted++;
+        const g = raw == null ? "" : String(raw).trim();
         if (!g) { missing++; continue; }
         n.set(g, (n.get(g) ?? 0) + 1);
       }
       const dups = [...n].filter(([, c]) => c > 1);
-      out.guid_audit = { duplicates: dups.reduce((a, [, c]) => a + c - 1, 0), examples: dups.slice(0, 5).map(([g]) => g), missing };
+      out.guid_audit = { scope: "IfcProduct", counted, duplicates: dups.reduce((a, [, c]) => a + c - 1, 0), examples: dups.slice(0, 5).map(([g]) => g), missing };
     }
 
     for (const id of idsOf(api, mid, WebIFC.IFCBUILDINGSTOREY)) {

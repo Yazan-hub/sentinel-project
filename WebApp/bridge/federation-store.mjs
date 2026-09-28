@@ -74,8 +74,10 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
     ...(ignored.length ? { ignored_versions: ignored } : {}),
   };
   await d.docUpsert(STORE, proj.id, "latest", run, { service: true }); // after the check above; the store can be closed to direct writes (0033)
+  // With one model the ledger names what was actually judged — never a claim the checks did not make.
+  const judged = result.checks.filter((c) => c.status !== "not_checkable").map((c) => c.id);
   const word = (result.verdict === "pass" ? "PASS" : result.verdict === "fail" ? "FAIL" : "NOT CHECKABLE") +
-    (result.one_model ? " (one model — its GlobalIds, name and verdict; the cross-model checks do not apply)" : "");
+    (result.one_model ? ` (one model — judged: ${judged.length ? judged.join(", ") : "nothing"}; the cross-model checks do not apply)` : "");
   const ignoredNote = ignored.length ? ` (${ignored.length} requested version(s) not live, ignored)` : "";
   await d.audit(proj.id, "federation_gate", null, `Federation gate ${word}: ${models.length} model(s)${ignoredNote}`, actor, null, {
     verdict: result.verdict, models: run.set, ruleset_ref: refs.ruleset, naming_ref: refs.naming,

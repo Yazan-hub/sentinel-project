@@ -60,7 +60,7 @@ describe("checkFederation", () => {
     expect(r.models.find((m) => m.container === "B-0102.ifc")?.has_manifest).toBe(false);
   });
   describe("one model (the founder's option B, 2026-09-28)", () => {
-    const clean = { duplicates: 0, examples: [], missing: 0 };
+    const clean = { duplicates: 0, examples: [], missing: 0, scope: "IfcProduct", counted: 40 };
     const naming_ruleset = { standard_key: "t", semver: "1.0.0", enforce: "reject", separator: "-", fields: [{ name: "ORIG", allowed: ["A"] }, { name: "NUM", pattern: "^\\d{4}$" }] } as never;
     const one = (audit: unknown, name = "A-0101.ifc") => model(name, manifest({ guid_audit: audit as never }));
     it("the whole live set is one clean, named, accepted model: PASS on FG-01 and FG-06; the cross-model checks say why they do not apply", () => {
@@ -72,15 +72,26 @@ describe("checkFederation", () => {
       expect(r.verdict).toBe("pass");
     });
     it("a duplicate GlobalId inside the model FAILS, naming it; a blank one is a warning", () => {
-      const r = checkFederation([one({ duplicates: 2, examples: ["g-x", "g-y"], missing: 3 })], { verdicts: okVerdicts, live_count: 1 });
-      expect(check(r, "FG-01")).toMatchObject({ status: "fail", reason: "2 duplicate GlobalId(s) in A-0101.ifc", evidence: [{ guid: "g-x", models: ["A-0101.ifc"] }, { guid: "g-y", models: ["A-0101.ifc"] }] });
-      expect(check(r, "FG-01").warnings).toEqual(["3 element(s) in A-0101.ifc carry no GlobalId"]);
+      const r = checkFederation([one({ duplicates: 200, examples: ["g-x", "g-y"], missing: 3, scope: "IfcProduct", counted: 900 })], { verdicts: okVerdicts, live_count: 1 });
+      expect(check(r, "FG-01")).toMatchObject({ status: "fail", count: 200, reason: "200 duplicate GlobalId(s) in A-0101.ifc (900 IfcProduct(s) counted)", evidence: [{ guid: "g-x", models: ["A-0101.ifc"] }, { guid: "g-y", models: ["A-0101.ifc"] }] });
+      expect(check(r, "FG-01").warnings).toEqual(["3 of 900 product(s) in A-0101.ifc carry no GlobalId"]);
       expect(r.verdict).toBe("fail");
     });
     it("a manifest captured before GlobalIds were counted is not checkable on FG-01, never a pass", () => {
       const r = checkFederation([one(null)], { verdicts: okVerdicts, live_count: 1 });
       expect(check(r, "FG-01").status).toBe("not_checkable");
       expect(check(r, "FG-01").reason).toMatch(/captured before GlobalIds were counted/);
+    });
+    it("nothing counted is nothing judged: an IFC with no product is not checkable on FG-01, and the gate does not pass on it", () => {
+      const r = checkFederation([one({ duplicates: 0, examples: [], missing: 0, scope: "IfcProduct", counted: 0 })], { verdicts: okVerdicts, live_count: 1 });
+      expect(check(r, "FG-01")).toMatchObject({ status: "not_checkable", reason: "A-0101.ifc carries no IFC product to judge — no GlobalId was counted" });
+      expect(r.verdict).not.toBe("pass");
+    });
+    it("the one live model without a manifest is told to capture it, not to find a second model", () => {
+      const r = checkFederation([model("A-0101.ifc", null)], { verdicts: okVerdicts, live_count: 1 });
+      expect(r.verdict).toBe("not_checkable");
+      expect(check(r, "FG-01").reason).toBe("the one live model (A-0101.ifc) carries no manifest — capture it (manifest backfill) and run the gate again");
+      expect(checkFederation([], { live_count: 0 }).checks[0].reason).toBe("no live model — nothing to federate");
     });
     it("a misnamed container still FAILS FG-06 with one model", () => {
       const r = checkFederation([one(clean, "Aster Tower.ifc")], { verdicts: okVerdicts, naming_ruleset, live_count: 1 });

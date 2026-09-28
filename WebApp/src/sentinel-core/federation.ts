@@ -12,7 +12,7 @@ export interface MapConversion { eastings: number; northings: number; height: nu
 export interface ManifestSite { lat: number | null; lon: number | null; elevation_m: number | null; map_conversion: MapConversion | null }
 /** GlobalIds as the IFC carried them, counted at capture (the stored elements are keyed by GlobalId, so a duplicate
  *  cannot be seen later). null/absent = the manifest was captured before this was counted. */
-export interface GuidAudit { duplicates: number; examples: string[]; missing: number }
+export interface GuidAudit { duplicates: number; examples: string[]; missing: number; scope?: string; counted?: number }
 export interface Manifest { schema: string; elements: ManifestElement[]; levels: ManifestLevel[]; grids: string[]; site: ManifestSite | null; counts?: { elements: number; skipped: number }; guid_audit?: GuidAudit | null }
 export interface FederationModel { container: string; version_id: string; manifest: Manifest | null }
 export type VerdictWord = "accepted" | "recorded" | "rejected";
@@ -27,7 +27,7 @@ export interface FederationOptions {
   live_count?: number;
 }
 export type CheckStatus = "pass" | "fail" | "not_checkable";
-export interface FederationCheck { id: string; title: string; status: CheckStatus; reason?: string; evidence: Record<string, unknown>[]; warnings: string[] }
+export interface FederationCheck { id: string; title: string; status: CheckStatus; reason?: string; evidence: Record<string, unknown>[]; warnings: string[]; count?: number }
 export interface FederationResult { verdict: CheckStatus; models: { container: string; version_id: string; has_manifest: boolean }[]; checks: FederationCheck[]; one_model?: boolean }
 
 /** Each check's title, one place (the not-checkable paths name them too). */
@@ -86,11 +86,14 @@ function fg01(ms: { container: string; m: Manifest }[]): FederationCheck {
 function fg01One(container: string, m: Manifest): FederationCheck {
   const c = mk("FG-01", "No GlobalId appears twice in the model");
   const a = m.guid_audit;
-  if (!a || typeof a.duplicates !== "number") return nc(c, "this model's manifest was captured before GlobalIds were counted — capture it again (manifest backfill) and re-run");
-  if (a.missing > 0) c.warnings.push(`${a.missing} element(s) in ${container} carry no GlobalId`);
+  if (!a || typeof a.duplicates !== "number" || typeof a.counted !== "number") return nc(c, "this model's manifest was captured before GlobalIds were counted — capture it again (manifest backfill) and re-run");
+  // Nothing counted is nothing judged — never a pass (found by the one-model review: an MEP- or proxy-only IFC).
+  if (!a.counted) return nc(c, `${container} carries no IFC product to judge — no GlobalId was counted`);
+  if (a.missing > 0) c.warnings.push(`${a.missing} of ${a.counted} product(s) in ${container} carry no GlobalId`);
   if (a.duplicates > 0) {
     for (const guid of a.examples) c.evidence.push({ guid, models: [container] });
-    return fail(c, `${a.duplicates} duplicate GlobalId(s) in ${container}`);
+    c.count = a.duplicates; // the evidence shows at most five; the count is the real one
+    return fail(c, `${a.duplicates} duplicate GlobalId(s) in ${container} (${a.counted} ${a.scope ?? "product"}(s) counted)`);
   }
   return c;
 }
@@ -256,7 +259,12 @@ export function checkFederation(models: FederationModel[], opts: FederationOptio
   }
   if (withManifest.length < 2) {
     out.verdict = "not_checkable";
-    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, TITLES[id]), `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`));
+    // Say what is missing in this project's own terms: no live model, the one live model's manifest, or a second one.
+    const why = models.length === 0 && (opts.live_count ?? 0) === 0 ? "no live model — nothing to federate"
+      : models.length === 1 && opts.live_count === 1 ? `the one live model (${models[0].container}) carries no manifest — capture it (manifest backfill) and run the gate again`
+      : `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`;
+    if (models.length === 1 && opts.live_count === 1) out.one_model = true;
+    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, TITLES[id]), why));
     return out;
   }
   out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];

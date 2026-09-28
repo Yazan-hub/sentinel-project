@@ -15,7 +15,7 @@ const unavailable = { ref: null, source: "none" as const, sha256: null, label: "
 const step = (id: string, label: string, status: JourneyStep["status"], how: Partial<JourneyStep["how"]> = {}): JourneyStep => ({
   id, label, status,
   evidence: status === "done" ? { ref: `ev-${id}`, label: id } : null,
-  reason: status === "not_checkable" ? "one model only — federation needs two" : null,
+  reason: status === "not_checkable" ? "no live model — nothing to federate" : null,
   how: { web: null, revit: null, who: "lead", ...how },
 });
 const journey = (over: Partial<Journey> = {}): Journey => ({
@@ -92,7 +92,7 @@ describe("stepDetail", () => {
   });
 
   it("names the reason for a not_checkable step", () => {
-    expect(stepDetail(step("federated", "Federated", "not_checkable"), null)).toBe("Not checkable: one model only — federation needs two");
+    expect(stepDetail(step("federated", "Federated", "not_checkable"), null)).toBe("Not checkable: no live model — nothing to federate");
   });
 
   it("marks the current next todo, else says To do — never Not checkable, even when it carries a reason", () => {

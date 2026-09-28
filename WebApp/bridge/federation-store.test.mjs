@@ -29,6 +29,28 @@ function memDeps({ manifests = { "v-1": mA, "v-2": mB }, verdicts = { "v-1": "ac
   };
 }
 
+describe("runFederation — one model (option B)", () => {
+  const audit = { duplicates: 0, examples: [], missing: 0, scope: "IfcProduct", counted: 12 };
+  const oneLive = [{ container: "A-0101.ifc", container_id: "c-1", version_id: "v-1", revision: "P01", has_manifest: true, captured_at: null }];
+  it("the whole live set is one model: judged on FG-01 and FG-06, the ledger names what was judged", async () => {
+    const d = memDeps({ manifests: { "v-1": { ...mA, guid_audit: audit } }, live: oneLive });
+    const run = await runFederation("p", {}, { actor: "cli" }, d);
+    expect(run.result.one_model).toBe(true);
+    expect(d.audits[0].action).toMatch(/^Federation gate (PASS|NOT CHECKABLE) \(one model — judged: FG-01[^)]*; the cross-model checks do not apply\): 1 model\(s\)$/);
+  });
+  it("a manifest without the GlobalId count: the ledger does not claim FG-01 was judged", async () => {
+    const d = memDeps({ manifests: { "v-1": mA }, live: oneLive });
+    await runFederation("p", {}, { actor: "cli" }, d);
+    expect(d.audits[0].action).not.toMatch(/judged: [^;]*FG-01/);
+  });
+  it("one model picked out of two by an explicit list is not the one-model case", async () => {
+    const d = memDeps({ manifests: { "v-1": { ...mA, guid_audit: audit }, "v-2": mB } });
+    const run = await runFederation("p", { versions: ["v-1"] }, { actor: "cli" }, d);
+    expect(run.result.one_model).toBeUndefined();
+    expect(run.result.verdict).toBe("not_checkable");
+  });
+});
+
 describe("runFederation", () => {
   it("fails the S11 pair, stores the latest run and writes one audit row with entity_id null", async () => {
     const d = memDeps();
