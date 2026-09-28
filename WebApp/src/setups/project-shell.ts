@@ -2,7 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { myRole, canGovernRole } from "./my-role";
+import { myRoleRead, roleWords, canGovernRole } from "./my-role";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
@@ -55,7 +55,8 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const pid = () => activePid();
 
   let project: ProjectState | null = null;
-  let kpis: Kpis = { health: null, compliance: null, open: null, hard: null, cost: null, currency: defaultRates.currency, blockOpen: null, openRfis: null };
+  const noKpis = (): Kpis => ({ health: null, compliance: null, open: null, hard: null, cost: null, currency: defaultRates.currency, blockOpen: null, openRfis: null });
+  let kpis = noKpis();
   let viewStage = ""; // stage whose gate detail is shown
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
@@ -81,28 +82,47 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const stageName = (id: string) => STAGES.find((s) => s.id === id)?.nm ?? id;
 
   // ── load persisted project state (the stage and the gates come from the ledger) ─────────────
-  const loadProject = async () => {
+  // One wave = loadProject + refresh for one key; a slower wave for the previous project/person never lands last.
+  let seq = 0;
+  let projectErr = ""; // set while the project state was not read — shown instead of any stale rail/dims/gate
+  const loadProject = async (mine: number, key: string) => {
     try {
-      const r = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
-      project = await r.json();
-      viewStage = project!.stage;
+      const r = await bfetch(`${base}/projects/${encodeURIComponent(key)}`);
+      if (mine !== seq) return;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const p = (await r.json()) as ProjectState;
+      if (mine !== seq) return;
+      project = p;
+      projectErr = "";
+      viewStage = project.stage;
       renderAll();
     } catch (e) {
-      msg("Can't reach the project service. Start it with: npm run bcf:serve", "#ef4444");
+      if (mine !== seq) return;
+      project = null;
+      projectErr = `Project state not read — ${String((e as Error)?.message || e)}`;
+      el("ps-name").textContent = "";
+      el("ps-rail").innerHTML = `<div style="color:#ef4444;font-size:12px">${esc(projectErr)}</div>`;
+      el("ps-kpis").innerHTML = "";
+      el("ps-dims").innerHTML = "";
+      el("ps-gate").innerHTML = "";
+      msg(projectErr, "#ef4444");
     }
   };
 
   // ── recompute KPIs from the live sources ─────────────────────────────────────
   // Who may run the stage gate: lead and up. null until the bridge has answered — the button is not
   // offered on a guess (fail closed), and the answer is re-asked on every refresh.
-  let gateRole: string | null = null;
+  let gateRole: { role: string; read: boolean } | null = null;
   let hasRuleset = false; // the stage gate's "Standards pack selected" = a ruleset artefact in force, not the display name
-  const refresh = async () => {
+  const refresh = async (mine: number, key: string) => {
     msg("Aggregating health, issues and cost…");
-    gateRole = await myRole(base, pid());
+    const role = await myRoleRead(base, key);
+    if (mine !== seq) return;
+    gateRole = role;
     let noRuleset = false;
     let active: Awaited<ReturnType<typeof activeRuleset>> = null;
     try { active = await activeRuleset(base); } catch { active = null; } // project → office; null = nothing installed
+    if (mine !== seq) return;
     if (active && !active.ruleset.rules.length) active = null; // every rule needed an {org} the ruleset lacks — judges nothing
     hasRuleset = !!active;
     // QA health + compliance (only if a model is loaded, and only against an installed ruleset)
@@ -111,47 +131,62 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
         if (!active) { noRuleset = true; kpis.health = null; kpis.compliance = null; kpis.blockOpen = null; }
         else {
           const facts = await extractFacts(fragments, { parameterNames: paramNamesOf(active.ruleset) });
+          if (mine !== seq) return;
           const report = scan(facts, active.ruleset, { doc_title: "project", now: new Date().toISOString() });
           kpis.health = buildScorecard(report).score;
           kpis.compliance = report.score;
           kpis.blockOpen = report.violations.filter((v) => v.mode === "block").length;
         }
-      } catch { kpis.health = null; kpis.compliance = null; kpis.blockOpen = null; }
+      } catch { if (mine !== seq) return; kpis.health = null; kpis.compliance = null; kpis.blockOpen = null; }
       try {
-        const boq = buildBoQ(await quantityTakeoff(fragments), defaultRates);
+        const qto = await quantityTakeoff(fragments);
+        if (mine !== seq) return;
+        const boq = buildBoQ(qto, defaultRates);
         kpis.cost = boq.total; kpis.currency = boq.currency;
-      } catch { kpis.cost = null; }
+      } catch { if (mine !== seq) return; kpis.cost = null; }
     } else {
       kpis.health = null; kpis.compliance = null; kpis.cost = null; kpis.blockOpen = null;
     }
     // Open issues + hard clashes from the BCF service (works with no model). No answer = not measured, never 0.
     try {
-      const topics = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
+      const topics = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(key)}/topics?status=all&model=`)).json();
+      if (mine !== seq) return;
       const openT = topics.filter((t: any) => t.topic_status !== "Closed" && t.topic_status !== "Resolved");
       kpis.open = openT.length;
       kpis.hard = openT.filter((t: any) => /clash/i.test(t.topic_type)).length;
-    } catch { kpis.open = null; kpis.hard = null; }
+    } catch { if (mine !== seq) return; kpis.open = null; kpis.hard = null; }
     // Open RFIs (Phase 2 gate metric)
     try {
-      const rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(pid())}?status=all`)).json();
+      const rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(key)}?status=all`)).json();
+      if (mine !== seq) return;
       kpis.openRfis = rfis.filter((r: any) => r.status !== "Closed").length;
-    } catch { kpis.openRfis = null; }
+    } catch { if (mine !== seq) return; kpis.openRfis = null; }
 
     renderAll();
-    persistSnapshot();
-    msg(fragments.list.size === 0 ? "No model loaded — load one for health & cost. Issues shown from the service."
-      : noRuleset ? `${NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date.",
-      noRuleset ? "#eab308" : undefined);
+    persistSnapshot(key);
+    msg(projectErr || (fragments.list.size === 0 ? "No model loaded — load one for health & cost. Issues shown from the service."
+      : noRuleset ? `${NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date."),
+      projectErr ? "#ef4444" : noRuleset ? "#eab308" : undefined);
+  };
+  const reload = async () => {
+    const mine = ++seq, key = pid();
+    // Nothing of the previous wave is drawn under this one: the gate button is withheld until the role is read,
+    // and the tiles and the gate preview start from "not measured".
+    gateRole = null;
+    kpis = noKpis();
+    hasRuleset = false;
+    await loadProject(mine, key);
+    if (mine === seq) await refresh(mine, key);
   };
 
-  const persistSnapshot = () => {
+  const persistSnapshot = (key: string) => {
     const snap: Record<string, number | string> = { currency: kpis.currency };
     if (kpis.open != null) snap.open_issues = kpis.open;
     if (kpis.hard != null) snap.hard_clashes = kpis.hard;
     if (kpis.health != null) snap.health = Math.round(kpis.health);
     if (kpis.compliance != null) snap.compliance = Math.round(kpis.compliance);
     if (kpis.cost != null) snap.cost_total = Math.round(kpis.cost);
-    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, {
+    bfetch(`${base}/projects/${encodeURIComponent(key)}`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: snap }),
     }).catch(() => {});
   };
@@ -171,10 +206,13 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     const i = stageIdx(project.stage);
     if (i < 0 || i >= STAGES.length - 1) { msg("Final stage reached.", "#eab308"); return; }
     msg("Running the gate on the bridge…");
+    const mine = seq, key = pid();
     let reply: GateReply;
-    try { reply = await runStageGate(base, pid(), project.stage); }
-    catch (e) { msg(`Gate not run — ${String((e as Error)?.message || e)}`, "#ef4444"); return; }
-    await loadProject(); // the stage and the gates come back from the ledger
+    try { reply = await runStageGate(base, key, project.stage); }
+    catch (e) { if (mine === seq) msg(`Gate not run — ${String((e as Error)?.message || e)}`, "#ef4444"); return; }
+    if (mine !== seq) return;
+    await loadProject(mine, key); // the stage and the gates come back from the ledger
+    if (mine !== seq) return;
     msg(gateLine(reply, stageName), reply.status === "pass" ? "#22c55e" : "#eab308");
   };
 
@@ -261,21 +299,21 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       const word = st === "pass" ? "GATE PASS" : st === "not_checkable" ? `GATE NOT CHECKABLE — not measured: ${esc(naLabels)}` : "GATE HOLD";
       h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${word}</div>`;
     }
-    if (isCurrent && next && gateRole !== null && canGovernRole(gateRole)) {
+    if (isCurrent && next && gateRole !== null && canGovernRole(gateRole.role)) {
       h += `<button id="ps-advance" style="${btn};background:#6528d7;color:#fff;width:100%;margin-top:.6rem">Run gate → advance to ${esc(next.nm)}</button>`;
     } else if (isCurrent && next && gateRole !== null) {
-      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">your role: ${esc(gateRole)} — a lead or owner runs the gate.</div>`;
+      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">${esc(roleWords(gateRole))} — a lead or owner runs the gate.</div>`;
     }
     el("ps-gate").innerHTML = h;
     const adv = root.querySelector("#ps-advance");
     if (adv) adv.addEventListener("click", advance);
   };
 
-  el("ps-refresh").addEventListener("click", refresh);
+  el("ps-refresh").addEventListener("click", () => void reload());
 
   // initial: load persisted state, then aggregate live KPIs.
-  loadProject().then(refresh);
+  void reload();
   // Re-aggregate for the newly selected project when the global switcher changes it.
-  onActiveProjectChange(() => loadProject().then(refresh));
+  onActiveProjectChange(() => void reload());
   return root;
 }

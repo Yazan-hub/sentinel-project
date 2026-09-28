@@ -15,6 +15,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
   let open = false;
   let msg = "";
   let busy = false;
+  let dismissed = false; // ✕ closed the form: a signed-out 401 (the Issues feed's, every 3 s) must not reopen it
 
   const esc = (s?: string | null) =>
     (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
@@ -61,17 +62,21 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
       if (!r.ok) { msg = r.message; render(); }
     };
     (wrap.querySelector("#aw-go") as HTMLElement).addEventListener("click", () => void go());
-    (wrap.querySelector("#aw-x") as HTMLElement).addEventListener("click", () => { open = false; msg = ""; render(); });
+    (wrap.querySelector("#aw-x") as HTMLElement).addEventListener("click", () => { open = false; dismissed = true; msg = ""; render(); });
     passEl.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") void go(); });
     emailEl.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") passEl.focus(); });
   };
 
-  onAuthChange((s) => { session = s; open = false; msg = ""; busy = false; render(); });
+  onAuthChange((s) => {
+    // A sign-in or sign-out (not a token refresh) clears ✕, so a later signed-out 401 may prompt again.
+    if ((s?.user?.id ?? null) !== (session?.user?.id ?? null)) dismissed = false;
+    session = s; open = false; msg = ""; busy = false; render();
+  });
   currentSession().then((s) => { session = s; render(); }).catch(() => render());
 
   // ponytail: debounce by checking state before opening; upgrade if event spam becomes an issue
   document.addEventListener("sentinel:signin-needed", () => {
-    if (!open && !session) {
+    if (!open && !session && !dismissed) {
       open = true;
       msg = "";
       render();

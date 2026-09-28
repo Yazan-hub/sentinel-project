@@ -47,7 +47,7 @@ import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
 import { activePid, onActiveProjectChange, refreshActiveProject } from "./setups/active-project";
-import { onAuthChange } from "./setups/auth";
+import { onAuthChange, currentSession } from "./setups/auth";
 import { userChangeFilter } from "./setups/user-change";
 import { nextStrip, tabIndex } from "./setups/next-strip";
 
@@ -185,6 +185,10 @@ async function main() {
     /* dev/no-project → consumers degrade gracefully */
   }
   setAppContext(client, projectData);
+  // Who is signed in must be known before any panel records its load scope (load-scope.ts): a session restored at start
+  // would otherwise be recorded as nobody, and the first sign-out would look like a refresh. Capped, so an offline start
+  // (a token refresh that cannot reach Supabase) never holds the app up.
+  await Promise.race([currentSession().catch(() => null), new Promise((r) => setTimeout(r, 1500))]);
 
   // Pluggable loaders for <top-models-list>. The built-in ships the lightweight
   // defaults (.frag load, IFC→fragments convert); heavy/app-specific loaders are
@@ -315,6 +319,8 @@ async function main() {
   // Approve/Reject and a lead's controls are the bridge's answer for the person asking (a token refresh is no change).
   const userChanged = userChangeFilter();
   onAuthChange((session) => { if (userChanged(session)) refreshActiveProject(); });
+  // The bridge answers again after a read failed to reach it (bridge-fetch.ts): every panel re-reads.
+  document.addEventListener("sentinel:bridge-back", () => refreshActiveProject());
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.

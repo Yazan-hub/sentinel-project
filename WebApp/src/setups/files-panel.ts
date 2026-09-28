@@ -4,7 +4,8 @@ import { bfetch } from "./bridge-fetch";
 import { getAppManager } from "../app";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { myRole, canEditRole, canGovernRole } from "./my-role";
+import { myRoleRead, roleWords, canEditRole, canGovernRole } from "./my-role";
+import { loadScope } from "./load-scope";
 import { ledgerLine } from "./stage-gate";
 import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem } from "./holding";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
@@ -66,6 +67,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let deletedError: string | null = null;
   let showDeleted = false;
   let role = "viewer";
+  let roleSaid = "your role: viewer"; // roleWords() of the last role read: "role not read — read-only" when it failed
   // Inline action states — window.prompt/confirm are silently blocked in the platform's cross-origin
   // iframe (Chrome removed them), so rename uses an inline input and archive/delete a two-click confirm.
   let renaming: string | null = null;
@@ -112,7 +114,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const api = async (path: string, method = "GET", body?: unknown) => {
     const r = await bfetch(`${base}/cde/${path}`, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+    if (!r.ok) throw Object.assign(new Error((j as { message?: string })?.message || `HTTP ${r.status}`), { status: r.status });
     return j;
   };
 
@@ -124,15 +126,23 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   };
   const when = (s: string) => (s || "").replace("T", " ").slice(0, 16);
 
+  let seq = 0; // a slower read for the previous project/person never lands last
+  let loadedScope = ""; // the project + person of the last load (load-scope.ts)
   async function load() {
+    const mine = ++seq, key = pid();
+    // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; }
+    loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
-    el("fv-proj").textContent = pid();
+    el("fv-proj").textContent = key;
     status("Loading…");
-    const asked = gateUpload();
+    const asked = gateUpload(mine, key);
     try {
-      files = (await api(`${encodeURIComponent(pid())}/files`)) as FileRec[];
+      const fl = (await api(`${encodeURIComponent(key)}/files`)) as FileRec[];
       // Map each container_version to its snapshot revision (if a take-off was captured against it) for compare.
-      const revs = await fetchRevisions(base, pid());
+      const revs = await fetchRevisions(base, key);
+      if (mine !== seq) return;
+      files = fl;
       revByVersion = new Map();
       for (const r of revs) if (r.container_version_id) revByVersion.set(r.container_version_id, r.id);
       // The ledger → per-version history (uploaded / set live / state transitions / verdicts, with who + when): only
@@ -141,31 +151,49 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       historyGap = "";
       const ids = files.flatMap((f) => [f.id, ...f.versions.map((v) => v.id)]);
       if (ids.length) {
-        try {
-          // ponytail: every id in one GET; batch the ids if a project's files and versions reach the hundreds.
-          const { rows, total } = (await api(`${encodeURIComponent(pid())}/audit?entity_id=${ids.join(",")}&limit=1000`)) as { rows: AuditEvent[]; total: number };
-          for (const r of rows) {
+        // 100 ids a GET (~3.7 KB of URL): all ids in one GET pass the bridge's 16 KB header limit at ~400 ids, and that
+        // fails at the network layer. A failed or partial chunk is said, never shown as "no history".
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+        const got = await Promise.allSettled(chunks.map((c) =>
+          api(`${encodeURIComponent(key)}/audit?entity_id=${c.join(",")}&limit=1000`) as Promise<{ rows: AuditEvent[]; total: number }>));
+        if (mine !== seq) return;
+        let read = 0, total = 0, failed = 0, why = "";
+        for (const g of got) {
+          if (g.status === "rejected") { failed++; why = why || (g.reason as Error)?.message || String(g.reason); continue; }
+          read += g.value.rows.length;
+          total += g.value.total;
+          for (const r of g.value.rows) {
             if (!r.entity_id) continue;
             const list = auditByEntity.get(r.entity_id) ?? auditByEntity.set(r.entity_id, []).get(r.entity_id)!;
             list.push(r);
           }
-          if (rows.length < total) historyGap = `History read ${rows.length} of ${total} ledger rows (the newest).`;
-        } catch (e) { historyGap = `History unavailable — ${(e as Error).message}.`; }
+        }
+        const gaps: string[] = [];
+        if (failed) gaps.push(failed === got.length ? `History unavailable — ${why}.` : `History partly read — ${failed} of ${got.length} ledger reads failed: ${why}.`);
+        if (read < total) gaps.push(`History read ${read} of ${total} ledger rows (the newest).`);
+        historyGap = gaps.join(" ");
       }
       // The Holding Area (spec 2026-09-27 Decision 7) is its own read: a failure there is said, never "none on hold".
       dismissing = null;
-      try { holding = await readHolding(base, pid()); holdError = null; }
-      catch (e) { holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
-      try { deleted = await readDeleted(base, pid()); deletedError = null; }
-      catch (e) { deleted = []; deletedError = (e as Error).message; }
+      try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
+      catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
+      try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
+      catch (e) { if (mine !== seq) return; deleted = []; deletedError = (e as Error).message; }
       await asked;
+      if (mine !== seq) return;
       render();
       const held = holdError ? `on hold: ${holdError}` : `${holding.items.length} on hold`;
       const bin = deletedError ? `Deleted items: ${deletedError}` : `${deleted.length} in Deleted items`;
       status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s) · ${held} · ${bin}.${historyGap ? " " + historyGap : ""}`);
     } catch (e) {
+      if (mine !== seq) return;
       files = [];
-      el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Couldn't load versions: ${esc((e as Error).message)}.<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span></div>`;
+      dismissing = null; renaming = null; armed = null; // their inputs are gone with the list
+      // A sign-in (401) or membership/role (403) refusal is the bridge's answer, not a missing CDE config.
+      const refused = [401, 403].includes((e as { status?: number }).status ?? 0);
+      el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Files not read — ${esc((e as Error).message)}.` +
+        (refused ? "" : `<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span>`) + `</div>`;
       status("Unavailable.");
     }
   }
@@ -320,7 +348,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `<span style="flex:1;min-width:0"><span style="color:#a1a1aa;display:block;overflow-wrap:anywhere">${esc(what)}</span>` +
         `<span style="color:#71717a;font-size:10.5px">${esc(who)}</span></span>` +
         (lead ? `<button data-drestore="${i}" style="${act}" title="Bring it back with its history">Restore</button>` : "") + "</div>";
-    }).join("") + (lead ? "" : `<div style="color:#71717a;font-size:10.5px;padding:0 .2rem .3rem">A lead or owner restores — your role: ${esc(role)}.</div>`);
+    }).join("") + (lead ? "" : `<div style="color:#71717a;font-size:10.5px;padding:0 .2rem .3rem">A lead or owner restores — ${esc(roleSaid)}.</div>`);
   }
 
   async function restoreItem(i: number) {
@@ -367,12 +395,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts move to Deleted items">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`);
       // The empty-file hint names only what this role can do.
       const emptyHint = lead ? `No versions left — ${f.deleted_versions ? "restore one from Deleted items, " : ""}upload one, or Delete the empty file`
-        : canEditRole(role) ? `No versions left — upload one; a lead restores or deletes it (your role: ${esc(role)})`
-        : `No versions left — a contributor uploads one, a lead restores or deletes it (your role: ${esc(role)})`;
+        : canEditRole(role) ? `No versions left — upload one; a lead restores or deletes it (${esc(roleSaid)})`
+        : `No versions left — a contributor uploads one, a lead restores or deletes it (${esc(roleSaid)})`;
       const hint = armKind === "delete" ? "Moves to Deleted items with its versions — a lead can restore it. Sure?"
         : armKind === "archive" ? "Published → archive, drafts → Deleted items. Sure?"
         : empty ? emptyHint
-        : lead ? "File actions" : `File actions — archive and delete are a lead's (your role: ${esc(role)})`;
+        : lead ? "File actions" : `File actions — archive and delete are a lead's (${esc(roleSaid)})`;
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
         `<span style="color:#71717a;font-size:10.5px;flex:1">${hint}</span>` +
@@ -648,18 +676,26 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   el("fv-upload").addEventListener("click", () => (el("fv-file") as HTMLInputElement).click());
   // Upload is a write: contributor and up; Dismiss… on a held file is a lead's. Re-asked on every load (load() calls
   // it) so a demotion takes effect on reload.
-  const gateUpload = async () => {
-    role = await myRole(base, pid());
+  const gateUpload = async (mine: number, key: string) => {
+    const r = await myRoleRead(base, key);
+    if (mine !== seq) return;
+    role = r.role;
+    roleSaid = roleWords(r);
     const btn = el("fv-upload") as HTMLElement;
     btn.style.display = canEditRole(role) ? "" : "none";
-    btn.title = canEditRole(role) ? "" : `your role: ${role} — uploads need contributor or above`;
+    btn.title = canEditRole(role) ? "" : `${roleSaid} — uploads need contributor or above`;
   };
   (el("fv-file") as HTMLInputElement).addEventListener("change", (ev) => {
     const f = (ev.target as HTMLInputElement).files?.[0];
     if (f) uploadNewVersion(f);
     (ev.target as HTMLInputElement).value = "";
   });
-  onActiveProjectChange(() => void load());
+  // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
+  // input or armed confirm; a project or person switch always reloads (load() drops them).
+  onActiveProjectChange(() => {
+    if (loadScope(pid()) === loadedScope && (dismissing != null || renaming || armed)) return;
+    void load();
+  });
   void load();
   return root;
 }

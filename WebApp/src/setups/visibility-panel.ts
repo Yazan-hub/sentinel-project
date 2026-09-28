@@ -152,15 +152,19 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
    *  Re-resolved on every run (not cached at panel creation) so a project switch or a fresh Install is
    *  picked up, and so a slow fetch here can never race ahead of / overwrite a hand-loaded file (T7). */
   async function loadProjectIds() {
+    // A failed read falls back to the demo spec and says so — never a previous project's IDS under "Using project ids@n".
+    const notRead = (why: string) => { idsSpec = DEMO_IDS; idsFrom = `built-in demo IDS (project IDS not read — ${why})`; };
+    let reached = false;
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids`);
+      reached = true;
       if (r.ok) {
         const a = await r.json();
         if (Array.isArray(a?.body?.specifications)) { idsSpec = a.body as IdsSpec; idsFrom = `project ids@${a.version}`; return; }
       } else if (r.status === 404) {
         idsSpec = DEMO_IDS; idsFrom = "built-in demo IDS"; // no project IDS installed — don't keep a stale one from a prior project
-      }
-    } catch { /* bridge offline — keep whatever spec is already loaded */ }
+      } else notRead((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+    } catch (e) { const m = (e as Error)?.message ?? String(e); notRead(reached ? m : `can't reach the bridge (${m})`); }
   }
   let lastRes: ModelValidation[] = [];
 

@@ -108,8 +108,10 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   async function refresh() {
     status("Loading views from the Bridge…");
+    let reached = false; // a network failure is "can't reach"; anything after the bridge answered is its own words
     try {
       const r = await bfetch(`${base}/views`);
+      reached = true;
       // A refused list is said in the bridge's words — shown empty it would read as "nothing published" (D7).
       const refused = await refusalText(r);
       if (refused) {
@@ -118,7 +120,7 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
         status(refused);
         return;
       }
-      if (!r.ok) throw new Error(`Bridge ${r.status}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const data = await r.json() as { sets: ViewSet[] };
       // Project-scoped: sets published against a specific web project only show inside that project.
       // Sets without a project field (older plugin) stay visible everywhere — back-compat.
@@ -130,8 +132,12 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
         ? `${total} view(s) across ${sets.length} model(s). Click a view; plans offer "isolate level in 3D".`
         : "No views published. Use Revit → Sentinel → Publish Views.");
     } catch (e) {
-      sets = []; renderList();
-      status("Couldn't reach the Bridge (" + ((e as Error)?.message ?? String(e)) + "). Start it: node bridge/bcf-service.mjs");
+      // Not read is said as not read — renderList() here would show "No views published yet" (a failed read as empty).
+      const m = (e as Error)?.message ?? String(e);
+      const why = reached ? m : `can't reach the bridge (${m})`;
+      sets = []; renderSets();
+      el("vw-list").innerHTML = `<div style="color:#fbbf24;font-size:12px;padding:.6rem;line-height:1.6">Views not read — ${esc(why)}</div>`;
+      status(reached ? `Views not read — ${m}` : `Couldn't reach the Bridge (${m}). Start it: node bridge/bcf-service.mjs`);
     }
   }
 

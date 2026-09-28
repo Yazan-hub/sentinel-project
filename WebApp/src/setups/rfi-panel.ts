@@ -1,7 +1,8 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 
@@ -86,7 +87,10 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
 
   const filtered = () => { const s = val("rf-fstatus"); return rfis.filter((r) => s === "All" || r.status === s); };
 
+  // Why the last read failed (null once a read succeeds): said in the list's place, so a filter never turns it into "No RFIs match".
+  let readErr: string | null = null;
   const renderList = () => {
+    if (readErr != null) { el("rf-count").textContent = ""; el("rf-list").innerHTML = `<div style="color:#ef4444;font-size:12px">RFIs not read — ${esc(readErr)}</div>`; return; }
     const list = filtered();
     el("rf-count").textContent = `(${list.length})`;
     el("rf-list").innerHTML = list.map((r) =>
@@ -126,14 +130,31 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
     setMode("detail");
   };
 
+  // `seq`: a slower answer for the previous project or person never overwrites the current one. `loadedScope`: what the
+  // last read was for — a notify for another project or person closes an open RFI (load-scope.ts).
+  let seq = 0, loadedScope = "";
   const fetchAll = async () => {
+    const mine = ++seq;
+    loadedScope = loadScope(projectId());
     el("rf-count").textContent = "(…)";
-    try { rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}?status=all`)).json(); renderList(); }
-    catch (e) { el("rf-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
+    try {
+      const r = await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}?status=all`);
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const list = await r.json();
+      if (mine !== seq) return;
+      if (!Array.isArray(list)) throw new Error("the bridge answered without a list");
+      rfis = list; readErr = null; renderList();
+    } catch (e) {
+      if (mine !== seq) return;
+      rfis = [];
+      readErr = e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message;
+      renderList();
+    }
   };
 
   const update = async (guid: string, body: Record<string, unknown>) => {
-    try { await bwrite(`${base}/rfis/${encodeURIComponent(projectId())}/${guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, author: "Web coordinator" }) }); await fetchAll(); const r = rfis.find((x) => x.guid === guid); if (r) showDetail(guid); msg("Updated."); }
+    const scope = loadScope(projectId());
+    try { await bwrite(`${base}/rfis/${encodeURIComponent(projectId())}/${guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, author: "Web coordinator" }) }); await fetchAll(); const r = rfis.find((x) => x.guid === guid); if (r && loadScope(projectId()) === scope) showDetail(guid); msg("Updated."); }
     catch (e) { msg("Update failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
@@ -158,5 +179,7 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
   });
 
   setMode("list"); fetchAll();
+  // Another project or person: back to the list (an open RFI's Save/Close would write the old one under this key).
+  onActiveProjectChange(() => { if (loadScope(projectId()) !== loadedScope) setMode("list"); void fetchAll(); });
   return root;
 }

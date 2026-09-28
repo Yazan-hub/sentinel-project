@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
@@ -36,8 +36,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const val = (o: any): string | undefined => (o && !Array.isArray(o) && typeof o === "object" && "value" in o && o.value != null ? String(o.value) : undefined);
 
-  let known = new Set<string>();
-  try { known = new Set(JSON.parse(localStorage.getItem(knownKey()) || "[]")); } catch { /* */ }
+  const readKnownLocal = (): Set<string> => { try { return new Set(JSON.parse(localStorage.getItem(knownKey()) || "[]")); } catch { return new Set(); } };
+  let known = readKnownLocal();
   const persistKnown = () => { try { localStorage.setItem(knownKey(), JSON.stringify([...known])); } catch { /* */ } };
 
   // Per-element provenance captured at raise-time (immutable): what the two clashing elements WERE when
@@ -47,22 +47,33 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   let register: ClashRecord[] = []; // the recorded clashes (server store), shown in the Register view
   let view: "new" | "register" = "new";
 
+  // `gen` is bumped on each project or person change: an answer read before it is dropped, so the previous project's
+  // register never lands in (or is persisted under) this one's key.
+  let gen = 0;
+  // Why the register was not read (the bridge's words), said in its place — never "No recorded clashes yet".
+  let registerError: string | null = null;
   // Server-side clash-status store (team-wide dedup + lifecycle). localStorage stays as an offline mirror,
   // so a stale bridge without the /clash route degrades cleanly to the old per-browser behaviour.
   const loadKnownFromServer = async () => {
+    const mine = gen;
     try {
       const r = await bfetch(`${base}/clash/${encodeURIComponent(pid())}`);
-      if (!r.ok) return; // route absent (bridge not restarted) → keep localStorage-only
-      const data = await r.json();
-      if (Array.isArray(data?.items)) { register = data.items; for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown(); }
-    } catch { /* offline → localStorage only */ }
+      const data = await r.json().catch(() => null);
+      if (mine !== gen) return;
+      // A refusal or an absent route (bridge not restarted) keeps localStorage-only, and the Register says so.
+      if (!r.ok) { registerError = data?.message || `HTTP ${r.status}`; return; }
+      if (!Array.isArray(data?.items)) { registerError = "the bridge answered without a list"; return; }
+      registerError = null; register = data.items; for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown();
+    } catch (e) { if (mine === gen) registerError = `can't reach the bridge (${(e as Error).message})`; } // offline → localStorage only
   };
-  const knownReady = loadKnownFromServer();
-  const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[]) =>
-    bwrite(`${base}/clash/${encodeURIComponent(pid())}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+  let knownReady = loadKnownFromServer();
+  const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[], key = pid()) =>
+    bwrite(`${base}/clash/${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
   const resetKnownOnServer = () => bwrite(`${base}/clash/${encodeURIComponent(pid())}/reset`, { method: "POST" });
 
   let clashes: Clash[] = [];
+  let clashesKey = pid(); // the project the New list was filtered for (its known set)
+  let clashesNote = ""; // why the New list is empty when no run answered it (a project change)
   let tol = 0.02;
   let mode: "hard" | "clearance" = "hard";
 
@@ -103,10 +114,21 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const fedColour: Record<string, string> = { pass: "#22c55e", fail: "#f87171", not_checkable: "#eab308" };
   async function loadFederation() {
     const text = el("cl-fed-text");
+    const mine = gen;
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation`);
-      if (!r.ok) { text.style.color = "#9ca3af"; text.textContent = "Federation Gate: not available on this bridge"; return; }
+      if (!r.ok) {
+        const why = (await r.json().catch(() => null))?.message || `HTTP ${r.status}`;
+        if (mine !== gen) return;
+        text.style.color = "#9ca3af";
+        // No route, or no CDE (single desktop — gateAllowsRaise reads that as no gate): there is no gate here. Any other
+        // refusal (401, 403, 503) is said in the bridge's words.
+        const noGate = r.status === 404 || (r.status === 503 && /CDE not configured/i.test(why));
+        text.textContent = noGate ? "Federation Gate: not available on this bridge" : `Federation Gate: not read — ${why}`;
+        return;
+      }
       const f = (await r.json()) as FedState;
+      if (mine !== gen) return;
       const lock = f.raise && !f.raise.ok ? " · ⚑ Raise locked until the gate passes" : "";
       if (!f.latest) {
         text.style.color = fedColour.not_checkable;
@@ -123,7 +145,11 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         ` · ${f.latest.set.length} model(s) · ${String(f.latest.at).slice(0, 10)}` +
         (models.length && read < models.length ? ` · ${read} of ${models.length} read` : "") +
         (f.stale ? " · STALE — a live version changed" : "") + lock;
-    } catch { el("cl-fed-text").textContent = "Federation Gate: bridge unreachable"; }
+    } catch (e) {
+      if (mine !== gen) return;
+      text.style.color = "#9ca3af";
+      text.textContent = e instanceof TypeError ? "Federation Gate: not read — can't reach the bridge" : `Federation Gate: not read — ${(e as Error).message}`;
+    }
   }
   el("cl-fed-run").onclick = async () => {
     const b = el("cl-fed-run") as HTMLButtonElement;
@@ -148,7 +174,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   function renderList() {
     const host = el("cl-list");
-    if (!clashes.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No new clashes. (Run clash, or Reset to re-surface resolved ones.)</div>'; return; }
+    if (!clashes.length) { host.innerHTML = `<div style="color:#9ca3af;font-size:12px;padding:.6rem">${clashesNote || "No new clashes. (Run clash, or Reset to re-surface resolved ones.)"}</div>`; return; }
     const shown = clashes.slice(0, 300);
     host.innerHTML = shown.map((c, i) =>
       `<div class="cl-row" data-i="${i}" style="display:flex;gap:.5rem;align-items:center;padding:.3rem .4rem;border:1px solid #3a1f1f;background:#241a1a;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer;font-size:12px">` +
@@ -190,6 +216,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   function renderRegister() {
     const host = el("cl-list");
+    if (registerError) { host.innerHTML = `<div style="color:#fbbf24;font-size:12px;padding:.6rem">Register not read — ${esc(registerError)}</div>`; return; }
     if (!register.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No recorded clashes yet. Run clash → <b>⚑ Raise</b> to record them here (status + element provenance).</div>'; return; }
     const counts = CLASH_STATUSES.map((s) => `${register.filter((r) => r.status === s).length} ${s}`).join(" · ");
     const sorted = [...register].sort((a, b) => CLASH_STATUSES.indexOf(a.status) - CLASH_STATUSES.indexOf(b.status) || (b.volume ?? 0) - (a.volume ?? 0));
@@ -230,6 +257,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   async function run() {
     if (fragments.list.size === 0) { status("Load a model first."); return; }
     if (view !== "new") setView("new"); // scan results live in the New view
+    const key = pid();
     await knownReady; // load the team-wide known set before filtering (first run only; resolves instantly after)
     status("Running clash (reading boxes)…");
     try {
@@ -246,7 +274,9 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
           confirmed = confirm(res.clashes, hits, m);
         } catch (e) { solidsError = (e as Error)?.message ?? String(e); }
       }
-      clashes = confirmed ? confirmed.clashes : res.clashes;
+      // Filtered with the known set of the project the run started in: a switch meanwhile drops it (Raise would file it there).
+      if (pid() !== key) { status("The project changed during the run — run clash again for this project."); return; }
+      clashes = confirmed ? confirmed.clashes : res.clashes; clashesKey = key; clashesNote = "";
       // eslint-disable-next-line no-console
       console.log("[Sentinel] clash run", { ...res, confirmed, solidsError });
       renderList();
@@ -311,6 +341,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   async function raise() {
     if (!clashes.length) { status("Run clash first."); return; }
+    const key = pid(); // the project these clashes were filtered for: every write goes there, even if a switch lands mid-raise
     const gate = await gateAllowsRaise();
     if (!gate.ok) { status(`Not raised — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
     const top = clashes.slice(0, 100); // cap: raise the 100 largest new clashes
@@ -330,14 +361,14 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
           { guid: gb ?? null, category: ib?.category ?? null, name: ib?.name ?? null, model_id: c.b.modelId, local_id: c.b.localId },
         ];
         const la = elemLabel(ia, c, "a"), lb = elemLabel(ib, c, "b");
-        const topic = await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics`, {
+        const topic = await post(`/bcf/3.0/projects/${encodeURIComponent(key)}/topics`, {
           title: `Clash: ${la} ↔ ${lb} (${c.volume.toFixed(3)} m³)`,
           topic_type: "Clash", priority: "High", creation_author: "Clash",
           description: `Hard clash: ${la} ↔ ${lb}. Overlap ${c.overlap.map((o) => o.toFixed(2)).join("×")} m (${c.volume.toFixed(3)} m³). Signature ${c.id}.`,
         });
         const sel = [ga, gb].filter(Boolean).map((g) => ({ ifc_guid: g }));
         if (topic?.guid && sel.length) {
-          await post(`/bcf/3.0/projects/${encodeURIComponent(pid())}/topics/${topic.guid}/viewpoints`, { components: { selection: sel } }).catch(() => {});
+          await post(`/bcf/3.0/projects/${encodeURIComponent(key)}/topics/${topic.guid}/viewpoints`, { components: { selection: sel } }).catch(() => {});
         }
         // The "Clash raised" ledger row is the bridge's now, written when the register below records the clash (H0 D11).
         raisedItems.push({ signature: c.id, status: "raised", volume: c.volume, label: `${la} ↔ ${lb}`, bcf_guid: topic?.guid ?? null, elements, overlap: c.overlap });
@@ -347,12 +378,13 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     if (!raised && refusal) { status(`Nothing raised — ${refusal}`); return; }
     // The register (team-wide, carries provenance, writes the ledger rows) must take them before they count as known: a
     // refusal is said in the bridge's words, and the clashes re-surface on the next run instead of vanishing from this browser.
-    try { await pushKnownToServer(raisedItems); }
+    try { await pushKnownToServer(raisedItems, key); }
     catch (e) {
       const why = (e as Error).message.replace(/\s*—\s*nothing was saved\s*$/i, "");
       status(`Raised ${raised} Issue(s), but the clash register did not record them — ${why}. They are not on the register or the ledger and will re-surface on the next run.`);
       return;
     }
+    if (pid() !== key) { status(`Raised ${raised} clash(es) in ${key} and recorded them there; the project changed meanwhile.`); return; }
     for (const it of raisedItems) known.add(it.signature);
     persistKnown();
     clashes = clashes.filter((c) => !known.has(c.id));
@@ -378,6 +410,20 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     const input = el("cl-tol") as HTMLInputElement;
     tol = mode === "hard" ? 0.02 : 0.05;
     input.value = String(tol);
+  });
+  // A project or person change: this project's known set (local mirror, then the team's), register and gate. The New list
+  // is the last run's result over the loaded models, filtered with its project's known set: it stays for the same project
+  // (a person change, the bridge back) and is cleared for another, so ⚑ Raise never files it there.
+  onActiveProjectChange(() => {
+    if (pid() !== clashesKey) {
+      clashesKey = pid();
+      if (clashes.length) { clashes = []; clashesNote = "Project changed — run clash again for this project."; status(clashesNote); if (view === "new") renderList(); }
+    }
+    const mine = ++gen;
+    known = readKnownLocal(); register = []; registerError = null;
+    knownReady = loadKnownFromServer();
+    void loadFederation();
+    void knownReady.then(() => { if (mine === gen && view === "register") renderRegister(); });
   });
   return root;
 }

@@ -4,6 +4,34 @@
 // bridge uses the service key exactly as before. Panels adopt `bfetch` in place of `fetch` for bridge calls.
 // See docs/jwt-forwarding-activation.md.
 import { accessToken } from "./auth";
+import { SERVICE_URL } from "../config";
+
+// Bridge-back watcher: a read that never reached the bridge arms one probe chain on /health. The first probe runs at
+// once: if the bridge answers, the failed read was not an outage (an over-long URL, a proxy error on one route) and
+// nothing reloads — so a read that always fails cannot loop the app (it costs one /health per failed read, no more).
+// Otherwise probes follow at 5 s, 15 s, 45 s, then every 60 s until the bridge answers; that first answer after an
+// outage fires 'sentinel:bridge-back' once (main.ts → refreshActiveProject: every panel re-reads). Plain fetch, not
+// bfetch: a request carrying a JWT gets a 503 from a bridge without SUPABASE_ANON_KEY, even on /health.
+let watching = false;
+const PROBE_WAITS = [0, 5000, 15000, 45000];
+const PROBE_EVERY = 60000;
+function watchBridge(): void {
+  if (watching) return;
+  watching = true;
+  let sawDown = false;
+  const probe = async (i: number): Promise<void> => {
+    try {
+      if ((await fetch(`${SERVICE_URL}/health`, { cache: "no-store" })).ok) {
+        watching = false;
+        if (sawDown) globalThis.document?.dispatchEvent(new CustomEvent("sentinel:bridge-back"));
+        return;
+      }
+    } catch { /* unreachable (a Funnel 502 without CORS rejects too) */ }
+    sawDown = true;
+    setTimeout(() => void probe(i + 1), PROBE_WAITS[i + 1] ?? PROBE_EVERY);
+  };
+  void probe(0);
+}
 
 /** Authorization header with the current Supabase session JWT (empty when signed out / auth off). Never throws. */
 export async function authHeaders(): Promise<Record<string, string>> {
@@ -18,7 +46,15 @@ export async function authHeaders(): Promise<Record<string, string>> {
 /** fetch() that adds the user's Supabase JWT. Caller headers win over the injected Authorization. */
 export async function bfetch(url: string, init: RequestInit = {}): Promise<Response> {
   const auth = await authHeaders();
-  const res = await fetch(url, { ...init, headers: { ...auth, ...(init.headers || {}) } });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers: { ...auth, ...(init.headers || {}) } });
+  } catch (e) {
+    // Only a plain read that never reached the bridge: not a write (an open editor is never reloaded away), not the
+    // event feed (it passes a signal and retries on its own), not an abort.
+    if ((e as Error)?.name !== "AbortError" && !init.signal && (init.method ?? "GET").toUpperCase() === "GET") watchBridge();
+    throw e;
+  }
   // A 401 with no auth header attached means the caller is signed out (not a bad/expired token) —
   // surface it once so a panel author can eventually show "sign in" instead of a bare "HTTP 401".
   if (res.status === 401 && !auth.Authorization) {
@@ -71,6 +107,14 @@ export function bridgeEvents(url: string, onData: (data: string) => void): () =>
         if (res.status === 400 || res.status === 403 || res.status === 404) {
           console.warn(`[bridge] live events refused (${res.status}): ${url}`);
           return;
+        }
+        // Signed out: only a sign-in can change the answer, and a sign-in restarts the feed (the panels' notify) — so ask
+        // once a minute, not every 3 s. It never stops for good: a session that failed a token refresh may still come back.
+        // A 401 WITH a token (one expiring) keeps the 3 s retry: a token refresh is not a user change and restarts nothing.
+        if (res.status === 401 && !(await authHeaders()).Authorization) {
+          console.warn(`[bridge] live events need a sign-in: ${url}`);
+          await new Promise((r) => setTimeout(r, 60000));
+          continue;
         }
         if (res.ok && res.body) {
           const reader = res.body.getReader();

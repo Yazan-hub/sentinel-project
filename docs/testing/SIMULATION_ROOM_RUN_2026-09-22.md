@@ -760,3 +760,17 @@ only the machine credential reaches it), so the founder's own files stay in Dele
 | Not run live | a signed-in viewer's Restore (403) and a web Restore click | no second account; the founder's files are his to restore — the route's lead check and the guard's role check are pinned by `cde-store-writes.test.mjs` and probe rows D1, D14, D21 |
 | Published | web app 1.0.28 with Deleted items | 1.0.28 published ~18:55 UTC (version 6abab82613cf4cfc31e0a522, 15.4 MB); it boots signed out in the founder's tab (reloaded by Claude's mistake: a navigate without a tab id), and says `Can't reach the bridge at https://4374ga.tailfae508.ts.net.` — local /health 200, the tailnet address 200, the public relay's TLS handshake fails, as earlier the same day after a bridge restart; the founder runs `tools/public-bridge-off.cmd` then `public-bridge-on.cmd` |
 | The published app after the toggle | reaches the bridge | still `Can't reach the bridge` after the founder's off/on: the relay answered curl, the platform top page and a sandboxed frame on example.com, but a sandboxed frame on platform.thatopen.com never sent its request. Cause: between `public-bridge-off` (MagicDNS on) and `public-bridge-on`, Chrome cached the tailnet address for the platform site's frames, and Chrome blocks a sandboxed public frame from a private address. Clearing Chrome's cached lookups (restart, or net-internals host cache + socket pools) fixed it — the founder: "worked" |
+
+## Session B23 — every panel follows a sign-in and a bridge outage (2026-09-29, before the hackathon deadline)
+
+The founder: "fix everything before the deadline". An audit mapped 28 panels; one shared watcher in `bridge-fetch.ts`
+(a failed read probes /health at once; only after an outage it saw does the first answer fire `sentinel:bridge-back`,
+which reloads every panel) and per-panel fixes; three review rounds (25 findings, then 8, all fixed). Live in the local
+app on aster-tower, in Claude's tab:
+
+| Row | Observed |
+|---|---|
+| Signed in, first load | Projects hub (8 projects), Dashboard (Run gate for the lead), Project Files (2 files, Deleted items 2, the ledger read in chunks with no gap line), Issues (8), Clash (`Federation Gate: PASS · 1 model(s)`), CDE board with the Platform deliveries strip and the ledger |
+| Sign out (Claude, in its tab) | every panel reloaded by itself: CDE `CDE: not read — Unauthorized`, `Ledger: not read — Unauthorized`, `Reviews: not read — Unauthorized`; Issues `Issues not read — Unauthorized`; Clash `Federation Gate: not read — Unauthorized`; Files `Files not read — Unauthorized.` with Upload hidden; the hub `Sign in (bottom right) to see your projects…`; the sign-in form opened once and stayed closed for 10 s after ✕ |
+| Sign in (the founder, same tab) | every panel reloaded with no ↻: the hub's 8 projects, Clash PASS, the CDE board, Issues (8) |
+| The bridge coming back | not run live (a bridge restart broke the public relay twice on 2026-09-28): pinned by `bridge-watch.test.ts` — an outage then the bridge back fires once; a read that fails while /health answers reloads nothing (no loop); a real outage right after a false alarm is still caught; a long outage keeps probing every 60 s; the signed-out feed asks once a minute |

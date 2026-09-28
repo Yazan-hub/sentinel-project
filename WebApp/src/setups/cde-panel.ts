@@ -4,6 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { transitionVersion } from "./cde-transition";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
 import { mountPlatformDeliveries } from "./platform-deliveries-panel";
@@ -207,6 +208,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   }
 
   async function commitRename(id: string, name: string) {
+    if (renaming !== id) return; // the input's blur as it is removed (Enter, Escape, a project change) is not a second commit
     renaming = null;
     const clean = name.trim();
     const f = folderById(id);
@@ -231,30 +233,48 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     catch (e) { status(`Move failed: ${(e as Error).message}`); }
   }
 
-  async function loadFolders() { folders = (await api(`${encodeURIComponent(pid())}/folders`)) as Folder[]; }
-  async function loadContainers() { containers = (await api(`${encodeURIComponent(pid())}/containers`)) as Container[]; }
+  // `mine`: the loadAll this read belongs to — an answer for a superseded one (the previous project or person) is dropped.
+  let seq = 0;
+  async function loadFolders(mine = seq) { const f = (await api(`${encodeURIComponent(pid())}/folders`)) as Folder[]; if (mine === seq) folders = f; }
+  async function loadContainers(mine = seq) { const c = (await api(`${encodeURIComponent(pid())}/containers`)) as Container[]; if (mine === seq) containers = c; }
 
   // The open review chains. A failed read is said on the board, never an empty list.
-  async function loadReviews() {
-    try { reviews = new Map((await readReviews(base, pid())).map((r) => [r.version_id, r])); reviewsError = null; }
-    catch (e) { reviews = new Map(); reviewsError = (e as Error).message; }
+  async function loadReviews(mine = seq) {
+    try { const m = new Map((await readReviews(base, pid())).map((r) => [r.version_id, r])); if (mine === seq) { reviews = m; reviewsError = null; } }
+    catch (e) { if (mine === seq) { reviews = new Map(); reviewsError = (e as Error).message; } }
   }
 
   // The platform's own verdicts on the IFCs of the linked platform project (spec 2026-09-27 platform-delivery-gate
   // Decision 8): read from the platform, beside the board, on every load.
   const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"));
 
+  let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {
+    const mine = ++seq;
+    loadedScope = loadScope(pid());
     void refreshPlatformDeliveries();
     try {
       status("Loading…");
-      await Promise.all([loadFolders(), loadContainers(), loadReviews()]);
+      await Promise.all([loadFolders(mine), loadContainers(mine), loadReviews(mine)]);
+      if (mine !== seq) return;
       refreshView();
-      renderAudit((await api(`${encodeURIComponent(pid())}/audit?limit=20`)) as AuditPage);
     } catch (e) {
-      containers = []; folders = []; reviews = new Map(); reviewsError = "not read — the CDE could not be reached";
+      if (mine !== seq) return;
+      // api() rethrows fetch's own TypeError when the bridge never answered; any other failure is the bridge's words.
+      const down = e instanceof TypeError;
+      const why = down ? `can't reach the bridge (${(e as Error).message})` : (e as Error).message;
+      containers = []; folders = []; reviews = new Map(); reviewsError = `not read — ${why}`;
       renderTree(); renderBoard([]); renderReviewBar([]);
-      status(`Can't reach the CDE: ${(e as Error).message}. Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set.`);
+      status(`CDE not read — ${why}${down ? ". Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set." : ""}`);
+    }
+    // The ledger is read on its own: a failure says so in the strip and never wipes a board that rendered.
+    try {
+      const page = (await api(`${encodeURIComponent(pid())}/audit?limit=20`)) as AuditPage;
+      if (mine !== seq) return;
+      renderAudit(page);
+    } catch (e) {
+      if (mine !== seq) return;
+      el("cde-audit").textContent = `Ledger: not read — ${e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message}`;
     }
   }
 
@@ -569,8 +589,17 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   syncLock();
   // Re-lock indicator when the active project changes (keys are per-project).
   el("cde-refresh").addEventListener("click", loadAll);
-  // Reload the board when the global switcher changes project.
-  onActiveProjectChange(() => { syncLock(); void loadAll(); });
+  // Reload the board when the global switcher changes project. Another project or person: drop what belonged to the old
+  // one (its folder, rename, delete confirm, reason box, review filter, new-container form, passphrase bar). The same
+  // scope (the bridge back): keep the selection, and leave the board alone while a note, a reason or a rename is typed in it.
+  onActiveProjectChange(() => {
+    syncLock();
+    if (loadScope(pid()) !== loadedScope) {
+      selected = null; renaming = null; confirmDel = false; needsReason = null; myReviews = false;
+      el("cde-form").style.display = "none"; el("cde-unlock").style.display = "none";
+    } else if ([...root.querySelectorAll<HTMLInputElement>("#cde-tree input, #cde-board input")].some((i) => i.value.trim())) return;
+    void loadAll();
+  });
   void loadAll();
   // Auto-refresh when this tab becomes visible, so changes made elsewhere show up.
   let lastLoad = Date.now();

@@ -6,6 +6,7 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 
 type Evidence = { revision: "met" | "mismatch" | "pending" | "not_specified"; suitability: "met" | "mismatch" | "pending" | "not_specified"; actual_revisions: string[]; actual_suitabilities: string[] };
 type Exception = { container_name: string; due_date: string | null; responsible_team: string | null; kind: string; severity: "high" | "medium" | "low"; problem: string; evidence: string };
@@ -64,21 +65,30 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     body.prepend(d);
     setTimeout(() => d.remove(), 6000);
   };
+  /** A failed read stays on screen as "… not read — why" — a vanished toast over an empty body would read as an empty plan. */
+  const notRead = (text: string) => { body.replaceChildren(Object.assign(document.createElement("div"), { textContent: text, style: "color:#fca5a5;padding:1rem" })); };
   const field = (placeholder: string, width = "9rem", value = "") => {
     const i = document.createElement("input");
     i.placeholder = placeholder;
-    i.value = value;
+    i.value = i.defaultValue = value; // the loaded value — dirty() compares against it
     i.style.cssText = `width:${width};background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui`;
     return i;
   };
 
+  // A slower list for the previous project/person never lands last; loadedScope = the project + person of the last list
+  // (load-scope.ts) — every form is opened from it, so it is theirs too.
+  let seq = 0;
+  let loadedScope = "";
   async function showList() {
+    const mine = ++seq, key = pid();
+    loadedScope = loadScope(key);
     try {
-      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
       const j = await r.json().catch(() => ({}));
+      if (mine !== seq) return;
       // Fail CLOSED (same rule as docs-panel): no answer → read-only; only the machine path is "service".
       myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
-    } catch { myRole = "viewer"; }
+    } catch { if (mine !== seq) return; myRole = "viewer"; }
 
     bar.replaceChildren();
     const title = document.createElement("span");
@@ -119,8 +129,9 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     body.append(loading);
 
     let report: StatusReport;
-    try { report = await api(`/${encodeURIComponent(pid())}/status`); }
-    catch (e) { body.replaceChildren(); msg(`Couldn't load deliverables: ${(e as Error).message}`, true); return; }
+    try { report = await api(`/${encodeURIComponent(key)}/status`); }
+    catch (e) { if (mine === seq) notRead(`Deliverables not read — ${(e as Error).message}`); return; }
+    if (mine !== seq) return;
 
     body.replaceChildren();
     if (!report.rows.length) {
@@ -454,7 +465,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     let rep: TidpReport;
     try { rep = await api(`/${encodeURIComponent(pid())}/tidp`); }
-    catch (e) { body.replaceChildren(); msg(`Couldn't load the TIDP view: ${(e as Error).message}`, true); return; }
+    catch (e) { notRead(`TIDP not read — ${(e as Error).message}`); return; }
 
     body.replaceChildren();
     const head = document.createElement("div");
@@ -792,7 +803,16 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     };
   }
 
-  onActiveProjectChange(() => void showList());
+  // Only a form holding input (a field that differs from what it was loaded with) for the same project and person is kept
+  // (there is no autosave); anything else — including a person or project change — reloads the list, which re-reads the role.
+  // A select the person changed counts as unsaved input (a re-render replaces the element, so the mark goes with it).
+  body.addEventListener("change", (e) => { const t = e.target as HTMLElement; if (t.tagName === "SELECT") t.dataset.touched = "1"; });
+  const touchedSelect = () => !!body.querySelector("select[data-touched]");
+  const dirty = () => Array.from(body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).some((i) => i.value !== i.defaultValue);
+  onActiveProjectChange(() => {
+    if (loadScope(pid()) === loadedScope && (dirty() || touchedSelect())) return;
+    void showList();
+  });
   void showList();
   return root;
 }
