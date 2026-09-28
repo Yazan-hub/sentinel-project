@@ -112,7 +112,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const api = async (path: string, method = "GET", body?: unknown) => {
     const r = await bfetch(`${base}/cde/${path}`, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+    if (!r.ok) throw Object.assign(new Error((j as { message?: string })?.message || `HTTP ${r.status}`), { status: r.status });
     return j;
   };
 
@@ -124,15 +124,19 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   };
   const when = (s: string) => (s || "").replace("T", " ").slice(0, 16);
 
+  let seq = 0; // a slower read for the previous project/person never lands last
   async function load() {
+    const mine = ++seq, key = pid();
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
-    el("fv-proj").textContent = pid();
+    el("fv-proj").textContent = key;
     status("Loading…");
-    const asked = gateUpload();
+    const asked = gateUpload(mine, key);
     try {
-      files = (await api(`${encodeURIComponent(pid())}/files`)) as FileRec[];
+      const fl = (await api(`${encodeURIComponent(key)}/files`)) as FileRec[];
       // Map each container_version to its snapshot revision (if a take-off was captured against it) for compare.
-      const revs = await fetchRevisions(base, pid());
+      const revs = await fetchRevisions(base, key);
+      if (mine !== seq) return;
+      files = fl;
       revByVersion = new Map();
       for (const r of revs) if (r.container_version_id) revByVersion.set(r.container_version_id, r.id);
       // The ledger → per-version history (uploaded / set live / state transitions / verdicts, with who + when): only
@@ -143,29 +147,35 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       if (ids.length) {
         try {
           // ponytail: every id in one GET; batch the ids if a project's files and versions reach the hundreds.
-          const { rows, total } = (await api(`${encodeURIComponent(pid())}/audit?entity_id=${ids.join(",")}&limit=1000`)) as { rows: AuditEvent[]; total: number };
+          const { rows, total } = (await api(`${encodeURIComponent(key)}/audit?entity_id=${ids.join(",")}&limit=1000`)) as { rows: AuditEvent[]; total: number };
+          if (mine !== seq) return;
           for (const r of rows) {
             if (!r.entity_id) continue;
             const list = auditByEntity.get(r.entity_id) ?? auditByEntity.set(r.entity_id, []).get(r.entity_id)!;
             list.push(r);
           }
           if (rows.length < total) historyGap = `History read ${rows.length} of ${total} ledger rows (the newest).`;
-        } catch (e) { historyGap = `History unavailable — ${(e as Error).message}.`; }
+        } catch (e) { if (mine !== seq) return; historyGap = `History unavailable — ${(e as Error).message}.`; }
       }
       // The Holding Area (spec 2026-09-27 Decision 7) is its own read: a failure there is said, never "none on hold".
       dismissing = null;
-      try { holding = await readHolding(base, pid()); holdError = null; }
-      catch (e) { holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
-      try { deleted = await readDeleted(base, pid()); deletedError = null; }
-      catch (e) { deleted = []; deletedError = (e as Error).message; }
+      try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
+      catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
+      try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
+      catch (e) { if (mine !== seq) return; deleted = []; deletedError = (e as Error).message; }
       await asked;
+      if (mine !== seq) return;
       render();
       const held = holdError ? `on hold: ${holdError}` : `${holding.items.length} on hold`;
       const bin = deletedError ? `Deleted items: ${deletedError}` : `${deleted.length} in Deleted items`;
       status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s) · ${held} · ${bin}.${historyGap ? " " + historyGap : ""}`);
     } catch (e) {
+      if (mine !== seq) return;
       files = [];
-      el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Couldn't load versions: ${esc((e as Error).message)}.<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span></div>`;
+      // A sign-in (401) or membership/role (403) refusal is the bridge's answer, not a missing CDE config.
+      const refused = [401, 403].includes((e as { status?: number }).status ?? 0);
+      el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Files not read — ${esc((e as Error).message)}.` +
+        (refused ? "" : `<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span>`) + `</div>`;
       status("Unavailable.");
     }
   }
@@ -648,8 +658,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   el("fv-upload").addEventListener("click", () => (el("fv-file") as HTMLInputElement).click());
   // Upload is a write: contributor and up; Dismiss… on a held file is a lead's. Re-asked on every load (load() calls
   // it) so a demotion takes effect on reload.
-  const gateUpload = async () => {
-    role = await myRole(base, pid());
+  const gateUpload = async (mine: number, key: string) => {
+    const r = await myRole(base, key);
+    if (mine !== seq) return;
+    role = r;
     const btn = el("fv-upload") as HTMLElement;
     btn.style.display = canEditRole(role) ? "" : "none";
     btn.title = canEditRole(role) ? "" : `your role: ${role} — uploads need contributor or above`;

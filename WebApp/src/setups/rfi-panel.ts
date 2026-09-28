@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 
@@ -128,8 +128,18 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
 
   const fetchAll = async () => {
     el("rf-count").textContent = "(…)";
-    try { rfis = await (await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}?status=all`)).json(); renderList(); }
-    catch (e) { el("rf-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
+    try {
+      const r = await bfetch(`${base}/rfis/${encodeURIComponent(projectId())}?status=all`);
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const list = await r.json();
+      if (!Array.isArray(list)) throw new Error("the bridge answered without a list");
+      rfis = list; renderList();
+    } catch (e) {
+      rfis = [];
+      el("rf-count").textContent = "";
+      const why = e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message;
+      el("rf-list").innerHTML = `<div style="color:#ef4444;font-size:12px">RFIs not read — ${esc(why)}</div>`;
+    }
   };
 
   const update = async (guid: string, body: Record<string, unknown>) => {
@@ -158,5 +168,6 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
   });
 
   setMode("list"); fetchAll();
+  onActiveProjectChange(() => void fetchAll());
   return root;
 }

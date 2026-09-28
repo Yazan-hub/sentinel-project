@@ -4,6 +4,30 @@
 // bridge uses the service key exactly as before. Panels adopt `bfetch` in place of `fetch` for bridge calls.
 // See docs/jwt-forwarding-activation.md.
 import { accessToken } from "./auth";
+import { SERVICE_URL } from "../config";
+
+// Bridge-back watcher: a read that never reached the bridge arms one probe chain; the first ok /health dispatches
+// 'sentinel:bridge-back' (main.ts turns it into refreshActiveProject, so every panel re-reads). Plain fetch, not
+// bfetch: a request carrying a JWT gets a 503 from a bridge without SUPABASE_ANON_KEY, even on /health.
+let watching = false;
+function watchBridge(): void {
+  if (watching) return;
+  watching = true;
+  // ponytail: 3 probes per outage (5 s, 15 s, 45 s); the next failed read arms it again
+  const waits = [5000, 15000, 45000];
+  const probe = async (i: number): Promise<void> => {
+    try {
+      if ((await fetch(`${SERVICE_URL}/health`, { cache: "no-store" })).ok) {
+        watching = false;
+        globalThis.document?.dispatchEvent(new CustomEvent("sentinel:bridge-back"));
+        return;
+      }
+    } catch { /* still unreachable (a Funnel 502 without CORS rejects too) */ }
+    if (i + 1 < waits.length) setTimeout(() => void probe(i + 1), waits[i + 1]);
+    else watching = false;
+  };
+  setTimeout(() => void probe(0), waits[0]);
+}
 
 /** Authorization header with the current Supabase session JWT (empty when signed out / auth off). Never throws. */
 export async function authHeaders(): Promise<Record<string, string>> {
@@ -18,7 +42,15 @@ export async function authHeaders(): Promise<Record<string, string>> {
 /** fetch() that adds the user's Supabase JWT. Caller headers win over the injected Authorization. */
 export async function bfetch(url: string, init: RequestInit = {}): Promise<Response> {
   const auth = await authHeaders();
-  const res = await fetch(url, { ...init, headers: { ...auth, ...(init.headers || {}) } });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers: { ...auth, ...(init.headers || {}) } });
+  } catch (e) {
+    // Only a plain read that never reached the bridge: not a write (an open editor is never reloaded away), not the
+    // event feed (it passes a signal and retries on its own), not an abort.
+    if ((e as Error)?.name !== "AbortError" && !init.signal && (init.method ?? "GET").toUpperCase() === "GET") watchBridge();
+    throw e;
+  }
   // A 401 with no auth header attached means the caller is signed out (not a bad/expired token) —
   // surface it once so a panel author can eventually show "sign in" instead of a bare "HTTP 401".
   if (res.status === 401 && !auth.Authorization) {

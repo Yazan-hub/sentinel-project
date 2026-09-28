@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, snapshotFromQuantities, diffSnapshots, costDiff, type BoQ, type BoQLine, type ElementQuantities, type ElementSnapshot, type RateTable } from "../sentinel-core";
@@ -198,21 +198,38 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   };
 
   const persistRates = () => {
+    // Never PUT the default pack (plus this edit) over a saved pack that was not read.
+    if (!loaded) { msg("Rate change not saved — this project's saved rates/baseline were not read.", "#ef4444"); return; }
     bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate_pack: rates }) }).catch(() => {});
   };
 
+  let loaded = false; // this project's saved rates/baseline were read — until then a rate edit is never PUT
+  let seq = 0;        // a slower answer for the previous project never overwrites the current one
   const loadProject = async () => {
+    const mine = ++seq;
+    let reached = false;
     try {
-      const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
+      const r = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
+      reached = true;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const p = await r.json();
+      if (mine !== seq) return;
       if (p.rate_pack?.rules?.length) { rates.currency = p.rate_pack.currency ?? rates.currency; rates.rules = p.rate_pack.rules; }
+      loaded = true;
       if (p.boq_baseline?.lines) {
-        baseline = p.boq_baseline;
+        const bl: Baseline = p.boq_baseline;
         // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.
-        if (baseline && baseline.revision_id && !(baseline.snapshots && baseline.snapshots.length)) {
-          baseline.snapshots = await fetchRevisionSnapshots(base, pid(), baseline.revision_id);
+        if (bl.revision_id && !(bl.snapshots && bl.snapshots.length)) {
+          bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id);
+          if (mine !== seq) return;
         }
+        baseline = bl;
       }
-    } catch { /* offline — use defaults */ }
+    } catch (e) {
+      if (mine !== seq) return;
+      const m = (e as Error)?.message ?? String(e);
+      msg(`Saved rates/baseline not read — ${reached ? m : `can't reach the bridge (${m})`}`, "#ef4444");
+    }
   };
 
   // Element-level change (by GlobalId) — the honest layer under the line totals. A wall swapped for an
@@ -410,5 +427,12 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   el("cp-cmp").addEventListener("click", toggleCompare);
   el("cp-csv").addEventListener("click", exportCsv);
   loadProject().then(loadRevisions); // saved rate pack + baseline, then populate the revision picker
+  // Another project (or person): back to the default pack FIRST — `rates` is overwritten only when the project has a
+  // rate_pack, so the last project's rates would otherwise carry over and be PUT here on the next edit.
+  onActiveProjectChange(() => {
+    Object.assign(rates, JSON.parse(JSON.stringify(defaultRates)));
+    baseline = null; target = null; loaded = false;
+    void loadProject().then(loadRevisions).then(() => { if (boq) recompute(); }); // a shown BoQ is repriced at this project's rates
+  });
   return root;
 }

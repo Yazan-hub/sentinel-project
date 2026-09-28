@@ -315,6 +315,8 @@ async function main() {
   // Approve/Reject and a lead's controls are the bridge's answer for the person asking (a token refresh is no change).
   const userChanged = userChangeFilter();
   onAuthChange((session) => { if (userChanged(session)) refreshActiveProject(); });
+  // The bridge answers again after a read failed to reach it (bridge-fetch.ts): every panel re-reads.
+  document.addEventListener("sentinel:bridge-back", () => refreshActiveProject());
   // Properties Palette (Revit-influenced) — click an element → its IFC identity + property/quantity sets.
   const propsEl = propertiesPanel(components);
   // Project Browser (Revit-influenced) — Category → Type → Instance tree that drives selection.

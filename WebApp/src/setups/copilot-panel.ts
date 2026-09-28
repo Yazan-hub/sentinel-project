@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -38,8 +38,17 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   let mode: "ask" | "agent" = "ask";
   let provider = "local";                 // local-default: the picker starts on the private option
   let model = "";                         // "" = the provider's own default
-  let aiTools: AiTool[] = [];             // the registry, fetched once
+  let aiTools: AiTool[] = [];             // the registry, fetched by loadPickers
   const toolPolicy = new Map<string, string>();
+  let issuesNotRead: string | null = null; // why the grounding's issues read failed — its [] is then not a fact
+
+  /** A bridge read in the bridge's own words: "can't reach the bridge" only when the fetch itself failed. */
+  const readJson = async (url: string) => {
+    let r: Response;
+    try { r = await bfetch(url); } catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message ?? String(e)})`); }
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+    return r.json();
+  };
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
   const root = document.createElement("div");
@@ -118,9 +127,15 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       } catch { boq = null; carbon = null; }
     }
     let issues: CopilotIssue[] = [];
-    try { issues = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json(); } catch { /* offline */ }
+    issuesNotRead = null;
+    try { issues = await readJson(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`); }
+    catch (e) { issuesNotRead = (e as Error)?.message ?? String(e); }
     return { facts, report, scorecard, boq, carbon, issues, ruleset: active?.ruleset ?? null, rulesetRef: active ? refLabel(active) : null, hasModel };
   };
+
+  /** summarize(), but a failed issues read is said as not read rather than "Open issues: 0". */
+  const context = (g: Grounding) =>
+    issuesNotRead ? summarize(g).replace(/^Open issues: .*$/m, `Issues not read — ${issuesNotRead}.`) : summarize(g);
 
   const ensureGrounding = async (): Promise<Grounding> => {
     if (!grounding) grounding = await buildGrounding();
@@ -147,7 +162,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     try {
       const { text } = await aiChat(
         "You are a BIM project assistant. Answer ONLY from the PROJECT DATA given. If the answer " +
-        "isn't in it, say you don't have that data. Be concise.\n\nPROJECT DATA:\n" + summarize(g),
+        "isn't in it, say you don't have that data. Be concise.\n\nPROJECT DATA:\n" + context(g),
         q,
       );
       return text || null;
@@ -209,7 +224,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     const { text, toolCalls } = await aiChat(
       "You are a BIM project agent. Use the tools to inspect or change the project. Prefer reading " +
       "before proposing a change. Be specific — name the element and the failure.\n\nPROJECT CONTEXT:\n" +
-      summarize(g) + `\n\nThe current project key is "${pid()}".`,
+      context(g) + `\n\nThe current project key is "${pid()}".`,
       q, aiTools,
     );
     if (!toolCalls?.length) { bubble("ai", esc(text || "No action proposed.")); return; }
@@ -225,7 +240,9 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     try {
       const g = await ensureGrounding();
       if (mode === "agent") { thinking.remove(); await runAgent(q, g); return; }
-      const a = answer(q, g);
+      let a = answer(q, g);
+      // The issues answer comes from an empty list when the read failed — say not read, never "No open … issues".
+      if (issuesNotRead && a.sources.includes("BCF service")) a = { text: `Issues not read — ${issuesNotRead}`, sources: ["BCF service"] };
       thinking.remove();
       if (a.fallback && g.hasModel) {
         // deterministic engine didn't match — try the local LLM, grounded; else show capabilities.
@@ -263,17 +280,17 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     try {
       const r = await bfetch(`${base}/ai/models?provider=${encodeURIComponent(provider)}`);
       const { models } = await r.json();
+      sel.innerHTML = ""; // cleared again right before the fill, so two overlapping loads cannot both append
       for (const m of models as string[]) sel.appendChild(new Option(m, m));
       model = sel.value || "";
     } catch { /* leave empty — the bridge falls back to the provider default */ }
   };
-  void (async () => {
+  // Called at build, by ↻ and on a project change (which is also how a sign-in change or the bridge coming back reach it).
+  const loadPickers = async () => {
+    const sel = el("co-provider") as HTMLSelectElement;
     try {
-      const [pr, tl] = await Promise.all([
-        bfetch(`${base}/ai/providers`).then((r) => r.json()),
-        bfetch(`${base}/ai/tools`).then((r) => r.json()),
-      ]);
-      const sel = el("co-provider") as HTMLSelectElement;
+      const [pr, tl] = await Promise.all([readJson(`${base}/ai/providers`), readJson(`${base}/ai/tools`)]);
+      sel.innerHTML = "";
       for (const p of pr.providers) {
         const o = new Option(p.available ? p.label : `${p.label} — unavailable`, p.id);
         o.disabled = !p.available;
@@ -282,10 +299,19 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       }
       sel.value = provider;
       aiTools = tl.tools.map((t: any) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+      toolPolicy.clear();
       for (const t of tl.tools) toolPolicy.set(t.name, t.policy);
       await loadModels();
-    } catch { /* bridge offline — Ask mode still works off the deterministic engine */ }
-  })();
+    } catch (e) {
+      // Said in the picker, not left empty. Ask mode still works off the deterministic engine.
+      sel.innerHTML = ""; aiTools = []; toolPolicy.clear();
+      const o = new Option(`AI providers not read — ${(e as Error)?.message ?? String(e)}`, "", true, true);
+      o.disabled = true;
+      sel.appendChild(o);
+    }
+  };
+  void loadPickers();
+  onActiveProjectChange(() => { grounding = null; void loadPickers(); });
 
   (el("co-provider") as HTMLSelectElement).addEventListener("change", async (e) => {
     provider = (e.target as HTMLSelectElement).value;
@@ -310,7 +336,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
 
   el("co-send").addEventListener("click", () => ask((el("co-in") as HTMLInputElement).value));
   el("co-in").addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") ask((el("co-in") as HTMLInputElement).value); });
-  el("co-refresh").addEventListener("click", async () => { grounding = null; await ensureGrounding(); bubble("ai", '<span style="color:#8b93a3">Project context reloaded.</span>'); });
+  el("co-refresh").addEventListener("click", async () => { grounding = null; void loadPickers(); await ensureGrounding(); bubble("ai", '<span style="color:#8b93a3">Project context reloaded.</span>'); });
 
   bubble("ai", 'Hi — I\'m grounded in this project\'s live data (QA, cost, issues). I cite my sources and never guess. Ask me something, or tap a suggestion below.');
   return root;

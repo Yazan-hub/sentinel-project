@@ -392,14 +392,22 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   }
 
   // ── List view ─────────────────────────────────────────────────────────────
+  // A slower list for the previous project/person never lands last; loadedKey = the project the list shows ("" while loading).
+  let seq = 0;
+  let loadedKey = "";
   async function showList() {
+    const mine = ++seq, key = pid();
+    loadedKey = "";
+    let roleRead = true;
     try {
-      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
       const j = await r.json().catch(() => ({}));
+      if (mine !== seq) return;
       // Fail CLOSED: an unanswered role question renders read-only. A signed-in non-member gets
       // `role: null` (viewer here); only the bridge's own machine path answers "service".
       myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
-    } catch { myRole = "viewer"; }
+      roleRead = r.ok;
+    } catch { if (mine !== seq) return; myRole = "viewer"; roleRead = false; }
 
     bar.replaceChildren();
     const title = document.createElement("span");
@@ -408,7 +416,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     bar.append(title);
     if (myRole === "viewer") {
       const chipEl = document.createElement("span");
-      chipEl.textContent = "your role: viewer";
+      chipEl.textContent = roleRead ? "your role: viewer" : "role not read — read-only";
       chipEl.style.cssText = "color:#a1a1aa;font:600 10.5px system-ui;border:1px solid #2c2c34;border-radius:.3rem;padding:.1rem .4rem";
       bar.append(chipEl);
     }
@@ -429,11 +437,14 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       bar.append(ingestBtn, newBtn, fileInput);
     }
     body.replaceChildren();
+    loadedKey = key; // the body is the list (or its not-read line) from here on
     try {
-      const docs: (Doc & { version_count: number })[] = await api(`/${encodeURIComponent(pid())}`);
-      if (!docs.length) { body.innerHTML = `<div style="color:#71717a;padding:1rem">No documents yet — create a BEP or EIR from a template.</div>`; return; }
+      const docs: (Doc & { version_count: number })[] = await api(`/${encodeURIComponent(key)}`);
+      if (mine !== seq) return;
+      if (!docs.length) { body.innerHTML = `<div data-list style="color:#71717a;padding:1rem">No documents yet — create a BEP or EIR from a template.</div>`; return; }
       for (const d of docs) {
         const row = document.createElement("div");
+        row.dataset.list = "";
         row.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;cursor:pointer";
         row.innerHTML = `<span style="font:700 10px system-ui;color:#93c5fd;border:1px solid #2c3a55;border-radius:.3rem;padding:.1rem .35rem">${esc(d.doc_type)}</span>
           <span style="flex:1;font:600 12px system-ui;color:#eee">${esc(d.title)}</span>
@@ -441,7 +452,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         row.onclick = () => showEditor(d.id);
         body.append(row);
       }
-    } catch (e: any) { msg(e.message, true); }
+    } catch (e: any) {
+      if (mine !== seq) return;
+      body.innerHTML = `<div data-list style="color:#fca5a5;padding:1rem">Documents not read — ${esc(e.message)}</div>`;
+    }
   }
 
   // ── Create view ───────────────────────────────────────────────────────────
@@ -1327,7 +1341,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     };
   }
 
-  onActiveProjectChange(() => showList());
+  // An open editor/form for the same project is not reloaded away (there is no autosave); a new project always reloads.
+  onActiveProjectChange(() => {
+    if (pid() === loadedKey && body.firstElementChild && !body.querySelector("[data-list]")) return;
+    void showList();
+  });
   showList();
   return root;
 }

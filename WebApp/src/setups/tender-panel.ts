@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, type RateTable } from "../sentinel-core";
 import { getAppManager } from "../app";
@@ -51,9 +51,27 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
   const val = (id: string) => (el(id) as HTMLInputElement).value;
 
   // ── list ──────────────────────────────────────────────────────────────────────
+  let seq = 0;        // a slower answer for the previous project never overwrites the current one
+  let loadedKey = ""; // the project last loaded — an open create or bid form is kept while it stays the same
   const fetchAll = async () => {
-    try { tenders = await (await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`)).json(); renderList(); }
-    catch (e) { el("tn-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
+    const mine = ++seq;
+    loadedKey = pid();
+    let reached = false;
+    try {
+      const r = await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`);
+      reached = true;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const list = await r.json();
+      if (mine !== seq) return;
+      tenders = list; renderList();
+    } catch (e) {
+      if (mine !== seq) return;
+      // A refusal is not "No tenders yet" — say it was not read, in the bridge's words.
+      tenders = []; current = null; addingBid = false;
+      el("tn-count").textContent = "";
+      el("tn-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Tenders not read — ` +
+        (reached ? esc((e as Error).message) : `can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}`) + "</div>";
+    }
   };
 
   const renderList = () => {
@@ -190,6 +208,8 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
 
   el("tn-new").addEventListener("click", renderCreate);
   el("tn-refresh").addEventListener("click", fetchAll);
+  // A key change always reloads; the same key (sign-in change, bridge back) never wipes an open create or bid form.
+  onActiveProjectChange(() => { if (root.querySelector("#tn-title, #tn-bidder") && pid() === loadedKey) return; void fetchAll(); });
   fetchAll();
   return root;
 }

@@ -26,6 +26,7 @@ export function projectSwitcher(
 
   let projects: ProjectLite[] = [];
   let openMenu = false;
+  let readErr = ""; // why the list was not read — the menu says so instead of "No projects yet."
 
   const wrap = document.createElement("div");
   wrap.style.cssText =
@@ -61,7 +62,9 @@ export function projectSwitcher(
                   );
                 })
                 .join("")
-            : '<div style="color:#6b7280;font-size:12px;padding:.5rem">No projects yet.</div>') +
+            : readErr
+              ? `<div style="color:#ef4444;font-size:12px;padding:.5rem">Projects not read — ${esc(readErr)}</div>`
+              : '<div style="color:#6b7280;font-size:12px;padding:.5rem">No projects yet.</div>') +
           '<div style="border-top:1px solid #23232a;margin:.3rem 0"></div>' +
           '<button id="psw-manage" style="width:100%;text-align:left;cursor:pointer;border:0;border-radius:.4rem;' +
           'padding:.4rem .55rem;background:transparent;color:#9ca3af;font-size:12px">⚙ Manage projects…</button>' +
@@ -91,14 +94,19 @@ export function projectSwitcher(
   };
 
   const load = async () => {
+    let reached = false; // the bridge answered — "can't reach" is said only when the fetch itself rejected
     try {
       const r = await bfetch(`${base}/cde/projects`);
-      if (!r.ok) return; // 503/offline → keep showing the active key, no list
+      reached = true;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       projects = (await r.json()).map((p: ProjectLite) => ({ key: p.key, name: p.name }));
-      render();
-    } catch {
-      /* bridge down — pill still shows the active key */
+      readErr = "";
+    } catch (e) {
+      // The pill still shows the active key; the menu says the list was not read.
+      projects = [];
+      readErr = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
     }
+    render();
   };
 
   // Close the menu on any outside click.
@@ -108,8 +116,9 @@ export function projectSwitcher(
       render();
     }
   });
-  // Keep the label in sync when the hub (or anything else) switches project.
-  onActiveProjectChange(() => render());
+  // Keep the label in sync when the hub (or anything else) switches project, and re-read the list on every notify
+  // (a user change or the bridge coming back, active-project.ts).
+  onActiveProjectChange(() => { render(); void load(); });
 
   render();
   load();

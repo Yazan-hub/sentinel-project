@@ -10,6 +10,7 @@ import {
 } from "../sentinel-core";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { activeRuleset, paramNamesOf, refLabel, NO_RULESET, droppedRulesNote } from "./active-ruleset";
+import { onActiveProjectChange } from "./active-project";
 import type { ScanReport, Violation } from "../sentinel-core";
 
 /**
@@ -295,6 +296,9 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       notice: null,
     },
   );
+
+  // Another project (or person) → the last scan is not this one's. Back to idle; a scan is only ever run by hand.
+  onActiveProjectChange(() => update({ status: "idle", report: null, scorecard: null, ruleset: null, rulesetRef: null, notice: null }));
 
   return panel;
 };

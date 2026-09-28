@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import type { Ruleset } from "../sentinel-core";
 import { activeRuleset, installArtefact, refLabel, NO_RULESET } from "./active-ruleset";
 import { currentUser } from "./auth";
@@ -56,13 +56,31 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   const publishPack = (p: Partial<Pack> & { ruleset: Ruleset }) =>
     bfetch(`${base}/packs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
 
+  let seq = 0;        // a slower answer for the previous project never overwrites the current one
+  let loadedKey = ""; // the project last loaded — an open Publish/Fork form is kept while it stays the same
   const load = async () => {
+    const mine = ++seq;
+    loadedKey = pid();
+    let reached = false;
     try {
-      packs = await (await bfetch(`${base}/packs`)).json();   // the bridge seeds an empty registry from WebApp/packs/*.json
-      try { const proj = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); installedId = proj.standards_pack ?? ""; } catch { /* */ }
-      try { const a = await activeRuleset(base); inForce = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { inForce = `ruleset in force unknown: ${(e as Error).message}`; }
+      const r = await bfetch(`${base}/packs`);   // the bridge seeds an empty registry from WebApp/packs/*.json
+      reached = true;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const list = await r.json();
+      let inst = "", force: string;
+      try { const proj = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); inst = proj.standards_pack ?? ""; } catch { /* */ }
+      try { const a = await activeRuleset(base); force = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { force = `ruleset in force unknown: ${(e as Error).message}`; }
+      if (mine !== seq) return;
+      packs = list; installedId = inst; inForce = force;
       renderBrowse();
-    } catch (e) { el("pk-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}</div>`; }
+    } catch (e) {
+      if (mine !== seq) return;
+      // Not read is said as not read, in the bridge's words; "can't reach" only when the fetch itself failed.
+      packs = [];
+      el("pk-count").textContent = "";
+      el("pk-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Packs not read — ` +
+        (reached ? esc((e as Error).message) : `can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}`) + "</div>";
+    }
   };
 
   // ── browse ──────────────────────────────────────────────────────────────────
@@ -152,6 +170,8 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   el("pk-publish").addEventListener("click", () => { forkFrom = null; renderPublish(); });
   el("pk-refresh").addEventListener("click", load);
+  // A key change always reloads; the same key (sign-in change, bridge back) never wipes an open Publish/Fork form.
+  onActiveProjectChange(() => { if (root.querySelector("#pk-key") && pid() === loadedKey) return; void load(); });
   load();
   return root;
 }

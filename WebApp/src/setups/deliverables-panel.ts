@@ -64,6 +64,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     body.prepend(d);
     setTimeout(() => d.remove(), 6000);
   };
+  /** A failed read stays on screen as "… not read — why" — a vanished toast over an empty body would read as an empty plan. */
+  const notRead = (text: string) => { body.replaceChildren(Object.assign(document.createElement("div"), { textContent: text, style: "color:#fca5a5;padding:1rem" })); };
   const field = (placeholder: string, width = "9rem", value = "") => {
     const i = document.createElement("input");
     i.placeholder = placeholder;
@@ -72,13 +74,19 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     return i;
   };
 
+  // A slower list for the previous project/person never lands last; loadedKey = the project the list shows ("" while loading).
+  let seq = 0;
+  let loadedKey = "";
   async function showList() {
+    const mine = ++seq, key = pid();
+    loadedKey = "";
     try {
-      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
       const j = await r.json().catch(() => ({}));
+      if (mine !== seq) return;
       // Fail CLOSED (same rule as docs-panel): no answer → read-only; only the machine path is "service".
       myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
-    } catch { myRole = "viewer"; }
+    } catch { if (mine !== seq) return; myRole = "viewer"; }
 
     bar.replaceChildren();
     const title = document.createElement("span");
@@ -117,10 +125,12 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     loading.textContent = "Loading…";
     loading.style.cssText = "color:#71717a;padding:1rem";
     body.append(loading);
+    loadedKey = key;
 
     let report: StatusReport;
-    try { report = await api(`/${encodeURIComponent(pid())}/status`); }
-    catch (e) { body.replaceChildren(); msg(`Couldn't load deliverables: ${(e as Error).message}`, true); return; }
+    try { report = await api(`/${encodeURIComponent(key)}/status`); }
+    catch (e) { if (mine === seq) notRead(`Deliverables not read — ${(e as Error).message}`); return; }
+    if (mine !== seq) return;
 
     body.replaceChildren();
     if (!report.rows.length) {
@@ -454,7 +464,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     let rep: TidpReport;
     try { rep = await api(`/${encodeURIComponent(pid())}/tidp`); }
-    catch (e) { body.replaceChildren(); msg(`Couldn't load the TIDP view: ${(e as Error).message}`, true); return; }
+    catch (e) { notRead(`TIDP not read — ${(e as Error).message}`); return; }
 
     body.replaceChildren();
     const head = document.createElement("div");
@@ -792,7 +802,12 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     };
   }
 
-  onActiveProjectChange(() => void showList());
+  // An open add/import/rebaseline/team form for the same project is not reloaded away (inputs exist only in forms);
+  // a new project always reloads.
+  onActiveProjectChange(() => {
+    if (pid() === loadedKey && body.querySelector("input, textarea, select")) return;
+    void showList();
+  });
   void showList();
   return root;
 }

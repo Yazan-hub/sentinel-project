@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite, bridgeEvents } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import { myRole, canGovernRole } from "./my-role";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -230,14 +230,26 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     setMode("detail");
   };
 
+  let seq = 0; // a slower answer for the previous project or person never overwrites the current one
   const fetchAll = async () => {
+    const mine = ++seq;
     el("ip-count").textContent = "(…)";
     try {
       const r = await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics?status=all&model=`);
-      topics = await r.json();
-      role = await myRole(base, projectId());
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const list = await r.json();
+      if (!Array.isArray(list)) throw new Error("the bridge answered without a list");
+      const rl = await myRole(base, projectId());
+      if (mine !== seq) return;
+      topics = list; role = rl;
       renderList();
-    } catch (e) { el("ip-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Can't reach the BCF service.<br>${esc((e as Error).message)}</div>`; }
+    } catch (e) {
+      if (mine !== seq) return;
+      topics = [];
+      el("ip-count").textContent = "";
+      const why = e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message;
+      el("ip-list").innerHTML = `<div style="color:#ef4444;font-size:12px">Issues not read — ${esc(why)}</div>`;
+    }
   };
 
   // wiring
@@ -270,8 +282,11 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   // Live BCF loop (SSE): the bridge pushes every topic change (from the web OR the Revit plugin) —
   // refetch instantly so an issue raised in Revit appears here in seconds, and vice-versa.
   // Read as a fetch stream (bridgeEvents) so the feed carries the Authorization header EventSource cannot.
-  bridgeEvents(`${base}/events?project=${encodeURIComponent(projectId())}`, () => {
+  // The feed is per project: on a project or person change, stop it and start one for the current key, then re-read.
+  const feed = () => bridgeEvents(`${base}/events?project=${encodeURIComponent(projectId())}`, () => {
     if (Date.now() - lastLoad > 400) { lastLoad = Date.now(); void fetchAll(); }
   });
+  let stopFeed = feed();
+  onActiveProjectChange(() => { stopFeed(); stopFeed = feed(); void fetchAll(); });
   return root;
 }

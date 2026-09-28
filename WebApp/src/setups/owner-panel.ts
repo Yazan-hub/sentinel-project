@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { missingFields, type Asset } from "../sentinel-core";
@@ -63,10 +63,23 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
     `<div style="font:750 1.35rem/1.1 ui-monospace,Consolas,monospace;color:${color};margin-top:.2rem;font-variant-numeric:tabular-nums">${value}</div>` +
     (sub ? `<div style="font-size:11px;color:#9ca3af;margin-top:.1rem">${esc(sub)}</div>` : "") + "</div>";
 
+  /** A bridge read in the bridge's own words: "can't reach the bridge" only when the fetch itself failed. */
+  const readJson = async (url: string) => {
+    let r: Response;
+    try { r = await bfetch(url); } catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message ?? String(e)})`); }
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+    return r.json();
+  };
+  const notRead = (what: string, e: unknown) =>
+    `<div style="color:#f87171;font-size:12px">${what} not read — ${esc((e as Error)?.message ?? String(e))}</div>`;
+  let sumSeq = 0, itemSeq = 0; // a slower answer for the previous project never overwrites the current one
+
   // ── summary (from the persisted snapshot — no model needed) ──────────────────
   const loadSummary = async () => {
+    const mine = ++sumSeq;
     try {
-      const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
+      const p = await readJson(`${base}/projects/${encodeURIComponent(pid())}`);
+      if (mine !== sumSeq) return;
       el("ow-name").textContent = getAppManager().projectData?.name ?? p.name ?? p.project_id ?? "Project";
       el("ow-stage").textContent = STAGE_NAME[p.stage] ? `Stage: ${STAGE_NAME[p.stage]}` : "";
       const s = p.snapshot ?? {};
@@ -80,13 +93,20 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
         tile("Open items", num(s.open_issues) != null ? String(s.open_issues) : "—", num(s.hard_clashes) ? "#f87171" : "#eee", num(s.hard_clashes) ? `${s.hard_clashes} urgent` : "") +
         tile("Est. value", num(s.cost_total) != null ? `${cur} ${Math.round(s.cost_total as number).toLocaleString("en-US")}` : "—", "#eee") +
         tile("Est. carbon", num(s.carbon_tco2e) != null ? `${(s.carbon_tco2e as number).toLocaleString("en-US")}` : "—", "#4ade80", num(s.carbon_tco2e) != null ? "tCO₂e embodied" : "");
-    } catch { msg("Can't reach the project service.", "#f87171"); }
+    } catch (e) {
+      if (mine !== sumSeq) return;
+      // A refusal is not "Not yet assessed" with "—" tiles — say it was not read.
+      el("ow-name").textContent = "—"; el("ow-stage").textContent = ""; el("ow-tiles").innerHTML = "";
+      el("ow-ready").innerHTML = notRead("Summary", e);
+    }
   };
 
   // ── open items (read-only) ────────────────────────────────────────────────────
   const loadItems = async () => {
+    const mine = ++itemSeq;
     try {
-      const topics = await (await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`)).json();
+      const topics = await readJson(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`);
+      if (mine !== itemSeq) return;
       const open = topics.filter((t: any) => t.topic_status !== "Closed");
       el("ow-items").innerHTML = open.length ? open.slice(0, 12).map((t: any) =>
         `<div style="padding:.4rem .5rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem">` +
@@ -94,7 +114,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
         `<span style="flex:1;font-size:12.5px">${esc(t.title)}</span></div>` +
         `<div style="font-size:11px;color:#9ca3af;margin-top:.1rem">${esc(t.topic_status)} · ${esc(t.assigned_to || "unassigned")}</div></div>`).join("")
         : '<div style="color:#4ade80;font-size:12px">No open items. 🎉</div>';
-    } catch { el("ow-items").innerHTML = '<div style="color:#9ca3af;font-size:12px">Items unavailable.</div>'; }
+    } catch (e) { if (mine === itemSeq) el("ow-items").innerHTML = notRead("Items", e); }
   };
 
   // ── asset register (searchable, locate) ──────────────────────────────────────
@@ -132,5 +152,6 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
   el("ow-search").addEventListener("input", (e) => renderAssets((e.target as HTMLInputElement).value));
 
   loadSummary(); loadItems();
+  onActiveProjectChange(() => { void loadSummary(); void loadItems(); });
   return root;
 }

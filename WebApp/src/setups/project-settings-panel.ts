@@ -86,6 +86,24 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   const setVal = (id: string, v?: string | null) => ((root.querySelector("#" + id) as HTMLInputElement).value = v ?? "");
   const status = (t: string) => (el("pset-status").textContent = t);
 
+  // Read-only below lead, and locked until the role is read (fail closed). Two-way: a later load for a lead unlocks.
+  const FIELD_IDS = ["ps-name", "ps-owner", "ps-office", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"];
+  let locked = true;
+  function lockControls(ro: boolean) {
+    locked = ro;
+    for (const id of FIELD_IDS) (el(id) as HTMLInputElement).disabled = ro || (id === "ps-office" && current?.kind === "office");
+    for (const id of ["pset-save", "ps-archive", "ps-delete"]) el(id).style.display = ro ? "none" : "";
+    const linkBtn = root.querySelector("#ps-link-btn") as HTMLElement | null;
+    if (linkBtn) linkBtn.style.display = ro ? "none" : "";
+  }
+  /** The field values as loaded — a notify for the same project does not overwrite edits that differ from them. */
+  const snapshot = () => FIELD_IDS.map(val).join("\n");
+  function clearFields() {
+    for (const id of [...FIELD_IDS, "ps-created"]) setVal(id, "");
+    el("ps-office").innerHTML = '<option value="">No office</option>';
+    el("ps-link").textContent = "";
+  }
+
   // The platform project this Sentinel project opens in by itself (platform-link.ts): the published app cannot remember a
   // choice between visits, so a lead links the project to the platform project it belongs to.
   function renderLink() {
@@ -101,7 +119,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       `<span style="flex:1">${on ? "✓ Opens by itself when Sentinel starts in this platform project."
         : linked ? `Linked to another platform project (${esc(linked)}).`
         : "Not linked — Sentinel starts on the projects list here."}</span>` +
-      `<button id="ps-link-btn" style="${btn}">${on ? "Unlink" : "Link to this platform project"}</button>`;
+      `<button id="ps-link-btn" style="${btn}${locked ? ";display:none" : ""}">${on ? "Unlink" : "Link to this platform project"}</button>`;
     el("ps-link-btn").addEventListener("click", () => void patch(
       { platform_project_id: on ? null : here, actor: "web" },
       on ? "✓ Unlinked — Sentinel no longer opens this project by itself here."
@@ -128,18 +146,25 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     if (membersErrDiv) membersErrDiv.textContent = "";
   }
 
+  let memSeq = 0; // a slower members read for the previous project/person never lands last
   async function loadMembers() {
+    const mine = ++memSeq, key = pid();
     const host = el("ps-members");
     host.replaceChildren();
     try {
-      const meR = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/me`);
-      if (!meR.ok) throw new Error(`role check failed (HTTP ${meR.status})`); // a broken /me must NOT read as "not management"
+      const meR = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
+      if (mine !== memSeq) return;
+      // a broken /me must NOT read as "not management"
+      if (!meR.ok) throw new Error(`role not read — ${(await meR.json().catch(() => null))?.message || `HTTP ${meR.status}`}`);
       const me = await meR.json().catch(() => ({}));
+      if (mine !== memSeq) return;
       const role = (me as { role?: string | null }).role ?? null;
       if (role !== "lead" && role !== "owner" && role !== "service") return; // genuinely not management — leave empty
-      const listR = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`);
-      if (!listR.ok) throw new Error(`HTTP ${listR.status}`);
+      const listR = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members`);
+      if (mine !== memSeq) return;
+      if (!listR.ok) throw new Error((await listR.json().catch(() => null))?.message || `HTTP ${listR.status}`);
       const members = (await listR.json()) as Member[];
+      if (mine !== memSeq) return;
 
       const head = document.createElement("div");
       head.textContent = "Members";
@@ -217,11 +242,12 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       membersErrDiv.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0;min-height:1em";
       host.append(membersErrDiv);
     } catch (e) {
+      if (mine !== memSeq) return;
       // A FAILED load must not be a silent blank (the same vanishing-error lesson the add row
       // follows): an admin can't tell "load broke" from "I'm not management". Persistent line.
       host.replaceChildren();
       const fail = document.createElement("div");
-      fail.textContent = `Members list couldn't load: ${(e as Error)?.message ?? String(e)} — reload to retry.`;
+      fail.textContent = `Members not read — ${(e as Error)?.message ?? String(e)}`;
       fail.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0";
       host.append(fail);
     }
@@ -233,18 +259,23 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   // JSON…" on every row (spec 2026-09-25 standards 4b, decision 11): the bridge validates the body and refuses
   // below lead; its message is shown as it came, and the row then names the new `kind@n · project · sha`. A key
   // the bridge does not know fails the list call, so no row (and no control) renders for it.
+  let stdSeq = 0; // a slower standards read for the previous project/person never lands last
   async function loadStandards(note?: { text: string; bad?: boolean }) {
+    const mine = ++stdSeq, key = pid();
     const host = el("ps-standards");
     host.innerHTML = '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem">Standards in force</div>';
     try {
-      const [r, role] = await Promise.all([bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts`), myRole(base, pid())]);
+      const [r, role] = await Promise.all([bfetch(`${base}/cde/${encodeURIComponent(key)}/artefacts`), myRole(base, key)]);
+      if (mine !== stdSeq) return;
       const j = await r.json().catch(() => ({}));
+      if (mine !== stdSeq) return;
       if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
       const pointers = j as Record<string, { version: number; sha256: string; installed_by?: string; installed_at?: string } | null>;
       const rows = await Promise.all(Object.entries(pointers).map(async ([kind, p]): Promise<[string, InForce | null]> =>
         [kind, p ? { body: null, ref: `${kind}@${p.version}`, source: "project", sha256: p.sha256, installed_by: p.installed_by, installed_at: p.installed_at }
-                 : await artefactInForce(base, pid(), kind)]));
-      const canInstall = canInstallArtefacts(role, pid());
+                 : await artefactInForce(base, key, kind)]));
+      if (mine !== stdSeq) return;
+      const canInstall = canInstallArtefacts(role, key);
       host.innerHTML += rows.map(([kind, a]) =>
         `<div style="display:flex;align-items:center;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
         `<span style="width:6.5rem;color:#9ca3af">${esc(kind)}</span>` +
@@ -255,7 +286,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         "</div>").join("");
       host.querySelectorAll<HTMLButtonElement>(".ps-install").forEach((b) => b.addEventListener("click", () => pickAndInstall(b.dataset.kind!)));
     } catch (e) {
-      host.innerHTML += `<div style="color:#fca5a5;font-size:11px">Standards in force couldn't load: ${esc((e as Error)?.message ?? String(e))}</div>`;
+      if (mine !== stdSeq) return;
+      host.innerHTML += `<div style="color:#fca5a5;font-size:11px">Standards in force not read — ${esc((e as Error)?.message ?? String(e))}</div>`;
     }
     if (note) {
       const d = document.createElement("div");
@@ -293,17 +325,24 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     input.click(); // detached: a cancelled pick fires no change event and leaves nothing in the page
   }
 
+  let seq = 0; // a slower settings read for the previous project/person never lands last
+  let loadedKey = "", loadedSnap = ""; // the project the fields hold ("" while loading or not read) and their values then
   async function load() {
+    const mine = ++seq, key = pid();
+    loadedKey = "";
+    lockControls(true); // fail closed until the role is read
     status("Loading…");
-    el("pset-key").textContent = pid();
+    el("pset-key").textContent = key;
     void loadMembers();
     void loadStandards();
     try {
       const r = await bfetch(`${base}/cde/projects`);
-      if (!r.ok) throw new Error(`Bridge ${r.status}`);
+      if (mine !== seq) return;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const rows = (await r.json()) as ProjectRow[];
-      current = rows.find((p) => p.key === pid()) ?? null;
-      if (!current) { status(`Project "${pid()}" not found on the bridge.`); return; }
+      if (mine !== seq) return;
+      current = rows.find((p) => p.key === key) ?? null;
+      if (!current) { clearFields(); status(`Project "${key}" not found on the bridge.`); return; }
       const s = current.settings ?? {};
       setVal("ps-name", current.name);
       setVal("ps-owner", s.owner ?? current.appointing_party);
@@ -317,7 +356,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       setVal("ps-created", (current.created_at || "").slice(0, 10));
       (el("ps-confirm") as HTMLInputElement).value = "";
       const officeSel = el("ps-office") as HTMLSelectElement;
-      const officeRows = rows.filter((p) => p.kind === "office" && p.key !== pid());
+      const officeRows = rows.filter((p) => p.kind === "office" && p.key !== key);
       // If the current office isn't visible to this viewer (RLS-scoped list), keep an option for it
       // so the select still shows it and a save doesn't silently detach the project (finding IMPORTANT-2).
       const officeKey = current.office_key ?? null;
@@ -328,28 +367,28 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         '<option value="">No office</option>' + extraOpt +
         officeRows.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
       officeSel.value = current.office_key ?? "";
+      loadedKey = key;
+      loadedSnap = snapshot();
       const isOffice = current.kind === "office";
-      officeSel.disabled = isOffice;
       renderArchiveBtn();
       renderLink();
       updateDeleteEnabled();
       const officeNote = isOffice
-        ? ` · this project is an office (${rows.filter((p) => p.office_key === pid()).length} project(s))`
+        ? ` · this project is an office (${rows.filter((p) => p.office_key === key).length} project(s))`
         : "";
       status(`${current.container_count} file container(s) · key "${current.key}" (keys are permanent).${officeNote}`);
       // Read-only below lead: the database refuses the writes anyway (projects update needs lead, delete
       // needs owner) — the panel must not offer controls the server will reject.
-      const role = await myRole(base, pid());
-      if (!canGovernRole(role)) {
-        for (const id of ["ps-name", "ps-owner", "ps-office", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"])
-          (el(id) as HTMLInputElement).disabled = true;
-        for (const id of ["pset-save", "ps-archive", "ps-delete"]) (el(id) as HTMLElement).style.display = "none";
-        const linkBtn = root.querySelector("#ps-link-btn") as HTMLElement | null;
-        if (linkBtn) linkBtn.style.display = "none";
-        status(`your role: ${role} — project settings are read-only (a lead or owner can edit them).`);
-      }
+      const role = await myRole(base, key);
+      if (mine !== seq) return;
+      lockControls(!canGovernRole(role));
+      updateDeleteEnabled();
+      if (!canGovernRole(role)) status(`your role: ${role} — project settings are read-only (a lead or owner can edit them).`);
     } catch (e) {
-      status("Couldn't load settings: " + ((e as Error)?.message ?? String(e)));
+      if (mine !== seq) return;
+      current = null;
+      clearFields();
+      status("Settings not read — " + ((e as Error)?.message ?? String(e)));
     }
   }
 
@@ -419,7 +458,11 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   ));
   el("ps-confirm").addEventListener("input", updateDeleteEnabled);
   el("ps-delete").addEventListener("click", () => void doDelete());
-  onActiveProjectChange(() => void load());
+  // Unsaved edits for the same project are not overwritten by a notify; a new project always reloads.
+  onActiveProjectChange(() => {
+    if (pid() === loadedKey && snapshot() !== loadedSnap) return;
+    void load();
+  });
   void load();
   return root;
 }

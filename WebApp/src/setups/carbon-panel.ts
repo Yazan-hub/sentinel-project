@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildCarbon, defaultFactors, snapshotFromQuantities, diffSnapshots, carbonDiff, type CarbonReport, type CarbonLine, type CarbonFactors, type ElementQuantities, type ElementSnapshot } from "../sentinel-core";
@@ -185,17 +185,31 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     msg(baseline ? `Comparing baseline vs revision ${rev ? revLabel(rev) : ""}.` : "Now side set — pick a baseline revision to compare.");
   };
 
+  let seq = 0; // a slower answer for the previous project never overwrites the current one
   const loadProject = async () => {
+    const mine = ++seq;
+    let reached = false;
     try {
-      const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json();
+      const r = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
+      reached = true;
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const p = await r.json();
+      if (mine !== seq) return;
       if (p.carbon_baseline?.total_kg != null) {
-        baseline = p.carbon_baseline;
+        const bl: CarbonBaseline = p.carbon_baseline;
         // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.
-        if (baseline && baseline.revision_id && !(baseline.snapshots && baseline.snapshots.length)) {
-          baseline.snapshots = await fetchRevisionSnapshots(base, pid(), baseline.revision_id);
+        if (bl.revision_id && !(bl.snapshots && bl.snapshots.length)) {
+          bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id);
+          if (mine !== seq) return;
         }
+        baseline = bl;
       }
-    } catch { /* offline — no baseline */ }
+    } catch (e) {
+      if (mine !== seq) return;
+      // A refusal is not "no baseline" — say it was not read.
+      const m = (e as Error)?.message ?? String(e);
+      msg(`Baseline not read — ${reached ? m : `can't reach the bridge (${m})`}`, "#ef4444");
+    }
   };
 
   // Overlay the Δ view on top of a normal render: hero shows net Δ, banners show the element-composition strip.
@@ -349,5 +363,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   el("cb-cmp").addEventListener("click", toggleCompare);
   el("cb-csv").addEventListener("click", exportCsv);
   loadProject().then(loadRevisions); // saved carbon baseline, then populate the revision picker
+  // Another project (or person): the last project's baseline and picked revision are not this one's.
+  onActiveProjectChange(() => { baseline = null; target = null; void loadProject().then(loadRevisions).then(draw); });
   return root;
 }

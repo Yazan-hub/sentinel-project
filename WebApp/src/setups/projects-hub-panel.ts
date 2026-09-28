@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid, setActiveProjectKey, onActiveProjectChange, hasProjectOverride, platformProjectId } from "./active-project";
+import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
 
 /**
@@ -139,9 +139,12 @@ export function projectsHubPanel(
   // ── load ─────────────────────────────────────────────────────────────────────
   const load = async () => {
     status("Loading projects…");
+    let reached = false; // the bridge answered — "can't reach" is said only when the fetch itself rejected
     try {
       const r = await bfetch(`${base}/cde/projects`);
+      reached = true;
       if (r.status === 503) {
+        projects = [];
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
           "The CDE isn’t configured yet. Add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to " +
@@ -152,13 +155,14 @@ export function projectsHubPanel(
       }
       if (r.status === 401) {
         // The bridge answered: the list is a signed-in person's (never "no projects" — it was not read).
+        projects = [];
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
           "Sign in (bottom right) to see your projects — the bridge lists them only for a signed-in account.</div>";
         status("Not signed in — the bridge answered 401.", "#eab308");
         return;
       }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       projects = await r.json();
       renderGrid();
       status(`${projects.length} project${projects.length === 1 ? "" : "s"}.`);
@@ -174,7 +178,12 @@ export function projectsHubPanel(
         }
       }
     } catch (e) {
-      status(`Can’t reach the bridge at ${base}${/localhost|127\.0\.0\.1/.test(base) ? " — start it with: npm run bcf:serve" : ""}.`, "#ef4444");
+      // Never an empty or stale grid for a list that was not read (the new-project form's office list reads it too).
+      projects = [];
+      const why = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
+      el("ph-grid").innerHTML =
+        `<div style="grid-column:1/-1;color:#ef4444;font-size:12px;line-height:1.5;padding:1rem .2rem">Projects not read — ${esc(why)}</div>`;
+      status(reached ? `Projects not read — ${why}` : `Can’t reach the bridge at ${base}${/localhost|127\.0\.0\.1/.test(base) ? " — start it with: npm run bcf:serve" : ""}.`, "#ef4444");
     }
   };
 
@@ -247,11 +256,9 @@ export function projectsHubPanel(
   el("ph-new").addEventListener("click", toggleForm);
   el("ph-refresh").addEventListener("click", load);
 
-  // Re-highlight the active card when the switch happens elsewhere (the global switcher).
-  // The hub is built once and reused by reference for the app's lifetime, so no unsubscribe needed.
-  onActiveProjectChange(() => renderGrid());
-  // Full reload on the broadcast event too — fired by Settings after a rename/archive/delete, so the
-  // card names and archived badges refresh without a manual ↻.
+  // Full reload on the broadcast event — fired on every project switch, user change and bridge-back (active-project.ts),
+  // and by Settings after a rename/archive/delete — so the active card, names and archived badges refresh without ↻.
+  // (No renderGrid-only listener: it would draw stale cards or "No projects yet" over a "not read" line.)
   window.addEventListener("sentinel:project-changed", () => void load());
 
   load();
