@@ -12,7 +12,9 @@ const RAW = [
   '{"n":[0,-0,1.0,1.5,-3,100,1e2,0.1,1e21,1e-7,123456789012345678901,2.5e-3]}',
   '{"arabic":"مجموعة العمل \'{name}\' غير مدرجة","sect":"§4 …","emoji":"\\ud83d\\ude00"}',
   '[]', '"x"', '42', 'null',
-  readFileSync(new URL("../../demo/aster/ruleset-AST.json", import.meta.url), "utf8"),
+  // Line endings normalised: git checks this file out as CRLF on Windows and LF elsewhere, and the fixture must not
+  // change with the checkout (the canonical form and its hash never did — JSON.parse ignores the difference).
+  readFileSync(new URL("../../demo/aster/ruleset-AST.json", import.meta.url), "utf8").replace(/\r\n/g, "\n"),
 ];
 
 describe("canonical fixture for the add-in port", () => {
