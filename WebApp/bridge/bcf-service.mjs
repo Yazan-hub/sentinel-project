@@ -477,6 +477,17 @@ async function startEventPoll() {
   console.log(`[bridge] cross-machine event feed: on (poll ${EVENT_POLL_MS}ms · instance ${INSTANCE_ID.slice(0, 8)})`);
 }
 
+/** Roadmap item 3, part A: each finished run of the platform delivery gate becomes one `platform_gate` ledger row
+ *  (platform-gate-ledger.mjs) — every 60 s, never overlapping, one log line per change of reason. On only when
+ *  THATOPEN_GATE_COMPONENT_ID is set; the module is imported only then, and stays off in one line when the platform or
+ *  the CDE is not configured. It only reads the platform. */
+async function startPlatformGatePoll() {
+  const componentId = (process.env.THATOPEN_GATE_COMPONENT_ID || "").trim();
+  if (!componentId) return;
+  try { await (await import("./platform-gate-ledger.mjs")).watchPlatformGate({ componentId, log: (l) => console.log(`[bridge] ${l}`) }); }
+  catch (e) { console.warn(`[bridge] platform gate ledger: off — ${String(e?.message || e).slice(0, 200)}`); }
+}
+
 // Extract the caller's forwarded Supabase session JWT (when the BCF_TOKEN gate isn't in use) and run the
 // whole request inside that auth context, so cde-store's sb() forwards it to PostgREST (RLS per-user) when
 // forwarding is armed. No JWT → service key (current behaviour). Non-browser callers (Revit) send none.
@@ -525,13 +536,14 @@ server.listen(PORT, HOST, () => {
     try { m = await import("./thatopen-client.mjs"); } catch { return; }
     try { cfg = m.getConfig(); } catch { return; } // not configured → a separate, already-clear 503 on use
     try {
-      await m.createClient(cfg).listFolders(cfg.projectId);
+      await m.createClient(cfg).listFolders({ projectId: cfg.projectId }); // an object: a bare string is ignored, and the read is then not project-scoped
       console.log(`[bridge] platform token: valid ✓ (project ${cfg.projectId})`);
     } catch (e) {
       console.warn(`[bridge] ⚠ platform token REJECTED (${String(e?.message || e).slice(0, 50)}) — uploads & Open-3D will fail until fixed. Regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env, then restart.`);
     }
   })();
   startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
+  startPlatformGatePoll(); // platform gate runs → ledger rows (off without THATOPEN_GATE_COMPONENT_ID)
 });
 // A service manager stops the bridge with SIGTERM, a console with Ctrl+C (SIGINT): take no new connection, give the
 // ones in flight up to 5 s to answer (the stores write synchronously, so no write is cut in half), then exit.
@@ -1289,7 +1301,7 @@ async function handleRequest(req, res) {
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
-      //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate and review rows are
+      //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate, review and platform_gate rows are
       //   Sentinel's own → 400 (cde-store.mjs recordAudit). The machine credential writes any other row (Revit's naming
       //   and family_heal); a signed-in caller a lead's note only — {action, new_value?}, entity_type "note" — 403 / 400 /
       //   413 / 429 before anything is written (H0 D11, cde-store.mjs recordNote).

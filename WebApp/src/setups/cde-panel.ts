@@ -246,7 +246,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   // The platform's own verdicts on the IFCs of the linked platform project (spec 2026-09-27 platform-delivery-gate
   // Decision 8): read from the platform, beside the board, on every load.
-  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"));
+  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), async () => ((await api(`${encodeURIComponent(pid())}/audit?entity_type=platform_gate&limit=200`)) as AuditPage).rows);
 
   let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {

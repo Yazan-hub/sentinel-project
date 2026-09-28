@@ -873,13 +873,29 @@ export async function transition(key, version_id, new_state, { actor, note, over
   const body = { p_version: version_id, p_new_state: new_state, p_actor: resolveActor(actor, "web"), p_note: note };
   const reason = String(override ?? "").trim();
   if (reason) body.p_override = reason;
+  let row;
   try {
-    return await sb(`rpc/cde_transition`, { method: "POST", body });
+    row = await sb(`rpc/cde_transition`, { method: "POST", body });
   } catch (e) {
     const status = TRANSITION_REFUSAL[e?.body?.code];
     if (status) { const r = new Error(e.body.message); r.status = status; throw r; }
     throw e;
   }
+  void mirrorStateSafe(version_id); // committed: the platform copy follows, never awaited (a refusal threw above)
+  return row;
+}
+
+/** Part B of spec 2026-09-29 (platform-native): after a committed state change, carry the version's state onto its
+ *  platform copy (platform-state.mjs). Fire and forget — never awaited by a transition and never its error. Off unless
+ *  SENTINEL_PLATFORM_STATE=on, and platform-state.mjs is imported only on that path. Resolves, never rejects. */
+export function mirrorStateSafe(version_id) {
+  if (process.env.SENTINEL_PLATFORM_STATE !== "on") return Promise.resolve({ mirrored: false, reason: "off" });
+  return import("./platform-state.mjs")
+    .then((m) => m.mirrorState(version_id))
+    .catch((e) => {
+      console.warn(`[platform-state] version ${version_id}: not mirrored — ${String(e?.message || e).replace(/accessToken=[^&\s"']+/gi, "accessToken=…")}`);
+      return { mirrored: false, reason: "the mirror failed (the bridge log has the cause)" };
+    });
 }
 
 /** The ledger read's page: 200 rows unless asked, never more than 1000 (the db-max-rows SNAP_PAGE assumes). */
@@ -960,9 +976,11 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  review chain (`review:`, entity_type review — phase 6b: review:start written by cde_transition, review:approve and
  *  review:reject by review_decide, migration 0032; the chain and its publish read them). The delivery gate's rows
  *  (entity_type delivery_gate) are written by intake and by POST /cde/:key/delivery-gate, open only to the machine
- *  credential (spec 2026-09-27 Decision 5). The open audit route may not write any of them. */
+ *  credential (spec 2026-09-27 Decision 5). The platform gate's runs (entity_type platform_gate, one row per execution id)
+ *  are written by bridge/platform-gate-ledger.mjs only (spec 2026-09-29) — reserved so nobody can squat a real run's id.
+ *  The open audit route may not write any of them. */
 const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding
@@ -1243,6 +1261,7 @@ export async function reviewDecide(key, version_id, { decision, note } = {}) {
   const c = await sb(`information_containers?id=eq.${version.container_id}&select=iso_name`);
   try {
     const r = await sb(`rpc/review_decide`, { method: "POST", body: { p_version: version_id, p_decision: decision, p_note: note ?? null } });
+    void mirrorStateSafe(version_id); // committed (a last approval publishes, a rejection sends back to wip); never awaited
     return { ...r, container_name: Array.isArray(c) ? c[0]?.iso_name ?? null : null };
   } catch (e) {
     const status = TRANSITION_REFUSAL[e?.body?.code];
