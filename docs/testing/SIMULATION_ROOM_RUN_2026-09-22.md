@@ -740,7 +740,7 @@ recommendation. Built on `feature/deleted-items`; nothing below has run yet.
 
 | Row | Expected | Observed |
 |---|---|---|
-| 0035 applied, probe | 7 of 7 true | not run |
+| 0035 applied, probe | part 1: 7 of 7 true; part 2: `PROBE 0035: 22 of 22 as expected`, all rolled back | not run |
 | The rebuild | `2026-09-28_rebuild_deleted_aster.sql` once: both files in Deleted items (deleted by the founder at 13:23:41 and 13:23:45 UTC), 4 + 2 versions set aside by the archive at 13:00:37 and 13:01:04 UTC, two `container rebuilt` rows; a second run refused | not run |
 | The list | Project Files ▸ Deleted items (2): each file `— the file, with 0 version(s) (and n deleted version(s), restorable after the file)`, deleted by the founder | not run |
 | Restore a file | `AST_ASTR26_Aster Tower_yazan.ifc` back at the root, empty, its 4 versions now listed on their own; `container restored` row | not run |

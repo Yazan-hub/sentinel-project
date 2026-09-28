@@ -360,13 +360,18 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       // moves it to Deleted items (the founder's default, 2026-09-28).
       const lead = canGovernRole(role);
       const empty = f.versions.length === 0;
-      const archBtn = !lead ? "" : isArchivedFile(f)
-        ? `<button data-funarchive="${f.id}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>`
-        : !archivable(f.versions) ? ""
-        : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts move to Deleted items">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`;
+      // Unarchive wherever a version is archived (a restored draft beside archived versions must not strand them).
+      const unarchBtn = lead && f.versions.some((v) => v.state === "archived")
+        ? `<button data-funarchive="${f.id}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>` : "";
+      const archBtn = unarchBtn + (!lead || !archivable(f.versions) ? ""
+        : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts move to Deleted items">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`);
+      // The empty-file hint names only what this role can do.
+      const emptyHint = lead ? `No versions left — ${f.deleted_versions ? "restore one from Deleted items, " : ""}upload one, or Delete the empty file`
+        : canEditRole(role) ? `No versions left — upload one; a lead restores or deletes it (your role: ${esc(role)})`
+        : `No versions left — a contributor uploads one, a lead restores or deletes it (your role: ${esc(role)})`;
       const hint = armKind === "delete" ? "Moves to Deleted items with its versions — a lead can restore it. Sure?"
         : armKind === "archive" ? "Published → archive, drafts → Deleted items. Sure?"
-        : empty ? `No versions left — ${f.deleted_versions ? "restore one from Deleted items, " : ""}upload one, or Delete the empty file`
+        : empty ? emptyHint
         : lead ? "File actions" : `File actions — archive and delete are a lead's (your role: ${esc(role)})`;
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
@@ -481,8 +486,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function fileAction(path: string, body: Record<string, unknown>, okMsg: string | ((r: any) => string)) {
     try {
       const r = await api(`${encodeURIComponent(pid())}/files/${path}`, "POST", { ...body, actor: await whoami() });
+      await load(); // first: load() writes its own summary line, which would hide what the action did
       status(typeof okMsg === "function" ? okMsg(r) : okMsg);
-      await load();
     } catch (e) { status(`${path} failed: ${esc((e as Error).message)}`); }
   }
 

@@ -499,7 +499,11 @@ export async function deleteFolder(folderId, b = {}) {
 
 /** File a container into a folder (folder_id null = project root / unfiled). */
 export async function moveContainer(containerId, b) {
-  const [row] = requireRows(await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}`, {
+  // A file in Deleted items is not filed anywhere until it is restored (0035): said in words, nothing written. The filter
+  // repeats it, so a delete that lands between the read and the write leaves no 'moved' row either.
+  const found = isUuid(containerId) ? (await sb(`information_containers?id=eq.${containerId}&select=deleted_at`))?.[0] : null;
+  if (found?.deleted_at) throw Object.assign(new Error("this file is in Deleted items — restore it first; nothing was saved"), { status: 409 });
+  const [row] = requireRows(await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}&deleted_at=is.null`, {
     method: "PATCH", body: { folder_id: b.folder_id || null }, prefer: "return=representation",
   }), "a file is filed into a folder by a contributor or above");
   await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
@@ -535,6 +539,9 @@ export async function createContainer(key, b) {
 }
 
 export async function addVersion(container_id, b) {
+  // A file in Deleted items takes no new version (0035): a 409 in words before the insert, not the guard's raw refusal.
+  const found = isUuid(container_id) ? (await sb(`information_containers?id=eq.${container_id}&select=deleted_at`))?.[0] : null;
+  if (found?.deleted_at) throw Object.assign(new Error("this file is in Deleted items — restore it first; nothing was saved"), { status: 409 });
   return (await sb(`container_versions`, {
     method: "POST",
     body: { container_id, revision: b.revision, state: "wip", suitability: b.suitability || "S0", author: resolveActor(b.author), notes: b.notes, file_ref: b.file_ref },
@@ -608,6 +615,27 @@ export async function renameFile(key, container_id, name, actor) {
   return { ok: true, iso_name: clean };
 }
 
+/** One move of a file or version to (toBin) or back from Deleted items. The precondition is in the filter
+ *  (deleted_at=is.null / not.is.null), so two calls that both read before either wrote make the move once: the second
+ *  gets no row and is a 409 "already …", never a second ledger row. No row otherwise is the database's refusal, a 403
+ *  in `what`'s words; the 0035 guard's own refusals keep its words (P0001 a 409, 42501 a 403). → the rows. */
+async function binMove(table, id, toBin, actor, what) {
+  const body = toBin ? { deleted_at: new Date().toISOString(), deleted_by: resolveActor(actor, "web") } : { deleted_at: null, deleted_by: null };
+  let rows;
+  try {
+    rows = await sb(`${table}?id=eq.${id}&deleted_at=${toBin ? "is.null" : "not.is.null"}`, { method: "PATCH", body, prefer: "return=representation" });
+  } catch (e) {
+    const status = TRANSITION_REFUSAL[e?.body?.code];
+    if (status && e.body.message) throw Object.assign(new Error(e.body.message), { status, body: e.body });
+    throw e;
+  }
+  if (Array.isArray(rows) && rows.length) return rows;
+  const now = (await sb(`${table}?id=eq.${id}&select=deleted_at`))?.[0];
+  if (now && !!now.deleted_at === toBin)
+    throw Object.assign(new Error(toBin ? "already in Deleted items — nothing was saved" : "already restored from Deleted items — nothing was saved"), { status: 409 });
+  return requireRows(rows, what);
+}
+
 /** Archive a file, governance-consistent: PUBLISHED versions transition to 'archived' (the only legal ISO
  *  move — they stay on the record, immutable); wip/shared drafts move to Deleted items (0035: restorable, one ledger
  *  row each — they used to be erased). The file then holds only archived versions and the web hides it behind the
@@ -621,7 +649,7 @@ export async function archiveFile(key, container_id, actor) {
     else if (v.state !== "archived") {
       // Moving a draft to Deleted items is a lead's (the 0035 guard): a move the database would not make comes back as
       // no row — a refusal, not "discarded".
-      requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { deleted_at: new Date().toISOString(), deleted_by: resolveActor(actor, "web") }, prefer: "return=representation" }), "a file's draft versions are moved to Deleted items by a lead or owner");
+      await binMove("container_versions", v.id, true, actor, "a file's draft versions are moved to Deleted items by a lead or owner");
       await audit(proj.id, "file_version", v.id, "deleted", actor || "web", null, { file: c.iso_name, revision: v.revision, state: v.state, by: "archive", deleted_items: true });
       discarded++;
     }
@@ -654,9 +682,8 @@ export async function unarchiveFile(key, container_id, actor) {
  *  back as no row, a 403. The "deleted" row is written only after the move happened. */
 export async function deleteFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
-  let gone;
   try {
-    gone = await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { deleted_at: new Date().toISOString(), deleted_by: resolveActor(actor, "web") }, prefer: "return=representation" });
+    await binMove("information_containers", c.id, true, actor, "a file is moved to Deleted items by a lead or owner");
   } catch (e) {
     if (String(e?.message || "").includes("published versions are immutable")) {
       const err = new Error("This file has PUBLISHED versions, which are immutable by design — it cannot be deleted. Archive it instead.");
@@ -665,7 +692,6 @@ export async function deleteFile(key, container_id, actor) {
     }
     throw e;
   }
-  requireRows(gone, "a file is moved to Deleted items by a lead or owner");
   await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name, folder_id: c.folder_id ?? null, parent_id: c.parent_id ?? null }, { deleted_items: true, versions: c.container_versions.length });
   return { deleted: true, deleted_items: true, iso_name: c.iso_name };
 }
@@ -695,14 +721,14 @@ export async function restoreFile(key, { container_id, version_id } = {}, actor)
     const { proj, c } = await containerOf(key, container_id);
     const v = (await sb(`container_versions?id=eq.${version_id}&container_id=eq.${c.id}&select=id,revision,state,deleted_at`))?.[0];
     if (!v?.deleted_at) { const e = new Error("this version is not in Deleted items"); e.status = 404; throw e; }
-    requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { deleted_at: null, deleted_by: null }, prefer: "return=representation" }), "a version is restored from Deleted items by a lead or owner");
+    await binMove("container_versions", v.id, false, actor, "a version is restored from Deleted items by a lead or owner");
     await audit(proj.id, "file_version", v.id, "restored", actor || "web", null, { file: c.iso_name, revision: v.revision, state: v.state, from: "deleted_items" });
     return { restored: true, kind: "version", iso_name: c.iso_name, revision: v.revision };
   }
   const { proj, c } = await containerOf(key, container_id, { deleted: true });
   let back;
   try {
-    back = await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { deleted_at: null, deleted_by: null }, prefer: "return=representation" });
+    back = await binMove("information_containers", c.id, false, actor, "a file is restored from Deleted items by a lead or owner");
   } catch (e) {
     if (/23505|duplicate key|ic_project_name_not_deleted/.test(String(e?.message || ""))) {
       const err = new Error(`A file named ${c.iso_name} is already in this project — rename or delete that file, then restore this one. Nothing was restored.`);
@@ -711,7 +737,6 @@ export async function restoreFile(key, { container_id, version_id } = {}, actor)
     }
     throw e;
   }
-  requireRows(back, "a file is restored from Deleted items by a lead or owner");
   const vs = c.container_versions || [];
   const versions = vs.filter((v) => !v.deleted_at).length, deleted_versions = vs.length - versions; // the latter stay in Deleted items
   await audit(proj.id, "container", c.id, "restored", actor || "web", null, { iso_name: c.iso_name, versions, deleted_versions, from: "deleted_items", to_root: !back[0]?.folder_id });

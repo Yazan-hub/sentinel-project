@@ -5,8 +5,10 @@
 -- Everything here is read from the ledger (audit_log), never typed in: each file's id, name, project and creation time
 -- (its 'created' row), each version's id, label, size, platform item, uploader and upload time (its 'uploaded' row), when
 -- and by whom the drafts were set aside (the file's 'archived' row) and the file deleted (its 'deleted' row). No state
--- change was ever recorded for these versions, so each was a wip draft. Not recoverable from the ledger, and left empty:
--- sha256, suitability, discipline, container type, folder and host link (so a restore lands at the project root).
+-- change was ever recorded for these versions, so each was a wip draft. Two values are the only ones the code that made
+-- these rows could write: container_type 'model' (registerFileVersion's, the path both files came in by) and suitability
+-- 'S0' (every registration's default; no suitability was recorded). Not recoverable from the ledger, and left empty:
+-- sha256, discipline, folder and host link (so a restore lands at the project root).
 --
 -- The result, as 0035 would have left it: each file in Deleted items (deleted_at/by = its 'deleted' row); each version
 -- deleted on its own before the file (deleted_at/by = the 'archived' row), not live. Restoring a file brings it back
@@ -51,13 +53,13 @@ begin
 end $$;
 
 -- 1. The files, under a placeholder name while their versions are added (a file in Deleted items takes no new version).
-insert into public.information_containers (id, project_id, iso_name, title, created_at)
-select f.cid, a.project_id, 'rebuilding ' || f.cid, a.new_value->>'iso_name', a.at
+insert into public.information_containers (id, project_id, iso_name, title, container_type, created_at)
+select f.cid, a.project_id, 'rebuilding ' || f.cid, a.new_value->>'iso_name', 'model', a.at
   from rebuild_files f join public.audit_log a on a.id = f.created_row;
 
 -- 2. The versions — in Deleted items on their own (Archive set them aside), never live.
-insert into public.container_versions (id, container_id, revision, state, author, notes, size_bytes, platform_item_id, is_live, created_at, deleted_at, deleted_by)
-select u.entity_id, f.cid, u.new_value->>'revision', 'wip', u.actor,
+insert into public.container_versions (id, container_id, revision, state, suitability, author, notes, size_bytes, platform_item_id, is_live, created_at, deleted_at, deleted_by)
+select u.entity_id, f.cid, u.new_value->>'revision', 'wip', 'S0', u.actor,
        format('Rebuilt from ledger #%s on 2026-09-28: set aside by Archive (ledger #%s) before Deleted items existed.', u.id, ar.id),
        (u.new_value->>'size_bytes')::bigint, u.new_value->>'platform_item_id', false, u.at, ar.at, ar.actor
   from rebuild_versions v

@@ -12,7 +12,7 @@ vi.hoisted(() => {
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
-  deleteFile, archiveFile, unarchiveFile, listDeleted, restoreFile, listFiles, versionOnKey, attachGeometry, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
+  deleteFile, archiveFile, unarchiveFile, listDeleted, restoreFile, listFiles, versionOnKey, attachGeometry, addVersion, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
@@ -269,6 +269,30 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
     await expect(attachGeometry("demo", V3, "item-1")).rejects.toMatchObject({ status: 409 });
     expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
     expect(db.container_versions[0].is_live).toBe(true); // the live pointer was never cleared
+  });
+
+  it("two restores, two deletes, two archives that both read first: the move is made and recorded once, the second is a 409", async () => {
+    const r = await Promise.allSettled([restoreFile("demo", { container_id: C2 }, "web"), restoreFile("demo", { container_id: C2 }, "web")]);
+    expect(r.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(r.find((x) => x.status === "rejected").reason).toMatchObject({ status: 409, message: "already restored from Deleted items — nothing was saved" });
+    const d = await Promise.allSettled([deleteFile("demo", C2, "a@x"), deleteFile("demo", C2, "b@x")]);
+    expect(d.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(db.information_containers[1].deleted_by).toBe("a@x"); // who deleted it first is kept
+    expect(ledger().map((c) => c.body.action)).toEqual(["restored", "deleted"]);
+  });
+
+  it("the 0035 guard's own refusal keeps its words and status, and no row follows", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
+      ? new Response(JSON.stringify({ code: "42501", message: "a file is moved to or restored from Deleted items by a lead or owner" }), { status: 403 })
+      : rest.fetch(url, init)));
+    await expect(restoreFile("demo", { container_id: C2 }, "web")).rejects.toMatchObject({ status: 403, message: "a file is moved to or restored from Deleted items by a lead or owner" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("moveContainer and addVersion refuse a file in Deleted items in words, and write nothing", async () => {
+    await expect(moveContainer(C2, { folder_id: F })).rejects.toMatchObject({ status: 409, message: "this file is in Deleted items — restore it first; nothing was saved" });
+    await expect(addVersion(C2, { revision: "P02" })).rejects.toMatchObject({ status: 409 });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
   });
 
   it("restoreFile: a restore the database refused is a 403 and no row", async () => {
