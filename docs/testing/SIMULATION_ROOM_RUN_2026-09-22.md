@@ -683,3 +683,21 @@ Build 03:29 (`feature/revit-issues`), Revit 2024, `aster-tower` local file, sign
 | Found and fixed | the live refresh that follows the bridge's broadcast replaced the "Issue created …" line with the list count within a second; the outcome now stays on the line for 90 s above the count (build 03:35) | screenshot; `BcfIssuesWindow.SetOutcome` |
 | Not run live | the web board showing the issue's camera (the camera's frame is the shared coordinate base the IFC export uses — the same assumption BcfApplyEvent makes, not measured against the published .frag); a viewer refused (covered by the bridge's role tests); the outcome line after the fix | — |
 | Left in the project | the drill issue is Open on `aster-tower` — the founder decides whether to close it | — |
+
+## Session B18 — exact clash on the solids (2026-09-28, ~04:00, run by Claude in the founder's Chrome)
+
+Local build (`feature/3d-viewer`, served by `web-dev` on :4000) opened as the platform's local app; signed in to the
+bridge as the founder (session already in that browser); `aster-tower` › Project Files › `AST_ASTR26_Aster Tower_yazan.ifc`
+v4 › Open 3D; Coordination › Clash › Hard, min. penetration 0.02 m › Run clash.
+
+| Row | Observed | Source |
+|---|---|---|
+| The mode selector | `Hard` / `Clearance` beside the tolerance, labelled "min. penetration" / "distance" | screenshot |
+| First run (before the touching split) | `1 model against itself · 602 elements · 798 box overlap(s) → 574 clash(es) on the solids, 224 boxes only (dropped)` | screenshot |
+| What the Collider returned | `3635 hit(s) · volume>0 1083 · volume=0 2552 · no volume 0 · max 342.9022 m3` (the hits include each element against itself — filtered — and both orders of a pair) | console line, since removed |
+| Found and fixed | zero-volume pairs were ranked by their box volume; now marked *touching*, counted, listed last | `clash-confirm.ts`; vitest 10/10 |
+| Second run | `798 box overlap(s) → 574 clash(es) on the solids (182 overlapping, 392 touching — no overlap volume), 224 boxes only (dropped)` — the box-only engine would have reported all 798 | screenshot |
+| A confirmed clash | the top row `AST_AS #5610 ↔ AST_AS #4694 · 2.812 m³` isolated two coincident slabs — a real modelling error | screenshot |
+| Not run | two models (federated), clearance mode on the model, the ⚑ Raise of a confirmed clash into the register, the published app (not published) | — |
+| Also seen | the web Issues board lists the B17 issue raised from Revit (`Drill B17 … 1 el · unassigned`); Standards shows `ruleset@5 · office` | screenshots |
+| Ledger vs model | the ledger holds `Naming Manager renamed 56 item(s) in Revit [founder]` at 00:58 UTC, but the local model file was last saved 00:39 UTC and read 4 conforming names at 03:12 — the rename was not saved, the ledger row stands. A ledger row records the act in Revit at commit time, not the saved file | CDE ledger panel; Revit scan |

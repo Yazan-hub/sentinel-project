@@ -12,6 +12,8 @@ export interface Clash {
   b: ClashItem;
   overlap: [number, number, number]; // penetration on each axis (m)
   volume: number; // overlap AABB volume (m^3) — rank clashes by this
+  distance?: number; // clearance runs: the solids' distance (m), set once the Collider confirmed the pair
+  touching?: boolean; // hard runs: the solids meet but the engine measured no overlap volume (a wall standing on a slab)
 }
 
 // Prefer the globally-unique IFC GlobalId so a clash signature SURVIVES a model re-export: both modelId

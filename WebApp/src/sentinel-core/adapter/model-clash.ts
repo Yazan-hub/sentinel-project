@@ -3,9 +3,10 @@
 // work), restricted to solid building elements (skips spaces/openings/annotation). Federated case (2+
 // models) clashes cross-model; a single model self-clashes (noisier). Dedup is the caller's `known` set.
 
-import type * as OBC from "@thatopen/components";
+import * as OBC from "@thatopen/components";
 import { type ClashItem, type Clash } from "../clash";
 import { runClashInWorker } from "./clash-worker";
+import { candidateGroups, type ClashMode, type SolidHit } from "../clash-confirm";
 
 // Solid building elements worth clashing (discipline-agnostic); skip spaces/openings/grids/annotation.
 const CLASHABLE = /^IFC(WALL|WALLSTANDARDCASE|SLAB|ROOF|COLUMN|BEAM|MEMBER|PLATE|DOOR|WINDOW|STAIR|STAIRFLIGHT|RAMP|RAILING|CURTAINWALL|COVERING|FOOTING|PILE|REINFORCINGBAR|FLOWSEGMENT|FLOWFITTING|FLOWTERMINAL|DUCTSEGMENT|PIPESEGMENT|CABLECARRIERSEGMENT|BUILDINGELEMENTPROXY)/i;
@@ -63,4 +64,34 @@ export async function runClash(
   // The O(n²) compare + dedup + sort runs OFF the main thread (falls back to sync when no Worker) — see clash-worker.
   const { total, clashes } = await runClashInWorker(sets, known, tol);
   return { modelCount: models.length, scanned, total, clashes };
+}
+
+/**
+ * Check the candidates on the solids with the engine's Collider (spec 2026-09-28 Decision 1): one call per model pair,
+ * carrying only that pair's candidate elements. Throws when the Collider cannot run — the caller then says the run is
+ * boxes only, never passes boxes off as clashes.
+ */
+export async function confirmOnSolids(
+  components: OBC.Components,
+  cands: readonly Clash[],
+  mode: ClashMode,
+  onProgress?: (done: number, of: number) => void,
+): Promise<SolidHit[]> {
+  const collider = components.get(OBC.Collider);
+  const opts: OBC.ClashOptions = mode.type === "hard" ? { type: "hard", calculateVolume: true } : { type: "clearance", tolerance: mode.distance };
+  const hits: SolidHit[] = [];
+  const groups = candidateGroups(cands);
+  let done = 0;
+  for (const g of groups) {
+    const setA: OBC.ModelIdMap = { [g.modelA]: g.idsA };
+    const setB: OBC.ModelIdMap = { [g.modelB]: g.idsB };
+    for (const r of await collider.find(setA, setB, opts)) {
+      hits.push({
+        modelA: r.elementA.modelId, localA: r.elementA.localId, modelB: r.elementB.modelId, localB: r.elementB.localId,
+        volume: r.type === "hard" ? r.volume : undefined, distance: r.type === "clearance" ? r.distance : undefined,
+      });
+    }
+    onProgress?.(++done, groups.length);
+  }
+  return hits;
 }
