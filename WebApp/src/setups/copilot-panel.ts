@@ -221,7 +221,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       }
       apply.remove();
       bubble("ai", esc(out.join("\n")) + '<div style="margin-top:.3rem;color:#8b93a3;font:11px system-ui">Every applied change is in the audit trail.</div>');
-      grounding = null; // project state moved — the cached ground truth is stale
+      grounding = null; gen++; // project state moved — the cached ground truth is stale, and so is a build in flight
     });
     host.parentElement!.appendChild(apply);
   };
@@ -343,7 +343,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
 
   el("co-send").addEventListener("click", () => ask((el("co-in") as HTMLInputElement).value));
   el("co-in").addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") ask((el("co-in") as HTMLInputElement).value); });
-  el("co-refresh").addEventListener("click", async () => { grounding = null; void loadPickers(); await ensureGrounding(); bubble("ai", '<span style="color:#8b93a3">Project context reloaded.</span>'); });
+  el("co-refresh").addEventListener("click", async () => { grounding = null; gen++; void loadPickers(); await ensureGrounding(); bubble("ai", '<span style="color:#8b93a3">Project context reloaded.</span>'); });
 
   bubble("ai", 'Hi — I\'m grounded in this project\'s live data (QA, cost, issues). I cite my sources and never guess. Ask me something, or tap a suggestion below.');
   return root;

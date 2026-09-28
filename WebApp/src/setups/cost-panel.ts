@@ -1,6 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -210,8 +210,13 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   const persistRates = () => {
     // Never PUT the default pack (plus this edit) over a saved pack that was not read.
     if (!loaded) { msg("Rate change not saved — this project's saved rates/baseline were not read.", "#ef4444"); return; }
-    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate_pack: rates }) }).catch(() => {});
+    const key = pid();
+    unsavedRates = true;
+    bwrite(`${base}/projects/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate_pack: rates }) })
+      .then(() => { if (pid() === key) unsavedRates = false; })
+      .catch((e) => { if (pid() === key) msg(`Rate change not saved — ${(e as Error).message}. It stays here until it is saved.`, "#ef4444"); });
   };
+  let unsavedRates = false; // an edit whose save has not succeeded: a same-scope re-read must not overwrite it
 
   let loaded = false; // this project's saved rates/baseline were read — until then a rate edit is never PUT
   let seq = 0;        // a slower answer for the previous project never overwrites the current one
@@ -226,7 +231,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const p = await r.json();
       if (mine !== seq) return;
-      if (p.rate_pack?.rules?.length) { rates.currency = p.rate_pack.currency ?? rates.currency; rates.rules = p.rate_pack.rules; }
+      if (p.rate_pack?.rules?.length && !unsavedRates) { rates.currency = p.rate_pack.currency ?? rates.currency; rates.rules = p.rate_pack.rules; }
       loaded = true;
       if (p.boq_baseline?.lines && !baseline) { // a same-scope re-read keeps a baseline the person picked or set
         const bl: Baseline = p.boq_baseline;

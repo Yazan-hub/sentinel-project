@@ -191,18 +191,23 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     msg("Submitting bid…");
     try {
       await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
-      await refreshCurrent(); addingBid = false; renderDetail(); msg(`Bid recorded for ${bidder}.`, "#22c55e");
+      addingBid = false;
+      try { await refreshCurrent(); } catch (e) { renderDetail(); return msg(`Bid recorded for ${bidder} — ${(e as Error).message}.`, "#eab308"); }
+      renderDetail(); msg(`Bid recorded for ${bidder}.`, "#22c55e");
     } catch (e) { msg("Bid failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
   const award = async (bidder: string) => {
     if (!current) return;
-    try { await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); await refreshCurrent(); renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
+    try { await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); try { await refreshCurrent(); } catch (e) { renderDetail(); return msg(`Awarded to ${bidder} — ${(e as Error).message}.`, "#eab308"); } renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
     catch (e) { msg("Award failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
   };
 
+  // Re-read after a write. A failed re-read throws "the list was not re-read — <why>"; the write itself stands.
   const refreshCurrent = async () => {
-    tenders = await (await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`)).json();
+    const r = await bfetch(`${base}/tenders/${encodeURIComponent(pid())}`).catch((e) => { throw new Error(`the list was not re-read — ${(e as Error).message}`); });
+    if (!r.ok) throw new Error(`the list was not re-read — ${(await r.json().catch(() => null))?.message || `HTTP ${r.status}`}`);
+    tenders = await r.json();
     current = tenders.find((t) => t.guid === current?.guid) ?? null;
   };
 
