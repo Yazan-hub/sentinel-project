@@ -58,6 +58,13 @@ Parent: `docs/ROADMAP.md` item 2; `docs/UPGRADE_MAP_2026-09.md` U-8..U-12.
    loader (`files-panel.ts` `core.load(buf, { modelId })`, no camera), and the two `useCamera` calls in
    `components-front-beta` belong to sheet viewports — so whether the main camera is bound is exactly what the
    readout shows. Only then: bind the camera at load, tune `core.settings` (culling, lodThresholds, graphicsQuality).
+   **Measured 2026-09-28 (B19, B20):** both models already bound to the camera (the platform binds it); the founder's
+   run in the published app held the display's refresh on an integrated GPU — 60 frames per second, p95 16.8 ms, ~26k
+   triangles and ~107 draw calls per frame for 378 elements (two models together: ~48k triangles, 241 draw calls).
+   **Decision:** nothing about loading or the engine's settings changes at today's model sizes — there is no measured
+   problem to fix. Revisit with a large model (tens of thousands of elements) on the same readout; the levers then, in
+   order: `lodThresholds`/`culling` in `core.settings`, then graphicsQuality. Streamed .frag files wait on WebGPU
+   (Decision 6).
 6. **WebGPU — blocked upstream (found 2026-09-28, trial builds in the session scratchpad, no repo change).** The
    switch is a build-time alias (`three` → `three/webgpu`); `SimpleRenderer` then picks WebGPU by itself
    (`components-beta` index.mjs ~16377: `hasWebGPU = typeof THREE.WebGPURenderer === "function"` — a build check, not a
