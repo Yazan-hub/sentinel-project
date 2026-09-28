@@ -178,6 +178,12 @@ static class Check
             var fam = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework" });
             Ok(fam.Verdict == NameVerdict.NeedsHuman && fam.Slots != null && fam.Slots.Count == 2 && fam.Slots[0].Value == "AST" && fam.Slots[1].Value == null, "a family rule the recovery cannot finish gets a skeleton too: ORG fixed, BODY free");
             Ok(!fam.Slots![1].Accepts("Base Cabinet-Double Door Sink Unit") && fam.Slots[1].Accepts("Base Cabinet_Double Door Sink Unit") && RuleRegex.For(fnSk, "AST").IsMatch(NamingProposer.Assemble(fnSk, new[] { "AST", "Base Cabinet_Double Door Sink Unit" })), "the body slot refuses the dash form and accepts the underscore form the rule wants");
+            Ok(fam.Suggestion == "AST_Base Cabinet_Double Door Sink Unit" && RuleRegex.For(fnSk, "AST").IsMatch(fam.Suggestion!), "the family suggestion turns the dash into the separator the body needs, and matches: " + fam.Suggestion);
+            Ok(ceil.Suggestion == "AST_EXT_ARC_2 X 2 ACT SYSTEM_" && !RuleRegex.For(tnSk, "AST").IsMatch(ceil.Suggestion!), "a ceiling with no measured size is suggested with the size left empty, so it is refused until typed: " + ceil.Suggestion);
+            var probs = NamingProposer.Problems(ceil.Suggestion!, ceil.Slots!, "_");
+            Ok(probs.Count == 1 && probs[0] == "SIZE missing — like 200 mm", "…and the reason names the part: " + string.Join("; ", probs));
+            Ok(NamingProposer.Problems("AST_INT_ARC_GYP_200 mm", ceil.Slots!, "_").Count == 0, "a finished name has no problems");
+            Ok(NamingProposer.Problems("AST_INT_ARC", ceil.Slots!, "_")[0].StartsWith("5 parts expected"), "too few parts is said as such");
         }
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

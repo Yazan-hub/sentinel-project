@@ -25,6 +25,7 @@ public sealed class NamingRow
     /// <summary>NeedsHuman type rows: the slots a person completes (NamingProposer.Skeleton) and the rule's anchored
     /// regex, so the window can assemble and check a name live.</summary>
     public List<Sentinel.Standards.TokenSlot>? Slots;
+    public string? Suggestion;            // the full best-guess name the person edits (NeedsHuman rows)
     public System.Text.RegularExpressions.Regex? Schema;
     public string Separator = "_";
 }
@@ -76,7 +77,7 @@ public static class NamingManagerService
                             Current = et.Name, Proposed = p.Verdict is NameVerdict.Proposed or NameVerdict.Blocked ? p.Name ?? "" : "",
                             Verdict = p.Verdict, Note = string.Join("; ", p.Notes),
                             Instances = instancesOfType.TryGetValue(et.Id.IdValue(), out var n) ? n : 0,
-                            Slots = p.Slots, Schema = p.Slots != null ? RuleRegex.For(rule, org) : null, Separator = rule.Separator,
+                            Slots = p.Slots, Suggestion = p.Suggestion, Schema = p.Slots != null ? RuleRegex.For(rule, org) : null, Separator = rule.Separator,
                         });
                     }
                 }
@@ -101,7 +102,7 @@ public static class NamingManagerService
                             Current = f.Name, Proposed = p.Verdict is NameVerdict.Proposed or NameVerdict.Blocked ? p.Name ?? "" : "",
                             Verdict = p.Verdict, Note = string.Join("; ", p.Notes),
                             Instances = f.GetFamilySymbolIds().Sum(id => instancesOfType.TryGetValue(id.IdValue(), out var n) ? n : 0),
-                            Slots = p.Slots, Schema = p.Slots != null ? RuleRegex.For(rule, org) : null, Separator = rule.Separator,
+                            Slots = p.Slots, Suggestion = p.Suggestion, Schema = p.Slots != null ? RuleRegex.For(rule, org) : null, Separator = rule.Separator,
                         });
                     }
                 }

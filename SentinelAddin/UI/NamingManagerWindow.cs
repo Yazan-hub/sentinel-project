@@ -121,63 +121,29 @@ public sealed class NamingManagerWindow : Window
         cur.ToolTip = row.Current;
         Grid.SetColumn(cur, 2); grid.Children.Add(cur);
         Func<string> value;
-        if (row.Verdict == NameVerdict.NeedsHuman && row.Slots is { Count: > 0 } && row.Schema != null)
+        if (row.Verdict == NameVerdict.NeedsHuman && row.Slots is { Count: > 0 } && row.Schema != null && row.Suggestion != null)
         {
-            // The person finishes the name token by token: fixed parts, a pick for an enum the name lacks, free text
-            // for the rest. The assembled name is checked against the rule live; the row can be ticked only when it
-            // matches (founder's request 2026-09-28 — a suggestion, never a silent default).
+            // Like the Review Fix dialog: one full proposed name, editable, checked against the rule live and the
+            // reason for a refusal said part by part. The row can be ticked only when the schema accepts the name
+            // (founder's request 2026-09-28 — a suggestion, never a silent default).
             var editor = new StackPanel { Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
-            var parts = new WrapPanel();
-            var preview = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
-            var getters = new List<Func<string>>();
-            var boxes = new List<(TokenSlot Slot, Control? Ctl, Func<string> Get)>();
-            foreach (var slot in row.Slots)
-            {
-                if (slot.Value != null)
-                {
-                    var fixedPart = new TextBlock { Text = slot.Value, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = slot.Token + " — from the name or the model" };
-                    parts.Children.Add(fixedPart); getters.Add(() => slot.Value!); boxes.Add((slot, null, () => slot.Value!));
-                }
-                else if (slot.Options != null)
-                {
-                    var pick = new ComboBox { MinWidth = 70, Margin = new Thickness(0, 0, 2, 0), ToolTip = slot.Token + " — pick one of " + string.Join(", ", slot.Options) };
-                    foreach (var opt in slot.Options) pick.Items.Add(opt);
-                    pick.Text = slot.Token + "?"; pick.IsEditable = true; pick.IsReadOnly = true;
-                    pick.SelectionChanged += (_, _) => Update();
-                    parts.Children.Add(pick); getters.Add(() => pick.SelectedItem as string ?? ""); boxes.Add((slot, pick, () => pick.SelectedItem as string ?? ""));
-                }
-                else
-                {
-                    var freeText = new TextBox { Text = slot.Prefill, MinWidth = 90, Margin = new Thickness(0, 0, 2, 0), ToolTip = slot.Token + " — " + slot.Hint };
-                    freeText.TextChanged += (_, _) => Update();
-                    parts.Children.Add(freeText); getters.Add(() => freeText.Text); boxes.Add((slot, freeText, () => freeText.Text));
-                }
-                parts.Children.Add(new TextBlock { Text = row.Separator, Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center });
-            }
-            if (parts.Children.Count > 0) parts.Children.RemoveAt(parts.Children.Count - 1); // no trailing separator
-            editor.Children.Add(parts); editor.Children.Add(preview);
-            string Assembled() => NamingProposer.Assemble(new Rule { Separator = row.Separator, Tokens = row.Slots.Select(s => s.Token).ToList() }, getters.Select(g => g()));
+            var val = new TextBox { Text = row.Suggestion, ToolTip = string.Join(Environment.NewLine, row.Slots.Select(sl => sl.Token + " — " + sl.Expects)) };
+            var status = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
+            editor.Children.Add(val); editor.Children.Add(status);
             void Update()
             {
-                var name = Assembled();
-                var ok = row.Schema.IsMatch(name);
-                // Say which part is wrong: an empty pick, or text the token does not accept.
-                var wrong = new List<string>();
-                foreach (var (slot, ctl, get) in boxes)
-                {
-                    var v = get();
-                    var bad = v.Trim().Length == 0 ? "pick " + slot.Token : !slot.Accepts(v) ? slot.Token + ": " + slot.Expects : null;
-                    if (ctl != null) ctl.BorderBrush = bad == null ? SystemColors.ControlDarkBrush : Brushes.IndianRed;
-                    if (bad != null) wrong.Add(bad);
-                }
-                preview.Text = ok ? "→ " + name : "→ " + name + (wrong.Count > 0 ? "   (" + string.Join("; ", wrong) + ")" : "   (not a valid name yet)");
-                preview.Foreground = ok ? Brushes.SeaGreen : Brushes.Gray;
+                var ok = row.Schema.IsMatch(val.Text.Trim());
+                var wrong = ok ? new List<string>() : NamingProposer.Problems(val.Text.Trim(), row.Slots, row.Separator);
+                status.Text = ok ? "✓ Matches the naming schema" : "✗ " + (wrong.Count > 0 ? string.Join("; ", wrong) : "does not match the naming schema");
+                status.Foreground = ok ? Brushes.SeaGreen : Brushes.IndianRed;
+                val.BorderBrush = ok ? Brushes.SeaGreen : Brushes.IndianRed;
                 box.IsEnabled = ok;
                 if (!ok) box.IsChecked = false;
             }
+            val.TextChanged += (_, _) => Update();
             Update();
             Grid.SetColumn(editor, 3); grid.Children.Add(editor);
-            value = Assembled;
+            value = () => val.Text.Trim();
         }
         else
         {

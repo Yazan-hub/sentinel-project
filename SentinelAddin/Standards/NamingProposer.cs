@@ -31,6 +31,9 @@ public sealed class NameProposal
     /// <summary>For a NeedsHuman type row: one slot per token so a person can finish the name — a recovered value,
     /// the rule's allowed values to pick from, or free text with a prefill. Null when the rule is not a token rule.</summary>
     public List<TokenSlot>? Slots;
+    /// <summary>For a NeedsHuman row: one full best-guess name assembled from the slots (like the Review Fix
+    /// dialog's proposed value) — a person edits it; it is a proposal only when the schema accepts it.</summary>
+    public string? Suggestion;
 }
 
 /// <summary>One token of a name a person completes: <see cref="Value"/> when the name or the model already says it
@@ -75,7 +78,7 @@ public static class NamingProposer
         var p = ProposeCore(current, rule, org, ctx);
         if (p.Verdict == NameVerdict.NeedsHuman && rule.Target is RuleTarget.Type or RuleTarget.Family && rule.Tokens.Count > 0)
         {
-            try { p.Slots = Skeleton(current, rule, org, ctx); } catch { p.Slots = null; } // a skeleton is help, never a blocker
+            try { p.Slots = Skeleton(current, rule, org, ctx); p.Suggestion = Suggest(rule, p.Slots); } catch { p.Slots = null; p.Suggestion = null; } // a skeleton is help, never a blocker
         }
         return p;
     }
@@ -187,6 +190,46 @@ public static class NamingProposer
     }
 
     /// <summary>The name the slots spell, in token order (a slot's Value, else what the person chose or typed).</summary>
+    /// <summary>One full best-guess name from the slots: a recovered value as is, the rule's first allowed value for an
+    /// enum the name lacks (the schema's canonical default, as Review Fix does), the prefill for free text — with
+    /// dashes or spaces turned to the separator when that is what makes the token accept it — and an empty SIZE
+    /// when nothing measured it (so the name stays refused until a person types the size).</summary>
+    public static string Suggest(Rule rule, List<TokenSlot> slots)
+    {
+        var values = new List<string>();
+        foreach (var s in slots)
+        {
+            if (s.Value != null) { values.Add(s.Value); continue; }
+            if (s.Options != null) { values.Add(s.Options[0]); continue; }
+            if (s.Token.Equals("SIZE", StringComparison.OrdinalIgnoreCase)) { values.Add(""); continue; }
+            var pick = new[] { s.Prefill, s.Prefill.Replace("-", "_"), s.Prefill.Replace(" - ", "_").Replace(" ", "_") }
+                .FirstOrDefault(v => v.Length > 0 && s.Accepts(v));
+            rule.TokenDefs.TryGetValue(s.Token, out var d);
+            values.Add(pick ?? (s.Prefill.Length > 0 ? s.Prefill : NameSynth.DefaultFor(d, s.Token)));
+        }
+        return Assemble(rule, values);
+    }
+
+    /// <summary>Why <paramref name="name"/> is not a valid name yet, part by part, in plain words — empty when every
+    /// part is accepted. Used by the Naming Manager under the editable suggestion.</summary>
+    public static List<string> Problems(string name, List<TokenSlot> slots, string separator)
+    {
+        var parts = (name ?? "").Split(new[] { separator }, StringSplitOptions.None);
+        var wrong = new List<string>();
+        if (parts.Length != slots.Count)
+        {
+            wrong.Add($"{slots.Count} parts expected: {string.Join(separator, slots.Select(s => s.Token))}");
+            return wrong;
+        }
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var v = parts[i].Trim();
+            if (v.Length == 0) wrong.Add(slots[i].Token + " missing — " + slots[i].Expects);
+            else if (!slots[i].Accepts(v)) wrong.Add(slots[i].Token + ": " + slots[i].Expects);
+        }
+        return wrong;
+    }
+
     public static string Assemble(Rule rule, IEnumerable<string> values) => string.Join(rule.Separator, values.Select(v => (v ?? "").Trim()));
 
     // ---- type rules: recover tokens from the name + measured size ----
