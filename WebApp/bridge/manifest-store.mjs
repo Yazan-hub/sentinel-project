@@ -49,10 +49,15 @@ export async function captureManifest(key, versionId, bytes, { actor = "bridge",
 export async function backfillManifest(key, versionId, bytes, opts = {}, deps) {
   const d = await wire(deps);
   await d.versionOnKey(key, versionId);
-  const recorded = String((await d.sb(`container_versions?id=eq.${versionId}&select=sha256`))?.[0]?.sha256 || "").toLowerCase();
+  const row = (await d.sb(`container_versions?id=eq.${versionId}&select=sha256,size_bytes`))?.[0] ?? {};
+  const recorded = String(row.sha256 || "").toLowerCase();
   const sha = createHash("sha256").update(bytes).digest("hex");
   if (recorded && recorded !== sha)
     throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (sha256 ${sha.slice(0, 12)}… ≠ ${recorded.slice(0, 12)}…) — nothing was saved`), { status: 409 });
+  // A version registered before fingerprints has no sha256; when its size was recorded, the bytes must at least be that
+  // size (a weaker check than a hash, said as such) — a lead's upload of any other file is refused.
+  if (!recorded && Number.isFinite(Number(row.size_bytes)) && row.size_bytes != null && Number(row.size_bytes) !== bytes.length)
+    throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (${bytes.length} bytes ≠ ${row.size_bytes} recorded; it has no sha256 to compare) — nothing was saved`), { status: 409 });
   return captureManifest(key, versionId, bytes, opts, d);
 }
 
@@ -74,7 +79,10 @@ export async function liveModelVersions(key, deps) {
   const d = await wire(deps);
   const files = await d.listFiles(key);
   return files
-    .filter((f) => f.container_type === "model" && f.live_version_id)
+    // The federated set is the live IFC models: a manifest is read from IFC bytes, so a container registered as a
+    // "model" that is not an IFC (aster-tower's programme.csv, 2026-09-28) could never be judged and would keep the
+    // Federation Gate — and the lock on the clash register — shut for ever.
+    .filter((f) => f.container_type === "model" && f.live_version_id && /\.ifc$/i.test(String(f.iso_name ?? "")))
     .map((f) => ({ container: f.iso_name, container_id: f.id, version_id: f.live_version_id, revision: (f.versions || []).find((v) => v.id === f.live_version_id)?.revision ?? null }));
 }
 

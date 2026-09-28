@@ -20,6 +20,7 @@ function memDeps() {
       { id: "c-1", iso_name: "A-0101.ifc", container_type: "model", live_version_id: "v-1", versions: [{ id: "v-1", revision: "P01", is_live: true }] },
       { id: "c-2", iso_name: "B-0102.ifc", container_type: "model", live_version_id: "v-2", versions: [{ id: "v-2", revision: "P01", is_live: true }] },
       { id: "c-3", iso_name: "programme.csv", container_type: "document", live_version_id: "v-3", versions: [] },
+      { id: "c-5", iso_name: "programme-2.csv", container_type: "model", live_version_id: "v-5", versions: [] }, // registered as a model, not an IFC
       { id: "c-4", iso_name: "old.ifc", container_type: "model", live_version_id: null, versions: [] },
     ],
   };
@@ -68,7 +69,7 @@ describe("backfillManifest — only the version's own file", () => {
   const withVersion = (recorded, onKey = true) => {
     const d = memDeps();
     d.versionOnKey = async (key, vid) => { if (!onKey) throw Object.assign(new Error(`version ${vid} is not on ${key}`), { status: 400 }); return { proj: { id: `uuid-${key}` }, version: { id: vid } }; };
-    d.sb = async () => [{ sha256: recorded }];
+    d.sb = async () => [{ sha256: recorded, size_bytes: d.size ?? null }];
     d.opts = [];
     const upsert = d.docUpsert;
     d.docUpsert = async (s, p, id, data, o) => { d.opts.push(o); return upsert(s, p, id, data); };
@@ -97,5 +98,16 @@ describe("backfillManifest — only the version's own file", () => {
     expect(d.opts).toEqual([{ service: true }]);
     const none = withVersion(null);
     await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, none)).resolves.toMatchObject({ revision_id: "rev-1" });
+  });
+
+  it("with no recorded sha256 but a recorded size, bytes of another size are a 409 and nothing is captured; the right size is taken", async () => {
+    const d = withVersion(null);
+    d.size = bytes.length + 1;
+    await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, d))
+      .rejects.toMatchObject({ status: 409, message: `these bytes are not version v-1's file (${bytes.length} bytes ≠ ${bytes.length + 1} recorded; it has no sha256 to compare) — nothing was saved` });
+    expect(d.docs.size).toBe(0);
+    const ok = withVersion(null);
+    ok.size = bytes.length;
+    await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, ok)).resolves.toMatchObject({ revision_id: "rev-1" });
   });
 });
