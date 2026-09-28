@@ -210,7 +210,7 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
   it("listDeleted: whole files and single versions, newest first, with who and when", async () => {
     expect(await listDeleted("demo")).toEqual([
       { kind: "version", container_id: C, iso_name: "A.ifc", version_id: V2, revision: "v2", state: "wip", deleted_at: "2026-09-28T10:00:00Z", deleted_by: "web" },
-      { kind: "file", container_id: C2, iso_name: "B.rvt", deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test", versions: 1 },
+      { kind: "file", container_id: C2, iso_name: "B.rvt", deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test", versions: 1, deleted_versions: 0 },
     ]);
   });
 
@@ -227,9 +227,17 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
   });
 
   it("restoreFile: a whole file comes back with its versions, and a 'restored' row follows", async () => {
-    expect(await restoreFile("demo", { container_id: C2 }, "web")).toEqual({ restored: true, kind: "file", iso_name: "B.rvt", versions: 1 });
+    expect(await restoreFile("demo", { container_id: C2 }, "web")).toEqual({ restored: true, kind: "file", iso_name: "B.rvt", versions: 1, deleted_versions: 0 });
     expect(db.information_containers[1]).toMatchObject({ deleted_at: null, deleted_by: null });
     expect(ledger()[0].body).toMatchObject({ entity_type: "container", entity_id: C2, action: "restored", new_value: { iso_name: "B.rvt", from: "deleted_items", to_root: true } });
+  });
+
+  it("a file whose drafts were deleted before it: counted apart, and they stay in Deleted items after its restore", async () => {
+    db.container_versions[2].deleted_at = "2026-09-28T08:00:00Z";
+    expect((await listDeleted("demo")).find((d) => d.kind === "file")).toMatchObject({ versions: 0, deleted_versions: 1 });
+    expect(await restoreFile("demo", { container_id: C2 }, "web")).toEqual({ restored: true, kind: "file", iso_name: "B.rvt", versions: 0, deleted_versions: 1 });
+    expect(db.container_versions[2].deleted_at).toBe("2026-09-28T08:00:00Z");
+    expect((await listDeleted("demo")).map((d) => [d.kind, d.version_id])).toEqual([["version", V2], ["version", V3]]);
   });
 
   it("restoreFile: a single version comes back in its state, and a 'restored' row follows", async () => {

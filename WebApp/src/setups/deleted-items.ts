@@ -13,6 +13,7 @@ export interface DeletedItem {
   deleted_at: string;
   deleted_by: string | null;
   versions?: number; // kind "file": how many versions come back with it
+  deleted_versions?: number; // kind "file": versions deleted on their own before it — they stay here after its restore
   version_id?: string; // kind "version"
   revision?: string;
   state?: string;
@@ -31,7 +32,7 @@ export async function readDeleted(baseUrl: string, key: string): Promise<Deleted
 }
 
 /** POST /cde/:key/files/restore → the bridge's answer; a refusal throws the bridge's words (a taken name is a 409). */
-export async function restoreDeleted(baseUrl: string, key: string, item: DeletedItem, actor: string): Promise<{ kind: string; iso_name: string; versions?: number; revision?: string }> {
+export async function restoreDeleted(baseUrl: string, key: string, item: DeletedItem, actor: string): Promise<{ kind: string; iso_name: string; versions?: number; deleted_versions?: number; revision?: string }> {
   const r = await bfetch(at(baseUrl, key, "restore"), {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ container_id: item.container_id, ...(item.kind === "version" ? { version_id: item.version_id } : {}), actor }),
@@ -44,15 +45,15 @@ export async function restoreDeleted(baseUrl: string, key: string, item: Deleted
 /** What a row says: the file (or the file's version and its state), then who and when. */
 export function deletedItemLine(i: DeletedItem): { what: string; who: string } {
   const what = i.kind === "file"
-    ? `${i.iso_name} — the file, with ${i.versions ?? 0} version(s)`
+    ? `${i.iso_name} — the file, with ${i.versions ?? 0} version(s)${i.deleted_versions ? ` (and ${i.deleted_versions} deleted version(s), restorable after the file)` : ""}`
     : `${i.iso_name} ${i.revision ?? ""} — a ${i.state ?? "draft"} version`;
   return { what, who: `deleted by ${i.deleted_by || "—"} · ${(i.deleted_at || "").replace("T", " ").slice(0, 16)}` };
 }
 
 /** What a restore did, in words. */
-export function restoredLine(r: { kind: string; iso_name: string; versions?: number; revision?: string }): string {
+export function restoredLine(r: { kind: string; iso_name: string; versions?: number; deleted_versions?: number; revision?: string }): string {
   return r.kind === "file"
-    ? `✓ Restored ${r.iso_name} from Deleted items with its ${r.versions ?? 0} version(s).`
+    ? `✓ Restored ${r.iso_name} from Deleted items with its ${r.versions ?? 0} version(s).${r.deleted_versions ? ` ${r.deleted_versions} deleted version(s) it held are still in Deleted items — restore each from the list.` : ""}`
     : `✓ Restored ${r.iso_name} ${r.revision ?? ""} from Deleted items — it comes back in its state, not live.`;
 }
 

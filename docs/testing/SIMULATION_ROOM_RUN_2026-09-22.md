@@ -732,3 +732,19 @@ The founder's answers: publish, yes (the lock), done (the rename), and his Chrom
 | aster-tower's gate after the lock (B21) | the founder ran it: `NOT CHECKABLE · 4 model(s) · 0 of 4 read · ⚑ Raise locked`; causes: no live model had a manifest (none entered through intake), `programme.csv` registered as a "model", and aster-tower holds one building in three copies; fixed: IFC-only federated set, a size check on fingerprint-less backfills, the one-model rule (option B) reviewed twice (9 + 14 confirmed); ASTR26 v2's manifest backfilled from its size-matched file (378 elements; `guid_audit`: 563 IfcProducts, 0 duplicate, 0 missing GlobalIds); the two old Aster containers' IFC sources no longer exist — the founder archives them (drafts are discarded, so he presses it) | Supabase reads; bridge |
 | Frame time | not measured by Claude: the Chrome window was behind the Claude window (1 animation frame in 11.5 s — the readout said so) | screenshot |
 | Frame time, measured by the founder (10:09 UTC, published 1.0.26, Chrome in front, orbiting) | one model (`ASTR26-AST-ZZ-XX-M3-A-0001.ifc@v2`, 378 elements): `600 frames (60 per s) · frame time p50 16.7 ms, p95 16.8 ms, worst 17.2 ms`; every frame drawn; `draw calls avg 107 / max 135 · triangles submitted avg 25,896 / max 29,219`; 21 geometries, 23 textures; JS heap 100 MB; culling/LOD follow the camera; Intel UHD Graphics (integrated). The frame time sits on the display's refresh (60 Hz): the viewer is not the limit at this size, and how much headroom is left is not measurable this way. The same readout in a covered window gave 1 frame — the throttling line was right | the founder's pasted readout |
+
+## Session B22 — Deleted items (to run after 0035 is applied)
+
+The founder's request (2026-09-28): the two entries he deleted should be restorable, as in ACC/Forma; he took every default
+recommendation. Built on `feature/deleted-items`; nothing below has run yet.
+
+| Row | Expected | Observed |
+|---|---|---|
+| 0035 applied, probe | 7 of 7 true | not run |
+| The rebuild | `2026-09-28_rebuild_deleted_aster.sql` once: both files in Deleted items (deleted by the founder at 13:23:41 and 13:23:45 UTC), 4 + 2 versions set aside by the archive at 13:00:37 and 13:01:04 UTC, two `container rebuilt` rows; a second run refused | not run |
+| The list | Project Files ▸ Deleted items (2): each file `— the file, with 0 version(s) (and n deleted version(s), restorable after the file)`, deleted by the founder | not run |
+| Restore a file | `AST_ASTR26_Aster Tower_yazan.ifc` back at the root, empty, its 4 versions now listed on their own; `container restored` row | not run |
+| Restore a version | v4 back as a wip draft, not live; Open 3D loads its platform item; `file_version restored` row | not run |
+| Delete again | Confirm delete → `✓ Moved … to Deleted items`; the file gone from the files list, the CDE board and the Federation Gate's live set | not run |
+| Refusals | a file with a published version → 409 archive instead; a viewer's Restore → 403; a restore onto a taken name → 409 in words; nothing written on any | not run |
+| Archive | offered only where a version is published; its drafts go to Deleted items, counted in the status line | not run |

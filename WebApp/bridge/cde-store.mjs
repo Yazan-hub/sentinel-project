@@ -670,15 +670,17 @@ export async function deleteFile(key, container_id, actor) {
   return { deleted: true, deleted_items: true, iso_name: c.iso_name };
 }
 
-/** Deleted items of a project (0035): whole files (with how many versions they hold) and single versions of files still
- *  in the project (drafts an archive moved there), newest first — who, when. Any member reads it. */
+/** Deleted items of a project (0035): whole files and single versions of files still in the project (drafts an archive
+ *  moved there), newest first — who, when. A file row counts apart the versions that come back with it (`versions`) and
+ *  the ones deleted on their own before it (`deleted_versions`: they stay in Deleted items, restorable once the file is
+ *  back). Any member reads it. */
 export async function listDeleted(key) {
   const proj = await ensureProject(key);
   const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,deleted_at,deleted_by,container_versions(id,revision,state,deleted_at,deleted_by,created_at)`);
   const out = [];
   for (const c of Array.isArray(rows) ? rows : []) {
     const vs = c.container_versions || [];
-    if (c.deleted_at) out.push({ kind: "file", container_id: c.id, iso_name: c.iso_name, deleted_at: c.deleted_at, deleted_by: c.deleted_by ?? null, versions: vs.length });
+    if (c.deleted_at) out.push({ kind: "file", container_id: c.id, iso_name: c.iso_name, deleted_at: c.deleted_at, deleted_by: c.deleted_by ?? null, versions: vs.filter((v) => !v.deleted_at).length, deleted_versions: vs.filter((v) => v.deleted_at).length });
     else for (const v of vs) if (v.deleted_at) out.push({ kind: "version", container_id: c.id, iso_name: c.iso_name, version_id: v.id, revision: v.revision, state: v.state, deleted_at: v.deleted_at, deleted_by: v.deleted_by ?? null });
   }
   return out.sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
@@ -710,8 +712,10 @@ export async function restoreFile(key, { container_id, version_id } = {}, actor)
     throw e;
   }
   requireRows(back, "a file is restored from Deleted items by a lead or owner");
-  await audit(proj.id, "container", c.id, "restored", actor || "web", null, { iso_name: c.iso_name, versions: (c.container_versions || []).length, from: "deleted_items", to_root: !back[0]?.folder_id });
-  return { restored: true, kind: "file", iso_name: c.iso_name, versions: (c.container_versions || []).length };
+  const vs = c.container_versions || [];
+  const versions = vs.filter((v) => !v.deleted_at).length, deleted_versions = vs.length - versions; // the latter stay in Deleted items
+  await audit(proj.id, "container", c.id, "restored", actor || "web", null, { iso_name: c.iso_name, versions, deleted_versions, from: "deleted_items", to_root: !back[0]?.folder_id });
+  return { restored: true, kind: "file", iso_name: c.iso_name, versions, deleted_versions };
 }
 
 /** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and

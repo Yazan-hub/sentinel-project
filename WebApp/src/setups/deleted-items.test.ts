@@ -56,10 +56,12 @@ describe("the words", () => {
   it("a row names the file or the version, then who and when", () => {
     expect(deletedItemLine(FILE)).toEqual({ what: "AST-ARC.ifc — the file, with 4 version(s)", who: "deleted by lead@example.test · 2026-09-28 09:41" });
     expect(deletedItemLine(VER)).toEqual({ what: "AST-STR.ifc v3 — a wip version", who: "deleted by — · 2026-09-28 10:00" });
+    expect(deletedItemLine({ ...FILE, versions: 0, deleted_versions: 4 }).what).toBe("AST-ARC.ifc — the file, with 0 version(s) (and 4 deleted version(s), restorable after the file)");
   });
 
   it("a restore says what came back", () => {
     expect(restoredLine({ kind: "file", iso_name: "A.ifc", versions: 2 })).toBe("✓ Restored A.ifc from Deleted items with its 2 version(s).");
+    expect(restoredLine({ kind: "file", iso_name: "A.ifc", versions: 0, deleted_versions: 4 })).toBe("✓ Restored A.ifc from Deleted items with its 0 version(s). 4 deleted version(s) it held are still in Deleted items — restore each from the list.");
     expect(restoredLine({ kind: "version", iso_name: "A.ifc", revision: "v3" })).toBe("✓ Restored A.ifc v3 from Deleted items — it comes back in its state, not live.");
   });
 
