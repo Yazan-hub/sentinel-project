@@ -35,7 +35,7 @@ const NEXT: Record<State, { label: string; state: State }[]> = {
 };
 
 interface Version { id: string; revision: string; state: State; suitability?: string; author?: string; created_at: string; file_ref?: string | null; }
-interface Container { id: string; iso_name: string; title?: string; discipline?: string; container_type?: string; folder_id?: string | null; container_versions: Version[]; }
+interface Container { id: string; iso_name: string; title?: string; discipline?: string; container_type?: string; folder_id?: string | null; container_versions: Version[]; deleted_versions?: number; }
 interface Folder { id: string; project_id: string; parent_id: string | null; name: string; kind: string; sort: number; }
 interface Audit { id: number; action: string; actor?: string; at: string; entity_type?: string; }
 // GET /cde/:key/audit's reply: a page of the ledger, newest first, and the exact count of its rows.
@@ -532,7 +532,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     (bar.querySelector("#cde-pass-go") as HTMLButtonElement).addEventListener("click", go);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") void go(); });
   };
-  const nextRevision = (c: Container) => `P${String((c.container_versions?.length ?? 0) + 1).padStart(2, "0")}`;
+  // Versions in Deleted items count too, so a label is never reused.
+  const nextRevision = (c: Container) => `P${String((c.container_versions?.length ?? 0) + (c.deleted_versions ?? 0) + 1).padStart(2, "0")}`;
   const attachFile = (c: Container) => {
     if (!unlocked()) { status("Unlock the project first (🔒) to attach encrypted files."); toggleUnlock(); return; }
     const input = document.createElement("input");

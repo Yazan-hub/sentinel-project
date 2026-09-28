@@ -12,7 +12,7 @@ vi.hoisted(() => {
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
-  deleteFile, archiveFile, unarchiveFile, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
+  deleteFile, archiveFile, unarchiveFile, listDeleted, restoreFile, listFiles, versionOnKey, attachGeometry, addVersion, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
@@ -128,35 +128,55 @@ describe("files — delete, archive and restore record only what happened (cde-1
     db.container_versions = [{ id: V1, container_id: C, revision: "v1", state: "wip", is_live: true }];
   });
 
-  it("deleteFile: a delete the database refused is a 403 and no 'deleted' row (the row used to be written first)", async () => {
+  it("deleteFile: a move the database refused is a 403 and no 'deleted' row (the row used to be written first)", async () => {
     serve(["information_containers"]);
-    await expect(deleteFile("demo", C, "web")).rejects.toMatchObject({ status: 403, message: "a file is deleted by a lead or owner — nothing was saved" });
+    await expect(deleteFile("demo", C, "web")).rejects.toMatchObject({ status: 403, message: "a file is moved to Deleted items by a lead or owner — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 
-  it("deleteFile: the 'deleted' row follows the delete", async () => {
-    expect(await deleteFile("demo", C, "web")).toEqual({ deleted: true, iso_name: "A.ifc" });
+  it("deleteFile: the file moves to Deleted items (never erased), then the 'deleted' row", async () => {
+    expect(await deleteFile("demo", C, "web")).toEqual({ deleted: true, deleted_items: true, iso_name: "A.ifc" });
     const order = rest.calls.map((c) => `${c.method} ${c.table}`);
-    expect(order.indexOf("DELETE information_containers")).toBeLessThan(order.indexOf("POST audit_log"));
+    expect(order).not.toContain("DELETE information_containers");
+    expect(order.indexOf("PATCH information_containers")).toBeLessThan(order.indexOf("POST audit_log"));
+    expect(db.information_containers[0]).toMatchObject({ id: C, deleted_by: "web" });
+    expect(db.information_containers[0].deleted_at).toBeTruthy();
+    expect(ledger()[0].body).toMatchObject({ entity_type: "container", action: "deleted", old_value: { iso_name: "A.ifc", folder_id: null }, new_value: { deleted_items: true, versions: 1 } });
+  });
+
+  it("deleteFile: a file already in Deleted items is not found (404), and nothing is written", async () => {
+    db.information_containers[0].deleted_at = "2026-09-28T10:00:00Z";
+    await expect(deleteFile("demo", C, "web")).rejects.toMatchObject({ status: 404 });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
   });
 
   it("deleteFile: published versions are still a 409, and still no row", async () => {
-    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "DELETE"
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
       ? new Response(JSON.stringify({ code: "P0001", message: "published versions are immutable" }), { status: 400 })
       : rest.fetch(url, init)));
     await expect(deleteFile("demo", C, "web")).rejects.toMatchObject({ status: 409 });
     expect(ledger()).toHaveLength(0);
   });
 
-  it("archiveFile: a draft the database would not discard is a 403 and no 'archived' row", async () => {
+  it("archiveFile: a draft the database would not move is a 403 and no 'archived' row", async () => {
     serve(["container_versions"]);
-    await expect(archiveFile("demo", C, "web")).rejects.toMatchObject({ status: 403, message: "a file's draft versions are discarded by a lead or owner — nothing was saved" });
+    await expect(archiveFile("demo", C, "web")).rejects.toMatchObject({ status: 403, message: "a file's draft versions are moved to Deleted items by a lead or owner — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 
-  it("archiveFile: discarded counts the drafts that went", async () => {
+  it("archiveFile: a draft moves to Deleted items (never erased) with its own row, and discarded counts it", async () => {
     expect(await archiveFile("demo", C, "web")).toEqual({ ok: true, archived: 0, discarded: 1 });
-    expect(ledger()[0].body).toMatchObject({ action: "archived", new_value: { iso_name: "A.ifc", archived: 0, discarded: 1 } });
+    expect(rest.calls.find((c) => c.method === "DELETE")).toBeUndefined();
+    expect(db.container_versions[0].deleted_at).toBeTruthy();
+    expect(ledger().map((c) => c.body.action)).toEqual(["deleted", "archived"]);
+    expect(ledger()[0].body).toMatchObject({ entity_type: "file_version", entity_id: V1, new_value: { file: "A.ifc", revision: "v1", state: "wip", by: "archive", deleted_items: true } });
+    expect(ledger()[1].body).toMatchObject({ action: "archived", new_value: { iso_name: "A.ifc", archived: 0, discarded: 1 } });
+  });
+
+  it("archiveFile: a draft already in Deleted items is not counted again", async () => {
+    db.container_versions[0].deleted_at = "2026-09-28T10:00:00Z";
+    expect(await archiveFile("demo", C, "web")).toEqual({ ok: true, archived: 0, discarded: 0 });
+    expect(ledger()).toHaveLength(0);
   });
 
   it("archiveFile: nothing to archive or discard is no 'archived' row", async () => {
@@ -167,6 +187,117 @@ describe("files — delete, archive and restore record only what happened (cde-1
 
   it("unarchiveFile: nothing archived is nothing restored, and no 'unarchived' row", async () => {
     expect(await unarchiveFile("demo", C, "web")).toEqual({ ok: true, restored: 0 });
+    expect(ledger()).toHaveLength(0);
+  });
+});
+
+describe("Deleted items (0035) — listed, restored, and kept out of every other reader", () => {
+  const C2 = "cccccccc-0000-4000-8000-000000000003";
+  const V2 = "aaaaaaaa-0000-4000-8000-000000000002";
+  const V3 = "aaaaaaaa-0000-4000-8000-000000000003";
+  beforeEach(() => {
+    db.information_containers = [
+      { id: C, project_id: P, iso_name: "A.ifc", folder_id: null, deleted_at: null },
+      { id: C2, project_id: P, iso_name: "B.rvt", folder_id: null, deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test" },
+    ];
+    db.container_versions = [
+      { id: V1, container_id: C, revision: "v1", state: "published", is_live: true, created_at: "2026-09-01" },
+      { id: V2, container_id: C, revision: "v2", state: "wip", is_live: false, created_at: "2026-09-02", deleted_at: "2026-09-28T10:00:00Z", deleted_by: "web" },
+      { id: V3, container_id: C2, revision: "v1", state: "wip", is_live: false, created_at: "2026-09-03" },
+    ];
+  });
+
+  it("listDeleted: whole files and single versions, newest first, with who and when", async () => {
+    expect(await listDeleted("demo")).toEqual([
+      { kind: "version", container_id: C, iso_name: "A.ifc", version_id: V2, revision: "v2", state: "wip", deleted_at: "2026-09-28T10:00:00Z", deleted_by: "web" },
+      { kind: "file", container_id: C2, iso_name: "B.rvt", deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test", versions: 1, deleted_versions: 0 },
+    ]);
+  });
+
+  it("listFiles leaves out a deleted file and a deleted version, and says how many versions are deleted", async () => {
+    const files = await listFiles("demo");
+    expect(files.map((f) => f.iso_name)).toEqual(["A.ifc"]);
+    expect(files[0]).toMatchObject({ version_count: 1, deleted_versions: 1 });
+    expect(files[0].versions.map((v) => v.id)).toEqual([V1]);
+  });
+
+  it("versionOnKey refuses a version in Deleted items, and a version of a deleted file, in words (409)", async () => {
+    await expect(versionOnKey("demo", V2)).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
+    await expect(versionOnKey("demo", V3)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("restoreFile: a whole file comes back with its versions, and a 'restored' row follows", async () => {
+    expect(await restoreFile("demo", { container_id: C2 }, "web")).toEqual({ restored: true, kind: "file", iso_name: "B.rvt", versions: 1, deleted_versions: 0 });
+    expect(db.information_containers[1]).toMatchObject({ deleted_at: null, deleted_by: null });
+    expect(ledger()[0].body).toMatchObject({ entity_type: "container", entity_id: C2, action: "restored", new_value: { iso_name: "B.rvt", from: "deleted_items", to_root: true } });
+  });
+
+  it("a file whose drafts were deleted before it: counted apart, and they stay in Deleted items after its restore", async () => {
+    db.container_versions[2].deleted_at = "2026-09-28T08:00:00Z";
+    expect((await listDeleted("demo")).find((d) => d.kind === "file")).toMatchObject({ versions: 0, deleted_versions: 1 });
+    expect(await restoreFile("demo", { container_id: C2 }, "web")).toEqual({ restored: true, kind: "file", iso_name: "B.rvt", versions: 0, deleted_versions: 1 });
+    expect(db.container_versions[2].deleted_at).toBe("2026-09-28T08:00:00Z");
+    expect((await listDeleted("demo")).map((d) => [d.kind, d.version_id])).toEqual([["version", V2], ["version", V3]]);
+  });
+
+  it("restoreFile: a single version comes back in its state, and a 'restored' row follows", async () => {
+    expect(await restoreFile("demo", { container_id: C, version_id: V2 }, "web")).toEqual({ restored: true, kind: "version", iso_name: "A.ifc", revision: "v2" });
+    expect(db.container_versions[1]).toMatchObject({ state: "wip", deleted_at: null });
+    expect(ledger()[0].body).toMatchObject({ entity_type: "file_version", entity_id: V2, action: "restored" });
+  });
+
+  it("restoreFile: a file that is not in Deleted items is a 404, and nothing is written", async () => {
+    await expect(restoreFile("demo", { container_id: C }, "web")).rejects.toMatchObject({ status: 404, message: "this file is not in Deleted items" });
+    await expect(restoreFile("demo", { container_id: C, version_id: V1 }, "web")).rejects.toMatchObject({ status: 404, message: "this version is not in Deleted items" });
+    await expect(restoreFile("demo", { container_id: C, version_id: "nope" }, "web")).rejects.toMatchObject({ status: 404 });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("restoreFile: a name taken meanwhile is a 409 in ACC's words, and no row", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
+      ? new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "ic_project_name_not_deleted"' }), { status: 409 })
+      : rest.fetch(url, init)));
+    await expect(restoreFile("demo", { container_id: C2 }, "web")).rejects.toMatchObject({ status: 409, message: "A file named B.rvt is already in this project — rename or delete that file, then restore this one. Nothing was restored." });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("setLiveVersion and attachGeometry refuse a version in Deleted items before any write (409)", async () => {
+    await expect(setLiveVersion(V2, "web")).rejects.toMatchObject({ status: 409, message: "this version is in Deleted items — restore it first" });
+    await expect(setLiveVersion(V3, "web")).rejects.toMatchObject({ status: 409 });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+    await expect(attachGeometry("demo", V2, "item-1")).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
+    await expect(attachGeometry("demo", V3, "item-1")).rejects.toMatchObject({ status: 409 });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+    expect(db.container_versions[0].is_live).toBe(true); // the live pointer was never cleared
+  });
+
+  it("two restores, two deletes, two archives that both read first: the move is made and recorded once, the second is a 409", async () => {
+    const r = await Promise.allSettled([restoreFile("demo", { container_id: C2 }, "web"), restoreFile("demo", { container_id: C2 }, "web")]);
+    expect(r.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(r.find((x) => x.status === "rejected").reason).toMatchObject({ status: 409, message: "already restored from Deleted items — nothing was saved" });
+    const d = await Promise.allSettled([deleteFile("demo", C2, "a@x"), deleteFile("demo", C2, "b@x")]);
+    expect(d.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(db.information_containers[1].deleted_by).toBe("a@x"); // who deleted it first is kept
+    expect(ledger().map((c) => c.body.action)).toEqual(["restored", "deleted"]);
+  });
+
+  it("the 0035 guard's own refusal keeps its words and status, and no row follows", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
+      ? new Response(JSON.stringify({ code: "42501", message: "a file is moved to or restored from Deleted items by a lead or owner" }), { status: 403 })
+      : rest.fetch(url, init)));
+    await expect(restoreFile("demo", { container_id: C2 }, "web")).rejects.toMatchObject({ status: 403, message: "a file is moved to or restored from Deleted items by a lead or owner" });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("moveContainer and addVersion refuse a file in Deleted items in words, and write nothing", async () => {
+    await expect(moveContainer(C2, { folder_id: F })).rejects.toMatchObject({ status: 409, message: "this file is in Deleted items — restore it first; nothing was saved" });
+    await expect(addVersion(C2, { revision: "P02" })).rejects.toMatchObject({ status: 409 });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("restoreFile: a restore the database refused is a 403 and no row", async () => {
+    serve(["information_containers"]);
+    await expect(restoreFile("demo", { container_id: C2 }, "web")).rejects.toMatchObject({ status: 403, message: "a file is restored from Deleted items by a lead or owner — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 });

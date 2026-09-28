@@ -1258,13 +1258,15 @@ async function handleRequest(req, res) {
         const b = await readBody(req);
         return send(res, 200, await cde.setLiveVersion(b.version_id, b.actor));
       }
-      // Per-file admin (Forma-style): rename · archive (published → 'archived', drafts discarded) ·
-      // delete (409 when published versions exist — immutable, archive instead).
+      // Per-file admin (Forma-style): rename · archive (published → 'archived', drafts to Deleted items) ·
+      // delete (to Deleted items; 409 when published versions exist — immutable, archive instead) · Deleted items (0035):
+      // GET /files/deleted (any member) and POST /files/restore {container_id, version_id?} (a lead's).
       if (p2 === "files" && p3 === "rename" && req.method === "POST") {
         const b = await readBody(req);
         return send(res, 200, await cde.renameFile(p1, b.container_id, b.name, b.actor));
       }
       if (p2 === "files" && p3 === "archive" && req.method === "POST") {
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead"); // drafts go to Deleted items: a lead's
         const b = await readBody(req);
         return send(res, 200, await cde.archiveFile(p1, b.container_id, b.actor));
       }
@@ -1273,8 +1275,15 @@ async function handleRequest(req, res) {
         return send(res, 200, await cde.unarchiveFile(p1, b.container_id, b.actor));
       }
       if (p2 === "files" && p3 === "delete" && req.method === "POST") {
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead");
         const b = await readBody(req);
         return send(res, 200, await cde.deleteFile(p1, b.container_id, b.actor));
+      }
+      if (p2 === "files" && p3 === "deleted" && req.method === "GET") return send(res, 200, await cde.listDeleted(p1));
+      if (p2 === "files" && p3 === "restore" && req.method === "POST") {
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead");
+        const b = await readBody(req);
+        return send(res, 200, await cde.restoreFile(p1, { container_id: b.container_id, version_id: b.version_id }, b.actor));
       }
       // GET /cde/:key/audit?entity_type=&action_prefix=&entity_id=&actor=&since=&until=&limit=&offset=
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).

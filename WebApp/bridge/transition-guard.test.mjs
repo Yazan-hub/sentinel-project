@@ -36,10 +36,10 @@ function fakeRest(url, init = {}) {
   if (path === "rpc/cde_transition") return rpc(body);
   if (path === "container_versions" && method === "GET" && q.get("select")?.includes("information_containers")) {
     const id = q.get("id").slice(3);
-    const project_id = { [V1]: DEMO, [V2]: DEMO, [V4]: DEMO, [VX]: OTHER }[id];
+    const project_id = { [V1]: DEMO, [V2]: DEMO, [V3]: DEMO, [V4]: DEMO, [VX]: OTHER }[id];
     return json(project_id ? [{ id, container_id: C1, revision: "v1", state: "shared", information_containers: { project_id } }] : []);
   }
-  if (path === "information_containers" && q.get("select")?.startsWith("id,iso_name,container_versions(id,state)"))
+  if (path === "information_containers" && q.get("select")?.startsWith("id,iso_name,folder_id,parent_id,deleted_at,container_versions("))
     return json([{ id: C1, iso_name: "A.ifc", container_versions: versions }]);
   if (path === "information_containers" && q.get("iso_name"))
     return json([{ id: C1, parent_id: null, container_versions: [{ id: V1, revision: "v1", is_live: true, platform_item_id: null }] }]);
