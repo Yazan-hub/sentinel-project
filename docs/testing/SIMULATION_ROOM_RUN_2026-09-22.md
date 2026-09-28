@@ -718,3 +718,15 @@ aster-tower › Project Files › Open 3D on `AST_ASTR26_Aster Tower_yazan.ifc` 
 | Streaming finding | both models already have culling/LOD bound to the viewer's camera (the platform binds it) — "bind the camera at load" is not needed; the next levers are the engine settings (graphicsQuality 0, lodThresholds, culling) | readout |
 | WebGPU | not tried in the browser: the build cannot be made — the engine packages import WebGL-only three add-ons at load (details in the 3D spec, Decision 6) | trial builds, scratchpad only |
 | Not run | a frame-time measurement with Chrome in front; the published app (not published) | — |
+
+## Session B20 — the gate locks ⚑ Raise; web app 1.0.26 published (2026-09-28, ~11:00–11:55)
+
+The founder's answers: publish, yes (the lock), done (the rename), and his Chrome window holds the Sentinel app.
+
+| Row | Observed | Source |
+|---|---|---|
+| The lock, built | `raiseGate` (pure) + `POST /clash/:pid` 409 in words + the panel's pre-check and banner; its review confirmed 9 findings, refuted 4; fixed: a partial (explicit) gate run no longer opens the lock, a pass needs one check that passed, a Clash issue is refused at the same gate, the register is written with the service key, a no-CDE bridge has no gate | `bridge/federation-store.mjs`, `bcf-service.mjs`, `clash-panel.ts`; vitest 1756, route tests |
+| Migration 0034 | written with its probe (the clash store gets no signed-in writer) — NOT applied: waiting for the founder's approval; until then a contributor could still write the store through PostgREST | `db/migrations/0034_clash_register_bridge_only.sql` |
+| Published | web app 1.0.26 (version 6aba387993f8e6a2d1e393f6, 15.4 MB) — exact clash on the solids, BIM Tools ▸ Performance, the federation Browser, the lock | `npm run publish` output |
+| The bridge stopped again | both managed servers stopped by the desktop app at 09:17 UTC (and 07:05 UTC); the founder's rename around 11:25 local is in the saved model (local and central 11:30) but no ledger row reached the ledger (last naming row #1095, 00:58 UTC) — the bridge was not answering; restarted 09:37 and 09:48 UTC | preview server list; `audit_log`; file times |
+| Frame time | still not measured: the Chrome window was behind the Claude window (1 animation frame in 11.5 s — the readout said so); owed to the founder with Chrome in front | screenshot |
