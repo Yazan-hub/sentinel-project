@@ -47,7 +47,7 @@ import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
 import { activePid, onActiveProjectChange, refreshActiveProject } from "./setups/active-project";
-import { onAuthChange } from "./setups/auth";
+import { onAuthChange, currentSession } from "./setups/auth";
 import { userChangeFilter } from "./setups/user-change";
 import { nextStrip, tabIndex } from "./setups/next-strip";
 
@@ -185,6 +185,10 @@ async function main() {
     /* dev/no-project → consumers degrade gracefully */
   }
   setAppContext(client, projectData);
+  // Who is signed in must be known before any panel records its load scope (load-scope.ts): a session restored at start
+  // would otherwise be recorded as nobody, and the first sign-out would look like a refresh. Capped, so an offline start
+  // (a token refresh that cannot reach Supabase) never holds the app up.
+  await Promise.race([currentSession().catch(() => null), new Promise((r) => setTimeout(r, 1500))]);
 
   // Pluggable loaders for <top-models-list>. The built-in ships the lightweight
   // defaults (.frag load, IFC→fragments convert); heavy/app-specific loaders are

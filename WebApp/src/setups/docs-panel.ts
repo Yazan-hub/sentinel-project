@@ -1346,12 +1346,15 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
 
   // Unsaved input: a field that differs from what it was loaded with (defaultValue / defaultChecked). An ingest review and
   // suggested bindings set no defaults on purpose — nothing there is saved yet, so they count as unsaved as a whole.
+  // A select the person changed counts as unsaved input (a re-render replaces the element, so the mark goes with it).
+  body.addEventListener("change", (e) => { const t = e.target as HTMLElement; if (t.tagName === "SELECT") t.dataset.touched = "1"; });
+  const touchedSelect = () => !!body.querySelector("select[data-touched]");
   const dirty = () => Array.from(body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).some((i) =>
     i instanceof HTMLInputElement && (i.type === "checkbox" || i.type === "radio") ? i.checked !== i.defaultChecked : i.value !== i.defaultValue);
   // Only unsaved input for the same project and person is kept (there is no autosave); anything else — a read-only view,
   // an untouched editor, a person or project change — goes back to the list, which re-reads the role.
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && dirty()) return;
+    if (loadScope(pid()) === loadedScope && (dirty() || touchedSelect())) return;
     void showList();
   });
   showList();

@@ -49,19 +49,27 @@ describe("bridge-back watcher", () => {
     expect(back).toBe(1);
   });
 
-  it("a read that fails while the bridge answers reloads nothing, and starts no chain for a minute (no loop)", async () => {
+  it("a read that fails while the bridge answers reloads nothing, and each failure costs one probe, no chain (no loop)", async () => {
     await failRead();
     await vi.advanceTimersByTimeAsync(0);
     expect(probes()).toBe(1);
     expect(back).toBe(0);
     await failRead();
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(probes()).toBe(1); // quiet
-    await vi.advanceTimersByTimeAsync(31_000);
-    await failRead();
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(120_000);
     expect(probes()).toBe(2);
     expect(back).toBe(0);
+  });
+
+  it("a real outage right after a false alarm is still caught and recovered", async () => {
+    await failRead(); // the bridge answers: a false alarm
+    await vi.advanceTimersByTimeAsync(0);
+    healthOk = false;
+    await failRead(); // 10 s later the bridge is down
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(back).toBe(0);
+    healthOk = true;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(back).toBe(1);
   });
 
   it("a second failed read while watching starts no second probe chain", async () => {
@@ -97,11 +105,13 @@ describe("bridge-back watcher", () => {
 });
 
 describe("the event feed while signed out", () => {
-  it("a 401 without a token stops the feed (a sign-in restarts it), instead of asking every 3 s", async () => {
+  it("a 401 without a token asks once a minute (a sign-in restarts it), not every 3 s", async () => {
     f.mockImplementation(async () => new Response("", { status: 401 }));
     const stop = bridgeEvents("http://b/events?project=k", () => {});
     await vi.advanceTimersByTimeAsync(30_000);
     expect(f.mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(f.mock.calls.length).toBe(2);
     stop();
   });
 });

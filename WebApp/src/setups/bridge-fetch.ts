@@ -7,17 +7,16 @@ import { accessToken } from "./auth";
 import { SERVICE_URL } from "../config";
 
 // Bridge-back watcher: a read that never reached the bridge arms one probe chain on /health. The first probe runs at
-// once: if the bridge answers, the failed read was not an outage (an over-long URL, a proxy error on one route) —
-// nothing reloads, and no new chain starts for a minute, so a read that always fails cannot loop the app. Otherwise
-// probes follow at 5 s, 15 s, 45 s, then every 60 s until the bridge answers; that first answer after an outage
-// fires 'sentinel:bridge-back' once (main.ts → refreshActiveProject: every panel re-reads). Plain fetch, not
+// once: if the bridge answers, the failed read was not an outage (an over-long URL, a proxy error on one route) and
+// nothing reloads — so a read that always fails cannot loop the app (it costs one /health per failed read, no more).
+// Otherwise probes follow at 5 s, 15 s, 45 s, then every 60 s until the bridge answers; that first answer after an
+// outage fires 'sentinel:bridge-back' once (main.ts → refreshActiveProject: every panel re-reads). Plain fetch, not
 // bfetch: a request carrying a JWT gets a 503 from a bridge without SUPABASE_ANON_KEY, even on /health.
 let watching = false;
-let quietUntil = 0;
 const PROBE_WAITS = [0, 5000, 15000, 45000];
 const PROBE_EVERY = 60000;
 function watchBridge(): void {
-  if (watching || Date.now() < quietUntil) return;
+  if (watching) return;
   watching = true;
   let sawDown = false;
   const probe = async (i: number): Promise<void> => {
@@ -25,7 +24,6 @@ function watchBridge(): void {
       if ((await fetch(`${SERVICE_URL}/health`, { cache: "no-store" })).ok) {
         watching = false;
         if (sawDown) globalThis.document?.dispatchEvent(new CustomEvent("sentinel:bridge-back"));
-        else quietUntil = Date.now() + PROBE_EVERY;
         return;
       }
     } catch { /* unreachable (a Funnel 502 without CORS rejects too) */ }
@@ -110,11 +108,13 @@ export function bridgeEvents(url: string, onData: (data: string) => void): () =>
           console.warn(`[bridge] live events refused (${res.status}): ${url}`);
           return;
         }
-        // Signed out: the answer cannot change until a sign-in, and a sign-in restarts the feed (the panels' notify).
-        // A 401 WITH a token (one expiring) keeps retrying: a token refresh is not a user change and restarts nothing.
+        // Signed out: only a sign-in can change the answer, and a sign-in restarts the feed (the panels' notify) — so ask
+        // once a minute, not every 3 s. It never stops for good: a session that failed a token refresh may still come back.
+        // A 401 WITH a token (one expiring) keeps the 3 s retry: a token refresh is not a user change and restarts nothing.
         if (res.status === 401 && !(await authHeaders()).Authorization) {
           console.warn(`[bridge] live events need a sign-in: ${url}`);
-          return;
+          await new Promise((r) => setTimeout(r, 60000));
+          continue;
         }
         if (res.ok && res.body) {
           const reader = res.body.getReader();

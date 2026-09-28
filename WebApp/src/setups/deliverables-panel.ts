@@ -805,9 +805,12 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
   // Only a form holding input (a field that differs from what it was loaded with) for the same project and person is kept
   // (there is no autosave); anything else — including a person or project change — reloads the list, which re-reads the role.
+  // A select the person changed counts as unsaved input (a re-render replaces the element, so the mark goes with it).
+  body.addEventListener("change", (e) => { const t = e.target as HTMLElement; if (t.tagName === "SELECT") t.dataset.touched = "1"; });
+  const touchedSelect = () => !!body.querySelector("select[data-touched]");
   const dirty = () => Array.from(body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).some((i) => i.value !== i.defaultValue);
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && dirty()) return;
+    if (loadScope(pid()) === loadedScope && (dirty() || touchedSelect())) return;
     void showList();
   });
   void showList();
