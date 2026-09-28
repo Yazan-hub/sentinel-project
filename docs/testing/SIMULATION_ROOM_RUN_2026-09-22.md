@@ -669,3 +669,17 @@ Founder at the Revit 2024 add-in on `aster-tower`, signed in from the ribbon (H4
 | The fact-driven scan on the model (Claude at the founder's PC, read-only) | build 03:04 + ruleset@4: `142 shown · conforming 4 · proposed 95 · needs human 38 · blocked 5` (before: proposed 0, needs human 136); each proposed row names its sources, e.g. `LOC EXT from Function = Exterior; LEAF 1 PNL from family 'Door-Passage-Single-Flush'; MATERIAL MTL from Frame Material = Metal - Paint Finish - Grey`; the 5 blocked are duplicates of types already so named (Concrete 6" → AST_INT_ARC_CON_152.4 mm exists) | Revit 2024, Naming Manager, screenshots |
 | Gaps found and fixed in the same night | `Tür 900×2100` (× and no unit) → read as mm, said in the note; roofs had no LOC fact → Roofs → EXT by category; `Generic - 12"` took its leftover words as MATERIAL → now `MATERIAL not found in the name, the family, the layers or the parameters the rule names`; build 03:16 + ruleset@5: `conforming 4 · proposed 99 · needs human 34 · blocked 5` | Revit 2024 rescan; naming-check 76/76 |
 | Not run | Tick all proposed → Rename ticked on the model — the founder's decision (99 renames of his model; doors take MATERIAL from Frame Material where Door Material is empty — check that reading first); nothing was renamed or saved during the scan | — |
+
+## Session B17 — an issue raised from Revit (2026-09-28, 03:34, run by Claude at the founder's PC)
+
+Build 03:29 (`feature/revit-issues`), Revit 2024, `aster-tower` local file, signed in from the ribbon (H4 session).
+
+| Row | Observed | Source |
+|---|---|---|
+| The button | Sentinel ▸ BCF Issues shows `＋ New issue from my Revit selection` | screenshot |
+| Capture | one wall selected in `{3D - yazan.hKNTHU}` → the dialog said `Points at 1 element(s): 1 × Walls · camera from '{3D - yazan.hKNTHU}' (isometric, sent as a 60° perspective).`, description prefilled `Raised from Revit on 1 × Walls in 'AST_ASTR26_Aster Tower_yazan.hKNTHU'.` | screenshot |
+| Created under the person | title `Drill B17 - issue raised from Revit (test, safe to close)`; `bcf_topics` row `1297f06e-045e-43bd-bf67-0f68377db835`: creation_author `yazanhijazeen32@hotmail.com` (the verified identity, not the "Revit" label sent), type Issue, priority Normal, labels `["revit"]`, 1 viewpoint with selection `[{ifc_guid: 2g7hEgAuvEG8Tt5lC2ABVU}]` and a camera in metres | SQL read of the row |
+| Round trip | double-clicking the new issue in the same window → `Isolated + selected 1 element(s).`, the Properties palette showing the same wall (Basic Wall · Interior - 4 1/2" Partition) — the GlobalId written maps back to its element | screenshot |
+| Found and fixed | the live refresh that follows the bridge's broadcast replaced the "Issue created …" line with the list count within a second; the outcome now stays on the line for 90 s above the count (build 03:35) | screenshot; `BcfIssuesWindow.SetOutcome` |
+| Not run live | the web board showing the issue's camera (the camera's frame is the shared coordinate base the IFC export uses — the same assumption BcfApplyEvent makes, not measured against the published .frag); a viewer refused (covered by the bridge's role tests); the outcome line after the fix | — |
+| Left in the project | the drill issue is Open on `aster-tower` — the founder decides whether to close it | — |

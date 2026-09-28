@@ -107,7 +107,14 @@ public sealed class BcfIssuesWindow : Window
         _details.Text = string.Empty;
     });
 
-    public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
+    // An action's outcome (an issue created or refused) stays on the line for a while: the live refresh that follows
+    // the bridge's broadcast would otherwise replace it with the list count within a second.
+    private string? _outcome;
+    private DateTime _outcomeAt;
+    public void SetOutcome(string text) => Dispatcher.Invoke(() => { _outcome = text; _outcomeAt = DateTime.UtcNow; _status.Text = text; });
+    public void SetStatus(string text) => Dispatcher.Invoke(() =>
+        _status.Text = _outcome != null && text != _outcome && (DateTime.UtcNow - _outcomeAt).TotalSeconds < 90 ? _outcome + nl2 + text : text);
+    private static readonly string nl2 = Environment.NewLine;
 
     /// <summary>Select + reveal the topics the Revit selection was found in.</summary>
     public void HighlightTopics(IReadOnlyList<BcfTopic> matched) => Dispatcher.Invoke(() =>

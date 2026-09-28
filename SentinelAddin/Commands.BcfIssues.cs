@@ -183,7 +183,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                     .ContinueWith(t =>
                     {
                         var line = t.Status == TaskStatus.RanToCompletion ? t.Result.Sentence(draft, serviceUrl) : "Not created — " + (t.Exception?.GetBaseException().Message ?? "the request did not finish");
-                        window.SetStatus(line);
+                        window.SetOutcome(line);
                         if (t.Status == TaskStatus.RanToCompletion && t.Result.TopicGuid != null) try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
                     }, TaskScheduler.Default);
             });
