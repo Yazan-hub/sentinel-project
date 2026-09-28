@@ -8,9 +8,9 @@
 -- as in ACC), a restored file whose folder was deleted meanwhile lands at the project root, a restored draft keeps its
 -- state, a file whose versions are all archived may go to Deleted items, and a viewer may still read deleted rows.
 --
--- NOT YET APPLIED — applied only by the controller after the founder approves it, then probed with
--- probes/0035_probe.sql. The bridge that writes deleted_at must be running before the apply is used: until the apply,
--- the new columns do not exist and the soft-delete PATCH is refused with a 400 in words (nothing is deleted).
+-- APPLIED 2026-09-28 (~18:08 UTC) on the founder's "apply"; probes/0035_probe.sql: part 1 7 of 7 true, part 2
+-- "PROBE 0035: 22 of 22 as expected" (rolled back; its audit rows took ids 1106-1110). The bridge was restarted on the
+-- Deleted items code right after the apply.
 --
 -- What it does:
 --   1. deleted_at / deleted_by on information_containers and container_versions.

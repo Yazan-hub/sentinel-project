@@ -733,18 +733,28 @@ The founder's answers: publish, yes (the lock), done (the rename), and his Chrom
 | Frame time | not measured by Claude: the Chrome window was behind the Claude window (1 animation frame in 11.5 s — the readout said so) | screenshot |
 | Frame time, measured by the founder (10:09 UTC, published 1.0.26, Chrome in front, orbiting) | one model (`ASTR26-AST-ZZ-XX-M3-A-0001.ifc@v2`, 378 elements): `600 frames (60 per s) · frame time p50 16.7 ms, p95 16.8 ms, worst 17.2 ms`; every frame drawn; `draw calls avg 107 / max 135 · triangles submitted avg 25,896 / max 29,219`; 21 geometries, 23 textures; JS heap 100 MB; culling/LOD follow the camera; Intel UHD Graphics (integrated). The frame time sits on the display's refresh (60 Hz): the viewer is not the limit at this size, and how much headroom is left is not measurable this way. The same readout in a covered window gave 1 frame — the throttling line was right | the founder's pasted readout |
 
-## Session B22 — Deleted items (to run after 0035 is applied)
+## Session B22 — Deleted items (2026-09-28, ~18:05–18:30 UTC, run by Claude on the founder's "apply")
 
 The founder's request (2026-09-28): the two entries he deleted should be restorable, as in ACC/Forma; he took every default
-recommendation. Built on `feature/deleted-items`; nothing below has run yet.
+recommendation, then said "apply". The bridge rows ran on a drill project, `b22-deleted` (created by SQL with no owner, so
+only the machine credential reaches it), so the founder's own files stay in Deleted items for him to restore.
 
 | Row | Expected | Observed |
 |---|---|---|
-| 0035 applied, probe | part 1: 7 of 7 true; part 2: `PROBE 0035: 22 of 22 as expected`, all rolled back | not run |
-| The rebuild | `2026-09-28_rebuild_deleted_aster.sql` once: both files in Deleted items (deleted by the founder at 13:23:41 and 13:23:45 UTC), 4 + 2 versions set aside by the archive at 13:00:37 and 13:01:04 UTC, two `container rebuilt` rows; a second run refused | not run |
-| The list | Project Files ▸ Deleted items (2): each file `— the file, with 0 version(s) (and n deleted version(s), restorable after the file)`, deleted by the founder | not run |
-| Restore a file | `AST_ASTR26_Aster Tower_yazan.ifc` back at the root, empty, its 4 versions now listed on their own; `container restored` row | not run |
-| Restore a version | v4 back as a wip draft, not live; Open 3D loads its platform item; `file_version restored` row | not run |
-| Delete again | Confirm delete → `✓ Moved … to Deleted items`; the file gone from the files list, the CDE board and the Federation Gate's live set | not run |
-| Refusals | a file with a published version → 409 archive instead; a viewer's Restore → 403; a restore onto a taken name → 409 in words; nothing written on any | not run |
-| Archive | offered only where a version is published; its drafts go to Deleted items, counted in the status line | not run |
+| 0035 applied, probe | part 1: 7 of 7 true; part 2: `PROBE 0035: 22 of 22 as expected`, all rolled back | applied ~18:08; part 1 7 of 7 true; part 2 `PROBE 0035: 22 of 22 as expected` (audit ids 1106–1110 consumed by the rolled-back rows); afterwards no probe project left and nothing deleted |
+| Bridge restart | the Deleted items code running right after the apply | restarted ~18:09; clean start (auth gate armed, JWT forwarding armed, platform token valid) |
+| The rebuild | both files in Deleted items, 4 + 2 versions set aside, two `container rebuilt` rows; a second run refused | `AST_ASTR26_Aster Tower_yazan.ifc` (deleted 13:23:45 UTC) and `….hKNTHU.ifc` (13:23:41) by the founder, container_type model, at the root; v1–v4 and v1–v2 wip S0, not live, set aside at 13:01:04 and 13:00:37, platform items on the four .ifc versions; ledger #1111 and #1112; a second run → `already rebuilt — a file id is in use; nothing was done` |
+| The list (bridge) | `GET /cde/aster-tower/files/deleted` → the two files with their counts | `file … yazan.ifc · 0 ver + 4 deleted · by the founder` and `file … hKNTHU.ifc · 0 ver + 2 deleted`; the files list holds `ASTR26-AST-ZZ-XX-M3-A-0001.ifc` and `programme.csv` only; the project's `container_count` 2; the Federation Gate's latest set one model |
+| The list (web) | Project Files ▸ Deleted items (2) | local app in the founder's Chrome, signed in as him: `Deleted items (2)`, each row `— the file, with 0 version(s) (and n deleted version(s), restorable after the file)`, `deleted by <the founder> · 2026-09-28 13:23`, Restore (he is the owner); status `2 file(s) · 3 version(s) · 0 on hold · 2 in Deleted items.`; fixed during the run: the row text was cut off with an ellipsis, now it wraps. ASTR26 (v2 published) shows Rename, Archive, Delete. Restore not clicked |
+| Archive a drafts-only file (route) | drafts to Deleted items, the file empty, counted | `200 {archived: 0, discarded: 2}`; `version_count 0, deleted_versions 2`; both drafts listed as versions by `b22` |
+| Restore a version | back as wip, not live; a second restore a 404 in words | `200 {kind: version, revision: v2}`, `v2 wip live=false`; again → `404 this version is not in Deleted items` |
+| Labels | a new version never reuses a deleted one's | `201 v3` (v1 set aside, v2 back) |
+| Delete | to Deleted items, gone from the files list, counted apart | `200 {deleted: true, deleted_items: true}`; files: B22-P, B22-B; listed `versions 2, deleted_versions 1` |
+| Nothing changes on a deleted file | move, set-live, rename, a CDE version each refused in words | move `409 this file is in Deleted items — restore it first; nothing was saved`; set-live `409 this version is in Deleted items — restore it first`; rename `404 file not found in this project`; add `409 …restore it first; nothing was saved` |
+| The name is free, a taken name refused | a new B22-A.ifc is a new file; the old one's restore a 409 in words | new container, `v1`; restore → `409 A file named B22-A.ifc is already in this project — rename or delete that file, then restore this one. Nothing was restored.` |
+| Restore a file | back with its versions; the one set aside before stays aside | `200 {versions: 2, deleted_versions: 1}`; back in the list at the root; its last set-aside version then restores on its own (`v1`). The row as written also expected "nothing live": wrong — v3 was the live version when the file was deleted, and a restored file keeps it (only a version deleted on its own comes back not live). 18 of 19 rows as written |
+| Two deletes at once | the move made and recorded once | `409 already in Deleted items — nothing was saved` and `200`; one `deleted` row |
+| A published version | the file refused in the old words, no row | `409 This file has PUBLISHED versions, which are immutable by design — it cannot be deleted. Archive it instead.` (the version published through `cde_transition` with a stand-in verdict row on the drill project) |
+| An archived file | may be deleted, restores with its archived version | archive `{archived: 1}`, delete 200, restore `{versions: 1, deleted_versions: 0}`, state `archived` |
+| The ledger | every move one row, in order | B22-A: #1113 created · #1114/#1116 set live · #1115/#1117 uploaded · #1127/#1128 file_version deleted · #1129 archived · #1130 file_version restored · #1133 container deleted · #1138 container restored · #1139 file_version restored |
+| Not run live | a signed-in viewer's Restore (403) and a web Restore click | no second account; the founder's files are his to restore — the route's lead check and the guard's role check are pinned by `cde-store-writes.test.mjs` and probe rows D1, D14, D21 |

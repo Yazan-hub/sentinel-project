@@ -317,7 +317,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     return toggle + deleted.map((d, i) => {
       const { what, who } = deletedItemLine(d);
       return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.35rem;padding:.4rem .55rem;background:#18181c;border:1px dashed #2f2f38;border-radius:.4rem;font-size:12px">` +
-        `<span style="flex:1;min-width:0"><span style="color:#a1a1aa;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(what)}</span>` +
+        `<span style="flex:1;min-width:0"><span style="color:#a1a1aa;display:block;overflow-wrap:anywhere">${esc(what)}</span>` +
         `<span style="color:#71717a;font-size:10.5px">${esc(who)}</span></span>` +
         (lead ? `<button data-drestore="${i}" style="${act}" title="Bring it back with its history">Restore</button>` : "") + "</div>";
     }).join("") + (lead ? "" : `<div style="color:#71717a;font-size:10.5px;padding:0 .2rem .3rem">A lead or owner restores — your role: ${esc(role)}.</div>`);
