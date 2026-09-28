@@ -100,6 +100,48 @@ public sealed class BcfSyncManager : IDisposable
             $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics/{Uri.EscapeDataString(topicGuid)}",
             new { topic_status = status, author }, ct);
 
+    /// <summary>Raise an issue from Revit: POST the topic, then its viewpoint. <paramref name="bearer"/> is read per
+    /// call (a signed-in session refreshes; this manager lives as long as the window). Network only — call off the
+    /// API thread. Never throws: every answer, including none, is in the result.</summary>
+    public async Task<IssueResult> CreateIssueAsync(string projectId, IssueDraft draft, string modelId, Func<string>? bearer = null, CancellationToken ct = default)
+    {
+        var r = new IssueResult();
+        string topics = $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics";
+        (r.TopicStatus, var body) = await SendForBodyAsync(HttpMethod.Post, topics, draft.TopicBody(modelId), bearer, ct).ConfigureAwait(false);
+        if (r.TopicStatus == 201)
+        {
+            try { using var doc = JsonDocument.Parse(body); r.TopicGuid = doc.RootElement.TryGetProperty("guid", out var g) ? g.GetString() : null; }
+            catch (JsonException) { r.TopicGuid = null; }
+            if (string.IsNullOrEmpty(r.TopicGuid)) { r.TopicStatus = 502; r.TopicMessage = "the bridge answered 201 without a topic guid"; return r; }
+        }
+        else { r.TopicMessage = MessageOf(body); return r; }
+        (r.ViewpointStatus, body) = await SendForBodyAsync(HttpMethod.Post, $"{topics}/{Uri.EscapeDataString(r.TopicGuid!)}/viewpoints", draft.ViewpointBody(), bearer, ct).ConfigureAwait(false);
+        if (r.ViewpointStatus != 201) r.ViewpointMessage = MessageOf(body);
+        return r;
+    }
+
+    private static string MessageOf(string body)
+    {
+        try { using var doc = JsonDocument.Parse(body); return doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() ?? "" : ""; }
+        catch (JsonException) { return ""; }
+    }
+
+    private async Task<(int Status, string Body)> SendForBodyAsync(HttpMethod method, string url, object body, Func<string>? bearer, CancellationToken ct)
+    {
+        try
+        {
+            using var msg = new HttpRequestMessage(method, url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+            };
+            var token = bearer?.Invoke();
+            if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
+            return ((int)resp.StatusCode, await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+        }
+        catch { return (0, ""); }
+    }
+
     private async Task<int> SendJsonAsync(HttpMethod method, string url, object body, CancellationToken ct)
     {
         try

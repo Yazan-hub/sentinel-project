@@ -27,6 +27,7 @@ public sealed class BcfIssuesWindow : Window
     public event Action? IsolateAllRequested;
     public event Action? IssuesForSelectionRequested;
     public event Action<BcfTopic>? FixRequested;
+    public event Action? NewIssueRequested;
     private readonly Button _fix;
 
     /// <summary>Current topics (for the command's isolate-all / selection-lookup requests).</summary>
@@ -67,6 +68,9 @@ public sealed class BcfIssuesWindow : Window
         var isolateAll = Btn("Isolate ALL issue elements", () => IsolateAllRequested?.Invoke());
         var forSel = Btn("Issues for my Revit selection", () => IssuesForSelectionRequested?.Invoke());
         var refresh = Btn("Refresh", () => RefreshRequested?.Invoke());
+        var raise = Btn("＋ New issue from my Revit selection", () => NewIssueRequested?.Invoke());
+        raise.FontWeight = FontWeights.SemiBold;
+        raise.ToolTip = "Select the element(s) in Revit (a 3D view also sends its camera), then describe the issue — it lands on the web board, linked to them.";
         _fix = Btn("Fix in Revit (referee-raised IDS issues only)", () => { if (_list.SelectedItem is BcfTopic t) FixRequested?.Invoke(t); });
         _fix.IsEnabled = false;
         _fix.ToolTip = "Only issues the referee raised (title “IDS: … — … (N failing)”) can be fixed in place.";
@@ -79,7 +83,7 @@ public sealed class BcfIssuesWindow : Window
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (_status, Dock.Bottom), (_fix, Dock.Bottom), (refresh, Dock.Bottom), (forSel, Dock.Bottom),
+            (_status, Dock.Bottom), (_fix, Dock.Bottom), (refresh, Dock.Bottom), (raise, Dock.Bottom), (forSel, Dock.Bottom),
             (isolateAll, Dock.Bottom), (zoom, Dock.Bottom), (detailScroll, Dock.Bottom),
             (listLabel, Dock.Top),
         })
