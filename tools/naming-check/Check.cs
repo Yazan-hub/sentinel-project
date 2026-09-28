@@ -229,6 +229,12 @@ static class Check
             Ok(fam2.Verdict == NameVerdict.Proposed && fam2.Name == "AST_Base Cabinet_Double Door Sink Unit" && fam2.Notes[0] == "the name's own words, separators normalised", "a family name whose words already fit becomes a proposal: " + fam2.Name);
             var famTaken = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework", ExistingNamesInFamily = new HashSet<string> { "AST_Base Cabinet_Double Door Sink Unit" } });
             Ok(famTaken.Verdict == NameVerdict.NeedsHuman, "…unless that name is already taken");
+            var tuer = NamingProposer.Propose("T\u00FCr 900\u00D72100", doorRule, "AST", new NamingContext { Category = "Doors", FamilyName = "Door-Passage-Single-Flush", Facts = { ["Function"] = "Interior", ["Door Material"] = "Steel" } });
+            Ok(tuer.Verdict == NameVerdict.Proposed && tuer.Name == "AST_INT_1 PNL_STL_900 x 2100 mm" && tuer.Notes.Contains("SIZE 900 x 2100 mm read as mm from '900 x 2100'"), "a size written with × and no unit is read as mm and said so: " + tuer.Name + " — " + string.Join("; ", tuer.Notes));
+            var small = NamingProposer.Propose("Panel 30x80", doorRule, "AST", new NamingContext { Category = "Doors", Facts = { ["Function"] = "Interior" } });
+            Ok(small.Verdict == NameVerdict.NeedsHuman, "a unit-less size too small to be mm is not read");
+            var generic = NamingProposer.Propose("Generic - 12\"", aliased, "AST", new NamingContext { Category = "Walls", WidthMm = 304.8, Facts = { ["Function"] = "Exterior" } });
+            Ok(generic.Verdict == NameVerdict.NeedsHuman && generic.Notes.Last() == "MATERIAL not found in the name, the family, the layers or the parameters the rule names", "no material word anywhere → said plainly, the leftover words are not taken as the material: " + generic.Notes.Last());
         }
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

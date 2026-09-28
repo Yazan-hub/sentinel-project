@@ -125,7 +125,8 @@
           },
           "by_category": {
             "Ceilings": "INT",
-            "Floors": "INT"
+            "Floors": "INT",
+            "Roofs": "EXT"
           }
         },
         "DISC": {

@@ -160,6 +160,7 @@ public static class NamingProposer
             if (token.Equals("SIZE", StringComparison.OrdinalIgnoreCase))
             {
                 if (def.Contains(" x ") && TypeNameParse.TrySection(norm, out var w, out var h)) slot.Value = $"{Mm(w)} x {Mm(h)} mm";
+                else if (def.Contains(" x ") && TryBareMm(norm, out var wb, out var hb)) slot.Value = $"{Mm(wb)} x {Mm(hb)} mm";
                 else if (def.Contains(" x ") && TryInches(current ?? "", out var wi, out var hi))
                 {
                     slot.Value = $"{Mm(Math.Round(wi * 25.4))} x {Mm(Math.Round(hi * 25.4))} mm";
@@ -308,6 +309,17 @@ public static class NamingProposer
         return null;
     }
 
+    /// <summary>A W x H with no unit and no inch mark, both numbers 300–9999: read as mm (a 900 x 2100 door).
+    /// ponytail: a plausibility band, not a unit — a name with feet-and-inches digits in that band would misread.</summary>
+    private static bool TryBareMm(string norm, out double w, out double h)
+    {
+        w = h = 0;
+        var m = Regex.Match(norm, @"(?<![\d.])(\d{3,4})\s*x\s*(\d{3,4})(?![\d.]|\s*(mm|""|\u201D|in\b|'))", RegexOptions.IgnoreCase);
+        if (!m.Success) return false;
+        w = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture); h = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        return w >= 300 && h >= 300;
+    }
+
     private static bool TryInches(string name, out double w, out double h)
     {
         w = h = 0;
@@ -382,6 +394,8 @@ public static class NamingProposer
                 if (code == null) continue;
                 values[t] = code; freeText.Remove(t); p.Notes.Add($"{t} {code} from {where}"); fromFacts = true; break;
             }
+            // The office listed its words for this token and none is anywhere: the name's other words are not a value.
+            if (freeText.Contains(t)) { Fail(p, $"{t} not found in the name, the family, the layers or the parameters the rule names"); return null; }
         }
         // Old descriptive words no token needs are dropped only when the model's facts supplied a token — said so.
         if (fromFacts && freeText.Count == 0 && segments.Count > 0) { p.Notes.Add($"'{string.Join(" ", segments)}' dropped"); segments.Clear(); }
@@ -419,8 +433,9 @@ public static class NamingProposer
             // Nominal size lives in the NAME only (audit §3) — the Width/Height parameters are never used.
             if (TypeNameParse.TrySection(norm, out var w, out var h)) value = $"{Mm(w)} x {Mm(h)} mm";
             else if (TryInches(current, out var wi, out var hi)) value = $"{Mm(Math.Round(wi * 25.4))} x {Mm(Math.Round(hi * 25.4))} mm";
+            else if (TryBareMm(norm, out var wb, out var hb)) { value = $"{Mm(wb)} x {Mm(hb)} mm"; p.Notes.Add($"SIZE {value} read as mm from '{Mm(wb)} x {Mm(hb)}'"); }
             else { Fail(p, "no W x H in name"); return null; }
-            seg = segments.FirstOrDefault(s => Regex.IsMatch(s, @"\d+(\.\d+)?\s*[""\u201D]?\s*x\s*\d+(\.\d+)?\s*([""\u201D]|mm)", RegexOptions.IgnoreCase));
+            seg = segments.FirstOrDefault(s => Regex.IsMatch(s, @"\d+(\.\d+)?\s*[""\u201D]?\s*x\s*\d+(\.\d+)?\s*([""\u201D]|mm)?\s*$", RegexOptions.IgnoreCase));
         }
         else
         {
@@ -446,7 +461,7 @@ public static class NamingProposer
             if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark) sb.Append(ch);
         var t = sb.ToString().Normalize(NormalizationForm.FormC);
         t = Regex.Replace(t, @"(\d+(?:\.\d+)?)\s*_?\s*cm\b", m => Mm(double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) * 10) + " mm", RegexOptions.IgnoreCase);
-        t = Regex.Replace(t, @"(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)", "$1 x $2");
+        t = Regex.Replace(t, @"(\d+(?:\.\d+)?)\s*[xX\u00D7]\s*(\d+(?:\.\d+)?)", "$1 x $2");
         t = Regex.Replace(t, @"(\d+(?:\.\d+)?)\s*_?\s*mm\b", "$1 mm", RegexOptions.IgnoreCase);
         return Regex.Replace(t, @"[ ]{2,}", " ").Trim();
     }
