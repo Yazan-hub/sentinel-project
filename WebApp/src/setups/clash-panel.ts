@@ -295,11 +295,13 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const elemLabel = (info: { category?: string; name?: string } | undefined, c: Clash, side: "a" | "b") =>
     info?.category ? `${info.category.replace(/^IFC/i, "")}${info.name ? ` '${info.name}'` : ""}` : label(c, side);
 
-  // Asked before any Issue is created: the bridge's own answer (GET /cde/:key/federation → raise), so an Issue is never
-  // raised for a clash the register would then refuse. Unreadable = not raised, said.
+  // Asked before any Issue is created: the bridge's own answer (GET /cde/:key/federation → raise). The bridge asks the
+  // gate again for each Clash Issue and for the register, so a gate that changes mid-raise stops it there. A bridge
+  // without a CDE (single desktop) has no gate and no lock; anything else unreadable = not raised, said.
   async function gateAllowsRaise(): Promise<{ ok: boolean; why: string }> {
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation`);
+      if (r.status === 503 && /CDE not configured/i.test(await r.clone().text().catch(() => ""))) return { ok: true, why: "" };
       if (!r.ok) return { ok: false, why: `the Federation Gate could not be read (HTTP ${r.status})` };
       const f = (await r.json()) as FedState;
       if (!f.raise) return { ok: false, why: "this bridge does not report the gate's lock — restart it on the current version" };
@@ -346,7 +348,11 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     // The register (team-wide, carries provenance, writes the ledger rows) must take them before they count as known: a
     // refusal is said in the bridge's words, and the clashes re-surface on the next run instead of vanishing from this browser.
     try { await pushKnownToServer(raisedItems); }
-    catch (e) { status(`Raised ${raised} clash(es) → Issues + Revit, but the clash register refused them — ${(e as Error).message}. Not recorded and not on the ledger; they will re-surface on the next run.`); return; }
+    catch (e) {
+      const why = (e as Error).message.replace(/\s*—\s*nothing was saved\s*$/i, "");
+      status(`Raised ${raised} Issue(s), but the clash register did not record them — ${why}. They are not on the register or the ledger and will re-surface on the next run.`);
+      return;
+    }
     for (const it of raisedItems) known.add(it.signature);
     persistKnown();
     clashes = clashes.filter((c) => !known.has(c.id));

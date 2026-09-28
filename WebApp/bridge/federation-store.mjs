@@ -101,6 +101,11 @@ function isStale(recordedSet, liveSet, scope = "all") {
 export function raiseGate(fed) {
   const latest = fed?.latest ?? null;
   if (!latest) return { ok: false, why: "the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate)" };
+  // A run over a named subset (scope "explicit") is never stale for the live models it left out, so coverage is asked
+  // separately: every live model must be in the run (found by the lock's review, 2026-09-28).
+  const seen = new Set((latest.set ?? []).map((m) => m.container));
+  const unjudged = (fed.live_set ?? []).filter((l) => !seen.has(l.container)).map((l) => l.container);
+  if (unjudged.length) return { ok: false, why: `the Federation Gate's last run did not judge ${unjudged.length} live model(s) (${unjudged.slice(0, 3).join(", ")}${unjudged.length > 3 ? ", …" : ""}) — run it on the whole live set` };
   if (fed.stale) return { ok: false, why: "the Federation Gate's last run is stale — a live model changed since; run it again" };
   const verdict = latest.result?.verdict;
   if (verdict === "pass") return { ok: true, why: null };
@@ -117,5 +122,5 @@ export async function getFederation(key, deps) {
   const latest = (await d.docGet(STORE, proj.id, "latest")) ?? null;
   const live = await d.listManifests(key);
   const stale = !!latest && isStale(latest.set, live, latest.scope ?? "all");
-  return { latest, stale, live_set: live, raise: raiseGate({ latest, stale }) };
+  return { latest, stale, live_set: live, raise: raiseGate({ latest, stale, live_set: live }) };
 }

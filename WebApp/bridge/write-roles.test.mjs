@@ -251,6 +251,20 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
       ["clash", "Clash raised → reviewed: Wall ↔ Beam", "contributor@example.test"],
     ]);
     expect(db.audit_log[0].new_value).toEqual({ signature: "a|b", volume: 0.2, overlap: [1, 1, 0.2], elements: [], bcf_guid: "g1" });
+    // The register is the bridge's alone (0034): its writes carry the service key, after the bridge's own checks.
+    const clashWrites = writes("bridge_docs").filter((c) => c.body?.store === "clash" || (Array.isArray(c.body) && c.body[0]?.store === "clash"));
+    expect(clashWrites.length).toBeGreaterThan(0);
+    expect(clashWrites.every((c) => c.service)).toBe(true);
+  });
+
+  it("a Clash Issue is refused while the gate has not passed (the register's lock, asked per Issue); other Issues are not", async () => {
+    const topics = "/bcf/3.0/projects/demo/topics";
+    expect(await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" }))
+      .toEqual({ status: 409, body: { message: "not raised — the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate) — nothing was saved" } });
+    expect(writes("bcf_topics")).toEqual([]);
+    expect((await call("POST", topics, "contributor", { title: "A question", topic_type: "Issue" })).status).toBe(201);
+    gatePassed();
+    expect((await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" })).status).toBe(201);
   });
 
   it("a PUT that moves nothing says so: an unknown status is a 400, a clash not on the register a 404, the same status no ledger row", async () => {

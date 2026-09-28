@@ -59,6 +59,12 @@ describe("checkFederation", () => {
     expect(r.verdict).toBe("not_checkable");
     expect(r.models.find((m) => m.container === "B-0102.ifc")?.has_manifest).toBe(false);
   });
+  it("two manifests that let nothing be checked are NOT CHECKABLE, not PASS", () => {
+    const bare = (c: string) => model(c, manifest({ elements: [], levels: [], grids: [], site: null as unknown as Manifest["site"] }));
+    const r = checkFederation([bare("A-0101.ifc"), bare("B-0102.ifc")], { verdicts: okVerdicts });
+    expect(r.checks.every((c) => c.status === "not_checkable")).toBe(true);
+    expect(r.verdict).toBe("not_checkable");
+  });
   it("FG-01 and FG-02 are not_checkable, not pass, when one manifest carries no elements (empty MEP manifest)", () => {
     const empty = model("B-0102.ifc", manifest({ elements: [] }));
     const r = checkFederation([A(), empty], { verdicts: okVerdicts });

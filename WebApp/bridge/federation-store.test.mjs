@@ -101,6 +101,10 @@ describe("raiseGate — the lock on the clash register", () => {
     expect(raiseGate(run("fail", [{ id: "FG-02", status: "fail" }, { id: "FG-03", status: "pass" }, { id: "FG-05", status: "fail" }])))
       .toEqual({ ok: false, why: "the Federation Gate failed (FG-02, FG-05) — fix those and run it again" });
     expect(raiseGate(run("not_checkable")).ok).toBe(false);
+    // an explicit run over a subset: not stale, but it did not judge the whole live set
+    const partial = { latest: { result: { verdict: "pass", checks: [] }, set: [{ container: "A" }, { container: "B" }], scope: "explicit" }, stale: false, live_set: [{ container: "A" }, { container: "B" }, { container: "C" }] };
+    expect(raiseGate(partial)).toEqual({ ok: false, why: "the Federation Gate's last run did not judge 1 live model(s) (C) — run it on the whole live set" });
+    expect(raiseGate({ ...partial, live_set: partial.live_set.slice(0, 2) }).ok).toBe(true);
     expect(raiseGate(undefined).ok).toBe(false);
   });
 });
