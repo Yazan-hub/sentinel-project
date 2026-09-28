@@ -176,7 +176,7 @@ static class Check
             var fnSk = new Rule { Id = "FN-01", Target = RuleTarget.Family, Tokens = new List<string> { "ORG", "BODY" }, Separator = "_",
                 TokenDefs = new Dictionary<string, string> { ["ORG"] = "{org}", ["BODY"] = "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+" } };
             var fam = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework" });
-            Ok(fam.Verdict == NameVerdict.NeedsHuman && fam.Slots != null && fam.Slots.Count == 2 && fam.Slots[0].Value == "AST" && fam.Slots[1].Value == null, "a family rule the recovery cannot finish gets a skeleton too: ORG fixed, BODY free");
+            Ok(fam.Verdict == NameVerdict.Proposed && fam.Slots != null && fam.Slots.Count == 2 && fam.Slots[0].Value == "AST" && fam.Slots[1].Value == null, "a family rule the recovery cannot finish gets a skeleton too (ORG fixed, BODY free) — and is proposed when the words already fit");
             Ok(!fam.Slots![1].Accepts("Base Cabinet-Double Door Sink Unit") && fam.Slots[1].Accepts("Base Cabinet_Double Door Sink Unit") && RuleRegex.For(fnSk, "AST").IsMatch(NamingProposer.Assemble(fnSk, new[] { "AST", "Base Cabinet_Double Door Sink Unit" })), "the body slot refuses the dash form and accepts the underscore form the rule wants");
             Ok(fam.Suggestion == "AST_Base Cabinet_Double Door Sink Unit" && RuleRegex.For(fnSk, "AST").IsMatch(fam.Suggestion!), "the family suggestion turns the dash into the separator the body needs, and matches: " + fam.Suggestion);
             Ok(ceil.Suggestion == "AST_EXT_ARC_2 X 2 ACT SYSTEM_" && !RuleRegex.For(tnSk, "AST").IsMatch(ceil.Suggestion!), "a ceiling with no measured size is suggested with the size left empty, so it is refused until typed: " + ceil.Suggestion);
@@ -216,6 +216,19 @@ static class Check
             var doorSk = NamingProposer.Propose("30\" x 80\"", doorRule, "AST", new NamingContext { Category = "Doors" });
             Ok(doorSk.Slots != null && doorSk.Slots[4].Value == "762 x 2032 mm", "a door size in inches is converted to mm: " + doorSk.Slots![4].Value);
             Ok(doorSk.Suggestion == "AST_EXT___762 x 2032 mm" && NamingProposer.Problems(doorSk.Suggestion!, doorSk.Slots, "_").Count == 2, "no leaf or material is invented for it — two parts are left for the person: " + doorSk.Suggestion);
+            // ── doors: inches, the leaf from the family name, the material from a parameter ──
+            doorRule.TokenAliases = new Dictionary<string, Dictionary<string, string>> { ["LEAF"] = new() { ["SINGLE"] = "1 PNL", ["DOUBLE"] = "2 PNL" }, ["MATERIAL"] = new() { ["OAK"] = "TMB", ["STEEL"] = "STL" } };
+            doorRule.TokenInfer = new Dictionary<string, TokenInfer> { ["LOC"] = new TokenInfer { ByParameter = new() { ["Function"] = new() { ["Exterior"] = "EXT", ["Interior"] = "INT" } } }, ["MATERIAL"] = new TokenInfer { ByParameter = new() { ["Door Material"] = new() } } };
+            var dctx = new NamingContext { Category = "Doors", FamilyName = "Door-Passage-Single-Flush", Facts = { ["Function"] = "Interior", ["Door Material"] = "Solid Oak" } };
+            var dAuto = NamingProposer.Propose("30\" x 84\"", doorRule, "AST", dctx);
+            Ok(dAuto.Verdict == NameVerdict.Proposed && dAuto.Name == "AST_INT_1 PNL_TMB_762 x 2134 mm", "a door: LOC from Function, leaf from the family name, material from Door Material, inches rounded to mm: " + dAuto.Name + " — " + string.Join("; ", dAuto.Notes));
+            var dPart = NamingProposer.Propose("30\" x 84\"", doorRule, "AST", new NamingContext { Category = "Doors", FamilyName = "Door-Passage-Single-Flush", Facts = { ["Function"] = "Interior" } });
+            Ok(dPart.Verdict == NameVerdict.NeedsHuman && dPart.Suggestion == "AST_INT_1 PNL__762 x 2134 mm", "no material anywhere → the material is left for a person: " + dPart.Suggestion);
+            // ── a family name that only needs its separators normalised is proposed ──
+            var fam2 = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework" });
+            Ok(fam2.Verdict == NameVerdict.Proposed && fam2.Name == "AST_Base Cabinet_Double Door Sink Unit" && fam2.Notes[0] == "the name's own words, separators normalised", "a family name whose words already fit becomes a proposal: " + fam2.Name);
+            var famTaken = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework", ExistingNamesInFamily = new HashSet<string> { "AST_Base Cabinet_Double Door Sink Unit" } });
+            Ok(famTaken.Verdict == NameVerdict.NeedsHuman, "…unless that name is already taken");
         }
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

@@ -81,6 +81,15 @@ public static class NamingProposer
         if (p.Verdict == NameVerdict.NeedsHuman && rule.Target is RuleTarget.Type or RuleTarget.Family && rule.Tokens.Count > 0)
         {
             try { p.Slots = Skeleton(current, rule, org, ctx); p.Suggestion = Suggest(rule, p.Slots); } catch { p.Slots = null; p.Suggestion = null; } // a skeleton is help, never a blocker
+            // Every part fixed by the name or the model (no pick offered, nothing empty) and the whole matches: that is
+            // the name with its separators normalised, not a guess — proposed, so a batch takes it.
+            if (rule.Target == RuleTarget.Family && p.Slots != null && p.Suggestion != null && p.Slots.All(s => s.Options == null && (s.Value != null || s.Prefill.Length > 0))
+                && RuleRegex.For(rule, org).IsMatch(p.Suggestion) && p.Suggestion != current
+                && !ctx.ExistingNamesInFamily.Contains(p.Suggestion) && !ctx.SiblingProposals.Contains(p.Suggestion))
+            {
+                p.Name = p.Suggestion; p.Verdict = NameVerdict.Proposed;
+                p.Notes.Clear(); p.Notes.Add("the name's own words, separators normalised");
+            }
         }
         return p;
     }
@@ -153,7 +162,7 @@ public static class NamingProposer
                 if (def.Contains(" x ") && TypeNameParse.TrySection(norm, out var w, out var h)) slot.Value = $"{Mm(w)} x {Mm(h)} mm";
                 else if (def.Contains(" x ") && TryInches(current ?? "", out var wi, out var hi))
                 {
-                    slot.Value = $"{Mm(wi * 25.4)} x {Mm(hi * 25.4)} mm";
+                    slot.Value = $"{Mm(Math.Round(wi * 25.4))} x {Mm(Math.Round(hi * 25.4))} mm";
                     var segIn = segments.FirstOrDefault(s => Regex.IsMatch(s, @"^\d+(\.\d+)?\s*[""”]?\s*x\s*\d+(\.\d+)?\s*[""”]?$", RegexOptions.IgnoreCase));
                     if (segIn != null) segments.Remove(segIn);
                 }
@@ -181,7 +190,7 @@ public static class NamingProposer
             {
                 // The office's own words for this token ("GWB" → "GYP"), the earliest in the name winning, else the
                 // layer material's name. Found → fixed, like a value the name carries.
-                var code = AliasCode(aliases, current ?? "", out _) ?? ctx.Materials.Select(m => AliasCode(aliases, m, out _)).FirstOrDefault(c => c != null);
+                var code = AliasCode(aliases, current ?? "", out _) ?? FactTexts(token, rule, ctx).Select(f => AliasCode(aliases, f.Text, out _)).FirstOrDefault(c => c != null);
                 if (code != null) { slot.Value = code; slot.Options = null; slots.Add(slot); continue; }
             }
             slots.Add(slot); free.Add(slot);
@@ -266,6 +275,18 @@ public static class NamingProposer
         return aliases.TryGetValue(best, out var code) ? code : best;
     }
 
+    /// <summary>The model's texts an alias token may be read from, in order: the family name, the layer materials
+    /// (finish first), then the type parameters the rule's token_infer names for that token (their values, free
+    /// text — a "Door Material" of "Solid Oak" resolves through the aliases like a layer does).</summary>
+    private static IEnumerable<(string Text, string Where)> FactTexts(string token, Rule rule, NamingContext ctx)
+    {
+        if (ctx.FamilyName.Length > 0) yield return (ctx.FamilyName, $"family '{ctx.FamilyName}'");
+        foreach (var m in ctx.Materials) yield return (m, $"layer '{m}'");
+        if (rule.TokenInfer != null && rule.TokenInfer.TryGetValue(token, out var inf) && inf?.ByParameter != null)
+            foreach (var name in inf.ByParameter.Keys)
+                if (ctx.Facts.TryGetValue(name, out var v) && !string.IsNullOrWhiteSpace(v)) yield return (v, $"{name} = {v}");
+    }
+
     /// <summary>A token value read from the model as the rule's token_infer says: a type parameter's value first,
     /// the category second. Null when the rule says nothing or the model has no such fact. Never a guess.</summary>
     private static string? Infer(string token, Rule rule, NamingContext ctx, out string source)
@@ -322,7 +343,7 @@ public static class NamingProposer
             { values[token] = o; continue; }
             if (token.Equals("SIZE", StringComparison.OrdinalIgnoreCase))
             {
-                var size = RecoverSize(norm, def, ctx, segments, p);
+                var size = RecoverSize(norm, current, def, ctx, segments, p);
                 if (size == null) return null;
                 values[token] = size; continue;
             }
@@ -355,11 +376,11 @@ public static class NamingProposer
                 if (!word.Equals(code, StringComparison.OrdinalIgnoreCase)) p.Notes.Add($"{t} {code} from '{word}' in the name");
                 continue;
             }
-            foreach (var m in ctx.Materials)
+            foreach (var (text, where) in FactTexts(t, rule, ctx))
             {
-                code = AliasCode(al, m, out word);
+                code = AliasCode(al, text, out word);
                 if (code == null) continue;
-                values[t] = code; freeText.Remove(t); p.Notes.Add($"{t} {code} from layer '{m}'"); fromFacts = true; break;
+                values[t] = code; freeText.Remove(t); p.Notes.Add($"{t} {code} from {where}"); fromFacts = true; break;
             }
         }
         // Old descriptive words no token needs are dropped only when the model's facts supplied a token — said so.
@@ -388,7 +409,7 @@ public static class NamingProposer
 
     private static string Canon(string segment) => Aliases.TryGetValue(segment, out var a) ? a : segment.ToUpperInvariant();
 
-    private static string? RecoverSize(string norm, string def, NamingContext ctx, List<string> segments, NameProposal p)
+    private static string? RecoverSize(string norm, string current, string def, NamingContext ctx, List<string> segments, NameProposal p)
     {
         var isSection = def.Contains(" x ");
         string? seg = null;
@@ -396,9 +417,10 @@ public static class NamingProposer
         if (isSection)
         {
             // Nominal size lives in the NAME only (audit §3) — the Width/Height parameters are never used.
-            if (!TypeNameParse.TrySection(norm, out var w, out var h)) { Fail(p, "no W x H in name"); return null; }
-            value = $"{Mm(w)} x {Mm(h)} mm";
-            seg = segments.FirstOrDefault(s => Regex.IsMatch(s, @"\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*mm", RegexOptions.IgnoreCase));
+            if (TypeNameParse.TrySection(norm, out var w, out var h)) value = $"{Mm(w)} x {Mm(h)} mm";
+            else if (TryInches(current, out var wi, out var hi)) value = $"{Mm(Math.Round(wi * 25.4))} x {Mm(Math.Round(hi * 25.4))} mm";
+            else { Fail(p, "no W x H in name"); return null; }
+            seg = segments.FirstOrDefault(s => Regex.IsMatch(s, @"\d+(\.\d+)?\s*[""\u201D]?\s*x\s*\d+(\.\d+)?\s*([""\u201D]|mm)", RegexOptions.IgnoreCase));
         }
         else
         {

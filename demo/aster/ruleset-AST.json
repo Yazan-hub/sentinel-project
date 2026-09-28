@@ -209,6 +209,13 @@
               "Interior": "INT"
             }
           }
+        },
+        "MATERIAL": {
+          "by_parameter": {
+            "Door Material": {},
+            "Panel Material": {},
+            "Frame Material": {}
+          }
         }
       },
       "target": "type",
@@ -261,6 +268,15 @@
           "RENDER": "PLS",
           "INSULATION": "INS",
           "METAL": "MTL"
+        },
+        "LEAF": {
+          "SINGLE": "1 PNL",
+          "SGL": "1 PNL",
+          "DOUBLE": "2 PNL",
+          "DBL": "2 PNL",
+          "BIFOLD": "2 PNL",
+          "1 PNL": "1 PNL",
+          "2 PNL": "2 PNL"
         }
       },
       "separator": "_",
