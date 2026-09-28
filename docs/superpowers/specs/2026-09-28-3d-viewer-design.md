@@ -51,6 +51,11 @@ Parent: `docs/ROADMAP.md` item 2; `docs/UPGRADE_MAP_2026-09.md` U-8..U-12.
    a recorded clash stays free; a bridge without a CDE has no gate. The register is written with the service key after
    those checks; migration 0034 (applied 2026-09-28 on the founder's "apply") takes the direct PostgREST write away
    from signed-in callers — proven by a rolled-back insert as the founder: refused by row-level security.
+   **One-model projects (the founder's option B, 2026-09-28, merged 233d545):** the gate federates live IFC models only
+   (a CSV registered as a model is left out); when the whole live set is one model with a manifest, FG-01 is "no
+   GlobalId twice in the model", counted over every IfcProduct from the raw GlobalIds at capture (`guid_audit`), FG-06
+   is judged, FG-02..FG-05 say "one model — a cross-model check; nothing to compare"; nothing counted is not checkable.
+   A pass opens the lock as for a federation; the Next strip's Federated step follows it.
 5. **Streaming is measured before anything changes (built: BIM Tools ▸ Performance).** A 10-second measure while the
    person orbits: frame time p50/p95, drawn frames, draw calls and triangles submitted per drawn frame (summed across
    postproduction passes), GPU geometries/textures, JS heap, per model its elements and whether culling/LOD follow a
