@@ -28,7 +28,7 @@ describe("perfLines", () => {
       "Drawn 2 frame(s) (1 per s) · per drawn frame: draw calls avg 100 / max 120 · triangles submitted avg 600,000 / max 900,000",
       "GPU memory: 1,400 geometries · 12 textures",
       "JS heap: 212 MB used of 4096 MB",
-      "Models: 2 · 1,802 element(s) with geometry",
+      "Models: 2 · elements with geometry 1,802",
       "  ARC@v4: 602 element(s) · culling/LOD follow the camera",
       "  STR@v2: 1,200 element(s) · culling/LOD NOT bound to a camera",
       "Engine settings: graphicsQuality 0 · maxUpdateRate 100",
@@ -40,17 +40,28 @@ describe("perfLines", () => {
     expect(lines).toContain("GPU: not reported by the browser");
     expect(lines).toContain("JS heap: not reported by this browser");
     expect(lines).toContain("GPU memory: not reported by this renderer");
-    expect(lines).toContain("Drawn 0 frames — the renderer did not draw while measuring (it draws on change: orbit the model while measuring)");
+    expect(lines).toContain("Drawn 0 frames — the renderer did not draw while measuring (it should draw every frame: it may be disabled, not initialised, or have lost its GPU context)");
     expect(lines).toContain("Measured 1.0 s · 0 frames (0 per s) · frame time p50 —, p95 —, worst —");
-    expect(lines).toContain("Models: 1 · 0 element(s) with geometry (1 model(s) did not answer)");
+    expect(lines).toContain("Models: 1 · elements with geometry not reported (1 model(s) did not answer)");
+    expect(lines).toContain("The browser gave the page 0 animation frame(s) in 1.0 s — it throttles a page in a background tab or a hidden window: bring the tab to the front and measure again; the numbers above are not the viewer's speed");
     expect(lines).toContain("  A: items not reported · culling/LOD camera not reported");
     expect(lines.some((l) => l.startsWith("Engine settings"))).toBe(false);
   });
 });
 
 describe("cameraFinding", () => {
-  it("names the unbound models as the first streaming step", () => {
-    expect(cameraFinding(snap().models)).toBe("1 of 2 model(s) are not bound to the viewer's camera: every element is kept on the GPU whatever the camera sees — binding the camera at load is the first streaming step.");
+  it("names the unbound models as the first streaming step, claiming only what the engine does", () => {
+    expect(cameraFinding(snap().models)).toBe("1 of 2 model(s) are not bound to the viewer's camera: the engine evaluates their culling and LOD against a fixed default view, not the camera (parts may never be drawn, the rest stays at full detail) — binding the camera at load is the first streaming step.");
+  });
+  it("a draw-on-change renderer that drew nothing is told to orbit; a partial element total says 'at least'", () => {
+    const lines = perfLines(snap({ mode: "MANUAL (draws on change)", window: { durationMs: 2000, frameGapsMs: [16, 16, 16], rendered: [] },
+      models: [{ modelId: "A", items: 10, cameraBound: true }, { modelId: "B", items: null, cameraBound: true }] }));
+    expect(lines).toContain("Drawn 0 frames — the renderer did not draw while measuring (it draws on change: orbit the model while measuring)");
+    expect(lines).toContain("Models: 2 · elements with geometry at least 10 (1 model(s) did not answer)");
+  });
+  it("one animation frame in ten seconds is called throttling, not the viewer's speed", () => {
+    const lines = perfLines(snap({ window: { durationMs: 10400, frameGapsMs: [16.7], rendered: [{ calls: 1102, triangles: 208598 }] } }));
+    expect(lines.some((l) => l.startsWith("The browser gave the page 1 animation frame(s) in 10.4 s"))).toBe(true);
   });
   it("says nothing when every model follows the camera, and says so when a model did not report", () => {
     expect(cameraFinding([{ modelId: "A", items: 1, cameraBound: true }])).toBeNull();

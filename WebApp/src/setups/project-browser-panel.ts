@@ -98,14 +98,13 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
         }
       };
       if (filter) buildTypes();
-      head.addEventListener("click", (e) => {
-        e.stopPropagation();
+      head.addEventListener("click", () => {
         const open = kids.style.display === "none";
         buildTypes();
         kids.style.display = open ? "block" : "none";
         (head.firstChild as HTMLElement).innerHTML = open ? "▾" : "▸";
       });
-      head.addEventListener("dblclick", (e) => { e.stopPropagation(); select(cat.types.flatMap((t) => t.instances)); }); // dbl-click = select whole category
+      head.addEventListener("dblclick", () => select(cat.types.flatMap((t) => t.instances))); // dbl-click = select whole category
       head.addEventListener("mouseenter", () => (head.style.background = "#1c1c24"));
       head.addEventListener("mouseleave", () => (head.style.background = "transparent"));
       catEl.appendChild(head); catEl.appendChild(kids);

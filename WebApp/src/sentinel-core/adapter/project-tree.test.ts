@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupCategories, groupByModel, type TreeRow } from "./project-tree";
+import { groupCategories, groupByModel, isBrowsable, type TreeRow } from "./project-tree";
 
 const row = (modelId: string, localId: number, category: string, type: string, name: string): TreeRow => ({ modelId, localId, category, type, name });
 
@@ -8,6 +8,13 @@ describe("groupCategories", () => {
     const t = groupCategories([row("A", 3, "IFCWALL", "W-200", "Wall 10"), row("A", 1, "IFCWALL", "W-200", "Wall 2"), row("A", 2, "IFCDOOR", "D1", "Door 1")]);
     expect(t.map((c) => [c.label, c.count])).toEqual([["Doors", 1], ["Walls", 2]]);
     expect(t[1].types[0].instances.map((i) => i.name)).toEqual(["Wall 2", "Wall 10"]);
+  });
+});
+
+describe("isBrowsable", () => {
+  it("keeps building elements and spatial containers, drops the project record, units, type objects and relationships", () => {
+    expect(["IFCWALL", "IFCDOOR", "IFCBUILDINGELEMENTPROXY", "IFCBUILDINGSTOREY", "IFCSITE", "IFCBUILDING", "IFCSPACE"].filter(isBrowsable)).toHaveLength(7);
+    expect(["IFCPROJECT", "IFCDERIVEDUNIT", "IFCSIUNIT", "IFCWALLTYPE", "IFCSLABTYPE", "IFCBUILDINGELEMENTPROXYTYPE", "IFCRELAGGREGATES", "IFCPROPERTYSET"].filter(isBrowsable)).toEqual([]);
   });
 });
 

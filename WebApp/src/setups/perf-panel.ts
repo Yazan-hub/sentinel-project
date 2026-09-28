@@ -1,4 +1,5 @@
 import * as OBC from "@thatopen/components";
+import * as OBF from "@thatopen/components-front";
 import { perfLines, cameraFinding, type FrameWork, type PerfModel, type PerfSnapshot } from "../sentinel-core/perf-stats";
 
 /**
@@ -38,7 +39,8 @@ export function perfPanel(components: OBC.Components): HTMLElement {
       const gl = three?.getContext?.();
       const ext = gl?.getExtension?.("WEBGL_debug_renderer_info");
       const s = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl?.getParameter?.(gl.RENDERER);
-      return typeof s === "string" && s.length ? s : null;
+      // Chrome/Safari answer a fixed placeholder when the real renderer is hidden: that is not a GPU.
+      return typeof s === "string" && s.trim().length && !/^(WebKit WebGL|WebKit|Mozilla)$/i.test(s.trim()) ? s : null;
     } catch { return null; }
   }
 
@@ -95,20 +97,26 @@ export function perfPanel(components: OBC.Components): HTMLElement {
     let cur: FrameWork = { calls: 0, triangles: 0 };
     let drewThisFrame = false;
 
-    // Sum every render() of a frame. With autoReset (three's default) info holds the last call alone; without it,
-    // the call's share is the difference. WebGPU's per-frame count is drawCalls (its `calls` is a running total).
+    // Sum every render() of a frame. WebGL with autoReset (three's default): info holds the last call alone. Otherwise —
+    // autoReset off, or WebGPU, whose Info resets once per animation frame and adds up across calls — the call's share is
+    // the difference. WebGPU's per-frame count is drawCalls (its `calls` is a running total).
+    // The engine's picker (hover, click, the orbit anchor) renders the scene into an off-screen target with the scissor
+    // test on: that is not the view, so it is passed through uncounted. A frame counts as drawn only when a render reached
+    // the screen (no render target); the off-screen postproduction passes of that frame are counted as its work.
     const original = three.render;
     const hadOwn = Object.prototype.hasOwnProperty.call(three, "render");
     const readCalls = () => Number(info?.render?.drawCalls ?? info?.render?.calls ?? 0);
     const readTris = () => Number(info?.render?.triangles ?? 0);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     three.render = function (...args: any[]) {
-      const auto = info?.autoReset !== false;
+      const target = this.getRenderTarget?.() ?? null;
+      if (target && this.getScissorTest?.()) return original.apply(this, args); // a pick pass: not the view
+      const perCall = info?.autoReset !== false && info?.render?.drawCalls === undefined;
       const c0 = readCalls(), t0 = readTris();
       const r = original.apply(this, args);
-      cur.calls += auto ? readCalls() : readCalls() - c0;
-      cur.triangles += auto ? readTris() : readTris() - t0;
-      drewThisFrame = true;
+      cur.calls += perCall ? readCalls() : readCalls() - c0;
+      cur.triangles += perCall ? readTris() : readTris() - t0;
+      if (target == null) drewThisFrame = true;
       return r;
     };
 
@@ -124,7 +132,8 @@ export function perfPanel(components: OBC.Components): HTMLElement {
           status(left > 0 ? `Measuring… ${Math.ceil(left / 1000)} s left — orbit and zoom the model.` : "Reading the models…");
           if (now - t0 < seconds * 1000) requestAnimationFrame(tick); else resolve();
         };
-        requestAnimationFrame((now) => { last = now; requestAnimationFrame(tick); });
+        // The frame before the window only sets the start: its renders are not the window's.
+        requestAnimationFrame((now) => { last = now; cur = { calls: 0, triangles: 0 }; drewThisFrame = false; requestAnimationFrame(tick); });
       });
     } finally {
       if (hadOwn) three.render = original; else delete three.render; // the renderer is left exactly as it was
@@ -134,7 +143,10 @@ export function perfPanel(components: OBC.Components): HTMLElement {
     const mode = renderer.mode === 0 ? "MANUAL (draws on change)" : renderer.mode === 1 ? "AUTO (draws every frame)" : "mode not reported";
     const mem = info?.memory;
     const snap: PerfSnapshot = {
-      api, rendererClass: renderer.constructor?.name || "renderer", mode, gpu: gpuString(three),
+      api,
+      // Class identity survives minification (the dist names the class "AK"); a class it cannot name is not reported.
+      rendererClass: renderer instanceof OBF.PostproductionRenderer ? "PostproductionRenderer" : renderer instanceof OBC.SimpleRenderer ? "SimpleRenderer" : "renderer class not reported",
+      mode, gpu: gpuString(three),
       window: { durationMs, frameGapsMs, rendered },
       heap: heap(),
       gpuMemory: mem && typeof mem.geometries === "number" ? { geometries: mem.geometries, textures: Number(mem.textures ?? 0) } : null,

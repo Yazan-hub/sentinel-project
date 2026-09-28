@@ -46,13 +46,30 @@ Parent: `docs/ROADMAP.md` item 2; `docs/UPGRADE_MAP_2026-09.md` U-8..U-12.
 4. **(founder) The gate as a lock.** D-01 made the Federation Gate a warning. Recommendation: keep a run free (it is
    exploratory), but let ⚑ Raise write to the register only when the gate passed on the current live set, and say
    why when it refuses. Not built until he decides.
-5. **Streaming is measured before anything changes.** A small in-app readout (models, items, draw calls, triangles,
-   frame time, JS heap) on the viewer, so the founder's own models give the numbers; only then decide between
-   `setLodMode`, virtual models and Sentinel's own loader. Nothing replaces the platform's loader blind.
-6. **WebGPU as a measured experiment.** The switch is a build-time alias (`three` → `three/webgpu`), so it cannot be a
-   per-viewer toggle in one bundle. It is tried on a branch against the same readout on the founder's models and
-   shipped only if every panel still works (postproduction, clipper, reality capture) and the numbers improve.
-   **(founder)** whether to ship it.
+5. **Streaming is measured before anything changes (built: BIM Tools ▸ Performance).** A 10-second measure while the
+   person orbits: frame time p50/p95, drawn frames, draw calls and triangles submitted per drawn frame (summed across
+   postproduction passes), GPU geometries/textures, JS heap, per model its elements and whether culling/LOD follow a
+   camera (`model.camera`), and the engine's culling/LOD settings. Correction to "Facts": "Open 3D" is Sentinel's own
+   loader (`files-panel.ts` `core.load(buf, { modelId })`, no camera), and the two `useCamera` calls in
+   `components-front-beta` belong to sheet viewports — so whether the main camera is bound is exactly what the
+   readout shows. Only then: bind the camera at load, tune `core.settings` (culling, lodThresholds, graphicsQuality).
+6. **WebGPU — blocked upstream (found 2026-09-28, trial builds in the session scratchpad, no repo change).** The
+   switch is a build-time alias (`three` → `three/webgpu`); `SimpleRenderer` then picks WebGPU by itself
+   (`components-beta` index.mjs ~16377: `hasWebGPU = typeof THREE.WebGPURenderer === "function"` — a build check, not a
+   browser check; a browser without WebGPU gets WebGPURenderer's WebGL2 backend). But the build fails before any of
+   Sentinel's code matters: the engine packages themselves import WebGL-only three add-ons at module load —
+   `components-front-beta` index.js:11-19 (EffectComposer, GTAOPass, OutputPass, SMAAPass, LineSegments2, LineMaterial)
+   and `fragments-beta` (Line2, LineMaterial, which touches `UniformsLib` at load). A plain alias stops at
+   `"UniformsLib" is not exported by three.webgpu.js`; shimming the six missing exports (ShaderChunk, ShaderLib,
+   UniformsLib, UniformsUtils, WebGLCubeRenderTarget, WebGLRenderer) builds a bundle that throws as it loads. Beyond
+   that: fat lines (measure, section, dimension lines) need porting to three's `Line2NodeMaterial`; fragments' shell
+   effects use `onBeforeCompile`, which WebGPU never calls; reality capture has its own WebGLRenderer and Spark.
+   `thatopen serve` hard-codes its aliases (dev would stay WebGL while publish went WebGPU). Fragments' own comment
+   assumes an "addon stub" for WebGL-only add-ons in WebGPU builds that no installed package ships. And the engine's
+   real streaming (`.fragstrm`/`.fragdata`/`.fraglod`, `IfcImporter.processStreamed`) refuses to load unless three is
+   the WebGPU build. **Decision:** not shipped; the question goes to That Open — how is an app meant to build against
+   their WebGPU engine (the addon stub)? Until then streaming work stays on the WebGL path (camera binding, culling and
+   LOD settings), measured with the Performance tab.
 7. **One model tree.** Two trees exist: the platform's spatial tree (Explorer) and Sentinel's category browser
    (BIM Tools ▸ Browser, already across models). Next: load two models and see what each shows before merging
    anything; not built tonight.

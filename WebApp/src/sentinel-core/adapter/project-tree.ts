@@ -16,7 +16,7 @@ const LABELS: Record<string, string> = {
   IFCDOOR: "Doors", IFCWINDOW: "Windows", IFCCURTAINWALL: "Curtain Walls", IFCRAILING: "Railings",
   IFCSTAIR: "Stairs", IFCSTAIRFLIGHT: "Stair Flights", IFCRAMP: "Ramps", IFCCOVERING: "Coverings",
   IFCFURNISHINGELEMENT: "Furniture", IFCFURNITURE: "Furniture", IFCBUILDINGELEMENTPROXY: "Generic Models",
-  IFCSPACE: "Spaces", IFCBUILDINGSTOREY: "Levels", IFCSITE: "Site",
+  IFCSPACE: "Spaces", IFCBUILDINGSTOREY: "Levels", IFCSITE: "Site", IFCBUILDING: "Building",
   IFCFLOWTERMINAL: "MEP Terminals", IFCFLOWSEGMENT: "MEP Ducts / Pipes", IFCFLOWFITTING: "MEP Fittings",
   IFCLIGHTFIXTURE: "Lighting", IFCSANITARYTERMINAL: "Plumbing Fixtures", IFCPILE: "Piles",
   IFCFOOTING: "Foundations", IFCREINFORCINGBAR: "Rebar",
@@ -25,6 +25,14 @@ const labelFor = (cat: string) => LABELS[cat.toUpperCase()] ?? cat.replace(/^IFC
 
 // Categories that are NOT building elements (relationships, definitions, geometry primitives).
 const SKIP = /^IFC(REL|PROPERTY|QUANTITY|ELEMENTQUANTITY|MATERIAL|STYLED?|PRESENTATION|SURFACESTYLE|OWNERHISTORY|APPLICATION|ORGANIZATION|PERSON|SIUNIT|UNITASSIGNMENT|GEOMETRICREP|CARTESIAN|DIRECTION|AXIS2|SHAPEREP|PRODUCTDEF|EXTRUDED|RECTANGLE|ARBITRARY|POLYLINE|POLYLOOP|FACE|CLOSEDSHELL|LOCALPLACEMENT|MAPPED|REPRESENTATIONMAP|COLOURRGB|CONVERSIONBASED)/i;
+
+/** PURE: is this IFC class something a person browses (a building element or a spatial container)? Relationships,
+ *  definitions, units, the project record and type objects (IFCWALLTYPE… — the Type level already carries them) are not:
+ *  seen live on aster-tower (2026-09-28), where PROJECT, DERIVEDUNIT, WALLTYPE and SLABTYPE showed as categories. */
+export function isBrowsable(category: string): boolean {
+  const c = category.toUpperCase();
+  return !SKIP.test(c) && !/^IFC(PROJECT|DERIVEDUNIT|[A-Z]*UNIT|PROJECTEDCRS|MAPCONVERSION|GEOMETRICREPRESENTATIONCONTEXT)$/.test(c) && !/TYPE$/.test(c);
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const val = (o: any): string | undefined => {
@@ -86,7 +94,7 @@ export async function readTreeRows(fragments: OBC.FragmentsManager): Promise<Tre
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const d = data[i] as any;
       const category = (val(d?.["_category"]) ?? val(d?.["category"]) ?? "Unknown").toUpperCase();
-      if (SKIP.test(category)) continue;
+      if (!isBrowsable(category)) continue;
       rows.push({ modelId: model.modelId, localId: ids[i], category, type: val(d?.["ObjectType"]) || "(no type)", name: val(d?.["Name"]) || `#${ids[i]}` });
     }
   }

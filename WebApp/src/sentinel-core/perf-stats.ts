@@ -58,13 +58,17 @@ export function perfLines(s: PerfSnapshot): string[] {
     `Measured ${secs.toFixed(1)} s · ${w.frameGapsMs.length} frames (${Number.isFinite(fps) ? fps.toFixed(0) : "—"} per s) · frame time p50 ${ms(percentile(w.frameGapsMs, 50))}, p95 ${ms(percentile(w.frameGapsMs, 95))}, worst ${ms(w.frameGapsMs.length ? Math.max(...w.frameGapsMs) : NaN)}`,
     w.rendered.length
       ? `Drawn ${w.rendered.length} frame(s) (${renders.toFixed(0)} per s) · per drawn frame: draw calls avg ${int(avg(calls))} / max ${int(Math.max(...calls))} · triangles submitted avg ${int(avg(tris))} / max ${int(Math.max(...tris))}`
-      : "Drawn 0 frames — the renderer did not draw while measuring (it draws on change: orbit the model while measuring)",
+      : `Drawn 0 frames — the renderer did not draw while measuring (${s.mode.startsWith("MANUAL") ? "it draws on change: orbit the model while measuring" : s.mode.startsWith("AUTO") ? "it should draw every frame: it may be disabled, not initialised, or have lost its GPU context" : "why is not reported"})`,
     s.gpuMemory ? `GPU memory: ${int(s.gpuMemory.geometries)} geometries · ${int(s.gpuMemory.textures)} textures` : "GPU memory: not reported by this renderer",
     s.heap ? `JS heap: ${s.heap.usedMB.toFixed(0)} MB used of ${s.heap.limitMB.toFixed(0)} MB` : "JS heap: not reported by this browser",
   ];
-  const items = s.models.reduce((a, m) => a + (m.items ?? 0), 0);
-  const unknownItems = s.models.filter((m) => m.items == null).length;
-  lines.push(`Models: ${s.models.length} · ${int(items)} element(s) with geometry${unknownItems ? ` (${unknownItems} model(s) did not answer)` : ""}`);
+  // Fewer than one animation frame per second means the browser throttled the page, not that the model is slow.
+  if (secs >= 1 && w.frameGapsMs.length < secs)
+    lines.push(`The browser gave the page ${w.frameGapsMs.length} animation frame(s) in ${secs.toFixed(1)} s — it throttles a page in a background tab or a hidden window: bring the tab to the front and measure again; the numbers above are not the viewer's speed`);
+  const known = s.models.filter((m) => m.items != null);
+  const unknownItems = s.models.length - known.length;
+  const total = known.length ? `${unknownItems ? "at least " : ""}${int(known.reduce((a, m) => a + (m.items as number), 0))}` : "not reported";
+  lines.push(`Models: ${s.models.length} · elements with geometry ${total}${unknownItems ? ` (${unknownItems} model(s) did not answer)` : ""}`);
   for (const m of s.models)
     lines.push(`  ${m.modelId}: ${m.items == null ? "items not reported" : `${int(m.items)} element(s)`} · culling/LOD ${m.cameraBound == null ? "camera not reported" : m.cameraBound ? "follow the camera" : "NOT bound to a camera"}`);
   const set = Object.entries(s.settings);
@@ -77,7 +81,7 @@ export function cameraFinding(models: readonly PerfModel[]): string | null {
   const unbound = models.filter((m) => m.cameraBound === false).length;
   const unknown = models.filter((m) => m.cameraBound == null).length;
   if (!models.length) return null;
-  if (unbound) return `${unbound} of ${models.length} model(s) are not bound to the viewer's camera: every element is kept on the GPU whatever the camera sees — binding the camera at load is the first streaming step.`;
+  if (unbound) return `${unbound} of ${models.length} model(s) are not bound to the viewer's camera: the engine evaluates their culling and LOD against a fixed default view, not the camera (parts may never be drawn, the rest stays at full detail) — binding the camera at load is the first streaming step.`;
   if (unknown) return `${unknown} of ${models.length} model(s) did not report a camera.`;
   return null;
 }
