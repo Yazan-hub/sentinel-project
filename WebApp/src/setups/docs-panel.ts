@@ -1032,6 +1032,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           try {
             const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/answer`, { method: "PUT", body: JSON.stringify({ value, note: note.value, updated_at: doc.updated_at, actor: await actor() }) });
             applyRow(row, s); msg("Answer saved."); void refreshScores();
+            // saved: this is now the loaded value (dirty() compares against it)
+            note.defaultValue = note.value;
+            saveA.parentElement?.querySelectorAll<HTMLInputElement>("input[type=radio]").forEach((rb) => { rb.defaultChecked = rb.checked; });
           } catch (e: any) { msg(e.message, true); }
         };
         row.append(note, saveA);
@@ -1057,6 +1060,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         try {
           const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/plan`, { method: "PUT", body: JSON.stringify({ owner: ownerIn.value || null, due: dueIn.value || null, updated_at: doc.updated_at, actor: await actor() }) });
           applyRow(row, s); msg("Plan saved."); void refreshScores();
+          dueIn.defaultValue = dueIn.value; delete ownerIn.dataset.touched; // saved: the loaded values now
         } catch (e: any) { msg(e.message, true); }
       };
       const closes = document.createElement("span"); closes.style.cssText = "font:11px system-ui;color:#9ca3af";

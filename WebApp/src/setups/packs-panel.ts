@@ -68,8 +68,14 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const list = await r.json();
       let inst = "", force: string;
-      try { const proj = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); inst = proj.standards_pack ?? ""; } catch { /* */ }
+      let instErr = "";
+      try {
+        const pr = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
+        if (!pr.ok) throw new Error((await pr.json().catch(() => null))?.message || `HTTP ${pr.status}`);
+        inst = (await pr.json()).standards_pack ?? "";
+      } catch (e) { instErr = `installed pack not read — ${(e as Error).message}`; }
       try { const a = await activeRuleset(base); force = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { force = `ruleset in force unknown: ${(e as Error).message}`; }
+      if (instErr) force = `${force} · ${instErr}`;
       if (mine !== seq) return;
       packs = list; installedId = inst; inForce = force;
       renderBrowse();
