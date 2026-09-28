@@ -18,6 +18,9 @@ public sealed class Rule
     [JsonPropertyName("tokens")] public List<string> Tokens { get; set; } = new List<string>(); // ["PREFIX","TYPE","LEVEL","DESC"]
     [JsonPropertyName("token_defs")] public Dictionary<string, string> TokenDefs { get; set; } = new Dictionary<string, string>();
     [JsonPropertyName("separator")] public string Separator { get; set; } = "_";
+    /// <summary>Per token, words a name may carry → the code the standard wants ("GYPSUM" → "GYP"). Optional; the
+    /// office's own list, never a literal in code.</summary>
+    [JsonPropertyName("token_aliases")] public Dictionary<string, Dictionary<string, string>>? TokenAliases { get; set; }
     [JsonPropertyName("whitelist")] public List<string> Whitelist { get; set; } = new List<string>();
     [JsonPropertyName("exclusions")] public List<string> Exclusions { get; set; } = new List<string>(); // regex, e.g. "^<.*>$", "^\\{3D"
     [JsonPropertyName("parameter_name")] public string? ParameterName { get; set; }     // for Parameter rules

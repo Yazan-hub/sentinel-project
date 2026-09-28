@@ -184,6 +184,18 @@ static class Check
             Ok(probs.Count == 1 && probs[0] == "SIZE missing — like 200 mm", "…and the reason names the part: " + string.Join("; ", probs));
             Ok(NamingProposer.Problems("AST_INT_ARC_GYP_200 mm", ceil.Slots!, "_").Count == 0, "a finished name has no problems");
             Ok(NamingProposer.Problems("AST_INT_ARC", ceil.Slots!, "_")[0].StartsWith("5 parts expected"), "too few parts is said as such");
+            Ok(NamingProposer.Problems("AST_INT_ARC_GYP_ 200 mm", ceil.Slots!, "_")[0] == "SIZE: no space next to '_'", "a space beside the separator is named, not hidden by trimming");
+            var aliased = new Rule { Id = "TN-01", Target = RuleTarget.Type, Tokens = tnSk.Tokens, Separator = "_", TokenDefs = tnSk.TokenDefs,
+                TokenAliases = new Dictionary<string, Dictionary<string, string>> { ["MATERIAL"] = new() { ["GWB"] = "GYP", ["GYPSUM BOARD"] = "GYP", ["ACT"] = "ACT" } } };
+            var gwb2 = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", new NamingContext { Category = "Ceilings" });
+            Ok(gwb2.Slots != null && gwb2.Slots[3].Value == "GYP" && gwb2.Suggestion == "AST_EXT_ARC_GYP_", "a material word the office maps (GWB) becomes its code, fixed: " + gwb2.Suggestion);
+            var act = NamingProposer.Propose("2' x 2' ACT System", aliased, "AST", new NamingContext { Category = "Ceilings" });
+            Ok(act.Slots != null && act.Slots[3].Value == "ACT", "a code already in the name is kept as the code");
+            var doorRule = new Rule { Id = "TN-02", Target = RuleTarget.Type, Tokens = new List<string> { "ORG", "LOC", "LEAF", "MATERIAL", "SIZE" }, Separator = "_",
+                TokenDefs = new Dictionary<string, string> { ["ORG"] = "{org}", ["LOC"] = "EXT|INT", ["LEAF"] = "\\d+ PNL|[A-Z0-9][A-Z0-9 \\-]*", ["MATERIAL"] = "[A-Z0-9][A-Z0-9 \\-]*", ["SIZE"] = "\\d+ x \\d+ mm" } };
+            var doorSk = NamingProposer.Propose("30\" x 80\"", doorRule, "AST", new NamingContext { Category = "Doors" });
+            Ok(doorSk.Slots != null && doorSk.Slots[4].Value == "762 x 2032 mm", "a door size in inches is converted to mm: " + doorSk.Slots![4].Value);
+            Ok(doorSk.Suggestion == "AST_EXT___762 x 2032 mm" && NamingProposer.Problems(doorSk.Suggestion!, doorSk.Slots, "_").Count == 2, "no leaf or material is invented for it — two parts are left for the person: " + doorSk.Suggestion);
         }
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

@@ -18,6 +18,7 @@ public sealed class NamingManagerWindow : Window
 {
     public event Action<List<NamingRow>>? RenameRequested;
     public event Action<NamingRow>? SelectRequested;
+    public event Action<NamingRow>? FixRequested;      // one row through the Review Fix dialog
     public event Action? RescanRequested;
 
     private List<NamingRow> _rows;
@@ -110,7 +111,7 @@ public sealed class NamingManagerWindow : Window
     private UIElement MakeRow(NamingRow row)
     {
         var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        foreach (var w in new[] { 24.0, 200.0, 260.0, 260.0, 0.0, 60.0 })
+        foreach (var w in new[] { 24.0, 200.0, 260.0, 260.0, 0.0, 44.0, 64.0 })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
         var editable = row.Verdict is NameVerdict.Proposed or NameVerdict.NeedsHuman;
         var box = new CheckBox { IsChecked = row.Ticked, IsEnabled = editable, VerticalAlignment = VerticalAlignment.Center };
@@ -164,6 +165,12 @@ public sealed class NamingManagerWindow : Window
         var inst = new TextBlock { Text = row.Instances.ToString(), Foreground = Brushes.Gray, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         inst.ToolTip = "instances in the model";
         Grid.SetColumn(inst, 5); grid.Children.Add(inst);
+        if (editable)
+        {
+            var fix = Btn("⚡ Fix", () => FixRequested?.Invoke(row));
+            fix.ToolTip = "Review and rename this one element"; fix.Margin = new Thickness(8, 0, 0, 0); fix.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(fix, 6); grid.Children.Add(fix);
+        }
         _visible.Add((box, value, row));
         return grid;
     }

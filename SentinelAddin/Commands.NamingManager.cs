@@ -77,7 +77,7 @@ public sealed class NamingManagerCommand : IExternalCommand
             }
             catch (Exception ex) { Say("Revit refused: " + ex.Message); }
         });
-        window.RenameRequested += ticked =>
+        Action<List<NamingRow>> rename = ticked =>
         {
             window.SetBusy(true); Say($"Renaming {ticked.Count} row(s)…");
             App.Events.Enqueue(ua =>
@@ -105,6 +105,25 @@ public sealed class NamingManagerCommand : IExternalCommand
                 }
                 catch (Exception ex) { Say("Revit refused: " + ex.Message); window.SetBusy(false); }
             });
+        };
+        window.RenameRequested += rename;
+        window.FixRequested += row =>
+        {
+            // The Live Coordination panel's Review Fix dialog, seeded with the row's suggestion; the dialog checks the
+            // name against the rule (org expanded) and Execute goes through the batch path with one row.
+            var rs = App.Engine!.RulesetFor(doc);
+            var rule = rs.Rules.FirstOrDefault(r => r.Id == row.RuleId);
+            var shown = rule == null ? null : new Rule
+            {
+                Id = rule.Id, DocRef = rule.DocRef, Separator = rule.Separator, Tokens = rule.Tokens,
+                TokenDefs = rule.TokenDefs.ToDictionary(kv => kv.Key, kv => RuleRegex.DefWithOrg(kv.Value, rs.Org)),
+            };
+            var seed = row.Suggestion ?? (row.Proposed.Length > 0 ? row.Proposed : row.Current);
+            var dialog = new FixReviewDialog(row.Current, row.RuleId, shown, seed);
+            DialogOwner.Attach(dialog, c);
+            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
+            row.Proposed = dialog.FinalName!.Trim();
+            rename(new List<NamingRow> { row });
         };
         try { window.Show(); }
         catch { _open = false; throw; }

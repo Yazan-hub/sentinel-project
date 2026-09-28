@@ -392,8 +392,8 @@ describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's 
     expect(writes("audit_log")).toEqual([]);
   });
 
-  it("a lead writes notes only: a row the ROI dashboard counts is a 400, an oversized note a 413", async () => {
-    expect(await call("POST", A, "lead", { entity_type: "naming", action: "Naming Manager renamed 900 item(s)", new_value: { rows: [] } }))
+  it("a lead writes notes and Revit reports only: a gate row is a 400, an oversized note a 413", async () => {
+    expect(await call("POST", A, "lead", { entity_type: "delivery_gate", action: "gate passed", new_value: { rows: [] } }))
       .toEqual({ status: 400, body: { message: 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved' } });
     expect(await call("POST", A, "lead", { action: "x", new_value: { t: "x".repeat(9000) } }))
       .toEqual({ status: 413, body: { message: "a note's new_value is at most 8 KB — nothing was saved" } });
@@ -404,6 +404,15 @@ describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's 
     const r = await call("POST", A, "lead", { action: "Kick-off held", actor: "Someone else", new_value: { attendees: 6 } });
     expect(r.status).toBe(201);
     expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor, a.new_value])).toEqual([["note", "Kick-off held", "lead@example.test", { attendees: 6 }]]);
+  });
+
+  it("a signed-in contributor reports a Revit naming batch under their verified identity (H4); a viewer cannot; 256 KB cap", async () => {
+    const r = await call("POST", A, "contributor", { entity_type: "naming", actor: "Revit", action: "Naming Manager renamed 2 item(s) in Revit", new_value: { rows: [1, 2] } });
+    expect(r.status).toBe(201);
+    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["naming", "Naming Manager renamed 2 item(s) in Revit", "contributor@example.test"]]);
+    expect(await call("POST", A, "viewer", { entity_type: "family_heal", action: "healed 1", new_value: {} }))
+      .toEqual({ status: 403, body: { message: "a family_heal row is a contributor's or above (you are viewer) — nothing was saved" } });
+    expect((await call("POST", A, "lead", { entity_type: "naming", action: "big", new_value: { t: "x".repeat(300 * 1024) } })).status).toBe(413);
   });
 
   it("the machine credential writes its rows as before (Revit's naming batch)", async () => {

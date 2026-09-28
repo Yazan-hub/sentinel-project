@@ -149,6 +149,12 @@ public static class NamingProposer
             if (token.Equals("SIZE", StringComparison.OrdinalIgnoreCase))
             {
                 if (def.Contains(" x ") && TypeNameParse.TrySection(norm, out var w, out var h)) slot.Value = $"{Mm(w)} x {Mm(h)} mm";
+                else if (def.Contains(" x ") && TryInches(current ?? "", out var wi, out var hi))
+                {
+                    slot.Value = $"{Mm(wi * 25.4)} x {Mm(hi * 25.4)} mm";
+                    var segIn = segments.FirstOrDefault(s => Regex.IsMatch(s, @"^\d+(\.\d+)?\s*[""”]?\s*x\s*\d+(\.\d+)?\s*[""”]?$", RegexOptions.IgnoreCase));
+                    if (segIn != null) segments.Remove(segIn);
+                }
                 else if (!def.Contains(" x "))
                 {
                     var named = TypeNameParse.ThicknessMm(norm);
@@ -167,6 +173,16 @@ public static class NamingProposer
                 if (hit != null) { slot.Value = allowed.First(a => a.Equals(Canon(hit), StringComparison.OrdinalIgnoreCase)); segments.Remove(hit); }
                 else slot.Options = allowed;
                 slots.Add(slot); continue;
+            }
+            if (rule.TokenAliases != null && rule.TokenAliases.TryGetValue(token, out var aliases) && aliases.Count > 0)
+            {
+                // The office's own words for this token ("GWB" → "GYP"): the longest alias found as whole words wins;
+                // a code already in the name counts too. Found → fixed, like a value the name carries.
+                var hay = " " + Regex.Replace((current ?? "").ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim() + " ";
+                bool Has(string s) => hay.Contains(" " + Regex.Replace(s.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim() + " ");
+                var hit = aliases.Keys.OrderByDescending(k => k.Length).FirstOrDefault(Has);
+                var code = hit != null ? aliases[hit] : aliases.Values.Distinct().OrderByDescending(v => v.Length).FirstOrDefault(Has);
+                if (code != null) { slot.Value = code; slot.Options = null; slots.Add(slot); continue; }
             }
             slots.Add(slot); free.Add(slot);
         }
@@ -205,7 +221,7 @@ public static class NamingProposer
             var pick = new[] { s.Prefill, s.Prefill.Replace("-", "_"), s.Prefill.Replace(" - ", "_").Replace(" ", "_") }
                 .FirstOrDefault(v => v.Length > 0 && s.Accepts(v));
             rule.TokenDefs.TryGetValue(s.Token, out var d);
-            values.Add(pick ?? (s.Prefill.Length > 0 ? s.Prefill : NameSynth.DefaultFor(d, s.Token)));
+            values.Add(pick ?? s.Prefill); // nothing invented: an empty part stays refused until a person types it
         }
         return Assemble(rule, values);
     }
@@ -223,11 +239,21 @@ public static class NamingProposer
         }
         for (int i = 0; i < slots.Count; i++)
         {
-            var v = parts[i].Trim();
+            var v = parts[i];
+            if (v != v.Trim()) { wrong.Add(slots[i].Token + ": no space next to '" + separator + "'"); continue; }
             if (v.Length == 0) wrong.Add(slots[i].Token + " missing — " + slots[i].Expects);
             else if (!slots[i].Accepts(v)) wrong.Add(slots[i].Token + ": " + slots[i].Expects);
         }
         return wrong;
+    }
+
+    private static bool TryInches(string name, out double w, out double h)
+    {
+        w = h = 0;
+        var m = Regex.Match(name, "(\\d+(?:\\.\\d+)?)\\s*(?:\"|\u201D|in\\b)\\s*[xX\u00D7]\\s*(\\d+(?:\\.\\d+)?)\\s*(?:\"|\u201D|in\\b)", RegexOptions.IgnoreCase);
+        if (!m.Success) return false;
+        w = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture); h = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        return true;
     }
 
     public static string Assemble(Rule rule, IEnumerable<string> values) => string.Join(rule.Separator, values.Select(v => (v ?? "").Trim()));
