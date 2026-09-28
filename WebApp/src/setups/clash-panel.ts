@@ -94,11 +94,12 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const status = (t: string) => (el("cl-status").textContent = t);
 
-  // Federation Gate banner (decision D-01): the data checks a clash run should not start without. A
-  // warning, not a lock — the lock is the review-workflow item. Reads the latest run; Run gate posts one.
+  // Federation Gate banner (decision D-01): the data checks a clash run should not start without. A run stays free; since
+  // 2026-09-28 (3D spec Decision 4, the founder's "yes") ⚑ Raise is locked until the gate passed on the live set — the
+  // bridge refuses the register (409) and says why; the banner shows it. Reads the latest run; Run gate posts one.
   type FedCheck = { id: string; title: string; status: string };
   type FedModel = { has_manifest: boolean };
-  type FedState = { latest: { at: string; set: unknown[]; result: { verdict: string; checks: FedCheck[]; models: FedModel[] } } | null; stale: boolean; live_set: { has_manifest: boolean }[] };
+  type FedState = { latest: { at: string; set: unknown[]; result: { verdict: string; checks: FedCheck[]; models: FedModel[] } } | null; stale: boolean; live_set: { has_manifest: boolean }[]; raise?: { ok: boolean; why: string | null } };
   const fedColour: Record<string, string> = { pass: "#22c55e", fail: "#f87171", not_checkable: "#eab308" };
   async function loadFederation() {
     const text = el("cl-fed-text");
@@ -106,9 +107,10 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation`);
       if (!r.ok) { text.style.color = "#9ca3af"; text.textContent = "Federation Gate: not available on this bridge"; return; }
       const f = (await r.json()) as FedState;
+      const lock = f.raise && !f.raise.ok ? " · ⚑ Raise locked until the gate passes" : "";
       if (!f.latest) {
         text.style.color = fedColour.not_checkable;
-        text.textContent = `Federation Gate: NOT RUN · ${f.live_set.length} live model(s), ${f.live_set.filter((m) => m.has_manifest).length} with a manifest`;
+        text.textContent = `Federation Gate: NOT RUN · ${f.live_set.length} live model(s), ${f.live_set.filter((m) => m.has_manifest).length} with a manifest${lock}`;
         return;
       }
       const v = f.latest.result.verdict;
@@ -120,7 +122,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         (failing.length ? ` · ${failing.join(", ")} — see Issues` : "") +
         ` · ${f.latest.set.length} model(s) · ${String(f.latest.at).slice(0, 10)}` +
         (models.length && read < models.length ? ` · ${read} of ${models.length} read` : "") +
-        (f.stale ? " · STALE — a live version changed" : "");
+        (f.stale ? " · STALE — a live version changed" : "") + lock;
     } catch { el("cl-fed-text").textContent = "Federation Gate: bridge unreachable"; }
   }
   el("cl-fed-run").onclick = async () => {
@@ -293,8 +295,22 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const elemLabel = (info: { category?: string; name?: string } | undefined, c: Clash, side: "a" | "b") =>
     info?.category ? `${info.category.replace(/^IFC/i, "")}${info.name ? ` '${info.name}'` : ""}` : label(c, side);
 
+  // Asked before any Issue is created: the bridge's own answer (GET /cde/:key/federation → raise), so an Issue is never
+  // raised for a clash the register would then refuse. Unreadable = not raised, said.
+  async function gateAllowsRaise(): Promise<{ ok: boolean; why: string }> {
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation`);
+      if (!r.ok) return { ok: false, why: `the Federation Gate could not be read (HTTP ${r.status})` };
+      const f = (await r.json()) as FedState;
+      if (!f.raise) return { ok: false, why: "this bridge does not report the gate's lock — restart it on the current version" };
+      return { ok: f.raise.ok, why: f.raise.why ?? "" };
+    } catch (e) { return { ok: false, why: `the Federation Gate could not be read — ${(e as Error).message}` }; }
+  }
+
   async function raise() {
     if (!clashes.length) { status("Run clash first."); return; }
+    const gate = await gateAllowsRaise();
+    if (!gate.ok) { status(`Not raised — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
     const top = clashes.slice(0, 100); // cap: raise the 100 largest new clashes
     status(`Raising ${top.length} clash(es) + recording…`);
     const info = await elemInfoFor(top.flatMap((c) => [c.a, c.b]));

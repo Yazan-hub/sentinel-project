@@ -1,6 +1,6 @@
 // The gate on the bridge: resolve the set, load manifests and verdicts, judge, store, audit.
 import { describe, it, expect } from "vitest";
-import { runFederation, getFederation } from "./federation-store.mjs";
+import { runFederation, getFederation, raiseGate } from "./federation-store.mjs";
 import { refLabel } from "./artefact-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
@@ -92,10 +92,23 @@ describe("runFederation", () => {
   });
 });
 
+describe("raiseGate — the lock on the clash register", () => {
+  const run = (verdict, checks = []) => ({ latest: { result: { verdict, checks } }, stale: false });
+  it("opens only on a pass that is not stale, and names the one thing to do otherwise", () => {
+    expect(raiseGate(run("pass"))).toEqual({ ok: true, why: null });
+    expect(raiseGate({ latest: null, stale: false })).toEqual({ ok: false, why: "the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate)" });
+    expect(raiseGate({ ...run("pass"), stale: true })).toEqual({ ok: false, why: "the Federation Gate's last run is stale — a live model changed since; run it again" });
+    expect(raiseGate(run("fail", [{ id: "FG-02", status: "fail" }, { id: "FG-03", status: "pass" }, { id: "FG-05", status: "fail" }])))
+      .toEqual({ ok: false, why: "the Federation Gate failed (FG-02, FG-05) — fix those and run it again" });
+    expect(raiseGate(run("not_checkable")).ok).toBe(false);
+    expect(raiseGate(undefined).ok).toBe(false);
+  });
+});
+
 describe("getFederation", () => {
   it("returns the latest run, flags it stale when the live set changed, and null before any run", async () => {
     const d = memDeps();
-    expect(await getFederation("p", d)).toMatchObject({ latest: null, stale: false });
+    expect(await getFederation("p", d)).toMatchObject({ latest: null, stale: false, raise: { ok: false } });
     await runFederation("p", {}, { actor: "cli" }, d);
     expect((await getFederation("p", d)).stale).toBe(false);
     d.listManifests = async () => [{ container: "A-0101.ifc", container_id: "c-1", version_id: "v-9", revision: "P02", has_manifest: false, captured_at: null }];

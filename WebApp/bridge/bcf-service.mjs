@@ -1836,6 +1836,14 @@ async function handleRequest(req, res) {
       if (req.method === "POST" && !sub) {
         const items = (await readBody(req)).items;
         if (Array.isArray(items) && items.length > MAX_CLASH_ITEMS) return send(res, 400, { message: `at most ${MAX_CLASH_ITEMS} clash records a request — nothing was saved` });
+        // The lock (3D spec Decision 4, founder 2026-09-28): the register takes new clashes only when the Federation Gate
+        // passed on the live set now — asked of the gate itself, so no client can skip it. A 409 names what to do; nothing
+        // is written. The local-file fallback (no CDE) has no gate and no lock.
+        if (useCde && Array.isArray(items) && items.length) {
+          const fed = await import("./federation-store.mjs");
+          const gate = fed.raiseGate(await fed.getFederation(cpid));
+          if (!gate.ok) return send(res, 409, { message: `not recorded — ${gate.why} — nothing was saved` });
+        }
         // A raise grows the append-only ledger (up to MAX_CLASH_ITEMS rows a request), so a signed-in caller's raise
         // requests are budgeted as notes and IDS raises are (H0 minor N31): over budget is a 429 before anything is
         // written, never a partial write and a ledger row over nothing.
