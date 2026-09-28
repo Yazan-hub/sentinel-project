@@ -2,7 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { myRole, canGovernRole } from "./my-role";
+import { myRoleRead, roleWords, canGovernRole } from "./my-role";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
@@ -55,7 +55,8 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const pid = () => activePid();
 
   let project: ProjectState | null = null;
-  let kpis: Kpis = { health: null, compliance: null, open: null, hard: null, cost: null, currency: defaultRates.currency, blockOpen: null, openRfis: null };
+  const noKpis = (): Kpis => ({ health: null, compliance: null, open: null, hard: null, cost: null, currency: defaultRates.currency, blockOpen: null, openRfis: null });
+  let kpis = noKpis();
   let viewStage = ""; // stage whose gate detail is shown
 
   const btn = "border:0;border-radius:.3rem;padding:.35rem .7rem;font:600 12px system-ui;cursor:pointer";
@@ -101,6 +102,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       projectErr = `Project state not read — ${String((e as Error)?.message || e)}`;
       el("ps-name").textContent = "";
       el("ps-rail").innerHTML = `<div style="color:#ef4444;font-size:12px">${esc(projectErr)}</div>`;
+      el("ps-kpis").innerHTML = "";
       el("ps-dims").innerHTML = "";
       el("ps-gate").innerHTML = "";
       msg(projectErr, "#ef4444");
@@ -110,11 +112,11 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   // ── recompute KPIs from the live sources ─────────────────────────────────────
   // Who may run the stage gate: lead and up. null until the bridge has answered — the button is not
   // offered on a guess (fail closed), and the answer is re-asked on every refresh.
-  let gateRole: string | null = null;
+  let gateRole: { role: string; read: boolean } | null = null;
   let hasRuleset = false; // the stage gate's "Standards pack selected" = a ruleset artefact in force, not the display name
   const refresh = async (mine: number, key: string) => {
     msg("Aggregating health, issues and cost…");
-    const role = await myRole(base, key);
+    const role = await myRoleRead(base, key);
     if (mine !== seq) return;
     gateRole = role;
     let noRuleset = false;
@@ -168,6 +170,11 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   };
   const reload = async () => {
     const mine = ++seq, key = pid();
+    // Nothing of the previous wave is drawn under this one: the gate button is withheld until the role is read,
+    // and the tiles and the gate preview start from "not measured".
+    gateRole = null;
+    kpis = noKpis();
+    hasRuleset = false;
     await loadProject(mine, key);
     if (mine === seq) await refresh(mine, key);
   };
@@ -292,10 +299,10 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       const word = st === "pass" ? "GATE PASS" : st === "not_checkable" ? `GATE NOT CHECKABLE — not measured: ${esc(naLabels)}` : "GATE HOLD";
       h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${word}</div>`;
     }
-    if (isCurrent && next && gateRole !== null && canGovernRole(gateRole)) {
+    if (isCurrent && next && gateRole !== null && canGovernRole(gateRole.role)) {
       h += `<button id="ps-advance" style="${btn};background:#6528d7;color:#fff;width:100%;margin-top:.6rem">Run gate → advance to ${esc(next.nm)}</button>`;
     } else if (isCurrent && next && gateRole !== null) {
-      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">your role: ${esc(gateRole)} — a lead or owner runs the gate.</div>`;
+      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">${esc(roleWords(gateRole))} — a lead or owner runs the gate.</div>`;
     }
     el("ps-gate").innerHTML = h;
     const adv = root.querySelector("#ps-advance");

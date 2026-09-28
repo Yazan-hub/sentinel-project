@@ -6,6 +6,7 @@ import { bfetch } from "./bridge-fetch";
 import { refLabel, installArtefact } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
 import type { NamingRuleset } from "../sentinel-core/naming";
 
@@ -392,12 +393,13 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   }
 
   // ── List view ─────────────────────────────────────────────────────────────
-  // A slower list for the previous project/person never lands last; loadedKey = the project the list shows ("" while loading).
+  // A slower list for the previous project/person never lands last; loadedScope = the project + person of the last list
+  // (load-scope.ts) — every other view is opened from it, so it is theirs too.
   let seq = 0;
-  let loadedKey = "";
+  let loadedScope = "";
   async function showList() {
     const mine = ++seq, key = pid();
-    loadedKey = "";
+    loadedScope = loadScope(key);
     let roleRead = true;
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
@@ -437,7 +439,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       bar.append(ingestBtn, newBtn, fileInput);
     }
     body.replaceChildren();
-    loadedKey = key; // the body is the list (or its not-read line) from here on
     try {
       const docs: (Doc & { version_count: number })[] = await api(`/${encodeURIComponent(key)}`);
       if (mine !== seq) return;
@@ -553,7 +554,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       row.style.cssText = "display:flex;gap:.5rem;align-items:flex-start;padding:.35rem .4rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.3rem;background:#1b1b21;cursor:pointer";
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.checked = current.has(id);
+      cb.checked = cb.defaultChecked = current.has(id);
       const text = document.createElement("div");
       const t = document.createElement("div");
       t.textContent = planned ? `${label} (not checkable yet)` : label;
@@ -739,6 +740,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       guide.style.cssText = "color:#8b93a3;font-style:italic";
       const ta = document.createElement("textarea");
       ta.value = s.body;
+      ta.defaultValue = ta.value; // the loaded value — dirty() compares against it
       ta.disabled = !editable;
       ta.style.cssText = "min-height:110px;background:#1f1f27;border:1px solid #2c2c34;color:#e5e7eb;border-radius:.35rem;padding:.45rem;font:12px/1.5 ui-monospace,monospace;resize:vertical";
       const rowEl = document.createElement("div");
@@ -746,6 +748,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       const ownerIn = document.createElement("input");
       ownerIn.placeholder = "owner (email)";
       ownerIn.value = s.owner || "";
+      ownerIn.defaultValue = ownerIn.value;
       ownerIn.disabled = !editable;
       ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:180px";
       const stateSel = document.createElement("select");
@@ -1016,11 +1019,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         let value = s.answer?.value ?? "";
         for (const v of ["yes", "partial", "no"] as const) {
           const lab = document.createElement("label"); lab.style.cssText = `color:${VERDICT_STYLE[v]};font:12px system-ui;display:flex;gap:.25rem;align-items:center`;
-          const rb = document.createElement("input"); rb.type = "radio"; rb.name = `ans-${s.id}`; rb.value = v; rb.checked = value === v; rb.disabled = !editable;
+          const rb = document.createElement("input"); rb.type = "radio"; rb.name = `ans-${s.id}`; rb.value = v; rb.checked = rb.defaultChecked = value === v; rb.disabled = !editable;
           rb.onchange = () => { value = v; };
           lab.append(rb, v); row.append(lab);
         }
-        const note = document.createElement("input"); note.placeholder = s.answer_hint || "note (who, what, since when)"; note.value = s.answer?.note ?? ""; note.disabled = !editable;
+        const note = document.createElement("input"); note.placeholder = s.answer_hint || "note (who, what, since when)"; note.value = note.defaultValue = s.answer?.note ?? ""; note.disabled = !editable;
         note.style.cssText = "flex:1;min-width:220px;background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem";
         const saveA = btn("Save answer", true); saveA.disabled = !editable;
         saveA.onclick = async (ev) => {
@@ -1046,7 +1049,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         ownerIn.append(new Option(m ? `${e} (${m.role})` : e, e));
       }
       ownerIn.value = s.owner || "";
-      const dueIn = document.createElement("input"); dueIn.type = "date"; dueIn.value = s.due || ""; dueIn.disabled = !(editable && canGovern());
+      const dueIn = document.createElement("input"); dueIn.type = "date"; dueIn.value = s.due || ""; dueIn.defaultValue = dueIn.value; dueIn.disabled = !(editable && canGovern());
       dueIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem";
       const saveP = btn("Save plan"); saveP.disabled = !(editable && canGovern());
       saveP.onclick = async (ev) => {
@@ -1341,9 +1344,14 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     };
   }
 
-  // An open editor/form for the same project is not reloaded away (there is no autosave); a new project always reloads.
+  // Unsaved input: a field that differs from what it was loaded with (defaultValue / defaultChecked). An ingest review and
+  // suggested bindings set no defaults on purpose — nothing there is saved yet, so they count as unsaved as a whole.
+  const dirty = () => Array.from(body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).some((i) =>
+    i instanceof HTMLInputElement && (i.type === "checkbox" || i.type === "radio") ? i.checked !== i.defaultChecked : i.value !== i.defaultValue);
+  // Only unsaved input for the same project and person is kept (there is no autosave); anything else — a read-only view,
+  // an untouched editor, a person or project change — goes back to the list, which re-reads the role.
   onActiveProjectChange(() => {
-    if (pid() === loadedKey && body.firstElementChild && !body.querySelector("[data-list]")) return;
+    if (loadScope(pid()) === loadedScope && dirty()) return;
     void showList();
   });
   showList();

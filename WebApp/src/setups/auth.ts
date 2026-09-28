@@ -88,8 +88,16 @@ export async function signOut(): Promise<void> {
   await supabase().auth.signOut({ scope: "local" });
 }
 
+// The signed-in person's id as last seen by a session read or an auth event (null signed out). Every bridge read
+// reads the session first (bfetch → accessToken), so by the time a panel's read answers this is current.
+let lastUserId: string | null = null;
+/** Sync: who the panels' data belongs to (load-scope.ts). */
+export const sessionUserId = (): string | null => lastUserId;
+
 export async function currentSession(): Promise<Session | null> {
-  return (await supabase().auth.getSession()).data.session;
+  const s = (await supabase().auth.getSession()).data.session;
+  lastUserId = s?.user?.id ?? null;
+  return s;
 }
 
 export async function currentUser(): Promise<User | null> {
@@ -103,6 +111,6 @@ export async function accessToken(): Promise<string | null> {
 
 /** Subscribe to sign-in / sign-out. Returns an unsubscribe fn. */
 export function onAuthChange(cb: (session: Session | null) => void): () => void {
-  const { data } = supabase().auth.onAuthStateChange((_event, session) => cb(session));
+  const { data } = supabase().auth.onAuthStateChange((_event, session) => { lastUserId = session?.user?.id ?? null; cb(session); });
   return () => data.subscription.unsubscribe();
 }

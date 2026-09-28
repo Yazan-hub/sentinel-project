@@ -3,7 +3,8 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange, platformProjectId } from "./active-project";
 import { getAppManager } from "../app";
 import { publishContractToPlatform, mirrorLine, type ContractClient } from "./platform-contract";
-import { myRole, canGovernRole } from "./my-role";
+import { myRole, myRoleRead, roleWords, canGovernRole } from "./my-role";
+import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 
@@ -326,10 +327,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   }
 
   let seq = 0; // a slower settings read for the previous project/person never lands last
-  let loadedKey = "", loadedSnap = ""; // the project the fields hold ("" while loading or not read) and their values then
+  let loadedScope = "", loadedSnap = ""; // the project + person the fields hold ("" while loading or not read) and their values then
   async function load() {
-    const mine = ++seq, key = pid();
-    loadedKey = "";
+    const mine = ++seq, key = pid(), scope = loadScope(key);
+    loadedScope = "";
     lockControls(true); // fail closed until the role is read
     status("Loading…");
     el("pset-key").textContent = key;
@@ -367,7 +368,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         '<option value="">No office</option>' + extraOpt +
         officeRows.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
       officeSel.value = current.office_key ?? "";
-      loadedKey = key;
+      loadedScope = scope;
       loadedSnap = snapshot();
       const isOffice = current.kind === "office";
       renderArchiveBtn();
@@ -379,11 +380,11 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       status(`${current.container_count} file container(s) · key "${current.key}" (keys are permanent).${officeNote}`);
       // Read-only below lead: the database refuses the writes anyway (projects update needs lead, delete
       // needs owner) — the panel must not offer controls the server will reject.
-      const role = await myRole(base, key);
+      const me = await myRoleRead(base, key);
       if (mine !== seq) return;
-      lockControls(!canGovernRole(role));
+      lockControls(!canGovernRole(me.role));
       updateDeleteEnabled();
-      if (!canGovernRole(role)) status(`your role: ${role} — project settings are read-only (a lead or owner can edit them).`);
+      if (!canGovernRole(me.role)) status(`${roleWords(me)} — project settings are read-only (a lead or owner can edit them).`);
     } catch (e) {
       if (mine !== seq) return;
       current = null;
@@ -458,9 +459,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   ));
   el("ps-confirm").addEventListener("input", updateDeleteEnabled);
   el("ps-delete").addEventListener("click", () => void doDelete());
-  // Unsaved edits for the same project are not overwritten by a notify; a new project always reloads.
+  // Unsaved edits for the same project and person are not overwritten by a notify; a new project or person always
+  // reloads (locked first, then the role, members and standards are read again).
   onActiveProjectChange(() => {
-    if (pid() === loadedKey && snapshot() !== loadedSnap) return;
+    if (loadScope(pid()) === loadedScope && snapshot() !== loadedSnap) return;
     void load();
   });
   void load();

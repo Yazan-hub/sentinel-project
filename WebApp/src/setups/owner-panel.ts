@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid, onActiveProjectChange } from "./active-project";
+import { activePid, onActiveProjectChange, platformProjectId } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { missingFields, type Asset } from "../sentinel-core";
@@ -77,10 +77,13 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
   // ── summary (from the persisted snapshot — no model needed) ──────────────────
   const loadSummary = async () => {
     const mine = ++sumSeq;
+    const key = pid();
     try {
-      const p = await readJson(`${base}/projects/${encodeURIComponent(pid())}`);
+      const p = await readJson(`${base}/projects/${encodeURIComponent(key)}`);
       if (mine !== sumSeq) return;
-      el("ow-name").textContent = getAppManager().projectData?.name ?? p.name ?? p.project_id ?? "Project";
+      // The project that was read; the platform's name only when that project IS the platform project.
+      const platformName = key === platformProjectId() ? getAppManager().projectData?.project?.title : undefined;
+      el("ow-name").textContent = p.name ?? platformName ?? p.project_id ?? "Project";
       el("ow-stage").textContent = STAGE_NAME[p.stage] ? `Stage: ${STAGE_NAME[p.stage]}` : "";
       const s = p.snapshot ?? {};
       const ready = num(s.handover_readiness);

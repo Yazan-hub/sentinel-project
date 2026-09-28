@@ -10,7 +10,8 @@ import {
 } from "../sentinel-core";
 import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { activeRuleset, paramNamesOf, refLabel, NO_RULESET, droppedRulesNote } from "./active-ruleset";
-import { onActiveProjectChange } from "./active-project";
+import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 import type { ScanReport, Violation } from "../sentinel-core";
 
 /**
@@ -67,16 +68,21 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
 
+  let scope = loadScope(activePid()); // the project + person the shown scan belongs to
+  let gen = 0;                        // bumped on a switch — a scan started before it never writes its report after
+
   // ── Scan ───────────────────────────────────────────────────────────────────
   const runScan = async () => {
     if (fragments.list.size === 0) {
       update({ status: "empty", report: null, scorecard: null });
       return;
     }
+    const mine = gen;
     update({ status: "scanning", notice: null });
     try {
       // The ruleset installed on this project or its office. Nothing installed → no scan (never a bundle).
       const active = await activeRuleset(base);
+      if (mine !== gen) return;
       if (!active) {
         update({ status: "blocked", report: null, scorecard: null, ruleset: null, rulesetRef: null, notice: NO_RULESET });
         return;
@@ -91,6 +97,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       const facts = await extractFacts(fragments, {
         parameterNames: paramNamesOf(ruleset),
       });
+      if (mine !== gen) return;
       const title = [...fragments.list.values()][0]?.modelId ?? "model";
       const report = scan(facts, ruleset, {
         doc_title: title,
@@ -100,6 +107,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
       update({ status: "done", report, scorecard, ruleset, rulesetRef: refLabel(active), notice: dropped });
     } catch (err) {
       console.error("[Sentinel] scan failed", err);
+      if (mine !== gen) return;
       update({ status: "blocked", report: null, scorecard: null, notice: `Scan did not run: ${(err as Error)?.message ?? String(err)}` });
     }
   };
@@ -298,7 +306,13 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
   );
 
   // Another project (or person) → the last scan is not this one's. Back to idle; a scan is only ever run by hand.
-  onActiveProjectChange(() => update({ status: "idle", report: null, scorecard: null, ruleset: null, rulesetRef: null, notice: null }));
+  // The same project and person (the bridge came back) keeps the scan, finished or running.
+  onActiveProjectChange(() => {
+    const now = loadScope(activePid());
+    if (now === scope) return;
+    scope = now; gen++;
+    update({ status: "idle", report: null, scorecard: null, ruleset: null, rulesetRef: null, notice: null });
+  });
 
   return panel;
 };

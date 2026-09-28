@@ -6,6 +6,7 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 
 type Evidence = { revision: "met" | "mismatch" | "pending" | "not_specified"; suitability: "met" | "mismatch" | "pending" | "not_specified"; actual_revisions: string[]; actual_suitabilities: string[] };
 type Exception = { container_name: string; due_date: string | null; responsible_team: string | null; kind: string; severity: "high" | "medium" | "low"; problem: string; evidence: string };
@@ -69,17 +70,18 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
   const field = (placeholder: string, width = "9rem", value = "") => {
     const i = document.createElement("input");
     i.placeholder = placeholder;
-    i.value = value;
+    i.value = i.defaultValue = value; // the loaded value — dirty() compares against it
     i.style.cssText = `width:${width};background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui`;
     return i;
   };
 
-  // A slower list for the previous project/person never lands last; loadedKey = the project the list shows ("" while loading).
+  // A slower list for the previous project/person never lands last; loadedScope = the project + person of the last list
+  // (load-scope.ts) — every form is opened from it, so it is theirs too.
   let seq = 0;
-  let loadedKey = "";
+  let loadedScope = "";
   async function showList() {
     const mine = ++seq, key = pid();
-    loadedKey = "";
+    loadedScope = loadScope(key);
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
       const j = await r.json().catch(() => ({}));
@@ -125,7 +127,6 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     loading.textContent = "Loading…";
     loading.style.cssText = "color:#71717a;padding:1rem";
     body.append(loading);
-    loadedKey = key;
 
     let report: StatusReport;
     try { report = await api(`/${encodeURIComponent(key)}/status`); }
@@ -802,10 +803,11 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     };
   }
 
-  // An open add/import/rebaseline/team form for the same project is not reloaded away (inputs exist only in forms);
-  // a new project always reloads.
+  // Only a form holding input (a field that differs from what it was loaded with) for the same project and person is kept
+  // (there is no autosave); anything else — including a person or project change — reloads the list, which re-reads the role.
+  const dirty = () => Array.from(body.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).some((i) => i.value !== i.defaultValue);
   onActiveProjectChange(() => {
-    if (pid() === loadedKey && body.querySelector("input, textarea, select")) return;
+    if (loadScope(pid()) === loadedScope && dirty()) return;
     void showList();
   });
   void showList();

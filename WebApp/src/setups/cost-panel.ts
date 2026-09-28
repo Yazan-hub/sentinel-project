@@ -7,6 +7,7 @@ import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, snapshotFromQuantities, diffSnapshots, costDiff, type BoQ, type BoQLine, type ElementQuantities, type ElementSnapshot, type RateTable } from "../sentinel-core";
 import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSnapshots, type RevisionMeta } from "./snapshot-store";
 import { getAppManager } from "../app";
+import { loadScope } from "./load-scope";
 
 interface Baseline {
   at: string;
@@ -169,14 +170,21 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     fillSel(el("cp-rev") as HTMLSelectElement, "baseline ▾", baseline?.revision_id ?? "");
     fillSel(el("cp-rev2") as HTMLSelectElement, "now: current ▾", target?.revision_id ?? "");
   };
-  const loadRevisions = async () => { revisions = await fetchRevisions(base, pid()); renderRevOptions(); };
+  const loadRevisions = async () => {
+    const key = pid();
+    const list = await fetchRevisions(base, key);
+    if (pid() !== key) return; // the previous project's list, answered after a switch
+    revisions = list; renderRevOptions();
+  };
 
   // Baseline (old side): pick any saved revision. Its snapshots load; renderComparison reprices at current rates.
   const pickBaseline = async (revId: string) => {
     if (!revId) return;
     const rev = revisions.find((r) => r.id === revId);
     msg("Loading revision…");
-    const snaps = await fetchRevisionSnapshots(base, pid(), revId);
+    const key = pid();
+    const snaps = await fetchRevisionSnapshots(base, key, revId);
+    if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total: 0, currency: rates.currency, lines: [], snapshots: snaps, revision_id: revId };
     if (target || boq) enterCompare();
@@ -189,7 +197,9 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     if (!revId) { target = null; if (comparing) draw(); msg("Now side = current model."); return; }
     const rev = revisions.find((r) => r.id === revId);
     msg("Loading revision…");
-    const snaps = await fetchRevisionSnapshots(base, pid(), revId);
+    const key = pid();
+    const snaps = await fetchRevisionSnapshots(base, key, revId);
+    if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     target = { snapshots: snaps, at: rev?.uploaded_at ?? new Date().toISOString(), revision_id: revId };
     if (baseline) enterCompare();
@@ -205,8 +215,10 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
 
   let loaded = false; // this project's saved rates/baseline were read — until then a rate edit is never PUT
   let seq = 0;        // a slower answer for the previous project never overwrites the current one
+  let loadedScope = ""; // the project + person the last load was for
   const loadProject = async () => {
     const mine = ++seq;
+    loadedScope = loadScope(pid());
     let reached = false;
     try {
       const r = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
@@ -216,15 +228,16 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
       if (mine !== seq) return;
       if (p.rate_pack?.rules?.length) { rates.currency = p.rate_pack.currency ?? rates.currency; rates.rules = p.rate_pack.rules; }
       loaded = true;
-      if (p.boq_baseline?.lines) {
+      if (p.boq_baseline?.lines && !baseline) { // a same-scope re-read keeps a baseline the person picked or set
         const bl: Baseline = p.boq_baseline;
         // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.
         if (bl.revision_id && !(bl.snapshots && bl.snapshots.length)) {
           bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id);
           if (mine !== seq) return;
         }
-        baseline = bl;
+        baseline ??= bl;
       }
+      if (el("cp-msg").textContent?.startsWith("Saved rates/baseline not read")) msg(""); // read now — the failure is over
     } catch (e) {
       if (mine !== seq) return;
       const m = (e as Error)?.message ?? String(e);
@@ -429,9 +442,12 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   loadProject().then(loadRevisions); // saved rate pack + baseline, then populate the revision picker
   // Another project (or person): back to the default pack FIRST — `rates` is overwritten only when the project has a
   // rate_pack, so the last project's rates would otherwise carry over and be PUT here on the next edit.
+  // The same project and person (the bridge came back) re-reads but keeps the picked comparison.
   onActiveProjectChange(() => {
-    Object.assign(rates, JSON.parse(JSON.stringify(defaultRates)));
-    baseline = null; target = null; loaded = false;
+    if (loadScope(pid()) !== loadedScope) {
+      Object.assign(rates, JSON.parse(JSON.stringify(defaultRates)));
+      baseline = null; target = null; loaded = false;
+    }
     void loadProject().then(loadRevisions).then(() => { if (boq) recompute(); }); // a shown BoQ is repriced at this project's rates
   });
   return root;

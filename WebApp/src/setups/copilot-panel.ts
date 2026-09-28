@@ -34,13 +34,16 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   const highlighter = components.get(OBF.Highlighter);
   const pid = () => activePid();
 
-  let grounding: Grounding | null = null; // cached ground truth
+  // The grounding with why its issues read failed, if it did — its [] is then not a fact. Kept together so the reason
+  // always describes the cached issues, never a later build's.
+  type Grounded = Grounding & { issuesNotRead: string | null };
+  let grounding: Grounded | null = null;  // cached ground truth
+  let gen = 0;                            // bumped on a project/person change — an older build is never cached after it
   let mode: "ask" | "agent" = "ask";
   let provider = "local";                 // local-default: the picker starts on the private option
   let model = "";                         // "" = the provider's own default
   let aiTools: AiTool[] = [];             // the registry, fetched by loadPickers
   const toolPolicy = new Map<string, string>();
-  let issuesNotRead: string | null = null; // why the grounding's issues read failed — its [] is then not a fact
 
   /** A bridge read in the bridge's own words: "can't reach the bridge" only when the fetch itself failed. */
   const readJson = async (url: string) => {
@@ -106,7 +109,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   };
 
   // ── ground truth (cached; rebuilt on ↻ or first ask) ─────────────────────────
-  const buildGrounding = async (): Promise<Grounding> => {
+  const buildGrounding = async (): Promise<Grounded> => {
     const hasModel = fragments.list.size > 0;
     // project → office; null = nothing installed → no scan. A bridge failure must not stop cost/count/carbon answers.
     let active: Awaited<ReturnType<typeof activeRuleset>> = null;
@@ -127,19 +130,22 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       } catch { boq = null; carbon = null; }
     }
     let issues: CopilotIssue[] = [];
-    issuesNotRead = null;
+    let issuesNotRead: string | null = null;
     try { issues = await readJson(`${base}/bcf/3.0/projects/${encodeURIComponent(pid())}/topics?status=all&model=`); }
     catch (e) { issuesNotRead = (e as Error)?.message ?? String(e); }
-    return { facts, report, scorecard, boq, carbon, issues, ruleset: active?.ruleset ?? null, rulesetRef: active ? refLabel(active) : null, hasModel };
+    return { facts, report, scorecard, boq, carbon, issues, ruleset: active?.ruleset ?? null, rulesetRef: active ? refLabel(active) : null, hasModel, issuesNotRead };
   };
 
   /** summarize(), but a failed issues read is said as not read rather than "Open issues: 0". */
-  const context = (g: Grounding) =>
-    issuesNotRead ? summarize(g).replace(/^Open issues: .*$/m, `Issues not read — ${issuesNotRead}.`) : summarize(g);
+  const context = (g: Grounded) =>
+    g.issuesNotRead ? summarize(g).replace(/^Open issues: .*$/m, `Issues not read — ${g.issuesNotRead}.`) : summarize(g);
 
-  const ensureGrounding = async (): Promise<Grounding> => {
-    if (!grounding) grounding = await buildGrounding();
-    return grounding;
+  const ensureGrounding = async (): Promise<Grounded> => {
+    if (grounding) return grounding;
+    const mine = gen;
+    const g = await buildGrounding();
+    if (mine === gen) grounding = g; // built for the project/person before a switch — answer with it, never cache it
+    return g;
   };
 
   // ── the AI layer (bridge /ai/*) ──────────────────────────────────────────────
@@ -158,7 +164,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
 
   /** Ask mode: the deterministic engine already failed to match, so the model PHRASES an answer from
    *  the same ground truth. It is never asked to supply figures — those come from the engine. */
-  const askModel = async (q: string, g: Grounding): Promise<string | null> => {
+  const askModel = async (q: string, g: Grounded): Promise<string | null> => {
     try {
       const { text } = await aiChat(
         "You are a BIM project assistant. Answer ONLY from the PROJECT DATA given. If the answer " +
@@ -220,7 +226,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     host.parentElement!.appendChild(apply);
   };
 
-  const runAgent = async (q: string, g: Grounding) => {
+  const runAgent = async (q: string, g: Grounded) => {
     const { text, toolCalls } = await aiChat(
       "You are a BIM project agent. Use the tools to inspect or change the project. Prefer reading " +
       "before proposing a change. Be specific — name the element and the failure.\n\nPROJECT CONTEXT:\n" +
@@ -242,7 +248,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       if (mode === "agent") { thinking.remove(); await runAgent(q, g); return; }
       let a = answer(q, g);
       // The issues answer comes from an empty list when the read failed — say not read, never "No open … issues".
-      if (issuesNotRead && a.sources.includes("BCF service")) a = { text: `Issues not read — ${issuesNotRead}`, sources: ["BCF service"] };
+      if (g.issuesNotRead && a.sources.includes("BCF service")) a = { text: `Issues not read — ${g.issuesNotRead}`, sources: ["BCF service"] };
       thinking.remove();
       if (a.fallback && g.hasModel) {
         // deterministic engine didn't match — try the local LLM, grounded; else show capabilities.
@@ -282,6 +288,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       const { models } = await r.json();
       sel.innerHTML = ""; // cleared again right before the fill, so two overlapping loads cannot both append
       for (const m of models as string[]) sel.appendChild(new Option(m, m));
+      if ((models as string[]).includes(model)) sel.value = model; // a reload keeps the model the person picked
       model = sel.value || "";
     } catch { /* leave empty — the bridge falls back to the provider default */ }
   };
@@ -311,7 +318,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     }
   };
   void loadPickers();
-  onActiveProjectChange(() => { grounding = null; void loadPickers(); });
+  onActiveProjectChange(() => { grounding = null; gen++; void loadPickers(); });
 
   (el("co-provider") as HTMLSelectElement).addEventListener("change", async (e) => {
     provider = (e.target as HTMLSelectElement).value;

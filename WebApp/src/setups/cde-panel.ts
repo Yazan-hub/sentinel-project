@@ -4,6 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { transitionVersion } from "./cde-transition";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { loadScope } from "./load-scope";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
 import { mountPlatformDeliveries } from "./platform-deliveries-panel";
@@ -207,6 +208,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   }
 
   async function commitRename(id: string, name: string) {
+    if (renaming !== id) return; // the input's blur as it is removed (Enter, Escape, a project change) is not a second commit
     renaming = null;
     const clean = name.trim();
     const f = folderById(id);
@@ -246,8 +248,10 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   // Decision 8): read from the platform, beside the board, on every load.
   const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"));
 
+  let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {
     const mine = ++seq;
+    loadedScope = loadScope(pid());
     void refreshPlatformDeliveries();
     try {
       status("Loading…");
@@ -585,8 +589,17 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   syncLock();
   // Re-lock indicator when the active project changes (keys are per-project).
   el("cde-refresh").addEventListener("click", loadAll);
-  // Reload the board when the global switcher changes project.
-  onActiveProjectChange(() => { syncLock(); myReviews = false; void loadAll(); });
+  // Reload the board when the global switcher changes project. Another project or person: drop what belonged to the old
+  // one (its folder, rename, delete confirm, reason box, review filter, new-container form, passphrase bar). The same
+  // scope (the bridge back): keep the selection, and leave the board alone while a note, a reason or a rename is typed in it.
+  onActiveProjectChange(() => {
+    syncLock();
+    if (loadScope(pid()) !== loadedScope) {
+      selected = null; renaming = null; confirmDel = false; needsReason = null; myReviews = false;
+      el("cde-form").style.display = "none"; el("cde-unlock").style.display = "none";
+    } else if ([...root.querySelectorAll<HTMLInputElement>("#cde-tree input, #cde-board input")].some((i) => i.value.trim())) return;
+    void loadAll();
+  });
   void loadAll();
   // Auto-refresh when this tab becomes visible, so changes made elsewhere show up.
   let lastLoad = Date.now();

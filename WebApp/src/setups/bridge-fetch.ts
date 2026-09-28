@@ -6,27 +6,33 @@
 import { accessToken } from "./auth";
 import { SERVICE_URL } from "../config";
 
-// Bridge-back watcher: a read that never reached the bridge arms one probe chain; the first ok /health dispatches
-// 'sentinel:bridge-back' (main.ts turns it into refreshActiveProject, so every panel re-reads). Plain fetch, not
+// Bridge-back watcher: a read that never reached the bridge arms one probe chain on /health. The first probe runs at
+// once: if the bridge answers, the failed read was not an outage (an over-long URL, a proxy error on one route) —
+// nothing reloads, and no new chain starts for a minute, so a read that always fails cannot loop the app. Otherwise
+// probes follow at 5 s, 15 s, 45 s, then every 60 s until the bridge answers; that first answer after an outage
+// fires 'sentinel:bridge-back' once (main.ts → refreshActiveProject: every panel re-reads). Plain fetch, not
 // bfetch: a request carrying a JWT gets a 503 from a bridge without SUPABASE_ANON_KEY, even on /health.
 let watching = false;
+let quietUntil = 0;
+const PROBE_WAITS = [0, 5000, 15000, 45000];
+const PROBE_EVERY = 60000;
 function watchBridge(): void {
-  if (watching) return;
+  if (watching || Date.now() < quietUntil) return;
   watching = true;
-  // ponytail: 3 probes per outage (5 s, 15 s, 45 s); the next failed read arms it again
-  const waits = [5000, 15000, 45000];
+  let sawDown = false;
   const probe = async (i: number): Promise<void> => {
     try {
       if ((await fetch(`${SERVICE_URL}/health`, { cache: "no-store" })).ok) {
         watching = false;
-        globalThis.document?.dispatchEvent(new CustomEvent("sentinel:bridge-back"));
+        if (sawDown) globalThis.document?.dispatchEvent(new CustomEvent("sentinel:bridge-back"));
+        else quietUntil = Date.now() + PROBE_EVERY;
         return;
       }
-    } catch { /* still unreachable (a Funnel 502 without CORS rejects too) */ }
-    if (i + 1 < waits.length) setTimeout(() => void probe(i + 1), waits[i + 1]);
-    else watching = false;
+    } catch { /* unreachable (a Funnel 502 without CORS rejects too) */ }
+    sawDown = true;
+    setTimeout(() => void probe(i + 1), PROBE_WAITS[i + 1] ?? PROBE_EVERY);
   };
-  setTimeout(() => void probe(0), waits[0]);
+  void probe(0);
 }
 
 /** Authorization header with the current Supabase session JWT (empty when signed out / auth off). Never throws. */
@@ -102,6 +108,12 @@ export function bridgeEvents(url: string, onData: (data: string) => void): () =>
         // No project named, not a member, no such project: asking again every 3 s cannot change the answer (D7).
         if (res.status === 400 || res.status === 403 || res.status === 404) {
           console.warn(`[bridge] live events refused (${res.status}): ${url}`);
+          return;
+        }
+        // Signed out: the answer cannot change until a sign-in, and a sign-in restarts the feed (the panels' notify).
+        // A 401 WITH a token (one expiring) keeps retrying: a token refresh is not a user change and restarts nothing.
+        if (res.status === 401 && !(await authHeaders()).Authorization) {
+          console.warn(`[bridge] live events need a sign-in: ${url}`);
           return;
         }
         if (res.ok && res.body) {
