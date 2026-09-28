@@ -170,6 +170,8 @@ static class Check
             var ceil = NamingProposer.Propose("2' x 2' ACT System", tnSk, "AST", new NamingContext { Category = "Ceilings", WidthMm = null });
             Ok(ceil.Slots != null && !ceil.Slots[3].Prefill.Contains("'") && ceil.Slots[3].Accepts(ceil.Slots[3].Prefill), "a free-text prefill is sanitised to the token's characters: " + ceil.Slots![3].Prefill);
             Ok(!ceil.Slots[4].Accepts("2 X 2 ACT SYSTEM") && ceil.Slots[4].Accepts("200 mm") && ceil.Slots[4].Expects == "like 200 mm", "SIZE accepts '200 mm' and says so");
+            var gwb = NamingProposer.Propose("5/8\" GWB on Metal Stud", tnSk, "AST", new NamingContext { Category = "Ceilings", WidthMm = null });
+            Ok(gwb.Slots != null && gwb.Slots[3].Prefill == "5 8 GWB ON METAL STUD" && gwb.Slots[3].Accepts(gwb.Slots[3].Prefill), "a prefill with a slash and lowercase is reduced to what the token accepts: " + gwb.Slots![3].Prefill);
             Ok(ceil.Slots[1].Expects == "one of EXT, INT, FND" && !ceil.Slots[1].Accepts("") && ceil.Slots[1].Accepts("INT"), "an enum slot says its choices and accepts one");
             var fnSk = new Rule { Id = "FN-01", Target = RuleTarget.Family, Tokens = new List<string> { "ORG", "BODY" }, Separator = "_",
                 TokenDefs = new Dictionary<string, string> { ["ORG"] = "{org}", ["BODY"] = "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+" } };

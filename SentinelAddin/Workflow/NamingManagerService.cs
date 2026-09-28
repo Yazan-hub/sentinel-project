@@ -101,6 +101,7 @@ public static class NamingManagerService
                             Current = f.Name, Proposed = p.Verdict is NameVerdict.Proposed or NameVerdict.Blocked ? p.Name ?? "" : "",
                             Verdict = p.Verdict, Note = string.Join("; ", p.Notes),
                             Instances = f.GetFamilySymbolIds().Sum(id => instancesOfType.TryGetValue(id.IdValue(), out var n) ? n : 0),
+                            Slots = p.Slots, Schema = p.Slots != null ? RuleRegex.For(rule, org) : null, Separator = rule.Separator,
                         });
                     }
                 }

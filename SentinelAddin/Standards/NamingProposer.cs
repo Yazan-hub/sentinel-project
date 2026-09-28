@@ -174,7 +174,14 @@ public static class NamingProposer
             var words = string.Join(" ", i == free.Count - 1 ? segments.Skip(i) : new[] { segments[i] });
             rule.TokenDefs.TryGetValue(free[i].Token, out var d);
             // Sanitised to the token's own characters (NameSynth uppercases when that is what the token wants).
-            free[i].Prefill = NameSynth.Sanitize(words, d == null ? null : RuleRegex.DefWithOrg(d, org));
+            var clean = NameSynth.Sanitize(words, d == null ? null : RuleRegex.DefWithOrg(d, org));
+            // Still refused (a '/' or lowercase the token forbids)? Keep only capitals, digits, spaces and dashes.
+            if (!free[i].Accepts(clean))
+            {
+                var bare = Regex.Replace(Regex.Replace(clean.ToUpperInvariant(), @"[^A-Z0-9 \-]", " "), @"\s+", " ").Trim();
+                if (free[i].Accepts(bare)) clean = bare;
+            }
+            free[i].Prefill = clean;
         }
         return slots;
     }
