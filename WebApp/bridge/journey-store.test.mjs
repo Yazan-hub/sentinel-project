@@ -32,13 +32,13 @@ describe("getJourney", () => {
   it("gathers a project's facts and returns the standards line, the steps and the counts", async () => {
     const d = memDeps();
     const j = await getJourney("aster-villa", d);
-    expect(j).toMatchObject({ key: "aster-villa", kind: "project", office_key: "aster-office", total: 8, done: 6, next: "issued" });
+    expect(j).toMatchObject({ key: "aster-villa", kind: "project", office_key: "aster-office", total: 8, done: 6, next: "federated" }); // one live model, gate not run: a to-do (option B)
     expect(j.standards.ids).toEqual({ ref: "ids@4", source: "office", sha256: SHA, label: refLabel(art("ids", "office")), standard_key: null, semver: null });
     expect(j.standards.ids.label).toBe("ids@4 · office · 23bb57937fb0…");
     expect(j.standards.ruleset).toMatchObject({ ref: "ruleset@1", source: "office", standard_key: "ast-std-001", semver: "1.0.0" });
     const s = Object.fromEntries(j.steps.map((x) => [x.id, x]));
     expect(s.standards.evidence.label).toBe([j.standards.ids.label, j.standards.ruleset.label, j.standards.naming.label].join(" | "));
-    expect(s.federated).toMatchObject({ status: "not_checkable", reason: "one model only — federation needs two" });
+    expect(s.federated).toMatchObject({ status: "todo", reason: "the Federation Gate has not run" });
     expect(d.getSnapshot).not.toHaveBeenCalled();                       // a project does not read the office snapshot
     expect(d.ensureProject).toHaveBeenCalledWith("aster-villa");
   });
@@ -49,7 +49,7 @@ describe("getJourney", () => {
     expect(s.team.status).toBe("done");
     expect(s.published.status).toBe("done");
     expect(j.done).toBe(6);
-    expect(j.next).toBeNull();
+    expect(j.next).toBe("federated"); // the one live model still waits on the gate
   });
   it("a synchronous throw in a reader is a rejected fact too, not a failed request", async () => {
     const j = await getJourney("aster-villa", memDeps({ getScan: () => { throw new Error("scan reader broke"); } }));

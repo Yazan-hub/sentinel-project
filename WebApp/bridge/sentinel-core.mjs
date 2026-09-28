@@ -1039,6 +1039,15 @@ function validateContainerName(rawName, rs) {
 }
 
 // src/sentinel-core/federation.ts
+var TITLES = {
+  "FG-01": "No GlobalId appears in two models",
+  "FG-02": "Type naming is one convention per category",
+  "FG-03": "Levels align by name and elevation",
+  "FG-04": "Grid tags match",
+  "FG-05": "Georeference agrees",
+  "FG-06": "Every model is named to the rule and judged"
+};
+var ONE_MODEL = "one model \u2014 a cross-model check; nothing to compare";
 function raisedFederationTitleKey(title) {
   return String(title).trimEnd().replace(/\(\d+\)$/, "").trimEnd();
 }
@@ -1076,12 +1085,23 @@ var nc = (c, reason) => {
   return c;
 };
 function fg01(ms) {
-  const c = mk("FG-01", "No GlobalId appears in two models");
+  const c = mk("FG-01", TITLES["FG-01"]);
   if (ms.filter(({ m }) => m.elements.length > 0).length < 2) return nc(c, "fewer than two manifests carry elements");
   const seen = /* @__PURE__ */ new Map();
   for (const { container, m } of ms) for (const e of uniq(m.elements.map((x) => x.guid).filter(Boolean))) seen.set(e, [...seen.get(e) ?? [], container]);
   for (const [guid, models] of seen) if (models.length > 1) c.evidence.push({ guid, models });
   return c.evidence.length ? fail(c, `${c.evidence.length} GlobalId(s) shared between models`) : c;
+}
+function fg01One(container, m) {
+  const c = mk("FG-01", "No GlobalId appears twice in the model");
+  const a = m.guid_audit;
+  if (!a || typeof a.duplicates !== "number") return nc(c, "this model's manifest was captured before GlobalIds were counted \u2014 capture it again (manifest backfill) and re-run");
+  if (a.missing > 0) c.warnings.push(`${a.missing} element(s) in ${container} carry no GlobalId`);
+  if (a.duplicates > 0) {
+    for (const guid of a.examples) c.evidence.push({ guid, models: [container] });
+    return fail(c, `${a.duplicates} duplicate GlobalId(s) in ${container}`);
+  }
+  return c;
 }
 function resolveOrg(rule, org) {
   const escaped = (org ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1090,7 +1110,7 @@ function resolveOrg(rule, org) {
   return { ...rule, token_defs: defs };
 }
 function fg02(ms, opts) {
-  const c = mk("FG-02", "Type naming is one convention per category");
+  const c = mk("FG-02", TITLES["FG-02"]);
   const byCat = /* @__PURE__ */ new Map();
   for (const { container, m } of ms) {
     const per = /* @__PURE__ */ new Map();
@@ -1124,7 +1144,7 @@ function fg02(ms, opts) {
   return c;
 }
 function fg03(ms, tolMm) {
-  const c = mk("FG-03", "Levels align by name and elevation");
+  const c = mk("FG-03", TITLES["FG-03"]);
   const withLevels = ms.filter((x) => x.m.levels.length);
   if (withLevels.length < 2) return nc(c, "fewer than two models carry levels");
   const byName = /* @__PURE__ */ new Map();
@@ -1148,7 +1168,7 @@ function fg03(ms, tolMm) {
   return c;
 }
 function fg04(ms) {
-  const c = mk("FG-04", "Grid tags match");
+  const c = mk("FG-04", TITLES["FG-04"]);
   const withGrids = ms.filter((x) => x.m.grids.length);
   if (withGrids.length < 2) return nc(c, "fewer than two models carry grids");
   const union = uniq(withGrids.flatMap((x) => x.m.grids)).sort();
@@ -1160,7 +1180,7 @@ function fg04(ms) {
   return c.evidence.length ? fail(c, "grid tag sets differ between models") : c;
 }
 function fg05(ms, georefM, angleDeg) {
-  const c = mk("FG-05", "Georeference agrees");
+  const c = mk("FG-05", TITLES["FG-05"]);
   const has = (m) => !!m.site && (m.site.lat != null && m.site.lon != null || !!m.site.map_conversion);
   const withGeo = ms.filter((x) => has(x.m));
   if (withGeo.length === 0) return nc(c, "no model carries a georeference");
@@ -1201,7 +1221,7 @@ function fg05(ms, georefM, angleDeg) {
   return c;
 }
 function fg06(models, opts) {
-  const c = mk("FG-06", "Every model is named to the rule and judged");
+  const c = mk("FG-06", TITLES["FG-06"]);
   const rs = opts.naming_ruleset;
   const enforce = rs?.enforce ?? "reject";
   for (const m of models) {
@@ -1231,9 +1251,19 @@ function checkFederation(models, opts = {}) {
   const tol = { level_mm: 1, georef_m: 0.5, angle_deg: 0.1, ...opts.tolerance ?? {} };
   const withManifest = models.filter((m) => !!m.manifest).map((m) => ({ container: m.container, m: m.manifest }));
   const out = { verdict: "pass", models: models.map((m) => ({ container: m.container, version_id: m.version_id, has_manifest: !!m.manifest })), checks: [] };
+  if (models.length === 1 && opts.live_count === 1 && withManifest.length === 1) {
+    out.one_model = true;
+    out.checks = [
+      fg01One(withManifest[0].container, withManifest[0].m),
+      ...["FG-02", "FG-03", "FG-04", "FG-05"].map((id) => nc(mk(id, TITLES[id]), ONE_MODEL)),
+      fg06(models, opts)
+    ];
+    out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
+    return out;
+  }
   if (withManifest.length < 2) {
     out.verdict = "not_checkable";
-    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, ""), `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`));
+    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, TITLES[id]), `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`));
     return out;
   }
   out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];

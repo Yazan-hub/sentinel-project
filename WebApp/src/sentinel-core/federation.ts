@@ -10,7 +10,10 @@ export interface ManifestElement { guid: string; class: string; type_name: strin
 export interface ManifestLevel { name: string; elevation_mm: number }
 export interface MapConversion { eastings: number; northings: number; height: number; x_axis_abscissa: number; x_axis_ordinate: number; scale: number; crs_name: string | null }
 export interface ManifestSite { lat: number | null; lon: number | null; elevation_m: number | null; map_conversion: MapConversion | null }
-export interface Manifest { schema: string; elements: ManifestElement[]; levels: ManifestLevel[]; grids: string[]; site: ManifestSite | null; counts?: { elements: number; skipped: number } }
+/** GlobalIds as the IFC carried them, counted at capture (the stored elements are keyed by GlobalId, so a duplicate
+ *  cannot be seen later). null/absent = the manifest was captured before this was counted. */
+export interface GuidAudit { duplicates: number; examples: string[]; missing: number }
+export interface Manifest { schema: string; elements: ManifestElement[]; levels: ManifestLevel[]; grids: string[]; site: ManifestSite | null; counts?: { elements: number; skipped: number }; guid_audit?: GuidAudit | null }
 export interface FederationModel { container: string; version_id: string; manifest: Manifest | null }
 export type VerdictWord = "accepted" | "recorded" | "rejected";
 export interface FederationOptions {
@@ -19,10 +22,20 @@ export interface FederationOptions {
   naming_ruleset?: NamingRuleset | null;
   verdicts?: Record<string, VerdictWord | null | undefined>;
   tolerance?: { level_mm?: number; georef_m?: number; angle_deg?: number };
+  /** How many IFC models are live on the project, BEFORE any subset a run was asked to judge. The one-model rule
+   *  applies only when the whole live set is one model — never to one model picked out of several. */
+  live_count?: number;
 }
 export type CheckStatus = "pass" | "fail" | "not_checkable";
 export interface FederationCheck { id: string; title: string; status: CheckStatus; reason?: string; evidence: Record<string, unknown>[]; warnings: string[] }
-export interface FederationResult { verdict: CheckStatus; models: { container: string; version_id: string; has_manifest: boolean }[]; checks: FederationCheck[] }
+export interface FederationResult { verdict: CheckStatus; models: { container: string; version_id: string; has_manifest: boolean }[]; checks: FederationCheck[]; one_model?: boolean }
+
+/** Each check's title, one place (the not-checkable paths name them too). */
+const TITLES: Record<string, string> = {
+  "FG-01": "No GlobalId appears in two models", "FG-02": "Type naming is one convention per category", "FG-03": "Levels align by name and elevation",
+  "FG-04": "Grid tags match", "FG-05": "Georeference agrees", "FG-06": "Every model is named to the rule and judged",
+};
+const ONE_MODEL = "one model — a cross-model check; nothing to compare";
 
 /** The dedup key of an already-raised `Federation: <id> <title> (N)` BCF topic title — mirrors
  *  raisedIdsTitleKey (ids.ts), for the same reason (H0 minor N33): only raiseFederationTopics parsed this
@@ -59,12 +72,27 @@ const fail = (c: FederationCheck, reason?: string) => { c.status = "fail"; if (r
 const nc = (c: FederationCheck, reason: string) => { c.status = "not_checkable"; c.reason = reason; return c; };
 
 function fg01(ms: { container: string; m: Manifest }[]): FederationCheck {
-  const c = mk("FG-01", "No GlobalId appears in two models");
+  const c = mk("FG-01", TITLES["FG-01"]);
   if (ms.filter(({ m }) => m.elements.length > 0).length < 2) return nc(c, "fewer than two manifests carry elements");
   const seen = new Map<string, string[]>();
   for (const { container, m } of ms) for (const e of uniq(m.elements.map((x) => x.guid).filter(Boolean))) seen.set(e, [...(seen.get(e) ?? []), container]);
   for (const [guid, models] of seen) if (models.length > 1) c.evidence.push({ guid, models });
   return c.evidence.length ? fail(c, `${c.evidence.length} GlobalId(s) shared between models`) : c;
+}
+
+/** FG-01 for a project whose whole live set is one model: no GlobalId twice inside it (a duplicate breaks every
+ *  GlobalId-keyed record — clash signatures, issues, the element graph). Read from the counts taken at capture; a
+ *  manifest captured before they were counted is not checkable, never a pass. */
+function fg01One(container: string, m: Manifest): FederationCheck {
+  const c = mk("FG-01", "No GlobalId appears twice in the model");
+  const a = m.guid_audit;
+  if (!a || typeof a.duplicates !== "number") return nc(c, "this model's manifest was captured before GlobalIds were counted — capture it again (manifest backfill) and re-run");
+  if (a.missing > 0) c.warnings.push(`${a.missing} element(s) in ${container} carry no GlobalId`);
+  if (a.duplicates > 0) {
+    for (const guid of a.examples) c.evidence.push({ guid, models: [container] });
+    return fail(c, `${a.duplicates} duplicate GlobalId(s) in ${container}`);
+  }
+  return c;
 }
 
 function resolveOrg(rule: Rule, org: string | null | undefined): Rule {
@@ -75,7 +103,7 @@ function resolveOrg(rule: Rule, org: string | null | undefined): Rule {
 }
 
 function fg02(ms: { container: string; m: Manifest }[], opts: FederationOptions): FederationCheck {
-  const c = mk("FG-02", "Type naming is one convention per category");
+  const c = mk("FG-02", TITLES["FG-02"]);
   // (a) shape drift per category across models
   const byCat = new Map<string, { container: string; names: string[] }[]>();
   for (const { container, m } of ms) {
@@ -106,7 +134,7 @@ function fg02(ms: { container: string; m: Manifest }[], opts: FederationOptions)
 }
 
 function fg03(ms: { container: string; m: Manifest }[], tolMm: number): FederationCheck {
-  const c = mk("FG-03", "Levels align by name and elevation");
+  const c = mk("FG-03", TITLES["FG-03"]);
   const withLevels = ms.filter((x) => x.m.levels.length);
   if (withLevels.length < 2) return nc(c, "fewer than two models carry levels");
   const byName = new Map<string, { name: string; values: { model: string; elevation_mm: number }[] }>();
@@ -131,7 +159,7 @@ function fg03(ms: { container: string; m: Manifest }[], tolMm: number): Federati
 }
 
 function fg04(ms: { container: string; m: Manifest }[]): FederationCheck {
-  const c = mk("FG-04", "Grid tags match");
+  const c = mk("FG-04", TITLES["FG-04"]);
   const withGrids = ms.filter((x) => x.m.grids.length);
   if (withGrids.length < 2) return nc(c, "fewer than two models carry grids");
   const union = uniq(withGrids.flatMap((x) => x.m.grids)).sort();
@@ -144,7 +172,7 @@ function fg04(ms: { container: string; m: Manifest }[]): FederationCheck {
 }
 
 function fg05(ms: { container: string; m: Manifest }[], georefM: number, angleDeg: number): FederationCheck {
-  const c = mk("FG-05", "Georeference agrees");
+  const c = mk("FG-05", TITLES["FG-05"]);
   const has = (m: Manifest) => !!m.site && ((m.site.lat != null && m.site.lon != null) || !!m.site.map_conversion);
   const withGeo = ms.filter((x) => has(x.m));
   if (withGeo.length === 0) return nc(c, "no model carries a georeference");
@@ -189,7 +217,7 @@ function fg05(ms: { container: string; m: Manifest }[], georefM: number, angleDe
 }
 
 function fg06(models: FederationModel[], opts: FederationOptions): FederationCheck {
-  const c = mk("FG-06", "Every model is named to the rule and judged");
+  const c = mk("FG-06", TITLES["FG-06"]);
   const rs = opts.naming_ruleset;
   const enforce = rs?.enforce ?? "reject"; // a missing enforce is reject (plan constraint)
   for (const m of models) {
@@ -213,9 +241,22 @@ export function checkFederation(models: FederationModel[], opts: FederationOptio
   const tol = { level_mm: 1, georef_m: 0.5, angle_deg: 0.1, ...(opts.tolerance ?? {}) };
   const withManifest = models.filter((m): m is FederationModel & { manifest: Manifest } => !!m.manifest).map((m) => ({ container: m.container, m: m.manifest }));
   const out: FederationResult = { verdict: "pass", models: models.map((m) => ({ container: m.container, version_id: m.version_id, has_manifest: !!m.manifest })), checks: [] };
+  // The founder's option B (2026-09-28): a project whose WHOLE live set is one model is judged on what one model can be
+  // judged on — its own GlobalIds (FG-01) and its name and verdict (FG-06); the cross-model checks say why they do not
+  // apply. One model picked out of several (an explicit subset) is not this case: live_count is the whole set.
+  if (models.length === 1 && opts.live_count === 1 && withManifest.length === 1) {
+    out.one_model = true;
+    out.checks = [
+      fg01One(withManifest[0].container, withManifest[0].m),
+      ...["FG-02", "FG-03", "FG-04", "FG-05"].map((id) => nc(mk(id, TITLES[id]), ONE_MODEL)),
+      fg06(models, opts),
+    ];
+    out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
+    return out;
+  }
   if (withManifest.length < 2) {
     out.verdict = "not_checkable";
-    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, ""), `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`));
+    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, TITLES[id]), `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`));
     return out;
   }
   out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];

@@ -40,6 +40,7 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
   await d.requireMinRole(key, "contributor");
   const proj = await d.ensureProject(key);
   let set = await d.listManifests(key);
+  const liveCount = set.length; // the whole live IFC set, before any subset: the one-model rule keys on this
   let ignored = [];
   if (Array.isArray(versions) && versions.length) {
     const live = new Set(set.map((m) => m.version_id));
@@ -55,10 +56,10 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
   const naming = nm?.body ?? null;
   const rule = (Array.isArray(rs?.body?.rules) ? rs.body.rules : []).find((r) => r && r.target === "type" && Array.isArray(r.tokens) && r.tokens.length) || null;
   const org = rs?.body?.org ?? null;
-  const result = d.checkFederation(models, { type_rule: rule, org, naming_ruleset: naming, verdicts });
+  const result = d.checkFederation(models, { type_rule: rule, org, naming_ruleset: naming, verdicts, live_count: liveCount });
   const refs = { ruleset: labelOf(rs), naming: labelOf(nm) };
   const fg02 = result.checks.find((c) => c.id === "FG-02");
-  if (fg02) {
+  if (fg02 && !result.one_model) { // with one model FG-02 did not run: no "compared only" warnings under it
     fg02.refs = refs;
     if (!refs.ruleset) fg02.warnings.push(notInstalled("ruleset", "no type rule applied, naming shapes compared only"));
     if (!refs.naming) fg02.warnings.push(notInstalled("naming", "container names not judged (FG-06)"));
@@ -73,7 +74,8 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
     ...(ignored.length ? { ignored_versions: ignored } : {}),
   };
   await d.docUpsert(STORE, proj.id, "latest", run, { service: true }); // after the check above; the store can be closed to direct writes (0033)
-  const word = result.verdict === "pass" ? "PASS" : result.verdict === "fail" ? "FAIL" : "NOT CHECKABLE";
+  const word = (result.verdict === "pass" ? "PASS" : result.verdict === "fail" ? "FAIL" : "NOT CHECKABLE") +
+    (result.one_model ? " (one model — its GlobalIds, name and verdict; the cross-model checks do not apply)" : "");
   const ignoredNote = ignored.length ? ` (${ignored.length} requested version(s) not live, ignored)` : "";
   await d.audit(proj.id, "federation_gate", null, `Federation gate ${word}: ${models.length} model(s)${ignoredNote}`, actor, null, {
     verdict: result.verdict, models: run.set, ruleset_ref: refs.ruleset, naming_ref: refs.naming,
@@ -113,7 +115,9 @@ export function raiseGate(fed) {
     const ids = (latest.result.checks ?? []).filter((c) => c.status === "fail").map((c) => c.id);
     return { ok: false, why: `the Federation Gate failed (${ids.length ? ids.join(", ") : "see its checks"}) — fix those and run it again` };
   }
-  return { ok: false, why: "the Federation Gate could not check the models (NOT CHECKABLE) — capture their manifests and run it again" };
+  // NOT CHECKABLE says what it could not check — the first unjudged check's own reason, not a guess.
+  const first = (latest.result?.checks ?? []).find((c) => c.status === "not_checkable" && c.reason);
+  return { ok: false, why: `the Federation Gate could not judge the models (NOT CHECKABLE${first ? `: ${first.id} ${first.reason}` : ""}) — fix that and run it again` };
 }
 
 export async function getFederation(key, deps) {

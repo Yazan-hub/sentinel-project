@@ -18,10 +18,15 @@ mismatch is refused by the Federation Gate with the pair named.*
 
 ## The set
 
-By default: **every live model version on the project key** (containers of `container_type: "model"`,
-their `is_live` version). An explicit `versions: [id, …]` list is accepted for a partial run. A set
-with fewer than two models carrying a manifest is `not_checkable` — never a pass. The office entity
-(cohesion phase 2) does not change this: a federation is a project's.
+By default: **every live IFC model version on the project key** (containers of `container_type: "model"` whose name
+ends `.ifc`, their `is_live` version — a CSV registered as a model is not federated, 2026-09-28). An explicit
+`versions: [id, …]` list is accepted for a partial run. A set with fewer than two models carrying a manifest is
+`not_checkable` — never a pass — **except** when the project's whole live set is one model with a manifest (the
+founder's option B, 2026-09-28): it is judged on what one model can be judged on — FG-01 as "no GlobalId twice inside
+the model" (counted from the IFC at capture, `guid_audit`; a manifest without the count is not checkable) and FG-06;
+FG-02..FG-05 are `not_checkable` with "one model — a cross-model check; nothing to compare"; the result carries
+`one_model: true` and the ledger word says so. One model picked out of several by an explicit list is not this case.
+The office entity (cohesion phase 2) does not change this: a federation is a project's.
 
 ## What exists and is reused
 
@@ -121,7 +126,8 @@ The six checks, each with the evidence a BIM manager needs to act:
 
 Rules: a check with no data to judge is `not_checkable` with its reason (`"no type rule installed"`,
 `"no model carries a georeference"`), never a pass. The result verdict is `fail` if any check fails,
-`not_checkable` if fewer than two models carry a manifest, else `pass`. No percentage anywhere.
+`pass` if no check fails and at least one passed, else `not_checkable` (six not-checkable checks are never a pass).
+No percentage anywhere.
 
 The type rule comes from the project's `ruleset` artefact when one exists (cohesion phase 3), else
 from the project pack's `active_ruleset.rules[]` entries with `target: "type"`, else none. Evaluation

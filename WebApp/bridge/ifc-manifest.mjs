@@ -101,6 +101,21 @@ export async function extractManifest(bytes) {
       }
     }
 
+    // GlobalIds as the file carries them, before anything keys on them: the stored manifest keeps one row per GlobalId
+    // (element_snapshots' primary key), so duplicates and blanks are counted here or never. The Federation Gate's
+    // one-model FG-01 reads this (3D spec Decision 4, option B, 2026-09-28).
+    {
+      const n = new Map();
+      let missing = 0;
+      for (const e of out.elements) {
+        const g = String(e.guid ?? "").trim();
+        if (!g) { missing++; continue; }
+        n.set(g, (n.get(g) ?? 0) + 1);
+      }
+      const dups = [...n].filter(([, c]) => c > 1);
+      out.guid_audit = { duplicates: dups.reduce((a, [, c]) => a + c - 1, 0), examples: dups.slice(0, 5).map(([g]) => g), missing };
+    }
+
     for (const id of idsOf(api, mid, WebIFC.IFCBUILDINGSTOREY)) {
       try {
         const s = api.GetLine(mid, id);

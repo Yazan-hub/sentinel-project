@@ -33,7 +33,7 @@ export async function captureManifest(key, versionId, bytes, { actor = "bridge",
   });
   const doc = {
     version_id: versionId, revision_id: rev.revision_id, schema: m.schema,
-    levels: m.levels, grids: m.grids, site: m.site, counts: m.counts,
+    levels: m.levels, grids: m.grids, site: m.site, counts: m.counts, guid_audit: m.guid_audit ?? null,
     sha256: createHash("sha256").update(bytes).digest("hex"), captured_at: new Date().toISOString(), source,
   };
   // Written with the service key: every caller has been checked first (intake, the backfill's lead, the outbox's
@@ -68,7 +68,7 @@ export async function getManifest(key, versionId, deps) {
   if (!doc) return null;
   const rows = await d.getRevisionSnapshots(doc.revision_id);
   return {
-    schema: doc.schema, levels: doc.levels || [], grids: doc.grids || [], site: doc.site ?? null, counts: doc.counts,
+    schema: doc.schema, levels: doc.levels || [], grids: doc.grids || [], site: doc.site ?? null, counts: doc.counts, guid_audit: doc.guid_audit ?? null,
     elements: rows.map((r) => ({ guid: r.guid, class: r.category, type_name: r.type_name ?? null, storey: null })),
     captured_at: doc.captured_at, sha256: doc.sha256,
   };
