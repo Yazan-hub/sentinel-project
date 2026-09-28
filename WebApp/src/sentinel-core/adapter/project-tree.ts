@@ -32,32 +32,21 @@ const val = (o: any): string | undefined => {
   return o.value == null ? undefined : String(o.value);
 };
 
-export async function buildProjectTree(fragments: OBC.FragmentsManager): Promise<TreeCategory[]> {
+/** One element as the tree reads it. */
+export interface TreeRow { modelId: string; localId: number; category: string; type: string; name: string; }
+/** A loaded model's own branch: its categories, as the single-model tree shows them. */
+export interface TreeModelNode { modelId: string; categories: TreeCategory[]; count: number; }
+
+/** PURE: bucket rows into Category → Type → Instance, sorted by label, type name and instance name. */
+export function groupCategories(rows: readonly TreeRow[]): TreeCategory[] {
   const cats = new Map<string, Map<string, TreeInstance[]>>();
-
-  for (const model of fragments.list.values()) {
-    const byCat = await model.getItemsOfCategories([/^IFC/i]);
-    const ids = Object.values(byCat).flat();
-    if (!ids.length) continue;
-    const data = await model.getItemsData(ids, {
-      attributesDefault: true,
-      relationsDefault: { attributes: false, relations: false },
-    });
-    for (let i = 0; i < ids.length; i++) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data[i] as any;
-      const category = (val(d?.["_category"]) ?? val(d?.["category"]) ?? "Unknown").toUpperCase();
-      if (SKIP.test(category)) continue;
-      const type = val(d?.["ObjectType"]) || "(no type)";
-      const name = val(d?.["Name"]) || `#${ids[i]}`;
-      let types = cats.get(category);
-      if (!types) { types = new Map(); cats.set(category, types); }
-      let insts = types.get(type);
-      if (!insts) { insts = []; types.set(type, insts); }
-      insts.push({ modelId: model.modelId, localId: ids[i], name });
-    }
+  for (const r of rows) {
+    let types = cats.get(r.category);
+    if (!types) { types = new Map(); cats.set(r.category, types); }
+    let insts = types.get(r.type);
+    if (!insts) { insts = []; types.set(r.type, insts); }
+    insts.push({ modelId: r.modelId, localId: r.localId, name: r.name });
   }
-
   const out: TreeCategory[] = [];
   for (const [category, types] of cats) {
     const t: TreeType[] = [];
@@ -72,4 +61,44 @@ export async function buildProjectTree(fragments: OBC.FragmentsManager): Promise
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
   return out;
+}
+
+/** PURE: one branch per model, in the order the models were loaded; a model with no rows is kept (count 0) so the tree
+ *  shows every loaded model, and the same type name in two models stays two rows. */
+export function groupByModel(rows: readonly TreeRow[], modelOrder: readonly string[]): TreeModelNode[] {
+  const byModel = new Map<string, TreeRow[]>(modelOrder.map((m) => [m, []]));
+  for (const r of rows) (byModel.get(r.modelId) ?? byModel.set(r.modelId, []).get(r.modelId)!).push(r);
+  return [...byModel].map(([modelId, rs]) => ({ modelId, categories: groupCategories(rs), count: rs.length }));
+}
+
+/** Read every loaded model's building elements (category, ObjectType, Name). */
+export async function readTreeRows(fragments: OBC.FragmentsManager): Promise<TreeRow[]> {
+  const rows: TreeRow[] = [];
+  for (const model of fragments.list.values()) {
+    const byCat = await model.getItemsOfCategories([/^IFC/i]);
+    const ids = Object.values(byCat).flat();
+    if (!ids.length) continue;
+    const data = await model.getItemsData(ids, {
+      attributesDefault: true,
+      relationsDefault: { attributes: false, relations: false },
+    });
+    for (let i = 0; i < ids.length; i++) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data[i] as any;
+      const category = (val(d?.["_category"]) ?? val(d?.["category"]) ?? "Unknown").toUpperCase();
+      if (SKIP.test(category)) continue;
+      rows.push({ modelId: model.modelId, localId: ids[i], category, type: val(d?.["ObjectType"]) || "(no type)", name: val(d?.["Name"]) || `#${ids[i]}` });
+    }
+  }
+  return rows;
+}
+
+/** Every loaded model merged by category (Revit's Visibility/Graphics view of the federation). */
+export async function buildProjectTree(fragments: OBC.FragmentsManager): Promise<TreeCategory[]> {
+  return groupCategories(await readTreeRows(fragments));
+}
+
+/** One branch per loaded model (the federation as the Browser shows it). */
+export async function buildModelTree(fragments: OBC.FragmentsManager): Promise<TreeModelNode[]> {
+  return groupByModel(await readTreeRows(fragments), [...fragments.list.keys()].map(String));
 }
