@@ -61,7 +61,7 @@ describe("project journey", () => {
     const j = buildJourney(emptyProject());
     expect(j.kind).toBe("project");
     expect(j.steps.map((s) => s.status)).toEqual(["todo", "todo", "todo", "todo", "todo", "todo", "not_checkable", "todo"]);
-    expect(byId(j).federated.reason).toBe("no live model — federation needs two");
+    expect(byId(j).federated.reason).toBe("no live model — nothing to federate");
     expect(j).toMatchObject({ next: "team", done: 0, total: 8 });
     expect(JSON.stringify(j)).not.toMatch(/%|percent/);
   });
@@ -113,9 +113,11 @@ describe("project journey", () => {
     expect(byId(buildJourney({ ...emptyProject(), files: ok([file("v-1", "published")]), verdicts: newerRejected })).published.status).toBe("todo");
     expect(byId(buildJourney({ ...emptyProject(), files: ok([file("v-1", "shared")]), verdicts: ok([{ id: 3, version_id: "v-1", verdict: "accepted" }]) })).published.status).toBe("todo");
   });
-  it("federated: not checkable with one live model even after a pass; todo when not run or failed", () => {
+  it("federated: one live model counts on a pass of the gate (option B); a pass that did not judge every live model does not; todo when not run or failed", () => {
     const one = buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, live_set: [{ version_id: "v-1" }] }) });
-    expect(byId(one).federated).toMatchObject({ status: "not_checkable", reason: "one model only — federation needs two", evidence: null });
+    expect(byId(one).federated).toMatchObject({ status: "done" });
+    const partial = { ...FED_PASS, latest: { ...FED_PASS.latest, set: [{ container: "A.ifc" }] }, live_set: [{ container: "A.ifc", version_id: "v-1" }, { container: "B.ifc", version_id: "v-2" }] };
+    expect(byId(buildJourney({ ...emptyProject(), federation: ok(partial) })).federated).toMatchObject({ status: "todo", reason: "the latest pass did not judge 1 live model(s) — run the Federation Gate on the whole live set" });
     expect(byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, latest: null }) })).federated).toMatchObject({ status: "todo", reason: "the Federation Gate has not run" });
     expect(byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, latest: { at: "x", result: { verdict: "fail" } } }) })).federated).toMatchObject({ status: "todo", reason: "latest Federation Gate: fail" });
   });

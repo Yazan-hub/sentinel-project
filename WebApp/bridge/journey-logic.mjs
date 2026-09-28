@@ -26,7 +26,7 @@ export const PROJECT_STEPS = [
   { id: "verdict", label: "First governed verdict", how: { web: null, revit: GOVERNED_PUBLISH, who: "member" } },
   // A2: Governed Publish only registers versions as `wip`; the Published state is set on the web (Coordination ▸ CDE), so how.revit is null here.
   { id: "published", label: "Accepted and published", how: { web: web("Project Files", "the live version needs an accepted verdict, then set the Published state on the web (Coordination ▸ CDE)"), revit: null, who: "lead" } },
-  { id: "federated", label: "Federated", how: { web: web("Project Files", "two live models, then Coordination ▸ Clash ▸ Run gate"), revit: null, who: "member" } },
+  { id: "federated", label: "Federated", how: { web: web("Project Files", "the live models (one is judged on its own), then Coordination ▸ Clash ▸ Run gate"), revit: null, who: "member" } },
   // A4: no screen does this yet on either surface — surfaces render "no screen for this step yet".
   { id: "issued", label: "Issued", how: { web: null, revit: null, who: "lead" } },
 ];
@@ -71,11 +71,18 @@ const published = (files, rows) => {
 // A5: snapshot/model/federation evidence refs are the stored document's own timestamp — those stores keep one
 // latest document with no id, so the timestamp is the only stable ref they can name.
 const federated = (fed) => {
-  const n = (fed.live_set || []).length;
-  if (n < 2) return { not_checkable: n === 1 ? "one model only — federation needs two" : "no live model — federation needs two" };
+  const live = fed.live_set || [];
+  // One live model is judged by the gate on its own (option B, 2026-09-28); none is nothing to federate.
+  if (!live.length) return { not_checkable: "no live model — nothing to federate" };
   const run = fed.latest;
   if (!run) return { reason: "the Federation Gate has not run" };
   if (run.result?.verdict !== "pass") return { reason: `latest Federation Gate: ${run.result?.verdict ?? "unknown"}` };
+  // A pass counts only when it judged every live model (an explicit run over a subset is not the federation).
+  if (Array.isArray(run.set)) {
+    const seen = new Set(run.set.map((m) => m.container));
+    const unjudged = live.filter((l) => l.container && !seen.has(l.container)).length;
+    if (unjudged) return { reason: `the latest pass did not judge ${unjudged} live model(s) — run the Federation Gate on the whole live set` };
+  }
   // A1: a stale pass no longer counts as done — the live set changed since the gate ran.
   if (fed.stale) return { reason: "latest pass is stale — the live set changed since; re-run the Federation Gate" };
   return { evidence: { ref: run.at ? `federation@${run.at}` : "", label: `federation · pass · ${run.at}` } };

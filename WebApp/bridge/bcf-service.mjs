@@ -442,7 +442,7 @@ async function raiseFederationTopics(cde, pid, run, opts = {}) {
     const base = `Federation: ${c.id} ${c.title}`;
     if (open.has(base)) { dedup++; continue; }
     const topic = cde.newTopicObject(pid, {
-      title: `${base} (${c.evidence.length})`, topic_type: "Issue", priority: "High", creation_author: author,
+      title: `${base} (${c.count ?? c.evidence.length})`, topic_type: "Issue", priority: "High", creation_author: author, // count: the one-model FG-01 shows five examples of N
       description: `${c.reason || c.title}. Models: ${run.set.map((s) => s.container).join(", ")}.\n` + c.evidence.slice(0, 20).map((e) => JSON.stringify(e)).join("\n"),
     }, now);
     // Keep whatever raised before a failure — a topic already created must still be counted and

@@ -33,6 +33,15 @@ describe("extractManifest", () => {
     expect(m.grids).toEqual(["1", "A", "C"]);
     expect(m.site).toEqual({ lat: null, lon: null, elevation_m: null, map_conversion: null });
   });
+  it("counts duplicate and missing GlobalIds over every IfcProduct, as the file carries them (the stored manifest cannot see them)", async () => {
+    const clean = (await extractManifest(fx("fed-a.ifc"))).guid_audit;
+    expect(clean).toMatchObject({ scope: "IfcProduct", duplicates: 0, examples: [], missing: 0 });
+    expect(clean.counted).toBeGreaterThan(2); // the two walls and the spatial products, not only the manifest's classes
+    const dup = fx("fed-a.ifc").toString("utf8").replace("'8FedA0000000000000000A'", "'7YvctVUKr0kugbFTf53O9L'");
+    expect((await extractManifest(Buffer.from(dup, "utf8"))).guid_audit).toMatchObject({ duplicates: 1, examples: ["7YvctVUKr0kugbFTf53O9L"], missing: 0 });
+    const noGuid = fx("fed-a.ifc").toString("utf8").replace("'8FedA0000000000000000A'", "$");
+    expect((await extractManifest(Buffer.from(noGuid, "utf8"))).guid_audit).toMatchObject({ duplicates: 0, missing: 1 }); // a $ is missing, not the express id
+  });
   it("falls back to the type's name when ObjectType is empty, and covers the extractor's classes", async () => {
     const text = fx("fed-a.ifc").toString("utf8").replace("'Wall-A1',$,'Wall 1',$", "'Wall-A1',$,$,$");
     const m = await extractManifest(Buffer.from(text, "utf8"));
