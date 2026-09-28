@@ -775,3 +775,11 @@ app on aster-tower, in Claude's tab:
 | Sign in (the founder, same tab) | every panel reloaded with no ↻: the hub's 8 projects, Clash PASS, the CDE board, Issues (8) |
 | The bridge coming back | not run live (a bridge restart broke the public relay twice on 2026-09-28): pinned by `bridge-watch.test.ts` — an outage then the bridge back fires once; a read that fails while /health answers reloads nothing (no loop); a real outage right after a false alarm is still caught; a long outage keeps probing every 60 s; the signed-out feed asks once a minute |
 | Published | web app 1.0.29 on the founder's "yes publish" (version 6abaeee993f8e6a2d1e3e764, 15.4 MB); a fresh tab of the published app boots signed out through the public relay: `Sign in (bottom right) to see your projects…`, `Not signed in — the bridge answered 401.`, the sign-in form open |
+
+## Owed web rows, run 2026-09-29 in the local app (the extension can drive the platform's local-app tab now)
+
+| Owed row | Observed | Still not run, and why |
+|---|---|---|
+| B11 — the Dashboard, the pilot's stage | aster-tower as its owner: the rail on **Tender** (current), `Stage gate · Tender (current · preview — Run gate measures on the bridge)`, `GATE PASS`, **Run gate → advance to Design** offered to the lead | pressing Run gate advances aster-tower to Design — the founder's governance decision, not a drill's; the non-lead line needs a second account (pinned by `stage-gate.test.ts`, `gates.test.ts`) |
+| B14 — the web rows of the platform gate | the CDE board's **Platform deliveries** strip `1 IFC · 1 passed`, the card `Passed — contract@1`, its sha256 and run; Settings ▸ Standards in force `contract@1 · project · 9cc32c96f815… · the founder · 2026-09-27` (the install-time note `also on the platform as sentinel-contract.json` is in the recorded video) | the Revit-pane publish row: a Governed Publish of aster-tower adds a version and resets its Federation Gate pass right before the hackathon — after the deadline |
+| B12 — On hold in the web | not run: it needs a refused upload through the file picker and a lead's dismissal on a live project; left with B11's gate run for the founder's session after the deadline | pinned by `holding.test.ts` (16) and the bridge rows of B12 |
