@@ -27,6 +27,51 @@ namespace Sentinel.Commands;
 [Transaction(TransactionMode.Manual)]
 public sealed class BcfIssuesCommand : IExternalCommand
 {
+    private const double FeetToMeters = 0.3048;
+
+    /// <summary>API thread only. The selected elements' IFC GlobalIds (the IFC_GUID parameter, else the id the IFC
+    /// export gives them — the same mapping BcfApplyEvent reads back) and, when the active view is 3D, its camera in
+    /// BCF terms (shared coordinates, metres; the inverse of BcfApplyEvent.ToRevit). <paramref name="pointsAt"/> says
+    /// what the issue will point at, for the dialog.</summary>
+    internal static IssueDraft CaptureIssue(UIDocument uidoc, out string pointsAt)
+    {
+        var doc = uidoc.Document;
+        var draft = new IssueDraft();
+        var cats = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var id in uidoc.Selection.GetElementIds())
+        {
+            var e = doc.GetElement(id);
+            if (e == null || e is ElementType) continue;
+            string? g = e.get_Parameter(BuiltInParameter.IFC_GUID)?.AsString();
+            if (string.IsNullOrWhiteSpace(g)) { try { g = BcfApplyEvent.ToIfcGuid(ExportUtils.GetExportId(doc, id)); } catch { continue; } }
+            if (string.IsNullOrWhiteSpace(g)) continue;
+            draft.IfcGuids.Add(g!);
+            var c = e.Category?.Name ?? "Other";
+            cats[c] = cats.TryGetValue(c, out var n) ? n + 1 : 1;
+        }
+        if (uidoc.ActiveView is View3D v3 && !v3.IsTemplate)
+        {
+            var o = v3.GetOrientation();
+            var toShared = doc.ActiveProjectLocation.GetTotalTransform();
+            Vec3 V(XYZ p) => new() { X = p.X, Y = p.Y, Z = p.Z };
+            draft.Camera = new PerspectiveCamera
+            {
+                ViewPoint = V(toShared.OfPoint(o.EyePosition) * FeetToMeters),
+                Direction = V(toShared.OfVector(o.ForwardDirection).Normalize()),
+                UpVector = V(toShared.OfVector(o.UpDirection).Normalize()),
+                FieldOfView = 60.0,
+            };
+            draft.CameraNote = v3.IsPerspective ? $"camera from '{v3.Name}'" : $"camera from '{v3.Name}' (isometric, sent as a 60° perspective)";
+        }
+        else draft.CameraNote = "no camera (the active view is not 3D)";
+        var what = string.Join(", ", cats.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value} × {kv.Key}"));
+        draft.Description = what.Length == 0 ? "" : $"Raised from Revit on {what} in '{doc.Title}'.";
+        pointsAt = draft.IfcGuids.Count == 0
+            ? "Nothing selected."
+            : $"Points at {draft.IfcGuids.Count} element(s): {what} · {draft.CameraNote}.";
+        return draft;
+    }
+
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         var uiapp = c.Application;
@@ -116,6 +161,33 @@ public sealed class BcfIssuesCommand : IExternalCommand
         // Display only (the banner): the bridge judges every check by its own resolved IDS. Off the UI thread.
         var ids = Task.Run(() => IdsSpecFile.Resolve(projectKey));
         var user = doc.Application.Username;
+
+        // Raise an issue FROM Revit (founder's request 2026-09-28): selection and camera are read on the API thread,
+        // the person describes it, and the two POSTs run off it; the window says what the bridge answered.
+        window.NewIssueRequested += () =>
+        {
+            if (App.Events == null) { window.SetStatus("Sentinel's event hub is not running — restart Revit."); return; }
+            App.Events.Enqueue(ua =>
+            {
+                var ud = ua.ActiveUIDocument;
+                if (ud?.Document is not { } d || !d.Equals(doc)) { window.SetStatus("switch back to the model the Issues window was opened on — nothing was sent"); return; }
+                var draft = CaptureIssue(ud, out var pointsAt);
+                var why = draft.IfcGuids.Count == 0 ? draft.Refusal() : null;
+                if (why != null) { window.SetStatus(why); return; }
+                var dlg = new NewIssueDialog(draft, pointsAt);
+                DialogOwner.Attach(dlg, mainHandle);
+                if (dlg.ShowDialog() != true) { window.SetStatus("New issue cancelled — nothing was sent."); return; }
+                window.SetStatus("Creating the issue…");
+                var serviceUrl = cfg.ServiceUrl;
+                Task.Run(() => sync.CreateIssueAsync(bcfKey, draft, cfg.ModelId, () => BcfConfig.Load().ServiceToken))
+                    .ContinueWith(t =>
+                    {
+                        var line = t.Status == TaskStatus.RanToCompletion ? t.Result.Sentence(draft, serviceUrl) : "Not created — " + (t.Exception?.GetBaseException().Message ?? "the request did not finish");
+                        window.SetOutcome(line);
+                        if (t.Status == TaskStatus.RanToCompletion && t.Result.TopicGuid != null) try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
+                    }, TaskScheduler.Default);
+            });
+        };
 
         // "No failure came back" is only evidence of passing when the referee judged everything that was sent
         // and its failure list was not cut off. Returns the reason the response cannot be trusted, or null.

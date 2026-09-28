@@ -27,6 +27,7 @@ public sealed class BcfIssuesWindow : Window
     public event Action? IsolateAllRequested;
     public event Action? IssuesForSelectionRequested;
     public event Action<BcfTopic>? FixRequested;
+    public event Action? NewIssueRequested;
     private readonly Button _fix;
 
     /// <summary>Current topics (for the command's isolate-all / selection-lookup requests).</summary>
@@ -67,6 +68,9 @@ public sealed class BcfIssuesWindow : Window
         var isolateAll = Btn("Isolate ALL issue elements", () => IsolateAllRequested?.Invoke());
         var forSel = Btn("Issues for my Revit selection", () => IssuesForSelectionRequested?.Invoke());
         var refresh = Btn("Refresh", () => RefreshRequested?.Invoke());
+        var raise = Btn("＋ New issue from my Revit selection", () => NewIssueRequested?.Invoke());
+        raise.FontWeight = FontWeights.SemiBold;
+        raise.ToolTip = "Select the element(s) in Revit (a 3D view also sends its camera), then describe the issue — it lands on the web board, linked to them.";
         _fix = Btn("Fix in Revit (referee-raised IDS issues only)", () => { if (_list.SelectedItem is BcfTopic t) FixRequested?.Invoke(t); });
         _fix.IsEnabled = false;
         _fix.ToolTip = "Only issues the referee raised (title “IDS: … — … (N failing)”) can be fixed in place.";
@@ -79,7 +83,7 @@ public sealed class BcfIssuesWindow : Window
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (_status, Dock.Bottom), (_fix, Dock.Bottom), (refresh, Dock.Bottom), (forSel, Dock.Bottom),
+            (_status, Dock.Bottom), (_fix, Dock.Bottom), (refresh, Dock.Bottom), (raise, Dock.Bottom), (forSel, Dock.Bottom),
             (isolateAll, Dock.Bottom), (zoom, Dock.Bottom), (detailScroll, Dock.Bottom),
             (listLabel, Dock.Top),
         })
@@ -103,7 +107,14 @@ public sealed class BcfIssuesWindow : Window
         _details.Text = string.Empty;
     });
 
-    public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
+    // An action's outcome (an issue created or refused) stays on the line for a while: the live refresh that follows
+    // the bridge's broadcast would otherwise replace it with the list count within a second.
+    private string? _outcome;
+    private DateTime _outcomeAt;
+    public void SetOutcome(string text) => Dispatcher.Invoke(() => { _outcome = text; _outcomeAt = DateTime.UtcNow; _status.Text = text; });
+    public void SetStatus(string text) => Dispatcher.Invoke(() =>
+        _status.Text = _outcome != null && text != _outcome && (DateTime.UtcNow - _outcomeAt).TotalSeconds < 90 ? _outcome + nl2 + text : text);
+    private static readonly string nl2 = Environment.NewLine;
 
     /// <summary>Select + reveal the topics the Revit selection was found in.</summary>
     public void HighlightTopics(IReadOnlyList<BcfTopic> matched) => Dispatcher.Invoke(() =>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for issues raised from Revit (2026-09-28): IssueDraft's refusals and bodies, and
+       BcfSyncManager.CreateIssueAsync against a throwaway loopback "bridge" — the bearer read per call, the topic then
+       its viewpoint, and the one sentence the Issues window prints for every answer (201, 401, 403, a lost viewpoint,
+       no answer, 201 without a guid). No Revit API, no real bridge; `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>issue-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Coordination\IssueDraft.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BcfSyncManager.cs" />
+  </ItemGroup>
+</Project>

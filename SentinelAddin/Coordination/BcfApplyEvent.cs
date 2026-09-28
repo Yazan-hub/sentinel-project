@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
@@ -181,7 +181,7 @@ public sealed class BcfApplyEvent : IExternalEventHandler
     private static readonly char[] _b64 =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$".ToCharArray();
 
-    private static string ToIfcGuid(Guid guid)
+    internal static string ToIfcGuid(Guid guid)
     {
         byte[] b = guid.ToByteArray(); // .NET stores the first 3 fields little-endian; reorder below.
         uint[] num =
