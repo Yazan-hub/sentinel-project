@@ -223,7 +223,26 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(writes("audit_log")).toEqual([]);
   });
 
+  // The lock (3D spec Decision 4): the register takes new clashes only after a passing Federation Gate on the live set.
+  const gatePassed = () => db.bridge_docs.push({ store: "federation", project_id: PID, doc_id: "latest", data: { result: { verdict: "pass", checks: [] }, set: [], scope: "all", at: "2026-09-28T10:00:00Z" } });
+
+  it("the register is locked until the Federation Gate passed: not run, or failed, is a 409 in words and nothing is written", async () => {
+    expect(await call("POST", "/clash/demo", "contributor", { items: [item] }))
+      .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate) — nothing was saved" } });
+    db.bridge_docs.push({ store: "federation", project_id: PID, doc_id: "latest", data: { result: { verdict: "fail", checks: [{ id: "FG-01", status: "fail" }] }, set: [], scope: "all" } });
+    expect(await call("POST", "/clash/demo", "contributor", { items: [item] }))
+      .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate failed (FG-01) — fix those and run it again — nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("the lock is on recording only: moving a clash already on the register needs no gate", async () => {
+    seedDoc("clash", "a|b", { ...item, project: "demo" });
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "reviewed" })).toEqual({ status: 200, body: { ok: true } });
+  });
+
   it("a contributor records clashes — one ledger row per clash new to the register — and moves one, each by their identity", async () => {
+    gatePassed();
     expect((await call("POST", "/clash/demo", "contributor", { items: [item] })).status).toBe(201);
     expect((await call("POST", "/clash/demo", "contributor", { items: [item] })).status).toBe(201); // already on the register: no second row
     expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "reviewed" })).toEqual({ status: 200, body: { ok: true } });
@@ -232,6 +251,20 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
       ["clash", "Clash raised → reviewed: Wall ↔ Beam", "contributor@example.test"],
     ]);
     expect(db.audit_log[0].new_value).toEqual({ signature: "a|b", volume: 0.2, overlap: [1, 1, 0.2], elements: [], bcf_guid: "g1" });
+    // The register is the bridge's alone (0034): its writes carry the service key, after the bridge's own checks.
+    const clashWrites = writes("bridge_docs").filter((c) => c.body?.store === "clash" || (Array.isArray(c.body) && c.body[0]?.store === "clash"));
+    expect(clashWrites.length).toBeGreaterThan(0);
+    expect(clashWrites.every((c) => c.service)).toBe(true);
+  });
+
+  it("a Clash Issue is refused while the gate has not passed (the register's lock, asked per Issue); other Issues are not", async () => {
+    const topics = "/bcf/3.0/projects/demo/topics";
+    expect(await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" }))
+      .toEqual({ status: 409, body: { message: "not raised — the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate) — nothing was saved" } });
+    expect(writes("bcf_topics")).toEqual([]);
+    expect((await call("POST", topics, "contributor", { title: "A question", topic_type: "Issue" })).status).toBe(201);
+    gatePassed();
+    expect((await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" })).status).toBe(201);
   });
 
   it("a PUT that moves nothing says so: an unknown status is a 400, a clash not on the register a 404, the same status no ledger row", async () => {
@@ -243,10 +276,11 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
   });
 
   it("a POST records clashes and moves none: a record on the register keeps its status, a new one is raised (moves are PUTs, on the ledger)", async () => {
+    gatePassed();
     seedDoc("clash", "a|b", { ...item, project: "demo" });
     const items = [{ signature: "a|b", status: "resolved" }, { ...item, signature: "c|d", status: "resolved" }];
     expect((await call("POST", "/clash/demo", "contributor", { items })).status).toBe(201);
-    expect(db.bridge_docs.map((r) => [r.doc_id, r.data.status])).toEqual([["a|b", "raised"], ["c|d", "raised"]]);
+    expect(db.bridge_docs.filter((r) => r.store === "clash").map((r) => [r.doc_id, r.data.status])).toEqual([["a|b", "raised"], ["c|d", "raised"]]);
     expect(db.audit_log.map((r) => r.action)).toEqual(["Clash raised: Wall ↔ Beam"]);
   });
 
@@ -266,6 +300,7 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
   });
 
   it("a user's raise requests are budgeted (H0 minor N31): the 31st in a minute is a 429 and writes nothing", async () => {
+    gatePassed();
     // A lead (unused for /clash raises by any earlier test in this file) so this test's own budget window starts fresh.
     const raise = (i) => call("POST", "/clash/demo", "lead", { items: [{ ...item, signature: `s${i}` }] });
     for (let i = 0; i < 30; i++) expect((await raise(i)).status).toBe(201);

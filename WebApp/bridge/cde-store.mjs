@@ -1659,9 +1659,9 @@ export async function docReplaceIfField(store, pid, docId, data, field, expected
 export async function docInsert(store, pid, docId, data, { service = false } = {}) {
   await sb(`bridge_docs`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data }, prefer: "return=minimal", service });
 }
-export async function docUpsertMany(store, pid, items) { // items: [{doc_id, data}]
+export async function docUpsertMany(store, pid, items, { service = false } = {}) { // items: [{doc_id, data}]
   if (!items.length) return;
-  await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: items.map((i) => ({ store, project_id: pid, doc_id: String(i.doc_id), data: i.data, updated_at: new Date().toISOString() })), prefer: "resolution=merge-duplicates,return=minimal" });
+  await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: items.map((i) => ({ store, project_id: pid, doc_id: String(i.doc_id), data: i.data, updated_at: new Date().toISOString() })), prefer: "resolution=merge-duplicates,return=minimal", service });
 }
 export async function docDeleteProject(store, pid, { service = false } = {}) {
   await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}`, { method: "DELETE", prefer: "return=minimal", service });

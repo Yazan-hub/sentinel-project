@@ -1237,7 +1237,7 @@ function checkFederation(models, opts = {}) {
     return out;
   }
   out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];
-  out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : "pass";
+  out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
   return out;
 }
 

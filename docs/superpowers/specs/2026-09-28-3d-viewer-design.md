@@ -43,9 +43,14 @@ Parent: `docs/ROADMAP.md` item 2; `docs/UPGRADE_MAP_2026-09.md` U-8..U-12.
 3. **When the exact check cannot run** (the Collider throws, a model is not a fragments model), the run falls back to
    the boxes and says so on every line of the status: "boxes only — the solids were not checked: <reason>". Never a
    silent downgrade.
-4. **(founder) The gate as a lock.** D-01 made the Federation Gate a warning. Recommendation: keep a run free (it is
-   exploratory), but let ⚑ Raise write to the register only when the gate passed on the current live set, and say
-   why when it refuses. Not built until he decides.
+4. **The gate as a lock — decided by the founder 2026-09-28 ("yes"), built.** A run stays free; ⚑ Raise records on the
+   register only when the Federation Gate passed on the whole live set (`raiseGate`: a pass, not stale, every live
+   model judged; a pass needs at least one check that passed — six not-checkable checks are NOT CHECKABLE). The bridge
+   asks it for every new register record (`POST /clash/:pid` → 409 in words) and every Clash issue (so a gate that goes
+   stale mid-raise stops at the first issue); the panel asks it before starting and shows the lock on its banner; moving
+   a recorded clash stays free; a bridge without a CDE has no gate. The register is written with the service key after
+   those checks; migration 0034 (written, applied only on the founder's approval) takes the direct PostgREST write away
+   from signed-in callers — until it is applied, a contributor could still write the store directly.
 5. **Streaming is measured before anything changes (built: BIM Tools ▸ Performance).** A 10-second measure while the
    person orbits: frame time p50/p95, drawn frames, draw calls and triangles submitted per drawn frame (summed across
    postproduction passes), GPU geometries/textures, JS heap, per model its elements and whether culling/LOD follow a

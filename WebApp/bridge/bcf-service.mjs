@@ -230,7 +230,9 @@ async function upsertClashesCde(cde, pid, items) {
       ? { ...prev, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, elements: it.elements || prev.elements, overlap: it.overlap || prev.overlap, updated_at: now }
       : { project: pid, signature: it.signature, status: "raised", volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
   }
-  await cde.docUpsertMany("clash", pid, [...touched].map(([sig, data]) => ({ doc_id: sig, data })));
+  // The service key: the register is the bridge's alone (migration 0034 closes the direct write), and this runs only
+  // after the route's role check and the Federation Gate's lock.
+  await cde.docUpsertMany("clash", pid, [...touched].map(([sig, data]) => ({ doc_id: sig, data })), { service: true });
   // The records this call added (their signature was not on the register): each gets a "Clash raised" ledger row.
   return [...touched].filter(([sig]) => !bySig.has(sig)).map(([, rec]) => rec);
 }
@@ -240,7 +242,7 @@ async function updateClashStatusCde(cde, pid, signature, status) {
   if (!rec) return false;
   const from = rec.status;
   rec.status = status; rec.updated_at = new Date().toISOString();
-  await cde.docUpsert("clash", pid, signature, rec);
+  await cde.docUpsert("clash", pid, signature, rec, { service: true }); // after the route's contributor check (0034)
   return { from, label: rec.label ?? null }; // what moved, for its ledger row
 }
 
@@ -1829,13 +1831,23 @@ async function handleRequest(req, res) {
         catch (e) { console.warn(`[clash] ledger row "${action}" not written: ${e?.message || e}`); }
       };
       if (req.method === "POST" && sub === "reset") {
-        if (useCde) await cde.docDeleteProject("clash", cpid); else { cldb.clashes = cldb.clashes.filter((c) => c.project !== cpid); persistClash(); }
+        if (useCde) await cde.docDeleteProject("clash", cpid, { service: true }); else { cldb.clashes = cldb.clashes.filter((c) => c.project !== cpid); persistClash(); } // after the lead check (0034)
         await ledger("Clash register reset — every clash re-surfaces on the next run", null);
         return send(res, 200, { ok: true });
       }
       if (req.method === "POST" && !sub) {
         const items = (await readBody(req)).items;
         if (Array.isArray(items) && items.length > MAX_CLASH_ITEMS) return send(res, 400, { message: `at most ${MAX_CLASH_ITEMS} clash records a request — nothing was saved` });
+        // The lock (3D spec Decision 4, founder 2026-09-28): the register takes new clashes only when the Federation Gate
+        // passed on the whole live set now — asked of the gate itself. The bridge writes the register with the service key
+        // after this; migration 0034 takes the direct PostgREST write away from signed-in callers (until it is applied, a
+        // contributor could still write the store directly). A 409 names what to do; nothing is written. The local-file
+        // fallback (no CDE) has no gate and no lock.
+        if (useCde && Array.isArray(items) && items.length) {
+          const fed = await import("./federation-store.mjs");
+          const gate = fed.raiseGate(await fed.getFederation(cpid));
+          if (!gate.ok) return send(res, 409, { message: `not recorded — ${gate.why} — nothing was saved` });
+        }
         // A raise grows the append-only ledger (up to MAX_CLASH_ITEMS rows a request), so a signed-in caller's raise
         // requests are budgeted as notes and IDS raises are (H0 minor N31): over budget is a 429 before anything is
         // written, never a partial write and a ledger row over nothing.
@@ -1890,6 +1902,14 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && !guid) {
       const b = await readBody(req);
       cde.checkTopicTitle(b?.title);
+      // A Clash Issue is raised only when its clash may be recorded (the register's lock, 3D spec Decision 4): asked
+      // here too, so a gate that goes stale in the middle of a 100-clash raise stops it at the first Issue instead of
+      // leaving Issues the register then refuses.
+      if (useCde && b?.topic_type === "Clash") {
+        const fed = await import("./federation-store.mjs");
+        const gate = fed.raiseGate(await fed.getFederation(pid));
+        if (!gate.ok) return send(res, 409, { message: `not raised — ${gate.why} — nothing was saved` });
+      }
       const now = new Date().toISOString();
       const topic = cde.newTopicObject(pid, b, now);
       // The web's IDS raise (visibility-panel) wrote this ledger row itself through POST /cde/:key/audit, a lead's notes

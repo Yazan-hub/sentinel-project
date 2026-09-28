@@ -219,6 +219,8 @@ export function checkFederation(models: FederationModel[], opts: FederationOptio
     return out;
   }
   out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];
-  out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : "pass";
+  // A pass needs something checked: six not-checkable checks are NOT CHECKABLE, never PASS (the lock on the clash
+  // register opens on PASS — found by its review, 2026-09-28).
+  out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
   return out;
 }

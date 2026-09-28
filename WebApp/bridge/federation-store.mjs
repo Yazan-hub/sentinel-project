@@ -95,10 +95,32 @@ function isStale(recordedSet, liveSet, scope = "all") {
   }) || (scope !== "explicit" && liveSet.some((l) => !recorded.has(l.container)));
 }
 
+/** PURE — the lock on the clash register (spec 2026-09-28-3d-viewer-design.md Decision 4; the founder's "yes",
+ *  2026-09-28): new clashes are recorded only when the Federation Gate passed on the current live set. A run stays free;
+ *  what is locked is recording. `why` names the one thing to do, in words, when it is refused. */
+export function raiseGate(fed) {
+  const latest = fed?.latest ?? null;
+  if (!latest) return { ok: false, why: "the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate)" };
+  // A run over a named subset (scope "explicit") is never stale for the live models it left out, so coverage is asked
+  // separately: every live model must be in the run (found by the lock's review, 2026-09-28).
+  const seen = new Set((latest.set ?? []).map((m) => m.container));
+  const unjudged = (fed.live_set ?? []).filter((l) => !seen.has(l.container)).map((l) => l.container);
+  if (unjudged.length) return { ok: false, why: `the Federation Gate's last run did not judge ${unjudged.length} live model(s) (${unjudged.slice(0, 3).join(", ")}${unjudged.length > 3 ? ", …" : ""}) — run it on the whole live set` };
+  if (fed.stale) return { ok: false, why: "the Federation Gate's last run is stale — a live model changed since; run it again" };
+  const verdict = latest.result?.verdict;
+  if (verdict === "pass") return { ok: true, why: null };
+  if (verdict === "fail") {
+    const ids = (latest.result.checks ?? []).filter((c) => c.status === "fail").map((c) => c.id);
+    return { ok: false, why: `the Federation Gate failed (${ids.length ? ids.join(", ") : "see its checks"}) — fix those and run it again` };
+  }
+  return { ok: false, why: "the Federation Gate could not check the models (NOT CHECKABLE) — capture their manifests and run it again" };
+}
+
 export async function getFederation(key, deps) {
   const d = await wire(deps);
   const proj = await d.ensureProject(key);
   const latest = (await d.docGet(STORE, proj.id, "latest")) ?? null;
   const live = await d.listManifests(key);
-  return { latest, stale: !!latest && isStale(latest.set, live, latest.scope ?? "all"), live_set: live };
+  const stale = !!latest && isStale(latest.set, live, latest.scope ?? "all");
+  return { latest, stale, live_set: live, raise: raiseGate({ latest, stale, live_set: live }) };
 }
