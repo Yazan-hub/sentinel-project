@@ -267,7 +267,7 @@ export async function listProjects() {
   let rows;
   try {
     rows = await sb(
-      `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,kind,office_key,information_containers(count)&order=created_at.desc`,
+      `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,kind,office_key,information_containers(count)&information_containers.deleted_at=is.null&order=created_at.desc`,
     );
   } catch (e) {
     if (!/column .* does not exist|42703/.test(String(e?.message || e))) throw e;
@@ -508,7 +508,14 @@ export async function moveContainer(containerId, b) {
 
 export async function listContainers(key) {
   const proj = await ensureProject(key);
-  return sb(`information_containers?project_id=eq.${proj.id}&select=*,container_versions(*)&order=created_at.desc`);
+  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=*,container_versions(*)&order=created_at.desc`);
+  // Deleted items (0035) are read only through listDeleted: every other reader sees the project without them.
+  return (Array.isArray(rows) ? rows : []).filter((c) => !c.deleted_at).map((c) => {
+    const all = c.container_versions || [];
+    const container_versions = all.filter((v) => !v.deleted_at);
+    // deleted_versions: so the board's next revision label never reuses a deleted version's.
+    return { ...c, container_versions, deleted_versions: all.length - container_versions.length };
+  });
 }
 
 export async function createContainer(key, b) {
@@ -543,13 +550,17 @@ export async function addVersion(container_id, b) {
 /** List a project's files (containers) with their version history, newest version first, live flagged. */
 export async function listFiles(key) {
   const proj = await ensureProject(key);
-  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,title,discipline,container_type,parent_id,created_at,container_versions(id,revision,state,suitability,author,notes,size_bytes,sha256,platform_item_id,file_ref,is_live,superseded,created_at)&order=created_at.desc`);
-  return (Array.isArray(rows) ? rows : []).map((c) => {
-    const versions = (c.container_versions || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,title,discipline,container_type,parent_id,created_at,deleted_at,container_versions(id,revision,state,suitability,author,notes,size_bytes,sha256,platform_item_id,file_ref,is_live,superseded,created_at,deleted_at)&order=created_at.desc`);
+  // Deleted items (0035) are left out here — the Federation Gate's live set, the clash lock, Holding, reviews, the journey,
+  // deliverables and the files panel all read this list. They are read through listDeleted.
+  return (Array.isArray(rows) ? rows : []).filter((c) => !c.deleted_at).map((c) => {
+    const all = c.container_versions || [];
+    const versions = all.filter((v) => !v.deleted_at).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     return {
       id: c.id, iso_name: c.iso_name, title: c.title, discipline: c.discipline, container_type: c.container_type,
       parent_id: c.parent_id ?? null, // linked model → nests under this host container in the file tree
       created_at: c.created_at, version_count: versions.length,
+      deleted_versions: all.length - versions.length, // so the next label never reuses a deleted version's
       live_version_id: versions.find((v) => v.is_live)?.id ?? null,
       versions,
     };
@@ -559,9 +570,11 @@ export async function listFiles(key) {
 /** Flip the live pointer: mark one version live, all its siblings not-live (partial-unique-safe: clear first). */
 export async function setLiveVersion(version_id, actor) {
   if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
-  const rows = await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}&select=id,container_id,revision`);
+  const rows = await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}&select=id,container_id,revision,deleted_at,information_containers(deleted_at)`);
   const v = Array.isArray(rows) ? rows[0] : null;
   if (!v) { const e = new Error("version not found"); e.status = 404; throw e; }
+  // Refused before the sibling clear below, or a refused pointer would leave the file with no live version.
+  if (v.deleted_at || v.information_containers?.deleted_at) { const e = new Error("this version is in Deleted items — restore it first"); e.status = 409; throw e; }
   // Clear the container's current live row FIRST so the partial unique index never sees two live rows.
   await sb(`container_versions?container_id=eq.${v.container_id}&is_live=eq.true`, { method: "PATCH", body: { is_live: false }, prefer: "return=minimal" });
   // cv_update is a contributor's: a pointer the database would not move comes back as no row — a refusal, not "set live".
@@ -573,11 +586,15 @@ export async function setLiveVersion(version_id, actor) {
 }
 
 /** Resolve a container within a project (404 when absent / not this project's). */
-async function containerOf(key, container_id) {
+async function containerOf(key, container_id, { deleted = false } = {}) {
   const proj = await ensureProject(key);
-  const rows = await sb(`information_containers?id=eq.${encodeURIComponent(container_id)}&project_id=eq.${proj.id}&select=id,iso_name,container_versions(id,state)`);
+  const rows = await sb(`information_containers?id=eq.${encodeURIComponent(container_id)}&project_id=eq.${proj.id}&select=id,iso_name,folder_id,parent_id,deleted_at,container_versions(id,state,revision,deleted_at)`);
   const c = Array.isArray(rows) ? rows[0] : null;
-  if (!c) { const e = new Error("file not found in this project"); e.status = 404; throw e; }
+  // A file in Deleted items is found only by the restore; to everything else it is not in the project.
+  if (!c || !!c.deleted_at !== deleted) {
+    const e = new Error(deleted ? "this file is not in Deleted items" : "file not found in this project"); e.status = 404; throw e;
+  }
+  if (!deleted) c.container_versions = (c.container_versions || []).filter((v) => !v.deleted_at);
   return { proj, c };
 }
 
@@ -592,8 +609,9 @@ export async function renameFile(key, container_id, name, actor) {
 }
 
 /** Archive a file, governance-consistent: PUBLISHED versions transition to 'archived' (the only legal ISO
- *  move — they stay on the record, immutable); wip/shared drafts are deleted. The file then holds only
- *  archived versions and the web hides it behind the "archived" toggle. */
+ *  move — they stay on the record, immutable); wip/shared drafts move to Deleted items (0035: restorable, one ledger
+ *  row each — they used to be erased). The file then holds only archived versions and the web hides it behind the
+ *  "archived" toggle. */
 export async function archiveFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
   const versions = c.container_versions || [];
@@ -601,8 +619,10 @@ export async function archiveFile(key, container_id, actor) {
   for (const v of versions) {
     if (v.state === "published") { await transition(key, v.id, "archived", { actor: actor || "web", note: "file archived" }); archived++; }
     else if (v.state !== "archived") {
-      // cv_delete is a lead's: a draft the database would not discard comes back as no row — a refusal, not "discarded".
-      requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "DELETE", prefer: "return=representation" }), "a file's draft versions are discarded by a lead or owner");
+      // Moving a draft to Deleted items is a lead's (the 0035 guard): a move the database would not make comes back as
+      // no row — a refusal, not "discarded".
+      requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { deleted_at: new Date().toISOString(), deleted_by: resolveActor(actor, "web") }, prefer: "return=representation" }), "a file's draft versions are moved to Deleted items by a lead or owner");
+      await audit(proj.id, "file_version", v.id, "deleted", actor || "web", null, { file: c.iso_name, revision: v.revision, state: v.state, by: "archive", deleted_items: true });
       discarded++;
     }
   }
@@ -628,15 +648,15 @@ export async function unarchiveFile(key, container_id, actor) {
   return { ok: true, restored };
 }
 
-/** Delete a file (container + versions, cascading). PUBLISHED versions are immutable — the DB trigger
- *  refuses, surfaced as a 409 telling the caller to archive instead. ic_delete is a lead's: a delete the database
- *  refused comes back as no row, a 403. The "deleted" row is written only after a delete that happened (it used to go
- *  first, whatever the delete did); audit_log has no FK, so it outlives the container. */
+/** Delete a file: it moves to Deleted items with every version (0035, as in ACC/Forma — restorable, kept for ever; the
+ *  name is free for a new file). A file holding a PUBLISHED version is refused by the database guard, surfaced as a 409
+ *  telling the caller to archive instead. Moving a file to Deleted items is a lead's: a move the database refused comes
+ *  back as no row, a 403. The "deleted" row is written only after the move happened. */
 export async function deleteFile(key, container_id, actor) {
   const { proj, c } = await containerOf(key, container_id);
   let gone;
   try {
-    gone = await sb(`information_containers?id=eq.${c.id}`, { method: "DELETE", prefer: "return=representation" });
+    gone = await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { deleted_at: new Date().toISOString(), deleted_by: resolveActor(actor, "web") }, prefer: "return=representation" });
   } catch (e) {
     if (String(e?.message || "").includes("published versions are immutable")) {
       const err = new Error("This file has PUBLISHED versions, which are immutable by design — it cannot be deleted. Archive it instead.");
@@ -645,9 +665,53 @@ export async function deleteFile(key, container_id, actor) {
     }
     throw e;
   }
-  requireRows(gone, "a file is deleted by a lead or owner");
-  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name }, null);
-  return { deleted: true, iso_name: c.iso_name };
+  requireRows(gone, "a file is moved to Deleted items by a lead or owner");
+  await audit(proj.id, "container", c.id, "deleted", actor || "web", { iso_name: c.iso_name, folder_id: c.folder_id ?? null, parent_id: c.parent_id ?? null }, { deleted_items: true, versions: c.container_versions.length });
+  return { deleted: true, deleted_items: true, iso_name: c.iso_name };
+}
+
+/** Deleted items of a project (0035): whole files (with how many versions they hold) and single versions of files still
+ *  in the project (drafts an archive moved there), newest first — who, when. Any member reads it. */
+export async function listDeleted(key) {
+  const proj = await ensureProject(key);
+  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,iso_name,deleted_at,deleted_by,container_versions(id,revision,state,deleted_at,deleted_by,created_at)`);
+  const out = [];
+  for (const c of Array.isArray(rows) ? rows : []) {
+    const vs = c.container_versions || [];
+    if (c.deleted_at) out.push({ kind: "file", container_id: c.id, iso_name: c.iso_name, deleted_at: c.deleted_at, deleted_by: c.deleted_by ?? null, versions: vs.length });
+    else for (const v of vs) if (v.deleted_at) out.push({ kind: "version", container_id: c.id, iso_name: c.iso_name, version_id: v.id, revision: v.revision, state: v.state, deleted_at: v.deleted_at, deleted_by: v.deleted_by ?? null });
+  }
+  return out.sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
+}
+
+/** Restore from Deleted items (0035): a whole file with all its versions, or one version of a file that is in the project
+ *  (it comes back not live, in the state it had). A lead's. A file whose name was taken meanwhile is refused in ACC's
+ *  words (409); a file whose folder was deleted meanwhile lands at the project root (its folder link is already null). */
+export async function restoreFile(key, { container_id, version_id } = {}, actor) {
+  if (version_id) {
+    if (!isUuid(version_id)) { const e = new Error("this version is not in Deleted items"); e.status = 404; throw e; }
+    const { proj, c } = await containerOf(key, container_id);
+    const v = (await sb(`container_versions?id=eq.${version_id}&container_id=eq.${c.id}&select=id,revision,state,deleted_at`))?.[0];
+    if (!v?.deleted_at) { const e = new Error("this version is not in Deleted items"); e.status = 404; throw e; }
+    requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { deleted_at: null, deleted_by: null }, prefer: "return=representation" }), "a version is restored from Deleted items by a lead or owner");
+    await audit(proj.id, "file_version", v.id, "restored", actor || "web", null, { file: c.iso_name, revision: v.revision, state: v.state, from: "deleted_items" });
+    return { restored: true, kind: "version", iso_name: c.iso_name, revision: v.revision };
+  }
+  const { proj, c } = await containerOf(key, container_id, { deleted: true });
+  let back;
+  try {
+    back = await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { deleted_at: null, deleted_by: null }, prefer: "return=representation" });
+  } catch (e) {
+    if (/23505|duplicate key|ic_project_name_not_deleted/.test(String(e?.message || ""))) {
+      const err = new Error(`A file named ${c.iso_name} is already in this project — rename or delete that file, then restore this one. Nothing was restored.`);
+      err.status = 409;
+      throw err;
+    }
+    throw e;
+  }
+  requireRows(back, "a file is restored from Deleted items by a lead or owner");
+  await audit(proj.id, "container", c.id, "restored", actor || "web", null, { iso_name: c.iso_name, versions: (c.container_versions || []).length, from: "deleted_items", to_root: !back[0]?.folder_id });
+  return { restored: true, kind: "file", iso_name: c.iso_name, versions: (c.container_versions || []).length };
 }
 
 /** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and
@@ -657,7 +721,8 @@ export async function registerFileVersion(key, b = {}) {
   const name = (b.name || b.iso_name || "").trim();
   if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
 
-  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id,parent_id,container_versions(id,revision,is_live,platform_item_id)`);
+  // A file in Deleted items does not own its name any more (0035): a new upload of that name is a new file.
+  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&deleted_at=is.null&select=id,parent_id,container_versions(id,revision,is_live,platform_item_id,deleted_at)`);
   let container = Array.isArray(existing) ? existing[0] : null;
 
   // Host→link nesting (0019): a linked model names its host file; resolve it in the same project and
@@ -665,7 +730,7 @@ export async function registerFileVersion(key, b = {}) {
   // hasn't registered yet (upload order isn't guaranteed) just leaves the link top-level.
   let parentId = null;
   if (b.parent_name) {
-    const host = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(String(b.parent_name).trim())}&select=id`);
+    const host = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(String(b.parent_name).trim())}&deleted_at=is.null&select=id`);
     parentId = Array.isArray(host) && host[0] ? host[0].id : null;
   }
   if (container && parentId && container.parent_id !== parentId) {
@@ -679,7 +744,7 @@ export async function registerFileVersion(key, b = {}) {
   // whose name matched a Revit-judged version once attached onto it (files-panel.ts), and an intake's verdict
   // once landed on a stale row (phase 5 spec, Decision 6).
   if (container && b.platform_item_id && b.attach_geometry === true) {
-    const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id);
+    const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id && !v.deleted_at);
     if (liveNoGeom) {
       requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation" }), "geometry is linked to a version by a contributor or above");
       await audit(proj.id, "file_version", liveNoGeom.id, "geometry linked", b.author || "web", null, { file: name, platform_item_id: b.platform_item_id });
@@ -696,7 +761,8 @@ export async function registerFileVersion(key, b = {}) {
     await audit(proj.id, "container", container.id, "created", b.author || "web", null, { iso_name: name, ...(parentId ? { link_of: b.parent_name } : {}) });
   }
 
-  // Next revision label: honour a supplied one, else v{N+1} across the file's existing versions.
+  // Next revision label: honour a supplied one, else v{N+1} across the file's existing versions — Deleted items included,
+  // so a label is never reused.
   const priorCount = (container.container_versions || []).length;
   const revision = b.revision || `v${priorCount + 1}`;
 
@@ -729,9 +795,10 @@ export async function attachGeometry(key, versionId, platformItemId) {
   if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
   if (!isUuid(versionId)) throw notOnKey();
   const proj = await ensureProject(key);
-  const v = (await sb(`container_versions?id=eq.${versionId}&select=id,container_id,revision,is_live,platform_item_id`))?.[0];
-  const c = v && (await sb(`information_containers?id=eq.${v.container_id}&project_id=eq.${proj.id}&select=iso_name`))?.[0];
+  const v = (await sb(`container_versions?id=eq.${versionId}&select=id,container_id,revision,is_live,platform_item_id,deleted_at`))?.[0];
+  const c = v && (await sb(`information_containers?id=eq.${v.container_id}&project_id=eq.${proj.id}&select=iso_name,deleted_at`))?.[0];
   if (!c) throw notOnKey();
+  if (v.deleted_at || c.deleted_at) { const e = new Error(`version ${v.id} is in Deleted items — restore it first`); e.status = 409; throw e; }
   const done = v.platform_item_id ? [] : await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation" });
   if (!done?.length) {
     const e = new Error(`version ${v.id} already has geometry${v.platform_item_id ? ` (platform item ${v.platform_item_id})` : ""} — a version's geometry is attached once`);
@@ -747,11 +814,14 @@ export async function attachGeometry(key, versionId, platformItemId) {
 export async function versionOnKey(key, version_id) {
   const proj = await ensureProject(key);
   const rows = isUuid(version_id)
-    ? await sb(`container_versions?id=eq.${version_id}&select=id,container_id,revision,state,information_containers(project_id)`)
+    ? await sb(`container_versions?id=eq.${version_id}&select=id,container_id,revision,state,deleted_at,information_containers(project_id,deleted_at)`)
     : [];
   const v = Array.isArray(rows) ? rows[0] : null;
   if (!v || v.information_containers?.project_id !== proj.id) {
     const e = new Error(`version ${version_id} is not on ${key}`); e.status = 400; throw e;
+  }
+  if (v.deleted_at || v.information_containers?.deleted_at) {
+    const e = new Error(`version ${version_id} is in Deleted items — restore it first`); e.status = 409; throw e;
   }
   return { proj, version: { id: v.id, container_id: v.container_id, revision: v.revision, state: v.state } };
 }
@@ -969,7 +1039,7 @@ function holdFailure(f) {
  *  (audit()), null when none came back. */
 export async function writeHold(proj, { stage, container_name, sha256, size_bytes, verdict, failures, failures_total, source, gate_row_id, proposal_row_id, contract_ref, ids_ref, naming_ref, actor }) {
   const name = String(container_name ?? "").trim();
-  const found = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&select=id`);
+  const found = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&deleted_at=is.null&select=id`);
   const all = Array.isArray(failures) ? failures : [];
   return audit(proj.id, "hold", Array.isArray(found) ? found[0]?.id ?? null : null, `hold:${stage} ${name}`, actor, null, {
     container_name: name, sha256: sha256 ?? null, size_bytes: size_bytes ?? null, stage, verdict: verdict ?? "rejected",
@@ -1165,10 +1235,10 @@ const snapNum = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null 
 /** Ingest a model revision + its element snapshots. Returns { revision_id, element_count, rev_code, uploaded_at }. */
 /** The project's live file version, but only if EXACTLY one exists (so auto-linking can't mislink). */
 async function soleLiveVersionId(projectId) {
-  const conts = await sb(`information_containers?project_id=eq.${projectId}&select=id`);
+  const conts = await sb(`information_containers?project_id=eq.${projectId}&deleted_at=is.null&select=id`);
   const ids = (Array.isArray(conts) ? conts : []).map((c) => c.id);
   if (!ids.length) return null;
-  const live = await sb(`container_versions?is_live=eq.true&container_id=in.(${ids.join(",")})&select=id`);
+  const live = await sb(`container_versions?is_live=eq.true&deleted_at=is.null&container_id=in.(${ids.join(",")})&select=id`);
   return Array.isArray(live) && live.length === 1 ? live[0].id : null;
 }
 

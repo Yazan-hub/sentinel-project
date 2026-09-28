@@ -1,5 +1,5 @@
 // A fake PostgREST over in-memory tables for the store tests — no network. It answers what the stores ask: eq.
-// filters (other operators are ignored), the two embeds they read (container_versions(...) under a container,
+// and is.null / not.is.null filters on the table's own columns (other operators are ignored), the two embeds they read (container_versions(...) under a container,
 // information_containers(...) under a version), GET / PATCH / DELETE / POST, and Prefer: return=representation.
 // `refuse` names the tables whose PATCH and DELETE the database turns down the way RLS does: no error and no row —
 // the answer a store must read as a refusal (H0 D5). audit_log rows get an id and a hash, as the chain trigger would.
@@ -17,7 +17,9 @@ export function fakePostgrest(db, { refuse = [] } = {}) {
     const eqs = [...u.searchParams].filter(([, v]) => v.startsWith("eq."));
     // Postgres uuid equality (used for every id column here) ignores case — match that so a test can pin the
     // same case-fold behaviour the real database gives (H0 minor N28).
-    const hit = (r) => eqs.every(([k, v]) => String(r[k]).toLowerCase() === v.slice(3).toLowerCase());
+    const nulls = [...u.searchParams].filter(([k, v]) => !k.includes(".") && (v === "is.null" || v === "not.is.null"));
+    const hit = (r) => eqs.every(([k, v]) => String(r[k]).toLowerCase() === v.slice(3).toLowerCase())
+      && nulls.every(([k, v]) => (v === "is.null") === (r[k] == null));
     const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
     // Without return=representation PostgREST answers a write with no body: 201 for an insert, 204 for the rest.
     const back = (list, status) => (/return=representation/.test(prefer) ? json(list, status) : new Response(null, { status: status === 201 ? 201 : 204 }));

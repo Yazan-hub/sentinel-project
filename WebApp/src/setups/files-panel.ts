@@ -9,6 +9,7 @@ import { ledgerLine } from "./stage-gate";
 import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem } from "./holding";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
+import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -22,7 +23,9 @@ import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from 
  * uploaded and registered only when accepted or recorded; a refused file uploads nothing and is listed under
  * "On hold (n)" until a corrected file is registered under its name or a lead dismisses it), set any version live,
  * and compare any two versions' take-off (cost / carbon / element count) from their stored element snapshots —
- * reusing the verified sentinel-core diff. Plain-DOM, iframe-safe; needs the bridge + CDE.
+ * reusing the verified sentinel-core diff. A lead archives (published versions only) and deletes: a deleted file, and a
+ * draft an archive set aside, waits in "Deleted items (n)" until a lead restores it (0035, ACC/Forma) — never erased.
+ * Plain-DOM, iframe-safe; needs the bridge + CDE.
  */
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
@@ -36,6 +39,7 @@ interface FileRec {
   id: string; iso_name: string; title?: string; discipline?: string; container_type?: string;
   parent_id?: string | null; // linked model → nests under its host file (ACC-style tree)
   created_at: string; version_count: number; live_version_id: string | null; versions: Version[];
+  deleted_versions?: number; // versions in Deleted items — counted so a new label never reuses theirs
 }
 // One immutable audit event (audit_log row) — the "who did what, when" behind each version.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,6 +61,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let holdError: string | null = null;
   let showHeld = false;
   let dismissing: number | null = null;
+  // Deleted items (0035): read on every load like On hold; `deletedError` makes the section say "not read — …".
+  let deleted: DeletedItem[] = [];
+  let deletedError: string | null = null;
+  let showDeleted = false;
   let role = "viewer";
   // Inline action states — window.prompt/confirm are silently blocked in the platform's cross-origin
   // iframe (Chrome removed them), so rename uses an inline input and archive/delete a two-click confirm.
@@ -148,10 +156,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       dismissing = null;
       try { holding = await readHolding(base, pid()); holdError = null; }
       catch (e) { holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
+      try { deleted = await readDeleted(base, pid()); deletedError = null; }
+      catch (e) { deleted = []; deletedError = (e as Error).message; }
       await asked;
       render();
       const held = holdError ? `on hold: ${holdError}` : `${holding.items.length} on hold`;
-      status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s) · ${held}.${historyGap ? " " + historyGap : ""}`);
+      const bin = deletedError ? `Deleted items: ${deletedError}` : `${deleted.length} in Deleted items`;
+      status(`${files.length} file(s) · ${files.reduce((n, f) => n + f.version_count, 0)} version(s) · ${held} · ${bin}.${historyGap ? " " + historyGap : ""}`);
     } catch (e) {
       files = [];
       el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Couldn't load versions: ${esc((e as Error).message)}.<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span></div>`;
@@ -187,9 +198,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       html += `<button id="fv-arch-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showArchived ? "▾" : "▸"} Archived (${archived.length})</button>`;
       if (showArchived) html += `<div style="opacity:.55">${archived.map((f) => fileCard(f)).join("")}</div>`;
     }
-    html += heldSection();
+    html += heldSection() + deletedSection();
     el("fv-body").innerHTML = html;
     root.querySelector("#fv-arch-toggle")?.addEventListener("click", () => { showArchived = !showArchived; render(); });
+    root.querySelector("#fv-del-toggle")?.addEventListener("click", () => { showDeleted = !showDeleted; render(); });
+    root.querySelectorAll<HTMLElement>("[data-drestore]").forEach((n) =>
+      n.addEventListener("click", () => void restoreItem(Number(n.dataset.drestore))));
     root.querySelector("#fv-held-toggle")?.addEventListener("click", () => { showHeld = !showHeld; render(); });
     root.querySelectorAll<HTMLElement>("[data-hresubmit]").forEach((n) =>
       n.addEventListener("click", () => (el("fv-file") as HTMLInputElement).click()));
@@ -291,6 +305,34 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
   }
 
+  // "Deleted items (n)" — built like "On hold (n)": every member sees what is there, who deleted it and when; Restore is
+  // a lead's. Nothing here is ever purged (the founder's default, 2026-09-28).
+  function deletedSection(): string {
+    if (deletedError) return `<div style="color:#fbbf24;font-size:11px;padding:.4rem .2rem">Deleted items: ${esc(deletedError)}</div>`;
+    if (!deleted.length) return "";
+    const toggle = `<button id="fv-del-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showDeleted ? "▾" : "▸"} Deleted items (${deleted.length})</button>`;
+    if (!showDeleted) return toggle;
+    const act = "border:1px solid #2c2c34;background:#1f1f27;color:#4ade80;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
+    const lead = canGovernRole(role);
+    return toggle + deleted.map((d, i) => {
+      const { what, who } = deletedItemLine(d);
+      return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.35rem;padding:.4rem .55rem;background:#18181c;border:1px dashed #2f2f38;border-radius:.4rem;font-size:12px">` +
+        `<span style="flex:1;min-width:0"><span style="color:#a1a1aa;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(what)}</span>` +
+        `<span style="color:#71717a;font-size:10.5px">${esc(who)}</span></span>` +
+        (lead ? `<button data-drestore="${i}" style="${act}" title="Bring it back with its history">Restore</button>` : "") + "</div>";
+    }).join("") + (lead ? "" : `<div style="color:#71717a;font-size:10.5px;padding:0 .2rem .3rem">A lead or owner restores — your role: ${esc(role)}.</div>`);
+  }
+
+  async function restoreItem(i: number) {
+    const d = deleted[i];
+    if (!d) return;
+    try {
+      const r = await restoreDeleted(base, pid(), d, await whoami());
+      await load();
+      status(restoredLine(r));
+    } catch (e) { status(`Not restored — ${(e as Error).message}`); }
+  }
+
   function fileCard(f: FileRec, isLink = false): string {
     const open = expanded.has(f.id);
     const live = f.versions.find((v) => v.is_live);
@@ -313,17 +355,25 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `</div>`;
     } else {
       const armKind = armed?.id === f.id ? armed.kind : null;
-      // A file with no version left has nothing to archive (archiving it again is a no-op that looked like a failure).
+      // Archive, Unarchive and Delete are a lead's (the bridge and the database check too); Rename a contributor's.
+      // Archive is offered only where a version is published — a file of drafts has nothing for the archive, and Delete
+      // moves it to Deleted items (the founder's default, 2026-09-28).
+      const lead = canGovernRole(role);
       const empty = f.versions.length === 0;
-      const archBtn = empty ? "" : isArchivedFile(f)
+      const archBtn = !lead ? "" : isArchivedFile(f)
         ? `<button data-funarchive="${f.id}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>`
-        : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts are discarded">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`;
+        : !archivable(f.versions) ? ""
+        : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts move to Deleted items">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`;
+      const hint = armKind === "delete" ? "Moves to Deleted items with its versions — a lead can restore it. Sure?"
+        : armKind === "archive" ? "Published → archive, drafts → Deleted items. Sure?"
+        : empty ? `No versions left — ${f.deleted_versions ? "restore one from Deleted items, " : ""}upload one, or Delete the empty file`
+        : lead ? "File actions" : `File actions — archive and delete are a lead's (your role: ${esc(role)})`;
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
-        `<span style="color:#71717a;font-size:10.5px;flex:1">${armKind ? (armKind === "delete" ? "Permanent — audit trail survives. Sure?" : "Published → archive, drafts discarded. Sure?") : empty ? "No versions left — upload one, or Delete the empty file" : "File actions"}</span>` +
-        `<button data-frename="${f.id}" style="${act}">Rename</button>` +
+        `<span style="color:#71717a;font-size:10.5px;flex:1">${hint}</span>` +
+        (canEditRole(role) ? `<button data-frename="${f.id}" style="${act}">Rename</button>` : "") +
         archBtn +
-        `<button data-fdelete="${f.id}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Refused if the file has published versions (immutable) — archive those">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` +
+        (lead ? `<button data-fdelete="${f.id}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Moves the file and its versions to Deleted items (a lead restores it). Refused if a version is published (immutable) — archive the file first">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` : "") +
         `</div>`;
     }
     // Only the CURRENT (live, else newest) version shows by default — the full history collapses
@@ -447,18 +497,18 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function archiveFile(fileId: string) {
     const f = files.find((x) => x.id === fileId);
     if (!f) return;
-    // Say what the archive did: published versions are kept (archived), drafts are discarded — a file of drafts only is
-    // left empty (seen 2026-09-28: the founder's two WIP files went to 0 versions and the bare ✓ looked like nothing).
+    // Say what the archive did: published versions are kept (archived), drafts move to Deleted items (seen 2026-09-28:
+    // the founder's two WIP files went to 0 versions and the bare ✓ looked like nothing).
     await fileAction("archive", { container_id: fileId }, (r) => {
       const kept = Number(r?.archived ?? 0), gone = Number(r?.discarded ?? 0);
-      return `✓ Archived ${f.iso_name}: ${kept} published version(s) kept in the archive, ${gone} draft version(s) discarded${kept === 0 && gone > 0 ? " — the file is now empty; Delete removes the empty entry" : ""}.`;
+      return `✓ Archived ${f.iso_name}: ${kept} published version(s) kept in the archive, ${gone} draft version(s) moved to Deleted items.`;
     });
   }
 
   async function deleteFile(fileId: string) {
     const f = files.find((x) => x.id === fileId);
     if (!f) return;
-    await fileAction("delete", { container_id: fileId }, `✓ Deleted ${f.iso_name}.`);
+    await fileAction("delete", { container_id: fileId }, `✓ Moved ${f.iso_name} to Deleted items — a lead can restore it with its history.`);
   }
 
   async function setLive(versionId: string) {
@@ -579,7 +629,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     status(`Judging ${file.name} — nothing is stored unless the referee accepts or records it…`);
     try {
       const existing = files.find((f) => f.iso_name === file.name);
-      const revision = `v${(existing?.version_count ?? 0) + 1}`;
+      const revision = `v${(existing?.version_count ?? 0) + (existing?.deleted_versions ?? 0) + 1}`; // Deleted items count: a label is never reused
       const r = await uploadThroughIntake(base, pid(), file, { name: file.name, revision, who: await whoami() });
       if (r.verdict === "rejected") showHeld = true;
       await load();
