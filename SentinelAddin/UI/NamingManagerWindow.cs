@@ -8,6 +8,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Sentinel.Engine;
 using Sentinel.Standards;
 using Sentinel.Workflow;
 
@@ -17,6 +18,7 @@ public sealed class NamingManagerWindow : Window
 {
     public event Action<List<NamingRow>>? RenameRequested;
     public event Action<NamingRow>? SelectRequested;
+    public event Action<NamingRow>? FixRequested;      // one row through the Review Fix dialog
     public event Action? RescanRequested;
 
     private List<NamingRow> _rows;
@@ -26,7 +28,7 @@ public sealed class NamingManagerWindow : Window
     private readonly ComboBox _verdict = new() { Width = 120, Margin = new Thickness(0, 0, 6, 0) };
     private readonly TextBox _search = new() { Width = 160, Margin = new Thickness(0, 0, 6, 0) };
     private readonly TextBlock _status = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
-    private readonly List<(CheckBox Box, TextBox Value, NamingRow Row)> _visible = new();
+    private readonly List<(CheckBox Box, Func<string> Value, NamingRow Row)> _visible = new();
     private readonly List<Button> _actions = new();
 
     public NamingManagerWindow(List<NamingRow> rows)
@@ -109,7 +111,7 @@ public sealed class NamingManagerWindow : Window
     private UIElement MakeRow(NamingRow row)
     {
         var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        foreach (var w in new[] { 24.0, 200.0, 260.0, 260.0, 0.0, 60.0 })
+        foreach (var w in new[] { 24.0, 200.0, 260.0, 260.0, 0.0, 44.0, 64.0 })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = w == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
         var editable = row.Verdict is NameVerdict.Proposed or NameVerdict.NeedsHuman;
         var box = new CheckBox { IsChecked = row.Ticked, IsEnabled = editable, VerticalAlignment = VerticalAlignment.Center };
@@ -119,12 +121,41 @@ public sealed class NamingManagerWindow : Window
         var cur = new TextBlock { Text = row.Current, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 8, 0) };
         cur.ToolTip = row.Current;
         Grid.SetColumn(cur, 2); grid.Children.Add(cur);
-        var val = new TextBox { Text = row.Proposed, IsEnabled = editable, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-        Grid.SetColumn(val, 3); grid.Children.Add(val);
+        Func<string> value;
+        if (row.Verdict == NameVerdict.NeedsHuman && row.Slots is { Count: > 0 } && row.Schema != null && row.Suggestion != null)
+        {
+            // Like the Review Fix dialog: one full proposed name, editable, checked against the rule live and the
+            // reason for a refusal said part by part. The row can be ticked only when the schema accepts the name
+            // (founder's request 2026-09-28 — a suggestion, never a silent default).
+            var editor = new StackPanel { Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            var val = new TextBox { Text = row.Suggestion, ToolTip = string.Join(Environment.NewLine, row.Slots.Select(sl => sl.Token + " — " + sl.Expects)) };
+            var status = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
+            editor.Children.Add(val); editor.Children.Add(status);
+            void Update()
+            {
+                var ok = row.Schema.IsMatch(val.Text.Trim());
+                var wrong = ok ? new List<string>() : NamingProposer.Problems(val.Text.Trim(), row.Slots, row.Separator);
+                status.Text = ok ? "✓ Matches the naming schema" : "✗ " + (wrong.Count > 0 ? string.Join("; ", wrong) : "does not match the naming schema");
+                status.Foreground = ok ? Brushes.SeaGreen : Brushes.IndianRed;
+                val.BorderBrush = ok ? Brushes.SeaGreen : Brushes.IndianRed;
+                box.IsEnabled = ok;
+                if (!ok) box.IsChecked = false;
+            }
+            val.TextChanged += (_, _) => Update();
+            Update();
+            Grid.SetColumn(editor, 3); grid.Children.Add(editor);
+            value = () => val.Text.Trim();
+        }
+        else
+        {
+            var val = new TextBox { Text = row.Proposed, IsEnabled = editable, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(val, 3); grid.Children.Add(val);
+            value = () => val.Text;
+        }
         var (text, brush) = row.Verdict switch
         {
             NameVerdict.Conforming => ("✓ conforming", Brushes.LightGreen),
-            NameVerdict.Proposed => ("proposed", Brushes.DodgerBlue),
+            NameVerdict.Proposed => (row.Note.Length > 0 ? "proposed — " + row.Note : "proposed", Brushes.DodgerBlue),
             NameVerdict.NeedsHuman => ("needs a human — " + row.Note, Brushes.Orange),
             _ => ("BLOCKED — " + row.Note, Brushes.IndianRed),
         };
@@ -134,13 +165,19 @@ public sealed class NamingManagerWindow : Window
         var inst = new TextBlock { Text = row.Instances.ToString(), Foreground = Brushes.Gray, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         inst.ToolTip = "instances in the model";
         Grid.SetColumn(inst, 5); grid.Children.Add(inst);
-        _visible.Add((box, val, row));
+        if (editable)
+        {
+            var fix = Btn("⚡ Fix", () => FixRequested?.Invoke(row));
+            fix.ToolTip = "Review and rename this one element"; fix.Margin = new Thickness(8, 0, 0, 0); fix.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(fix, 6); grid.Children.Add(fix);
+        }
+        _visible.Add((box, value, row));
         return grid;
     }
 
     private void CommitEdits()
     {
-        foreach (var v in _visible) { v.Row.Ticked = v.Box.IsChecked == true; v.Row.Proposed = v.Value.Text; }
+        foreach (var v in _visible) { v.Row.Ticked = v.Box.IsChecked == true; v.Row.Proposed = v.Value(); }
     }
 
     private void Rename()

@@ -18,6 +18,12 @@ public sealed class Rule
     [JsonPropertyName("tokens")] public List<string> Tokens { get; set; } = new List<string>(); // ["PREFIX","TYPE","LEVEL","DESC"]
     [JsonPropertyName("token_defs")] public Dictionary<string, string> TokenDefs { get; set; } = new Dictionary<string, string>();
     [JsonPropertyName("separator")] public string Separator { get; set; } = "_";
+    /// <summary>Per token, words a name may carry → the code the standard wants ("GYPSUM" → "GYP"). Optional; the
+    /// office's own list, never a literal in code.</summary>
+    [JsonPropertyName("token_aliases")] public Dictionary<string, Dictionary<string, string>>? TokenAliases { get; set; }
+    /// <summary>Per token, where a value the name lacks may be read from the model: a type parameter's value
+    /// ("Function": {"Exterior": "EXT"}) or the category ("Ceilings": "INT"). Optional; the office's own map.</summary>
+    [JsonPropertyName("token_infer")] public Dictionary<string, TokenInfer>? TokenInfer { get; set; }
     [JsonPropertyName("whitelist")] public List<string> Whitelist { get; set; } = new List<string>();
     [JsonPropertyName("exclusions")] public List<string> Exclusions { get; set; } = new List<string>(); // regex, e.g. "^<.*>$", "^\\{3D"
     [JsonPropertyName("parameter_name")] public string? ParameterName { get; set; }     // for Parameter rules
@@ -25,6 +31,12 @@ public sealed class Rule
     [JsonPropertyName("message_en")] public string MessageEn { get; set; } = string.Empty;
     [JsonPropertyName("message_ar")] public string? MessageAr { get; set; }
     [JsonPropertyName("doc_ref")] public string? DocRef { get; set; }                   // "{org}-RTG-001 §5"
+}
+
+public sealed class TokenInfer
+{
+    [JsonPropertyName("by_parameter")] public Dictionary<string, Dictionary<string, string>>? ByParameter { get; set; } // parameter → value → token value
+    [JsonPropertyName("by_category")] public Dictionary<string, string>? ByCategory { get; set; }                       // category → token value
 }
 
 public sealed class Ruleset

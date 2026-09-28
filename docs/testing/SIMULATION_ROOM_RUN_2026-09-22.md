@@ -654,3 +654,18 @@ Spec `docs/superpowers/specs/2026-09-28-revit-sign-in-design.md` (H4). Branch fe
 | A Revit restart keeps the session | Revit closed and reopened; Standards ▸ Sign in still "Signed in as …" (the DPAPI file) | founder's report |
 | Not run live | two Revit versions open at once (covered offline by the session-check mutex row); a tokenless install (H6) | — |
 | Founder's product notes during the drill | (1) the Naming Manager should suggest a compliant name from the naming rule; (2) issues should be creatable from Revit with a viewpoint and the selected GUIDs. Both on the roadmap after H4 | — |
+
+## Session B16 — Naming Manager suggestions and the user-attributed write (2026-09-28)
+
+Founder at the Revit 2024 add-in on `aster-tower`, signed in from the ribbon (H4); builds 02:04 → 03:04.
+
+| Row | Observed | Source |
+|---|---|---|
+| A user-attributed write from Revit (owed by B15) | Naming Manager renamed `2' x 4' ACT System` → `AST_EXT_ARC_ACT_200 mm`; the window printed `Recorded: ledger #1093 · receipt d3238e02b9955be2…`; row 1093 read back from `audit_log`: entity_type `naming`, actor `yazanhijazeen32@hotmail.com`, hash `d3238e02b9955be2663e36882c881a9afcc9de93c54eda1c30b29d39be62687b` | founder's screenshot; SQL read of row 1093 |
+| The first attempt was refused | `Not recorded — HTTP 400: a signed-in caller writes notes only` — the H0 rule let a signed-in person write notes only; fixed: a signed-in contributor or above may report Revit's own `naming`/`family_heal` rows under their verified identity (256 KB, budgeted); `write-roles` 40/40, bridge suite 1417 | founder's screenshot; `WebApp/bridge/cde-store.mjs` `recordRevitReport` |
+| Slot editors replaced by one suggestion | per-token boxes judged "a bad way to rename" by the founder; replaced by one editable full name (Review Fix pattern) with the refused part in words, plus a ⚡ Fix button per row | founder's screenshots |
+| Wrong material code | `5/8" GWB on Metal Stud` → MTL (longest alias won); fixed to the earliest-mentioned word (GYP) | founder's screenshot; naming-check |
+| Ceiling measured against the typed size | the founder's `…_200 mm` ceiling was flagged `name says 200 mm, Width is 57.15 mm` with `…_ACT_57.15 mm` proposed — the check held | founder's screenshot |
+| The fact-driven scan on the model (Claude at the founder's PC, read-only) | build 03:04 + ruleset@4: `142 shown · conforming 4 · proposed 95 · needs human 38 · blocked 5` (before: proposed 0, needs human 136); each proposed row names its sources, e.g. `LOC EXT from Function = Exterior; LEAF 1 PNL from family 'Door-Passage-Single-Flush'; MATERIAL MTL from Frame Material = Metal - Paint Finish - Grey`; the 5 blocked are duplicates of types already so named (Concrete 6" → AST_INT_ARC_CON_152.4 mm exists) | Revit 2024, Naming Manager, screenshots |
+| Gaps found and fixed in the same night | `Tür 900×2100` (× and no unit) → read as mm, said in the note; roofs had no LOC fact → Roofs → EXT by category; `Generic - 12"` took its leftover words as MATERIAL → now `MATERIAL not found in the name, the family, the layers or the parameters the rule names`; build 03:16 + ruleset@5: `conforming 4 · proposed 99 · needs human 34 · blocked 5` | Revit 2024 rescan; naming-check 76/76 |
+| Not run | Tick all proposed → Rename ticked on the model — the founder's decision (99 renames of his model; doors take MATERIAL from Frame Material where Door Material is empty — check that reading first); nothing was renamed or saved during the scan | — |

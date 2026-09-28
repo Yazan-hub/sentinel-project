@@ -148,6 +148,95 @@ static class Check
         Ok(dupes == 0, "sweep never proposes a duplicate within a family");
         Ok(conforming + proposed + needs + blocked > 100, "sweep covered the wall/floor/door/window types");
 
+        // ── the skeleton a person completes (founder's request 2026-09-28) ──────────────────────────────
+        {
+            var tnSk = Tn01();
+            var ctx = new NamingContext { Category = "Walls", FamilyName = "Basic Wall", WidthMm = 200 };
+            var p = NamingProposer.Propose("Counter Top", tnSk, "AST", ctx);
+            Ok(p.Verdict == NameVerdict.NeedsHuman && p.Slots != null && p.Slots.Count == tnSk.Tokens.Count, "a name the recovery cannot finish comes with one slot per token");
+            var org = p.Slots![0]; var loc = p.Slots[1]; var disc = p.Slots[2]; var mat = p.Slots[3]; var size = p.Slots[4];
+            Ok(org.Value == "AST", "ORG is fixed to the office code");
+            Ok(loc.Value == null && loc.Options != null && string.Join("|", loc.Options) == "EXT|INT|FND", "LOC the name lacks is a pick from the rule's values");
+            Ok(disc.Value == null && disc.Options != null && disc.Options.Contains("ARC"), "DISC likewise");
+            Ok(mat.Value == null && mat.Options == null && mat.Prefill == "COUNTER TOP", "MATERIAL is free text seeded with the leftover words");
+            Ok(size.Value == "200 mm", "SIZE comes from the measured width");
+            var name = NamingProposer.Assemble(tnSk, new[] { "AST", "INT", "ARC", "COUNTER TOP", "200 mm" });
+            Ok(name == "AST_INT_ARC_COUNTER TOP_200 mm" && RuleRegex.For(tnSk, "AST").IsMatch(name), "the picks assemble into a name the rule accepts: " + name);
+            Ok(!RuleRegex.For(tnSk, "AST").IsMatch(NamingProposer.Assemble(tnSk, new[] { "AST", "", "ARC", "COUNTER TOP", "200 mm" })), "an unpicked slot is not a valid name");
+            var p2 = NamingProposer.Propose("AST_EXT_Brick", tnSk, "AST", new NamingContext { Category = "Walls", WidthMm = null });
+            Ok(p2.Slots != null && p2.Slots[1].Value == "EXT" && p2.Slots[3].Prefill == "BRICK" && p2.Slots[4].Value == null, "a value the name already carries is fixed; no width and no size in the name leaves SIZE to the person");
+            var conf = NamingProposer.Propose("AST_EXT_ARC_CMU_200 mm", tnSk, "AST", ctx);
+            Ok(conf.Verdict == NameVerdict.Conforming && conf.Slots == null, "a conforming name has no skeleton");
+            var ceil = NamingProposer.Propose("2' x 2' ACT System", tnSk, "AST", new NamingContext { Category = "Ceilings", WidthMm = null });
+            Ok(ceil.Slots != null && !ceil.Slots[3].Prefill.Contains("'") && ceil.Slots[3].Accepts(ceil.Slots[3].Prefill), "a free-text prefill is sanitised to the token's characters: " + ceil.Slots![3].Prefill);
+            Ok(!ceil.Slots[4].Accepts("2 X 2 ACT SYSTEM") && ceil.Slots[4].Accepts("200 mm") && ceil.Slots[4].Expects == "like 200 mm", "SIZE accepts '200 mm' and says so");
+            var gwb = NamingProposer.Propose("5/8\" GWB on Metal Stud", tnSk, "AST", new NamingContext { Category = "Ceilings", WidthMm = null });
+            Ok(gwb.Slots != null && gwb.Slots[3].Prefill == "5 8 GWB ON METAL STUD" && gwb.Slots[3].Accepts(gwb.Slots[3].Prefill), "a prefill with a slash and lowercase is reduced to what the token accepts: " + gwb.Slots![3].Prefill);
+            Ok(ceil.Slots[1].Expects == "one of EXT, INT, FND" && !ceil.Slots[1].Accepts("") && ceil.Slots[1].Accepts("INT"), "an enum slot says its choices and accepts one");
+            var fnSk = new Rule { Id = "FN-01", Target = RuleTarget.Family, Tokens = new List<string> { "ORG", "BODY" }, Separator = "_",
+                TokenDefs = new Dictionary<string, string> { ["ORG"] = "{org}", ["BODY"] = "((INT|EXT|STR)_)?[A-Za-z0-9][A-Za-z0-9 \\-\\+]*(_[A-Za-z0-9][A-Za-z0-9 \\-\\+]*)+" } };
+            var fam = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework" });
+            Ok(fam.Verdict == NameVerdict.Proposed && fam.Slots != null && fam.Slots.Count == 2 && fam.Slots[0].Value == "AST" && fam.Slots[1].Value == null, "a family rule the recovery cannot finish gets a skeleton too (ORG fixed, BODY free) — and is proposed when the words already fit");
+            Ok(!fam.Slots![1].Accepts("Base Cabinet-Double Door Sink Unit") && fam.Slots[1].Accepts("Base Cabinet_Double Door Sink Unit") && RuleRegex.For(fnSk, "AST").IsMatch(NamingProposer.Assemble(fnSk, new[] { "AST", "Base Cabinet_Double Door Sink Unit" })), "the body slot refuses the dash form and accepts the underscore form the rule wants");
+            Ok(fam.Suggestion == "AST_Base Cabinet_Double Door Sink Unit" && RuleRegex.For(fnSk, "AST").IsMatch(fam.Suggestion!), "the family suggestion turns the dash into the separator the body needs, and matches: " + fam.Suggestion);
+            Ok(ceil.Suggestion == "AST_EXT_ARC_2 X 2 ACT SYSTEM_" && !RuleRegex.For(tnSk, "AST").IsMatch(ceil.Suggestion!), "a ceiling with no measured size is suggested with the size left empty, so it is refused until typed: " + ceil.Suggestion);
+            var probs = NamingProposer.Problems(ceil.Suggestion!, ceil.Slots!, "_");
+            Ok(probs.Count == 1 && probs[0] == "SIZE missing — like 200 mm", "…and the reason names the part: " + string.Join("; ", probs));
+            Ok(NamingProposer.Problems("AST_INT_ARC_GYP_200 mm", ceil.Slots!, "_").Count == 0, "a finished name has no problems");
+            Ok(NamingProposer.Problems("AST_INT_ARC", ceil.Slots!, "_")[0].StartsWith("5 parts expected"), "too few parts is said as such");
+            Ok(NamingProposer.Problems("AST_INT_ARC_GYP_ 200 mm", ceil.Slots!, "_")[0] == "SIZE: no space next to '_'", "a space beside the separator is named, not hidden by trimming");
+            var aliased = new Rule { Id = "TN-01", Target = RuleTarget.Type, Tokens = tnSk.Tokens, Separator = "_", TokenDefs = tnSk.TokenDefs,
+                TokenAliases = new Dictionary<string, Dictionary<string, string>> { ["MATERIAL"] = new() { ["GWB"] = "GYP", ["GYPSUM BOARD"] = "GYP", ["ACT"] = "ACT" } } };
+            var gwb2 = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", new NamingContext { Category = "Ceilings" });
+            Ok(gwb2.Slots != null && gwb2.Slots[3].Value == "GYP" && gwb2.Suggestion == "AST_EXT_ARC_GYP_", "a material word the office maps (GWB) becomes its code, fixed: " + gwb2.Suggestion);
+            aliased.TokenAliases!["MATERIAL"]["METAL"] = "MTL"; aliased.TokenAliases["MATERIAL"]["WOOD"] = "TMB";
+            var facing = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", new NamingContext { Category = "Ceilings" });
+            Ok(facing.Slots![3].Value == "GYP", "the earliest material word wins over the substrate (GWB before Metal): " + facing.Slots[3].Value);
+            // ── the model's facts finish a name (token_infer): proposed, each token's source in the note ──
+            aliased.TokenInfer = new Dictionary<string, TokenInfer>
+            {
+                ["LOC"] = new TokenInfer { ByParameter = new() { ["Function"] = new() { ["Exterior"] = "EXT", ["Interior"] = "INT" } }, ByCategory = new() { ["Ceilings"] = "INT" } },
+                ["DISC"] = new TokenInfer { ByCategory = new() { ["Walls"] = "ARC", ["Ceilings"] = "ARC" } },
+            };
+            var wallCtx = new NamingContext { Category = "Walls", WidthMm = 200, Facts = { ["Function"] = "Exterior" }, Materials = { "Gypsum Board", "Metal Stud" } };
+            var auto1 = NamingProposer.Propose("Generic - 200mm", aliased, "AST", wallCtx);
+            Ok(auto1.Verdict == NameVerdict.Proposed && auto1.Name == "AST_EXT_ARC_GYP_200 mm", "a wall whose name says nothing is proposed from Function, category, the finish layer and the measured width: " + auto1.Name);
+            Ok(string.Join("; ", auto1.Notes) == "LOC EXT from Function = Exterior; DISC ARC from category Walls; MATERIAL GYP from layer 'Gypsum Board'; 'Generic - 200 mm' dropped", "…and the note says where each token came from: " + string.Join("; ", auto1.Notes));
+            var ceilCtx = new NamingContext { Category = "Ceilings", WidthMm = 15.9, Materials = { "Gypsum Wall Board" } };
+            var auto2 = NamingProposer.Propose("5/8\" GWB on Metal Stud", aliased, "AST", ceilCtx);
+            Ok(auto2.Verdict == NameVerdict.Proposed && auto2.Name == "AST_INT_ARC_GYP_15.9 mm", "a ceiling: LOC by category, material from the name, thickness measured: " + auto2.Name);
+            var noFacts = NamingProposer.Propose("Generic", aliased, "AST", new NamingContext { Category = "Roofs" });
+            Ok(noFacts.Verdict == NameVerdict.NeedsHuman && noFacts.Slots![1].Options != null, "no fact for the token → still a human's, with the pick offered");
+            var wrongFact = NamingProposer.Propose("Generic - 200mm", aliased, "AST", new NamingContext { Category = "Walls", WidthMm = 200, Facts = { ["Function"] = "Retaining" } });
+            Ok(wrongFact.Verdict == NameVerdict.NeedsHuman, "a parameter value the map does not list is never guessed");
+            var act = NamingProposer.Propose("2' x 2' ACT System", aliased, "AST", new NamingContext { Category = "Ceilings" });
+            Ok(act.Slots != null && act.Slots[3].Value == "ACT", "a code already in the name is kept as the code");
+            var doorRule = new Rule { Id = "TN-02", Target = RuleTarget.Type, Tokens = new List<string> { "ORG", "LOC", "LEAF", "MATERIAL", "SIZE" }, Separator = "_",
+                TokenDefs = new Dictionary<string, string> { ["ORG"] = "{org}", ["LOC"] = "EXT|INT", ["LEAF"] = "\\d+ PNL|[A-Z0-9][A-Z0-9 \\-]*", ["MATERIAL"] = "[A-Z0-9][A-Z0-9 \\-]*", ["SIZE"] = "\\d+ x \\d+ mm" } };
+            var doorSk = NamingProposer.Propose("30\" x 80\"", doorRule, "AST", new NamingContext { Category = "Doors" });
+            Ok(doorSk.Slots != null && doorSk.Slots[4].Value == "762 x 2032 mm", "a door size in inches is converted to mm: " + doorSk.Slots![4].Value);
+            Ok(doorSk.Suggestion == "AST_EXT___762 x 2032 mm" && NamingProposer.Problems(doorSk.Suggestion!, doorSk.Slots, "_").Count == 2, "no leaf or material is invented for it — two parts are left for the person: " + doorSk.Suggestion);
+            // ── doors: inches, the leaf from the family name, the material from a parameter ──
+            doorRule.TokenAliases = new Dictionary<string, Dictionary<string, string>> { ["LEAF"] = new() { ["SINGLE"] = "1 PNL", ["DOUBLE"] = "2 PNL" }, ["MATERIAL"] = new() { ["OAK"] = "TMB", ["STEEL"] = "STL" } };
+            doorRule.TokenInfer = new Dictionary<string, TokenInfer> { ["LOC"] = new TokenInfer { ByParameter = new() { ["Function"] = new() { ["Exterior"] = "EXT", ["Interior"] = "INT" } } }, ["MATERIAL"] = new TokenInfer { ByParameter = new() { ["Door Material"] = new() } } };
+            var dctx = new NamingContext { Category = "Doors", FamilyName = "Door-Passage-Single-Flush", Facts = { ["Function"] = "Interior", ["Door Material"] = "Solid Oak" } };
+            var dAuto = NamingProposer.Propose("30\" x 84\"", doorRule, "AST", dctx);
+            Ok(dAuto.Verdict == NameVerdict.Proposed && dAuto.Name == "AST_INT_1 PNL_TMB_762 x 2134 mm", "a door: LOC from Function, leaf from the family name, material from Door Material, inches rounded to mm: " + dAuto.Name + " — " + string.Join("; ", dAuto.Notes));
+            var dPart = NamingProposer.Propose("30\" x 84\"", doorRule, "AST", new NamingContext { Category = "Doors", FamilyName = "Door-Passage-Single-Flush", Facts = { ["Function"] = "Interior" } });
+            Ok(dPart.Verdict == NameVerdict.NeedsHuman && dPart.Suggestion == "AST_INT_1 PNL__762 x 2134 mm", "no material anywhere → the material is left for a person: " + dPart.Suggestion);
+            // ── a family name that only needs its separators normalised is proposed ──
+            var fam2 = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework" });
+            Ok(fam2.Verdict == NameVerdict.Proposed && fam2.Name == "AST_Base Cabinet_Double Door Sink Unit" && fam2.Notes[0] == "the name's own words, separators normalised", "a family name whose words already fit becomes a proposal: " + fam2.Name);
+            var famTaken = NamingProposer.Propose("Base Cabinet-Double Door Sink Unit", fnSk, "AST", new NamingContext { Category = "Casework", ExistingNamesInFamily = new HashSet<string> { "AST_Base Cabinet_Double Door Sink Unit" } });
+            Ok(famTaken.Verdict == NameVerdict.NeedsHuman, "…unless that name is already taken");
+            var tuer = NamingProposer.Propose("T\u00FCr 900\u00D72100", doorRule, "AST", new NamingContext { Category = "Doors", FamilyName = "Door-Passage-Single-Flush", Facts = { ["Function"] = "Interior", ["Door Material"] = "Steel" } });
+            Ok(tuer.Verdict == NameVerdict.Proposed && tuer.Name == "AST_INT_1 PNL_STL_900 x 2100 mm" && tuer.Notes.Contains("SIZE 900 x 2100 mm read as mm from '900 x 2100'"), "a size written with × and no unit is read as mm and said so: " + tuer.Name + " — " + string.Join("; ", tuer.Notes));
+            var small = NamingProposer.Propose("Panel 30x80", doorRule, "AST", new NamingContext { Category = "Doors", Facts = { ["Function"] = "Interior" } });
+            Ok(small.Verdict == NameVerdict.NeedsHuman, "a unit-less size too small to be mm is not read");
+            var generic = NamingProposer.Propose("Generic - 12\"", aliased, "AST", new NamingContext { Category = "Walls", WidthMm = 304.8, Facts = { ["Function"] = "Exterior" } });
+            Ok(generic.Verdict == NameVerdict.NeedsHuman && generic.Notes.Last() == "MATERIAL not found in the name, the family, the layers or the parameters the rule names", "no material word anywhere → said plainly, the leftover words are not taken as the material: " + generic.Notes.Last());
+        }
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

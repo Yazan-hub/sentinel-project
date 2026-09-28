@@ -907,6 +907,23 @@ export function takeWriteBudget(what, { perUser, all }) {
 }
 
 const NOTE_MAX = 8 * 1024; // a note's new_value, serialized
+const REPORT_MAX = 256 * 1024; // a Revit report's new_value (the renamed rows), serialized
+/** Rows Revit writes about work it did itself in the model (H4: a signed-in person, not the machine token). The work
+ *  happened in Revit, so no bridge route can write the row from the act; the row is the person's report of it, stamped
+ *  with their verified identity. */
+const REVIT_REPORT_TYPES = ["naming", "family_heal"];
+
+/** A signed-in contributor or above reports a Revit-side batch (naming, family_heal): entity_type from the list above,
+ *  the new_value at most 256 KB (413), budgeted (429), actor the verified identity whatever the body claims. */
+async function recordRevitReport(key, role, type, b) {
+  const { ROLE_RANK } = await import("./members-store.mjs");
+  if ((ROLE_RANK[role] || 0) < ROLE_RANK.contributor) throw Object.assign(new Error(`a ${type} row is a contributor's or above (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
+  const text = typeof b.action === "string" ? b.action.trim() : "";
+  if (!text || text.length > 500) throw Object.assign(new Error(`a ${type} row's action is 1 to 500 characters — nothing was saved`), { status: 400 });
+  if (JSON.stringify(b.new_value ?? null).length > REPORT_MAX) throw Object.assign(new Error(`a ${type} row's new_value is at most ${REPORT_MAX / 1024} KB — nothing was saved`), { status: 413 });
+  takeWriteBudget("revit reports", { perUser: 20, all: 60 });
+  return recordAudit(key, { entity_type: type, action: text, new_value: b.new_value ?? null, old_value: b.old_value ?? null });
+}
 
 /** POST /cde/:key/audit (H0 D11, finding cde-6). The machine credential writes as before — Revit's naming and
  *  family_heal rows, which the ROI dashboard counts (recordAudit). A signed-in caller writes a lead's NOTE only: lead or
@@ -918,9 +935,11 @@ export async function recordNote(key, b = {}) {
   const { myRole, ROLE_RANK } = await import("./members-store.mjs");
   const role = await myRole(key);
   if (role === "service") return recordAudit(key, b);
+  const type = String(b.entity_type ?? "note").trim().toLowerCase();
+  if (REVIT_REPORT_TYPES.includes(type)) return recordRevitReport(key, role, type, b);
   if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note on the ledger is a lead's (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
   const bad = (status, message) => Object.assign(new Error(message), { status });
-  if (String(b.entity_type ?? "note").trim().toLowerCase() !== "note") throw bad(400, 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved');
+  if (type !== "note") throw bad(400, 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved');
   const text = typeof b.action === "string" ? b.action.trim() : "";
   if (!text || text.length > 500) throw bad(400, "a note is 1 to 500 characters (action) — nothing was saved");
   if (JSON.stringify(b.new_value ?? null).length > NOTE_MAX) throw bad(413, `a note's new_value is at most ${NOTE_MAX / 1024} KB — nothing was saved`);
