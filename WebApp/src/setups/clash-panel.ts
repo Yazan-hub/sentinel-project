@@ -5,7 +5,8 @@ import { activePid } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
-import { runClash } from "../sentinel-core/adapter/model-clash";
+import { runClash, confirmOnSolids } from "../sentinel-core/adapter/model-clash";
+import { confirm, runSentence, type ClashMode, type ConfirmResult } from "../sentinel-core/clash-confirm";
 import type { Clash } from "../sentinel-core/clash";
 import { getAppManager } from "../app";
 
@@ -63,6 +64,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   let clashes: Clash[] = [];
   let tol = 0.02;
+  let mode: "hard" | "clearance" = "hard";
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
@@ -80,7 +82,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     `<button id="cl-fed-run" style="${btn};padding:.2rem .45rem;font-size:11px" title="Cross-model data check before any clash run: GlobalIds, type naming, levels, grids, georeference, container names and verdicts">Run gate</button>` +
     "</div>" +
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.45rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px;color:#9ca3af">' +
-    'tolerance <input id="cl-tol" type="number" step="0.005" min="0" value="0.02" style="width:4rem;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .3rem;font:12px system-ui"/> m' +
+    '<select id="cl-mode" title="Hard: the solids intersect. Clearance: the solids come closer than the distance." style="background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .2rem;font:12px system-ui"><option value="hard">Hard</option><option value="clearance">Clearance</option></select>' +
+    '<span id="cl-tol-label">min. penetration</span> <input id="cl-tol" type="number" step="0.005" min="0" value="0.02" style="width:4rem;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .3rem;font:12px system-ui"/> m' +
     '<span style="flex:1"></span>' +
     `<button id="cl-colour" style="${btn}" title="Colour all clashing elements red">Colour</button>` +
     `<button id="cl-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="Raise the listed clashes as BCF + record in CDE">⚑ Raise</button>` +
@@ -148,7 +151,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     host.innerHTML = shown.map((c, i) =>
       `<div class="cl-row" data-i="${i}" style="display:flex;gap:.5rem;align-items:center;padding:.3rem .4rem;border:1px solid #3a1f1f;background:#241a1a;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer;font-size:12px">` +
       `<span style="color:#f87171">✕</span><span style="flex:1;color:#e5e7eb">${esc(label(c, "a"))} ↔ ${esc(label(c, "b"))}</span>` +
-      `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${c.volume < 0.01 ? c.volume.toExponential(1) : c.volume.toFixed(2)} m³</span></div>`,
+      `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${c.distance != null ? `${Math.round(c.distance * 1000)} mm apart` : c.touching ? '<span style="color:#eab308" title="The solids meet but no overlap volume was measured">touching</span>' : `${c.volume < 0.01 ? c.volume.toExponential(1) : c.volume.toFixed(2)} m³`}</span></div>`,
     ).join("") + (clashes.length > shown.length ? `<div style="color:#6b7280;font-size:11px;padding:.4rem">…and ${clashes.length - shown.length} more</div>` : "");
     host.querySelectorAll<HTMLElement>(".cl-row").forEach((r) => r.addEventListener("click", () => focusClash(shown[Number(r.dataset.i)])));
   }
@@ -228,14 +231,24 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     await knownReady; // load the team-wide known set before filtering (first run only; resolves instantly after)
     status("Running clash (reading boxes)…");
     try {
-      const res = await runClash(fragments, known, tol);
-      clashes = res.clashes;
+      // Boxes first (clearance widens them by the distance: a negative tolerance), then the solids confirm.
+      const m: ClashMode = mode === "hard" ? { type: "hard" } : { type: "clearance", distance: tol };
+      const res = await runClash(fragments, known, mode === "hard" ? tol : -tol);
+      let confirmed: ConfirmResult | undefined;
+      let solidsError: string | undefined;
+      if (res.clashes.length === 0) confirmed = { clashes: [], dropped: 0, touching: 0 };
+      else {
+        status(`Checking ${res.clashes.length} box overlap(s) on the solids…`);
+        try {
+          const hits = await confirmOnSolids(components, res.clashes, m, (d, n) => status(`Checking the solids… model pair ${d} of ${n}`));
+          confirmed = confirm(res.clashes, hits, m);
+        } catch (e) { solidsError = (e as Error)?.message ?? String(e); }
+      }
+      clashes = confirmed ? confirmed.clashes : res.clashes;
       // eslint-disable-next-line no-console
-      console.log("[Sentinel] clash run", res);
+      console.log("[Sentinel] clash run", { ...res, confirmed, solidsError });
       renderList();
-      status(res.modelCount < 2
-        ? `Self-clash of 1 model: ${res.total} raw, ${clashes.length} new (may be noisy — load a 2nd discipline model for clean federated clash).`
-        : `${res.modelCount} models · ${res.scanned.toLocaleString("en-US")} elements · ${res.total} clash(es), ${clashes.length} new. Click one to isolate.`);
+      status(runSentence({ modelCount: res.modelCount, scanned: res.scanned, candidates: res.clashes.length, known: 0, mode: m, confirmed, solidsError }));
     } catch (e) { status("Clash failed: " + ((e as Error)?.message ?? String(e))); }
   }
 
@@ -337,5 +350,12 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     known.clear(); persistKnown(); status("Cleared known clashes (this project, team-wide) — the next run re-surfaces all.");
   });
   el("cl-tol").addEventListener("change", (e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (v >= 0) tol = v; });
+  el("cl-mode").addEventListener("change", (e) => {
+    mode = (e.target as HTMLSelectElement).value === "clearance" ? "clearance" : "hard";
+    el("cl-tol-label").textContent = mode === "hard" ? "min. penetration" : "distance";
+    const input = el("cl-tol") as HTMLInputElement;
+    tol = mode === "hard" ? 0.02 : 0.05;
+    input.value = String(tol);
+  });
   return root;
 }
