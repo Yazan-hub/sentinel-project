@@ -313,12 +313,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `</div>`;
     } else {
       const armKind = armed?.id === f.id ? armed.kind : null;
-      const archBtn = isArchivedFile(f)
+      // A file with no version left has nothing to archive (archiving it again is a no-op that looked like a failure).
+      const empty = f.versions.length === 0;
+      const archBtn = empty ? "" : isArchivedFile(f)
         ? `<button data-funarchive="${f.id}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>`
         : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts are discarded">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`;
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
-        `<span style="color:#71717a;font-size:10.5px;flex:1">${armKind ? (armKind === "delete" ? "Permanent — audit trail survives. Sure?" : "Published → archive, drafts discarded. Sure?") : "File actions"}</span>` +
+        `<span style="color:#71717a;font-size:10.5px;flex:1">${armKind ? (armKind === "delete" ? "Permanent — audit trail survives. Sure?" : "Published → archive, drafts discarded. Sure?") : empty ? "No versions left — upload one, or Delete the empty file" : "File actions"}</span>` +
         `<button data-frename="${f.id}" style="${act}">Rename</button>` +
         archBtn +
         `<button data-fdelete="${f.id}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Refused if the file has published versions (immutable) — archive those">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` +
@@ -425,10 +427,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   }
 
   // ── per-file admin (Forma-style: rename / archive / delete) ──
-  async function fileAction(path: string, body: Record<string, unknown>, okMsg: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function fileAction(path: string, body: Record<string, unknown>, okMsg: string | ((r: any) => string)) {
     try {
-      await api(`${encodeURIComponent(pid())}/files/${path}`, "POST", { ...body, actor: await whoami() });
-      status(okMsg);
+      const r = await api(`${encodeURIComponent(pid())}/files/${path}`, "POST", { ...body, actor: await whoami() });
+      status(typeof okMsg === "function" ? okMsg(r) : okMsg);
       await load();
     } catch (e) { status(`${path} failed: ${esc((e as Error).message)}`); }
   }
@@ -444,7 +447,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function archiveFile(fileId: string) {
     const f = files.find((x) => x.id === fileId);
     if (!f) return;
-    await fileAction("archive", { container_id: fileId }, `✓ Archived ${f.iso_name}.`);
+    // Say what the archive did: published versions are kept (archived), drafts are discarded — a file of drafts only is
+    // left empty (seen 2026-09-28: the founder's two WIP files went to 0 versions and the bare ✓ looked like nothing).
+    await fileAction("archive", { container_id: fileId }, (r) => {
+      const kept = Number(r?.archived ?? 0), gone = Number(r?.discarded ?? 0);
+      return `✓ Archived ${f.iso_name}: ${kept} published version(s) kept in the archive, ${gone} draft version(s) discarded${kept === 0 && gone > 0 ? " — the file is now empty; Delete removes the empty entry" : ""}.`;
+    });
   }
 
   async function deleteFile(fileId: string) {
