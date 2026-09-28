@@ -8,8 +8,9 @@
 -- signed-in writer; the bridge writes it with the service key after its own role check (contributor to record or move a
 -- clash, lead to reset the register) and, for a new record, the gate's lock.
 --
--- NOT YET APPLIED — applied only by the controller after the founder approves it, then probed with
--- probes/0034_probe.sql. The running bridge is safe on either side of it: since the lock's fix it writes every clash
+-- APPLIED 2026-09-28 ~12:25 local on the founder's "apply" (Supabase autqqtwhxqrfjaztablm, migration
+-- 0034_clash_register_bridge_only); probes/0034_probe.sql: 8 of 8 true; a signed-in owner's direct clash insert refused
+-- by row-level security while the control rfi insert went through (both probe rows removed). The running bridge is safe on either side of it: since the lock's fix it writes every clash
 -- record, status move and reset with the service key, which row-level security does not stop.
 --
 -- Reads are unchanged (any member reads the register: bridge_docs_read, 0033). Deletes: bridge_docs_delete asks for a

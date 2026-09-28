@@ -49,8 +49,8 @@ Parent: `docs/ROADMAP.md` item 2; `docs/UPGRADE_MAP_2026-09.md` U-8..U-12.
    asks it for every new register record (`POST /clash/:pid` → 409 in words) and every Clash issue (so a gate that goes
    stale mid-raise stops at the first issue); the panel asks it before starting and shows the lock on its banner; moving
    a recorded clash stays free; a bridge without a CDE has no gate. The register is written with the service key after
-   those checks; migration 0034 (written, applied only on the founder's approval) takes the direct PostgREST write away
-   from signed-in callers — until it is applied, a contributor could still write the store directly.
+   those checks; migration 0034 (applied 2026-09-28 on the founder's "apply") takes the direct PostgREST write away
+   from signed-in callers — proven by a rolled-back insert as the founder: refused by row-level security.
 5. **Streaming is measured before anything changes (built: BIM Tools ▸ Performance).** A 10-second measure while the
    person orbits: frame time p50/p95, drawn frames, draw calls and triangles submitted per drawn frame (summed across
    postproduction passes), GPU geometries/textures, JS heap, per model its elements and whether culling/LOD follow a
