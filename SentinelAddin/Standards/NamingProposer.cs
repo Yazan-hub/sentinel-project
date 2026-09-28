@@ -28,6 +28,21 @@ public sealed class NameProposal
     public string? Name;
     public NameVerdict Verdict;
     public List<string> Notes = new();
+    /// <summary>For a NeedsHuman type row: one slot per token so a person can finish the name — a recovered value,
+    /// the rule's allowed values to pick from, or free text with a prefill. Null when the rule is not a token rule.</summary>
+    public List<TokenSlot>? Slots;
+}
+
+/// <summary>One token of a name a person completes: <see cref="Value"/> when the name or the model already says it
+/// (shown fixed), else <see cref="Options"/> to pick from (an enum token), else free text seeded with
+/// <see cref="Prefill"/>. Nothing is defaulted: a slot without a Value is the human's.</summary>
+public sealed class TokenSlot
+{
+    public string Token = "";
+    public string? Value;                 // recovered from the name, the office code, or the measured size
+    public List<string>? Options;         // the enum's allowed values, when the name carries none of them
+    public string Prefill = "";           // free text: the leftover words, uppercased
+    public string Hint = "";              // what the token wants, in the rule's words (its regex) for the tooltip
 }
 
 /// <summary>
@@ -45,6 +60,16 @@ public static class NamingProposer
     private static readonly Regex EnumDef = new(@"^[A-Z0-9]+(\|[A-Z0-9]+)*$", RegexOptions.CultureInvariant);
 
     public static NameProposal Propose(string current, Rule rule, string? org, NamingContext ctx)
+    {
+        var p = ProposeCore(current, rule, org, ctx);
+        if (p.Verdict == NameVerdict.NeedsHuman && rule.Target == RuleTarget.Type && rule.Tokens.Count > 0)
+        {
+            try { p.Slots = Skeleton(current, rule, org, ctx); } catch { p.Slots = null; } // a skeleton is help, never a blocker
+        }
+        return p;
+    }
+
+    private static NameProposal ProposeCore(string current, Rule rule, string? org, NamingContext ctx)
     {
         var p = new NameProposal();
         current = (current ?? "").Trim();
@@ -83,6 +108,65 @@ public static class NamingProposer
     }
 
     private static NameProposal Fail(NameProposal p, string note) { p.Verdict = NameVerdict.NeedsHuman; p.Notes.Add(note); return p; }
+
+    /// <summary>
+    /// The slots a person fills for a type name the recovery could not finish (founder's request 2026-09-28): the
+    /// office code and any enum value the name already carries are fixed; an enum the name lacks is a pick from the
+    /// rule's allowed values; free-text tokens get the leftover words as a prefill; SIZE is the measured width when
+    /// there is one. Never a proposal by itself — <see cref="Assemble"/> + the rule's regex decide.
+    /// </summary>
+    public static List<TokenSlot> Skeleton(string current, Rule rule, string? org, NamingContext ctx)
+    {
+        var norm = Normalize((current ?? "").Trim());
+        var o = (org ?? "").Trim();
+        var segments = norm.Split(new[] { rule.Separator }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim()).Where(s => s.Length > 0)
+            .Where(s => !s.Equals(o, StringComparison.OrdinalIgnoreCase) && !NoiseWords.Contains(s.ToUpperInvariant()))
+            .ToList();
+        var slots = new List<TokenSlot>();
+        var free = new List<TokenSlot>();
+        foreach (var token in rule.Tokens)
+        {
+            rule.TokenDefs.TryGetValue(token, out var rawDef);
+            var def = rawDef ?? "";
+            var slot = new TokenSlot { Token = token, Hint = def.Length == 0 ? "any letters, digits or dashes" : RuleRegex.DefWithOrg(def, org) };
+            if (def == RuleRegex.OrgPlaceholder || (o.Length > 0 && (def == o || def == Regex.Escape(o))))
+            { slot.Value = o.Length > 0 ? o : null; if (slot.Value == null) slot.Prefill = ""; slots.Add(slot); continue; }
+            if (token.Equals("SIZE", StringComparison.OrdinalIgnoreCase))
+            {
+                if (def.Contains(" x ") && TypeNameParse.TrySection(norm, out var w, out var h)) slot.Value = $"{Mm(w)} x {Mm(h)} mm";
+                else if (!def.Contains(" x "))
+                {
+                    var named = TypeNameParse.ThicknessMm(norm);
+                    var v = ctx.WidthMm ?? (named == double.MaxValue ? (double?)null : named);
+                    if (v != null) slot.Value = $"{Mm(v.Value)} mm";
+                }
+                var seg = segments.FirstOrDefault(s => Regex.IsMatch(s, @"\d+(\.\d+)?\s*(x\s*\d+(\.\d+)?\s*)?mm$", RegexOptions.IgnoreCase));
+                if (seg != null) segments.Remove(seg);
+                if (slot.Value == null) slot.Prefill = "";
+                slots.Add(slot); continue;
+            }
+            if (EnumDef.IsMatch(def))
+            {
+                var allowed = def.Split('|').ToList();
+                var hit = segments.FirstOrDefault(s => allowed.Contains(Canon(s), StringComparer.OrdinalIgnoreCase));
+                if (hit != null) { slot.Value = allowed.First(a => a.Equals(Canon(hit), StringComparison.OrdinalIgnoreCase)); segments.Remove(hit); }
+                else slot.Options = allowed;
+                slots.Add(slot); continue;
+            }
+            slots.Add(slot); free.Add(slot);
+        }
+        // The leftover words seed the free-text slots in order; the last one takes whatever remains.
+        for (int i = 0; i < free.Count; i++)
+        {
+            if (i < segments.Count)
+                free[i].Prefill = string.Join(" ", i == free.Count - 1 ? segments.Skip(i) : new[] { segments[i] }).ToUpperInvariant();
+        }
+        return slots;
+    }
+
+    /// <summary>The name the slots spell, in token order (a slot's Value, else what the person chose or typed).</summary>
+    public static string Assemble(Rule rule, IEnumerable<string> values) => string.Join(rule.Separator, values.Select(v => (v ?? "").Trim()));
 
     // ---- type rules: recover tokens from the name + measured size ----
     private static string? Recover(string current, Rule rule, string? org, NamingContext ctx, NameProposal p)

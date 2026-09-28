@@ -22,6 +22,11 @@ public sealed class NamingRow
     public string Note = "";
     public int Instances;
     public bool Ticked;
+    /// <summary>NeedsHuman type rows: the slots a person completes (NamingProposer.Skeleton) and the rule's anchored
+    /// regex, so the window can assemble and check a name live.</summary>
+    public List<Sentinel.Standards.TokenSlot>? Slots;
+    public System.Text.RegularExpressions.Regex? Schema;
+    public string Separator = "_";
 }
 
 /// <summary>Revit half of the Naming Manager: rows with the context the proposer needs, and the audited
@@ -71,6 +76,7 @@ public static class NamingManagerService
                             Current = et.Name, Proposed = p.Verdict is NameVerdict.Proposed or NameVerdict.Blocked ? p.Name ?? "" : "",
                             Verdict = p.Verdict, Note = string.Join("; ", p.Notes),
                             Instances = instancesOfType.TryGetValue(et.Id.IdValue(), out var n) ? n : 0,
+                            Slots = p.Slots, Schema = p.Slots != null ? RuleRegex.For(rule, org) : null, Separator = rule.Separator,
                         });
                     }
                 }

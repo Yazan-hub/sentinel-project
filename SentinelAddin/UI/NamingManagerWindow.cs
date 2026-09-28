@@ -8,6 +8,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Sentinel.Engine;
 using Sentinel.Standards;
 using Sentinel.Workflow;
 
@@ -26,7 +27,7 @@ public sealed class NamingManagerWindow : Window
     private readonly ComboBox _verdict = new() { Width = 120, Margin = new Thickness(0, 0, 6, 0) };
     private readonly TextBox _search = new() { Width = 160, Margin = new Thickness(0, 0, 6, 0) };
     private readonly TextBlock _status = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
-    private readonly List<(CheckBox Box, TextBox Value, NamingRow Row)> _visible = new();
+    private readonly List<(CheckBox Box, Func<string> Value, NamingRow Row)> _visible = new();
     private readonly List<Button> _actions = new();
 
     public NamingManagerWindow(List<NamingRow> rows)
@@ -119,8 +120,61 @@ public sealed class NamingManagerWindow : Window
         var cur = new TextBlock { Text = row.Current, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 8, 0) };
         cur.ToolTip = row.Current;
         Grid.SetColumn(cur, 2); grid.Children.Add(cur);
-        var val = new TextBox { Text = row.Proposed, IsEnabled = editable, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-        Grid.SetColumn(val, 3); grid.Children.Add(val);
+        Func<string> value;
+        if (row.Verdict == NameVerdict.NeedsHuman && row.Slots is { Count: > 0 } && row.Schema != null)
+        {
+            // The person finishes the name token by token: fixed parts, a pick for an enum the name lacks, free text
+            // for the rest. The assembled name is checked against the rule live; the row can be ticked only when it
+            // matches (founder's request 2026-09-28 — a suggestion, never a silent default).
+            var editor = new StackPanel { Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            var parts = new WrapPanel();
+            var preview = new TextBlock { FontSize = 11, Margin = new Thickness(0, 2, 0, 0), TextWrapping = TextWrapping.Wrap };
+            var getters = new List<Func<string>>();
+            foreach (var slot in row.Slots)
+            {
+                if (slot.Value != null)
+                {
+                    var fixedPart = new TextBlock { Text = slot.Value, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = slot.Token + " — from the name or the model" };
+                    parts.Children.Add(fixedPart); getters.Add(() => slot.Value!);
+                }
+                else if (slot.Options != null)
+                {
+                    var pick = new ComboBox { MinWidth = 70, Margin = new Thickness(0, 0, 2, 0), ToolTip = slot.Token + " — pick one of " + string.Join(", ", slot.Options) };
+                    foreach (var opt in slot.Options) pick.Items.Add(opt);
+                    pick.Text = slot.Token + "?"; pick.IsEditable = true; pick.IsReadOnly = true;
+                    pick.SelectionChanged += (_, _) => Update();
+                    parts.Children.Add(pick); getters.Add(() => pick.SelectedItem as string ?? "");
+                }
+                else
+                {
+                    var freeText = new TextBox { Text = slot.Prefill, MinWidth = 90, Margin = new Thickness(0, 0, 2, 0), ToolTip = slot.Token + " — " + slot.Hint };
+                    freeText.TextChanged += (_, _) => Update();
+                    parts.Children.Add(freeText); getters.Add(() => freeText.Text);
+                }
+                parts.Children.Add(new TextBlock { Text = row.Separator, Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center });
+            }
+            if (parts.Children.Count > 0) parts.Children.RemoveAt(parts.Children.Count - 1); // no trailing separator
+            editor.Children.Add(parts); editor.Children.Add(preview);
+            string Assembled() => NamingProposer.Assemble(new Rule { Separator = row.Separator, Tokens = row.Slots.Select(s => s.Token).ToList() }, getters.Select(g => g()));
+            void Update()
+            {
+                var name = Assembled();
+                var ok = row.Schema.IsMatch(name);
+                preview.Text = ok ? "→ " + name : "→ " + name + "   (not a valid name yet)";
+                preview.Foreground = ok ? Brushes.SeaGreen : Brushes.Gray;
+                box.IsEnabled = ok;
+                if (!ok) box.IsChecked = false;
+            }
+            Update();
+            Grid.SetColumn(editor, 3); grid.Children.Add(editor);
+            value = Assembled;
+        }
+        else
+        {
+            var val = new TextBox { Text = row.Proposed, IsEnabled = editable, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            Grid.SetColumn(val, 3); grid.Children.Add(val);
+            value = () => val.Text;
+        }
         var (text, brush) = row.Verdict switch
         {
             NameVerdict.Conforming => ("✓ conforming", Brushes.LightGreen),
@@ -134,13 +188,13 @@ public sealed class NamingManagerWindow : Window
         var inst = new TextBlock { Text = row.Instances.ToString(), Foreground = Brushes.Gray, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         inst.ToolTip = "instances in the model";
         Grid.SetColumn(inst, 5); grid.Children.Add(inst);
-        _visible.Add((box, val, row));
+        _visible.Add((box, value, row));
         return grid;
     }
 
     private void CommitEdits()
     {
-        foreach (var v in _visible) { v.Row.Ticked = v.Box.IsChecked == true; v.Row.Proposed = v.Value.Text; }
+        foreach (var v in _visible) { v.Row.Ticked = v.Box.IsChecked == true; v.Row.Proposed = v.Value(); }
     }
 
     private void Rename()

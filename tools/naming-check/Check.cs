@@ -148,6 +148,27 @@ static class Check
         Ok(dupes == 0, "sweep never proposes a duplicate within a family");
         Ok(conforming + proposed + needs + blocked > 100, "sweep covered the wall/floor/door/window types");
 
+        // ── the skeleton a person completes (founder's request 2026-09-28) ──────────────────────────────
+        {
+            var tnSk = Tn01();
+            var ctx = new NamingContext { Category = "Walls", FamilyName = "Basic Wall", WidthMm = 200 };
+            var p = NamingProposer.Propose("Counter Top", tnSk, "AST", ctx);
+            Ok(p.Verdict == NameVerdict.NeedsHuman && p.Slots != null && p.Slots.Count == tnSk.Tokens.Count, "a name the recovery cannot finish comes with one slot per token");
+            var org = p.Slots![0]; var loc = p.Slots[1]; var disc = p.Slots[2]; var mat = p.Slots[3]; var size = p.Slots[4];
+            Ok(org.Value == "AST", "ORG is fixed to the office code");
+            Ok(loc.Value == null && loc.Options != null && string.Join("|", loc.Options) == "EXT|INT|FND", "LOC the name lacks is a pick from the rule's values");
+            Ok(disc.Value == null && disc.Options != null && disc.Options.Contains("ARC"), "DISC likewise");
+            Ok(mat.Value == null && mat.Options == null && mat.Prefill == "COUNTER TOP", "MATERIAL is free text seeded with the leftover words");
+            Ok(size.Value == "200 mm", "SIZE comes from the measured width");
+            var name = NamingProposer.Assemble(tnSk, new[] { "AST", "INT", "ARC", "COUNTER TOP", "200 mm" });
+            Ok(name == "AST_INT_ARC_COUNTER TOP_200 mm" && RuleRegex.For(tnSk, "AST").IsMatch(name), "the picks assemble into a name the rule accepts: " + name);
+            Ok(!RuleRegex.For(tnSk, "AST").IsMatch(NamingProposer.Assemble(tnSk, new[] { "AST", "", "ARC", "COUNTER TOP", "200 mm" })), "an unpicked slot is not a valid name");
+            var p2 = NamingProposer.Propose("AST_EXT_Brick", tnSk, "AST", new NamingContext { Category = "Walls", WidthMm = null });
+            Ok(p2.Slots != null && p2.Slots[1].Value == "EXT" && p2.Slots[3].Prefill == "BRICK" && p2.Slots[4].Value == null, "a value the name already carries is fixed; no width and no size in the name leaves SIZE to the person");
+            var conf = NamingProposer.Propose("AST_EXT_ARC_CMU_200 mm", tnSk, "AST", ctx);
+            Ok(conf.Verdict == NameVerdict.Conforming && conf.Slots == null, "a conforming name has no skeleton");
+        }
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
