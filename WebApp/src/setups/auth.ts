@@ -88,6 +88,48 @@ export async function signOut(): Promise<void> {
   await supabase().auth.signOut({ scope: "local" });
 }
 
+export const MIN_PASSWORD = 8;
+
+/** Why a password change would be refused before asking anyone — null when it may be asked. */
+export function passwordProblem(current: string, next: string, confirm: string): string | null {
+  if (!current) return "Type your current password.";
+  if (next.length < MIN_PASSWORD) return `The new password needs at least ${MIN_PASSWORD} characters.`;
+  if (next !== confirm) return "The two new passwords are not the same.";
+  if (next === current) return "The new password is the same as the current one.";
+  return null;
+}
+
+type AuthApi = Pick<SupabaseClient["auth"], "getSession" | "signInWithPassword" | "updateUser" | "signOut">;
+
+/** Change the signed-in person's password. The current password is checked first (a signed-in tab left open is not
+ *  enough to change it); a refusal changes nothing and says why. `signOutOthers` then ends every other session of the
+ *  account — other browsers, and Sentinel in Revit (H4) — so a password that leaked stops working everywhere. */
+export async function changePassword(current: string, next: string, signOutOthers: boolean, auth: AuthApi = supabase().auth): Promise<{ ok: boolean; message: string }> {
+  const problem = passwordProblem(current, next, next);
+  if (problem) return { ok: false, message: problem };
+  let changed = false;
+  try {
+    const email = (await auth.getSession()).data.session?.user?.email;
+    if (!email) return { ok: false, message: "Not signed in — sign in first; nothing was changed." };
+    const check = await auth.signInWithPassword({ email, password: current });
+    if (check.error) return { ok: false, message: `The current password was not accepted (${check.error.message}) — nothing was changed.` };
+    const { error } = await auth.updateUser({ password: next });
+    if (error) return { ok: false, message: `The new password was refused: ${error.message} — nothing was changed.` };
+    changed = true;
+    if (!signOutOthers) return { ok: true, message: "Password changed. Your other sessions stay signed in." };
+    const out = await auth.signOut({ scope: "others" });
+    if (out.error) return { ok: true, message: `Password changed — but your other sessions were not signed out: ${out.error.message}.` };
+    // Their refresh is revoked; the access each already holds lasts its lifetime — the fresh check's own, measured.
+    const life = check.data?.session?.expires_in;
+    const when = life ? `within ${Math.ceil(life / 60)} minutes` : "at its next token refresh";
+    return { ok: true, message: `Password changed. Your other sessions (other browsers, Sentinel in Revit) are signed out — each stops ${when}.` };
+  } catch (e) {
+    return changed
+      ? { ok: true, message: `Password changed — but your other sessions were not signed out: ${(e as Error).message}.` }
+      : { ok: false, message: `Not changed — ${(e as Error).message}.` };
+  }
+}
+
 // The signed-in person's id as last seen by a session read or an auth event (null signed out). Every bridge read
 // reads the session first (bfetch → accessToken), so by the time a panel's read answers this is current.
 let lastUserId: string | null = null;
