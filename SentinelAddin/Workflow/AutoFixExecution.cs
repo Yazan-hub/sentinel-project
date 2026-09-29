@@ -45,6 +45,16 @@ public static class AutoFixExecution
                 : finalName!.Trim();
             if (candidate == oldName) { onDone?.Invoke(oldName, null); return; }
 
+            if (rule.Mode == EnforcementMode.Request)
+            {   // BG-4: a REQUEST rule is decided by a coordinator — file the proposal, rename nothing
+                using var tp = new Transaction(doc, "Sentinel: Propose " + ruleId);
+                tp.Start();
+                bool filed = RequestManager.CreateProposal(doc, ruleId, element, candidate);
+                tp.Commit();
+                onDone?.Invoke(oldName, filed ? candidate : null);
+                return;
+            }
+
             using var t = new Transaction(doc, "Sentinel: Auto-fix " + ruleId);
             t.Start();
             try

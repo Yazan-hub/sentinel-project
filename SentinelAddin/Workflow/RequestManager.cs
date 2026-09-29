@@ -108,6 +108,35 @@ public static class RequestManager
         return true;
     }
 
+    /// BG-4: ⚡ Fix on a REQUEST rule proposes instead of renaming. MUST run inside a transaction.
+    /// False when a request is already pending for the element or the name would not change.
+    public static bool CreateProposal(Document doc, string ruleId, Element element, string proposed)
+    {
+        long id = element.Id.IdValue();
+        if (RequestStore.HasPending(doc, id)) return false;
+        var current = element is ViewSheet s ? s.SheetNumber : element.Name;
+        if (current == proposed) return false;
+        var req = new ChangeRequest
+        {
+            RuleId = ruleId,
+            ElementId = id,
+            ElementCategory = element.Category?.Name ?? element.GetType().Name,
+            OldValue = current,
+            NewValue = proposed,
+            RequestedBy = doc.Application.Username,
+            Proposal = true,
+        };
+        RequestStore.Upsert(doc, req, new AuditEntry
+        {
+            Actor = req.RequestedBy,
+            Action = "request.proposed",
+            RequestId = req.Id,
+            Detail = $"{req.ElementCategory} '{current}' -> '{proposed}' proposed ({ruleId})",
+        });
+        SetReviewFlag(element, "Pending");
+        return true;
+    }
+
     /// Coordinator verdict. MUST run inside a transaction (ExternalEvent).
     public static void Resolve(Document doc, Guid requestId, bool approve, string? note)
     {
@@ -124,17 +153,29 @@ public static class RequestManager
         if (approve)
         {
             req.Status = RequestStatus.Approved;
-            if (element is not null) SetReviewFlag(element, "");
+            if (element is not null)
+            {
+                if (req.Proposal)                              // BG-4: a proposal was never applied — Approve applies it
+                {
+                    RevertValue(element, req.NewValue);
+                    UpdateSnapshot(doc, req.ElementId, req.NewValue);
+                }
+                SetReviewFlag(element, "");
+            }
         }
         else
         {
             req.Status = RequestStatus.Rejected;
             if (element is not null)
             {
-                RevertValue(element, req.OldValue);          // Decision 8: auto-revert
-                SetReviewFlag(element, "");
-                UpdateSnapshot(doc, req.ElementId, req.OldValue);
-                req.Status = RequestStatus.Reverted;
+                if (req.Proposal) SetReviewFlag(element, "");  // nothing was renamed: nothing to revert
+                else
+                {
+                    RevertValue(element, req.OldValue);        // Decision 8: auto-revert
+                    SetReviewFlag(element, "");
+                    UpdateSnapshot(doc, req.ElementId, req.OldValue);
+                    req.Status = RequestStatus.Reverted;
+                }
             }
         }
 

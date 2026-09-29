@@ -18,6 +18,9 @@ public sealed class ChangeRequest
     [JsonPropertyName("element_category")] public string ElementCategory { get; set; } = string.Empty;
     [JsonPropertyName("old_value")] public string OldValue { get; set; } = string.Empty;
     [JsonPropertyName("new_value")] public string NewValue { get; set; } = string.Empty;
+    /// BG-4: a proposal filed by ⚡ Fix on a REQUEST rule — the element was NOT renamed; Approve applies NewValue,
+    /// Reject leaves the element as it is. Absent in older stored requests (= false: the edit already happened).
+    [JsonPropertyName("proposal")] public bool Proposal { get; set; }
     [JsonPropertyName("requested_by")] public string RequestedBy { get; set; } = string.Empty;
     [JsonPropertyName("requested_at")] public DateTimeOffset RequestedAt { get; set; } = DateTimeOffset.Now;
     [JsonPropertyName("status")] public RequestStatus Status { get; set; } = RequestStatus.Pending;

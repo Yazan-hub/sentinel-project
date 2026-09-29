@@ -46,7 +46,8 @@ public sealed class ViolationRow
     private static bool ComputeCanFix(Violation v, Rule? rule)
     {
         if (v.ElementId <= 0) return false;
-        if (v.Mode != EnforcementMode.Warn && v.Mode != EnforcementMode.Request) return false;
+        // BLOCK rows are the ones that stop the sync: they need ⚡ Fix the most (audit SCAN-E3).
+        if (v.Mode != EnforcementMode.Warn && v.Mode != EnforcementMode.Request && v.Mode != EnforcementMode.Block) return false;
         // Type renames go through the Naming Manager: the one-row Fix would suffix on a collision.
         return rule is not null && rule.Tokens.Count > 0 && rule.Target != RuleTarget.Type;
     }
@@ -217,6 +218,13 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         Status = $"⚡ Fixing '{row.ElementName}' ({row.RuleId})…";
         AutoFixExecution.Run(doc, row.ElementId, row.RuleId, (oldName, newName) => OnUi(() =>
         {
+            if (row.Mode == "REQUEST")
+            {   // BG-4: filed as a proposal — the element is unchanged until a coordinator approves, so the row stays
+                Status = newName is null
+                    ? $"✕ No proposal filed for '{row.ElementName}' — one may already be pending (Change Requests)."
+                    : $"✓ Proposed '{newName}' for '{row.ElementName}' — a coordinator approves it in Change Requests.";
+                return;
+            }
             if (newName is null)
             {
                 Status = $"✕ Could not auto-fix '{row.ElementName}' ({row.RuleId}) — rename manually.";
