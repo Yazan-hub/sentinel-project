@@ -10,7 +10,13 @@ const LABEL: Record<string, [string, string]> = {
   in_wip: ["in WIP — not published", "#eab308"], pending: ["pending", "#9ca3af"], unscheduled: ["planned, no date", "#9ca3af"],
 };
 
-export function sheetMidpLine(containerName: string | null | undefined, rows: MidpStatusRow[] | null, readErr: string | null): { text: string; color: string } {
+/** What Publish Sheets wrote for the sheet in the manifest (item 5 Phase A). */
+export interface SheetProposal { container_name?: string; verdict?: string; refusal?: string; proposal_error?: string }
+
+export function sheetMidpLine(sheet: SheetProposal, rows: MidpStatusRow[] | null, readErr: string | null): { text: string; color: string } {
+  if (sheet.verdict === "rejected") return { text: `refused — ${sheet.refusal || "the naming standard refused its name"}`, color: "#f87171" };
+  if (sheet.proposal_error) return { text: sheet.proposal_error, color: "#fbbf24" };
+  const containerName = sheet.verdict ? sheet.container_name : undefined;
   if (!containerName) return { text: "not proposed — exported before Publish Sheets proposed each sheet", color: "#71717a" };
   if (readErr) return { text: `MIDP not read — ${readErr}`, color: "#fbbf24" };
   const row = (rows ?? []).find((r) => key(r.container_name) === key(containerName));

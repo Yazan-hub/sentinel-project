@@ -43,6 +43,10 @@ public sealed class ProposalResult
     // standard, a caller who could not register) or a bridge before 6a; HoldId / HoldHash stay null when it omits them.
     public bool Held;
     public string? HoldId, HoldHash;
+    // What the MIDP says of the proposed container, in words (item 5, spec 2026-09-29 2d-sheets-midp): planned (due,
+    // the revision against the plan's) / not in the MIDP / MIDP not read — why. Null when the bridge said nothing (no
+    // container named, or a bridge before item 5).
+    public string? Midp;
     /// "ids@4 · office · 23bb57937fb0…" or "none" — the bridge's refLabel, as every other surface prints it.
     public string IdsLabel => RefLabel(IdsRef, IdsSource, IdsSha256);
     public string NamingLabel => RefLabel(NamingRef, NamingSource, NamingSha256);
@@ -78,7 +82,11 @@ public sealed class ProposalResult
         // plus failures_total / failures_matched, so truncation is detected by count, not guessed.
         if (!string.IsNullOrWhiteSpace(failuresRequirement)) body["failures_requirement"] = failuresRequirement;
         if (register != null)
-            body["register"] = new Dictionary<string, object?> { ["name"] = register.Name, ["size_bytes"] = register.SizeBytes, ["sha256"] = register.Sha256 };
+        {
+            var reg = new Dictionary<string, object?> { ["name"] = register.Name, ["size_bytes"] = register.SizeBytes, ["sha256"] = register.Sha256 };
+            if (!string.IsNullOrWhiteSpace(register.Revision)) reg["revision"] = register.Revision!.Trim(); // a drawing's own (P01…)
+            body["register"] = reg;
+        }
         if (gateRowId is > 0) body["gate_row_id"] = gateRowId.Value;
         return body;
     }
@@ -136,7 +144,24 @@ public sealed class ProposalResult
         r.NamingRef = Str(root, "naming_ref");
         r.NamingSource = Str(root, "naming_source");
         r.NamingSha256 = Str(root, "naming_sha256");
+        if (root.TryGetProperty("midp", out var md) && md.ValueKind == JsonValueKind.Object) r.Midp = MidpWords(md);
         return r;
+    }
+
+    /// <summary>The bridge's <c>midp</c> in words. A failed read is said as not read, never as "not in the MIDP".</summary>
+    public static string MidpWords(JsonElement m)
+    {
+        if (Str(m, "not_read") is { } why) return "MIDP not read — " + why;
+        if (!(m.TryGetProperty("planned", out var p) && p.ValueKind == JsonValueKind.True)) return "not in the MIDP";
+        var due = Str(m, "due_date");
+        var words = "planned in the MIDP" + (due != null ? ", due " + due : "");
+        var expected = Str(m, "expected_revision");
+        return Str(m, "revision") switch
+        {
+            "met" => words + " · revision " + expected + " as planned",
+            "mismatch" => words + " · the plan expects revision " + expected,
+            _ => words,
+        };
     }
 
     // The bridge's refLabel (artefact-store.mjs): ref · source · first 12 of the sha + "…", or "none".
@@ -167,4 +192,5 @@ public sealed class RegisterRequest
     public string Name = "";
     public long SizeBytes;
     public string Sha256 = "";
+    public string? Revision;                        // a drawing's own revision (P01…); null → the CDE numbers it v{N+1}
 }

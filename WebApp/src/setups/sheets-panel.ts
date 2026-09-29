@@ -4,7 +4,7 @@ import { bfetch, bridgeImage, refusalText } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { sheetMidpLine, type MidpStatusRow } from "./sheet-midp";
+import { sheetMidpLine, type MidpStatusRow, type SheetProposal } from "./sheet-midp";
 import { openLivePlan } from "./live-plan";
 
 /**
@@ -15,7 +15,7 @@ import { openLivePlan } from "./live-plan";
  * free, so it survives Revit↔IFC base-point offsets). Plain-DOM, iframe-safe.
  */
 interface Viewport { view: string; type: string; level: string; fx: number; fy: number; fw: number; fh: number; }
-interface SheetItem { id: string; number: string; name: string; file: string; url: string; viewports?: Viewport[]; container_name?: string; }
+interface SheetItem extends SheetProposal { id: string; number: string; name: string; file: string; url: string; viewports?: Viewport[]; }
 interface SheetSet { set: string; title: string; project?: string | null; exportedAt: string | null; count: number; sheets: SheetItem[]; }
 
 export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
@@ -53,7 +53,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       return;
     }
     host.innerHTML = set.sheets.map((s, i) => {
-      const m = sheetMidpLine(s.container_name, midpRows, midpErr);
+      const m = sheetMidpLine(s, midpRows, midpErr);
       return `<div class="sh-row" data-i="${i}" style="display:flex;gap:.5rem;align-items:center;padding:.4rem .45rem;border:1px solid #2a2a30;background:#1b1b22;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer">` +
       `<span style="color:#c4b5fd;font-weight:600;min-width:4.5rem">${esc(s.number)}</span>` +
       `<span style="flex:1;min-width:0"><span style="display:block;color:#e5e7eb;font-size:12px">${esc(s.name)}</span>` +
@@ -97,7 +97,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       sets = (data.sets ?? []).filter((s) => !s.project || s.project === activePid());
       active = 0;
       midpRows = null; midpErr = null;
-      if (sets.some((s) => s.sheets.some((x) => x.container_name))) {
+      if (sets.some((s) => s.sheets.some((x) => x.container_name && x.verdict && x.verdict !== "rejected"))) {
         try {
           const d = await bfetch(`${base}/deliverables/${encodeURIComponent(activePid())}/status`);
           const j = await d.json().catch(() => null);
