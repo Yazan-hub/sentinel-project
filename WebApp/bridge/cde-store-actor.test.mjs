@@ -1,6 +1,14 @@
 // Pins the resolveActor WIRING at the real sinks (audit, recordAudit, transition): a future edit that
 // silently un-wires one of them fails here, not in production. globalThis.fetch is stubbed — no network.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.hoisted(() => {
+  // cde-store reads its config at import. config/.env wins where it exists; without one (CI) these make the store
+  // "configured". fetch is stubbed either way, so neither is ever called.
+  process.env.SUPABASE_URL ||= "https://fixture.supabase.co";
+  process.env.SUPABASE_SERVICE_KEY ||= "fixture-service-key";
+});
+
 import { runWithAuth } from "./bridge-auth.mjs";
 import { audit, recordAudit, transition } from "./cde-store.mjs";
 
