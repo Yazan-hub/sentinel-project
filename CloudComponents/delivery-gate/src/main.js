@@ -15,6 +15,30 @@ import { checkDelivery, gateNotChecked } from "../../../WebApp/bridge/delivery-g
 export const CONTRACT_ITEM = "sentinel-contract.json";
 export const REPORT_KIND = "sentinel.gate-report";
 export const reportName = (ifcName) => `${ifcName}.gate.json`;
+
+/** The report version's tag: the IFC's own tag, or `<tag>.2`, `<tag>.3`… when a run of that IFC version already wrote
+ *  one (the platform refuses a second version with the same tag, "Duplicated entry"). */
+export function freeTag(versions, tag) {
+  const taken = new Set((Array.isArray(versions) ? versions : []).map((v) => v?.tag));
+  if (!taken.has(tag)) return tag;
+  for (let k = 2; ; k++) if (!taken.has(`${tag}.${k}`)) return `${tag}.${k}`;
+}
+
+/** This IFC item's report item, as its own labels name it (this version's, else its newest other version's) — never
+ *  found by name: the platform lets two items share a name (seen 2026-09-29, two ASTR26-…-0001.ifc items), and one's
+ *  report must not take the other's versions. null when no label names one: the run makes a new report item. */
+async function reportItemOf(items, fileId, versions, versionTag, current) {
+  const named = (labels) => {
+    const id = labels && typeof labels.sentinel_report === "string" ? labels.sentinel_report : "";
+    return id && id !== "none" ? items.find((i) => i._id === id && i.name.endsWith(".gate.json")) ?? null : null;
+  };
+  const here = named(current);
+  if (here) return here;
+  const earlier = newestTag(versions.filter((v) => v.tag !== versionTag));
+  if (!earlier) return null;
+  try { return named(await thatOpenServices.getFileVersionMetadata(fileId, earlier)); }
+  catch { return null; } // unread: a new report item, never a guess by name
+}
 // The contract's own fingerprint on the report, so a report says which contract text judged it.
 const sha = (text) => createHash("sha256").update(text).digest("hex");
 const NO_CONTRACT = "no contract on the platform project — install one in Sentinel";
@@ -124,28 +148,34 @@ export async function main() {
     sha256: r.sha256, size: r.size,
     run: { executionId: ctx.executionId ?? null, at: new Date().toISOString(), component: { toolId: ctx.toolId ?? null, toolVersion: ctx.toolVersion ?? null } },
   };
-  let reportId = null, reportErr = null;
+  // The version's labels are read first: they name this IFC's report item (below), and updateFileVersionMetadata
+  // replaces the whole map, so they are merged, never overwritten blind.
+  let labelsErr = null, current;
+  try { current = await thatOpenServices.getFileVersionMetadata(fileId, versionTag); }
+  catch (e) { labelsErr = `the version labels could not be read, so none were written: ${words(e)}`; }
+
+  let reportId = null, reportTag = null, reportErr = null;
   try {
     const blob = new Blob([JSON.stringify(rep, null, 2)], { type: "application/json" });
-    const existing = items.find((i) => i.name === reportName(name));
-    if (existing) { await thatOpenServices.createVersion(existing._id, blob, versionTag); reportId = existing._id; }
-    else {
+    const existing = await reportItemOf(items, fileId, versions, versionTag, current);
+    if (existing) {
+      reportTag = freeTag(existing.versions, versionTag);
+      await thatOpenServices.createVersion(existing._id, blob, reportTag);
+      reportId = existing._id;
+    } else {
+      reportTag = versionTag;
       const made = await thatOpenServices.createFile({ file: new File([blob], reportName(name), { type: "application/json" }), name: reportName(name), versionTag, projectId });
       reportId = made?.item?._id ?? made?._id ?? null;
     }
   } catch (e) { reportErr = words(e); }
 
-  // The labels on the IFC version (values ≤ 50 characters: the hash in two halves). updateFileVersionMetadata replaces
-  // the whole map, so the version's labels are read and merged first — the platform's own keys (the IfcFragmenter's
-  // fragmentsFileId/derivedFileId link) stay; never a blind write over labels that could not be read.
+  // The labels on the IFC version (values ≤ 50 characters: the hash in two halves). The platform's own keys (the
+  // IfcFragmenter's fragmentsFileId/derivedFileId link) stay.
   const labels = {
     sentinel_gate: r.result === "not_checked" ? "not_checked" : r.result, sentinel_contract: contract.body ? contract.ref : "none",
     sentinel_failures: String(r.failures.length), sentinel_sha256_a: r.sha256.slice(0, 32), sentinel_sha256_b: r.sha256.slice(32),
-    sentinel_report: reportId || "none", sentinel_run: String(ctx.executionId ?? "none"),
+    sentinel_report: reportId || "none", sentinel_report_tag: reportId ? reportTag : "none", sentinel_run: String(ctx.executionId ?? "none"),
   };
-  let labelsErr = null, current;
-  try { current = await thatOpenServices.getFileVersionMetadata(fileId, versionTag); }
-  catch (e) { labelsErr = `the version labels could not be read, so none were written: ${words(e)}`; }
   if (!labelsErr) {
     try { await thatOpenServices.updateFileVersionMetadata(fileId, versionTag, { ...current, ...labels }); }
     catch (e) { labelsErr = `the version labels were refused: ${words(e)}`; }

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { checkDelivery } from "../../WebApp/bridge/delivery-gate.mjs";
-import { main, newestTag, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
+import { main, newestTag, freeTag, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
 
 const ifc = readFileSync(new URL("../../WebApp/bridge/fixtures/minimal.ifc", import.meta.url));
 const contract = (over = {}) => ({
@@ -88,6 +88,7 @@ test("a pass: the report version, the labels and SUCCESS — the sha256 is the b
   assert.equal(m.metadata.sentinel_failures, "0");
   assert.equal(m.metadata.sentinel_sha256_a + m.metadata.sentinel_sha256_b, rep.sha256);
   assert.equal(m.metadata.sentinel_report, "new-1");
+  assert.equal(m.metadata.sentinel_report_tag, "v2");
   assert.equal(m.metadata.sentinel_run, "exec1");
   for (const [k, v] of Object.entries(m.metadata)) { assert.ok(k.length <= 50 && String(v).length <= 50, `${k} fits 50`); }
 });
@@ -145,15 +146,40 @@ test("the report could not be written: WARNING names it, the verdict is in the m
   assert.equal(r.message, "Passed — contract@1 — the report could not be written: 403 forbidden");
   assert.equal(p.writes.metadata[0].metadata.sentinel_gate, "pass");
   assert.equal(p.writes.metadata[0].metadata.sentinel_report, "none");
+  assert.equal(p.writes.metadata[0].metadata.sentinel_report_tag, "none");
 });
 
-test("a second judged version of the same IFC adds a version to the existing report item", async () => {
-  const p = platform({ items: [ifcItem(), { _id: "r1", name: reportName("tower.ifc"), versions: [{ tag: "v1" }] }], contractBody: contract() });
+test("a second judged version of the same IFC adds a version to the report item its earlier version's labels name", async () => {
+  const p = platform({ items: [ifcItem(), { _id: "r1", name: reportName("tower.ifc"), versions: [{ tag: "v1" }] }], contractBody: contract(),
+    labels: { "f1@v1": { sentinel_report: "r1", sentinel_gate: "fail" } } });
   const r = await run(p, { fileId: "f1", versionTag: "v2" });
   assert.equal(r.type, "SUCCESS");
   assert.equal(p.writes.files.length, 0);
   assert.deepEqual(p.writes.versions.map((v) => [v.itemId, v.versionTag]), [["r1", "v2"]]);
-  assert.equal(p.writes.metadata[0].metadata.sentinel_report, "r1");
+  assert.deepEqual([p.writes.metadata[0].metadata.sentinel_report, p.writes.metadata[0].metadata.sentinel_report_tag], ["r1", "v2"]);
+});
+
+test("another IFC of the same name never shares its report: a new report item, not 'Duplicated entry' (seen 2026-09-29)", async () => {
+  // r1 is the report of an older item also called tower.ifc; it already holds a v2. This IFC's labels name no report.
+  const p = platform({ items: [ifcItem(), { _id: "r1", name: reportName("tower.ifc"), versions: [{ tag: "v2" }, { tag: "v1" }] }], contractBody: contract() });
+  p.svc.createVersion = async () => { throw new Error("Duplicated entry"); };
+  const r = await run(p, { fileId: "f1", versionTag: "v2" });
+  assert.equal(r.type, "SUCCESS");
+  assert.deepEqual(p.writes.files.map((f) => [f.name, f.versionTag]), [[reportName("tower.ifc"), "v2"]]);
+  assert.equal(JSON.parse(p.writes.files[0].text).file.id, "f1");
+  assert.deepEqual([p.writes.metadata[0].metadata.sentinel_report, p.writes.metadata[0].metadata.sentinel_report_tag], ["new-1", "v2"]);
+});
+
+test("a re-run of a judged version writes its report as <tag>.2, and the labels name that version", async () => {
+  const p = platform({ items: [ifcItem(), { _id: "r1", name: reportName("tower.ifc"), versions: [{ tag: "v2" }, { tag: "v1" }] }], contractBody: contract(),
+    labels: { "f1@v2": { sentinel_report: "r1", sentinel_report_tag: "v2", sentinel_run: "exec0" } } });
+  const r = await run(p, { fileId: "f1", versionTag: "v2" });
+  assert.equal(r.type, "SUCCESS");
+  assert.deepEqual(p.writes.versions.map((v) => [v.itemId, v.versionTag]), [["r1", "v2.2"]]);
+  const m = p.writes.metadata[0].metadata;
+  assert.deepEqual([m.sentinel_report, m.sentinel_report_tag, m.sentinel_run], ["r1", "v2.2", "exec1"]);
+  assert.equal(freeTag([{ tag: "v2" }, { tag: "v2.2" }], "v2"), "v2.3");
+  assert.equal(freeTag([{ tag: "v1" }], "v2"), "v2");
 });
 
 test("its own outputs are skipped before any download", async () => {
