@@ -41,7 +41,11 @@ public sealed class IfcPreFlightCommand : IExternalCommand
     {
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null || App.PanelVm is null) return Result.Cancelled;
-        var report = Sentinel.Engine.IfcPreFlightScanner.Scan(doc);
+        // IFC-02 checks what the delivery contract in force requires (project → office → none), fetched off Revit's
+        // thread and waited for, as the IFC Delivery Gate does (PRE-E2).
+        var key = Sentinel.Engine.ProjectContext.For(doc).Key;
+        var (contract, contractSource) = System.Threading.Tasks.Task.Run(() => Sentinel.Engine.DeliveryContract.Load(key)).GetAwaiter().GetResult();
+        var report = Sentinel.Engine.IfcPreFlightScanner.Scan(doc, contract, contractSource.Label);
 
         if (report.ElementsChecked == 0)
         {
@@ -59,7 +63,7 @@ public sealed class IfcPreFlightCommand : IExternalCommand
 
         TaskDialog.Show("Sentinel — IFC Pre-Flight",
             report.Violations.Count == 0
-                ? $"✓ Ready to export.\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms — no IFC issues."
+                ? $"✓ No IFC issues found against {contractSource.Label}.\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms."
                 : $"{report.Violations.Count} issue(s) found across {report.ElementsChecked} elements " +
                   $"({report.DurationMs} ms).\n\nDetails are listed in the Sentinel panel (rules IFC-01 / IFC-02).");
         return Result.Succeeded;

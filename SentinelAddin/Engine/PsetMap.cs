@@ -79,4 +79,23 @@ public static class PsetMap
 
     public static PsetEntry? Find(string? org, string requirementKey) =>
         Entries(org).FirstOrDefault(e => string.Equals(e.Key, (requirementKey ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// PRE-E2: the contract's required property names ("FireRating" or "Pset_DoorCommon.FireRating") → the Revit reads
+    /// Sentinel knows for them (one bare name can map to several classes; each entry once), plus the names it has no
+    /// mapping for — the caller reports those as not checked, never as passed.
+    public static (IReadOnlyList<PsetEntry> Mapped, IReadOnlyList<string> Unmapped) ForRequired(string? org, IEnumerable<string> names)
+    {
+        var entries = Entries(org);
+        var mapped = new List<PsetEntry>();
+        var unmapped = new List<string>();
+        foreach (var n in names.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var hits = n.IndexOf('.') >= 0   // net48 has no string.Contains(char)
+                ? entries.Where(e => string.Equals(e.Key, n, StringComparison.OrdinalIgnoreCase)).ToList()
+                : entries.Where(e => e.Pset.Length > 0 && string.Equals(e.Prop, n, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (hits.Count == 0) unmapped.Add(n);
+            else mapped.AddRange(hits.Where(h => !mapped.Contains(h)));
+        }
+        return (mapped, unmapped);
+    }
 }

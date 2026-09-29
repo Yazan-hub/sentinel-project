@@ -134,6 +134,13 @@ static class Check
         var pn = ProposalResult.Parse("{\"verdict\":\"recorded\",\"ids_source\":\"none\",\"ids_ref\":null,\"naming_ref\":null}");
         Ok(pn.IdsRef == null && pn.IdsLabel == "none" && pn.NamingRef == null && pn.NamingLabel == "none" && !pn.Warned, "nothing installed → refs null, labels \"none\", not warned");
 
+        Console.WriteLine("\nPsetMap.ForRequired — the contract's required names → Revit reads (PRE-E2)");
+        var fr = PsetMap.ForRequired("AST", new[] { "FireRating", "ThermalTransmittance", "Pset_DoorCommon.FireRating", "AcousticRating", " ", "FireRating" });
+        Ok(fr.Mapped.Count(m => m.Prop == "FireRating" && m.Pset == "Pset_WallCommon") == 1 && fr.Mapped.Count(m => m.Prop == "FireRating" && m.Pset == "Pset_DoorCommon") == 1,
+           "FireRating maps to the wall and door entries; the dotted key does not add the door twice (one row per door, not two)");
+        Ok(fr.Mapped.Any(m => m.Prop == "ThermalTransmittance" && m.Classes.Contains("IFCWINDOW")), "ThermalTransmittance → IFCWINDOW");
+        Ok(fr.Unmapped.SequenceEqual(new[] { "AcousticRating" }), "an unmapped name is listed (never silently passed); blanks and repeats dropped");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
