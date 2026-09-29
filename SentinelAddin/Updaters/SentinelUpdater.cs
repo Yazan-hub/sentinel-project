@@ -18,7 +18,7 @@ public sealed class SentinelUpdater : IUpdater
     private readonly RuleEngineHost _engine;
     private readonly SentinelPanelViewModel _panel;
 
-    private static readonly Dictionary<string, SentinelUpdater> Registered = [];
+    private static readonly Dictionary<Document, SentinelUpdater> Registered = new();
 
     private SentinelUpdater(AddInId addInId, RuleEngineHost engine, SentinelPanelViewModel panel)
     {
@@ -29,8 +29,9 @@ public sealed class SentinelUpdater : IUpdater
 
     public static void RegisterFor(Document doc, RuleEngineHost engine, SentinelPanelViewModel panel)
     {
-        var key = doc.PathName ?? doc.Title;
-        if (Registered.ContainsKey(key)) return;
+        // Keyed by the Document itself (Equals/GetHashCode), never PathName/Title: a new project's path is empty until
+        // its first save, and two unsaved projects can share a title (BG-1).
+        if (doc.IsFamilyDocument || Registered.ContainsKey(doc)) return;
 
         var updater = new SentinelUpdater(doc.Application.ActiveAddInId, engine, panel);
         UpdaterRegistry.RegisterUpdater(updater, doc, isOptional: true);
@@ -59,7 +60,19 @@ public sealed class SentinelUpdater : IUpdater
             }),
             Element.GetChangeTypeElementAddition());
 
-        Registered[key] = updater;
+        Registered[doc] = updater;
+    }
+
+    /// Closing: this document's triggers and registration go with it; the other open documents keep theirs.
+    public static void UnregisterFor(Document doc)
+    {
+        if (!Registered.TryGetValue(doc, out var u)) return;
+        Registered.Remove(doc);
+        if (UpdaterRegistry.IsUpdaterRegistered(u._id, doc))
+        {
+            UpdaterRegistry.RemoveDocumentTriggers(u._id, doc);
+            UpdaterRegistry.UnregisterUpdater(u._id, doc);
+        }
     }
 
     public static void UnregisterAll()
@@ -87,10 +100,9 @@ public sealed class SentinelUpdater : IUpdater
 
         // Enforcement modes (Decision 4):
         //  monitor -> log only (panel)
-        //  warn    -> panel + non-blocking toast
-        //  request -> Phase 2: create pending change request + flag element
-        //  block   -> disallowed inside DMU; blocking rules are enforced by
-        //             failure-posting at sync time
+        //  warn    -> panel + a status line
+        //  request -> pending change request + flag element
+        //  block   -> nothing extra here yet: package 2 of the Revit plan makes BLOCK stop the sync
         if (shown)
             foreach (var v in violations.Where(v => v.Mode == EnforcementMode.Warn))
                 _panel.RaiseWarnToast(v);

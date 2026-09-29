@@ -84,6 +84,7 @@ public sealed class App : IExternalApplication
             try
             {
                 app.ControlledApplication.DocumentOpened += OnDocumentOpened;
+                app.ControlledApplication.DocumentCreated += OnDocumentCreated; // File ▸ New: watched like an opened project
                 app.ControlledApplication.DocumentClosing += OnDocumentClosing;
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
@@ -112,6 +113,7 @@ public sealed class App : IExternalApplication
     public Result OnShutdown(UIControlledApplication app)
     {
         app.ControlledApplication.DocumentOpened -= OnDocumentOpened;
+        app.ControlledApplication.DocumentCreated -= OnDocumentCreated;
         app.ControlledApplication.DocumentClosing -= OnDocumentClosing;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
@@ -130,10 +132,20 @@ public sealed class App : IExternalApplication
         ReloadRuleset(doc); // the baseline scan runs when the document's ruleset@n has landed
     }
 
+    // A new project (File ▸ New) is watched like an opened one; its ruleset@n loads when its view activates.
+    private static void OnDocumentCreated(object? sender, DocumentCreatedEventArgs e)
+    {
+        if (e.Document is not { IsFamilyDocument: false } doc) return;
+        SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
+        Workflow.RequestManager.RefreshSnapshot(doc);
+    }
+
     private static void OnDocumentClosing(object? sender, DocumentClosingEventArgs e)
     {
         Engine?.Forget(e.Document);
         ReloadSeq.Remove(e.Document);
+        SentinelUpdater.UnregisterFor(e.Document);      // BG-1: its triggers go with it; other documents keep theirs
+        Workflow.RequestManager.Forget(e.Document);
     }
 
     // The latest reload per document (API thread only): an older GET that lands late never overwrites a newer one.
