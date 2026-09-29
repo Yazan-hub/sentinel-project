@@ -87,6 +87,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentCreated += OnDocumentCreated; // File ▸ New: watched like an opened project
                 app.ControlledApplication.DocumentClosing += OnDocumentClosing;
                 app.ControlledApplication.DocumentClosed += OnDocumentClosed; // a cancelled close is watched again
+                app.ControlledApplication.DocumentSynchronizingWithCentral += OnSynchronizing; // BLOCK stops the sync
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
                 app.ViewActivated += OnViewActivated; // the pane follows the active document
@@ -117,6 +118,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentCreated -= OnDocumentCreated;
         app.ControlledApplication.DocumentClosing -= OnDocumentClosing;
         app.ControlledApplication.DocumentClosed -= OnDocumentClosed;
+        app.ControlledApplication.DocumentSynchronizingWithCentral -= OnSynchronizing;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
         app.ViewActivated -= OnViewActivated;
@@ -218,6 +220,32 @@ public sealed class App : IExternalApplication
         }
         vm.PublishReport(doc, engine.ScanFull(doc));
         RefreshJourney(doc);
+    }
+
+    // BLOCK (founder, 2026-09-30): a BLOCK rule stops the sync, not the edit. The document's full scan runs before
+    // Revit syncs; any BLOCK violation cancels the sync and lists what to fix. Local work is untouched. A document whose
+    // ruleset@n has not landed yet is not judged here (nothing to block by).
+    private static void OnSynchronizing(object? sender, DocumentSynchronizingWithCentralEventArgs e)
+    {
+        var doc = e.Document;
+        if (doc is null || doc.IsFamilyDocument || Engine is not { } engine || !engine.Has(doc)) return;
+        var report = engine.ScanFull(doc);
+        var blocks = report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
+        if (blocks.Count == 0) return;
+        var rules = string.Join(", ", blocks.Select(v => v.RuleId).Distinct());
+        if (!e.Cancellable)
+        {
+            PanelVm?.LogDoctor($"{blocks.Count} BLOCK violation(s) ({rules}) — Revit did not allow Sentinel to stop this sync.");
+            return;
+        }
+        e.Cancel();
+        PanelVm?.PublishReport(doc, report);
+        PanelVm?.LogDoctor($"Sync stopped: {blocks.Count} BLOCK violation(s) ({rules}).");
+        var sample = string.Join("\n", blocks.Take(8).Select(v => "• " + v.RuleId + ": " + v.ElementName));
+        TaskDialog.Show("Sentinel — Sync stopped",
+            $"{blocks.Count} BLOCK violation(s) ({rules}) must be fixed before this model syncs.\n\n{sample}" +
+            (blocks.Count > 8 ? "\n…" : "") +
+            "\n\nThe Sentinel pane lists them first — fix them (⚡ Fix where offered) and sync again. Your work is safe: save locally.");
     }
 
     private static void OnSynchronized(object? sender, DocumentSynchronizedWithCentralEventArgs e)

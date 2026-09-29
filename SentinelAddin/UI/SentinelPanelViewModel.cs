@@ -77,7 +77,8 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         OnUi(() =>
         {
             Violations.Clear();
-            foreach (var v in report.Violations) Violations.Add(new ViolationRow(v, report.Ruleset));
+            // BLOCK rows first: they are what stops the sync (App.OnSynchronizing).
+            foreach (var v in report.Violations.OrderBy(v => v.Mode == EnforcementMode.Block ? 0 : 1)) Violations.Add(new ViolationRow(v, report.Ruleset));
             _notScored = report.NotScored;
             Score = report.Score;   // raises ScoreText, which reads _notScored
             Status = report.NotScored is { } why
