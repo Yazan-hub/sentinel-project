@@ -59,7 +59,17 @@ describe("readDeliveries", () => {
     expect(cards.map((k) => [k.name, k.versionTag, k.state])).toEqual([["a.ifc", "v2", "passed"], ["b.ifc", "v1", "refused"]]);
     expect(c.listFiles).toHaveBeenCalledWith({ projectId: "p1" });
     expect(c.downloadFile).toHaveBeenCalledWith("r", { versionTag: "v2" });
-    expect(c.getFileVersionMetadata).toHaveBeenCalledTimes(1); // only b.ifc, which has no report version
+    expect(c.getFileVersionMetadata).toHaveBeenCalledTimes(2); // every IFC: the labels say which run is the latest
+  });
+  it("a re-run whose report could not be written: the labels (its run) answer, never the earlier run's report", async () => {
+    const rep = { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v2" }] };
+    const labels = { sentinel_gate: "fail", sentinel_contract: "contract@2", sentinel_failures: "3", sentinel_run: "exec10" };
+    const [card] = await readDeliveries(client([item("a.ifc"), rep], { labels }), "p1"); // the report on file is exec9's pass
+    expect(card).toMatchObject({ state: "refused", headline: "Refused — contract@2 — 3 failure(s)", run: "exec10" });
+    expect(card.lines).toEqual(["run exec10's report could not be written — the report on file is run exec9's; the labels (run exec10) answer"]);
+    // The same run on both, or labels that name no run or could not be read: the report answers, as before.
+    for (const o of [{ labels: { ...labels, sentinel_run: "exec9" } }, { labels: { sentinel_gate: "fail" } }, { labelsFail: "429" }])
+      expect((await readDeliveries(client([item("a.ifc"), rep], o), "p1"))[0]).toMatchObject({ state: "passed", run: "exec9" });
   });
   it("a report item without a version for this tag falls back to the labels, then to running", async () => {
     const c = client([item("a.ifc"), { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v1" }] }]);
