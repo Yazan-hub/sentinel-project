@@ -50,7 +50,9 @@ facts this rests on were re-read in `cde-store.mjs` (adjudicateProposal, readReg
 ## Phase B — the MIDP sees what nobody planned; the Sheets panel shows the verdicts
 
 - `unplannedContainers(rows, files)` (deliverables-logic, pure): every live container whose key no row plans. Returned by
-  `/deliverables/:key/status` as `unplanned`, and `midp.milestones` reports them as a low-severity finding.
+  `/deliverables/:key/status` as `unplanned`; the Deliverables panel lists them ("Issued, never planned"). **Amended while
+  building:** they are not folded into `midp.milestones` — that would turn its verdict and the stage gate that reads it;
+  a gate change is the founder's to decide.
 - The Sheets panel: each sheet with a `container_name` shows its MIDP status from `/deliverables/:key/status` (delivered,
   late, in WIP, overdue, pending — or "not in the MIDP"); a failed read says "MIDP not read — <why>"; a sheet exported
   before Phase A shows "not registered — published before sheets were proposed".
@@ -61,6 +63,8 @@ facts this rests on were re-read in `cde-store.mjs` (adjudicateProposal, readReg
 - A plan hotspot (Sheets) and a level's view (Views) get **Live plan**: `views.createFromIfcStoreys({storeyNames:
   [level]})` → `open(id)` → section edges through `ClipStyler.createFromView(view)`; **Close** restores the camera
   (`restoreCameraOnClose`). The level-isolate stays as it is.
+- **Added while building:** BIM Tools ▸ Browser ▸ **▦ Plans** lists every storey of the loaded models as a live plan —
+  an IFC with no Revit export gets plans too (aster-tower has no published views or sheets).
 - A level that is no storey of the loaded models says so: "live plan not opened — <level> is not a storey of the loaded
   models"; no model loaded says that. Storey names are matched as `isolateStoreyByName` matches them.
 - Verified in the local app and in the published app (the platform's own viewer shares the engine; the self-built
@@ -80,3 +84,8 @@ Web: the Sheets panel's status line per case; the live-plan helper's refusals (n
 - Web: the Sheets panel's statuses; Live plan opens and closes on a loaded model (local and published app).
 - Revit (owed to a session with Revit): Publish Sheets on aster — PDFs written, one proposal row per sheet, the dialog
   lines; the lead publishes the planned sheet with a reason → the Deliverables row reads delivered.
+
+## As built (2026-09-29)
+
+55b5454 (bridge + web A/B/C), 84ff93b (▦ Plans), c24d4b0 (Revit Publish Sheets), cfb8d5e (a gate-preview honesty fix
+found on the way). Drill B27 in the sim-room log.
