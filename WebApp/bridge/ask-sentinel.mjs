@@ -10,6 +10,9 @@
 // permission — and THATOPEN_PROJECT_ID. The token rides in the socket URL, so every error passes through scrub().
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 import { loadEnv } from "./load-env.mjs";
 import { scrub } from "./platform-gate-ledger.mjs";
 import { parseCliArgs } from "./cli-args.mjs";
@@ -26,15 +29,43 @@ export function channelConfig(file = loadEnv(), penv = process.env) {
 
 const words = (v) => (typeof v === "string" ? v : JSON.stringify(v));
 
-/** Resolves {delivered, answer} with the first reply; anything else rejects in words, scrubbed.
- *  deps: {config, connect(url) → socket.io-client socket} — both injectable for tests. */
-export async function ask(opts, deps = {}) {
-  try { return await askChannel(opts, deps); }
-  catch (e) { throw new Error(scrub(e?.message || e)); }
+const NOT_OPEN = /^Sentinel is not open \(and joined\)/;
+
+/** Every address the platform's name resolves to; [null] (the default route) when it does not resolve here. */
+export async function platformAddresses(apiUrl) {
+  try {
+    const all = await lookup(new URL(apiUrl).hostname, { all: true });
+    return all.length ? [...new Map(all.map((a) => [a.address, a])).values()] : [null];
+  } catch { return [null]; }
 }
 
-async function askChannel({ projectId, appId, type, payload, timeoutMs = 10_000, kind = "cli" }, deps) {
-  const cfg = deps.config ?? channelConfig();
+/** Resolves {delivered, answer} with the first reply; anything else rejects in words, scrubbed.
+ *  The platform's channel servers share one name but not their rooms (seen 2026-09-29: the tab's socket on one address,
+ *  an ask on the other → delivered 0), so the command is asked on every address and the first reply wins; when none
+ *  replies, the most telling reason is said ("not open" only when every address said so).
+ *  deps: {config, connect(url, opts) → socket.io-client socket, addresses(apiUrl)} — all injectable for tests. */
+export async function ask(opts, deps = {}) {
+  try {
+    const config = deps.config ?? channelConfig();
+    const addrs = await (deps.addresses ?? platformAddresses)(config.apiUrl);
+    return await Promise.any(addrs.map((address) => askChannel({ ...opts, address }, { ...deps, config })));
+  } catch (e) {
+    const errs = e instanceof AggregateError ? e.errors : [e];
+    const telling = errs.find((x) => !NOT_OPEN.test(String(x?.message))) ?? errs[0];
+    throw new Error(scrub(telling?.message || telling));
+  }
+}
+
+/** A connection pinned to one address (TLS still checks the platform's name); forceNew, since socket.io otherwise
+ *  shares one connection per URL. */
+const socketOpts = (apiUrl, address) => {
+  if (!address) return { forceNew: true };
+  const pin = (_h, o, cb) => (o?.all ? cb(null, [address]) : cb(null, address.address, address.family));
+  return { forceNew: true, agent: new (apiUrl.startsWith("https:") ? https : http).Agent({ lookup: pin }) };
+};
+
+async function askChannel({ projectId, appId, type, payload, timeoutMs = 10_000, kind = "cli", address = null }, deps) {
+  const cfg = deps.config;
   const pid = projectId || cfg.projectId;
   if (!pid) throw new Error("not asked — no platform project (pass one, or set THATOPEN_PROJECT_ID)");
   const connect = deps.connect ?? (await import("socket.io-client")).io;
@@ -57,7 +88,7 @@ async function askChannel({ projectId, appId, type, payload, timeoutMs = 10_000,
       else fail(`not answered — delivered to ${delivered} Sentinel tab(s) in platform project ${pid}, but no reply within ${s} s`);
     }, timeoutMs);
 
-    try { socket = connect(`${cfg.apiUrl}?accessToken=${encodeURIComponent(cfg.token)}`); }
+    try { socket = connect(`${cfg.apiUrl}?accessToken=${encodeURIComponent(cfg.token)}`, socketOpts(cfg.apiUrl, address)); }
     catch (e) { return fail(`not asked — could not open the platform channel: ${e?.message || e}`); }
     // socket.io keeps retrying a transient failure (socket.active); a refusal by the server (e.g. a bad token) is final.
     socket.on("connect_error", (e) => {

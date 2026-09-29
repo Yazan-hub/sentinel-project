@@ -14,7 +14,7 @@ export const MAX_FAILURES = 10;
 export interface AskDeps {
   appVersion: string;
   platformProjectId: () => string | null | undefined;
-  /** The Sentinel project this tab's board is scoped to; null while the tab is still starting. */
+  /** The Sentinel project open in this tab; null while none is (still starting, signed out, nothing linked or picked). */
   sentinelProject: () => string | null;
   signedIn: () => Promise<boolean>;
   /** GET <bridge>/health — a Response-like; a throw is "never answered". */
