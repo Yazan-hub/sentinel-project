@@ -113,7 +113,9 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   // Who may run the stage gate: lead and up. null until the bridge has answered — the button is not
   // offered on a guess (fail closed), and the answer is re-asked on every refresh.
   let gateRole: { role: string; read: boolean } | null = null;
-  let hasRuleset = false; // the stage gate's "Standards pack selected" = a ruleset artefact in force, not the display name
+  // The stage gate's "Standards pack selected" = a ruleset artefact in force, not the display name; null until the read
+  // answers, and when it failed — the preview says "not read", never "none" and HOLD.
+  let hasRuleset: boolean | null = null;
   const refresh = async (mine: number, key: string) => {
     msg("Aggregating health, issues and cost…");
     const role = await myRoleRead(base, key);
@@ -121,10 +123,11 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     gateRole = role;
     let noRuleset = false;
     let active: Awaited<ReturnType<typeof activeRuleset>> = null;
-    try { active = await activeRuleset(base); } catch { active = null; } // project → office; null = nothing installed
+    let rulesetErr: string | null = null;
+    try { active = await activeRuleset(base); } catch (e) { active = null; rulesetErr = (e as Error)?.message || String(e); } // project → office; null = nothing installed
     if (mine !== seq) return;
     if (active && !active.ruleset.rules.length) active = null; // every rule needed an {org} the ruleset lacks — judges nothing
-    hasRuleset = !!active;
+    hasRuleset = rulesetErr ? null : !!active;
     // QA health + compliance (only if a model is loaded, and only against an installed ruleset)
     if (fragments.list.size > 0) {
       try {
@@ -165,7 +168,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     renderAll();
     persistSnapshot(key);
     msg(projectErr || (fragments.list.size === 0 ? "No model loaded — load one for health & cost. Issues shown from the service."
-      : noRuleset ? `${NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date."),
+      : noRuleset ? `${rulesetErr ? `Ruleset not read — ${rulesetErr}` : NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date."),
       projectErr ? "#ef4444" : noRuleset ? "#eab308" : undefined);
   };
   const reload = async () => {
@@ -174,7 +177,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     // and the tiles and the gate preview start from "not measured".
     gateRole = null;
     kpis = noKpis();
-    hasRuleset = false;
+    hasRuleset = null;
     await loadProject(mine, key);
     if (mine === seq) await refresh(mine, key);
   };

@@ -474,6 +474,7 @@ function evaluateGate(stage, m) {
   const defs = GATE_DEFS[stage] ?? [];
   const checks = defs.map((c) => {
     if (c.metric === "hasStandardsPack") {
+      if (m.hasStandardsPack == null) return { label: c.label, ok: false, na: true, detail: "not read" };
       return { label: c.label, ok: m.hasStandardsPack, na: false, detail: m.hasStandardsPack ? "set" : "none" };
     }
     const v = m[c.metric];

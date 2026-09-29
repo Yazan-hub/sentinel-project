@@ -56,3 +56,12 @@ describe("evaluateGate", () => {
     expect(GATE_DEFS.oper).toBeUndefined();
   });
 });
+
+describe("a standards pack not read is not measured — never 'none' and HOLD", () => {
+  it("null (the read has not answered, or failed) is n/a with 'not read'", () => {
+    const r = evaluateGate("tender", M({ hasStandardsPack: null }));
+    const row = r.checks.find((c) => c.label === "Standards pack selected")!;
+    expect(row).toMatchObject({ ok: false, na: true, detail: "not read" });
+    expect(r.pass).toBe(false);
+  });
+});
