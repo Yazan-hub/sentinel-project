@@ -88,7 +88,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var bcfKey = ctx.Key;
         var mainHandle = uiapp.MainWindowHandle;   // captured here: the UIApplication is only valid inside Execute
         BcfConfig cfg = BcfConfig.Load();
-        var apply = new BcfApplyEvent();
+        var apply = new BcfApplyEvent(uiapp.ActiveUIDocument.Document);
         var externalEvent = ExternalEvent.Create(apply);
         var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
 
@@ -321,7 +321,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 });
             };
             fix.RecheckRequested += () => { fix.SetBusy(true); fix.SetStatus("Re-checking\u2026"); App.Events!.Enqueue(Recheck); };
-            fix.ZoomRequested += row => App.Events?.SelectAndShow(row.IsType ? row.InstanceIds[0] : row.TargetId);
+            fix.ZoomRequested += row => App.Events?.SelectAndShow(d, row.IsType ? row.InstanceIds[0] : row.TargetId);
 
             // Re-check: extract what the model holds NOW, judge it, and close the loop only on full evidence.
             void Recheck(UIApplication ua2)

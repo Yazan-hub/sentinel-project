@@ -44,32 +44,25 @@ public static class BcfExporter
         string work = Path.Combine(Path.GetTempPath(), "SentinelBcf_" + topicGuid);
         Directory.CreateDirectory(Path.Combine(work, topicGuid));
 
-        // ---- 1. Snapshot (with temporary isolation when we have a 3D view) ----
-        bool isolated = false;
+        // ---- 1. Snapshot (with temporary isolation when we have a 3D view; rolled back — no Undo entry, XC-2) ----
+        string snapshotPath = Path.Combine(work, topicGuid, "snapshot.png");
         if (view3d is not null && issue.Components.Count > 0)
         {
-            try
+            SentinelUndo.Preview(doc, "BCF snapshot", () =>
             {
-                using var t = new Transaction(doc, "Sentinel: BCF snapshot isolation");
-                t.Start();
-                view3d.IsolateElementsTemporary(issue.Components);
-                t.Commit();
-                isolated = true;
-                uidoc.ShowElements(issue.Components);
-            }
-            catch (Autodesk.Revit.Exceptions.ApplicationException) { }
+                try
+                {
+                    using var t = new Transaction(doc, "Sentinel: BCF snapshot isolation");
+                    t.Start();
+                    view3d.IsolateElementsTemporary(issue.Components);
+                    t.Commit();
+                    uidoc.ShowElements(issue.Components);
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException) { }
+                ExportSnapshot(doc, snapshotPath);
+            });
         }
-
-        string snapshotPath = Path.Combine(work, topicGuid, "snapshot.png");
-        ExportSnapshot(doc, snapshotPath);
-
-        if (isolated)
-        {
-            using var t = new Transaction(doc, "Sentinel: BCF snapshot restore");
-            t.Start();
-            view3d!.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-            t.Commit();
-        }
+        else ExportSnapshot(doc, snapshotPath);
 
         // ---- 2. Component IFC GUIDs ----
         var components = issue.Components

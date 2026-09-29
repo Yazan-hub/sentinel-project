@@ -24,9 +24,10 @@ namespace Sentinel.Standards;
 /// </summary>
 public static class StandardsBuilder
 {
-    public static BuildReport Build(UIApplication uiapp, StandardsPack pack)
+    /// <summary><paramref name="doc"/> is the model the review window was opened on (XC-1) — never re-read from the
+    /// active document here.</summary>
+    public static BuildReport Build(UIApplication uiapp, Document doc, StandardsPack pack)
     {
-        var doc = uiapp.ActiveUIDocument.Document;
         var app = uiapp.Application;
         var report = new BuildReport();
 

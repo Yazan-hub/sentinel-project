@@ -44,10 +44,12 @@ public static class RequestManager
     // DMU only tells us WHAT changed, not the previous value. We keep a
     // per-document snapshot of monitored names, refreshed on open/sync
     // and after every handled change.
-    private static readonly Dictionary<string, Dictionary<long, string>> Snapshots =
-        new Dictionary<string, Dictionary<long, string>>();
+    // Keyed by the Document (not PathName/Title): a first save or Save As changes the path, and the snapshot must
+    // still be found — a request made after it then carries the real old name (BG-1).
+    private static readonly Dictionary<Document, Dictionary<long, string>> Snapshots =
+        new Dictionary<Document, Dictionary<long, string>>();
 
-    private static string Key(Document doc) => doc.PathName ?? doc.Title;
+    public static void Forget(Document doc) => Snapshots.Remove(doc);
 
     public static void RefreshSnapshot(Document doc)
     {
@@ -63,15 +65,15 @@ public static class RequestManager
         {
             map[e.Id.IdValue()] = e is ViewSheet s ? s.SheetNumber : e.Name;
         }
-        Snapshots[Key(doc)] = map;
+        Snapshots[doc] = map;
     }
 
     public static string? GetSnapshotName(Document doc, long elementId) =>
-        Snapshots.TryGetValue(Key(doc), out var map) && map.TryGetValue(elementId, out var n) ? n : null;
+        Snapshots.TryGetValue(doc, out var map) && map.TryGetValue(elementId, out var n) ? n : null;
 
     public static void UpdateSnapshot(Document doc, long elementId, string newName)
     {
-        if (Snapshots.TryGetValue(Key(doc), out var map)) map[elementId] = newName;
+        if (Snapshots.TryGetValue(doc, out var map)) map[elementId] = newName;
     }
 
     // ---------- Lifecycle ----------

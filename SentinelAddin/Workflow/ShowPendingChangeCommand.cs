@@ -14,8 +14,9 @@ public static class ShowPendingChangeCommand
 {
     private sealed class SavedState
     {
-        public SavedState(ElementId viewId, ElementId elementId, OverrideGraphicSettings original, bool startedIsolation)
-        { ViewId = viewId; ElementId = elementId; Original = original; StartedIsolation = startedIsolation; }
+        public SavedState(Document doc, ElementId viewId, ElementId elementId, OverrideGraphicSettings original, bool startedIsolation)
+        { Doc = doc; ViewId = viewId; ElementId = elementId; Original = original; StartedIsolation = startedIsolation; }
+        public Document Doc { get; }          // the model the preview was painted on (XC-1)
         public ElementId ViewId { get; }
         public ElementId ElementId { get; }
         public OverrideGraphicSettings Original { get; }
@@ -26,19 +27,17 @@ public static class ShowPendingChangeCommand
     private static SavedState? _active;
     private static readonly object Gate = new object();
 
-    /// <summary>Apply the diff highlight. Safe no-op if the element is not
-    /// visible/overridable in the active view (e.g. the request is a sheet).</summary>
-    public static void Show(long elementId)
+    /// <summary>Apply the diff highlight on <paramref name="doc"/> — the model the Change Requests window was opened
+    /// on (XC-1: refused when another model is active). Safe no-op if the element is not visible/overridable in the
+    /// active view (e.g. the request is a sheet).</summary>
+    public static void Show(Document doc, long elementId)
     {
-        App.Events?.Enqueue(uiapp =>
+        App.Events?.Enqueue(doc, "show the change", (uiapp, d) =>
         {
-            var uidoc = uiapp.ActiveUIDocument;
-            var doc = uidoc?.Document;
-            if (uidoc is null || doc is null) return;
-
+            var uidoc = uiapp.ActiveUIDocument!;       // DocPin: the active document is d
             var id = elementId.ToElementId();
-            var element = doc.GetElement(id);
-            var view = doc.ActiveView;
+            var element = d.GetElement(id);
+            var view = d.ActiveView;
             if (element is null || view is null) return;
 
             // Views/sheets under review can't be overridden as graphics — fall
@@ -50,28 +49,36 @@ public static class ShowPendingChangeCommand
             }
             if (!element.CanBeHidden(view)) { uidoc.Selection.SetElementIds(new List<ElementId> { id }); return; }
 
-            Reset(uiapp); // never stack two previews
+            // Never stack two previews. The clear is its own Undo entry, outside this preview's group: undoing the new
+            // preview (or a failed paint rolling back) must not bring the old paint back untracked.
+            Reset();
+            // XC-2: this preview's paint is one Undo entry.
+            bool isolate = false;
+            OverrideGraphicSettings original = null!;
+            Sentinel.Engine.SentinelUndo.Run(d, "preview the change", () =>
+            {
+                using var t = new Transaction(d, "Sentinel: Preview pending change");
+                t.Start();
 
-            using var t = new Transaction(doc, "Sentinel: Preview pending change");
-            t.Start();
+                original = view.GetElementOverrides(id);
+                isolate = !view.IsInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
 
-            var original = view.GetElementOverrides(id);
-            bool isolate = !view.IsInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                var ogs = new OverrideGraphicSettings()
+                    .SetSurfaceTransparency(40)
+                    .SetSurfaceForegroundPatternColor(new Color(70, 170, 110))
+                    .SetProjectionLineColor(new Color(30, 110, 70))
+                    .SetProjectionLineWeight(6);
+                var solid = GetSolidFillPattern(d);
+                if (solid is not null) ogs.SetSurfaceForegroundPatternId(solid.Id);
 
-            var ogs = new OverrideGraphicSettings()
-                .SetSurfaceTransparency(40)
-                .SetSurfaceForegroundPatternColor(new Color(70, 170, 110))
-                .SetProjectionLineColor(new Color(30, 110, 70))
-                .SetProjectionLineWeight(6);
-            var solid = GetSolidFillPattern(doc);
-            if (solid is not null) ogs.SetSurfaceForegroundPatternId(solid.Id);
+                view.SetElementOverrides(id, ogs);
+                if (isolate) view.IsolateElementTemporary(id);
 
-            view.SetElementOverrides(id, ogs);
-            if (isolate) view.IsolateElementTemporary(id);
+                t.Commit();
+                return true;
+            });
 
-            t.Commit();
-
-            lock (Gate) _active = new SavedState(view.Id, id, original, isolate);
+            lock (Gate) _active = new SavedState(d, view.Id, id, original, isolate);
             uidoc.Selection.SetElementIds(new List<ElementId> { id });
             uidoc.ShowElements(id);
         });
@@ -79,16 +86,15 @@ public static class ShowPendingChangeCommand
 
     /// <summary>Restore the original graphic state. Idempotent; called from
     /// RequestsWindow.Closed and before every new Show().</summary>
-    public static void ResetFromUi() => App.Events?.Enqueue(Reset);
+    public static void ResetFromUi() => App.Events?.Enqueue(_ => Reset());
 
-    private static void Reset(UIApplication uiapp)
+    // Restores the graphics on the document the preview was painted on — never on whichever model is active now.
+    private static void Reset()
     {
         SavedState? s;
         lock (Gate) { s = _active; _active = null; }
-        if (s is null) return;
-
-        var doc = uiapp.ActiveUIDocument?.Document;
-        if (doc is null) return;
+        if (s is null || !s.Doc.IsValidObject) return;   // closed: its preview went with it
+        var doc = s.Doc;
         if (doc.GetElement(s.ViewId) is not View view) return;
 
         using var t = new Transaction(doc, "Sentinel: Clear change preview");

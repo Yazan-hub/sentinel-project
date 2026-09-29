@@ -19,6 +19,9 @@ public sealed class BcfApplyEvent : IExternalEventHandler
     private BcfOp _op;
     private BcfViewpoint? _viewpoint;
     private IReadOnlyList<BcfTopic>? _topics;
+    private readonly Document _doc;   // the model the Issues window was opened on (XC-1)
+
+    public BcfApplyEvent(Document doc) => _doc = doc;
 
     /// <summary>Status/summary message after an operation.</summary>
     public event Action<string>? Applied;
@@ -32,8 +35,20 @@ public sealed class BcfApplyEvent : IExternalEventHandler
 
     public void Execute(UIApplication app)
     {
-        if (app.ActiveUIDocument is not { } uidoc) return;
-        Document doc = uidoc.Document;
+        string what = _op switch
+        {
+            BcfOp.IsolateAll => "isolate the issue elements",
+            BcfOp.IssuesForSelection => "match the selection to issues",
+            _ => "open the issue",
+        };
+        if (Sentinel.Engine.DocPin.Check(app, _doc, what) is { } refusal)
+        {
+            Applied?.Invoke(refusal);
+            _viewpoint = null; _topics = null;
+            return;
+        }
+        UIDocument uidoc = app.ActiveUIDocument!;   // DocPin: the active document is _doc
+        Document doc = _doc;
         try
         {
             switch (_op)
@@ -60,28 +75,29 @@ public sealed class BcfApplyEvent : IExternalEventHandler
         if (vp is null) return;
 
         IList<ElementId> ids = ResolveByIfcGuid(doc, new HashSet<string>(GuidsOf(vp), StringComparer.Ordinal));
-        View3D? view = GetOrCreateCoordinationView(doc);
+        // XC-2: creating the coordination view and applying the viewpoint are one Undo entry.
+        View3D? view = null;
         string cameraNote = "";
-
-        if (view is not null)
+        Sentinel.Engine.SentinelUndo.Run(doc, "open issue viewpoint", () =>
         {
-            using (var t = new Transaction(doc, "Sentinel: apply BCF viewpoint"))
+            view = GetOrCreateCoordinationView(doc);
+            if (view is null) return false;
+            using var t = new Transaction(doc, "Sentinel: apply BCF viewpoint");
+            t.Start();
+            if (vp.Camera is { } cam)
             {
-                t.Start();
-                if (vp.Camera is { } cam)
-                {
-                    try { (XYZ eye, XYZ fwd, XYZ up) = ToRevit(doc, cam); view.SetOrientation(new ViewOrientation3D(eye, up, fwd)); }
-                    catch (Exception camEx) { cameraNote = "  (camera skipped: " + camEx.Message + ")"; }
-                }
-                if (ids.Count > 0)
-                {
-                    view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                    view.IsolateElementsTemporary(ids);
-                }
-                t.Commit();
+                try { (XYZ eye, XYZ fwd, XYZ up) = ToRevit(doc, cam); view.SetOrientation(new ViewOrientation3D(eye, up, fwd)); }
+                catch (Exception camEx) { cameraNote = "  (camera skipped: " + camEx.Message + ")"; }
             }
-            uidoc.ActiveView = view;
-        }
+            if (ids.Count > 0)
+            {
+                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                view.IsolateElementsTemporary(ids);
+            }
+            t.Commit();
+            return true;
+        });
+        if (view is not null && view.IsValidObject) uidoc.ActiveView = view;   // after the group: no open transaction
 
         if (ids.Count > 0) { uidoc.Selection.SetElementIds(ids); uidoc.ShowElements(ids); }
         Applied?.Invoke((ids.Count > 0
@@ -96,16 +112,23 @@ public sealed class BcfApplyEvent : IExternalEventHandler
         if (wanted.Count == 0) { Applied?.Invoke("No linked elements across the issues."); return; }
 
         IList<ElementId> ids = ResolveByIfcGuid(doc, wanted);
-        View3D? view = GetOrCreateCoordinationView(doc);
-        if (view is not null && ids.Count > 0)
-        {
-            using (var t = new Transaction(doc, "Sentinel: isolate all issue elements"))
+        // XC-2: creating the coordination view and isolating are one Undo entry; nothing is created when there is
+        // nothing to isolate.
+        View3D? view = null;
+        if (ids.Count > 0)
+            Sentinel.Engine.SentinelUndo.Run(doc, "isolate issue elements", () =>
             {
+                view = GetOrCreateCoordinationView(doc);
+                if (view is null) return false;
+                using var t = new Transaction(doc, "Sentinel: isolate all issue elements");
                 t.Start();
                 view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
                 view.IsolateElementsTemporary(ids);
                 t.Commit();
-            }
+                return true;
+            });
+        if (view is not null && view.IsValidObject)   // after the group: no open transaction
+        {
             uidoc.ActiveView = view;
             uidoc.Selection.SetElementIds(ids);
             uidoc.ShowElements(ids);

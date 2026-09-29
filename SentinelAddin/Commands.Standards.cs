@@ -175,7 +175,8 @@ internal static class StandardsReview
         var window = new StandardsReviewWindow();
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
 
-        var build = new StandardsBuildEvent();
+        var doc = uiapp.ActiveUIDocument?.Document;   // the model this window builds into (XC-1)
+        var build = new StandardsBuildEvent(doc);
         var externalEvent = ExternalEvent.Create(build);
         build.Built += report => window.ShowReport(report);
         build.RulesetInstalled += lines => window.AppendReport(lines);
@@ -185,7 +186,6 @@ internal static class StandardsReview
         // The document is captured here (API thread); its project and ruleset are read when the button is
         // clicked — back on the API thread through the event hub — so a Build that installed ruleset@n+1 since
         // the window opened is what the snapshot names. The POST runs off Revit's thread.
-        var doc = uiapp.ActiveUIDocument?.Document;
         string revitVersion = uiapp.Application.VersionNumber;
         window.SnapshotRequested += () =>
         {
@@ -259,6 +259,9 @@ internal static class StandardsReview
 public sealed class StandardsBuildEvent : IExternalEventHandler
 {
     private StandardsPack? _pending;
+    private readonly Document? _doc;   // the model the review window was opened on (XC-1)
+
+    public StandardsBuildEvent(Document? doc) => _doc = doc;
 
     public event Action<BuildReport>? Built;
     /// The ruleset install's outcome lines, raised OFF the API thread after Built has rendered the model report.
@@ -273,11 +276,28 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
         if (pack is null) return;
 
         BuildReport report;
-        try { report = StandardsBuilder.Build(app, pack); }
+        var refusal = _doc is null
+            ? "No open model when this window was opened — nothing was changed."
+            : Sentinel.Engine.DocPin.Check(app, _doc, "apply the standard");
+        if (refusal is not null)
+        {
+            report = new BuildReport();
+            report.Failed.Add(refusal);
+            Built?.Invoke(report);
+            return;
+        }
+        var doc = _doc!;
+        // XC-2: the whole build is one Undo entry; a throw rolls every step back.
+        try
+        {
+            BuildReport built = new BuildReport();
+            Sentinel.Engine.SentinelUndo.Run(doc, "Apply standard", () => { built = StandardsBuilder.Build(app, doc, pack); return true; });
+            report = built;
+        }
         catch (Exception ex)
         {
             report = new BuildReport();
-            report.Failed.Add("Build error: " + ex.Message);
+            report.Failed.Add("Build error: " + ex.Message + " — nothing was changed (undone).");
         }
         Built?.Invoke(report); // ShowReport is a Dispatcher.Invoke: the model report is on screen when this returns
         // The ruleset GET/PUT never runs on Revit's thread (the bridge can take seconds, or not answer).

@@ -55,7 +55,7 @@ public sealed class IfcPreFlightCommand : IExternalCommand
         }
 
         c.Application.GetDockablePane(App.PaneId).Show(); // show first: Show() may rebuild the pane
-        App.PanelVm.PublishReport(report);
+        App.PanelVm.PublishReport(doc, report);
 
         TaskDialog.Show("Sentinel — IFC Pre-Flight",
             report.Violations.Count == 0

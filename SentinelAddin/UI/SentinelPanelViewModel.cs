@@ -56,6 +56,10 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
 {
     public ObservableCollection<ViolationRow> Violations { get; } = new ObservableCollection<ViolationRow>();
 
+    // The project document the rows were scanned in (XC-1): Select and ⚡ Fix act on it, never on whichever model is
+    // active when Revit runs the job. Set on the API thread by PublishReport; cleared while a document loads.
+    private Autodesk.Revit.DB.Document? _reportDoc;
+
     private double _score = 100;
     public double Score { get => _score; private set { _score = value; OnChanged(); OnChanged(nameof(ScoreText)); } }
     private string? _notScored;   // set when no ruleset judged the rows: no percentage, no grade
@@ -64,17 +68,22 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     private string _status = "No scan yet";
     public string Status { get => _status; private set { _status = value; OnChanged(); } }
 
-    /// Full-scan result replaces panel content (open / sync / Scan Now).
-    public void PublishReport(ScanReport report) => OnUi(() =>
+    /// Full-scan result replaces panel content (open / sync / Scan Now / IFC Pre-Flight). <paramref name="doc"/> is
+    /// the document the report judged.
+    public void PublishReport(Autodesk.Revit.DB.Document doc, ScanReport report)
     {
-        Violations.Clear();
-        foreach (var v in report.Violations) Violations.Add(new ViolationRow(v, report.Ruleset));
-        _notScored = report.NotScored;
-        Score = report.Score;   // raises ScoreText, which reads _notScored
-        Status = report.NotScored is { } why
-            ? $"{report.DocTitle} — {why}"
-            : $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
-    });
+        _reportDoc = doc;
+        OnUi(() =>
+        {
+            Violations.Clear();
+            foreach (var v in report.Violations) Violations.Add(new ViolationRow(v, report.Ruleset));
+            _notScored = report.NotScored;
+            Score = report.Score;   // raises ScoreText, which reads _notScored
+            Status = report.NotScored is { } why
+                ? $"{report.DocTitle} — {why}"
+                : $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
+        });
+    }
 
     /// DMU delta: replace rows belonging to the changed elements only.
     public void MergeDelta(IReadOnlyList<long> changedIds, IReadOnlyList<Violation> fresh, Ruleset rs) => OnUi(() =>
@@ -171,6 +180,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// is scored; the landing publishes the scan and the strip. Bumps the sequence like ShowUnbound.
     public void ShowLoading(string docTitle)
     {
+        _reportDoc = null;
         ++_journeySeq;
         OnUi(() =>
         {
@@ -186,7 +196,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// Row double-click -> select/zoom in Revit via the ExternalEvent hub.
     public void RequestSelect(ViolationRow row)
     {
-        if (row.ElementId > 0) App.Events?.SelectAndShow(row.ElementId);
+        if (row.ElementId > 0 && _reportDoc is { } doc) App.Events?.SelectAndShow(doc, row.ElementId);
     }
 
     /// Fix button -> Auto-Remediator on the ExternalEvent queue. On success the
@@ -194,7 +204,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// AutoFixExecution prevents the rename from being re-flagged.
     public void RequestFix(ViolationRow row, System.IntPtr ownerHandle = default)
     {
-        if (!row.CanFix) return;
+        if (!row.CanFix || _reportDoc is not { } doc) return;
 
         // Human-in-the-loop: show synthesized suggestion in an editable dialog;
         // nothing touches the model until the coordinator clicks Execute.
@@ -205,7 +215,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
 
         Status = $"⚡ Fixing '{row.ElementName}' ({row.RuleId})…";
-        AutoFixExecution.Run(row.ElementId, row.RuleId, (oldName, newName) => OnUi(() =>
+        AutoFixExecution.Run(doc, row.ElementId, row.RuleId, (oldName, newName) => OnUi(() =>
         {
             if (newName is null)
             {
@@ -216,7 +226,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
                 r.ElementId == row.ElementId && r.RuleId == row.RuleId);
             if (match is not null) Violations.Remove(match);
             Status = $"✓ Auto-fixed: '{oldName}' → '{newName}' ({row.RuleId})";
-        }), dialog.FinalName);
+        }), dialog.FinalName, refusal => OnUi(() => Status = "✕ " + refusal));
     }
 
     private static void OnUi(Action a)

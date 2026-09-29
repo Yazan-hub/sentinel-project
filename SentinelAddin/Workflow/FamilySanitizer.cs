@@ -1,5 +1,6 @@
 using System.IO;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
 
 namespace Sentinel.Workflow;
 
@@ -27,11 +28,15 @@ public static class FamilySanitizer
     /// Shared parameters every office library family must carry, named from the office code.
     public static string[] RequiredSharedParams(string org) => new[] { Engine.OrgNames.Description(org) };
 
-    /// <summary>Scan an .rfa on disk without touching the active project.
+    /// <summary>Scan an .rfa on disk and, on pass, load it into <paramref name="target"/> — the project the command
+    /// was started on (XC-1: refused when another model is active by then). No project target → scan only.
     /// Runs on the EventHub (needs the Application context to open docs).</summary>
-    public static void ScanAndLoad(string rfaPath, Action<SanitationReport, bool> onDone)
+    public static void ScanAndLoad(Document? target, string rfaPath, Action<SanitationReport, bool> onDone)
     {
-        App.Events?.Enqueue(uiapp =>
+        if (target is null || target.IsFamilyDocument) { App.Events?.Enqueue(uiapp => Run(uiapp, null)); return; }
+        App.Events?.Enqueue(target, "load the family", (uiapp, t) => Run(uiapp, t));
+
+        void Run(UIApplication uiapp, Document? into)
         {
             var report = new SanitationReport { FamilyPath = rfaPath };
             Document? famDoc = null;
@@ -45,12 +50,9 @@ public static class FamilySanitizer
                 }
                 else
                 {
-                    var target = uiapp.ActiveUIDocument?.Document;
-                    Scan(famDoc, report, App.OrgFor(target));   // the project it loads into decides the office code
-                    if (report.Passed && target is not null && !target.IsFamilyDocument)
-                    {
-                        loaded = famDoc.LoadFamily(target, new OverwriteOptions()) is not null;
-                    }
+                    Scan(famDoc, report, App.OrgFor(into));   // the project it loads into decides the office code
+                    if (report.Passed && into is not null)
+                        loaded = famDoc.LoadFamily(into, new OverwriteOptions()) is not null;
                 }
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
@@ -62,7 +64,7 @@ public static class FamilySanitizer
                 famDoc?.Close(false);
             }
             onDone(report, loaded);
-        });
+        }
     }
 
     /// <summary>Pure audit of an open family document.</summary>

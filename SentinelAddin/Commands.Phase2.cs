@@ -19,7 +19,8 @@ public sealed class SanitizeFamilyCommand : IExternalCommand
         };
         if (Sentinel.UI.DialogOwner.ShowFileDialog(dlg, c.Application) != true) return Result.Cancelled;
 
-        Workflow.FamilySanitizer.ScanAndLoad(dlg.FileName, (report, loaded) =>
+        var target = c.Application.ActiveUIDocument?.Document;   // the project the family loads into (XC-1)
+        Workflow.FamilySanitizer.ScanAndLoad(target, dlg.FileName, (report, loaded) =>
         {
             var td = new TaskDialog("Sentinel — Family Sanitation")
             {
@@ -69,7 +70,7 @@ public sealed class MepVoidsCommand : IExternalCommand
 
         // Lifecycle pass: reconcile existing tracked voids against the current
         // IFC drop (relocate moved, orphan deleted), then handle new candidates.
-        Sentinel.Engine.MepVoidManager.Reconcile(report => HandleReport(report, c.Application, doc));
+        Sentinel.Engine.MepVoidManager.Reconcile(doc, report => HandleReport(report, c.Application, doc));
         return Result.Succeeded;
     }
 
@@ -111,7 +112,7 @@ public sealed class MepVoidsCommand : IExternalCommand
                 TaskDialog.Show("Sentinel — MEP Openings", Sentinel.Engine.MepVoidManager.NoOrgMessage);
                 return;
             }
-            Sentinel.Engine.MepVoidManager.PlaceVoids(candidates, (placed, failed) =>
+            Sentinel.Engine.MepVoidManager.PlaceVoids(doc, candidates, (placed, failed) =>
                 TaskDialog.Show("Sentinel — MEP Openings",
                     placed + " tracked void(s) placed" + (failed > 0 ? ", " + failed + " skipped (no symbol or bad point)." : ".")));
             return;
@@ -130,10 +131,8 @@ public sealed class MepVoidsCommand : IExternalCommand
 
             // Export ONE topic per host element group (host-side ids only —
             // linked MEP element ids are not addressable in the host doc).
-            App.Events?.Enqueue(evtApp =>
+            App.Events?.Enqueue(doc, "export the BCF", (evtApp, doc2) =>
             {
-                var doc2 = evtApp.ActiveUIDocument?.Document;
-                if (doc2 is null) return;
                 var issue = new Sentinel.Engine.BcfExporter.BcfIssue
                 {
                     Title = "Provision for void required (" + candidates.Count + " candidates)",
@@ -147,7 +146,7 @@ public sealed class MepVoidsCommand : IExternalCommand
                     issue.Components.Add(hostId.ToElementId());
                 try
                 {
-                    var file = Sentinel.Engine.BcfExporter.Export(uiapp, issue, outDir);
+                    var file = Sentinel.Engine.BcfExporter.Export(evtApp, issue, outDir); // the command's uiapp is stale here
                     TaskDialog.Show("Sentinel — BCF Export", "✓ Exported:\n" + file +
                         "\n\nOpen in BIMcollab/Solibri/Navisworks or send to the MEP team.");
                 }
@@ -181,7 +180,7 @@ public sealed class ClashManagerCommand : IExternalCommand
                 "No clashes found between linked MEP/IFC elements and native structure.\n\n" + fedLine);
             return Result.Succeeded;
         }
-        var win = new Sentinel.UI.ClashManagerDialog(clashes, fedLine);
+        var win = new Sentinel.UI.ClashManagerDialog(doc, clashes, fedLine);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         return Result.Succeeded;

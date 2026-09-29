@@ -167,13 +167,11 @@ public static class MepVoidManager
     /// model. Moved MEP -> relocate void; missing MEP -> Orphaned; match ->
     /// unchanged. Returns report + the truly-new candidates. Must run on the
     /// EventHub (writes locations/statuses).</summary>
-    public static void Reconcile(Action<ReconcileReport> onDone)
+    public static void Reconcile(Document pinned, Action<ReconcileReport> onDone)
     {
-        App.Events?.Enqueue(uiapp =>
+        App.Events?.Enqueue(pinned, "reconcile the MEP voids", (uiapp, doc) =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
             var report = new ReconcileReport();
-            if (doc is null) { onDone(report); return; }
 
             var fresh = FindIntersections(doc);
             if (!TrackingConfigured(doc))
@@ -236,12 +234,10 @@ public static class MepVoidManager
     }
 
     // ---------------- Placement (tracked) ----------------
-    public static void PlaceVoids(List<VoidCandidate> candidates, Action<int, int> onDone)
+    public static void PlaceVoids(Document pinned, List<VoidCandidate> candidates, Action<int, int> onDone)
     {
-        App.Events?.Enqueue(uiapp =>
+        App.Events?.Enqueue(pinned, "place the voids", (uiapp, doc) =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
-            if (doc is null) { onDone(0, candidates.Count); return; }
             if (!TrackingConfigured(doc))
             {
                 App.PanelVm?.LogDoctor("MEP voids: " + NoOrgMessage + " Nothing placed.");

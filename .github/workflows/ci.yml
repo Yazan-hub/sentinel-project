@@ -50,7 +50,7 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - run: dotnet build SentinelAddin -c Release -p:RevitVersion=${{ matrix.revit }} -p:DeployToRevit=false
-      - name: Revit-free checks (fix-in-place + naming + org + snapshot + gate + ghost standards + ledger events + heal + publish + roi)
+      - name: Revit-free checks (fix-in-place + naming + org + snapshot + gate + ghost standards + ledger events + heal + publish + roi + docpin)
         if: matrix.revit == 2026
         run: |
           dotnet run --project tools/fixplace-check
@@ -63,3 +63,4 @@ jobs:
           dotnet run --project tools/event-check
           dotnet run --project tools/publish-check
           dotnet run --project tools/roi-check
+          dotnet run --project tools/docpin-check

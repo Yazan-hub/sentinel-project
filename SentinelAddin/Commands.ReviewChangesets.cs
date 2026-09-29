@@ -91,6 +91,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             onDone = result =>
             {
                 handler.Completed -= onDone;
+                if (result.NotRun)
+                {
+                    TaskDialog.Show("Sentinel — AI proposals", result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again on that model.");
+                    return;
+                }
                 if (result.Error != null)
                 {
                     // Whole changeset rolled back: report declined with the reason — honestly.
@@ -105,7 +110,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     $"Created {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : ""));
             };
             handler.Completed += onDone;
-            handler.SetRequest(fresh, new HashSet<string>(ticked));
+            handler.SetRequest(fresh, new HashSet<string>(ticked), doc);
             evt.Raise();
         };
         window.Show();

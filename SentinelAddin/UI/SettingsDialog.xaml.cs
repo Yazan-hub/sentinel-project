@@ -13,9 +13,11 @@ namespace Sentinel.UI;
 public partial class SettingsDialog : Window
 {
     private readonly SentinelSettings _current;
+    private readonly Document? _doc;   // the model this dialog was opened on (XC-1)
 
     public SettingsDialog(Document? doc)
     {
+        _doc = doc;
         InitializeComponent();
         // H4: who the bridge will see. The sign-in itself lives in Sentinel ▸ Sign in.
         WhoText.Text = Sentinel.Coordination.UserSession.Email is { } who
@@ -168,10 +170,9 @@ public partial class SettingsDialog : Window
 
         // Project scope: ES write needs a transaction -> ExternalEvent queue.
         StatusText.Text = "Saving to project…";
-        App.Events?.Enqueue(uiapp =>
+        if (_doc is null) { StatusText.Text = "No open model to save the project settings into."; return; }
+        App.Events?.Enqueue(_doc, "save the project settings", (uiapp, doc) =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
-            if (doc is null) return;
             // Load the UNMERGED project settings (not the doc+machine merge shown in the dialog) so
             // saving to project can't bake in machine-local paths, or blow away project fields this
             // dialog doesn't show.
