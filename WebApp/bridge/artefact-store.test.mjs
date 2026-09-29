@@ -586,3 +586,20 @@ describe("installed_by comes from the sign-in (cde-13, H0 D6)", () => {
     expect((await putArtefact("p", "ids", spec, {}, d)).installed_by).toBe("web");
   });
 });
+
+describe("validateArtefact — carbon_factors (item 6, 6D)", () => {
+  const ok = { label: "Project EPD set 2026-09", unit_label: "kgCO2e", factors: [{ match: "IFCSLAB", measure: "volume", unit: "m³", factor: 310 }] };
+  it("a named pack of factors installs", () => {
+    expect(fails("carbon_factors", ok)).toBeNull();
+    expect(KINDS).toContain("carbon_factors");
+  });
+  it.each([
+    [{ ...ok, label: "" }, "carbon_factors: label must name the factors' source (EPD, EC3, ICE …) in 1 to 300 characters"],
+    [{ ...ok, factors: [] }, "carbon_factors: factors needs at least one {match, measure, unit, factor}"],
+    [{ ...ok, factors: [{ ...ok.factors[0], factor: -1 }] }, "carbon_factors: factors[0].factor must be a number ≥ 0 (kgCO₂e per unit)"],
+    [{ ...ok, factors: [{ ...ok.factors[0], measure: "mass" }] }, "carbon_factors: factors[0].measure must be one of count, length, area, volume, weight"],
+    [{ ...ok, source: "x" }, "carbon_factors: source is not a carbon_factors field — the body is {label, unit_label?, factors}"],
+  ])("a pack that could not price honestly is refused in words (%#)", (body, message) => {
+    expect(fails("carbon_factors", body)).toMatchObject({ status: 400, message });
+  });
+});

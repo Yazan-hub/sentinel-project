@@ -49,7 +49,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
 
-  const factors: CarbonFactors = JSON.parse(JSON.stringify(defaultFactors)); // editable working copy
+  let factors: CarbonFactors = JSON.parse(JSON.stringify(defaultFactors)); // editable working copy; the installed pack replaces it
   let quantities: ElementQuantities[] = [];
   let report: CarbonReport | null = null;
   let baseline: CarbonBaseline | null = null; // carbon baseline for change tracking (the OLD side of the Δ)
@@ -70,11 +70,13 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       `<select id="cb-rev2" title="Now — a saved revision, or leave as the current model (new side of the Δ)" style="display:none;max-width:8rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
       `<button id="cb-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare the two sides">Δ</button>` +
       `<button id="cb-csv" style="${btn};background:#2a2a30;color:#eee" title="Export CSV">CSV</button>` +
+      `<button id="cb-install" style="${btn};background:#6528d7;color:#fff;display:none" title="Install the factors as edited here as this project's carbon factor pack (a lead's; versioned, on the ledger)">Install factors</button>` +
     "</div>" +
     '<div id="cb-hero" style="padding:.7rem;border-bottom:1px solid #2a2a30;display:none">' +
       '<div style="display:flex;align-items:baseline;gap:.5rem"><span id="cb-total" style="font:750 24px/1 ui-monospace,Consolas,monospace;color:#4ade80;font-variant-numeric:tabular-nums"></span>' +
       '<span id="cb-total-label" style="color:#9ca3af;font-size:12px">tCO₂e embodied</span></div>' +
       '<div id="cb-intensity" style="color:#9ca3af;font-size:11px;margin-top:.25rem"></div>' +
+      '<div id="cb-basis" style="color:#6b7280;font-size:10.5px;margin-top:.15rem">Factors: reading…</div>' +
       '<div id="cb-bars" style="margin-top:.6rem;display:flex;flex-direction:column;gap:.25rem"></div>' +
     "</div>" +
     '<div id="cb-banners" style="padding:0 .6rem"></div>' +
@@ -101,13 +103,22 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     finally { b.disabled = false; }
   };
 
+  let factorsEdited = false; // a factor edited here and not installed: its figures are this session's only
+  const showEdited = () => {
+    const b = root.querySelector("#cb-install") as HTMLElement | null;
+    if (b) b.style.display = factorsEdited ? "" : "none";
+    const lbl = root.querySelector("#cb-basis");
+    if (lbl) lbl.textContent = factorsEdited ? `Factors: edited here, not installed (from ${factorsBasis})` : `Factors: ${factorsBasis}`;
+  };
   const recompute = () => {
     report = buildCarbon(quantities, factors);
     draw();
     // Publish the LIVE model's carbon to the project snapshot (Owner/FM portal). Skip when there's no live
     // model (e.g. diffing two historical revisions) so we don't clobber the snapshot with 0.
-    if (quantities.length)
-      bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000) } }) }).catch(() => {});
+    // Only a figure at factors that were read goes to the Owner view, with its basis — never an unsaved edit's.
+    if (quantities.length && packRead && !factorsEdited)
+      bwrite(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000), carbon_basis: factorsBasis } }) })
+        .catch((e) => msg(`The Owner view's carbon figure was not updated — ${(e as Error).message}`, "#eab308"));
   };
 
   // The "now" side of a Δ: a picked target revision (repriced at current factors), else the live take-off.
@@ -209,8 +220,48 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
 
   let seq = 0; // a slower answer for the previous project never overwrites the current one
   let loadedScope = ""; // the project + person the last load was for
+  // The factors in force (item 6, 6D): the project's installed carbon_factors artefact (project → office), else the
+  // indicative reference factors — the basis is shown beside every total and sent with the Owner figure.
+  let factorsBasis = "indicative reference factors — no factor pack installed";
+  let packRead = false;
+  const loadFactors = async (mine: number) => {
+    const key = pid();
+    try {
+      const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/artefacts/carbon_factors`);
+      const j = await r.json().catch(() => null);
+      if (mine !== seq) return;
+      if (r.status === 404 && j?.reason === "not_installed") { packRead = true; factorsBasis = "indicative reference factors — no factor pack installed"; return; }
+      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+      factors = { unit_label: j.body.unit_label || "kgCO2e", source: j.body.label, factors: structuredClone(j.body.factors) };
+      factorsBasis = `${j.body.label} — ${j.ref} · ${j.source}`;
+      packRead = true;
+      if (quantities.length) recompute();
+    } catch (e) {
+      if (mine !== seq) return;
+      packRead = false;
+      factorsBasis = "indicative reference factors — the installed pack was not read";
+      msg(`Carbon factor pack not read — ${(e as Error).message}. The reference factors are shown, and nothing is sent to the Owner view.`, "#ef4444");
+    }
+    const lbl = root.querySelector("#cb-basis"); if (lbl) lbl.textContent = `Factors: ${factorsBasis}`;
+  };
+
+  const installPack = async (): Promise<boolean> => {
+    const label = window.prompt?.("Name the factors' source (EPD, EC3, ICE …) — it is printed on every carbon figure:", factors.source) ?? factors.source;
+    if (!label || !label.trim()) { msg("Factor pack not installed — it needs a source name.", "#eab308"); return false; }
+    try {
+      const a = await bwrite<{ version?: number }>(`${base}/cde/${encodeURIComponent(pid())}/artefacts/carbon_factors`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: label.trim(), unit_label: factors.unit_label, factors: factors.factors }),
+      });
+      msg(`Installed as carbon_factors@${a?.version ?? "?"} — on the ledger; every carbon figure now names it.`, "#22c55e");
+      await loadFactors(seq);
+      return true;
+    } catch (e) { msg(`Factor pack not installed — ${(e as Error).message}`, "#ef4444"); return false; }
+  };
+
   const loadProject = async () => {
     const mine = ++seq;
+    void loadFactors(mine);
     loadedScope = loadScope(pid());
     let reached = false;
     try {
@@ -349,7 +400,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       inp.addEventListener("change", () => {
         const code = inp.dataset.code as string; const v = Number(inp.value);
         const f = factors.factors.find((x) => x.match === code);
-        if (f && Number.isFinite(v) && v >= 0) { f.factor = v; recompute(); }
+        if (f && Number.isFinite(v) && v >= 0) { f.factor = v; factorsEdited = true; recompute(); showEdited(); }
       });
       inp.addEventListener("click", (e) => e.stopPropagation());
     });
@@ -389,6 +440,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   el("cb-rev2").addEventListener("change", (e) => pickTarget((e.target as HTMLSelectElement).value));
   el("cb-cmp").addEventListener("click", toggleCompare);
   el("cb-csv").addEventListener("click", exportCsv);
+  el("cb-install").addEventListener("click", () => { void installPack().then((ok) => { if (ok) { factorsEdited = false; showEdited(); } }); });
   loadProject().then(loadRevisions); // saved carbon baseline, then populate the revision picker
   // Another project (or person): the last project's baseline and picked revision are not this one's.
   // The same project and person (the bridge came back) re-reads but keeps the picked comparison.

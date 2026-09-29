@@ -1426,7 +1426,17 @@ export async function revisionDelta(key, { from, to } = {}) {
     const pack = (await ensureProject(key))?.metadata?.rate_pack; // read as stored — getProjectMeta would seed on a read
     if (pack?.rules?.length) { rates = pack; ratesBasis = "the project's rate pack"; }
   } catch (e) { ratesBasis = `bridge reference rate table — the project's rate pack was not read (${String(e?.message || e).slice(0, 120)})`; }
-  const factors = c.defaultFactors;
+  // The project's installed carbon factor pack (project → office) when there is one, else the reference factors —
+  // named either way, or "not read (why)" (item 6, 6D).
+  let factors = c.defaultFactors, factorsBasis = "indicative reference factors (no carbon factor pack installed)";
+  try {
+    const { resolveArtefact, refLabel } = await import("./artefact-store.mjs");
+    const cf = await resolveArtefact(key, "carbon_factors");
+    if (cf.source !== "none" && cf.body) {
+      factors = { unit_label: cf.body.unit_label || "kgCO2e", source: cf.body.label, factors: cf.body.factors };
+      factorsBasis = `${cf.body.label} — ${refLabel(cf)}`;
+    }
+  } catch (e) { factorsBasis = `indicative reference factors — the installed pack was not read (${String(e?.message || e).slice(0, 120)})`; }
   const cost = c.costDiff(diff, rates);
   const carbon = c.carbonDiff(diff, factors);
   const { deltaHeadline } = await import("./revision-delta.mjs");
@@ -1438,7 +1448,7 @@ export async function revisionDelta(key, { from, to } = {}) {
     ...deltaHeadline(summary, cost, carbon, {
       currency: rates?.currency ?? null,
       rates: ratesBasis,
-      carbon_factors: factors?.source || "bridge default carbon factors",
+      carbon_factors: factorsBasis,
     }),
   };
 }
