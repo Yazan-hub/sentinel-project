@@ -5,11 +5,13 @@
 import type * as OBC from "@thatopen/components";
 import type * as FRAGS from "@thatopen/fragments";
 import { assetFromProps, type Asset } from "../cobie";
+import { PSET_RELATIONS } from "./element-properties";
 
-/** The maintainable asset categories an FM team tracks (arch openings + MEP/equipment). */
+/** The maintainable asset categories an FM team tracks (arch openings + MEP/equipment) — occurrences only: a type or
+ *  style (IFCDOORSTYLE, IFCPUMPTYPE) is a definition, never an asset of its own. */
 const MAINTAINABLE: RegExp[] = [
-  /^IFC(DOOR|WINDOW)/i,
-  /^IFC(FLOWTERMINAL|AIRTERMINAL|AIRTERMINALBOX|SANITARYTERMINAL|WASTETERMINAL|STACKTERMINAL|LIGHTFIXTURE|ELECTRICAPPLIANCE|ELECTRICGENERATOR|ELECTRICMOTOR|MECHANICALEQUIPMENT|PUMP|FAN|BOILER|CHILLER|COOLINGTOWER|TANK|VALVE|ENERGYCONVERSIONDEVICE|FLOWCONTROLLER|FLOWMOVINGDEVICE|FLOWSTORAGEDEVICE|FLOWTREATMENTDEVICE|DISTRIBUTIONCONTROLELEMENT)/i,
+  /^IFC(DOOR|WINDOW)(?!\w*(TYPE|STYLE)$)/i,
+  /^IFC(FLOWTERMINAL|AIRTERMINAL|AIRTERMINALBOX|SANITARYTERMINAL|WASTETERMINAL|STACKTERMINAL|LIGHTFIXTURE|ELECTRICAPPLIANCE|ELECTRICGENERATOR|ELECTRICMOTOR|MECHANICALEQUIPMENT|PUMP|FAN|BOILER|CHILLER|COOLINGTOWER|TANK|VALVE|ENERGYCONVERSIONDEVICE|FLOWCONTROLLER|FLOWMOVINGDEVICE|FLOWSTORAGEDEVICE|FLOWTREATMENTDEVICE|DISTRIBUTIONCONTROLELEMENT)(?!\w*(TYPE|STYLE)$)/i,
 ];
 
 export async function extractAssets(fragments: OBC.FragmentsManager): Promise<{ assets: Asset[]; floors: string[]; spaces: string[] }> {
@@ -27,7 +29,7 @@ export async function extractAssets(fragments: OBC.FragmentsManager): Promise<{ 
 
     const data = await model.getItemsData(ids, {
       attributesDefault: true,
-      relations: { IsDefinedBy: { attributes: true, relations: false } },
+      relations: PSET_RELATIONS,
       relationsDefault: { attributes: false, relations: false },
     });
     for (let i = 0; i < ids.length; i++) assets.push(toAsset(ids[i], data[i], model.modelId));
@@ -61,21 +63,23 @@ function attr(data: FRAGS.ItemData | undefined, key: string): string | undefined
   return undefined;
 }
 
-/** Flatten direct attributes + IsDefinedBy pset HasProperties into name→value. */
+/** Flatten direct attributes + the element's pset HasProperties into name→value — its type's sets too (IsTypedBy, or
+ *  an IFC2x3 type under IsDefinedBy, via HasPropertySets), as the bridge's measureCobie reads them; the element's own
+ *  value wins over its type's. */
 function flatten(data: FRAGS.ItemData | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!data) return out;
   for (const [k, v] of Object.entries(data)) if (!Array.isArray(v) && v && "value" in v && v.value != null) out[k] = String(v.value);
-  const definedBy = data["IsDefinedBy"];
-  if (Array.isArray(definedBy)) {
-    for (const pset of definedBy) {
-      const props = pset["HasProperties"];
-      if (Array.isArray(props)) for (const p of props) {
-        const name = attr(p, "Name"); const val = attr(p, "NominalValue") ?? attr(p, "Value");
-        if (name && val != null) out[name] = val;
-      }
+  const list = (x: unknown): FRAGS.ItemData[] => (Array.isArray(x) ? x : []);
+  const read = (sets: FRAGS.ItemData[]) => {
+    for (const pset of sets) for (const p of list(pset["HasProperties"])) {
+      const name = attr(p, "Name"); const val = attr(p, "NominalValue") ?? attr(p, "Value");
+      if (name && val != null && String(val).trim()) out[name] = val;
     }
-  }
+  };
+  const related = [...list(data["IsDefinedBy"]), ...list(data["IsTypedBy"])];
+  read(related.flatMap((r) => list(r["HasPropertySets"]))); // the type's sets first …
+  read(related); // … so the element's own sets overwrite them
   return out;
 }
 

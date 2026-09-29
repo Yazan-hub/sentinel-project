@@ -14,6 +14,7 @@
 import type * as OBC from "@thatopen/components";
 import type * as FRAGS from "@thatopen/fragments";
 import type { ElementFacts, RuleTarget } from "../types";
+import { PSET_RELATIONS } from "./element-properties";
 
 /** Maps a rule target to the IFC categories that answer it. `family` is broad — the
  *  scanner narrows by the rule's own `categories` list, exactly like the C# side. */
@@ -81,9 +82,7 @@ async function extractFromModel(
     const data = await model.getItemsData(familyIds, {
       attributesDefault: true,
       // Pull property sets so parameter rules can read pset values.
-      relations: {
-        IsDefinedBy: { attributes: true, relations: false },
-      },
+      relations: PSET_RELATIONS,
       relationsDefault: { attributes: false, relations: false },
     });
     for (let i = 0; i < familyIds.length; i++) {
