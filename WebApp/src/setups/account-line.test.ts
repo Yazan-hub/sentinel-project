@@ -1,0 +1,25 @@
+import { describe, it, expect } from "vitest";
+import { initialOf, accountLine } from "./account-line";
+
+describe("initialOf", () => {
+  it("the email's first character, upper-cased; ? when there is none", () => {
+    expect(initialOf("yazan@firm.com")).toBe("Y");
+    expect(initialOf("  bob@x.io")).toBe("B");
+    expect(initialOf("")).toBe("?");
+    expect(initialOf(null)).toBe("?");
+  });
+});
+
+describe("accountLine — the role only when it was read, never a guess", () => {
+  it("names the role and the open project", () => {
+    expect(accountLine({ role: "lead", read: true }, "aster-tower")).toBe("Signed in · lead on aster-tower");
+  });
+  it("a viewer (or a non-member — the bridge answers both the same) is read-only", () => {
+    expect(accountLine({ role: "viewer", read: true }, "aster-tower")).toBe("Signed in · read-only on aster-tower");
+  });
+  it("an unread role or no open project says only 'Signed in'", () => {
+    expect(accountLine({ role: "viewer", read: false }, "aster-tower")).toBe("Signed in");
+    expect(accountLine({ role: "lead", read: true }, null)).toBe("Signed in");
+    expect(accountLine(null, "aster-tower")).toBe("Signed in");
+  });
+});

@@ -485,7 +485,7 @@ async function main() {
     }),
   );
 
-  // Sign-in widget (Stage B) — non-blocking magic-link auth (bottom-right). Signing in doesn't gate
+  // The account corner (top-right): the avatar menu when signed in, Sign in when not. Signing in does not gate
   // anything yet; it proves the auth flow + establishes identity for memberships. See docs/auth-rls-design.md.
   container.appendChild(authWidget());
 

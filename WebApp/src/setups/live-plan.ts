@@ -103,7 +103,7 @@ export async function openLivePlan(components: OBC.Components, level: string): P
 function showPill(components: OBC.Components, name: string) {
   pill?.remove();
   pill = document.createElement("div");
-  pill.style.cssText = "position:fixed;top:.6rem;left:50%;transform:translateX(-50%);z-index:1000;display:flex;gap:.5rem;align-items:center;background:#16161ae6;border:1px solid #6d28d9;border-radius:100px;padding:.3rem .45rem .3rem .8rem;font:600 12px system-ui;color:#e5e7eb;box-shadow:0 4px 14px #0006";
+  pill.style.cssText = "position:fixed;top:3rem;left:50%;transform:translateX(-50%);z-index:1000;display:flex;gap:.5rem;align-items:center;background:#16161ae6;border:1px solid #6d28d9;border-radius:100px;padding:.3rem .45rem .3rem .8rem;font:600 12px system-ui;color:#e5e7eb;box-shadow:0 4px 14px #0006";
   const label = document.createElement("span");
   label.textContent = `▦ Live plan — ${name}`;
   const exit = document.createElement("button");
