@@ -4,7 +4,7 @@ import { deliveryCard, readDeliveries, deliveriesSummary, reportName, latestTag,
 
 const sha = "a".repeat(64);
 const item = (name = "tower.ifc", tags = ["v2", "v1"]): PlatformItem => ({ _id: `id-${name}`, name, versions: tags.map((tag) => ({ tag })) });
-const report = (over: Partial<GateReport> = {}): GateReport => ({ kind: REPORT_KIND, result: "pass", passed: true, contract: { ref: "contract@1", sha256: "c".repeat(64) }, failures: [], warnings: [], sha256: sha, run: { executionId: "exec9" }, ...over });
+const report = (over: Partial<GateReport> = {}): GateReport => ({ kind: REPORT_KIND, file: { id: "id-a.ifc", name: "a.ifc", versionTag: "v2" }, result: "pass", passed: true, contract: { ref: "contract@1", sha256: "c".repeat(64) }, failures: [], warnings: [], sha256: sha, run: { executionId: "exec9" }, ...over });
 
 describe("deliveryCard", () => {
   it("a pass: Passed with the contract, the sha and the run; warnings as lines", () => {
@@ -70,6 +70,15 @@ describe("readDeliveries", () => {
     const c = client([item("a.ifc"), { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v2" }] }], { downloadFails: true, labels: { sentinel_gate: "pass", sentinel_contract: "contract@1" } });
     expect((await readDeliveries(c, "p1"))[0]).toMatchObject({ state: "passed", lines: ["the report file could not be read — the labels say pass"] });
   });
+  it("a report that names another item or another version is not this version's report: the labels answer", async () => {
+    const rep = { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v2" }] };
+    const labels = { sentinel_gate: "fail", sentinel_contract: "contract@1", sentinel_failures: "1" };
+    for (const file of [{ id: "id-other.ifc", name: "a.ifc", versionTag: "v2" }, { id: "id-a.ifc", name: "a.ifc", versionTag: "v1" }, null]) {
+      const c = client([item("a.ifc"), rep], { reportBody: report({ file }), labels });
+      expect((await readDeliveries(c, "p1"))[0].state).toBe("refused"); // the labels', not the foreign report's pass
+    }
+  });
+
   it("a download that answered a 429 (downloadFile never throws on it) or JSON of another kind is not a report: the labels answer", async () => {
     const rep = { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v2" }] };
     const labels = { sentinel_gate: "fail", sentinel_contract: "contract@1", sentinel_failures: "2" };
@@ -105,6 +114,15 @@ describe("readDeliveries", () => {
 
 describe("ledgerLine — the card's platform_gate row (spec 2026-09-29 platform-native, Part A)", () => {
   const row = (id: number, execution_id: unknown) => ({ id, new_value: { execution_id } });
+  const fileRow = (id: number, execution_id: string, name: string | null, version_tag: string | null) =>
+    ({ id, new_value: { execution_id, file: name ? { name, version_tag } : null } });
+  it("with the card: a row is cited only when it names this file and version; else it is said as such", () => {
+    const card = { name: "tower.ifc", versionTag: "v3" };
+    expect(ledgerLine("exec9", [fileRow(42, "exec9", "tower.ifc", "v3")], null, card)).toBe("ledger #42");
+    expect(ledgerLine("exec9", [fileRow(42, "exec9", "tower.ifc", "v2")], null, card)).toBe("ledger #42 is the run of tower.ifc v2 — not this version");
+    expect(ledgerLine("exec9", [fileRow(42, "exec9", null, null)], null, card)).toBe("ledger #42 does not name its file — not tied to this version");
+    expect(ledgerLine("exec9", [], null, card)).toBe("not on this project's ledger yet");
+  });
   it("a row whose execution_id is the card's run: ledger #<id>", () => {
     expect(ledgerLine("exec9", [row(41, "exec8"), row(42, "exec9")], null)).toBe("ledger #42");
   });

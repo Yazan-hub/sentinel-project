@@ -14,6 +14,7 @@ export interface GateReport {
   kind: string; result: "pass" | "fail" | "not_checked"; passed: boolean | null; reason?: string | null;
   contract?: { ref: string; sha256: string | null } | null; failures: string[]; warnings: string[]; sha256: string;
   run?: { executionId?: string | null; at?: string | null } | null;
+  file?: { id?: string | null; name?: string | null; versionTag?: string | null } | null;
 }
 export type CardState = "passed" | "refused" | "not_checked" | "did_not_run" | "running" | "not_read";
 export interface DeliveryCard {
@@ -82,7 +83,11 @@ export async function readDeliveries(client: DeliveriesClient | undefined, platf
       try {
         const res = await client.downloadFile(rep._id, { versionTag: tag });
         const body = res.ok ? ((await res.json()) as GateReport) : null;
-        report = body?.kind === REPORT_KIND ? body : null;
+        // A report counts for this version only when it names this item and this version (any project writer can
+        // write a file of that name) — else the labels answer.
+        const f = body?.file;
+        const ours = !!f && f.versionTag === tag && (f.id ? f.id === item._id : f.name === item.name);
+        report = body?.kind === REPORT_KIND && ours ? body : null;
       } catch { report = null; }
     }
     let labels: Labels | null = null;
@@ -104,16 +109,34 @@ export function deliveriesSummary(cards: DeliveryCard[]): string {
 export const shortSha = short;
 
 /** A platform_gate row as GET /cde/<pid>/audit returns it — only what the card cites. */
-export interface GateLedgerRow { id: number; new_value?: { execution_id?: unknown; result?: unknown } | null }
+export interface GateLedgerRow {
+  id: number;
+  new_value?: { execution_id?: unknown; result?: unknown; file?: { name?: unknown; version_tag?: unknown } | null } | null;
+}
+/** What a card says about itself when a row is cited for it. */
+export interface CardIdentity { name: string; versionTag: string }
 
-/** The row whose execution_id is this run; a card without a run never attaches a row. */
-export const citedRow = (run: string | null, rows: GateLedgerRow[] | null): GateLedgerRow | undefined =>
-  run ? (rows ?? []).find((r) => r?.new_value?.execution_id === run) : undefined;
+const runRow = (run: string | null, rows: GateLedgerRow[] | null) => (run ? (rows ?? []).find((r) => r?.new_value?.execution_id === run) : undefined);
+const sameFile = (row: GateLedgerRow, card: CardIdentity) =>
+  row.new_value?.file?.name === card.name && row.new_value?.file?.version_tag === card.versionTag;
 
-/** The card's ledger line: the row whose execution_id is this card's run; none is "not on this project's ledger yet";
- *  a read that failed is "ledger not read — <why>", never a claimed row. A card without a run never attaches a row. */
-export function ledgerLine(run: string | null, rows: GateLedgerRow[] | null, readErr: string | null): string {
+/** The row this card's run wrote — and, when the card is given, only if that row names this card's file and version
+ *  (the run id on a card comes from a report or labels any project writer can write). A card without a run never
+ *  attaches a row. */
+export const citedRow = (run: string | null, rows: GateLedgerRow[] | null, card?: CardIdentity): GateLedgerRow | undefined => {
+  const row = runRow(run, rows);
+  return row && (!card || sameFile(row, card)) ? row : undefined;
+};
+
+/** The card's ledger line: "ledger #N" for the row this version's run wrote; a row of that run for another file or
+ *  version, or one that names no file, is said as such and never cited as this version's; none is "not on this
+ *  project's ledger yet"; a read that failed is "ledger not read — <why>". */
+export function ledgerLine(run: string | null, rows: GateLedgerRow[] | null, readErr: string | null, card?: CardIdentity): string {
   if (readErr) return `ledger not read — ${readErr}`;
-  const row = citedRow(run, rows);
-  return row ? `ledger #${row.id}` : "not on this project's ledger yet";
+  const row = runRow(run, rows);
+  if (!row) return "not on this project's ledger yet";
+  if (!card || sameFile(row, card)) return `ledger #${row.id}`;
+  const f = row.new_value?.file;
+  return f?.name ? `ledger #${row.id} is the run of ${String(f.name)} ${String(f.version_tag ?? "")}`.trimEnd() + " — not this version"
+    : `ledger #${row.id} does not name its file — not tied to this version`;
 }

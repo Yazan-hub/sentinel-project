@@ -51,9 +51,9 @@ export function answerDeliveries(cards: DeliveryCard[], rows: GateLedgerRow[] | 
     const a: DeliveryAnswer = {
       name: c.name, version_tag: c.versionTag, platform: `the platform's hint: ${c.headline}`,
       failures: lines.slice(0, MAX_FAILURES), more_failures: Math.max(0, lines.length - MAX_FAILURES),
-      run: c.run, ledger: ledgerLine(c.run, rows, readErr),
+      run: c.run, ledger: ledgerLine(c.run, rows, readErr, c),
     };
-    const row = readErr ? undefined : citedRow(c.run, rows);
+    const row = readErr ? undefined : citedRow(c.run, rows, c);
     if (row) {
       const result = row.new_value?.result;
       a.ledger_result = result == null ? "not recorded on the row" : String(result);

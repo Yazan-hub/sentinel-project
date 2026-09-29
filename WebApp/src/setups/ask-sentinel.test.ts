@@ -5,7 +5,8 @@ import { answerDeliveries, answerStatus, ask, setupAskSentinel, type AskDeps } f
 import type { DeliveryCard, GateLedgerRow } from "./platform-deliveries";
 
 const card = (over: Partial<DeliveryCard> = {}): DeliveryCard => ({ name: "tower.ifc", versionTag: "v2", state: "refused", headline: "Refused — contract@1 — 1 failure", lines: ["✗ IFCBUILDINGELEMENTPROXY: 994 exceeds max 0."], sha256: "a".repeat(64), run: "exec9", ...over });
-const row = (id: number, execution_id: string, result: string): GateLedgerRow => ({ id, new_value: { execution_id, result } });
+const row = (id: number, execution_id: string, result: string, file: { name: string; version_tag: string } | null = { name: "tower.ifc", version_tag: "v2" }): GateLedgerRow =>
+  ({ id, new_value: { execution_id, result, file } });
 const deps = (over: Partial<AskDeps> = {}): AskDeps => ({
   appVersion: "1.0.31", platformProjectId: () => "plat1", sentinelProject: () => "aster-tower",
   signedIn: async () => true, bridge: async () => ({ ok: true, status: 200 }),
@@ -51,6 +52,20 @@ describe("answerDeliveries — caps", () => {
   });
   it("nothing to answer is said in words", () => {
     expect(answerDeliveries([], [], null, { name: "x.ifc" }).note).toBe('no IFC named "x.ifc" on the platform project');
+  });
+});
+
+describe("a row of this run for another version is never this version's corroboration", () => {
+  it("names the other version, and gives neither ledger_result nor agrees", () => {
+    const [a] = answerDeliveries([card()], [row(42, "exec9", "fail", { name: "tower.ifc", version_tag: "v1" })], null).deliveries;
+    expect(a.ledger).toBe("ledger #42 is the run of tower.ifc v1 — not this version");
+    expect(a).not.toHaveProperty("ledger_result");
+    expect(a).not.toHaveProperty("agrees");
+  });
+  it("a row that names no file is not tied to this version", () => {
+    const [a] = answerDeliveries([card()], [row(42, "exec9", "fail", null)], null).deliveries;
+    expect(a.ledger).toBe("ledger #42 does not name its file — not tied to this version");
+    expect(a).not.toHaveProperty("agrees");
   });
 });
 

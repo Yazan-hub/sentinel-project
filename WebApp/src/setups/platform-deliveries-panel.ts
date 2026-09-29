@@ -53,7 +53,7 @@ export function mountPlatformDeliveries(host: HTMLElement, readLedger: () => Pro
         readLedger().then((rows) => ({ rows, err: null }), (e) => ({ rows: null, err: e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error)?.message || String(e) })),
       ]);
       sum.textContent = deliveriesSummary(list);
-      cards.innerHTML = list.map((c) => cardHtml(c, ledgerLine(c.run, ledger.rows, ledger.err))).join("");
+      cards.innerHTML = list.map((c) => cardHtml(c, ledgerLine(c.run, ledger.rows, ledger.err, c))).join("");
     } catch (e) {
       sum.textContent = (e as Error).message; // "not read — …": never an empty lane pretending there is nothing
       sum.style.color = "#fbbf24";
