@@ -21,8 +21,11 @@ export {
   levelSequence,
   csvToSchedule,
   scheduleRange,
+  taskInformation,
   type Task,
   type Schedule,
+  type MidpRow,
+  type InfoState,
 } from "./schedule";
 export {
   GATE_DEFS,
