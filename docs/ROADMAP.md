@@ -18,4 +18,4 @@ honesty rule holds throughout (nothing reported as passing that was not measured
 | 7 | Delete dead code; H5 (the gate row via the bridge for signed-in callers), H3, H6 | — |
 
 Owed by the founder, outside this list: the hackathon submission (deadline Sun 2026-10-04, midnight CEST); the
-Naming Manager batch rename on his model; the drill issue and the platform test items left on `aster-tower`.
+Naming Manager batch rename on their model; the drill issue and the platform test items left on `aster-tower`.
