@@ -173,8 +173,11 @@ describe("/ai/* — cloud AI only for a trusted caller (D2)", () => {
   });
 
   it("POST /ai/chat over 1 MB: 413 — a chat turn is not a document", async () => {
-    const { status } = await call("POST", "/ai/chat", { as: "service", json: { provider: "local", messages: [{ role: "user", content: "x".repeat(1_100_000) }] } });
+    // Declared, not sent: the bridge answers a declared length over the cap at once and closes (gate-limits pins that),
+    // and fetch() still uploading a real 1.1 MB body then fails on the closed socket (EPIPE) as often as it reads the 413.
+    const { status, json } = await partial("/ai/chat", "service", 2);
     expect(status).toBe(413);
+    expect(json.message).toMatch(/1 MB limit/); // the prompt cap, not the 16 MB document cap
   });
 });
 
