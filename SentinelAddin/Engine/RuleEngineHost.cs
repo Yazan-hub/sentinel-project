@@ -215,8 +215,8 @@ public sealed class RuleEngineHost
 
     private static void CheckParameter(Element e, Rule rule, string org, List<Violation> sink)
     {
-        var p = e.LookupParameter(rule.ParameterName!);
-        if (p is null || !p.HasValue || string.IsNullOrWhiteSpace(p.AsString()))
+        if (rule.ParameterName is null) return;   // nothing to check (the live DMU path had no guard)
+        if (!ParamValue.Filled(e, rule.ParameterName))  // by storage type, instance then type (SCAN-E1)
             sink.Add(Make(rule, org, e.Id.IdValue(), e.Name));
     }
 

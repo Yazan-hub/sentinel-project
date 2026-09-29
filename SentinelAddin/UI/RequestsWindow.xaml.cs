@@ -40,7 +40,7 @@ public partial class RequestsWindow : Window
         RequestList.ItemsSource = Rows;
         Reload();
         SubHeader.Text = isCoordinator
-            ? $"{Rows.Count} pending — approve keeps the change, reject reverts it automatically"
+            ? $"{Rows.Count} pending — approve keeps a change (or applies a ⚡ proposal); reject reverts it (or drops the proposal)"
             : $"{Rows.Count} pending — read-only (you are not listed as a coordinator)";
         if (!isCoordinator) RequestList.IsEnabled = false;
     }
