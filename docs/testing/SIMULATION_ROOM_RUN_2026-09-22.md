@@ -797,3 +797,13 @@ The founder: "do everything on your own … continue the roadmap". Spec `docs/su
 | `node bridge/platform-gate-ledger.mjs --once` | `{"written":9,"skipped":0}` → aster-tower #1154–#1162, each chaining to the one before, no token; a second run `{"written":0,"skipped":9}` |
 | The strip's read | `GET /cde/aster-tower/audit?entity_type=platform_gate` → 9 rows; the ASTR26 v3 card's run → `ledger #1162` (the card itself not seen live: the platform session had expired in the test tab) |
 | After 2026-10-04 | the bridge restart with the founder's Funnel toggle (the reserved type on the open route, the in-bridge poller); web 1.0.30; part B on a scratch `.frag` version (`SENTINEL_PLATFORM_STATE=on`) |
+
+## Session B25 — the rest of item 3, live (2026-09-29, the founder: "forget the deadline and fix everything")
+
+| Row | Observed |
+|---|---|
+| Part B on a scratch `.frag` (the archived drill project b10-publish, v1) | the platform copy `AST_ASTR26_Aster Tower.frag` (one version, v1) had `{}`; `transition(wip → shared)` wrote `state:wip->shared` #1163 and the hook wrote `{"sentinel_state":"shared","sentinel_state_row":"1163"}` onto the copy; a second mirror answered `up to date — the label already names ledger #1163`; the platform gate's run count 9 → 9 (a `.frag` label never starts the gate) |
+| Switched on | `config/.env`: `THATOPEN_GATE_COMPONENT_ID` (the in-bridge sync every 60 s) and `SENTINEL_PLATFORM_STATE=on` |
+| The bridge restart | clean; the public relay answered before and after (the two earlier breaks did not repeat); `[platform-gate] on — component 6ab97f72…, every 60 s`; `platform token: valid ✓` now proves the project read |
+| The open route refuses the type | `POST /cde/aster-tower/audit` with `platform_gate` and ` Platform_Gate ` → `400 platform_gate rows are written by Sentinel, not through this route`; no forged row; a minute of the poller wrote no duplicate (9 rows) |
+| Published | web app 1.0.30 (version 6abb00ba93f8e6a2d1e3ed48) — the Platform deliveries card names its ledger row; not seen live yet: the That Open session had expired in the test browser |
