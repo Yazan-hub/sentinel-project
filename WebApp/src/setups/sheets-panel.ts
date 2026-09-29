@@ -4,6 +4,8 @@ import { bfetch, bridgeImage, refusalText } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { sheetMidpLine, type MidpStatusRow } from "./sheet-midp";
+import { openLivePlan } from "./live-plan";
 
 /**
  * Sentinel Sheets viewer. Revit sheets (titleblock + viewports + annotations) never survive IFC export, so
@@ -13,7 +15,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
  * free, so it survives Revit↔IFC base-point offsets). Plain-DOM, iframe-safe.
  */
 interface Viewport { view: string; type: string; level: string; fx: number; fy: number; fw: number; fh: number; }
-interface SheetItem { id: string; number: string; name: string; file: string; url: string; viewports?: Viewport[]; }
+interface SheetItem { id: string; number: string; name: string; file: string; url: string; viewports?: Viewport[]; container_name?: string; }
 interface SheetSet { set: string; title: string; project?: string | null; exportedAt: string | null; count: number; sheets: SheetItem[]; }
 
 export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
@@ -40,6 +42,8 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
 
   let sets: SheetSet[] = [];
   let active = 0;
+  // The project's MIDP status rows, read once per refresh when a sheet names a container (item 5 Phase B).
+  let midpRows: MidpStatusRow[] | null = null, midpErr: string | null = null;
 
   function renderList() {
     const host = el("sh-list");
@@ -48,12 +52,14 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.6">No sheets published yet.<br><br>In Revit: <b>Sentinel → Publish Sheets</b> (sheets aren\'t in the IFC, so they\'re rendered and pushed separately). Make sure the Bridge is running, then press ↻.</div>';
       return;
     }
-    host.innerHTML = set.sheets.map((s, i) =>
-      `<div class="sh-row" data-i="${i}" style="display:flex;gap:.5rem;align-items:center;padding:.4rem .45rem;border:1px solid #2a2a30;background:#1b1b22;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer">` +
+    host.innerHTML = set.sheets.map((s, i) => {
+      const m = sheetMidpLine(s.container_name, midpRows, midpErr);
+      return `<div class="sh-row" data-i="${i}" style="display:flex;gap:.5rem;align-items:center;padding:.4rem .45rem;border:1px solid #2a2a30;background:#1b1b22;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer">` +
       `<span style="color:#c4b5fd;font-weight:600;min-width:4.5rem">${esc(s.number)}</span>` +
-      `<span style="flex:1;color:#e5e7eb;font-size:12px">${esc(s.name)}</span>` +
-      `<span style="color:#6b7280;font-size:11px">open ⤢</span></div>`,
-    ).join("");
+      `<span style="flex:1;min-width:0"><span style="display:block;color:#e5e7eb;font-size:12px">${esc(s.name)}</span>` +
+      `<span style="display:block;color:${m.color};font-size:10.5px">${esc(m.text)}</span></span>` +
+      `<span style="color:#6b7280;font-size:11px">open ⤢</span></div>`;
+    }).join("");
     host.querySelectorAll<HTMLElement>(".sh-row").forEach((r) =>
       r.addEventListener("click", () => openLightbox(Number(r.dataset.i))));
   }
@@ -90,6 +96,15 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       // Sets without a project field (older plugin) stay visible everywhere — back-compat.
       sets = (data.sets ?? []).filter((s) => !s.project || s.project === activePid());
       active = 0;
+      midpRows = null; midpErr = null;
+      if (sets.some((s) => s.sheets.some((x) => x.container_name))) {
+        try {
+          const d = await bfetch(`${base}/deliverables/${encodeURIComponent(activePid())}/status`);
+          const j = await d.json().catch(() => null);
+          if (!d.ok) throw new Error(j?.message || `HTTP ${d.status}`);
+          midpRows = j?.rows ?? [];
+        } catch (e) { midpErr = (e as Error)?.message ?? String(e); }
+      }
       renderSets(); renderList();
       const total = sets.reduce((a, s) => a + s.count, 0);
       status(sets.length
@@ -140,6 +155,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       '<div style="display:flex;align-items:center;gap:.6rem;padding:.5rem .8rem;border-bottom:1px solid #2a2a30;background:#111">' +
       '<span id="lb-cap" style="font-weight:600"></span>' +
       '<span id="lb-hint" style="color:#9ca3af;font-size:11px"></span><span style="flex:1"></span>' +
+      '<button id="lb-mode" style="' + btn + ';background:#241a3a;border-color:#6d28d9;color:#c4b5fd;display:none" title="What a click on a plan does: isolate its level in 3D, or open it as a live plan of the loaded models (the engine’s Views)"></button>' +
       '<button id="lb-prev" style="' + btn + '">◀ Prev</button>' +
       '<button id="lb-next" style="' + btn + '">Next ▶</button>' +
       '<button id="lb-fit" style="' + btn + '">Fit</button>' +
@@ -154,6 +170,11 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
     const img = q("lb-img") as HTMLImageElement;
     const canvas = q("lb-canvas");
     const stage = q("lb-stage");
+    let live = false; // a plan click opens a live plan instead of isolating its level
+    const modeBtn = q("lb-mode");
+    const showMode = () => { modeBtn.textContent = live ? "Plan click: ▦ live plan" : "Plan click: ⛶ isolate level"; };
+    modeBtn.addEventListener("click", () => { live = !live; showMode(); drawHotspots(); });
+    showMode();
 
     const apply = () => { canvas.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
     const fit = () => { scale = 1; tx = 0; ty = 0; apply(); };
@@ -162,7 +183,9 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       canvas.querySelectorAll(".lb-hot").forEach((n) => n.remove());
       const s = set.sheets[idx];
       const vps = s.viewports ?? [];
-      q("lb-hint").textContent = vps.some((v) => v.level) ? "Click a plan to isolate its level in 3D" : "";
+      const plans = vps.some((v) => v.level);
+      modeBtn.style.display = plans ? "inline-block" : "none";
+      q("lb-hint").textContent = plans ? (live ? "Click a plan to open it as a live plan" : "Click a plan to isolate its level in 3D") : "";
       for (const v of vps) {
         const hot = document.createElement("div");
         hot.className = "lb-hot";
@@ -171,11 +194,15 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
           `position:absolute;left:${v.fx * 100}%;top:${v.fy * 100}%;width:${v.fw * 100}%;height:${v.fh * 100}%;` +
           `box-sizing:border-box;border:2px solid ${planned ? "rgba(139,92,246,.0)" : "rgba(120,120,130,0)"};` +
           `cursor:${planned ? "pointer" : "default"};transition:background .1s,border-color .1s`;
-        hot.title = v.level ? `${v.view} · isolate level “${v.level}” in 3D` : `${v.view} (${v.type})`;
+        hot.title = v.level ? `${v.view} · ${live ? "live plan of" : "isolate"} level “${v.level}”` : `${v.view} (${v.type})`;
         hot.addEventListener("mouseenter", () => { hot.style.background = planned ? "rgba(139,92,246,.18)" : "rgba(120,120,130,.1)"; hot.style.borderColor = planned ? "rgba(139,92,246,.9)" : "rgba(120,120,130,.5)"; });
         hot.addEventListener("mouseleave", () => { hot.style.background = "transparent"; hot.style.borderColor = "transparent"; });
         hot.addEventListener("mousedown", (e) => e.stopPropagation()); // don't start a pan when clicking a hotspot
-        hot.addEventListener("click", (e) => { e.stopPropagation(); void isolateLevel(v.level, close); });
+        hot.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (live && v.level) { close(); void openLivePlan(components, v.level).then((r) => status(r.message)); }
+          else void isolateLevel(v.level, close);
+        });
         canvas.appendChild(hot);
       }
     }

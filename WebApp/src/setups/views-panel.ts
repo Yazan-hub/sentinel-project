@@ -4,6 +4,7 @@ import { bfetch, bridgeImage, refusalText } from "./bridge-fetch";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { openLivePlan } from "./live-plan";
 
 /**
  * Sentinel Views viewer. Mirrors the Sheets viewer's mechanism (Revit-only content that doesn't survive
@@ -175,6 +176,7 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
       '<span id="lb-cap" style="font-weight:600"></span>' +
       '<span style="flex:1"></span>' +
       `<button id="lb-isolate" style="${btn};background:#241a3a;border-color:#6d28d9;color:#c4b5fd;display:none">⛶ Isolate level</button>` +
+      `<button id="lb-live" style="${btn};background:#241a3a;border-color:#6d28d9;color:#c4b5fd;display:none" title="Open this level as a live plan of the loaded models (the engine’s Views)">▦ Live plan</button>` +
       `<button id="lb-prev" style="${btn}">◀ Prev</button>` +
       `<button id="lb-next" style="${btn}">Next ▶</button>` +
       `<button id="lb-fit" style="${btn}">Fit</button>` +
@@ -188,6 +190,7 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
     const img = q("lb-img") as HTMLImageElement;
     const stage = q("lb-stage");
     const isolateBtn = q("lb-isolate");
+    const liveBtn = q("lb-live");
 
     const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
     const fit = () => { scale = 1; tx = 0; ty = 0; apply(); };
@@ -199,6 +202,7 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
       const mine = ++seq;
       q("lb-cap").textContent = `${v.name}  (${idx + 1}/${flat.length})`;
       isolateBtn.style.display = v.level ? "inline-block" : "none";
+      liveBtn.style.display = v.level ? "inline-block" : "none";
       img.onload = fit;
       // Fetched with the Authorization header: a plain <img src> to the bridge carries no credential.
       bridgeImage(`${base}${v.url}`).then((u) => {
@@ -227,6 +231,7 @@ export function viewsPanel(components: OBC.Components, opts: { baseUrl?: string 
     q("lb-fit").addEventListener("click", fit);
     q("lb-close").addEventListener("click", close);
     isolateBtn.addEventListener("click", () => void isolateLevel(flat[idx].level, close));
+    liveBtn.addEventListener("click", () => { const level = flat[idx].level; close(); void openLivePlan(components, level).then((r) => status(r.message)); });
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); };
     window.addEventListener("keydown", onKey);
 

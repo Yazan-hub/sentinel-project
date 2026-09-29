@@ -189,7 +189,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
       // eslint-disable-next-line no-console
       console.log("[Sentinel] 2D/drawing scan", scan);
       if (!scan.byCategory.length) {
-        status("No drawings, sheets or annotations in this model — it's a 3D-only IFC. Use the Plans tab for 2D floor plans.");
+        status("No drawings, sheets or annotations in this model — it's a 3D-only IFC. For plans: BIM Tools ▸ Views or Sheets (Revit's, with Live plan on a level).");
         return;
       }
       const summary = scan.byCategory.map((r) => `${r.label} ${r.count}`).join(" · ");
@@ -199,7 +199,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
         try { await hider.set(true); await hider.isolate(map); await fragments.core.update(true); await highlighter.highlightByID("select", map, true, true); } catch { /* */ }
         status(`Found & isolated 2D content — ${summary}. (Show all in Visibility to restore.)`);
       } else {
-        status(`Found ${summary} — but no viewable 2D drawing geometry (grids/layers/refs only). Use Plans for floor plans.`);
+        status(`Found ${summary} — but no viewable 2D drawing geometry (grids/layers/refs only). For plans: BIM Tools ▸ Views or Sheets (Revit's, with Live plan on a level).`);
       }
     } catch (e) { status("2D scan failed: " + ((e as Error)?.message ?? String(e))); }
   }

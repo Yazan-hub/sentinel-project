@@ -3,7 +3,7 @@
 // deliverableStatus writes NOTHING (it is a read model, not an event).
 import { sb, ensureProject, audit, listFiles, isUuid, requireRows } from "./cde-store.mjs";
 import { requireMinRole } from "./members-store.mjs";
-import { deriveStatus, rollUpTidp, rebaselineImpact, weeklyReport } from "./deliverables-logic.mjs";
+import { deriveStatus, rollUpTidp, rebaselineImpact, weeklyReport, unplannedContainers } from "./deliverables-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -111,7 +111,7 @@ export async function importDeliverables(key, rows, actor) {
 export async function deliverableStatus(key) {
   const [rows, files] = await Promise.all([listDeliverables(key), listFiles(key)]);
   const today = new Date().toISOString().slice(0, 10);
-  return { generated_at: new Date().toISOString(), today, ...deriveStatus(rows, files, today) };
+  return { generated_at: new Date().toISOString(), today, ...deriveStatus(rows, files, today), unplanned: unplannedContainers(rows, files) };
 }
 
 /**
