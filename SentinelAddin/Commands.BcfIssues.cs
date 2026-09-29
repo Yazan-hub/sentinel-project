@@ -88,7 +88,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var bcfKey = ctx.Key;
         var mainHandle = uiapp.MainWindowHandle;   // captured here: the UIApplication is only valid inside Execute
         BcfConfig cfg = BcfConfig.Load();
-        var apply = new BcfApplyEvent();
+        var apply = new BcfApplyEvent(uiapp.ActiveUIDocument.Document);
         var externalEvent = ExternalEvent.Create(apply);
         var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
 

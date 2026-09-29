@@ -19,6 +19,9 @@ public sealed class BcfApplyEvent : IExternalEventHandler
     private BcfOp _op;
     private BcfViewpoint? _viewpoint;
     private IReadOnlyList<BcfTopic>? _topics;
+    private readonly Document _doc;   // the model the Issues window was opened on (XC-1)
+
+    public BcfApplyEvent(Document doc) => _doc = doc;
 
     /// <summary>Status/summary message after an operation.</summary>
     public event Action<string>? Applied;
@@ -32,8 +35,14 @@ public sealed class BcfApplyEvent : IExternalEventHandler
 
     public void Execute(UIApplication app)
     {
-        if (app.ActiveUIDocument is not { } uidoc) return;
-        Document doc = uidoc.Document;
+        if (Sentinel.Engine.DocPin.Check(app, _doc, "open the issue") is { } refusal)
+        {
+            Applied?.Invoke(refusal);
+            _viewpoint = null; _topics = null;
+            return;
+        }
+        UIDocument uidoc = app.ActiveUIDocument!;   // DocPin: the active document is _doc
+        Document doc = _doc;
         try
         {
             switch (_op)

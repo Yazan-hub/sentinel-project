@@ -19,6 +19,9 @@ public sealed class ChangesetExecutor
     {
         public List<AppliedEntry> Applied { get; } = new();
         public string Error { get; set; }
+        /// Nothing was attempted (the model was switched or closed): the changeset stays pending — never reported
+        /// as declined, never as applied.
+        public bool NotRun { get; set; }
     }
 
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);

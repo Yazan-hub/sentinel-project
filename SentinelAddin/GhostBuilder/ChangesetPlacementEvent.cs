@@ -3,6 +3,7 @@
 // ExternalEvent provides, mirroring GhostBuilderPlacementEvent's snapshot pattern.
 using System;
 using System.Collections.Generic;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Sentinel.Coordination;
 
@@ -14,24 +15,24 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
 
     private ChangesetDto _cs;
     private HashSet<string> _ticked;
+    private Document _doc;   // the model the review window was opened on (XC-1)
 
-    public void SetRequest(ChangesetDto cs, HashSet<string> ticked) { _cs = cs; _ticked = ticked; }
+    public void SetRequest(ChangesetDto cs, HashSet<string> ticked, Document doc) { _cs = cs; _ticked = ticked; _doc = doc; }
 
     public void Execute(UIApplication app)
     {
-        var cs = _cs; var ticked = _ticked;
-        _cs = null; _ticked = null;
-        if (cs == null || ticked == null)
+        var cs = _cs; var ticked = _ticked; var doc = _doc;
+        _cs = null; _ticked = null; _doc = null;
+        if (cs == null || ticked == null || doc == null)
         {
             // A Raise without a staged request must still complete — a silent return would hang
             // any caller awaiting the callback.
-            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = "no request staged" });
+            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = "no request staged", NotRun = true });
             return;
         }
-        var doc = app.ActiveUIDocument?.Document;
-        if (doc == null)
+        if (Sentinel.Engine.DocPin.Check(app, doc, "place the proposals") is { } refusal)
         {
-            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = "no active document" });
+            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = refusal, NotRun = true });
             return;
         }
         var result = new ChangesetExecutor().Execute(doc, cs, ticked);
