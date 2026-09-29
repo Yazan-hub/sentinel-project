@@ -12,11 +12,26 @@ jobs:
       run:
         working-directory: WebApp
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22 # @supabase/*, camera-controls and unpdf require node >= 22
+      # The viewer runs on That Open's private beta engine (@thatopen-platform/*, since 2026-09-24): npm needs the
+      # founder's npm token, kept as the repository secret THATOPEN_NPM_TOKEN (never in the repo — WebApp/.npmrc is
+      # git-ignored). Without it the install is refused by name instead of a bare 404.
+      - name: npm login for the private @thatopen-platform engine
+        env:
+          NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::The repository secret THATOPEN_NPM_TOKEN is not set, so the private @thatopen-platform engine cannot be installed (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          echo '@thatopen-platform:registry=https://registry.npmjs.org/' > .npmrc
+          echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' >> .npmrc # npm expands NPM_TOKEN itself; the value is never written or echoed
       - run: npm install
+        env:
+          NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}
       - run: npm run test
       - run: npm run build
 
@@ -30,8 +45,8 @@ jobs:
         # need extra SDK/reference setup — add them here once the runner is provisioned.
         revit: [2025, 2026]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
       - run: dotnet build SentinelAddin -c Release -p:RevitVersion=${{ matrix.revit }} -p:DeployToRevit=false
