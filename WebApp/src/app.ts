@@ -5,7 +5,7 @@ import { PlatformClient, ProjectData } from "@thatopen/services";
 // `projectData`, reached via `components.get(AppManager)`. Juan removed
 // AppManager (consolidated into UIManager / top-app). top-app now owns that
 // state and exposes it via lit contexts — but a few non-lit call sites
-// (CloudRunner, data-table-panel, app-info-section) just need `.client` /
+// (data-table-panel) just need `.client` /
 // `.projectData` synchronously. This tiny module holds them, set once from
 // main.ts, and keeps `getAppManager(...)` returning the same `{ client,
 // projectData }` shape those call sites expect.

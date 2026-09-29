@@ -200,7 +200,7 @@ async function main() {
   await firstWorld(components.get(OBC.Worlds));
 
   // Platform client + project data for the AppManager-shim consumers
-  // (CloudRunner, data-table-panel, app-info-section).
+  // (data-table-panel).
   const projectId: string | undefined = client?.context?.projectId;
   let projectData;
   try {
