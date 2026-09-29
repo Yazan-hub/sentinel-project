@@ -101,7 +101,7 @@ intensity (kgCO₂e/m²).</p>
 <p><b>What it is.</b> Turns the programme into a view of the model — scrub the timeline and watch the building
 rise.</p>
 <p><b>How to use it.</b></p><ol>
-<li>Choose <b>Trade</b> (by discipline) or <b>Level</b> (floor-by-floor), then <b>Generate</b> — or import a P6/MSP CSV.</li>
+<li>Choose <b>Trade</b> (by discipline) or <b>Level</b> (floor-by-floor), then <b>Generate</b> — or import a programme CSV (<code>name,start,finish,categories,containers</code> — dates as yyyy-mm-dd; a P6/MSP export needs those columns).</li>
 <li>Drag the scrubber or press ▶: done = shown, active = highlighted, not-started = hidden.</li>
 <li>Click a task → isolate its elements.</li></ol>` },
 

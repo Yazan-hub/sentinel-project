@@ -13,9 +13,13 @@ export interface Task {
   /** Explicit element set (model_id → local_ids). When present it overrides category mapping — used
    *  by Level mode, where each task is a storey's elements rather than a trade. */
   elements?: Record<string, number[]>;
+  /** The MIDP containers this task needs delivered before it starts (item 6, 4D) — the CSV's optional 5th column. */
+  containers?: string[];
 }
 export interface Schedule {
   tasks: Task[];
+  /** CSV rows not imported, each with why — never dropped, never dated today. */
+  refused?: { row: number; reason: string }[];
 }
 
 /** The default construction sequence by trade — order + typical durations (weeks). */
@@ -65,25 +69,63 @@ export function levelSequence(
   return { tasks };
 }
 
-/** Parse a schedule CSV. Columns: name, start, finish, categories (';'-separated). Header optional. */
+/** Parse a schedule CSV. Columns by position: name, start, finish, categories (';'-separated), containers (';'-separated
+ *  MIDP container names, optional). Header optional. A row that cannot be read — fewer than three fields, a date that is
+ *  not one, or one that could be day/month or month/day (03/04) — is refused with its reason, never dropped or dated today. */
 export function csvToSchedule(csv: string): Schedule {
   const rows = csv.trim().split(/\r?\n/);
-  if (rows.length && /name/i.test(rows[0]) && /start/i.test(rows[0])) rows.shift();
+  const header = rows.length > 0 && /name/i.test(rows[0]) && /start/i.test(rows[0]);
+  if (header) rows.shift();
   const palette = ["#5457e6", "#12b6c9", "#22a35c", "#d69417", "#8b52ea", "#6b7280", "#e0564a"];
   const tasks: Task[] = [];
+  const refused: { row: number; reason: string }[] = [];
   rows.forEach((line, i) => {
+    const row = i + 1 + (header ? 1 : 0); // the file's own line number
+    if (!line.trim()) return;
     const c = splitCsv(line);
-    if (c.length < 3) return;
+    if (c.length < 3) { refused.push({ row, reason: "fewer than three fields (name, start, finish)" }); return; }
+    const start = normDate(c[1]), finish = normDate(c[2]);
+    if (!start.ok) { refused.push({ row, reason: `start "${c[1]}" ${start.why}` }); return; }
+    if (!finish.ok) { refused.push({ row, reason: `finish "${c[2]}" ${finish.why}` }); return; }
+    if (finish.date < start.date) { refused.push({ row, reason: `finishes (${finish.date}) before it starts (${start.date})` }); return; }
     const cats = (c[3] ?? "")
       .split(/[;|]/).map((s) => s.trim().toUpperCase()).filter(Boolean)
       .map((x) => (x.startsWith("IFC") ? x : "IFC" + x));
+    const containers = (c[4] ?? "").split(/[;|]/).map((s) => s.trim()).filter(Boolean);
     tasks.push({
       id: `C${i + 1}`, name: c[0] || `Task ${i + 1}`,
-      start: normDate(c[1]), finish: normDate(c[2]),
+      start: start.date, finish: finish.date,
       categories: cats, color: palette[i % palette.length],
+      ...(containers.length ? { containers } : {}),
     });
   });
-  return { tasks };
+  return { tasks, ...(refused.length ? { refused } : {}) };
+}
+
+/** A MIDP status row as GET /deliverables/:key/status answers it — only what the check reads. */
+export interface MidpRow { container_name: string; status: string; due_date: string | null; published_at?: string | null }
+export type InfoState = "ready" | "late" | "at_risk" | "unplanned" | "no_date";
+const midpKey = (n: string) => n.trim().replace(/\.(ifc|ifczip|rvt|nwc|nwd|pdf|dwg|zip)$/i, "").toLowerCase();
+
+/** Is the information a task needs there before it starts (item 6, 4D: the programme against the MIDP)? One verdict per
+ *  container: delivered (published) on or before the start — ready; delivered after it, or due after it — late; not yet
+ *  delivered but due by the start — at risk until it is; no row plans it — unplanned; planned with no date — no_date.
+ *  Pure; the caller says a failed MIDP read itself. */
+export function taskInformation(task: Task, rows: MidpRow[]): { container: string; state: InfoState; words: string }[] {
+  return (task.containers ?? []).map((container) => {
+    const row = rows.find((r) => midpKey(r.container_name) === midpKey(container));
+    if (!row) return { container, state: "unplanned" as const, words: "not in the MIDP — nobody is due to deliver it" };
+    const published = row.published_at ? String(row.published_at).slice(0, 10) : null;
+    if (published) {
+      return published <= task.start
+        ? { container, state: "ready" as const, words: `delivered ${published}, before the task starts` }
+        : { container, state: "late" as const, words: `delivered ${published}, after the task started ${task.start}` };
+    }
+    if (!row.due_date) return { container, state: "no_date" as const, words: `planned with no due date (${row.status}) — not yet delivered` };
+    return row.due_date > task.start
+      ? { container, state: "late" as const, words: `due ${row.due_date}, after the task starts ${task.start} — it will be late` }
+      : { container, state: "at_risk" as const, words: `due ${row.due_date}, not yet delivered (${row.status}) — needed by ${task.start}` };
+  });
 }
 
 /** Overall span as epoch ms (for the timeline scrubber). */
@@ -98,20 +140,20 @@ export function scheduleRange(s: Schedule): { start: number; finish: number } {
 function iso(d: Date): string { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, days: number): Date { const r = new Date(d); r.setDate(r.getDate() + days); return r; }
 
-/** Accept yyyy-mm-dd, dd/mm/yyyy, mm/dd/yyyy, or anything Date parses → yyyy-mm-dd. */
-function normDate(s: string): string {
+/** yyyy-mm-dd; dd/mm/yyyy or mm/dd/yyyy when a field over 12 tells them apart → yyyy-mm-dd; else why not. A date that
+ *  could be either (03/04) is refused, never guessed; nothing unreadable becomes today. */
+function normDate(s: string): { ok: true; date: string } | { ok: false; why: string } {
   const t = (s ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return { ok: true, date: t.slice(0, 10) };
   const m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
   if (m) {
     let [, a, b, y] = m;
     if (y.length === 2) y = "20" + y;
-    // assume day-first if the first field > 12; else month-first
+    if (Number(a) <= 12 && Number(b) <= 12 && a !== b) return { ok: false, why: "could be day/month or month/day — write it as yyyy-mm-dd" };
     const day = Number(a) > 12 ? a : b, mon = Number(a) > 12 ? b : a;
-    return `${y}-${mon.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    return { ok: true, date: `${y}-${mon.padStart(2, "0")}-${day.padStart(2, "0")}` };
   }
-  const d = new Date(t);
-  return isNaN(+d) ? iso(new Date()) : iso(d);
+  return { ok: false, why: "is not a date (yyyy-mm-dd)" };
 }
 
 function splitCsv(line: string): string[] {

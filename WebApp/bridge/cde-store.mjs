@@ -1419,7 +1419,24 @@ export async function revisionDelta(key, { from, to } = {}) {
       to: { id: newer.id, rev_code: newer.rev_code, uploaded_at: newer.uploaded_at, element_count: newer.element_count },
     };
   }
-  const rates = c.defaultRates, factors = c.defaultFactors;
+  // The project's own rate pack when it has one (the Cost 5D panel's), else the reference table — named either way; a
+  // pack that could not be read is said, never silently replaced (item 6, 5D).
+  let rates = c.defaultRates, ratesBasis = "bridge reference rate table (this project has no rate pack)";
+  try {
+    const pack = (await ensureProject(key))?.metadata?.rate_pack; // read as stored — getProjectMeta would seed on a read
+    if (pack?.rules?.length) { rates = pack; ratesBasis = "the project's rate pack"; }
+  } catch (e) { ratesBasis = `bridge reference rate table — the project's rate pack was not read (${String(e?.message || e).slice(0, 120)})`; }
+  // The project's installed carbon factor pack (project → office) when there is one, else the reference factors —
+  // named either way, or "not read (why)" (item 6, 6D).
+  let factors = c.defaultFactors, factorsBasis = "indicative reference factors (no carbon factor pack installed)";
+  try {
+    const { resolveArtefact, refLabel } = await import("./artefact-store.mjs");
+    const cf = await resolveArtefact(key, "carbon_factors");
+    if (cf.source !== "none" && cf.body) {
+      factors = { unit_label: cf.body.unit_label || "kgCO2e", source: cf.body.label, factors: cf.body.factors };
+      factorsBasis = `${cf.body.label} — ${refLabel(cf)}`;
+    }
+  } catch (e) { factorsBasis = `indicative reference factors — the installed pack was not read (${String(e?.message || e).slice(0, 120)})`; }
   const cost = c.costDiff(diff, rates);
   const carbon = c.carbonDiff(diff, factors);
   const { deltaHeadline } = await import("./revision-delta.mjs");
@@ -1430,8 +1447,8 @@ export async function revisionDelta(key, { from, to } = {}) {
     summary, cost, carbon,
     ...deltaHeadline(summary, cost, carbon, {
       currency: rates?.currency ?? null,
-      rates: rates?.title || "bridge default rate table",
-      carbon_factors: factors?.source || "bridge default carbon factors",
+      rates: ratesBasis,
+      carbon_factors: factorsBasis,
     }),
   };
 }

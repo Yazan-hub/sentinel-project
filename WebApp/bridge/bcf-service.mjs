@@ -1052,6 +1052,10 @@ async function handleRequest(req, res) {
           guid: randomUUID(), project_id: tpid, title: b.title || "Tender", status: "Issued",
           due_date: b.due_date || null, currency: b.currency || "",
           scope: Array.isArray(b.scope) ? b.scope : [], estimate_total: b.estimate_total || 0,
+          // The take-off revision the scope was priced from (item 6, 5D) and whose rates priced it — so the tender can
+          // later say how the model moved since issue, and never hides that it was priced at reference rates.
+          revision_id: typeof b.revision_id === "string" && cde.isUuid(b.revision_id) ? b.revision_id : null,
+          rate_basis: typeof b.rate_basis === "string" ? b.rate_basis.slice(0, 200) : null,
           bids: [], awarded_to: "", creation_date: now, modified_date: now,
           history: [{ date: now, author: resolveActor(b.author, "web"), action: "Tender issued" }],
         };
@@ -1066,7 +1070,10 @@ async function handleRequest(req, res) {
         // An awarded tender takes no more bids (tenders-2): the award is the decision the bids were for.
         if (t.status === "Awarded") return send(res, 409, { message: `tender ${t.title} is awarded to ${t.awarded_to} — it takes no more bids` });
         const b = await readBody(req); const now = new Date().toISOString();
-        const rates = b.rates || {};
+        const rates = b.rates && typeof b.rates === "object" && !Array.isArray(b.rates) ? b.rates : {};
+        // A bid rate is a number >= 0 — a blank or a word would price its line at nothing (or NaN the total).
+        const bad = Object.entries(rates).find(([, v]) => typeof v !== "number" || !Number.isFinite(v) || v < 0);
+        if (bad) return send(res, 400, { message: `the bid rate for ${bad[0]} must be a number of 0 or more — nothing was saved` });
         // bidder is the firm the bid is for (the team keys bids in for outside firms — tender-panel's "Bidder name");
         // submitted_by is who entered it: the verified sign-in for a signed-in caller (D6), the machine's own label else.
         const bid = { id: randomUUID(), bidder: b.bidder || "Bidder", submitted_by: resolveActor(b.submitted_by, "web"), submitted_date: now, rates, total: bidTotal(t.scope, rates) };

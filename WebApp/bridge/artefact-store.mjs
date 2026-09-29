@@ -9,7 +9,8 @@ import { createHash } from "node:crypto";
 import { resolveActor } from "./bridge-auth.mjs";
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors"];
+const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 /** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
@@ -193,6 +194,22 @@ export function validateArtefact(kind, body) {
     const stray = Object.keys(body).find((k) => k !== "auto");
     if (stray !== undefined) throw bad(kind, stray, "is not a publish field — the body is exactly {auto: true} or {auto: false}");
     if (typeof body.auto !== "boolean") throw bad(kind, "auto", "must be true or false");
+  }
+  if (kind === "carbon_factors") {
+    // The project's embodied-carbon factors (item 6, 6D): what every carbon figure multiplies by, and named on it —
+    // installed like any standard (versioned, sha'd, on the ledger), resolved project → office.
+    const stray = Object.keys(body).find((k) => !["label", "unit_label", "factors"].includes(k));
+    if (stray !== undefined) throw bad(kind, stray, "is not a carbon_factors field — the body is {label, unit_label?, factors}");
+    if (typeof body.label !== "string" || !body.label.trim() || body.label.length > 300) throw bad(kind, "label", "must name the factors' source (EPD, EC3, ICE …) in 1 to 300 characters");
+    if (body.unit_label !== undefined && typeof body.unit_label !== "string") throw bad(kind, "unit_label", "must be a string");
+    if (!Array.isArray(body.factors) || !body.factors.length) throw bad(kind, "factors", "needs at least one {match, measure, unit, factor}");
+    body.factors.forEach((f, i) => {
+      if (!isObj(f)) throw bad(kind, `factors[${i}]`, "must be an object {match, measure, unit, factor}");
+      if (typeof f.match !== "string" || !f.match.trim()) throw bad(kind, `factors[${i}].match`, "must name an IFC category or category:type");
+      if (!CARBON_MEASURES.includes(f.measure)) throw bad(kind, `factors[${i}].measure`, `must be one of ${CARBON_MEASURES.join(", ")}`);
+      if (typeof f.unit !== "string") throw bad(kind, `factors[${i}].unit`, "must be a string (m³, m², …)");
+      if (typeof f.factor !== "number" || !Number.isFinite(f.factor) || f.factor < 0) throw bad(kind, `factors[${i}].factor`, "must be a number ≥ 0 (kgCO₂e per unit)");
+    });
   }
   if (kind === "roi") {
     // The office's rate card (cohesion phase 5c, spec Decision 9): what the Revit ROI dashboard multiplies the ledger's

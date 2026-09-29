@@ -68,6 +68,17 @@ describe("revisionDelta never prices a revision that carries no quantities", () 
     expect(d.summary ?? d.elements ?? {}).toBeTruthy();
   });
 
+  it("priced at the project's rate pack when it has one, and says so; else at the reference table, said", async () => {
+    await createRevision("p1", { rev_code: "A", snapshots: takeoff(12) });
+    await createRevision("p1", { rev_code: "B", snapshots: takeoff(20) });
+    const d0 = await revisionDelta("p1");
+    expect(d0.basis.rates).toBe("bridge reference rate table (this project has no rate pack)");
+    expect(d0.basis.carbon_factors).toBe("indicative reference factors (no carbon factor pack installed)");
+    db.projects[0].metadata = { rate_pack: { currency: "EUR", rules: [{ match: "IFCWALL", code: "W", unit: "m2", measure: "area", rate: 100 }] } };
+    const d = await revisionDelta("p1");
+    expect(d.basis).toMatchObject({ rates: "the project's rate pack", currency: "EUR" });
+  });
+
   it("a revision of identities only (intake, or saved before 2026-09-29) is not comparable — its elements still are", async () => {
     await createRevision("p1", { rev_code: "old", snapshots: [{ guid: "w1", category: "IFCWALL" }, { guid: "s1", category: "IFCSLAB" }] });
     await createRevision("p1", { rev_code: "new", snapshots: takeoff(20) });
