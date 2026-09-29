@@ -1413,7 +1413,8 @@ export async function revisionDelta(key, { from, to } = {}) {
     return {
       comparable: false,
       reason: `${unmeasured.join(" and ")} ${unmeasured.length > 1 ? "carry" : "carries"} no quantities (a take-off saved before quantities were kept, or an intake capture of element identities only) — no cost or carbon is stated.`,
-      elements: summary,
+      // Identities are compared; "changed" means a quantity moved, which one side never measured — so only in_both.
+      elements: { added: summary.added, deleted: summary.deleted, in_both: summary.changed + summary.unchanged },
       from: { id: older.id, rev_code: older.rev_code, uploaded_at: older.uploaded_at, element_count: older.element_count },
       to: { id: newer.id, rev_code: newer.rev_code, uploaded_at: newer.uploaded_at, element_count: newer.element_count },
     };

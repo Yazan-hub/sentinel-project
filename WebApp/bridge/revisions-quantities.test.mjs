@@ -75,6 +75,6 @@ describe("revisionDelta never prices a revision that carries no quantities", () 
     expect(d.comparable).toBe(false);
     expect(d.reason).toMatch(/^revision old carries no quantities/);
     expect(d).not.toHaveProperty("cost");
-    expect(d.elements).toMatchObject({ added: 0, deleted: 0 });
+    expect(d.elements).toEqual({ added: 0, deleted: 0, in_both: 2 });
   });
 });
