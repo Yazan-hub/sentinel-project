@@ -70,20 +70,16 @@ public partial class RequestsWindow : Window
     {
         if ((sender as FrameworkElement)?.DataContext is not RequestRow row) return;
         var id = row.Id;
-        // Revit API work must go through the ExternalEvent hub (we're on the WPF
-        // thread). Resolve against the document this window was opened for —
-        // NOT ActiveUIDocument, which may have changed if the coordinator
-        // switched files while the window was open.
-        var doc = _doc;
-        App.Events?.Enqueue(_ =>
+        // Revit API work goes through the ExternalEvent hub (we're on the WPF thread), pinned to the document this window
+        // was opened for (XC-1): refused in words when it is closed or another model is active. The row leaves the list
+        // only once the verdict is written.
+        App.Events?.Enqueue(_doc, approve ? "approve the request" : "reject the request", (_, d) =>
         {
-            if (!doc.IsValidObject) return;
-            using var t = new Transaction(doc, approve ? "Sentinel: Approve request" : "Sentinel: Reject request");
+            using var t = new Transaction(d, approve ? "Sentinel: Approve request" : "Sentinel: Reject request");
             t.Start();
-            RequestManager.Resolve(doc, id, approve, note: null);
+            RequestManager.Resolve(d, id, approve, note: null);
             t.Commit();
+            Dispatcher.Invoke(() => { Rows.Remove(row); SubHeader.Text = $"{Rows.Count} pending"; });
         });
-        Rows.Remove(row);
-        SubHeader.Text = $"{Rows.Count} pending";
     }
 }

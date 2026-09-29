@@ -955,13 +955,15 @@ Deploy first with Revit closed: `cd SentinelAddin && dotnet build -p:RevitVersio
 
 | # | Do | Pass when |
 |---|---|---|
-| 1 | Pane shows aster's rows; switch to Demo; double-click an aster row | Dialog "Sentinel did not select the element: switch back to …aster… — nothing was changed."; Demo's selection unchanged |
-| 2 | Same with ⚡ Fix on an aster row, Execute, then switch to Demo before it runs | Status "✕ Sentinel did not rename the element: switch back to …"; Demo's Undo list unchanged |
-| 3 | Clash Manager / Change Requests Show / BCF Issues double-click / Review AI Proposals / Apply Standard / MEP Openings / Project Setup save — each started on Demo, then switch to aster before it runs | Each refuses with its own "Sentinel did not <what>" line; aster's Undo list unchanged; AI proposals stay pending |
-| 4 | Apply Standard on Demo; a BCF zoom; a change-request Show | Undo shows exactly one "Sentinel: Apply standard" / "Sentinel: open issue viewpoint" / "Sentinel: preview the change" entry each |
+| 1 | Pane shows aster's rows. Open a family for edit from aster (the pane stays on aster: a family editor never moves it). Double-click an aster row | Dialog "Sentinel did not select the element: switch back to …aster… — nothing was changed."; the family editor's selection is unchanged |
+| 2 | Same setup (family editor in front, pane on aster): ⚡ Fix an aster row, Execute | Status "✕ Sentinel did not rename the element: switch back to …aster…"; the family's Undo list is unchanged; aster's element keeps its name |
+| 3 | Open each modeless window on Demo — Clash Manager, Change Requests (Show and Approve), BCF Issues (double-click, Isolate all), Review AI Proposals, Apply Standard — then switch to aster and act in that window | Each refuses with its own "Sentinel did not <what>" line; aster's Undo list unchanged; the AI proposals stay pending; the change request stays in the list |
+| 4 | Apply Standard on Demo; a BCF zoom; BCF Isolate all; a change-request Show | Undo shows exactly one "Sentinel: Apply standard" / "Sentinel: open issue viewpoint" / "Sentinel: isolate issue elements" / "Sentinel: preview the change" entry each (a second Show also leaves its own "Clear change preview") |
 | 5 | Export a clash to BCF from a 3D view | The .bcfzip has a snapshot of the isolated elements; Undo list unchanged by the export |
 | 6 | File ▸ New project; rename a view against a non-compliant pattern | A live row appears without Scan Now |
 | 7 | Close aster, reopen it in the same session; rename a view under a request-mode rule | A Pending request appears with the real old name |
 | 8 | New project, Save As, then a request-mode rename | The request carries the real old name (not empty) |
+
+Not drillable by hand, left to code review: a close cancelled by another add-in (re-watched in DocumentClosed); Project Setup save and MEP Openings (both run before the user can switch models).
 
 A row that fails is fixed on the branch before package 2 starts; a row that cannot be run is recorded as not run, with why.

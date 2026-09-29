@@ -49,14 +49,14 @@ public static class ShowPendingChangeCommand
             }
             if (!element.CanBeHidden(view)) { uidoc.Selection.SetElementIds(new List<ElementId> { id }); return; }
 
-            // XC-2: clearing the previous preview and painting this one are one Undo entry (a previous preview on
-            // another model is cleared there, in that model's own Undo list).
+            // Never stack two previews. The clear is its own Undo entry, outside this preview's group: undoing the new
+            // preview (or a failed paint rolling back) must not bring the old paint back untracked.
+            Reset();
+            // XC-2: this preview's paint is one Undo entry.
             bool isolate = false;
             OverrideGraphicSettings original = null!;
             Sentinel.Engine.SentinelUndo.Run(d, "preview the change", () =>
             {
-                Reset(); // never stack two previews
-
                 using var t = new Transaction(d, "Sentinel: Preview pending change");
                 t.Start();
 

@@ -35,7 +35,13 @@ public sealed class BcfApplyEvent : IExternalEventHandler
 
     public void Execute(UIApplication app)
     {
-        if (Sentinel.Engine.DocPin.Check(app, _doc, "open the issue") is { } refusal)
+        string what = _op switch
+        {
+            BcfOp.IsolateAll => "isolate the issue elements",
+            BcfOp.IssuesForSelection => "match the selection to issues",
+            _ => "open the issue",
+        };
+        if (Sentinel.Engine.DocPin.Check(app, _doc, what) is { } refusal)
         {
             Applied?.Invoke(refusal);
             _viewpoint = null; _topics = null;
@@ -106,16 +112,23 @@ public sealed class BcfApplyEvent : IExternalEventHandler
         if (wanted.Count == 0) { Applied?.Invoke("No linked elements across the issues."); return; }
 
         IList<ElementId> ids = ResolveByIfcGuid(doc, wanted);
-        View3D? view = GetOrCreateCoordinationView(doc);
-        if (view is not null && ids.Count > 0)
-        {
-            using (var t = new Transaction(doc, "Sentinel: isolate all issue elements"))
+        // XC-2: creating the coordination view and isolating are one Undo entry; nothing is created when there is
+        // nothing to isolate.
+        View3D? view = null;
+        if (ids.Count > 0)
+            Sentinel.Engine.SentinelUndo.Run(doc, "isolate issue elements", () =>
             {
+                view = GetOrCreateCoordinationView(doc);
+                if (view is null) return false;
+                using var t = new Transaction(doc, "Sentinel: isolate all issue elements");
                 t.Start();
                 view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
                 view.IsolateElementsTemporary(ids);
                 t.Commit();
-            }
+                return true;
+            });
+        if (view is not null && view.IsValidObject)   // after the group: no open transaction
+        {
             uidoc.ActiveView = view;
             uidoc.Selection.SetElementIds(ids);
             uidoc.ShowElements(ids);

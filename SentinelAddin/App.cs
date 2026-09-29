@@ -86,6 +86,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentOpened += OnDocumentOpened;
                 app.ControlledApplication.DocumentCreated += OnDocumentCreated; // File ▸ New: watched like an opened project
                 app.ControlledApplication.DocumentClosing += OnDocumentClosing;
+                app.ControlledApplication.DocumentClosed += OnDocumentClosed; // a cancelled close is watched again
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
                 app.ViewActivated += OnViewActivated; // the pane follows the active document
@@ -115,6 +116,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentOpened -= OnDocumentOpened;
         app.ControlledApplication.DocumentCreated -= OnDocumentCreated;
         app.ControlledApplication.DocumentClosing -= OnDocumentClosing;
+        app.ControlledApplication.DocumentClosed -= OnDocumentClosed;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
         app.ViewActivated -= OnViewActivated;
@@ -140,12 +142,27 @@ public sealed class App : IExternalApplication
         Workflow.RequestManager.RefreshSnapshot(doc);
     }
 
+    // The documents in the middle of closing, by DocumentId (API thread only): DocumentClosing can be cancelled by another
+    // add-in, or the close can fail — DocumentClosed then says so, and the still-open document is watched again.
+    private static readonly Dictionary<int, Document> Closing = new();
+
     private static void OnDocumentClosing(object? sender, DocumentClosingEventArgs e)
     {
+        Closing[e.DocumentId] = e.Document;
         Engine?.Forget(e.Document);
         ReloadSeq.Remove(e.Document);
         SentinelUpdater.UnregisterFor(e.Document);      // BG-1: its triggers go with it; other documents keep theirs
         Workflow.RequestManager.Forget(e.Document);
+    }
+
+    private static void OnDocumentClosed(object? sender, DocumentClosedEventArgs e)
+    {
+        if (!Closing.TryGetValue(e.DocumentId, out var doc)) return;
+        Closing.Remove(e.DocumentId);
+        if (e.Status == RevitAPIEventStatus.Succeeded || !doc.IsValidObject || doc.IsFamilyDocument) return;
+        SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);   // the close did not happen: watch it again
+        Workflow.RequestManager.RefreshSnapshot(doc);
+        ReloadRuleset(doc);                                     // Engine.Forget ran too
     }
 
     // The latest reload per document (API thread only): an older GET that lands late never overwrites a newer one.
