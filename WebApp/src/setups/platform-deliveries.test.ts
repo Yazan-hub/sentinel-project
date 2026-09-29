@@ -71,6 +71,20 @@ describe("readDeliveries", () => {
     for (const o of [{ labels: { ...labels, sentinel_run: "exec9" } }, { labels: { sentinel_gate: "fail" } }, { labelsFail: "429" }])
       expect((await readDeliveries(client([item("a.ifc"), rep], o), "p1"))[0]).toMatchObject({ state: "passed", run: "exec9" });
   });
+  it("the labels name the report (component ≥ 1.0.5): that item and tag are read, never a report found by name", async () => {
+    const byName = { _id: "r-old", name: reportName("a.ifc"), versions: [{ tag: "v2" }] }; // another a.ifc's report
+    const labels = { sentinel_gate: "pass", sentinel_report: "r2", sentinel_report_tag: "v2.2", sentinel_run: "exec10" };
+    const c = client([item("a.ifc"), byName, { _id: "r2", name: reportName("a.ifc"), versions: [{ tag: "v2.2" }, { tag: "v2" }] }],
+      { labels, reportBody: report({ run: { executionId: "exec10" } }) });
+    expect((await readDeliveries(c, "p1"))[0]).toMatchObject({ state: "passed", run: "exec10", lines: [] });
+    expect(c.downloadFile.mock.calls).toEqual([["r2", { versionTag: "v2.2" }]]);
+  });
+  it("two report items share the IFC's name (two items can): the one that names this item answers", async () => {
+    const reps = [{ _id: "r-old", name: reportName("a.ifc"), versions: [{ tag: "v2" }] }, { _id: "r-new", name: reportName("a.ifc"), versions: [{ tag: "v2" }] }];
+    const bodies: Record<string, GateReport> = { "r-old": report({ file: { id: "id-other", name: "a.ifc", versionTag: "v2" }, result: "fail", failures: ["x"] }), "r-new": report() };
+    const c = { ...client([item("a.ifc"), ...reps]), downloadFile: vi.fn(async (id: string) => new Response(JSON.stringify(bodies[id]))) };
+    expect((await readDeliveries(c, "p1"))[0]).toMatchObject({ state: "passed", run: "exec9" });
+  });
   it("a report item without a version for this tag falls back to the labels, then to running", async () => {
     const c = client([item("a.ifc"), { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v1" }] }]);
     expect((await readDeliveries(c, "p1"))[0].state).toBe("running");

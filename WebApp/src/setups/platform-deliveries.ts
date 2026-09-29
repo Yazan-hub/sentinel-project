@@ -78,27 +78,36 @@ export async function readDeliveries(client: DeliveriesClient | undefined, platf
   return Promise.all(ifcs.map(async (item) => {
     const tag = latestTag(item);
     if (!tag) return deliveryCard(item, "—", null, null);
-    let report: GateReport | null = null;
-    const rep = items.find((i) => i.name === reportName(item.name));
-    if (rep && (rep.versions ?? []).some((v) => v.tag === tag)) {
+    let labels: Labels | null = null, labelsErr: string | null = null;
+    try { labels = await client.getFileVersionMetadata(item._id, tag); }
+    catch (e) { labelsErr = (e as Error)?.message || String(e); }
+    // A report counts for this version only when it names this item and this version (any project writer can write a
+    // file of that name) — else the labels answer.
+    const read = async (id: string, versionTag: string): Promise<GateReport | null> => {
       try {
-        const res = await client.downloadFile(rep._id, { versionTag: tag });
+        const res = await client.downloadFile(id, { versionTag });
         const body = res.ok ? ((await res.json()) as GateReport) : null;
-        // A report counts for this version only when it names this item and this version (any project writer can
-        // write a file of that name) — else the labels answer.
         const f = body?.file;
         const ours = !!f && f.versionTag === tag && (f.id ? f.id === item._id : f.name === item.name);
-        report = body?.kind === REPORT_KIND && ours ? body : null;
-      } catch { report = null; }
+        return body?.kind === REPORT_KIND && ours ? body : null;
+      } catch { return null; }
+    };
+    // The report the labels name (gate component ≥ 1.0.5 writes its item and version tag there: two items can share a
+    // name, and a re-run's report is <tag>.2); else, for older runs, a report item of the matching name holding this tag.
+    let report: GateReport | null = null;
+    const namedId = labels?.sentinel_report ? String(labels.sentinel_report) : "";
+    const namedTag = labels?.sentinel_report_tag ? String(labels.sentinel_report_tag) : "";
+    if (namedId && namedId !== "none" && namedTag && namedTag !== "none") report = await read(namedId, namedTag);
+    else {
+      for (const rep of items.filter((i) => i.name === reportName(item.name) && (i.versions ?? []).some((v) => v.tag === tag))) {
+        report = await read(rep._id, tag);
+        if (report) break;
+      }
     }
-    // The labels are rewritten on every run; the report is not (the platform refuses a second report version with the
-    // same tag, so a re-run of a judged version keeps the earlier report). A report whose run is not the one the labels
-    // name is an earlier verdict: the labels answer. Labels that could not be read leave the report as it was.
-    let labels: Labels | null = null;
-    try { labels = await client.getFileVersionMetadata(item._id, tag); }
-    catch (e) {
-      if (!report) return { name: item.name, versionTag: tag, state: "not_read" as const, headline: `not read — ${(e as Error)?.message || String(e)}`, lines: [], sha256: null, run: null };
-    }
+    if (labelsErr && !report) return { name: item.name, versionTag: tag, state: "not_read" as const, headline: `not read — ${labelsErr}`, lines: [], sha256: null, run: null };
+    // The labels are rewritten on every run. A report whose run is not the one the labels name is an earlier verdict
+    // (a run whose own report could not be written): the labels answer. Labels that could not be read leave the report
+    // as it was.
     const labelRun = labels?.sentinel_run ? String(labels.sentinel_run) : null;
     const reportRun = report?.run?.executionId ?? null;
     if (report && labelRun && labelRun !== "none" && reportRun && labelRun !== reportRun) {
