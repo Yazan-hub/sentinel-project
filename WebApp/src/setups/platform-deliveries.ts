@@ -65,9 +65,10 @@ export const latestTag = (i: PlatformItem): string | null => {
 };
 
 /** Every .ifc of the platform project as a card — or only those named `name` (case-insensitive), so one ask costs
- *  1 + ≤ 2 platform reads. Throws "not read — <why>" when the list itself failed. A report counts only when its download
- *  answered ok AND it is the gate's report kind (downloadFile never throws on a 429: its body is not a report); else the
- *  labels; a labels read that failed is "not read — <why>", never "Running". */
+ *  1 + ≤ 2 platform reads per IFC. Throws "not read — <why>" when the list itself failed. A report counts only when its
+ *  download answered ok, it is the gate's report kind (downloadFile never throws on a 429: its body is not a report), and
+ *  it is the run the labels name; else the labels; a labels read that failed (and no report) is "not read — <why>",
+ *  never "Running". */
 export async function readDeliveries(client: DeliveriesClient | undefined, platformId: string | undefined, name?: string): Promise<DeliveryCard[]> {
   if (!client || !platformId) throw new Error("not read — this project is not linked to a platform project (Settings ▸ Platform project)");
   let items: PlatformItem[];
@@ -90,10 +91,19 @@ export async function readDeliveries(client: DeliveriesClient | undefined, platf
         report = body?.kind === REPORT_KIND && ours ? body : null;
       } catch { report = null; }
     }
+    // The labels are rewritten on every run; the report is not (the platform refuses a second report version with the
+    // same tag, so a re-run of a judged version keeps the earlier report). A report whose run is not the one the labels
+    // name is an earlier verdict: the labels answer. Labels that could not be read leave the report as it was.
     let labels: Labels | null = null;
-    if (!report) {
-      try { labels = await client.getFileVersionMetadata(item._id, tag); }
-      catch (e) { return { name: item.name, versionTag: tag, state: "not_read" as const, headline: `not read — ${(e as Error)?.message || String(e)}`, lines: [], sha256: null, run: null }; }
+    try { labels = await client.getFileVersionMetadata(item._id, tag); }
+    catch (e) {
+      if (!report) return { name: item.name, versionTag: tag, state: "not_read" as const, headline: `not read — ${(e as Error)?.message || String(e)}`, lines: [], sha256: null, run: null };
+    }
+    const labelRun = labels?.sentinel_run ? String(labels.sentinel_run) : null;
+    const reportRun = report?.run?.executionId ?? null;
+    if (report && labelRun && labelRun !== "none" && reportRun && labelRun !== reportRun) {
+      const card = deliveryCard(item, tag, labels, null);
+      return { ...card, lines: [`run ${labelRun}'s report could not be written — the report on file is run ${reportRun}'s; the labels (run ${labelRun}) answer`] };
     }
     return deliveryCard(item, tag, labels, report);
   }));
