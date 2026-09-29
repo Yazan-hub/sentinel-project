@@ -158,7 +158,7 @@ export function projectsHubPanel(
         projects = [];
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
-          "Sign in (bottom right) to see your projects — the bridge lists them only for a signed-in account.</div>";
+          "Sign in (top right) to see your projects — the bridge lists them only for a signed-in account.</div>";
         status("Not signed in — the bridge answered 401.", "#eab308");
         return;
       }
