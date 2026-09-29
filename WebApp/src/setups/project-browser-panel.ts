@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { buildModelTree, type TreeCategory, type TreeInstance, type TreeModelNode } from "../sentinel-core/adapter/project-tree";
+import { livePlanLevels, openLivePlan } from "./live-plan";
 import { detectDrawings } from "../sentinel-core/adapter/drawings-detect";
 
 /**
@@ -25,8 +26,10 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
     '<span style="font-weight:600">☰ Browser</span><span style="color:#9ca3af;font-size:11px">categories</span>' +
     '<span style="flex:1"></span>' +
     `<button id="pb-2d" style="${btn}" title="Scan for 2D drawings / sheets / annotations in the model">⌕ 2D</button>` +
+    `<button id="pb-plans" style="${btn}" title="Open a level of the loaded models as a live plan (the engine’s Views)">▦ Plans</button>` +
     `<button id="pb-refresh" style="${btn}" title="Rebuild from loaded models">↻</button>` +
     "</div>" +
+    '<div id="pb-levels" style="display:none;padding:.4rem .6rem;border-bottom:1px solid #2a2a30;gap:.3rem;flex-wrap:wrap"></div>' +
     `<div style="padding:.45rem .6rem;border-bottom:1px solid #2a2a30"><input id="pb-filter" placeholder="Filter…" style="width:100%;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.3rem .5rem;font:12px system-ui"/></div>` +
     '<div id="pb-tree" style="flex:1;overflow:auto;padding:.35rem"></div>' +
     '<div id="pb-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
@@ -189,7 +192,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
       // eslint-disable-next-line no-console
       console.log("[Sentinel] 2D/drawing scan", scan);
       if (!scan.byCategory.length) {
-        status("No drawings, sheets or annotations in this model — it's a 3D-only IFC. For plans: BIM Tools ▸ Views or Sheets (Revit's, with Live plan on a level).");
+        status("No drawings, sheets or annotations in this model — it's a 3D-only IFC. For plans: ▦ Plans (live, from the model’s levels), or Views / Sheets (Revit’s).");
         return;
       }
       const summary = scan.byCategory.map((r) => `${r.label} ${r.count}`).join(" · ");
@@ -199,10 +202,29 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
         try { await hider.set(true); await hider.isolate(map); await fragments.core.update(true); await highlighter.highlightByID("select", map, true, true); } catch { /* */ }
         status(`Found & isolated 2D content — ${summary}. (Show all in Visibility to restore.)`);
       } else {
-        status(`Found ${summary} — but no viewable 2D drawing geometry (grids/layers/refs only). For plans: BIM Tools ▸ Views or Sheets (Revit's, with Live plan on a level).`);
+        status(`Found ${summary} — but no viewable 2D drawing geometry (grids/layers/refs only). For plans: ▦ Plans (live, from the model’s levels), or Views / Sheets (Revit’s).`);
       }
     } catch (e) { status("2D scan failed: " + ((e as Error)?.message ?? String(e))); }
   }
   (root.querySelector("#pb-2d") as HTMLButtonElement).addEventListener("click", scan2d);
+  document.addEventListener("sentinel:live-plan-closed", () => status("Back in 3D — the live plan is closed."));
+  // Live plans on the engine's Views (item 5 Phase C): one button per storey of the loaded models.
+  (root.querySelector("#pb-plans") as HTMLButtonElement).addEventListener("click", async () => {
+    const box = el("pb-levels");
+    if (box.style.display === "flex") { box.style.display = "none"; return; }
+    status("Reading the loaded models’ levels…");
+    const r = await livePlanLevels(components);
+    if ("error" in r) { status(`Plans not listed — ${r.error}.`); return; }
+    if (!r.names.length) { status("The loaded models have no storeys to open as plans."); return; }
+    box.replaceChildren(...r.names.map((name) => {
+      const b = document.createElement("button");
+      b.textContent = name;
+      b.style.cssText = btn;
+      b.addEventListener("click", () => void openLivePlan(components, name).then((o) => status(o.message)));
+      return b;
+    }));
+    box.style.display = "flex";
+    status(`${r.names.length} level(s) — click one to open it as a live plan.`);
+  });
   return root;
 }

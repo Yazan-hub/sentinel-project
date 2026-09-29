@@ -41,16 +41,18 @@ export function closeLivePlan(components: OBC.Components) {
   dropSection(components);
   const views = components.get(OBC.Views);
   if (views.hasOpenViews) views.close();
+  const was = !!pill;
   pill?.remove();
   pill = null;
+  if (was) document.dispatchEvent(new CustomEvent("sentinel:live-plan-closed")); // panels saying "Live plan — …" update
 }
 
-/** Opens `level` as a live plan; answers what happened in words. */
-export async function openLivePlan(components: OBC.Components, level: string): Promise<{ ok: boolean; message: string }> {
+/** One view per storey of the loaded models, made once per set of models: the storey names, or why there are none. */
+async function ensureStoreyViews(components: OBC.Components): Promise<{ names: string[]; world: OBC.World } | { error: string }> {
   const fragments = components.get(OBC.FragmentsManager);
-  if (!fragments.list.size) return { ok: false, message: "live plan not opened — no model is loaded" };
+  if (!fragments.list.size) return { error: "no model is loaded" };
   const world = worldOf(components);
-  if (!world) return { ok: false, message: "live plan not opened — the viewer has no 3D world yet" };
+  if (!world) return { error: "the viewer has no 3D world yet" };
   const views = components.get(OBC.Views);
   const models = [...fragments.list.keys()].sort().join("|");
   if (builtFor !== models) {
@@ -58,10 +60,24 @@ export async function openLivePlan(components: OBC.Components, level: string): P
     views.world = world;
     views.list.clear();
     try { await views.createFromIfcStoreys({ world, offset: CUT_ABOVE_FLOOR }); }
-    catch (e) { return { ok: false, message: `live plan not opened — the storey views could not be made: ${(e as Error)?.message ?? e}` }; }
+    catch (e) { return { error: `the storey views could not be made: ${(e as Error)?.message ?? e}` }; }
     builtFor = models;
   }
-  const names = [...views.list.keys()];
+  return { names: [...views.list.keys()], world };
+}
+
+/** The levels a live plan can open on: the loaded models' storeys, or why there are none. */
+export async function livePlanLevels(components: OBC.Components): Promise<{ names: string[] } | { error: string }> {
+  const r = await ensureStoreyViews(components);
+  return "error" in r ? r : { names: r.names };
+}
+
+/** Opens `level` as a live plan; answers what happened in words. */
+export async function openLivePlan(components: OBC.Components, level: string): Promise<{ ok: boolean; message: string }> {
+  const built = await ensureStoreyViews(components);
+  if ("error" in built) return { ok: false, message: `live plan not opened — ${built.error}` };
+  const { names, world } = built;
+  const views = components.get(OBC.Views);
   const name = matchStoreyView(names, level);
   if (!name) return { ok: false, message: `live plan not opened — “${level}” is not a storey of the loaded models (${names.join(", ") || "none found"})` };
 
