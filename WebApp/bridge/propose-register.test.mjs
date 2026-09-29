@@ -64,6 +64,7 @@ function seed() {
       { id: V_DEMO, container_id: C_DEMO, revision: "v1", state: "wip", is_live: true, platform_item_id: null },
     ],
     audit_log: [],
+    deliverables: [],
   };
   calls = [];
   nextId = 900;
@@ -305,5 +306,51 @@ describe("proposing needs the contributor role (H0 D4)", () => {
     state.role = "contributor";
     expect(await adjudicateProposal("aster-tower", { source: "web", elements: GOOD })).toMatchObject({ verdict: "accepted" });
     expect(actions()).toEqual(["Proposal accepted from web"]);
+  });
+});
+
+describe("the MIDP on the proposal row (item 5 Phase A, spec 2026-09-29 2d-sheets-midp)", () => {
+  const DR = "ASTR26-AST-ZZ-00-DR-A-0100";
+  const sheet = (revision, name = DR + ".pdf") => ({ source: "Publish Sheets", elements: [], container_name: name, register: { name, size_bytes: 2048, sha256: SHA, ...(revision !== undefined ? { revision } : {}) } });
+  beforeEach(() => { db.deliverables.push({ id: "d1", project_id: P1, container_name: DR, due_date: "2027-01-31", expected_revision: "P01" }); });
+
+  it("a planned sheet with the plan's revision: met, registered as that revision, on the row and in the reply", async () => {
+    const r = await adjudicateProposal("aster-tower", sheet("P01"));
+    const midp = { planned: true, row_id: "d1", due_date: "2027-01-31", expected_revision: "P01", revision: "met" };
+    expect(r.midp).toEqual(midp);
+    expect(db.audit_log[0].new_value).toMatchObject({ midp, container_name: DR + ".pdf", revision: "P01" });
+    expect(r.version.revision).toBe("P01");
+  });
+
+  it("another revision is a mismatch; none sent is not_specified — never met", async () => {
+    expect((await adjudicateProposal("aster-tower", sheet(" p02 "))).midp.revision).toBe("mismatch");
+    expect((await adjudicateProposal("aster-tower", sheet(undefined))).midp).toMatchObject({ planned: true, revision: "not_specified" });
+  });
+
+  it("a name no row plans says so; several rows planning it name the first due and how many", async () => {
+    expect((await adjudicateProposal("aster-tower", sheet("P01", "ASTR26-AST-ZZ-00-DR-A-0999.pdf"))).midp).toEqual({ planned: false });
+    db.deliverables.push({ id: "d0", project_id: P1, container_name: DR.toLowerCase(), due_date: "2026-12-01", expected_revision: null });
+    expect((await adjudicateProposal("aster-tower", sheet("P01"))).midp).toEqual({ planned: true, row_id: "d0", due_date: "2026-12-01", expected_revision: null, revision: "not_specified", rows: 2 });
+  });
+
+  it("a failed read of the plan is not_read — never planned:false — and the proposal still stands", async () => {
+    const inner = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url, init) => (String(url).includes("/deliverables?") ? new Response(JSON.stringify({ message: "boom" }), { status: 500 }) : inner(url, init)));
+    const r = await adjudicateProposal("aster-tower", sheet("P01"));
+    expect(r.midp).toHaveProperty("not_read");
+    expect(r.midp).not.toHaveProperty("planned");
+    expect(db.audit_log[0].new_value.midp).toEqual(r.midp);
+    expect(r.version).not.toBeNull();
+  });
+
+  it("a proposal that names no container carries no midp", async () => {
+    const r = await adjudicateProposal("aster-tower", { source: "revit", elements: GOOD });
+    expect(r.midp).toBeNull();
+    expect(db.audit_log[0].new_value).not.toHaveProperty("midp");
+  });
+
+  it.each([[7], [""], ["P".repeat(17)]])("register.revision %j is a 400 before any ledger row", async (rev) => {
+    await expect(adjudicateProposal("aster-tower", sheet(rev))).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/register\.revision must be/) });
+    expect(posts("audit_log")).toHaveLength(0);
   });
 });

@@ -1543,7 +1543,13 @@ function readRegister(b) {
   if (name !== b.container_name) throw bad("register.name must equal container_name — the name the naming standard judges is the name registered");
   if (!Number.isSafeInteger(r.size_bytes) || r.size_bytes < 0) throw bad("register.size_bytes must be a whole number of bytes");
   if (typeof r.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(r.sha256)) throw bad("register.sha256 must be 64 hex characters");
-  return { name, size_bytes: r.size_bytes, sha256: r.sha256.toLowerCase() };
+  // A drawing carries its own revision (P01, C02…; item 5 Phase A); without one the version is v{N+1}, as before.
+  let revision = null;
+  if (r.revision !== undefined && r.revision !== null) {
+    revision = typeof r.revision === "string" ? r.revision.trim() : "";
+    if (!revision || revision.length > 16) throw bad("register.revision must be the drawing's revision — 1 to 16 characters (P01, C02…)");
+  }
+  return { name, size_bytes: r.size_bytes, sha256: r.sha256.toLowerCase(), ...(revision ? { revision } : {}) };
 }
 
 /** Adjudicate a proposal (POST /cde/:key/propose, intake, the AI tools, MCP, changesets): validate `elements` (the
@@ -1570,7 +1576,7 @@ function readRegister(b) {
 export async function adjudicateProposal(key, b = {}, opts = {}) {
   const reg = readRegister(b);
   const intake = opts.intake && typeof opts.intake === "object" ? opts.intake : null;
-  const file = reg ? { container_name: reg.name, sha256: reg.sha256, size_bytes: reg.size_bytes }
+  const file = reg ? { container_name: reg.name, sha256: reg.sha256, size_bytes: reg.size_bytes, ...(reg.revision ? { revision: reg.revision } : {}) }
     : intake && b.container_name ? { container_name: b.container_name, sha256: intake.sha256 ?? null, size_bytes: intake.size_bytes ?? null } : null;
   const positive = (n) => Number.isSafeInteger(n) && n > 0;
   let gateRowId = positive(intake?.gate_row_id) ? intake.gate_row_id : null;
@@ -1631,6 +1637,16 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     if (naming && !naming.ok && naming.enforce === "reject") verdict = "rejected";
   }
 
+  // The MIDP's word on the name (item 5 Phase A): planned or not, and the revision against the plan's. Read before the
+  // proposal row so the row carries it; a failed read is "not read — why", never "not planned".
+  let midp = null;
+  if (b.container_name) {
+    try {
+      const [{ listDeliverables }, { midpMatch }] = await Promise.all([import("./deliverables-store.mjs"), import("./deliverables-logic.mjs")]);
+      midp = midpMatch(await listDeliverables(key), b.container_name, reg?.revision ?? null);
+    } catch (e) { midp = { not_read: String(e?.message || e).slice(0, 200) }; }
+  }
+
   // Nothing in scope is recorded (spec Decision 4), decided here once for every caller — /propose, intake, the AI
   // tools, MCP, changesets: an installed IDS that found no element in its scope measured nothing, so it is never
   // "accepted". Decided before the proposal row and any stamp; the row and the reply say why.
@@ -1658,7 +1674,7 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
       project_id: proj.id, entity_type: "proposal", entity_id: null,
       action: `Proposal ${verdict}${source ? " from " + source : ""}`,
       actor: trustedActor, old_value: null,
-      new_value: { source, ...(!machine && b.source != null ? { claimed_source: b.source } : {}), verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}) },
+      new_value: { source, ...(!machine && b.source != null ? { claimed_source: b.source } : {}), verdict, ...(downgraded ? { downgraded } : {}), summary, note: b.note ?? null, failures: failures.slice(0, 50), naming, ...namingProv, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, ...(agent ? { agent } : {}), ...(clientIdsIgnored ? { client_ids_ignored: true } : {}), ...(file || {}), ...(gateRowId ? { gate_row_id: gateRowId } : {}), ...(midp ? { midp } : {}) },
     },
     prefer: "return=representation", service: true, // audit_log bypasses RLS by design
   }))[0];
@@ -1695,7 +1711,7 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
     verdict, downgraded, summary, ...selectFailures(failures, b.failures_requirement), naming, ...namingProv, warned,
     ids_enforce: idsEnforce, ids_source: idsSource, ids_ref: resolved.ref, ids_sha256: resolved.sha256, client_ids_ignored: clientIdsIgnored,
     audit_id: audit?.id ?? null, recorded_at: audit?.at ?? null,
-    version, verdict_audit_id: stamp?.id ?? null, verdict_hash: stamp?.hash ?? null, hold,
+    version, verdict_audit_id: stamp?.id ?? null, verdict_hash: stamp?.hash ?? null, hold, midp,
     agent,
     // The shareable proof. Anchored on the audit row's own chain hash, so it is checkable against a
     // ledger that cannot be rewritten — see POST /receipt/:key/verify.

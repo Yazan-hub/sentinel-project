@@ -625,3 +625,16 @@ describe("weeklyReport", () => {
     expect(md).toMatch(/No exceptions recorded/);
   });
 });
+
+describe("unplannedContainers — issued, never planned (item 5 Phase B)", () => {
+  it("lists every container no row names (extension and case ignored), counting its live versions", async () => {
+    const { unplannedContainers } = await import("./deliverables-logic.mjs");
+    const rows = [{ container_name: "ASTR26-AST-ZZ-00-DR-A-0100" }];
+    const files = [
+      { iso_name: "astr26-ast-zz-00-dr-a-0100.PDF", versions: [{}] },
+      { iso_name: "Loose.ifc", versions: [{}, { deleted_at: "2026-09-28" }] },
+    ];
+    expect(unplannedContainers(rows, files)).toEqual([{ iso_name: "Loose.ifc", versions: 1 }]);
+    expect(unplannedContainers([], [])).toEqual([]);
+  });
+});

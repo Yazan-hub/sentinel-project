@@ -17,7 +17,7 @@ type Row = {
   first_arrived_at: string | null; published_at: string | null; days_late: number;
   expected_revision: string | null; expected_suitability: string | null; purpose: string | null; evidence: Evidence;
 };
-type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number>; exceptions: Exception[] };
+type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number>; exceptions: Exception[]; unplanned?: { iso_name: string; versions: number }[] };
 type Team = { id: string; code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; notes: string | null };
 type Tidp = { code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; declared: boolean; rows: Row[]; summary: Record<string, number>; next_due: string | null; at_risk: number };
 type TidpReport = { generated_at: string; today: string; tidps: Tidp[]; unassigned: { rows: Row[]; summary: Record<string, number> }; midp: Record<string, number> & { empty_tidps: string[] } };
@@ -219,6 +219,23 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         reg.append(line);
       }
       body.append(reg);
+    }
+
+    // Issued, never planned (item 5 Phase B): the containers no row names — the half of the MIDP its rows cannot show.
+    if (report.unplanned?.length) {
+      const box = document.createElement("div");
+      box.style.cssText = "margin:.4rem 0 .6rem;border:1px solid #2a2a30;border-radius:.35rem;padding:.4rem .5rem;background:#17171c;color:#cbd5e1";
+      const h = document.createElement("div");
+      h.textContent = `Issued, never planned (${report.unplanned.length}) — in the CDE, named by no deliverable`;
+      h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.25rem";
+      box.append(h);
+      for (const u of report.unplanned) {
+        const l = document.createElement("div");
+        l.textContent = `${u.iso_name} · ${u.versions} version${u.versions === 1 ? "" : "s"}`;
+        l.style.cssText = "font:11px ui-monospace,Consolas,monospace;padding:.1rem 0";
+        box.append(l);
+      }
+      body.append(box);
     }
 
     // Sort: problems first, then by due date.

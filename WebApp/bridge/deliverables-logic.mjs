@@ -63,6 +63,28 @@ const daysBetween = (fromIso, toIso) =>
  *  the planned "ASTR26-AST-ZZ-XX-M3-A-0001", so the milestone stayed "pending" after delivery. */
 export const containerKey = (name) => String(name || "").trim().replace(/\.(ifc|ifczip|rvt|nwc|nwd|pdf|dwg|zip)$/i, "").toLowerCase();
 
+/** What the MIDP plans for one container name — recorded on the proposal row that names it (item 5, spec 2026-09-29
+ *  2d-sheets-midp Phase A). Several rows planning the same name: the first by due date (undated last), `rows` says how
+ *  many. The revision is judged only when both the plan and the proposal name one (case ignored); else not_specified. */
+export function midpMatch(rows, name, revision) {
+  const key = containerKey(name);
+  const hits = (rows || []).filter((r) => containerKey(r.container_name) === key)
+    .sort((a, b) => String(a.due_date || "9999").localeCompare(String(b.due_date || "9999")));
+  if (!hits.length) return { planned: false };
+  const r = hits[0];
+  const norm = (s) => String(s ?? "").trim().toUpperCase();
+  const judged = r.expected_revision && revision ? (norm(r.expected_revision) === norm(revision) ? "met" : "mismatch") : "not_specified";
+  return { planned: true, row_id: r.id ?? null, due_date: r.due_date ?? null, expected_revision: r.expected_revision ?? null, revision: judged, ...(hits.length > 1 ? { rows: hits.length } : {}) };
+}
+
+/** Every live container no planned row names (Phase B) — issued, never planned: the half of the MIDP deriveStatus,
+ *  which walks the plan, cannot see. */
+export function unplannedContainers(rows, files) {
+  const planned = new Set((rows || []).map((r) => containerKey(r.container_name)));
+  return (files || []).filter((f) => !planned.has(containerKey(f.iso_name)))
+    .map((f) => ({ iso_name: f.iso_name, versions: (f.versions || []).filter((v) => !v.deleted_at).length }));
+}
+
 export function deriveStatus(rows, files, today) {
   const byName = new Map((files || []).map((f) => [containerKey(f.iso_name), f]));
   const summary = {

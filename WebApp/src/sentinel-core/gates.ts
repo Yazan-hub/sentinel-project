@@ -25,7 +25,8 @@ export interface GateMetrics {
   hardClashes: number | null;
   openIssues: number | null;
   openRfis: number | null;
-  hasStandardsPack: boolean;
+  /** null: not read yet, or the read failed — not measured, never "none". */
+  hasStandardsPack: boolean | null;
   cobieComplete: number | null; // 7D handover readiness % (from the project snapshot)
 }
 
@@ -62,6 +63,7 @@ export function evaluateGate(stage: string, m: GateMetrics): GateResult {
   const defs = GATE_DEFS[stage] ?? [];
   const checks: EvaluatedCheck[] = defs.map((c) => {
     if (c.metric === "hasStandardsPack") {
+      if (m.hasStandardsPack == null) return { label: c.label, ok: false, na: true, detail: "not read" };
       return { label: c.label, ok: m.hasStandardsPack, na: false, detail: m.hasStandardsPack ? "set" : "none" };
     }
     const v = m[c.metric] as number | null;
