@@ -1,0 +1,118 @@
+Evidence for That Open — the app channel's two servers do not share rooms
+Measured 2026-09-29 (UTC) on Windows 11 with WebApp/scripts/thatopen-channel-repro.mjs (node v26.5.0, socket.io-client 4.8.3).
+The listener is a real app tab: the published Sentinel app open in Chrome on platform.thatopen.com (project and app ids below).
+The asker publishes one command (sentinel.status, which the app answers) through a socket pinned to one server address.
+'publish ack' is the platform's own acknowledgement; 'app replied' means the app's answer came back.
+No token appears in this file.
+
+=== A. 17:55:11 — no app tab open (baseline): nobody is delivered to on either server ===
+Run at 2026-09-29T17:55:11.771Z · node v26.5.0 · socket.io-client 4.8.3
+DNS platform.thatopen.com → 52.58.243.60 (ttl 8 s), 3.69.132.147 (ttl 8 s)
+project 6a4c4df825f9ecf5f416d4c2 · app 6a56513872a416a2841b0667 · command "sentinel.status" · 2 round(s) · addresses: 52.58.243.60, 3.69.132.147
+
+round  asked via        publish ack        app replied
+1      52.58.243.60     {"delivered":0}    no
+1      3.69.132.147     {"delivered":0}    no
+2      52.58.243.60     {"delivered":0}    no
+2      3.69.132.147     {"delivered":0}    no
+
+via 52.58.243.60: delivered to the open app in 0 of 2 asks
+via 3.69.132.147: delivered to the open app in 0 of 2 asks
+
+=== B. 17:55:46 — the app tab opened (Chrome console: '[Channel] connection active'); it landed on 3.69.132.147 ===
+Run at 2026-09-29T17:55:46.116Z · node v26.5.0 · socket.io-client 4.8.3
+DNS platform.thatopen.com → 52.58.243.60 (ttl 33 s), 3.69.132.147 (ttl 33 s)
+project 6a4c4df825f9ecf5f416d4c2 · app 6a56513872a416a2841b0667 · command "sentinel.status" · 3 round(s) · addresses: 52.58.243.60, 3.69.132.147
+
+round  asked via        publish ack        app replied
+1      52.58.243.60     {"delivered":0}    no
+1      3.69.132.147     {"delivered":1}    yes
+2      52.58.243.60     {"delivered":0}    no
+2      3.69.132.147     {"delivered":1}    yes
+3      52.58.243.60     {"delivered":0}    no
+3      3.69.132.147     {"delivered":1}    yes
+
+via 52.58.243.60: delivered to the open app in 0 of 3 asks
+via 3.69.132.147: delivered to the open app in 3 of 3 asks
+
+=== C. 17:56:11 — the tab reloaded; it stayed on 3.69.132.147 (one ask via 52.58.243.60 got no subscribe/ack at all) ===
+Run at 2026-09-29T17:56:11.652Z · node v26.5.0 · socket.io-client 4.8.3
+DNS platform.thatopen.com → 3.69.132.147 (ttl 8 s), 52.58.243.60 (ttl 8 s)
+project 6a4c4df825f9ecf5f416d4c2 · app 6a56513872a416a2841b0667 · command "sentinel.status" · 3 round(s) · addresses: 3.69.132.147, 52.58.243.60
+
+round  asked via        publish ack        app replied
+1      3.69.132.147     {"delivered":1}    yes
+1      52.58.243.60     {"delivered":0}    no
+2      3.69.132.147     {"delivered":1}    yes
+2      52.58.243.60     ERROR no subscribe/ack within 10 s—
+3      3.69.132.147     {"delivered":1}    yes
+3      52.58.243.60     {"delivered":0}    no
+
+via 3.69.132.147: delivered to the open app in 3 of 3 asks
+via 52.58.243.60: delivered to the open app in 0 of 2 asks
+
+=== D. 17:56:55 — the tab reloaded again and landed on 52.58.243.60: the result FLIPS with it ===
+Run at 2026-09-29T17:56:55.088Z · node v26.5.0 · socket.io-client 4.8.3
+DNS platform.thatopen.com → 52.58.243.60 (ttl 24 s), 3.69.132.147 (ttl 24 s)
+project 6a4c4df825f9ecf5f416d4c2 · app 6a56513872a416a2841b0667 · command "sentinel.status" · 3 round(s) · addresses: 52.58.243.60, 3.69.132.147
+
+round  asked via        publish ack        app replied
+1      52.58.243.60     {"delivered":1}    yes
+1      3.69.132.147     {"delivered":0}    no
+2      52.58.243.60     {"delivered":1}    yes
+2      3.69.132.147     {"delivered":0}    no
+3      52.58.243.60     {"delivered":1}    yes
+3      3.69.132.147     {"delivered":0}    no
+
+via 52.58.243.60: delivered to the open app in 3 of 3 asks
+via 3.69.132.147: delivered to the open app in 0 of 3 asks
+
+=== E. 17:57:11 — the quickstart's own recipe (§5b, no pinning) while the app is open and working: 0 of 8 delivered ===
+Run at 2026-09-29T17:57:11.837Z · node v26.5.0 · socket.io-client 4.8.3
+DNS platform.thatopen.com → 3.69.132.147 (ttl 8 s), 52.58.243.60 (ttl 8 s)
+project 6a4c4df825f9ecf5f416d4c2 · app 6a56513872a416a2841b0667 · command "sentinel.status" · 8 round(s) · addresses: unpinned
+Only one address: pass both as arguments to compare them.
+
+round  asked via        publish ack        app replied
+1      unpinned         {"delivered":0}    no
+2      unpinned         {"delivered":0}    no
+3      unpinned         {"delivered":0}    no
+4      unpinned         {"delivered":0}    no
+5      unpinned         {"delivered":0}    no
+6      unpinned         {"delivered":0}    no
+7      unpinned         {"delivered":0}    no
+8      unpinned         {"delivered":0}    no
+
+via unpinned: delivered to the open app in 0 of 8 asks
+
+=== F. 17:57:23 — during this run the tab's channel reconnected by itself (Chrome console 17:57:25, no reload) and moved to
+===    3.69.132.147. For about a minute 52.58.243.60 still acknowledged delivered 1, but nothing replied: a stale member ===
+Run at 2026-09-29T17:57:23.547Z · node v26.5.0 · socket.io-client 4.8.3
+DNS platform.thatopen.com → 52.58.243.60 (ttl 56 s), 3.69.132.147 (ttl 56 s)
+project 6a4c4df825f9ecf5f416d4c2 · app 6a56513872a416a2841b0667 · command "sentinel.status" · 3 round(s) · addresses: unpinned, 52.58.243.60, 3.69.132.147
+
+round  asked via        publish ack        app replied
+1      unpinned         {"delivered":0}    no
+1      52.58.243.60     {"delivered":1}    no
+1      3.69.132.147     {"delivered":1}    yes
+2      unpinned         {"delivered":1}    yes
+2      52.58.243.60     {"delivered":1}    no
+2      3.69.132.147     {"delivered":1}    yes
+3      unpinned         {"delivered":1}    yes
+3      52.58.243.60     {"delivered":1}    no
+3      3.69.132.147     {"delivered":1}    yes
+
+via unpinned: delivered to the open app in 2 of 3 asks
+via 52.58.243.60: delivered to the open app in 3 of 3 asks
+via 3.69.132.147: delivered to the open app in 3 of 3 asks
+
+=== G. 17:58-18:00 — a minute later the stale member is gone; only 3.69.132.147 delivers ===
+Run at 2026-09-29T17:58:19.212Z · node v26.5.0 · socket.io-client 4.8.3
+1      52.58.243.60     {"delivered":0}    no
+1      3.69.132.147     {"delivered":1}    yes
+Run at 2026-09-29T17:59:09.918Z · node v26.5.0 · socket.io-client 4.8.3
+1      52.58.243.60     {"delivered":0}    no
+1      3.69.132.147     {"delivered":1}    yes
+Run at 2026-09-29T18:00:00.683Z · node v26.5.0 · socket.io-client 4.8.3
+1      52.58.243.60     {"delivered":0}    no
+1      3.69.132.147     {"delivered":1}    yes
