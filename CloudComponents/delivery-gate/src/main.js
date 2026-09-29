@@ -48,6 +48,8 @@ export function contractShapeError(c) {
 
 async function bytesOf(fileId, versionTag) {
   const res = await thatOpenServices.downloadFile(fileId, versionTag ? { versionTag } : undefined);
+  // downloadFile never throws on an error status: a 429 or 404 body is not the file.
+  if (res && res.ok === false) throw new Error(`the platform answered ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`);
   if (res && typeof res.arrayBuffer === "function") return Buffer.from(await res.arrayBuffer());
   return Buffer.from(res);
 }
@@ -58,8 +60,10 @@ async function contractOf(projectId, items) {
   if (!item) return { reason: NO_CONTRACT };
   const tag = newestTag(item.versions) || undefined;
   const label = `${CONTRACT_ITEM} ${tag || "(no version)"}`;
-  let body;
-  try { body = JSON.parse((await bytesOf(item._id, tag)).toString("utf8")); }
+  let text, body;
+  try { text = (await bytesOf(item._id, tag)).toString("utf8"); }
+  catch (e) { return { reason: `${label} could not be downloaded: ${words(e)}` }; }
+  try { body = JSON.parse(text); }
   catch (e) { return { reason: `${label} did not parse: ${words(e)}` }; }
   const bad = contractShapeError(body);
   if (bad) return { reason: `${label} ${bad}` };
@@ -80,14 +84,15 @@ export async function main() {
   if (!fileId) return fail("fileId is required");
   if (!projectId) return fail("no project: launch from a project or pass projectId");
 
-  // The project's files first: the listing carries each item's versions (getFile in the cloud does not — measured
-  // on the first run, 2026-09-27), and the contract and the report item are found in the same list.
+  // The project's files first: the listing carries each item's versions (getFile named none on the first run,
+  // 2026-09-27, when it was asked with the misnamed includeVersions), and the contract and the report item are found
+  // in the same list.
   let items;
   try { items = await thatOpenServices.listFiles({ projectId }); }
   catch (e) { return fail(`the project's files could not be listed: ${words(e)}`); }
   let file = items.find((i) => i._id === fileId);
   if (!file) {
-    try { file = await thatOpenServices.getFile(fileId, { includeVersions: true }); }
+    try { file = await thatOpenServices.getFile(fileId, { showVersions: true }); }
     catch (e) { return fail(`file ${fileId}: ${words(e)}`); }
   }
   const name = file?.name || fileId;
@@ -130,16 +135,23 @@ export async function main() {
     }
   } catch (e) { reportErr = words(e); }
 
-  // The labels on the IFC version (values ≤ 50 characters: the hash in two halves).
+  // The labels on the IFC version (values ≤ 50 characters: the hash in two halves). updateFileVersionMetadata replaces
+  // the whole map, so the version's labels are read and merged first — the platform's own keys (the IfcFragmenter's
+  // fragmentsFileId/derivedFileId link) stay; never a blind write over labels that could not be read.
   const labels = {
     sentinel_gate: r.result === "not_checked" ? "not_checked" : r.result, sentinel_contract: contract.body ? contract.ref : "none",
     sentinel_failures: String(r.failures.length), sentinel_sha256_a: r.sha256.slice(0, 32), sentinel_sha256_b: r.sha256.slice(32),
     sentinel_report: reportId || "none", sentinel_run: String(ctx.executionId ?? "none"),
   };
-  let labelsErr = null;
-  try { await thatOpenServices.updateFileVersionMetadata(fileId, versionTag, labels); } catch (e) { labelsErr = words(e); }
+  let labelsErr = null, current;
+  try { current = await thatOpenServices.getFileVersionMetadata(fileId, versionTag); }
+  catch (e) { labelsErr = `the version labels could not be read, so none were written: ${words(e)}`; }
+  if (!labelsErr) {
+    try { await thatOpenServices.updateFileVersionMetadata(fileId, versionTag, { ...current, ...labels }); }
+    catch (e) { labelsErr = `the version labels were refused: ${words(e)}`; }
+  }
 
   if (reportErr) return { type: "WARNING", message: `${line} — the report could not be written: ${reportErr}` };
-  if (labelsErr) return { type: "WARNING", message: `${line} — report written; the version labels were refused: ${labelsErr}` };
+  if (labelsErr) return { type: "WARNING", message: `${line} — report written; ${labelsErr}` };
   return { type: r.result === "pass" ? "SUCCESS" : "WARNING", message: line };
 }

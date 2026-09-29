@@ -3,12 +3,14 @@
 // Area's card look. Read straight from the platform through the app's client; a read that failed says so.
 import { getAppManager } from "../app";
 import { platformProjectId } from "./active-project";
+import { bfetch } from "./bridge-fetch";
 import { readDeliveries, deliveriesSummary, shortSha, ledgerLine, type DeliveriesClient, type DeliveryCard, type GateLedgerRow } from "./platform-deliveries";
 
 const esc = (s?: string | null) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const TONE: Record<DeliveryCard["state"], { border: string; color: string }> = {
   passed: { border: "#14532d", color: "#4ade80" }, refused: { border: "#4a3a12", color: "#f59e0b" },
   not_checked: { border: "#2c2c34", color: "#9ca3af" }, did_not_run: { border: "#5b1a1a", color: "#fca5a5" }, running: { border: "#1e3a5f", color: "#93c5fd" },
+  not_read: { border: "#4a3a12", color: "#fbbf24" },
 };
 
 export function cardHtml(c: DeliveryCard, ledger: string): string {
@@ -19,6 +21,22 @@ export function cardHtml(c: DeliveryCard, ledger: string): string {
     `<div style="color:${t.color};font-size:11px;font-weight:600">${esc(c.headline)}</div>` +
     c.lines.map((l) => `<div style="color:${c.state === "refused" ? "#fca5a5" : "#9ca3af"};font-size:11px;padding-left:.6rem">${esc(l)}</div>`).join("") +
     `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">sha256 ${esc(shortSha(c.sha256))}${c.run ? ` · run ${esc(c.run)}` : ""} · ${esc(ledger)}</div></div>`;
+}
+
+/** Every platform_gate row of Sentinel project `key` on the ledger — every page: an older recorded run must never read
+ *  as "not on this project's ledger". Throws the bridge's words, or "can't reach the bridge (…)" when it never answered.
+ *  The board and "Ask Sentinel" (ask-sentinel.ts) both read it. */
+export async function readGateLedger(base: string, key: string): Promise<GateLedgerRow[]> {
+  const rows: GateLedgerRow[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    let r: Response;
+    try { r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/audit?entity_type=platform_gate&limit=1000&offset=${offset}`); }
+    catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message || String(e)})`); }
+    const page = (await r.json().catch(() => ({}))) as { rows?: GateLedgerRow[]; total?: number; message?: string };
+    if (!r.ok) throw new Error(page?.message || `HTTP ${r.status}`);
+    rows.push(...(page.rows ?? []));
+    if (!page.rows?.length || rows.length >= (page.total ?? 0)) return rows;
+  }
 }
 
 /** Mounts the strip into `host` and returns a refresh function; `refresh()` is called by the board on each load.

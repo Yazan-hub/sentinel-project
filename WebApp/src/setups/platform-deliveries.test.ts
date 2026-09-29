@@ -47,10 +47,10 @@ describe("latestTag — the platform lists versions newest-first", () => {
 });
 
 describe("readDeliveries", () => {
-  const client = (items: PlatformItem[], o: { labels?: Record<string, unknown>; reportBody?: unknown; listFails?: string; downloadFails?: boolean } = {}) => ({
+  const client = (items: PlatformItem[], o: { labels?: Record<string, unknown>; reportBody?: unknown; listFails?: string; downloadFails?: boolean; downloadStatus?: number; labelsFail?: string } = {}) => ({
     listFiles: vi.fn(async () => { if (o.listFails) throw new Error(o.listFails); return items; }),
-    getFileVersionMetadata: vi.fn(async () => (o.labels ?? {}) as Record<string, string>),
-    downloadFile: vi.fn(async () => { if (o.downloadFails) throw new Error("404"); return new Response(JSON.stringify(o.reportBody ?? report())); }),
+    getFileVersionMetadata: vi.fn(async () => { if (o.labelsFail) throw new Error(o.labelsFail); return (o.labels ?? {}) as Record<string, string>; }),
+    downloadFile: vi.fn(async () => { if (o.downloadFails) throw new Error("404"); return new Response(JSON.stringify(o.reportBody ?? report()), { status: o.downloadStatus ?? 200 }); }),
   });
 
   it("lists every .ifc of the platform project with its latest version; the report version for that tag wins over labels", async () => {
@@ -69,6 +69,27 @@ describe("readDeliveries", () => {
   it("a report download that fails falls back to the labels, never to an invented verdict", async () => {
     const c = client([item("a.ifc"), { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v2" }] }], { downloadFails: true, labels: { sentinel_gate: "pass", sentinel_contract: "contract@1" } });
     expect((await readDeliveries(c, "p1"))[0]).toMatchObject({ state: "passed", lines: ["the report file could not be read — the labels say pass"] });
+  });
+  it("a download that answered a 429 (downloadFile never throws on it) or JSON of another kind is not a report: the labels answer", async () => {
+    const rep = { _id: "r", name: reportName("a.ifc"), versions: [{ tag: "v2" }] };
+    const labels = { sentinel_gate: "fail", sentinel_contract: "contract@1", sentinel_failures: "2" };
+    const limited = client([item("a.ifc"), rep], { downloadStatus: 429, reportBody: { ...report(), statusCode: 429, code: "RATE_LIMITED" }, labels });
+    expect((await readDeliveries(limited, "p1"))[0]).toMatchObject({ state: "refused", headline: "Refused — contract@1 — 2 failure(s)" });
+    expect(limited.getFileVersionMetadata).toHaveBeenCalledTimes(1);
+    const other = client([item("a.ifc"), rep], { reportBody: { statusCode: 429, code: "RATE_LIMITED" }, labels });
+    expect((await readDeliveries(other, "p1"))[0].state).toBe("refused");
+  });
+  it("a labels read that failed is 'not read — <why>', never Running", async () => {
+    const cards = await readDeliveries(client([item("a.ifc")], { labelsFail: "Too Many Requests (429)" }), "p1");
+    expect(cards[0]).toMatchObject({ state: "not_read", headline: "not read — Too Many Requests (429)", run: null });
+    expect(deliveriesSummary(cards)).toBe("1 IFC · 1 not read");
+  });
+  it("a name filter reads only that IFC (case-insensitive): 1 list + ≤ 2 reads", async () => {
+    const c = client([item("a.ifc"), item("B.ifc"), { _id: "r", name: reportName("B.ifc"), versions: [{ tag: "v2" }] }]);
+    const cards = await readDeliveries(c, "p1", "b.ifc");
+    expect(cards.map((k) => k.name)).toEqual(["B.ifc"]);
+    expect(c.downloadFile.mock.calls.length + c.getFileVersionMetadata.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(await readDeliveries(c, "p1", "none.ifc")).toEqual([]);
   });
   it("the list itself failing, or no linked platform project, is 'not read — …' — never an empty lane", async () => {
     await expect(readDeliveries(client([], { listFails: "403 STORAGE:READ" }), "p1")).rejects.toThrow("not read — 403 STORAGE:READ");
@@ -97,5 +118,22 @@ describe("ledgerLine — the card's platform_gate row (spec 2026-09-29 platform-
   it("a row of another run never attaches; a card without a run attaches none", () => {
     expect(ledgerLine("exec9", [row(41, "exec90"), row(40, "EXEC9"), { id: 39, new_value: null }, { id: 38 }], null)).toBe("not on this project's ledger yet");
     expect(ledgerLine(null, [row(41, null), row(40, undefined), { id: 39 }], null)).toBe("not on this project's ledger yet");
+  });
+});
+
+vi.mock("./bridge-fetch", () => ({ bfetch: vi.fn() }));
+describe("readGateLedger — the board's and Ask Sentinel's one ledger reader", () => {
+  it("reads every page; a bridge that never answered or refused says so in words", async () => {
+    const { bfetch } = await import("./bridge-fetch");
+    const { readGateLedger } = await import("./platform-deliveries-panel");
+    const f = vi.mocked(bfetch);
+    const rows = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: from + i }));
+    f.mockResolvedValueOnce(new Response(JSON.stringify({ rows: rows(0, 1000), total: 1001 }))).mockResolvedValueOnce(new Response(JSON.stringify({ rows: rows(1000, 1), total: 1001 })));
+    expect(await readGateLedger("http://b", "aster tower")).toHaveLength(1001);
+    expect(f.mock.calls[1][0]).toBe("http://b/cde/aster%20tower/audit?entity_type=platform_gate&limit=1000&offset=1000");
+    f.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(readGateLedger("http://b", "p")).rejects.toThrow("can't reach the bridge (Failed to fetch)");
+    f.mockResolvedValueOnce(new Response(JSON.stringify({ message: "not a member of this project" }), { status: 403 }));
+    await expect(readGateLedger("http://b", "p")).rejects.toThrow("not a member of this project");
   });
 });

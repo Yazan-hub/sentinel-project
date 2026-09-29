@@ -15,7 +15,7 @@ export interface GateReport {
   contract?: { ref: string; sha256: string | null } | null; failures: string[]; warnings: string[]; sha256: string;
   run?: { executionId?: string | null; at?: string | null } | null;
 }
-export type CardState = "passed" | "refused" | "not_checked" | "did_not_run" | "running";
+export type CardState = "passed" | "refused" | "not_checked" | "did_not_run" | "running" | "not_read";
 export interface DeliveryCard {
   name: string; versionTag: string; state: CardState; headline: string; lines: string[]; sha256: string | null; run: string | null;
 }
@@ -63,24 +63,33 @@ export const latestTag = (i: PlatformItem): string | null => {
   return (dated ? [...vs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) : vs)[0].tag;
 };
 
-/** Every .ifc of the platform project as a card. Throws "not read — <why>" when the list itself failed; a single
- *  item's labels or report that could not be read fall through to the next source (report → labels → running). */
-export async function readDeliveries(client: DeliveriesClient | undefined, platformId: string | undefined): Promise<DeliveryCard[]> {
+/** Every .ifc of the platform project as a card — or only those named `name` (case-insensitive), so one ask costs
+ *  1 + ≤ 2 platform reads. Throws "not read — <why>" when the list itself failed. A report counts only when its download
+ *  answered ok AND it is the gate's report kind (downloadFile never throws on a 429: its body is not a report); else the
+ *  labels; a labels read that failed is "not read — <why>", never "Running". */
+export async function readDeliveries(client: DeliveriesClient | undefined, platformId: string | undefined, name?: string): Promise<DeliveryCard[]> {
   if (!client || !platformId) throw new Error("not read — this project is not linked to a platform project (Settings ▸ Platform project)");
   let items: PlatformItem[];
   try { items = await client.listFiles({ projectId: platformId }); }
   catch (e) { throw new Error(`not read — ${(e as Error)?.message || String(e)}`); }
-  const ifcs = items.filter((i) => /\.ifc$/i.test(i.name));
+  const ifcs = items.filter((i) => /\.ifc$/i.test(i.name) && (!name || i.name.toLowerCase() === name.toLowerCase()));
   return Promise.all(ifcs.map(async (item) => {
     const tag = latestTag(item);
     if (!tag) return deliveryCard(item, "—", null, null);
     let report: GateReport | null = null;
     const rep = items.find((i) => i.name === reportName(item.name));
     if (rep && (rep.versions ?? []).some((v) => v.tag === tag)) {
-      try { report = (await (await client.downloadFile(rep._id, { versionTag: tag })).json()) as GateReport; } catch { report = null; }
+      try {
+        const res = await client.downloadFile(rep._id, { versionTag: tag });
+        const body = res.ok ? ((await res.json()) as GateReport) : null;
+        report = body?.kind === REPORT_KIND ? body : null;
+      } catch { report = null; }
     }
     let labels: Labels | null = null;
-    if (!report) { try { labels = await client.getFileVersionMetadata(item._id, tag); } catch { labels = null; } }
+    if (!report) {
+      try { labels = await client.getFileVersionMetadata(item._id, tag); }
+      catch (e) { return { name: item.name, versionTag: tag, state: "not_read" as const, headline: `not read — ${(e as Error)?.message || String(e)}`, lines: [], sha256: null, run: null }; }
+    }
     return deliveryCard(item, tag, labels, report);
   }));
 }
@@ -89,18 +98,22 @@ export async function readDeliveries(client: DeliveriesClient | undefined, platf
 export function deliveriesSummary(cards: DeliveryCard[]): string {
   const n = (s: CardState) => cards.filter((c) => c.state === s).length;
   if (!cards.length) return "no IFC on the platform project yet";
-  return [`${cards.length} IFC`, n("passed") ? `${n("passed")} passed` : "", n("refused") ? `${n("refused")} refused` : "", n("not_checked") ? `${n("not_checked")} not checked` : "", n("did_not_run") ? `${n("did_not_run")} did not run` : "", n("running") ? `${n("running")} running` : ""].filter(Boolean).join(" · ");
+  return [`${cards.length} IFC`, n("passed") ? `${n("passed")} passed` : "", n("refused") ? `${n("refused")} refused` : "", n("not_checked") ? `${n("not_checked")} not checked` : "", n("did_not_run") ? `${n("did_not_run")} did not run` : "", n("running") ? `${n("running")} running` : "", n("not_read") ? `${n("not_read")} not read` : ""].filter(Boolean).join(" · ");
 }
 
 export const shortSha = short;
 
 /** A platform_gate row as GET /cde/<pid>/audit returns it — only what the card cites. */
-export interface GateLedgerRow { id: number; new_value?: { execution_id?: unknown } | null }
+export interface GateLedgerRow { id: number; new_value?: { execution_id?: unknown; result?: unknown } | null }
+
+/** The row whose execution_id is this run; a card without a run never attaches a row. */
+export const citedRow = (run: string | null, rows: GateLedgerRow[] | null): GateLedgerRow | undefined =>
+  run ? (rows ?? []).find((r) => r?.new_value?.execution_id === run) : undefined;
 
 /** The card's ledger line: the row whose execution_id is this card's run; none is "not on this project's ledger yet";
  *  a read that failed is "ledger not read — <why>", never a claimed row. A card without a run never attaches a row. */
 export function ledgerLine(run: string | null, rows: GateLedgerRow[] | null, readErr: string | null): string {
   if (readErr) return `ledger not read — ${readErr}`;
-  const row = run ? (rows ?? []).find((r) => r?.new_value?.execution_id === run) : undefined;
+  const row = citedRow(run, rows);
   return row ? `ledger #${row.id}` : "not on this project's ledger yet";
 }

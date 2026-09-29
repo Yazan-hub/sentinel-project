@@ -22,15 +22,18 @@ export async function uploadIfcAsFrag(bytes, name, versionTag = "v1") {
   catch (e) { throw Object.assign(new Error(String(e?.message || e)), { status: 503 }); }
   const client = createClient(cfg);
   const projectId = cfg.projectId; // the platform project the token can write to — never a Sentinel key
+  // Only a failed CONVERSION falls back to the raw IFC. A refused .frag upload throws as it is (its status intact for
+  // POST /ifc) — never a second, mislabelled "frag conversion failed" upload.
+  let frag;
   try {
     const { ifcBytesToFrag } = await import("./ifc-to-frag.mjs");
-    const frag = await ifcBytesToFrag(new Uint8Array(bytes));
-    const fragName = name.replace(/\.ifc$/i, ".frag");
-    const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
-    const beside = await uploadIfcBeside(client, projectId, bytes, name, versionTag);
-    return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, ...beside };
+    frag = await ifcBytesToFrag(new Uint8Array(bytes));
   } catch (convErr) {
     const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
     return { ok: true, format: "ifc", name, itemId: result?.item?._id, ifcItemId: result?.item?._id ?? null, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` };
   }
+  const fragName = name.replace(/\.ifc$/i, ".frag");
+  const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
+  const beside = await uploadIfcBeside(client, projectId, bytes, name, versionTag);
+  return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, ...beside };
 }

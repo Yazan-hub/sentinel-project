@@ -47,6 +47,15 @@ describe("uploadIfcAsFrag — the .frag first, then the raw IFC beside it", () =
     expect(out.note).toMatch(/frag conversion failed \(boom\)/);
   });
 
+  it("a refused .frag upload is not a failed conversion: it throws with its status, and nothing is uploaded a second time", async () => {
+    const { uploadBytes } = await import("./thatopen-client.mjs");
+    uploadBytes.mockClear();
+    uploadBytes.mockImplementationOnce(async () => { throw Object.assign(new Error("Too Many Requests (429)"), { status: 429 }); });
+    const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
+    await expect(uploadIfcAsFrag(Buffer.from("ISO-10303-21;"), "tower.ifc", "v1")).rejects.toMatchObject({ status: 429, message: "Too Many Requests (429)" });
+    expect(uploadBytes.mock.calls.map((c) => c[3])).toEqual(["tower.frag"]);
+  });
+
   it("an IFC upload that fails after the .frag landed does not undo the publish: the note says the IFC is not on the platform", async () => {
     const { uploadBytes } = await import("./thatopen-client.mjs");
     uploadBytes.mockClear();
