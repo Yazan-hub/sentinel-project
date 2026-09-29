@@ -210,7 +210,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         // nothing touches the model until the coordinator clicks Execute.
         var suggestion = AutoFixExecution.Suggest(row.ElementName, row.Rule, row.Org);
         if (suggestion is null) return;
-        var dialog = new FixReviewDialog(row.ElementName, row.RuleId, row.Rule, suggestion);
+        var dialog = new FixReviewDialog(row.ElementName, row.RuleId, row.Rule, row.Org, suggestion);
         DialogOwner.Attach(dialog, ownerHandle);
         if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
 

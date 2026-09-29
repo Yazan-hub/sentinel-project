@@ -50,6 +50,12 @@ public static class AutoFixExecution
             try
             {
                 candidate = Deduplicate(doc, element, rule, candidate);
+                if (!RuleRegex.Matches(rule, App.OrgFor(doc), candidate, out _))
+                {   // the de-duplicated name (a suffix) no longer passes the rule: write nothing (BG-5)
+                    t.RollBack();
+                    onDone?.Invoke(oldName, null);
+                    return;
+                }
                 if (element is ViewSheet sheet) sheet.SheetNumber = candidate;
                 else element.Name = candidate;
 
