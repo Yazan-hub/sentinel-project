@@ -34,6 +34,53 @@ export interface CobieReport {
   spaces: string[];
 }
 
+/** The IFC classes an FM team maintains, as web-ifc names them (subtypes come with includeInherited): the openings and
+ *  the MEP distribution elements. The browser adapter matches the same families by category. */
+export const MAINTAINABLE_CLASSES = [
+  "IFCDOOR", "IFCWINDOW", "IFCFLOWTERMINAL", "IFCENERGYCONVERSIONDEVICE", "IFCFLOWCONTROLLER", "IFCFLOWMOVINGDEVICE",
+  "IFCFLOWSTORAGEDEVICE", "IFCFLOWTREATMENTDEVICE", "IFCDISTRIBUTIONCONTROLELEMENT",
+] as const;
+
+/** The property names each FM field is read from — one list for the browser adapter and the bridge, so both measure the
+ *  same thing. The first non-empty value wins (exact name, then case-insensitive). */
+export const ASSET_KEYS = {
+  type_name: ["Reference", "TypeName"],
+  tag: ["Tag", "TagNumber", "AssetTag"],
+  manufacturer: ["Manufacturer"],
+  model: ["ModelLabel", "ModelNumber", "ArticleNumber", "ModelReference"],
+  serial: ["SerialNumber"],
+  install_date: ["InstallationDate", "InstallDate"],
+  warranty: ["WarrantyStartDate", "WarrantyDurationParts", "WarrantyDurationLabor", "WarrantyGuarantorParts"],
+} as const;
+
+/** First non-empty value among keys (exact, then case-insensitive). */
+export function firstOf(props: Record<string, string>, keys: readonly string[]): string | undefined {
+  for (const k of keys) if (props[k] && props[k].trim()) return props[k];
+  const lower: Record<string, string> = {};
+  for (const [k, v] of Object.entries(props)) lower[k.toLowerCase()] = v;
+  for (const k of keys) { const v = lower[k.toLowerCase()]; if (v && v.trim()) return v; }
+  return undefined;
+}
+
+/** One asset from its identity and its flattened properties (name → value, instance and type property sets). */
+export function assetFromProps(
+  id: { guid: string; local_id: number; model_id: string; name: string; category: string; object_type?: string; tag?: string },
+  props: Record<string, string>,
+): Asset {
+  const get = (keys: readonly string[]) => firstOf(props, keys);
+  return {
+    guid: id.guid, local_id: id.local_id, model_id: id.model_id, name: id.name, category: id.category,
+    type_name: id.object_type ?? get(ASSET_KEYS.type_name) ?? "Type",
+    tag: id.tag ?? get(ASSET_KEYS.tag),
+    manufacturer: get(ASSET_KEYS.manufacturer),
+    model: get(ASSET_KEYS.model),
+    serial: get(ASSET_KEYS.serial),
+    install_date: get(ASSET_KEYS.install_date),
+    warranty: get(ASSET_KEYS.warranty),
+    space: undefined,
+  };
+}
+
 const nonEmpty = (v: unknown) => v != null && String(v).trim() !== "";
 export const missingFields = (a: Asset): RequiredField[] =>
   REQUIRED_FIELDS.filter((f) => !nonEmpty(a[f]));
@@ -42,7 +89,8 @@ export function assess(assets: Asset[], floors: string[], spaces: string[]): Cob
   const coverage: FieldCoverage[] = REQUIRED_FIELDS.map((f) => ({ field: f, present: assets.filter((a) => nonEmpty(a[f])).length }));
   const complete = assets.filter((a) => missingFields(a).length === 0).length;
   const total = assets.length;
-  const readiness = total ? Math.round((complete / total) * 100) : 0;
+  // Floored, never rounded up: 94.5 % must not read as the gate's 95 % (a readiness the model does not have).
+  const readiness = total ? Math.floor((complete / total) * 100) : 0;
   return { assets, total, complete, readiness, coverage, floors, spaces };
 }
 

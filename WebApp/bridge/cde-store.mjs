@@ -1317,12 +1317,17 @@ export async function createRevision(key, b = {}) {
   // Normalize + drop guid-less rows (guid is NOT NULL and the join key), then de-dupe on guid within the batch
   // (PK is (revision_id, guid) — a dup would 409 the whole insert; first occurrence wins, matching the diff engine).
   const seen = new Set();
+  // The web sends its measures nested ({guid, …, quantities: {count, area, …}} — revision-diff.ts snapshotFromQuantities);
+  // until 2026-09-29 they were read at the top level and every revision was stored without quantities. Flat still reads.
   const deduped = snaps
-    .map((s) => ({
-      guid: s && s.guid != null ? String(s.guid) : "",
-      category: s?.category ?? null, type_name: s?.type_name ?? null,
-      count: snapNum(s?.count), length: snapNum(s?.length), area: snapNum(s?.area), volume: snapNum(s?.volume), weight: snapNum(s?.weight),
-    }))
+    .map((s) => {
+      const q = s?.quantities && typeof s.quantities === "object" ? s.quantities : s;
+      return {
+        guid: s && s.guid != null ? String(s.guid) : "",
+        category: s?.category ?? null, type_name: s?.type_name ?? null,
+        count: snapNum(q?.count), length: snapNum(q?.length), area: snapNum(q?.area), volume: snapNum(q?.volume), weight: snapNum(q?.weight),
+      };
+    })
     .filter((r) => r.guid && (seen.has(r.guid) ? false : (seen.add(r.guid), true)));
   // Write the revision header with the count we will actually persist, so element_count never overstates.
   const rev = (await sb(`model_revisions`, {
@@ -1400,6 +1405,20 @@ export async function revisionDelta(key, { from, to } = {}) {
   };
   const diff = c.diffSnapshots(oldRows.map(toSnap), newRows.map(toSnap));
   const summary = c.summarizeDiff(diff);
+  // A revision whose rows carry no quantity measured none: its elements can be compared, its cost and carbon cannot
+  // (a missing count would price as 1, a missing area as 0 — a figure nobody measured).
+  const measured = (rows) => rows.some((r) => ["count", "length", "area", "volume", "weight"].some((m) => r[m] != null));
+  const unmeasured = [[older, oldRows], [newer, newRows]].filter(([, rows]) => !measured(rows)).map(([r]) => `revision ${r.rev_code || r.id}`);
+  if (unmeasured.length) {
+    return {
+      comparable: false,
+      reason: `${unmeasured.join(" and ")} ${unmeasured.length > 1 ? "carry" : "carries"} no quantities (a take-off saved before quantities were kept, or an intake capture of element identities only) — no cost or carbon is stated.`,
+      // Identities are compared; "changed" means a quantity moved, which one side never measured — so only in_both.
+      elements: { added: summary.added, deleted: summary.deleted, in_both: summary.changed + summary.unchanged },
+      from: { id: older.id, rev_code: older.rev_code, uploaded_at: older.uploaded_at, element_count: older.element_count },
+      to: { id: newer.id, rev_code: newer.rev_code, uploaded_at: newer.uploaded_at, element_count: newer.element_count },
+    };
+  }
   const rates = c.defaultRates, factors = c.defaultFactors;
   const cost = c.costDiff(diff, rates);
   const carbon = c.carbonDiff(diff, factors);

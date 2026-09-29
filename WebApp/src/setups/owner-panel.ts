@@ -86,10 +86,14 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
       el("ow-name").textContent = p.name ?? platformName ?? p.project_id ?? "Project";
       el("ow-stage").textContent = STAGE_NAME[p.stage] ? `Stage: ${STAGE_NAME[p.stage]}` : "";
       const s = p.snapshot ?? {};
-      const ready = num(s.handover_readiness);
+      const ready = num(s.handover_readiness), done = num(s.handover_complete), total = num(s.handover_total);
+      const at = typeof s.handover_at === "string" ? s.handover_at.slice(0, 10) : null;
+      // A browser scan's measurement, said as one — the recorded stage gate has not measured hand-over.
+      const readyWords = ready == null ? "Not yet assessed"
+        : `${done != null && total != null ? `${done} of ${total} assets complete` : `${ready}% of assets complete`} — a browser scan${at ? ` of ${at}` : ""}, not the recorded stage gate`;
       el("ow-ready").innerHTML =
         `<div style="width:52px;height:52px;border-radius:50%;flex:none;display:grid;place-items:center;border:3px solid ${readyColor(ready)};color:${readyColor(ready)};font:750 15px ui-monospace,Consolas,monospace">${ready != null ? ready + "%" : "—"}</div>` +
-        `<div><div style="font-weight:650">Handover readiness</div><div style="color:#9ca3af;font-size:12px">${ready != null ? (ready >= 95 ? "Ready for handover" : "Asset data incomplete") : "Not yet assessed"}</div></div>`;
+        `<div><div style="font-weight:650">Handover readiness</div><div style="color:#9ca3af;font-size:12px">${esc(readyWords)}</div></div>`;
       const cur = (s.currency as string) ?? "";
       el("ow-tiles").innerHTML =
         tile("Model health", num(s.health) != null ? s.health + "%" : "—", readyColor(num(s.health))) +

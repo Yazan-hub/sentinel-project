@@ -85,13 +85,13 @@ export async function extractElements(bytes, { classes = DEFAULT_CLASSES, modelI
   await api.Init();
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const mid = api.OpenModel(u8);
-  const out = { elements: [], schema: "", counts: { elements: 0, skipped: 0, by_class: {} } };
+  const out = { elements: [], schema: "", counts: { elements: 0, skipped: 0, by_class: {}, unknown_classes: [] } };
   try {
     try { out.schema = String(api.GetModelSchema(mid) || "").toUpperCase(); } catch { out.schema = ""; }
     const seen = new Set();
     for (const cls of classes) {
       const typeCode = WebIFC[cls.toUpperCase()];
-      if (typeof typeCode !== "number") continue;
+      if (typeof typeCode !== "number") { out.counts.unknown_classes.push(cls); continue; } // said, never silently skipped
       const ids = api.GetLineIDsWithType(mid, typeCode, true);
       for (let i = 0; i < ids.size(); i++) {
         const id = ids.get(i);

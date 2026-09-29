@@ -711,13 +711,61 @@ function toElementGraph(snapshots, layer = "base") {
 
 // src/sentinel-core/cobie.ts
 var REQUIRED_FIELDS = ["serial", "manufacturer", "warranty", "install_date"];
+var MAINTAINABLE_CLASSES = [
+  "IFCDOOR",
+  "IFCWINDOW",
+  "IFCFLOWTERMINAL",
+  "IFCENERGYCONVERSIONDEVICE",
+  "IFCFLOWCONTROLLER",
+  "IFCFLOWMOVINGDEVICE",
+  "IFCFLOWSTORAGEDEVICE",
+  "IFCFLOWTREATMENTDEVICE",
+  "IFCDISTRIBUTIONCONTROLELEMENT"
+];
+var ASSET_KEYS = {
+  type_name: ["Reference", "TypeName"],
+  tag: ["Tag", "TagNumber", "AssetTag"],
+  manufacturer: ["Manufacturer"],
+  model: ["ModelLabel", "ModelNumber", "ArticleNumber", "ModelReference"],
+  serial: ["SerialNumber"],
+  install_date: ["InstallationDate", "InstallDate"],
+  warranty: ["WarrantyStartDate", "WarrantyDurationParts", "WarrantyDurationLabor", "WarrantyGuarantorParts"]
+};
+function firstOf(props, keys) {
+  for (const k of keys) if (props[k] && props[k].trim()) return props[k];
+  const lower = {};
+  for (const [k, v] of Object.entries(props)) lower[k.toLowerCase()] = v;
+  for (const k of keys) {
+    const v = lower[k.toLowerCase()];
+    if (v && v.trim()) return v;
+  }
+  return void 0;
+}
+function assetFromProps(id, props) {
+  const get = (keys) => firstOf(props, keys);
+  return {
+    guid: id.guid,
+    local_id: id.local_id,
+    model_id: id.model_id,
+    name: id.name,
+    category: id.category,
+    type_name: id.object_type ?? get(ASSET_KEYS.type_name) ?? "Type",
+    tag: id.tag ?? get(ASSET_KEYS.tag),
+    manufacturer: get(ASSET_KEYS.manufacturer),
+    model: get(ASSET_KEYS.model),
+    serial: get(ASSET_KEYS.serial),
+    install_date: get(ASSET_KEYS.install_date),
+    warranty: get(ASSET_KEYS.warranty),
+    space: void 0
+  };
+}
 var nonEmpty = (v) => v != null && String(v).trim() !== "";
 var missingFields = (a) => REQUIRED_FIELDS.filter((f) => !nonEmpty(a[f]));
 function assess(assets, floors, spaces) {
   const coverage = REQUIRED_FIELDS.map((f) => ({ field: f, present: assets.filter((a) => nonEmpty(a[f])).length }));
   const complete = assets.filter((a) => missingFields(a).length === 0).length;
   const total = assets.length;
-  const readiness = total ? Math.round(complete / total * 100) : 0;
+  const readiness = total ? Math.floor(complete / total * 100) : 0;
   return { assets, total, complete, readiness, coverage, floors, spaces };
 }
 function toCobieCsv(r, facility) {
@@ -1577,9 +1625,11 @@ function validateLayers(names, rs) {
   };
 }
 export {
+  ASSET_KEYS,
   ASSUMED_BELOW,
   DEMO_IDS,
   GATE_DEFS,
+  MAINTAINABLE_CLASSES,
   MASSING_SCHEMA,
   REQUIRED_FIELDS,
   RuleEngine,
@@ -1587,6 +1637,7 @@ export {
   adjudicate,
   applies,
   assess,
+  assetFromProps,
   buildBoQ,
   buildCarbon,
   buildScorecard,
@@ -1603,6 +1654,7 @@ export {
   diffSnapshots,
   evaluateGate,
   fieldsNeedingReview,
+  firstOf,
   groupFailuresForBcf,
   levelSequence,
   mapLayer,

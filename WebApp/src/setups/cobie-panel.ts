@@ -1,6 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch } from "./bridge-fetch";
+import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
@@ -68,14 +68,18 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
       if (!assets.length) { msg("No maintainable assets (doors / windows / equipment) found in the model.", "#eab308"); return; }
       report = assess(assets, floors, spaces);
       render(report);
-      publishReadiness(report.readiness);
-      msg(`${report.total} asset(s) · ${report.complete} handover-ready.`);
+      const notSaved = await publishReadiness(report);
+      msg(`${report.total} asset(s) · ${report.complete} handover-ready.${notSaved ? ` Not saved to the project — ${notSaved}.` : " Saved to the project (the Owner view shows it with this date)."}`, notSaved ? "#ef4444" : undefined);
     } catch (e) { msg("Scan failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
     finally { b.disabled = false; }
   };
 
-  const publishReadiness = (readiness: number) => {
-    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { handover_readiness: readiness } }) }).catch(() => {});
+  /** The browser's measurement onto the project, with its counts and date so a reader can see what and when; answers
+   *  why it was not saved (a refusal is never dropped). */
+  const publishReadiness = async (r: CobieReport): Promise<string | null> => {
+    const snapshot = { handover_readiness: r.readiness, handover_complete: r.complete, handover_total: r.total, handover_at: new Date().toISOString() };
+    try { await bwrite(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot }) }); return null; }
+    catch (e) { return (e as Error).message; }
   };
 
   const render = (r: CobieReport) => {

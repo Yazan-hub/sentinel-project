@@ -8,7 +8,7 @@ import { evaluateGate, GATE_DEFS } from "./sentinel-core.mjs";
 import { STAGES } from "./cde-store.mjs";
 
 export const NO_SERVER_SOURCE = "not measured — no server source: the browser scan is not persisted";
-const SOURCE = { hasStandardsPack: "ruleset artefact", openIssues: "BCF topics (bcf-store)", openRfis: "RFI store", hardClashes: "clash store" };
+const SOURCE = { hasStandardsPack: "ruleset artefact", openIssues: "BCF topics (bcf-store)", openRfis: "RFI store", hardClashes: "clash store", cobieComplete: "COBie on the live models" };
 const count = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /** Judge `stage` on inputs = {hasStandardsPack, openIssues, openRfis, hardClashes}; a count is a finite number, or null
@@ -17,7 +17,8 @@ const count = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
  *  detail, source}], next_stage} — next_stage is null on the last stage. */
 export function measureGate(stage, inputs = {}) {
   const m = {
-    health: null, compliance: null, blockViolations: null, cobieComplete: null,
+    health: null, compliance: null, blockViolations: null,
+    cobieComplete: count(inputs.cobieComplete),
     hasStandardsPack: inputs.hasStandardsPack === true,
     openIssues: count(inputs.openIssues), openRfis: count(inputs.openRfis), hardClashes: count(inputs.hardClashes),
   };
@@ -25,7 +26,9 @@ export function measureGate(stage, inputs = {}) {
   const g = evaluateGate(stage, m);
   const checks = g.checks.map((c, i) => {
     const metric = defs[i].metric;
-    const source = !SOURCE[metric] ? NO_SERVER_SOURCE : c.na ? `not measured — ${SOURCE[metric]} not read` : SOURCE[metric];
+    const source = !SOURCE[metric] ? NO_SERVER_SOURCE
+      : metric === "cobieComplete" ? (inputs.cobieSource ?? (c.na ? `not measured — ${SOURCE[metric]} not read` : SOURCE[metric]))
+      : c.na ? `not measured — ${SOURCE[metric]} not read` : SOURCE[metric];
     return { ...c, source };
   });
   const i = STAGES.indexOf(stage);
@@ -42,13 +45,40 @@ export async function readGateInputs(key, deps = {}) {
   const resolveArtefact = deps.resolveArtefact || (await import("./artefact-store.mjs")).resolveArtefact;
   const docList = deps.docList || cde.docList, bcfListTopics = deps.bcfListTopics || cde.bcfListTopics;
   const is = (s, re) => re.test(String(s ?? "").trim());
-  const [ruleset, topics, rfis, clashes] = await Promise.all([
+  const [ruleset, topics, rfis, clashes, cobie] = await Promise.all([
     resolveArtefact(key, "ruleset"), bcfListTopics(key, { status: "all" }), docList("rfi", key), docList("clash", key),
+    (deps.readCobie || readCobie)(key),
   ]);
   return {
+    cobieComplete: cobie.readiness, cobieSource: cobie.source,
     hasStandardsPack: ruleset.source !== "none",
     openIssues: topics.filter((t) => !is(t.topic_status, /^(closed|resolved)$/i)).length,
     openRfis: rfis.filter((r) => !is(r.status, /^closed$/i)).length,
     hardClashes: clashes.filter((c) => !is(c.status, /^resolved$/i)).length,
   };
+}
+
+/** COBie hand-over completeness of the project's live IFC models, from their manifests (captured with the governed
+ *  bytes): {readiness, source}. readiness is floor(complete/total·100) across the live models — null (not measured) when
+ *  any live model's manifest has no COBie measure (captured before it was measured, or its read failed), when there is
+ *  no live model, or when no maintainable asset was found; the source says which. Never a readiness nobody measured. */
+export async function readCobie(key, deps = {}) {
+  const ms = deps.liveModelVersions && deps.docGet && deps.ensureProject ? deps : { ...(await import("./manifest-store.mjs")), ...(await import("./cde-store.mjs")), ...deps };
+  const proj = await ms.ensureProject(key);
+  const live = await ms.liveModelVersions(key);
+  if (!live.length) return { readiness: null, source: "not measured — no live IFC model" };
+  let complete = 0, total = 0;
+  const named = [];
+  for (const m of live) {
+    const doc = await ms.docGet("manifest", proj.id, m.version_id);
+    const c = doc?.cobie;
+    const label = `${m.container} ${m.revision ?? ""}`.trim();
+    if (!doc) return { readiness: null, source: `not measured — ${label} has no manifest` };
+    if (!c) return { readiness: null, source: `not measured — ${label}'s manifest was captured before COBie was measured (backfill it)` };
+    if (c.not_read) return { readiness: null, source: `not measured — ${label}: COBie not read (${c.not_read})` };
+    complete += c.complete; total += c.total;
+    named.push(`${label} ${c.complete}/${c.total}${doc.sha256 ? ` · sha256 ${String(doc.sha256).slice(0, 12)}…` : ""}`);
+  }
+  if (!total) return { readiness: null, source: `not measured — no maintainable asset (doors, windows, MEP equipment) in ${named.join("; ")}` };
+  return { readiness: Math.floor((complete / total) * 100), source: `COBie on the live models: ${named.join("; ")}` };
 }

@@ -2,7 +2,7 @@
 // read; a metric with no server source is n/a and makes the gate not_checkable, never a pass; every check names its
 // source. readGateInputs runs over injected stores — no Supabase.
 import { describe, it, expect, vi } from "vitest";
-import { measureGate, readGateInputs, NO_SERVER_SOURCE } from "./stage-gate.mjs";
+import { measureGate, readGateInputs, readCobie, NO_SERVER_SOURCE } from "./stage-gate.mjs";
 import { STAGES } from "./cde-store.mjs";
 
 const ALL = { hasStandardsPack: true, openIssues: 0, openRfis: 0, hardClashes: 0 };
@@ -38,7 +38,7 @@ describe("measureGate — pure, never a pass on an unmeasured metric", () => {
     expect(g.checks.map((c) => [c.na, c.source])).toEqual([
       [true, "not measured — RFI store not read"],
       [true, "not measured — BCF topics (bcf-store) not read"],
-      [true, NO_SERVER_SOURCE],
+      [true, "not measured — COBie on the live models not read"],
     ]);
   });
   it("constr counts the open BCF topics; oper has no gate and no next stage; the stage order is the store's", () => {
@@ -56,21 +56,51 @@ describe("readGateInputs — the four inputs, each from a store scoped by the pr
     docList: vi.fn(async (store) => (store === "rfi"
       ? [{ status: "Open" }, { status: "Answered" }, { status: "Closed" }]
       : [{ status: "raised" }, { status: "reviewed" }, { status: "approved" }, { status: "resolved" }])),
+    readCobie: vi.fn(async () => ({ readiness: 97, source: "COBie on the live models: T.ifc v2 97/100" })),
     ...over,
   });
   it("counts open topics (not Closed/Resolved), open RFIs (not Closed) and unresolved clashes; the ruleset from the resolver", async () => {
     const d = deps();
-    expect(await readGateInputs("aster-tower", d)).toEqual({ hasStandardsPack: true, openIssues: 2, openRfis: 2, hardClashes: 3 });
+    expect(await readGateInputs("aster-tower", d)).toEqual({ hasStandardsPack: true, openIssues: 2, openRfis: 2, hardClashes: 3, cobieComplete: 97, cobieSource: "COBie on the live models: T.ifc v2 97/100" });
     expect(d.resolveArtefact).toHaveBeenCalledWith("aster-tower", "ruleset");
     expect(d.bcfListTopics).toHaveBeenCalledWith("aster-tower", { status: "all" });
     expect(d.docList.mock.calls).toEqual([["rfi", "aster-tower"], ["clash", "aster-tower"]]);
   });
   it("no ruleset installed is false; empty stores are zero — measured as empty, not unread", async () => {
     const d = deps({ resolveArtefact: async () => ({ body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false }), bcfListTopics: async () => [], docList: async () => [] });
-    expect(await readGateInputs("aster-villa", d)).toEqual({ hasStandardsPack: false, openIssues: 0, openRfis: 0, hardClashes: 0 });
+    expect(await readGateInputs("aster-villa", d)).toMatchObject({ hasStandardsPack: false, openIssues: 0, openRfis: 0, hardClashes: 0 });
   });
   it("a store that cannot be read fails the run — it never counts as zero", async () => {
     const d = deps({ docList: async (store) => { if (store === "clash") throw new Error("Supabase 500: boom"); return []; } });
     await expect(readGateInputs("aster-tower", d)).rejects.toThrow("Supabase 500: boom");
+  });
+});
+
+describe("readCobie — hand-over measured on the live models' manifests, never a readiness nobody measured", () => {
+  const live = [{ container: "A.ifc", version_id: "va", revision: "v2" }, { container: "B.ifc", version_id: "vb", revision: "v1" }];
+  const deps = (docs, over = {}) => ({ ensureProject: async () => ({ id: "P" }), liveModelVersions: async () => live, docGet: async (_s, _p, id) => docs[id] ?? null, ...over });
+  const measured = (complete, total) => ({ sha256: "ab".repeat(32), cobie: { complete, total } });
+
+  it("across the live models: floor(complete/total), each model named with its count and sha", async () => {
+    const r = await readCobie("p", deps({ va: measured(95, 100), vb: measured(4, 5) }));
+    expect(r.readiness).toBe(94); // 99/105 = 94.3
+    expect(r.source).toBe("COBie on the live models: A.ifc v2 95/100 · sha256 abababababab…; B.ifc v1 4/5 · sha256 abababababab…");
+  });
+
+  it.each([
+    ["no live model", deps({}, { liveModelVersions: async () => [] }), "not measured — no live IFC model"],
+    ["a model with no manifest", deps({ va: measured(1, 1) }), "not measured — B.ifc v1 has no manifest"],
+    ["a manifest captured before COBie", deps({ va: measured(1, 1), vb: { sha256: "x" } }), "not measured — B.ifc v1's manifest was captured before COBie was measured (backfill it)"],
+    ["a COBie read that failed", deps({ va: measured(1, 1), vb: { cobie: { not_read: "bad IFC" } } }), "not measured — B.ifc v1: COBie not read (bad IFC)"],
+    ["no maintainable asset", deps({ va: measured(0, 0), vb: measured(0, 0) }), expect.stringMatching(/^not measured — no maintainable asset/)],
+  ])("%s is not measured, and says so", async (_what, d, source) => {
+    expect(await readCobie("p", d)).toEqual({ readiness: null, source });
+  });
+
+  it("the hand-over gate passes on a measured 95 % and holds below it, naming the models", () => {
+    const pass = measureGate("hand", { ...ALL, cobieComplete: 95, cobieSource: "COBie on the live models: A.ifc v2 95/100" });
+    expect(pass.status).toBe("pass");
+    expect(pass.checks.at(-1)).toMatchObject({ ok: true, na: false, source: "COBie on the live models: A.ifc v2 95/100" });
+    expect(measureGate("hand", { ...ALL, cobieComplete: 94, cobieSource: "…" }).status).toBe("hold");
   });
 });
