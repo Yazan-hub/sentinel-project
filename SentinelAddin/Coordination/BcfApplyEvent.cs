@@ -69,28 +69,29 @@ public sealed class BcfApplyEvent : IExternalEventHandler
         if (vp is null) return;
 
         IList<ElementId> ids = ResolveByIfcGuid(doc, new HashSet<string>(GuidsOf(vp), StringComparer.Ordinal));
-        View3D? view = GetOrCreateCoordinationView(doc);
+        // XC-2: creating the coordination view and applying the viewpoint are one Undo entry.
+        View3D? view = null;
         string cameraNote = "";
-
-        if (view is not null)
+        Sentinel.Engine.SentinelUndo.Run(doc, "open issue viewpoint", () =>
         {
-            using (var t = new Transaction(doc, "Sentinel: apply BCF viewpoint"))
+            view = GetOrCreateCoordinationView(doc);
+            if (view is null) return false;
+            using var t = new Transaction(doc, "Sentinel: apply BCF viewpoint");
+            t.Start();
+            if (vp.Camera is { } cam)
             {
-                t.Start();
-                if (vp.Camera is { } cam)
-                {
-                    try { (XYZ eye, XYZ fwd, XYZ up) = ToRevit(doc, cam); view.SetOrientation(new ViewOrientation3D(eye, up, fwd)); }
-                    catch (Exception camEx) { cameraNote = "  (camera skipped: " + camEx.Message + ")"; }
-                }
-                if (ids.Count > 0)
-                {
-                    view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                    view.IsolateElementsTemporary(ids);
-                }
-                t.Commit();
+                try { (XYZ eye, XYZ fwd, XYZ up) = ToRevit(doc, cam); view.SetOrientation(new ViewOrientation3D(eye, up, fwd)); }
+                catch (Exception camEx) { cameraNote = "  (camera skipped: " + camEx.Message + ")"; }
             }
-            uidoc.ActiveView = view;
-        }
+            if (ids.Count > 0)
+            {
+                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                view.IsolateElementsTemporary(ids);
+            }
+            t.Commit();
+            return true;
+        });
+        if (view is not null && view.IsValidObject) uidoc.ActiveView = view;   // after the group: no open transaction
 
         if (ids.Count > 0) { uidoc.Selection.SetElementIds(ids); uidoc.ShowElements(ids); }
         Applied?.Invoke((ids.Count > 0

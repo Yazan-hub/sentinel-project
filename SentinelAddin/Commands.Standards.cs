@@ -287,11 +287,17 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
             return;
         }
         var doc = _doc!;
-        try { report = StandardsBuilder.Build(app, doc, pack); }
+        // XC-2: the whole build is one Undo entry; a throw rolls every step back.
+        try
+        {
+            BuildReport built = new BuildReport();
+            Sentinel.Engine.SentinelUndo.Run(doc, "Apply standard", () => { built = StandardsBuilder.Build(app, doc, pack); return true; });
+            report = built;
+        }
         catch (Exception ex)
         {
             report = new BuildReport();
-            report.Failed.Add("Build error: " + ex.Message);
+            report.Failed.Add("Build error: " + ex.Message + " — nothing was changed (undone).");
         }
         Built?.Invoke(report); // ShowReport is a Dispatcher.Invoke: the model report is on screen when this returns
         // The ruleset GET/PUT never runs on Revit's thread (the bridge can take seconds, or not answer).

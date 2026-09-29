@@ -49,26 +49,34 @@ public static class ShowPendingChangeCommand
             }
             if (!element.CanBeHidden(view)) { uidoc.Selection.SetElementIds(new List<ElementId> { id }); return; }
 
-            Reset(); // never stack two previews
+            // XC-2: clearing the previous preview and painting this one are one Undo entry (a previous preview on
+            // another model is cleared there, in that model's own Undo list).
+            bool isolate = false;
+            OverrideGraphicSettings original = null!;
+            Sentinel.Engine.SentinelUndo.Run(d, "preview the change", () =>
+            {
+                Reset(); // never stack two previews
 
-            using var t = new Transaction(d, "Sentinel: Preview pending change");
-            t.Start();
+                using var t = new Transaction(d, "Sentinel: Preview pending change");
+                t.Start();
 
-            var original = view.GetElementOverrides(id);
-            bool isolate = !view.IsInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                original = view.GetElementOverrides(id);
+                isolate = !view.IsInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
 
-            var ogs = new OverrideGraphicSettings()
-                .SetSurfaceTransparency(40)
-                .SetSurfaceForegroundPatternColor(new Color(70, 170, 110))
-                .SetProjectionLineColor(new Color(30, 110, 70))
-                .SetProjectionLineWeight(6);
-            var solid = GetSolidFillPattern(d);
-            if (solid is not null) ogs.SetSurfaceForegroundPatternId(solid.Id);
+                var ogs = new OverrideGraphicSettings()
+                    .SetSurfaceTransparency(40)
+                    .SetSurfaceForegroundPatternColor(new Color(70, 170, 110))
+                    .SetProjectionLineColor(new Color(30, 110, 70))
+                    .SetProjectionLineWeight(6);
+                var solid = GetSolidFillPattern(d);
+                if (solid is not null) ogs.SetSurfaceForegroundPatternId(solid.Id);
 
-            view.SetElementOverrides(id, ogs);
-            if (isolate) view.IsolateElementTemporary(id);
+                view.SetElementOverrides(id, ogs);
+                if (isolate) view.IsolateElementTemporary(id);
 
-            t.Commit();
+                t.Commit();
+                return true;
+            });
 
             lock (Gate) _active = new SavedState(d, view.Id, id, original, isolate);
             uidoc.Selection.SetElementIds(new List<ElementId> { id });
