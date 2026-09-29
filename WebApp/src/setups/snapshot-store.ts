@@ -45,45 +45,47 @@ export function rowToSnapshot(r: SnapRow): ElementSnapshot {
   };
 }
 
-/** POST a snapshot batch as a server revision. Returns the revision_id, or null if the CDE is unavailable. */
+/** Why a revision cannot be priced although it was read: its rows carry no quantity. */
+export const NO_QUANTITIES = "that revision carries no quantities (a take-off saved before 2026-09-29, when the bridge dropped them, or an intake capture of element identities only) — it cannot be priced; take a new baseline";
+
+/** GET/POST a bridge JSON answer, or throw its reason — a failed read is never an empty list (item 6 step 0). */
+async function readJson(url: string, init?: RequestInit): Promise<unknown> {
+  let r: Response;
+  try { r = await bfetch(url, init); }
+  catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message ?? e})`); }
+  const body = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((body as { message?: string } | null)?.message || `HTTP ${r.status}`);
+  return body;
+}
+
+/** POST a snapshot batch as a server revision → its id; a refusal or an unreached bridge throws its reason. */
 export async function postRevision(
   base: string,
   key: string,
   snapshots: ElementSnapshot[],
   meta: { rev_code?: string } = {},
-): Promise<string | null> {
-  try {
-    const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rev_code: meta.rev_code ?? null, snapshots }),
-    });
-    if (!r.ok) return null; // 503 (CDE not configured) or other → caller keeps the inline-blob fallback
-    const d = await r.json();
-    return (d && typeof d.revision_id === "string") ? d.revision_id : null;
-  } catch {
-    return null; // offline
-  }
+): Promise<string> {
+  const d = await readJson(`${base}/cde/${encodeURIComponent(key)}/snapshots`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rev_code: meta.rev_code ?? null, snapshots }),
+  }) as { revision_id?: unknown } | null;
+  if (typeof d?.revision_id !== "string") throw new Error("the bridge answered without a revision id");
+  return d.revision_id;
 }
 
-/** Fetch a revision's element rows and map to ElementSnapshot[]. Empty array on any failure. */
+/** A revision's element rows, ready to price — else it throws: the read failed, or the rows carry no quantity. */
 export async function fetchRevisionSnapshots(base: string, key: string, revisionId: string): Promise<ElementSnapshot[]> {
-  try {
-    const rows = (await (await bfetch(`${base}/cde/${encodeURIComponent(key)}/snapshots/${encodeURIComponent(revisionId)}`)).json()) as SnapRow[];
-    return Array.isArray(rows) ? rows.map(rowToSnapshot) : [];
-  } catch {
-    return [];
-  }
+  const rows = await readJson(`${base}/cde/${encodeURIComponent(key)}/snapshots/${encodeURIComponent(revisionId)}`);
+  const snaps = Array.isArray(rows) ? (rows as SnapRow[]).map(rowToSnapshot) : [];
+  if (snaps.length && !snaps.some((s) => Object.keys(s.quantities).length)) throw new Error(NO_QUANTITIES);
+  return snaps;
 }
 
-/** List a project's saved revisions (newest first) for the baseline picker. Empty array if the CDE is unavailable. */
+/** A project's saved revisions (newest first) for the baseline picker; a failed read throws its reason. */
 export async function fetchRevisions(base: string, key: string): Promise<RevisionMeta[]> {
-  try {
-    const rows = (await (await bfetch(`${base}/cde/${encodeURIComponent(key)}/snapshots`)).json()) as RevisionMeta[];
-    return Array.isArray(rows) ? rows : [];
-  } catch {
-    return [];
-  }
+  const rows = await readJson(`${base}/cde/${encodeURIComponent(key)}/snapshots`);
+  return Array.isArray(rows) ? (rows as RevisionMeta[]) : [];
 }
 
 /**

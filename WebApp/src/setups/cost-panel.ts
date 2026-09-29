@@ -136,16 +136,22 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     };
     // Persist the per-element snapshot as a server revision (team-wide, durable, migration 0005). If the CDE
     // isn't configured (503) or we're offline, revisionId is null → we keep the inline blob in the project store.
-    const revisionId = await postRevision(base, pid(), snaps, { rev_code: fmtDate(at) });
+    // Saved team-wide as a revision when the bridge takes it; else the inline blob goes with the project. Every save
+    // is confirmed or said as not saved — never "saved locally" (nothing is local).
+    let revisionId: string | null = null, revErr: string | null = null, putErr: string | null = null;
+    try { revisionId = await postRevision(base, pid(), snaps, { rev_code: fmtDate(at) }); } catch (e) { revErr = (e as Error).message; }
     baseline.revision_id = revisionId ?? undefined;
     // Reference the server revision when we have one (keeps the project store lean — no 50k-element array);
     // else store the inline snapshot blob so a reload can still diff.
     const persisted: Baseline = revisionId
       ? { at, total: baseline.total, currency: baseline.currency, lines: baseline.lines, revision_id: revisionId }
       : baseline;
-    bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: persisted }) }).catch(() => {});
-    if (revisionId) loadRevisions(); // the new revision joins the picker list
-    msg(`Baseline set at ${money(boq.total, boq.currency)}${revisionId ? " (saved team-wide as a revision)" : " (saved locally)"}. Change the model, take off again, then press Δ to see the cost impact.`);
+    try { await bwrite(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boq_baseline: persisted }) }); }
+    catch (e) { putErr = (e as Error).message; }
+    if (revisionId) void loadRevisions(); // the new revision joins the picker list
+    const saved = putErr ? ` — kept in this session only, not saved: ${putErr}`
+      : revisionId ? " (saved team-wide as a revision)" : ` (saved with the project; the team-wide revision was not saved: ${revErr})`;
+    msg(`Baseline set at ${money(boq.total, boq.currency)}${saved}. Change the model, take off again, then press Δ to see the cost impact.`, putErr ? "#ef4444" : undefined);
   };
 
   const enterCompare = () => { comparing = true; const cb = el("cp-cmp"); cb.style.background = "#6528d7"; cb.style.color = "#fff"; };
@@ -172,7 +178,9 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   };
   const loadRevisions = async () => {
     const key = pid();
-    const list = await fetchRevisions(base, key);
+    let list: RevisionMeta[];
+    try { list = await fetchRevisions(base, key); }
+    catch (e) { if (pid() === key) msg(`Saved revisions not read — ${(e as Error).message}`, "#ef4444"); return; }
     if (pid() !== key) return; // the previous project's list, answered after a switch
     revisions = list; renderRevOptions();
   };
@@ -183,7 +191,9 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     const rev = revisions.find((r) => r.id === revId);
     msg("Loading revision…");
     const key = pid();
-    const snaps = await fetchRevisionSnapshots(base, key, revId);
+    let snaps: ElementSnapshot[];
+    try { snaps = await fetchRevisionSnapshots(base, key, revId); }
+    catch (e) { if (pid() === key) msg(`Baseline not set — ${(e as Error).message}.`, "#ef4444"); return; }
     if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total: 0, currency: rates.currency, lines: [], snapshots: snaps, revision_id: revId };
@@ -198,7 +208,9 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     const rev = revisions.find((r) => r.id === revId);
     msg("Loading revision…");
     const key = pid();
-    const snaps = await fetchRevisionSnapshots(base, key, revId);
+    let snaps: ElementSnapshot[];
+    try { snaps = await fetchRevisionSnapshots(base, key, revId); }
+    catch (e) { if (pid() === key) msg(`Now side not set — ${(e as Error).message}.`, "#ef4444"); return; }
     if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     target = { snapshots: snaps, at: rev?.uploaded_at ?? new Date().toISOString(), revision_id: revId };
@@ -236,11 +248,13 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
       if (p.boq_baseline?.lines && !baseline) { // a same-scope re-read keeps a baseline the person picked or set
         const bl: Baseline = p.boq_baseline;
         // A baseline saved as a server revision carries a revision_id but no inline snapshots — hydrate them so Δ works.
+        let usable = true;
         if (bl.revision_id && !(bl.snapshots && bl.snapshots.length)) {
-          bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id);
+          try { bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id); }
+          catch (e) { if (mine !== seq) return; usable = false; msg(`Saved baseline not used — ${(e as Error).message}.`, "#eab308"); }
           if (mine !== seq) return;
         }
-        baseline ??= bl;
+        if (usable) baseline ??= bl;
       }
       if (el("cp-msg").textContent?.startsWith("Saved rates/baseline not read")) msg(""); // read now — the failure is over
     } catch (e) {

@@ -83,6 +83,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const modelIdOf = (f: FileRec, v: Version) => `${f.iso_name}@${v.revision}`;
   const isLoaded = (f: FileRec, v: Version) => { try { return !!modelList()?.has?.(modelIdOf(f, v)); } catch { return false; } };
   let revByVersion = new Map<string, string>(); // container_version_id → model_revision id (for compare)
+  let revsErr: string | null = null; // the saved take-offs' read failed: compare says so, never "no snapshot"
   let auditByEntity = new Map<string, AuditEvent[]>(); // entity_id → its audit events (for the version history)
   let historyGap = ""; // set when the ledger read failed or was partial — an empty history then says so
   const expanded = new Set<string>();
@@ -140,7 +141,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     try {
       const fl = (await api(`${encodeURIComponent(key)}/files`)) as FileRec[];
       // Map each container_version to its snapshot revision (if a take-off was captured against it) for compare.
-      const revs = await fetchRevisions(base, key);
+      revsErr = null;
+      const revs = await fetchRevisions(base, key).catch((e: Error) => { revsErr = e.message; return []; });
       if (mine !== seq) return;
       files = fl;
       revByVersion = new Map();
@@ -619,6 +621,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     el("fv-compare").style.display = "block";
     el("fv-compare").innerHTML = `<div style="color:#9ca3af;font-size:11.5px">Comparing ${esc(a.revision)} ↔ ${esc(b.revision)}…</div>`;
     const ra = revByVersion.get(a.id), rb = revByVersion.get(b.id);
+    if ((!ra || !rb) && revsErr) {
+      el("fv-compare").innerHTML = `<div style="color:#f87171;font-size:11.5px">Not compared — the saved take-offs were not read: ${esc(revsErr)}</div>`;
+      return;
+    }
     if (!ra || !rb) {
       el("fv-compare").innerHTML =
         `<div style="font-weight:600;margin-bottom:.3rem">Compare ${esc(a.revision)} ↔ ${esc(b.revision)}</div>` +
@@ -640,7 +646,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `<div style="color:#6b7280;font-size:10.5px;margin-top:.35rem">Priced at current rates/factors, so the Δ isolates the model change. ` +
         `${boqA.estimated_count || boqB.estimated_count ? "Includes geometry-estimated quantities (~)." : ""}</div>`;
     } catch (e) {
-      el("fv-compare").innerHTML = `<div style="color:#f87171;font-size:11.5px">Compare failed: ${esc((e as Error).message)}</div>`;
+      el("fv-compare").innerHTML = `<div style="color:#f87171;font-size:11.5px">Not compared — ${esc((e as Error).message)}</div>`;
     }
   }
 
