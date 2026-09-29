@@ -18,14 +18,16 @@ const contract = (over = {}) => ({
 });
 
 /** A fake platform: items by id, downloads by (id, tag), and a record of every write. */
-function platform({ items = [], contractBody, contractTag = "contract@1", refuse = {} } = {}) {
+function platform({ items = [], contractBody, contractTag = "contract@1", refuse = {}, labels = {} } = {}) {
   const writes = { files: [], versions: [], metadata: [] };
+  const meta = { ...labels }; // each version's labels by "id@tag"; a write replaces the whole map, as the platform does
   const list = [...items];
   if (contractBody !== undefined) list.push({ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: contractTag }], body: contractBody });
   const find = (id) => list.find((i) => i._id === id);
   const svc = {
     listFiles: async ({ projectId }) => { assert.equal(projectId, "p1"); return list.map(({ body, bytes, ...i }) => i); },
-    getFile: async (id) => { const i = find(id); if (!i) throw new Error("404 not found"); const { body, bytes, ...rest } = i; return rest; },
+    // Versions only when asked with showVersions (the SDK's option name, client.d.ts GetItemProps).
+    getFile: async (id, { showVersions } = {}) => { const i = find(id); if (!i) throw new Error("404 not found"); const { body, bytes, versions, ...rest } = i; return showVersions ? { ...rest, versions } : rest; },
     downloadFile: async (id, { versionTag } = {}) => {
       const i = find(id); if (!i) throw new Error("404 not found");
       if (refuse.download) throw new Error(refuse.download);
@@ -42,9 +44,13 @@ function platform({ items = [], contractBody, contractTag = "contract@1", refuse
       if (refuse.report) throw new Error(refuse.report);
       writes.versions.push({ itemId, versionTag, text: await blob.text() }); return { tag: versionTag };
     },
+    getFileVersionMetadata: async (fileId, versionTag) => {
+      if (refuse.readLabels) throw new Error(refuse.readLabels);
+      return { ...meta[`${fileId}@${versionTag}`] };
+    },
     updateFileVersionMetadata: async (fileId, versionTag, metadata) => {
       if (refuse.labels) throw new Error(refuse.labels);
-      writes.metadata.push({ fileId, versionTag, metadata }); return metadata;
+      writes.metadata.push({ fileId, versionTag, metadata }); meta[`${fileId}@${versionTag}`] = metadata; return metadata;
     },
   };
   return { svc, writes };
@@ -227,4 +233,49 @@ test("an unknown versionTag is a FAIL, not the latest version judged under the w
   const r = await run(p, { fileId: "f1", versionTag: "v9" });
   assert.equal(r.type, "FAIL");
   assert.equal(r.message, "Gate did not run — tower.ifc has no version v9");
+});
+
+test("the labels are read, merged and written: the platform's own keys (the IfcFragmenter's link) survive, old sentinel_* are replaced", async () => {
+  const p = platform({ items: [ifcItem()], contractBody: contract(), labels: { "f1@v2": { fragmentsFileId: "frag9", derivedFileId: "frag9", sentinel_gate: "fail", sentinel_failures: "3" } } });
+  const r = await run(p, { fileId: "f1", versionTag: "v2" });
+  assert.equal(r.type, "SUCCESS");
+  const m = p.writes.metadata[0].metadata;
+  assert.deepEqual([m.fragmentsFileId, m.derivedFileId], ["frag9", "frag9"]);
+  assert.deepEqual([m.sentinel_gate, m.sentinel_failures], ["pass", "0"]);
+});
+
+test("the current labels could not be read: none are written (a blind write would erase the platform's keys), the WARNING says so", async () => {
+  const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { readLabels: "503 unavailable?accessToken=eyJabc" } });
+  const r = await run(p, { fileId: "f1" });
+  assert.equal(r.type, "WARNING");
+  assert.equal(r.message, "Passed — contract@1 — report written; the version labels could not be read, so none were written: 503 unavailable?accessToken=…");
+  assert.equal(p.writes.files.length, 1);
+  assert.equal(p.writes.metadata.length, 0);
+});
+
+test("a file the listing does not carry is read with getFile(id, {showVersions: true}) and its newest version judged", async () => {
+  const p = platform({ items: [ifcItem()], contractBody: contract() });
+  const listed = await p.svc.listFiles({ projectId: "p1" });
+  p.svc.listFiles = async () => listed.filter((i) => i._id !== "f1");
+  const r = await run(p, { fileId: "f1" });
+  assert.equal(r.type, "SUCCESS");
+  assert.equal(p.writes.files[0].versionTag, "v2");
+});
+
+test("a download the platform answered with an error status is said in words, never parsed as a contract or judged as an IFC", async () => {
+  const refused = () => new Response("rate limited", { status: 429, statusText: "Too Many Requests" });
+  const p = platform({ items: [ifcItem()], contractBody: contract() });
+  const dl = p.svc.downloadFile;
+  p.svc.downloadFile = async (id, o) => (id === "c1" ? refused() : dl(id, o));
+  const r = await run(p, { fileId: "f1" });
+  assert.equal(r.type, "WARNING");
+  assert.equal(r.message, "Not checked — sentinel-contract.json contract@1 could not be downloaded: the platform answered 429 Too Many Requests");
+  assert.equal(JSON.parse(p.writes.files[0].text).result, "not_checked");
+  const q = platform({ items: [ifcItem()], contractBody: contract() });
+  const dq = q.svc.downloadFile;
+  q.svc.downloadFile = async (id, o) => (id === "f1" ? refused() : dq(id, o));
+  const r2 = await run(q, { fileId: "f1" });
+  assert.equal(r2.type, "FAIL");
+  assert.equal(r2.message, "Gate did not run — tower.ifc v2 could not be downloaded: the platform answered 429 Too Many Requests");
+  assert.equal(q.writes.files.length + q.writes.metadata.length, 0);
 });

@@ -130,6 +130,20 @@ export const TOOLS = [
       properties: { project: { type: "string" }, changeset: { type: "string" }, status: { type: "string" } },
     },
   },
+
+  // ── Ask the open Sentinel app over the platform's channel (roadmap item 4; bridge/ask-sentinel.mjs) ──
+  {
+    name: "sentinel_ask_app",
+    description: "Ask the open Sentinel app: a signed-in Sentinel tab in the platform project (THATOPEN_PROJECT_ID), under the same That Open account as this server's token, answers over the platform's channel with its own sessions. Read-only, two commands: sentinel.status (app version, projects, signed in, bridge reachable — presence only, never a verdict) and sentinel.deliveries {name?, limit ≤ 20} (per IFC: the platform's hint, its failures, the run id, and the ledger line — 'ledger #N', 'not on this project's ledger yet' or 'ledger not read — why'; when the hint and the ledger row disagree both are given). When Sentinel is not open (the answer says 'Sentinel is not open (and joined) … — not answered') or no reply comes, do not guess: use sentinel_audit with entity_type platform_gate, which answers from the bridge without the app.",
+    inputSchema: {
+      type: "object", required: ["type"],
+      properties: {
+        type: { type: "string", enum: ["sentinel.status", "sentinel.deliveries"] },
+        payload: { type: "object", description: "for sentinel.deliveries: {name?: one IFC file name, limit?: at most 20}; omit for sentinel.status" },
+        app_id: { type: "string", description: "the published Sentinel app's id (WebApp/.thatopen appId); omit to ask the local dev app (thatopen serve)" },
+      },
+    },
+  },
 ];
 
 /** Return a copy of the doc holding only the section matching `sel` (id first, then exact heading).
@@ -223,6 +237,13 @@ export async function callTool(name, args = {}, deps = {}) {
     const project = need(args, "project");
     if (args.changeset) return await getJson(`/changesets/${enc(project)}/${enc(need(args, "changeset"))}`);
     return await getJson(`/changesets/${enc(project)}${args.status ? `?status=${enc(args.status)}` : ""}`);
+  }
+
+  if (name === "sentinel_ask_app") {
+    const m = await import("./ask-sentinel.mjs");
+    const type = need(args, "type");
+    if (!m.COMMANDS.includes(type)) throw new Error(`type must be one of ${m.COMMANDS.join(", ")} — Sentinel answers no other command`);
+    return await (deps.ask || m.ask)({ type, payload: args.payload, appId: args.app_id, kind: "mcp" });
   }
 
   throw new Error(`unknown tool: ${name}`);

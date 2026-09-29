@@ -12,9 +12,9 @@ const NEW_TOOLS = [
 describe("TOOLS registry", () => {
   it("contains the original three plus the six doc tools", () => {
     const names = TOOLS.map((t) => t.name);
-    for (const n of ["sentinel_list_projects", "sentinel_propose", "sentinel_audit", ...NEW_TOOLS])
+    for (const n of ["sentinel_list_projects", "sentinel_propose", "sentinel_audit", "sentinel_ask_app", ...NEW_TOOLS])
       expect(names).toContain(n);
-    expect(TOOLS).toHaveLength(12);
+    expect(TOOLS).toHaveLength(13);
   });
 
   it("every tool has a description and an object inputSchema", () => {
@@ -137,7 +137,7 @@ describe("changeset tools", () => {
     expect(names).toContain("sentinel_propose_changeset");
     expect(names).toContain("sentinel_changeset_status");
     expect(names).toContain("sentinel_verify_receipt");
-    expect(TOOLS).toHaveLength(12);
+    expect(TOOLS).toHaveLength(13);
   });
 
   it("propose tool description states the referee model and the vocabulary", () => {

@@ -15,7 +15,8 @@ FRAGS.FragmentsModels.registerInlineWorker(FRAGMENTS_WORKER_B64);
 import * as BUI from "@thatopen/ui";
 import * as MARKERJS from "@markerjs/markerjs3";
 import { PlatformClient, UIManager } from "@thatopen/services";
-import { setAppContext } from "./app";
+import { setAppContext, getAppManager } from "./app";
+import { version as APP_VERSION } from "../package.json";
 import { SERVICE_URL } from "./config";
 import { qaPanel } from "./setups/qa-panel";
 import { modelPanel } from "./setups/model-panel";
@@ -46,10 +47,13 @@ import { projectsHubPanel } from "./setups/projects-hub-panel";
 import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
-import { activePid, onActiveProjectChange, refreshActiveProject } from "./setups/active-project";
+import { activePid, onActiveProjectChange, refreshActiveProject, getActiveProjectKey } from "./setups/active-project";
 import { onAuthChange, currentSession } from "./setups/auth";
 import { userChangeFilter } from "./setups/user-change";
 import { nextStrip, tabIndex } from "./setups/next-strip";
+import { setupAskSentinel } from "./setups/ask-sentinel";
+import { readDeliveries, type DeliveriesClient } from "./setups/platform-deliveries";
+import { readGateLedger } from "./setups/platform-deliveries-panel";
 
 // ─── A2 migration — PHASES 1+2: boot on UIManager + re-dock panels ───────────
 // Juan consolidated the old AppManager (layout) + ViewportsManager (viewport)
@@ -123,6 +127,24 @@ async function main() {
   );
   components.get(UIManager).init();
 
+  // "Ask Sentinel" (spec 2026-09-29 sdk-ask-sentinel, Phase 2): this account's external tools ask this tab two read-only
+  // questions over the platform channel. Joined HERE, before any await the boot can park on (the 0.16.1 app template's
+  // rule: a stalled read further down must not leave the tab silently unreachable). The channel exists only inside the
+  // platform iframe, so a failure is a warning, never a boot error.
+  try {
+    setupAskSentinel(client, {
+      appVersion: APP_VERSION,
+      platformProjectId: () => client.context?.projectId,
+      sentinelProject: () => (getAppManager().client ? getActiveProjectKey() : null), // null until the boot sets the app context
+      signedIn: async () => !!(await currentSession()),
+      bridge: () => fetch(`${SERVICE_URL}/health`, { cache: "no-store" }), // plain fetch: a JWT on /health gets a 503 (bridge-fetch.ts)
+      readDeliveries: (name) => readDeliveries(client as unknown as DeliveriesClient, client.context?.projectId, name),
+      readGateLedger: (key) => readGateLedger(SERVICE_URL, key),
+    });
+  } catch (e) {
+    console.warn("[ask-sentinel] channel unavailable outside the platform:", e);
+  }
+
   // One STABLE top-viewer node, returned by reference so re-rendering top-app
   // (when we add the panels below) reuses it instead of disposing/recreating
   // its world. No <top-viewer-tools>: the bim-viewer mounts its own tabbed
@@ -180,7 +202,9 @@ async function main() {
   const projectId: string | undefined = client?.context?.projectId;
   let projectData;
   try {
-    if (projectId) projectData = await client.getProjectData(projectId);
+    // Bounded (the 0.16.1 app template): the request has no AbortSignal, and a stalled answer parked every panel below
+    // for good. Past 20 s the app boots without project data — the degraded path the catch already provides.
+    if (projectId) projectData = await Promise.race([client.getProjectData(projectId), new Promise<undefined>((r) => setTimeout(() => r(undefined), 20_000))]);
   } catch {
     /* dev/no-project → consumers degrade gracefully */
   }

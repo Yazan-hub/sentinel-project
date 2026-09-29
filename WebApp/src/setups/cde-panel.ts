@@ -7,7 +7,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
-import { mountPlatformDeliveries } from "./platform-deliveries-panel";
+import { mountPlatformDeliveries, readGateLedger } from "./platform-deliveries-panel";
 
 /**
  * Sentinel CDE panel (C3) — the ISO 19650 information-container board: WIP → Shared → Published →
@@ -246,15 +246,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   // The platform's own verdicts on the IFCs of the linked platform project (spec 2026-09-27 platform-delivery-gate
   // Decision 8): read from the platform, beside the board, on every load.
-  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), async () => {
-      // Every page: an older recorded run must never read as "not on this project's ledger".
-      const rows: AuditPage["rows"] = [];
-      for (let offset = 0; ; offset += 1000) {
-        const page = (await api(`${encodeURIComponent(pid())}/audit?entity_type=platform_gate&limit=1000&offset=${offset}`)) as AuditPage;
-        rows.push(...page.rows);
-        if (!page.rows.length || rows.length >= page.total) return rows;
-      }
-    });
+  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), () => readGateLedger(base, pid()));
 
   let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {
