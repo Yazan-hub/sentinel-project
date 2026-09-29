@@ -42,7 +42,8 @@ export function assess(assets: Asset[], floors: string[], spaces: string[]): Cob
   const coverage: FieldCoverage[] = REQUIRED_FIELDS.map((f) => ({ field: f, present: assets.filter((a) => nonEmpty(a[f])).length }));
   const complete = assets.filter((a) => missingFields(a).length === 0).length;
   const total = assets.length;
-  const readiness = total ? Math.round((complete / total) * 100) : 0;
+  // Floored, never rounded up: 94.5 % must not read as the gate's 95 % (a readiness the model does not have).
+  const readiness = total ? Math.floor((complete / total) * 100) : 0;
   return { assets, total, complete, readiness, coverage, floors, spaces };
 }
 

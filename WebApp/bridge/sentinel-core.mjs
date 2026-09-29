@@ -717,7 +717,7 @@ function assess(assets, floors, spaces) {
   const coverage = REQUIRED_FIELDS.map((f) => ({ field: f, present: assets.filter((a) => nonEmpty(a[f])).length }));
   const complete = assets.filter((a) => missingFields(a).length === 0).length;
   const total = assets.length;
-  const readiness = total ? Math.round(complete / total * 100) : 0;
+  const readiness = total ? Math.floor(complete / total * 100) : 0;
   return { assets, total, complete, readiness, coverage, floors, spaces };
 }
 function toCobieCsv(r, facility) {
