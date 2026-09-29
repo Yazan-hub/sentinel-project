@@ -181,7 +181,7 @@ public sealed class ClashManagerCommand : IExternalCommand
                 "No clashes found between linked MEP/IFC elements and native structure.\n\n" + fedLine);
             return Result.Succeeded;
         }
-        var win = new Sentinel.UI.ClashManagerDialog(clashes, fedLine);
+        var win = new Sentinel.UI.ClashManagerDialog(doc, clashes, fedLine);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         return Result.Succeeded;

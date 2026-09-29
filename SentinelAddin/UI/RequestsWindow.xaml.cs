@@ -54,7 +54,7 @@ public partial class RequestsWindow : Window
     private void OnShow(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is RequestRow row)
-            ShowPendingChangeCommand.Show(row.ElementId); // visual diff: green fill + isolate
+            ShowPendingChangeCommand.Show(_doc, row.ElementId); // visual diff: green fill + isolate
     }
 
     protected override void OnClosed(EventArgs e)

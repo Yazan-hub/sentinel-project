@@ -22,12 +22,27 @@ public sealed class RevitEventHub : IExternalEventHandler
         _event.Raise();
     }
 
-    public void SelectAndShow(long elementId) => Enqueue(uiapp =>
+    /// <summary>XC-1: run <paramref name="job"/> on <paramref name="doc"/> only while it is open and Revit's active
+    /// document; otherwise say why (Doctor log + a dialog, or <paramref name="onRefused"/> when the caller shows it
+    /// itself) and change nothing. The job gets the pinned document: it never re-reads ActiveUIDocument.</summary>
+    public void Enqueue(Document doc, string what, Action<UIApplication, Document> job, Action<string>? onRefused = null)
+        => Enqueue(uiapp =>
+        {
+            if (Sentinel.Engine.DocPin.Check(uiapp, doc, what) is { } refusal)
+            {
+                App.PanelVm?.LogDoctor(refusal);
+                if (onRefused is not null) onRefused(refusal);
+                else TaskDialog.Show("Sentinel", refusal);
+                return;
+            }
+            job(uiapp, doc);
+        });
+
+    public void SelectAndShow(Document doc, long elementId) => Enqueue(doc, "select the element", (uiapp, d) =>
     {
-        var uidoc = uiapp.ActiveUIDocument;
-        if (uidoc is null) return;
+        var uidoc = uiapp.ActiveUIDocument!;          // DocPin: the active document is d
         var id = elementId.ToElementId();
-        if (uidoc.Document.GetElement(id) is null) return;
+        if (d.GetElement(id) is null) return;
         uidoc.Selection.SetElementIds([id]);
         uidoc.ShowElements(id);
     });

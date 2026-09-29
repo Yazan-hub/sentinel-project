@@ -25,14 +25,16 @@ public static class AutoFixExecution
     /// <summary>Queue an auto-fix for a violation. UI-thread safe.
     /// finalName: coordinator-approved name from FixReviewDialog; when null,
     /// the token synthesis result is used as-is.
-    /// onDone(oldName, newName|null) fires back on the hub after completion.</summary>
-    public static void Run(long elementId, string ruleId, Action<string, string?>? onDone = null, string? finalName = null)
+    /// onDone(oldName, newName|null) fires back on the hub after completion.
+    /// pinned: the document the pane's rows were scanned in (XC-1); the fix refuses (onRefused) when another model
+    /// is active or it was closed.</summary>
+    public static void Run(Document pinned, long elementId, string ruleId, Action<string, string?>? onDone = null,
+                           string? finalName = null, Action<string>? onRefused = null)
     {
-        App.Events?.Enqueue(uiapp =>
+        App.Events?.Enqueue(pinned, "rename the element", (uiapp, doc) =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
-            var rule = doc is null ? null : App.Engine?.RulesetFor(doc).Rules.FirstOrDefault(r => r.Id == ruleId);
-            if (doc is null || rule is null || rule.Tokens.Count == 0) { onDone?.Invoke("", null); return; }
+            var rule = App.Engine?.RulesetFor(doc).Rules.FirstOrDefault(r => r.Id == ruleId);
+            if (rule is null || rule.Tokens.Count == 0) { onDone?.Invoke("", null); return; }
 
             var element = doc.GetElement(elementId.ToElementId());
             if (element is null) { onDone?.Invoke("", null); return; }
@@ -80,7 +82,7 @@ public static class AutoFixExecution
                 t.RollBack();                                     // name collision, read-only, etc.
                 onDone?.Invoke(oldName, null);
             }
-        });
+        }, onRefused);
     }
 
     /// Revit rejects duplicate names for many classes: probe and suffix.

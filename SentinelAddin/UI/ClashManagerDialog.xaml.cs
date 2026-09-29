@@ -7,9 +7,11 @@ namespace Sentinel.UI;
 public partial class ClashManagerDialog : Window
 {
     private readonly List<ClashManager.ClashItem> _clashes;
+    private readonly Autodesk.Revit.DB.Document _doc;   // the model the clashes were found in (XC-1)
 
-    public ClashManagerDialog(List<ClashManager.ClashItem> clashes, string? federationLine = null)
+    public ClashManagerDialog(Autodesk.Revit.DB.Document doc, List<ClashManager.ClashItem> clashes, string? federationLine = null)
     {
+        _doc = doc;
         _clashes = clashes;
         InitializeComponent();
         Grid.ItemsSource = clashes;
@@ -28,16 +30,14 @@ public partial class ClashManagerDialog : Window
     private void OnShow(object sender, RoutedEventArgs e)
     {
         if (Grid.SelectedItem is ClashManager.ClashItem c)
-            App.Events?.SelectAndShow(c.HostId);
+            App.Events?.SelectAndShow(_doc, c.HostId);
     }
 
     private void OnCreateView(object sender, RoutedEventArgs e)
     {
         var selection = SelectedOrAll();
-        App.Events?.Enqueue(uiapp =>
+        App.Events?.Enqueue(_doc, "create the clash view", (uiapp, doc) =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
-            if (doc is null) return;
             var view = ViewGenerator.CreateClashView(doc, selection);
             if (view is not null)
             {
@@ -62,10 +62,8 @@ public partial class ClashManagerDialog : Window
         if (dlg.ShowDialog(this) != true) return;
         var outDir = System.IO.Path.GetDirectoryName(dlg.FileName)!;
 
-        App.Events?.Enqueue(uiapp =>
+        App.Events?.Enqueue(_doc, "export the BCF", (uiapp, doc) =>
         {
-            var doc = uiapp.ActiveUIDocument?.Document;
-            if (doc is null) return;
             var issue = new BcfExporter.BcfIssue
             {
                 Title = "MEP clashes (" + selection.Count + ")",

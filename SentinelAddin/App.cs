@@ -159,7 +159,7 @@ public sealed class App : IExternalApplication
             // pane): a ruleset that lands after the user moved to another project is installed for it, and shown when
             // that project's view is activated again (OnViewActivated).
             if (!IsShown(doc)) return;
-            PanelVm?.PublishReport(engine.ScanFull(doc));
+            PanelVm?.PublishReport(doc, engine.ScanFull(doc));
             RefreshJourney(doc);
         }), TaskScheduler.Default);
     }
@@ -187,7 +187,7 @@ public sealed class App : IExternalApplication
             if (!ReloadSeq.ContainsKey(doc)) ReloadRuleset(doc); // e.g. a new project never opened from disk
             return;
         }
-        vm.PublishReport(engine.ScanFull(doc));
+        vm.PublishReport(doc, engine.ScanFull(doc));
         RefreshJourney(doc);
     }
 
@@ -208,7 +208,7 @@ public sealed class App : IExternalApplication
             bool judged = cde.Mode != Sentinel.Engine.EnforcementMode.Monitor;
             report = report.Plus(cde, judged);
         }
-        PanelVm!.PublishReport(report);
+        PanelVm!.PublishReport(e.Document, report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync → auto-publish, when the project's publish@n says so
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled;
         // posted on a task and never waited for — a sync must not block. When the bridge has answered, its ledger line
