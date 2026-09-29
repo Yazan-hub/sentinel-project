@@ -76,7 +76,11 @@ public static class BcfExporter
         if (view3d is not null)
         {
             var orientation = view3d.GetOrientation();
-            XYZ eye = orientation.EyePosition, fwd = orientation.ForwardDirection, up = orientation.UpDirection;
+            // Shared coordinates, as CaptureIssue writes and BcfApplyEvent reads back (CLM-4): internal → shared.
+            var toShared = doc.ActiveProjectLocation.GetTotalTransform();
+            XYZ eye = toShared.OfPoint(orientation.EyePosition),
+                fwd = toShared.OfVector(orientation.ForwardDirection).Normalize(),
+                up = toShared.OfVector(orientation.UpDirection).Normalize();
             if (view3d.IsPerspective)
                 vp.Add(new XElement("PerspectiveCamera",
                     Point("CameraViewPoint", eye), Vector("CameraDirection", fwd),
@@ -168,7 +172,8 @@ public static class BcfExporter
         var p = e?.get_Parameter(BuiltInParameter.IFC_GUID);
         var s = p?.AsString();
         if (!string.IsNullOrWhiteSpace(s)) return s!;
-        return ExportUtils.GetExportId(doc, id).ToString("N").Substring(0, 22);
+        // The 22-character IFC GlobalId the IFC exporter writes (CLM-4) — not the first 22 hex digits of the export GUID.
+        return Sentinel.Coordination.BcfApplyEvent.ToIfcGuid(ExportUtils.GetExportId(doc, id));
     }
 
     private static XElement Point(string name, XYZ p) => new(name,
