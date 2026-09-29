@@ -10,13 +10,15 @@
 import type * as OBC from "@thatopen/components";
 import type * as FRAGS from "@thatopen/fragments";
 import { deriveQuantitiesFromBox, type ElementQuantities } from "../quantities";
+import { PSET_RELATIONS } from "./element-properties";
 
 /** The per-element box shape model.getBoxes resolves to (parallel to the id list). */
 type BoxLike = { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number }; isEmpty: () => boolean };
 
-/** The cost drivers we take off by default (walls/slabs/frame/openings/finishes/stairs/roofs). */
+/** The cost drivers we take off by default (walls/slabs/frame/openings/finishes/stairs/roofs) — occurrences only: an
+ *  IFCWALLTYPE or IFCDOORSTYLE is a definition, not a wall or a door to count and price. */
 const COSTABLE: RegExp[] = [
-  /^IFC(WALL|WALLSTANDARDCASE|SLAB|BEAM|COLUMN|DOOR|WINDOW|ROOF|STAIR|COVERING)/i,
+  /^IFC(WALL|WALLSTANDARDCASE|SLAB|BEAM|COLUMN|DOOR|WINDOW|ROOF|STAIR|COVERING)(?!\w*(TYPE|STYLE)$)/i,
 ];
 
 /** Extract per-element quantities from every loaded fragments model. */
@@ -43,7 +45,7 @@ async function fromModel(
   const data = await model.getItemsData(ids, {
     attributesDefault: true,
     // Pull property/quantity sets so we can read the Qto_ set.
-    relations: { IsDefinedBy: { attributes: true, relations: false } },
+    relations: PSET_RELATIONS,
     relationsDefault: { attributes: false, relations: false },
   });
 

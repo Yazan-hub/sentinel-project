@@ -38,15 +38,30 @@ const val = (o: any): string | undefined => {
   return undefined;
 };
 
+/** getItemsData relations that reach every property and quantity VALUE: an element's sets and type (IsDefinedBy,
+ *  IsTypedBy), a type's sets (HasPropertySets), each set's HasProperties / Quantities — and never a set's or a type's
+ *  links back to the elements (DefinesOccurrence, ObjectTypeOf, Types) or its associations. A nested item takes its
+ *  own relation's entry, else its parent's. `IsDefinedBy: {relations: false}`, as every reader here had it, returned
+ *  each set's name with none of its values (seen 2026-09-29: aster-tower v3's COBie read 0/168 in the browser, 168/168
+ *  on the bridge). Shared by every reader of Pset/Qto values. */
+export const PSET_RELATIONS = {
+  IsDefinedBy: { attributes: true, relations: true },
+  IsTypedBy: { attributes: true, relations: true },
+  HasPropertySets: { attributes: true, relations: true },
+  HasProperties: { attributes: true, relations: false },
+  Quantities: { attributes: true, relations: false },
+  DefinesOccurrence: { attributes: false, relations: false },
+  ObjectTypeOf: { attributes: false, relations: false },
+  Types: { attributes: false, relations: false },
+  HasAssociations: { attributes: false, relations: false },
+};
+
 /** getItemsData options that pull attributes + Pset/Qto sets (shared by single + bulk paths). */
 export const PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
-  relations: {
-    IsDefinedBy: { attributes: true, relations: false },
-    IsTypedBy: { attributes: true, relations: false },
-  },
+  relations: PSET_RELATIONS,
   relationsDefault: { attributes: false, relations: false },
-} as const;
+};
 
 /** Extract a single element's identity + all property/quantity sets from a fragments model. */
 export async function extractElementProperties(
