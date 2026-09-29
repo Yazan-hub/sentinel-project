@@ -67,7 +67,7 @@ static class GateLinesCheck
 
         // ── 3. the IFC Gate's result dialog ──────────────────────────────────────────────────────────────────
         var dPass = GateLines.GateDialog(pass, "north-yard");
-        ok(dPass.StartsWith("✓ PASS — certified for CDE upload\n\nContract: " + Label + " · Schema: IFC4\nEntities: 40 (1.0 MB)\nIFCWALLSTANDARDCASE: 12\nIFCCOLUMN: 3\n\n"),
+        ok(dPass.StartsWith("✓ contract PASS — IDS not checked here (Governed Publish judges ids@n)\n\nContract: " + Label + " · Schema: IFC4\nEntities: 40 (1.0 MB)\nIFCWALLSTANDARDCASE: 12\nIFCCOLUMN: 3\n\n"),
            "dialog: PASS heads with the contract label, schema and counts");
         ok(dPass.EndsWith("Certificate: C:\\out\\a.sentinel-cert.json\nSHA-256: abababababababab…"),
            "dialog: the certificate path and the file's SHA-256");
