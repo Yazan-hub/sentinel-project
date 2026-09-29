@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for DocPin's refusal words (XC-1: a Sentinel job runs on the model it was started on, or says why
+       not). Compiles the pure half of DocPin.cs (SENTINEL_CHECK hides the Revit-typed Check). `dotnet run` here. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>docpin-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\Engine\DocPin.cs" />
+  </ItemGroup>
+</Project>
