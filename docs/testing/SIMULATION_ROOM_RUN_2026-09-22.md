@@ -855,3 +855,12 @@ The founder: "do everything on your own … continue the roadmap". Spec `docs/su
 | 4D, local app on aster-tower v2 | a programme CSV with a containers column, imported through the panel: "Structural Frame — ASTR26-AST-ZZ-XX-M3-A-0001: delivered 2026-09-22, before the task starts" (green); "Fit-out L00 — ASTR26-AST-ZZ-00-DR-A-0100: due 2027-02-14, after the task starts 2026-12-01 — it will be late"; two invented containers "not in the MIDP"; "row 6: start "03/04/2026" could be day/month or month/day — write it as yyyy-mm-dd" (refused); Handover (no category) "matches no element" and not counted. **Found and fixed live:** "Facade" (WALL) matched nothing — aster's walls are all IFCWALLSTANDARDCASE; a class now takes its standard/elemented cases, and Facade picked up the walls |
 | Published | web 1.0.36 (6abb2683…); `status` over the channel → `app_version 1.0.36` |
 | Not run | the Tender and Carbon panels' own buttons in a browser (their bridge rows ran; the web code is type-checked and the bid/issue paths unit-tested); an EPD factor pack or real tender rates (the founder's data) |
+
+## B26 owed row, run 2026-09-29 (after the founder's morning report "can't reach the bridge")
+
+| Row | Observed |
+|---|---|
+| The outage | the published app read "Projects not read — can't reach the bridge at https://4374ga.tailfae508.ts.net". Measured: local `:4100/health` no answer, the public address 502 — the bridge had been a managed server of the previous Claude session and ended with it. Restarted (poller on, platform token valid); local and public `/health` 200 |
+| Recovery without a reload | the founder's open tab answered over the channel a minute later: `bridge reachable`, `signed_in true`, `sentinel_project aster-tower` (the watcher re-probed and reloaded the panels) |
+| Published app, signed in (the owed row) | `node bridge/ask-sentinel.mjs deliveries --app 6a56513872a416a2841b0667` → ASTR26 v3, the platform's hint "Passed — contract@1", run 6abb1161…, **`ledger #1164`**, `ledger_result pass`, **`agrees true`** — B26 complete |
+| Follow-up | `tools/bridge-start.cmd`: starts the bridge in its own window unless one already answers on :4100 (the "already running" path run; the start path not run — it would stop the founder's live bridge). A shortcut in `shell:startup` makes it start at every sign-in — the founder's to place |
