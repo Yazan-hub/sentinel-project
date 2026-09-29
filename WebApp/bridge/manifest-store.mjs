@@ -20,7 +20,26 @@ async function wire(deps = {}) {
     versionOnKey: deps.versionOnKey || cde?.versionOnKey,
     sb: deps.sb || cde?.sb,
     extractManifest: deps.extractManifest || (await import("./ifc-manifest.mjs")).extractManifest,
+    measureCobie: deps.measureCobie || measureCobie,
   };
+}
+
+/** COBie hand-over completeness of an IFC's maintainable assets (item 6, 7D): the same assess() and the same property
+ *  names as the browser's COBie panel, on the governed file's own bytes, instance and type property sets both. Returns
+ *  {total, complete, readiness, coverage, skipped, unknown_classes, measured_at}; throws when the file cannot be read. */
+export async function measureCobie(bytes) {
+  const [{ extractElements }, core] = await Promise.all([import("./ifc-extract.mjs"), import("./sentinel-core.mjs")]);
+  const x = await extractElements(bytes, { classes: [...core.MAINTAINABLE_CLASSES], modelId: "cobie" });
+  const assets = x.elements.map((e) => {
+    const props = {};
+    for (const g of e.psets || []) for (const r of g.rows || []) if (r?.name && r.value != null && String(r.value).trim()) props[r.name] ??= String(r.value);
+    return core.assetFromProps({
+      guid: e.identity?.GlobalId ?? `cobie:${e.localId}`, local_id: e.localId, model_id: "cobie",
+      name: e.identity?.Name ?? `#${e.localId}`, category: e.identity?.Class ?? "", object_type: e.identity?.ObjectType, tag: e.identity?.Tag,
+    }, props);
+  });
+  const r = core.assess(assets, [], []);
+  return { total: r.total, complete: r.complete, readiness: r.readiness, coverage: r.coverage, skipped: x.counts.skipped, unknown_classes: x.counts.unknown_classes, measured_at: new Date().toISOString() };
 }
 
 export async function captureManifest(key, versionId, bytes, { actor = "bridge", source = "intake", rev_code = null } = {}, deps) {
@@ -31,8 +50,11 @@ export async function captureManifest(key, versionId, bytes, { actor = "bridge",
     container_version_id: versionId, rev_code, uploaded_by: actor,
     snapshots: m.elements.map((e) => ({ guid: e.guid, category: e.class, type_name: e.type_name ?? null })),
   });
+  // COBie measured on these same bytes; a failure is kept as "not read — why" and never fails the capture.
+  let cobie;
+  try { cobie = await d.measureCobie(bytes); } catch (e) { cobie = { not_read: String(e?.message || e).slice(0, 200) }; }
   const doc = {
-    version_id: versionId, revision_id: rev.revision_id, schema: m.schema,
+    version_id: versionId, revision_id: rev.revision_id, schema: m.schema, cobie,
     levels: m.levels, grids: m.grids, site: m.site, counts: m.counts, guid_audit: m.guid_audit ?? null,
     sha256: createHash("sha256").update(bytes).digest("hex"), captured_at: new Date().toISOString(), source,
   };

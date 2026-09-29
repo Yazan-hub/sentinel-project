@@ -4,7 +4,7 @@
 
 import type * as OBC from "@thatopen/components";
 import type * as FRAGS from "@thatopen/fragments";
-import type { Asset } from "../cobie";
+import { assetFromProps, type Asset } from "../cobie";
 
 /** The maintainable asset categories an FM team tracks (arch openings + MEP/equipment). */
 const MAINTAINABLE: RegExp[] = [
@@ -45,23 +45,13 @@ async function collectNames(model: FRAGS.FragmentsModel, cat: RegExp, sink: Set<
 }
 
 function toAsset(localId: number, data: FRAGS.ItemData | undefined, modelId: string): Asset {
-  const props = flatten(data);
-  const get = (keys: string[]) => firstOf(props, keys);
-  return {
+  return assetFromProps({
     guid: attr(data, "_guid") ?? attr(data, "GlobalId") ?? `${modelId}:${localId}`,
-    local_id: localId,
-    model_id: modelId,
+    local_id: localId, model_id: modelId,
     name: attr(data, "Name") ?? `#${localId}`,
     category: attr(data, "_category") ?? "",
-    type_name: attr(data, "ObjectType") ?? get(["Reference", "TypeName"]) ?? "Type",
-    tag: attr(data, "Tag") ?? get(["Tag", "TagNumber", "AssetTag"]),
-    manufacturer: get(["Manufacturer"]),
-    model: get(["ModelLabel", "ModelNumber", "ArticleNumber", "ModelReference"]),
-    serial: get(["SerialNumber"]),
-    install_date: get(["InstallationDate", "InstallDate"]),
-    warranty: get(["WarrantyStartDate", "WarrantyDurationParts", "WarrantyDurationLabor", "WarrantyGuarantorParts"]),
-    space: undefined,
-  };
+    object_type: attr(data, "ObjectType"), tag: attr(data, "Tag"),
+  }, flatten(data));
 }
 
 function attr(data: FRAGS.ItemData | undefined, key: string): string | undefined {
@@ -89,11 +79,4 @@ function flatten(data: FRAGS.ItemData | undefined): Record<string, string> {
   return out;
 }
 
-/** First non-empty value among keys (exact, then case-insensitive). */
-function firstOf(props: Record<string, string>, keys: string[]): string | undefined {
-  for (const k of keys) if (props[k] && props[k].trim()) return props[k];
-  const lower: Record<string, string> = {};
-  for (const [k, v] of Object.entries(props)) lower[k.toLowerCase()] = v;
-  for (const k of keys) { const v = lower[k.toLowerCase()]; if (v && v.trim()) return v; }
-  return undefined;
-}
+
