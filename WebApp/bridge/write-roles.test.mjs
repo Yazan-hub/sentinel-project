@@ -211,6 +211,24 @@ describe("Tenders (tenders-1, tenders-2, uncovered-3): issue and award are a lea
       .toEqual({ status: 409, body: { message: "tender Main works is awarded to Acme — it takes no more bids" } });
     expect(writes("bridge_docs")).toHaveLength(before);
   });
+
+  it("a bid rate that is not a number of 0 or more is a 400 — nothing saved, never a line priced at nothing (item 6, 5D)", async () => {
+    seedDoc("tender", "T1", structuredClone(TENDER));
+    for (const rates of [{ C1: "" }, { C1: "12" }, { C1: -1 }, { C1: null }]) {
+      expect(await call("POST", "/tenders/demo/T1/bids", "contributor", { bidder: "Acme", rates }))
+        .toEqual({ status: 400, body: { message: "the bid rate for C1 must be a number of 0 or more — nothing was saved" } });
+    }
+    expect(writes("bridge_docs")).toEqual([]);
+    // No rate for a line is the estimate's rate for it.
+    expect((await call("POST", "/tenders/demo/T1/bids", "contributor", { bidder: "Acme", rates: {} })).body.total).toBe(20);
+  });
+
+  it("a tender keeps the take-off revision it was priced from and whose rates priced it", async () => {
+    const rev = "a1cb4d5f-ce4f-4b54-bd11-51f1305bbe89";
+    const r = await call("POST", "/tenders/demo", "lead", { title: "X", revision_id: rev, rate_basis: "the project's rate pack" });
+    expect(r.body).toMatchObject({ revision_id: rev, rate_basis: "the project's rate pack" });
+    expect((await call("POST", "/tenders/demo", "lead", { title: "Y", revision_id: "not-a-uuid" })).body.revision_id).toBeNull();
+  });
 });
 
 describe("Clash register (clash-1): recording and moving a clash is a contributor's, clearing the register a lead's", () => {

@@ -3,7 +3,8 @@ import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
-import { buildBoQ, defaultRates, type RateTable } from "../sentinel-core";
+import { buildBoQ, defaultRates, snapshotFromQuantities, type RateTable } from "../sentinel-core";
+import { postRevision } from "./snapshot-store";
 import { getAppManager } from "../app";
 
 /**
@@ -16,6 +17,8 @@ import { getAppManager } from "../app";
 interface ScopeLine { code: string; description: string; unit: string; qty: number; rate: number; amount: number; }
 interface Bid { id: string; bidder: string; rates: Record<string, number>; total: number; submitted_date: string; }
 interface Tender {
+  revision_id?: string | null; // the take-off revision the scope was priced from (item 6, 5D)
+  rate_basis?: string | null;  // whose rates priced the estimate
   guid: string; title: string; status: string; due_date?: string | null; currency: string;
   scope: ScopeLine[]; estimate_total: number; bids: Bid[]; awarded_to?: string;
   history?: { date: string; author: string; action: string }[];
@@ -106,16 +109,26 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     if (fragments.list.size === 0) { msg("Load a model first — the scope comes from its quantities.", "#eab308"); return; }
     const b = el("tn-make") as HTMLButtonElement; b.disabled = true; msg("Taking off the scope…");
     try {
-      let rates: RateTable = defaultRates;
-      try { const p = await (await bfetch(`${base}/projects/${encodeURIComponent(pid())}`)).json(); if (p.rate_pack?.rules?.length) rates = p.rate_pack; } catch { /* default */ }
-      const boq = buildBoQ(await quantityTakeoff(fragments), rates);
+      // The project's rates, or said why not: a tender is never priced at the reference rates without saying so, and never
+      // issued when the project's own rates could not be read.
+      let rates: RateTable = defaultRates, basis = "reference rates — this project has no rate pack";
+      const pr = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
+      const pj = await pr.json().catch(() => null);
+      if (!pr.ok) { msg(`Tender not issued — this project's rates were not read: ${pj?.message || `HTTP ${pr.status}`}.`, "#ef4444"); return; }
+      if (pj?.rate_pack?.rules?.length) { rates = pj.rate_pack; basis = "the project's rate pack"; }
+      const quantities = await quantityTakeoff(fragments);
+      const boq = buildBoQ(quantities, rates);
       if (!boq.lines.length) { msg("No priced quantities to tender.", "#eab308"); return; }
+      // Pinned to the take-off it was priced from, so the tender can later say how the model moved since issue.
+      let revisionId: string | null = null, revErr: string | null = null;
+      try { revisionId = await postRevision(base, pid(), snapshotFromQuantities(quantities), { rev_code: `tender ${val("tn-title") || "Main works package"}` }); }
+      catch (e) { revErr = (e as Error).message; }
       const scope: ScopeLine[] = boq.lines.map((l) => ({ code: l.code, description: l.description, unit: l.unit, qty: l.qty, rate: l.rate, amount: l.amount }));
       await bwrite(`${base}/tenders/${encodeURIComponent(pid())}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: val("tn-title") || "Main works package", due_date: val("tn-due") || null, currency: boq.currency, scope, estimate_total: boq.total, author: "Web coordinator" }),
+        body: JSON.stringify({ title: val("tn-title") || "Main works package", due_date: val("tn-due") || null, currency: boq.currency, scope, estimate_total: boq.total, author: "Web coordinator", revision_id: revisionId, rate_basis: basis }),
       });
-      msg(`Tender issued · estimate ${money(boq.total, boq.currency)} across ${scope.length} line(s).`, "#22c55e");
+      msg(`Tender issued · estimate ${money(boq.total, boq.currency)} across ${scope.length} line(s) · at ${basis}${revisionId ? " · pinned to its take-off" : ` · not pinned to a take-off (${revErr})`}.`, revisionId ? "#22c55e" : "#eab308");
       await fetchAll();
     } catch (e) { msg("Create failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
     finally { b.disabled = false; }
@@ -132,7 +145,8 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
 
     let h = `<button id="tn-back" style="${btn};background:#2a2a30;color:#eee;margin-bottom:.5rem">← Back</button>`;
     h += `<div style="display:flex;align-items:center;gap:.4rem"><span style="font-weight:700;font-size:14px;flex:1">${esc(t.title)}</span><span style="font-size:11px;color:${STATUS_COLOR[t.status]}">${esc(t.status)}</span></div>`;
-    h += `<div style="font-size:12px;color:#9ca3af;margin:.2rem 0 .6rem">Estimate ${money(t.estimate_total, cur)} · ${t.scope.length} line(s)${t.awarded_to ? ` · awarded to <b style="color:#22c55e">${esc(t.awarded_to)}</b>` : ""}</div>`;
+    h += `<div style="font-size:12px;color:#9ca3af;margin:.2rem 0 .2rem">Estimate ${money(t.estimate_total, cur)} · ${t.scope.length} line(s)${t.rate_basis ? ` · at ${esc(t.rate_basis)}` : ""}${t.awarded_to ? ` · awarded to <b style="color:#22c55e">${esc(t.awarded_to)}</b>` : ""}</div>`;
+    h += `<div id="tn-since" style="font-size:11.5px;color:#9ca3af;margin-bottom:.6rem">${t.revision_id ? "Model since issue: reading…" : "Model since issue: not tracked — issued before tenders were pinned to a take-off"}</div>`;
 
     // comparison table
     h += '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11.5px;min-width:100%">';
@@ -181,13 +195,30 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     const add = root.querySelector("#tn-addbid"); if (add) add.addEventListener("click", () => { addingBid = true; renderDetail(); });
     const bc = root.querySelector("#tn-bidcancel"); if (bc) bc.addEventListener("click", () => { addingBid = false; renderDetail(); });
     const bs = root.querySelector("#tn-bidsend"); if (bs) bs.addEventListener("click", submitBid);
+    if (t.revision_id) void fillSince(t);
+  };
+
+  // How the model moved since the tender was issued (item 6, 5D): its take-off against the newest one, priced by the
+  // bridge with the basis it names — or why not.
+  type Delta = { comparable: boolean; headline?: string; reason?: string; basis?: { rates?: string }; to?: { id?: string; rev_code?: string | null } };
+  const fillSince = async (t: Tender) => {
+    const box = root.querySelector("#tn-since");
+    if (!box) return;
+    try {
+      const d = await bwrite<Delta>(`${base}/cde/${encodeURIComponent(pid())}/snapshots/delta?from=${encodeURIComponent(t.revision_id!)}`);
+      if (current !== t) return;
+      box.textContent = !d.comparable ? `Model since issue: not compared — ${d.reason}`
+        : d.to?.id === t.revision_id ? "Model since issue: no take-off since the tender was issued — take off in Cost 5D to compare"
+        : `Model since issue: ${String(d.headline ?? "").replace(/^This revision: /, "")} (newest take-off ${d.to?.rev_code ?? "?"}, at ${d.basis?.rates ?? "reference rates"})`;
+    } catch (e) { if (current === t) box.textContent = `Model since issue: not read — ${(e as Error).message}`; }
   };
 
   const submitBid = async () => {
     if (!current) return;
     const bidder = val("tn-bidder").trim() || "Bidder";
     const rates: Record<string, number> = {};
-    root.querySelectorAll<HTMLInputElement>(".tn-rate").forEach((i) => { const v = Number(i.value); if (Number.isFinite(v)) rates[i.dataset.code!] = v; });
+    // A blank rate is the estimate's rate for that line (the bridge prices it so) — never 0.
+    root.querySelectorAll<HTMLInputElement>(".tn-rate").forEach((i) => { if (!i.value.trim()) return; const v = Number(i.value); if (Number.isFinite(v)) rates[i.dataset.code!] = v; });
     msg("Submitting bid…");
     try {
       await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
