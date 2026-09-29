@@ -17,7 +17,6 @@
     "prepare": "node scripts/build-fragments-worker.mjs"
   },
   "dependencies": {
-    "3d-tiles-renderer": "^0.4.28",
     "@anthropic-ai/sdk": "^0.113.0",
     "@lit/context": "^1.1.6",
     "@markerjs/markerjs3": "^3.9.0",
@@ -27,8 +26,9 @@
     "@thatopen-platform/components-front-beta": "3.5.16",
     "@thatopen-platform/fragments-beta": "3.5.9",
     "@thatopen/fragments": "^3.4.7",
-    "@thatopen/services": "^0.3.11",
+    "@thatopen/services": "0.16.1",
     "@thatopen/ui": "~3.4.4",
+    "3d-tiles-renderer": "^0.4.28",
     "camera-controls": "^3.1.2",
     "lit": "^3.0.0",
     "mammoth": "^1.12.0",
