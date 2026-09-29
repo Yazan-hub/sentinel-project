@@ -61,7 +61,8 @@ export async function mirrorState(versionId, deps = {}) {
     const file = await client.getFile(item);
     if (/\.ifc$/i.test(file?.name || "") || /^\.?ifc$/i.test(file?.fileExtension || "")) return skip(`${file?.name || "the item"} is an IFC — the gate's labels live there, only a .frag carries the state`);
     const merged = stateLabels(await client.getFileVersionMetadata(item, tag), state, row.id);
-    if (!merged) return skip(`the label already names ledger #${row.id} or a newer state: row`);
+    // Already current is not a failure: no "not mirrored" line, the answer says so.
+    if (!merged) return { mirrored: false, current: true, reason: `up to date — the label already names ledger #${row.id} or a newer state: row` };
     await client.updateFileVersionMetadata(item, tag, merged);
     return { mirrored: true, item, tag, state, row: row.id };
   } catch (e) {

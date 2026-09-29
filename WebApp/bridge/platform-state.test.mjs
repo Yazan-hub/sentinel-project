@@ -137,7 +137,7 @@ describe("mirrorState — the state onto the .frag's only version", () => {
 
   it("a label that already names this row or a newer one is left alone", async () => {
     client.getFileVersionMetadata = vi.fn(async () => ({ sentinel_state: "published", sentinel_state_row: "900" }));
-    expect(await mirrorState(V, deps())).toEqual({ mirrored: false, reason: "the label already names ledger #812 or a newer state: row" });
+    expect(await mirrorState(V, deps())).toEqual({ mirrored: false, current: true, reason: "up to date — the label already names ledger #812 or a newer state: row" });
     expect(client.updateFileVersionMetadata).not.toHaveBeenCalled();
   });
 
