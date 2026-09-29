@@ -47,7 +47,7 @@ import { projectsHubPanel } from "./setups/projects-hub-panel";
 import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
-import { activePid, onActiveProjectChange, refreshActiveProject, getActiveProjectKey } from "./setups/active-project";
+import { activePid, onActiveProjectChange, refreshActiveProject, getActiveProjectKey, hasProjectOverride } from "./setups/active-project";
 import { onAuthChange, currentSession } from "./setups/auth";
 import { userChangeFilter } from "./setups/user-change";
 import { nextStrip, tabIndex } from "./setups/next-strip";
@@ -135,7 +135,9 @@ async function main() {
     setupAskSentinel(client, {
       appVersion: APP_VERSION,
       platformProjectId: () => client.context?.projectId,
-      sentinelProject: () => (getAppManager().client ? getActiveProjectKey() : null), // null until the boot sets the app context
+      // A Sentinel project only once one is open (linked or picked — both set the override); without one the key is the
+      // platform project's id, a fallback no Sentinel project answers to.
+      sentinelProject: () => (getAppManager().client && hasProjectOverride() ? getActiveProjectKey() : null),
       signedIn: async () => !!(await currentSession()),
       bridge: () => fetch(`${SERVICE_URL}/health`, { cache: "no-store" }), // plain fetch: a JWT on /health gets a 503 (bridge-fetch.ts)
       readDeliveries: (name) => readDeliveries(client as unknown as DeliveriesClient, client.context?.projectId, name),

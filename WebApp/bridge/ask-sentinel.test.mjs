@@ -22,7 +22,7 @@ function fakeSocket({ onSubscribe = (s) => s.fire("channelMessage", { type: "cha
   };
   return s;
 }
-const depsFor = (s) => ({ config: CFG, connect: (url) => { s.url = url; return s; } });
+const depsFor = (s) => ({ config: CFG, addresses: async () => [null], connect: (url) => { s.url = url; return s; } });
 
 describe("ask — the asking side of the platform channel", () => {
   it("subscribes, publishes with an ack, keeps the FIRST reply to its own requestId, and hangs up", async () => {
@@ -87,6 +87,42 @@ describe("ask — the asking side of the platform channel", () => {
     const flaky = fakeSocket({ onSubscribe: (s) => s.fire("connect_error", new Error("websocket error")) });
     await expect(ask({ type: "sentinel.status", timeoutMs: 20 }, depsFor(flaky)))
       .rejects.toThrow("did not confirm the channel within 0.02 s (last connection error: websocket error)");
+  });
+});
+
+describe("ask — the platform's channel servers do not share their rooms: every address is asked", () => {
+  const A = { address: "10.0.0.1", family: 4 }, B = { address: "10.0.0.2", family: 4 };
+  const twoServers = (behave) => {
+    const sockets = {};
+    return {
+      sockets,
+      deps: {
+        config: CFG, addresses: async () => [A, B],
+        connect: (_url, opts) => {
+          // Which server this socket reached: the pinned agent's lookup names it.
+          let addr; opts.agent.options.lookup("platform.test", {}, (_e, a) => { addr = a; });
+          expect(opts.forceNew).toBe(true);
+          return (sockets[addr] = fakeSocket({ onPublish: (s, msg, ack) => behave[addr](s, msg, ack) }));
+        },
+      },
+    };
+  };
+  const answers = (s, msg, ack) => { ack({ delivered: 1 }); s.fire("channelMessage", { type: "reply", requestId: msg.requestId, payload: { here: true } }); };
+  const empty = (_s, _m, ack) => ack({ delivered: 0 });
+
+  it("the tab on the second server answers although the first says delivered 0; both sockets hang up", async () => {
+    const { deps, sockets } = twoServers({ "10.0.0.1": empty, "10.0.0.2": answers });
+    await expect(ask({ type: "sentinel.status" }, deps)).resolves.toEqual({ delivered: 1, answer: { here: true } });
+    expect(Object.keys(sockets).sort()).toEqual(["10.0.0.1", "10.0.0.2"]);
+    expect(sockets["10.0.0.1"].disconnected && sockets["10.0.0.2"].disconnected).toBe(true);
+  });
+
+  it("'not open' only when every server says so; else the more telling reason", async () => {
+    await expect(ask({ type: "sentinel.status" }, twoServers({ "10.0.0.1": empty, "10.0.0.2": empty }).deps))
+      .rejects.toThrow("Sentinel is not open (and joined) in platform project P under this account — not answered");
+    const silent = (_s, _m, ack) => ack({ delivered: 1 });
+    await expect(ask({ type: "sentinel.status", timeoutMs: 20 }, twoServers({ "10.0.0.1": empty, "10.0.0.2": silent }).deps))
+      .rejects.toThrow("not answered — delivered to 1 Sentinel tab(s) in platform project P, but no reply within 0.02 s");
   });
 });
 
