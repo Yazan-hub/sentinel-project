@@ -120,9 +120,14 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
       }
       const map: Record<string, number[]> = {};
       for (const c of t.categories) {
-        const hit = cat[c.toUpperCase()];
-        if (!hit) continue;
-        for (const [mid, ids] of Object.entries(hit)) (map[mid] ??= []).push(...ids);
+        // A class and its IFC standard/elemented cases (IFCWALL → IFCWALLSTANDARDCASE): a wall is a wall whichever way
+        // the exporter wrote it (seen live: aster's walls are all IFCWALLSTANDARDCASE, so "WALL" matched nothing).
+        const C = c.toUpperCase();
+        for (const key of [C, C + "STANDARDCASE", C + "ELEMENTEDCASE"]) {
+          const hit = cat[key];
+          if (!hit) continue;
+          for (const [mid, ids] of Object.entries(hit)) (map[mid] ??= []).push(...ids);
+        }
       }
       taskElements.set(t.id, map);
     }
