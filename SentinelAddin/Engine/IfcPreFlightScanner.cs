@@ -138,7 +138,7 @@ public static class IfcPreFlightScanner
 
         sw.Stop();
         return new ScanReport(doc.Title + " [IFC pre-flight]", DateTimeOffset.Now,
-            sw.ElapsedMilliseconds, checkedCount, violations);
+            sw.ElapsedMilliseconds, checkedCount, violations) { ScoreLabel = "IFC mapping coverage" };
     }
 
     private static bool HasNonEmpty(Element e, string name)

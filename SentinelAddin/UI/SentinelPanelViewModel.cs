@@ -64,7 +64,8 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     private double _score = 100;
     public double Score { get => _score; private set { _score = value; OnChanged(); OnChanged(nameof(ScoreText)); } }
     private string? _notScored;   // set when no ruleset judged the rows: no percentage, no grade
-    public string ScoreText => _notScored is null ? $"{Score:F1}% compliant" : "Not scored — no ruleset judged this model";
+    private string _scoreLabel = "Rule pass rate";   // SCORE-E1: what the figure measures (IFC pre-flight: IFC mapping coverage)
+    public string ScoreText => _notScored is null ? $"{_scoreLabel} {Score:F1}%" : "Not scored — no ruleset judged this model";
 
     private string _status = "No scan yet";
     public string Status { get => _status; private set { _status = value; OnChanged(); } }
@@ -80,7 +81,8 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             // BLOCK rows first: they are what stops the sync (App.OnSynchronizing).
             foreach (var v in report.Violations.OrderBy(v => v.Mode == EnforcementMode.Block ? 0 : 1)) Violations.Add(new ViolationRow(v, report.Ruleset));
             _notScored = report.NotScored;
-            Score = report.Score;   // raises ScoreText, which reads _notScored
+            _scoreLabel = report.ScoreLabel;
+            Score = report.Score;   // raises ScoreText, which reads _notScored and _scoreLabel
             Status = report.NotScored is { } why
                 ? $"{report.DocTitle} — {why}"
                 : $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
@@ -102,14 +104,19 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// 'Revit Doctor' log: native warnings auto-resolved/suppressed.
     public ObservableCollection<string> DoctorLog { get; } = new ObservableCollection<string>();
 
-    public void LogDoctor(string line) => OnUi(() =>
+    // The log also carries scan, ruleset, publish and refusal lines; only the Revit Doctor's own resolutions count
+    // as auto-resolved warnings (SCORE-E1 / audit: the header used to count every line). Session count.
+    private int _autoResolved;
+
+    public void LogDoctor(string line, bool autoResolved = false) => OnUi(() =>
     {
+        if (autoResolved) _autoResolved++;
         DoctorLog.Insert(0, DateTime.Now.ToString("HH:mm:ss") + "  " + line);
         while (DoctorLog.Count > 200) DoctorLog.RemoveAt(DoctorLog.Count - 1);
         OnChanged(nameof(DoctorHeader));
     });
 
-    public string DoctorHeader => $"Doctor — {DoctorLog.Count} auto-resolved warning(s)";
+    public string DoctorHeader => $"Doctor — {_autoResolved} warning(s) auto-resolved or suppressed · {DoctorLog.Count} line(s)";
 
     public void RaisePendingRequest(Violation v) =>
         OnUi(() => Status = $"⏳ Change request created for '{v.ElementName}' — awaiting coordinator ({v.RuleId})");

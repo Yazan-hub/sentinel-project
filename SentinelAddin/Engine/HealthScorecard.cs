@@ -30,13 +30,14 @@ public static class HealthScorecard
         public DateTimeOffset At { get; set; }
         public int ElementsChecked { get; set; }
         public int TotalViolations { get; set; }
-        public double Score { get; set; }                    // weighted 0-100
+        public double Score { get; set; }                    // weighted 0-100: "Weighted rule score"
+        public double PassRate { get; set; }                 // ScanReport.Score: "Rule pass rate" (SCORE-E1)
         public string Grade => Score >= 95 ? "A" : Score >= 85 ? "B" : Score >= 70 ? "C" : Score >= 50 ? "D" : "F";
         public List<DomainScore> Domains { get; } = new List<DomainScore>();
         public string? NotScored { get; set; }               // no ruleset judged the model: no score, no grade
         public string Headline => NotScored is not null
             ? $"Not scored — {NotScored} · {TotalViolations} open issue(s) from checks outside the ruleset"
-            : $"{Score:F1}% ({Grade}) — {TotalViolations} open issue(s) across {Domains.Count} domain(s)";
+            : $"Weighted rule score {Score:F1}% ({Grade}) · rule pass rate {PassRate:F1}% — {TotalViolations} open issue(s) across {Domains.Count} domain(s)";
     }
 
     public static Scorecard Build(ScanReport report)
@@ -48,6 +49,7 @@ public static class HealthScorecard
             ElementsChecked = report.ElementsChecked,
             TotalViolations = report.Violations.Count,
             NotScored = report.NotScored,
+            PassRate = report.Score,
         };
 
         double penalty = 0;
@@ -80,6 +82,11 @@ public static class HealthScorecard
         sb.AppendLine("SENTINEL COMPLIANCE SCORECARD");
         sb.AppendLine(c.DocTitle + " — " + c.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
         sb.AppendLine(c.Headline);
+        if (c.NotScored is null)
+        {
+            sb.AppendLine("Rule pass rate = elements without a scored issue ÷ elements checked (MONITOR is not scored).");
+            sb.AppendLine("Weighted rule score = 100 × (1 − Σ weights ÷ (elements checked × 2)); weights BLOCK 8 · REQUEST 4 · WARN 2 · MONITOR 0.5.");
+        }
         sb.AppendLine(new string('-', 48));
         foreach (var d in c.Domains)
             sb.AppendLine($"  {d.Domain,-6} {d.Violations,4} issue(s)   penalty {d.WeightedPenalty,6:F1}");
