@@ -50,14 +50,16 @@ be proven live, recorded as a drill row, not claimed): the CLI with the app id a
 `delivered ≥ 1`, every item cites a ledger row or says it is not on the ledger; sign out → `ledger not read`; close
 the tab → `delivered 0`.
 
-## Phase 4 — notifications
+## Phase 4 — notifications (observed 2026-09-29: already live from the platform, no code)
 
-A refused platform gate run notifies from the platform itself (bell and optional email) to each member who follows the
-two "Sentinel gate" automations — 4a is a setting on the platform, no code; 4b, only if leads should opt in from inside
-Sentinel: a "Notify me of refused deliveries" toggle on the Platform deliveries header using
-`subscribeToAutomation`/`unsubscribeFromAutomation` with the viewer's session, the automations' hook ids kept in the
-linked project's settings. Review steps, holds, issues and state changes stay in Sentinel's own surfaces (the platform
-has no custom notification types).
+The platform already notifies. The founder follows both "Sentinel gate" automations (their menu offers "Stop notifying
+me" — the creator follows by default; any project member follows with "Notify me" in the same menu), and the bell
+lists one notification when a run starts and one when it finishes, with its outcome: "Sentinel Delivery Gate ended with
+SUCCESS after 1s" / "… ended with WARNING …". The body names the outcome only — not the refusal's reason; the platform
+has no custom notification text. The reason is where it always was: the run's ledger row, the Platform deliveries card
+and `sentinel.deliveries`. Not built, deliberately: an in-app toggle (the automation's own menu does it) and an in-app
+bell (the platform shell has one). Sentinel's own events — review steps, holds, issues, state changes — stay on
+Sentinel's surfaces (the Next strip, the board): the platform has no custom notification types.
 
 ## Fixes found on the way (in this item)
 
