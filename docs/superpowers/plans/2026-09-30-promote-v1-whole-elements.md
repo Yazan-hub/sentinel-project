@@ -46,7 +46,7 @@ choose an alternative, change the JSON (a data change) unless the table says "co
 | GN-3 | No `lod_matrix` installed | Walls only, exactly as MA-0 ("LOD matrix: none — walls only (MA-0 rules)") | Refuse to run; or run every class the guideline has rules for (code) |
 | GN-4 | A matrix row whose DD asks for something v1 does not check exactly | That class is **not run**; the summary names the difference. An unknown key is refused at install by the bridge | Run the class and print "not checked: …" (code) |
 | GN-5 | Elements in a design option | Held ("Sentinel does not edit design options") and counted. Applies to walls too | Skip them silently (code) |
-| GN-6 | IDS badge on retype rows | Unchanged from MA-0: a retype ghost carries no psets, so with the BDS IDS a door/window row may show ✗ while pre-ticked (the badge certifies nothing for a retype) | The bridge skips IDS adjudication for Promote retypes and marks them "recorded" (code, `changesets-store.mjs:35-42`) |
+| GN-6 | IDS badge on retype rows | Unchanged from MA-0: a retype ghost carries no psets, so with the BDS IDS a window row may show ✗ while pre-ticked (door swaps are not pre-ticked until DR-1 is confirmed) (the badge certifies nothing for a retype) | The bridge skips IDS adjudication for Promote retypes and marks them "recorded" (code, `changesets-store.mjs:35-42`) |
 
 ### Floors
 
@@ -76,7 +76,7 @@ choose an alternative, change the JSON (a data change) unless the table says "co
 
 | # | Question | Recommended default | Alternative |
 |---|---|---|---|
-| DR-1 | Which size is compared | The concept door **type's** Width × Height (type parameters, whole mm; if its type name carries a W×H it must agree) against the **nominal size in the BDS type name** (`…_1000 x 2100 mm`). Never the BDS Width parameter: it is the leaf (960 × 1980) | Compare Rough Width / Rough Height |
+| DR-1 | Which size is compared | The concept door **type's** Width × Height (type parameters, whole mm; if its type name carries a W×H it must agree) against the **nominal size in the BDS type name** (`…_1000 x 2100 mm`). Never the BDS Width parameter: it is the leaf (960 × 1980). **Consequence to confirm:** after a swap the door's Width × Height read the BDS family's own (1000 × 2100 becomes 960 × 1980; the opening is whatever the BDS family cuts), and a second run never re-measures it (settled by family and type). Until this row is confirmed, door swaps are proposed but **not pre-ticked** (a person ticks each; the reason says why) | Compare Rough Width / Rough Height; or hold every door swap |
 | DR-2 | Where "interior/exterior" comes from | The host wall: if its type is one a DD wall rule produces, **that rule's Function** (so a door in a promoted `BDS_INT_ARC_GYPS_100 mm`, Function Exterior in the template, reads Interior — the F2 trap); if the host is a concept wall, its type's Function; if the host is another office type, or its storey's walls are all one type → **held** | Host Function only (wrong for every promoted gypsum wall); or parse `BDS_EXT_`/`BDS_INT_` from the host name |
 | DR-3 | Interior door type | WOOD, plain (not `_SWING`), as the office's own guideline uses | STEEL or GLASS; the `_SWING` variant |
 | DR-4 | Exterior doors | **Held** (no rule): material is design-significant and nothing names a default | WOOD or STEEL exterior rules |
@@ -91,6 +91,12 @@ choose an alternative, change the JSON (a data change) unless the table says "co
 | WN-2 | Sizes in two families (600×1300, 600×3000, 1500×2600) | Held; the reason lists both families | Name a preferred family (e.g. the `+FX` one) |
 | WN-3 | Unverifiable/contradictory template types (3100×2900 ×4, 3100×1500, 2650×3000 ×2) | Excluded until the template is fixed | Trust the name |
 | WN-4 | Interior/exterior for windows | No condition (BDS windows are not split INT/EXT) | Hold windows in interior hosts |
+
+### LOD matrix
+
+| # | Question | Recommended default | Alternative |
+|---|---|---|---|
+| LM-1 | Which properties DD requires per class (`bds-lod-matrix-dd.json` `properties`; the lod_matrix validator allows no `why`, so this row is their decision id) | As drafted, **placeholders** from the IFC common psets: walls IsExternal, LoadBearing, FireRating, ThermalTransmittance; floors IsExternal, LoadBearing, FireRating; roofs IsExternal, FireRating, ThermalTransmittance; ceilings FireRating, AcousticRating; doors IsExternal, FireRating; windows IsExternal, ThermalTransmittance. Promote only lists them ("DD also asks …"); nothing checks them | The office's own list per class (e.g. doors also ThermalTransmittance, windows also FireRating) |
 
 ### Engineering decisions taken here (not founder policy; recorded so a reviewer can challenge them)
 
@@ -115,6 +121,12 @@ choose an alternative, change the JSON (a data change) unless the table says "co
   unverified, and a retype must never move a face.
 - **E7 — preflight.** Before filing, the command asks Revit `IsValidType` for every retype ghost (walls too); a refused ghost
   becomes a held row, so one bad swap cannot roll back a 200-element changeset.
+- **E8 — the holds again at Apply.** A pending changeset is reopened, not re-planned, and its `source` is the caller's own label,
+  so `ChangesetExecutor.Unsafe` repeats the planner's holds on the model as it is (floors, roofs, ceilings, doors, windows; walls
+  keep MA-0's checks): group, design option, structural floor, a door or window no wall hosts, the same build-up within 0.5 mm, a
+  door's concept Width × Height equal to the target's type-name size (DR-1), a window's equal to the target type's own Width ×
+  Height (so a WN-3 type that drifted is caught). The preflight runs it too. The office-typed hold needs the guideline and is not
+  repeated; the review window pre-ticks a Promote retype only when it carries `type_before`.
 
 ---
 
@@ -224,11 +236,11 @@ Every other class goes through these checks **in this order**; each "held" line 
 | 2 | **Settled** → no ghost; DD if the constraints hold | `m.RuleProduces(cat, TypeName)` | `m.RuleProduces(cat, TypeName, Family)` — family-aware (window type names repeat across families) |
 | 3 | **Office-typed** → no ghost, no hold, not in the denominator (`OfficeTyped++`) | `TypeName` starts with `office + "_"` | `Family` starts with `office + "_"` |
 | 4 | **Structural** → held whole | floors only: `FLOOR_PARAM_IS_STRUCTURAL = 1` (FL-3) | — |
-| 5 | Host (doors, windows) | — | unhosted → "rehosting is MA-5"; host not a basic wall → held; **doors only**: location per DR-2 (settled host → `RuleParam("Walls", HostTypeName, "Function")`; other office host → held; concept host on a one-type storey → held; else the host's Function) |
+| 5 | Host (doors, windows) | — | unhosted → "rehosting is MA-5"; hosted by something else (a roof's skylight) → held naming that host; host not a basic wall → held; **doors only**: location per DR-2 (settled host → `RuleParam("Walls", HostTypeName, "Function")`; other office host → held; concept host on a one-type storey → held; else the host's Function) |
 | 6 | Size | thickness (when known) must be a whole mm | Width and Height must be **type** parameters (else "instance-sized family") and whole mm; a W×H in the concept type name must equal them |
 | 7 | No catalogue installed → held (D16) | yes | yes |
 | 8 | `Resolve` | `Params = {Function? , Family}`, `ThicknessMm` | `Params = {HostFunction (doors), Size}` |
-| 9 | Answer | source ≠ rule → "no DD rule for …"; rule with no type → "no build-up thickness to fill the DD rule's type"; confidence 0 → `m.Gap(…)` | source ≠ rule → if the catalogue has **no** type of that W×H: `m.Gap(…, "no <Doors> type of W x H mm in the catalogue")`, else "no DD rule for … — the catalogue has <list>; which one is office policy"; rule → `CatalogHas(cat, family, type)` and the rule type's own W×H must equal the size, else held |
+| 9 | Answer | source ≠ rule → "no DD rule for …"; rule with no type → "no build-up thickness to fill the DD rule's type"; confidence 0 → `m.Gap(…)` | source ≠ rule → the catalogue by type **name** (`CatalogOfSize`): types named at that W×H → "no DD rule for … — the catalogue has <list>; which one is office policy" (one type: "…, but no DD rule names it (office policy)"); windows only, when every such type's harvested `width_mm × height_mm` contradicts its name (WN-3) → "… read another Width x Height in the template — a template fault (WN-3)"; none → `m.Gap(…, "no <Doors> type named at W x H mm in the catalogue")`; rule → `CatalogHas(cat, family, type)` and the rule type's own W×H must equal the size, else held |
 | 10 | Loaded here? | `docTypes[cat]` must hold the type **and** its build-up must equal the element's thickness ±0.5 mm (E6); a concept with no thickness skips the comparison | `docTypes[cat]` must hold `"Family : Type"` |
 | 11 | Ghost | `retype`, `TypeBefore = TypeName`, `TypeName = res.Type` | `retype`, `TypeBefore = "Family : Type"`, `TypeName = res.Type`, `FamilyName = res.Family` |
 | 12 | DD now | settled | settled **and** hosted by a wall |
@@ -236,7 +248,8 @@ Every other class goes through these checks **in this order**; each "held" line 
 Reason texts (pinned by promote-check):
 - system retype: `DD floors: Function Interior, Family Floor, 300 mm → BDS_INT_STR_CONC_300 mm`
 - door swap: `DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm`, plus
-  ` (host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior)` when the location came from a settled host's rule and differs from that host's Function.
+  ` (host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior)` when the location came from a settled host's rule and differs from that host's Function,
+  then always `; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own`.
 
 **Merging:** `PromotePlanner.Plan` calls `PromoteWallsPlanner.Plan` (when Walls run), then adds each other element to the
 `StoreyPlan` of its level (creating one if the storey has no walls), and re-sorts storeys by elevation, then name (the walls
@@ -264,9 +277,9 @@ changeset (≤200 ghosts; more → MA-0's chunking, one Undo per chunk).
     { "op": "retype", "kind": "door",
       "target": { "unique_id": "5a1c…-00000194", "type_before": "M_Single-Flush : MA1 1000 x 2100mm" },
       "place": { "TypeName": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm", "FamilyName": "BDS_INT_1 PNL" },
-      "reason": "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+      "reason": "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm; sized by its type name (DR-1): …",
       "validate": { "identity": { "Class": "IfcDoor", "Name": "Door 404 (MA1-D01)" } } } ],
-  "exceptions": [ { "unique_id": "5a1c…-00000196", "name": "Door 406 (MA1-D04)", "reason": "gap: Door 406 … — no Doors type of 915 x 2134 mm in the catalogue (type_catalog: …)" } ] }
+  "exceptions": [ { "unique_id": "5a1c…-00000196", "name": "Door 406 (MA1-D04)", "reason": "gap: Door 406 … — no Doors type named at 915 x 2134 mm in the catalogue (type_catalog: …)" } ] }
 ```
 
 IFC classes: wall `IfcWall`, floor `IfcSlab`, roof `IfcRoof`, ceiling `IfcCovering`, door `IfcDoor`, window `IfcWindow`.
@@ -522,7 +535,7 @@ new `WebApp/src/sentinel-core/guideline-fixtures.test.ts`, new (generated, commi
      `(host …: its DD rule says Interior)` tail; host `BDS_EXT_STR_CONC_200 mm` (office, not produced) → held; host on a one-type storey
      (two `Generic - 200mm` walls on Level 2, door `HostLevel "Level 2"`) → held; unhosted → `rehosting is MA-5`; curtain host
      (`HostBasic false`) → held; `WidthMm null` → instance-sized; 914.4×2133.6 → not a whole millimetre; name `MA1 1000 x 2100mm` with
-     Width 900 → name/size disagree; 915×2134 → `gap: … no Doors type of 915 x 2134 mm in the catalogue`; **settled** on
+     Width 900 → name/size disagree; 915×2134 → `gap: … no Doors type named at 915 x 2134 mm in the catalogue`; **settled** on
      `BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm` with Width 960 → `DdNow`, no ghost (never re-measured); same type name in family
      `Other` → not settled (proposed); `BDS_INT_1 PNL : BDS_INT_1 PNL_GLASS_1000 x 2100 mm` → `OfficeTyped`; target not loaded → held;
      a JsonNode copy whose door rule names `…_2000 x 2100 mm` for `W1000 x H2100 mm` → held "the rule and the type name disagree";
@@ -634,7 +647,7 @@ new `WebApp/src/sentinel-core/guideline-fixtures.test.ts`, new (generated, commi
      `standards.Guideline.IsDraft`; "Nothing to file: no element needs a change Sentinel can propose." when there is no body.
 2. `ChangesetReviewWindow.cs`: header comment (`:2-6`) and `:58` say element(s); `:78` `… element(s))`; `:126`
    `"retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}"`.
-   `PreTick` (`:140-141`) is unchanged: every Promote retype is a single-answer op.
+   `PreTick` (`:140-141`) is unchanged: every Promote retype is a single-answer op. (Superseded by the review fix-up: door swaps wait for DR-1, and a retype needs `type_before` — E8.)
 3. `App.cs:492-493`: `"4 · Promote (DD)"`; tooltip: "Promote this model's walls, floors, roofs, ceilings, doors and windows to DD by the guideline, type catalogue and LOD matrix installed on its web project (or its office): retype to the exact catalogue type already loaded here, swap doors and windows to an office family type keeping their host, attach wall tops to story levels, and send every ambiguous element to a person with its reason. With no LOD matrix, walls only. Shows the plan first (No = read-only); files one reviewed changeset per storey. No type is ever created; each change is stamped, and an Undo of it is recorded on the ledger."
 
 **Commands:** both builds; `dotnet run --project tools/promote-check`. First live read = B35-1.
@@ -748,7 +761,7 @@ I01–I05 at x = 4000…20000 from y 0→4500, I06–I10 at the same x from y 75
 | MA1-D01 | door | GR-FFL, in I02 (x 8000) at y 2250 | M_Single-Flush : MA1 1000 x 2100mm | swap → `BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm` |
 | MA1-D02 | door | GR-FFL, in I07 (x 8000) at y 9750 | M_Double-Flush : MA1 2000 x 2100mm | swap → `BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm` |
 | MA1-D03 | door | GR-FFL, in E01 at x 6000 | M_Single-Flush : MA1 1000 x 2100mm | held: no DD rule for HostFunction Exterior … (DR-4) |
-| MA1-D04 | door | GR-FFL, in I03 (x 12000) at y 2250 | M_Single-Flush : 0915 x 2134mm | held: `gap: … no Doors type of 915 x 2134 mm in the catalogue` |
+| MA1-D04 | door | GR-FFL, in I03 (x 12000) at y 2250 | M_Single-Flush : 0915 x 2134mm | held: `gap: … no Doors type named at 915 x 2134 mm in the catalogue` |
 | MA1-D05 | door | GR-FFL, in I04 (x 16000) at y 2250 | BDS_INT_1 PNL : BDS_INT_1 PNL_GLASS_1000 x 2100 mm | left as is (office family) |
 | MA1-D06 | door | 01-FFL, in I02 at y 2250 | M_Single-Flush : MA1 1000 x 2100mm | proposed; **the reviewer unticks it** (sets up B35-6) |
 | MA1-W01 | window | GR-FFL, in E03 at y 3000, sill 900 | M_Fixed : MA1 600 x 1200mm | swap → `BDS_Window_Single Panel : 600x1200 mm` |
@@ -767,9 +780,9 @@ separately from the seed's.
 | B35-1 No matrix (MA-0 compatibility) | Promote (DD), **No** | Header "LOD matrix: none — … — walls only (MA-0 rules)"; only wall lines; no floor/door row anywhere; body name would be "Promote walls (DD)" |
 | B35-2 Matrix + walls-only guideline | Install `bds-lod-matrix-dd.json --kind lod_matrix`; Promote, **No** | "LOD matrix: lod_matrix@1 · project · … (DRAFT)"; walls as B35-1; five lines "Floors: BDS DD walls v0 (MA-0) has no Floors rules" … — the command works with the walls-only file |
 | B35-3 Full plan, read-only | Install `bds-dd-elements-guideline.json --kind guideline` (guideline@2); Promote, **No** | "DRAFT rules"; per storey per class lines; whole-model "DD now" before; every seed row of §6.3 appears as expected (ghost, held with that reason, or left as is); zero template elements proposed. Record DD-now before per class |
-| B35-4 Run 1, GR-FFL | Promote, **Yes** → review GR-FFL | Rows labelled `retype floor: …`, `retype door: Door … (MA1-D01) · M_Single-Flush : MA1 1000 x 2100mm → BDS_INT_1 PNL : …`; all pre-ticked; held panel lists the §6.3 holds with reasons; **0 unticks needed**. Apply. MA1-D01 keeps its element id, host, swing and facing; the opening follows the BDS family; floors keep level and offset. Record time and edits |
-| B35-5 Run 1, other storeys | Promote → reopens 01-FFL; **untick MA1-D06 only**; Apply. Promote → reopens MA0 Roof; Apply | "Applied n … 1 unticked element(s) reported as rejected" on 01-FFL; roof retyped |
-| B35-6 R1 live (settled host) | Promote, **No**, then **Yes** | Exactly one ghost: MA1-D06 → `BDS_INT_1 PNL : …`, its reason ending "(host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior)" although that type is Function Exterior in this template. Apply |
+| B35-4 Run 1, GR-FFL | Promote, **Yes** → review GR-FFL | Rows labelled `retype floor: …`, `retype door: Door … (MA1-D01) · M_Single-Flush : MA1 1000 x 2100mm → BDS_INT_1 PNL : …`; every row pre-ticked **except the door swaps** (DR-1 unconfirmed; their tooltip says why); held panel lists the §6.3 holds with reasons; **tick MA1-D01 and MA1-D02**, 0 unticks. Apply. MA1-D01 keeps its element id, host, swing and facing; record its Width × Height before and after (DR-1's consequence) and the opening; floors keep level and offset. Record time and edits |
+| B35-5 Run 1, other storeys | Promote → reopens 01-FFL; **leave MA1-D06 unticked** (door swaps are not pre-ticked), tick nothing else; Apply. Promote → reopens MA0 Roof; Apply | "Applied n … 1 unticked element(s) reported as rejected" on 01-FFL; roof retyped |
+| B35-6 R1 live (settled host) | Promote, **No**, then **Yes** | Exactly one ghost: MA1-D06 → `BDS_INT_1 PNL : …`, its reason carrying "(host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior)" although that type is Function Exterior in this template. Tick it; Apply |
 | B35-7 Idempotence | Promote, **No** | "Nothing to file"; DD now after per class (seed: Floors 2/4, Roofs 1/2, Ceilings 1/3, Doors 3/5, Windows 2/3, walls as B33's re-check) plus the template's own elements as measured; stamped by Promote per class; zero types created (compare the Project Browser type counts before/after) |
 | B35-8 Undo / redo | Ctrl+Z twice, Ctrl+Y twice | Two `changeset_reverted` rows (undo, counts 1 and the roof changeset's), then two redo rows (`GET /cde/ma1-bds/audit`) |
 | B35-9 Stale plan (optional, fresh copy) | Promote Yes; before Apply, change MA1-D02 by hand to another `M_Double-Flush` type; Apply | Declined: "door … is now "M_Double-Flush : …" — the model changed since the plan; re-run Promote"; nothing changed |
@@ -786,7 +799,7 @@ review + apply time per storey; changesets and ledger rows; elements stamped by 
 | Risk | Mitigation |
 |---|---|
 | A door in a promoted gypsum partition reads Exterior (template Function lies — B33 F2) | DR-2: a settled host's location comes from its DD rule (`RuleParam`); other office hosts are held; pinned by promote-check and B35-6 |
-| Door size: BDS Width is the leaf (960), the nominal is in the name | DR-1: rules key on the concept's size; the target's W×H is read from its **name** (`TrySection`) and must equal it; settled by family+type, never re-measured |
+| Door size: BDS Width is the leaf (960), the nominal is in the name | DR-1: rules key on the concept's size; the target's W×H is read from its **name** (`TrySection`) and must equal it; settled by family+type, never re-measured. The swapped door then reads the leaf size, so door swaps are not pre-ticked until the founder confirms DR-1, and the reason says so. Windows compare the target's own Width × Height at preflight and Apply (E8) |
 | Window type names repeat across families; `3600x3000 mm` is also a door | Family-aware `RuleProduces`/`CatalogHas`; `"Family : Type"` in doc lookups, `type_before` and the executor; doc types per category |
 | Substring param matching (`1000` ⊂ `10000`) | `W…` / `H…` / ` mm` delimiters; checked in the fixture (W10000, H21000, W1600 do not match) |
 | A floor/roof name that does not match its build-up | E6 thickness guard; B35 set-up step 4 records the real thicknesses |

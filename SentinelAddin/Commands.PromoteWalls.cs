@@ -114,7 +114,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 var e = doc.GetElement(g.UniqueId);
                 if (e == null) return $"{g.Label} is not in this model — re-run Promote";
                 var nt = ChangesetExecutor.RetypeTarget(doc, e, g.Kind ?? "wall", g.FamilyName, g.TypeName);
-                return e.IsValidType(nt.Id) ? null : $"\"{g.TypeName}\" is not a valid type for {g.Label} in Revit — a person decides";
+                return ChangesetExecutor.Unsafe(e, g.Kind ?? "wall", doc.GetElement(e.GetTypeId()) as ElementType, nt)
+                       ?? (e.IsValidType(nt.Id) ? null : $"\"{g.TypeName}\" is not a valid type for {g.Label} in Revit — a person decides");
             }
             catch (Exception ex) { return ex.Message; }
         });
@@ -154,7 +155,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                                                 : $"File {bodies.Count} changeset(s)?",
             MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
                           "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow +
-                          (asks.Count > 0 ? "\n\nDD also asks (listed for a person, not checked by Promote):\n" + string.Join("\n", asks) : "") +
+                          (asks.Count > 0 ? "\n\nDD also asks (listed for a person, not checked by Promote" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) : "") +
                           (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
                           (notes.Count > 0 ? "\n\nTemplate check (the office's template should fix these):\n" + string.Join("\n", notes) : "") +
                           (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing changes."
@@ -244,9 +245,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
         if (e is not FamilyInstance fi) { f.NotEditable ??= "not a family instance"; return f; }
         if (fi.SuperComponent != null) f.NotEditable ??= "a nested shared component — its parent family decides its type";
-        // Which built-in holds a concept family's Width/Height is owed live (B35-10): the generic one first, then the category's.
-        f.WidthMm = TypeMm(fi.Symbol, BuiltInParameter.FAMILY_WIDTH_PARAM, kind == "door" ? BuiltInParameter.DOOR_WIDTH : BuiltInParameter.WINDOW_WIDTH);
-        f.HeightMm = TypeMm(fi.Symbol, BuiltInParameter.FAMILY_HEIGHT_PARAM, kind == "door" ? BuiltInParameter.DOOR_HEIGHT : BuiltInParameter.WINDOW_HEIGHT);
+        (f.WidthMm, f.HeightMm) = ChangesetExecutor.TypeSize(fi.Symbol, kind);
         if (fi.Host is Wall hw)
         {
             f.HostTypeName = hw.WallType.Name;
@@ -254,14 +253,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             f.HostFunction = f.HostBasic ? hw.WallType.Function.ToString() : null;
             f.HostLevel = LevelName(hw.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)?.AsElementId());
         }
+        else if (fi.Host != null) f.HostCategory = fi.Host.Category?.Name ?? "an element with no category";
         return f;
-    }
-
-    // The first of these TYPE parameters that holds a length, in mm; null = none does (an instance-sized family).
-    private static double? TypeMm(ElementType t, params BuiltInParameter[] bips)
-    {
-        foreach (var bip in bips)
-            if (t?.get_Parameter(bip) is { HasValue: true } p && p.StorageType == StorageType.Double) return p.AsDouble() * FtToMm;
-        return null;
     }
 }

@@ -31,6 +31,8 @@ namespace Sentinel.GhostBuilder
         /// <summary>Doors, windows: the host wall's type (null = not hosted by a wall), its type's Function, its base level.</summary>
         public string HostTypeName, HostFunction, HostLevel;
         public bool HostBasic;
+        /// <summary>Doors, windows: the category of a host that is not a wall ("Roofs" for a skylight); null otherwise.</summary>
+        public string HostCategory;
         /// <summary>Why Sentinel cannot retype it ("an in-place family", "a nested shared component"), or null.</summary>
         public string NotEditable;
         public bool InGroup, InOption, Structural;
@@ -245,7 +247,9 @@ namespace Sentinel.GhostBuilder
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g)
         {
             g = null;
-            if (e.HostTypeName == null) return "not hosted by a wall — rehosting is MA-5";
+            if (e.HostTypeName == null)
+                return e.HostCategory == null ? "not hosted by a wall — rehosting is MA-5"
+                    : $"its host is not a wall ({e.HostCategory}) — Promote v1 swaps wall-hosted {cat.ToLowerInvariant()} only; a person decides";
             if (!e.HostBasic) return $"host {e.HostTypeName} is not a basic wall — a person decides";
 
             // A door's location: a settled host's DD rule, not the template's Function (drill B33 F2); an office host no rule
@@ -280,10 +284,17 @@ namespace Sentinel.GhostBuilder
             var res = m.Resolve(new GuidelineInput { Category = cat, Params = ps });
             if (res.Source != "rule")
             {
-                var have = m.CatalogOfSize(cat, w, h);
-                return have.Count == 0
-                    ? m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", $"no {cat} type of {Mm(w, "0")} x {Mm(h, "0")} mm in the catalogue")
-                    : $"no DD rule for {what} in {m.Standard} — the catalogue has {string.Join(", ", have)}; which one is office policy";
+                // The catalogue by type NAME (a door's own Width is its leaf, DR-1); a window type whose own Width x Height
+                // contradict its name is a template fault, not a choice (WN-3).
+                var faults = e.Kind == "window" ? new List<string>() : null;
+                var have = m.CatalogOfSize(cat, w, h, faults);
+                string size = $"{Mm(w, "0")} x {Mm(h, "0")} mm";
+                if (have.Count > 0)
+                    return $"no DD rule for {what} in {m.Standard} — the catalogue has {string.Join(", ", have)}" +
+                           (have.Count > 1 ? "; which one is office policy" : ", but no DD rule names it (office policy)");
+                if (faults?.Count > 0)
+                    return $"the catalogue's {string.Join(", ", faults)} (named at {size}) read another Width x Height in the template — a template fault (WN-3); a person decides";
+                return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", $"no {cat} type named at {size} in the catalogue");
             }
             if (string.IsNullOrWhiteSpace(res.Type)) return "the DD rule names no type — a person decides";
             if (res.Confidence != 1) return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", res.Why);
@@ -297,10 +308,14 @@ namespace Sentinel.GhostBuilder
             g = new PromoteGhost
             {
                 Op = "retype", Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.Family + " : " + e.TypeName,
-                TypeName = res.Type, FamilyName = res.Family, Reason = $"DD {cat.ToLowerInvariant()}: {what} → {target}{tail}",
+                TypeName = res.Type, FamilyName = res.Family, Reason = $"DD {cat.ToLowerInvariant()}: {what} → {target}{tail}" + (e.Kind == "door" ? DoorSize : ""),
             };
             return null;
         }
+
+        // DR-1 (DRAFT): a door is sized by the target's type NAME, so after the swap its Width x Height read the new family's own
+        // (for BDS, the leaf). The review window leaves door swaps unticked until the founder confirms DR-1.
+        private const string DoorSize = "; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own";
 
         private static string NoCatalog(GuidelineMatcher m) => $"no type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16)";
         private static string What(Dictionary<string, string> ps) => string.Join(", ", ps.Select(kv => kv.Key + " " + kv.Value));

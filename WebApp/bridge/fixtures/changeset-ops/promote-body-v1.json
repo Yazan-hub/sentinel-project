@@ -86,7 +86,7 @@
         "TypeName": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
         "FamilyName": "BDS_INT_1 PNL"
       },
-      "reason": "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+      "reason": "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own",
       "validate": {
         "identity": {
           "Class": "IfcDoor",
@@ -136,7 +136,7 @@
     {
       "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000196",
       "name": "Door 406",
-      "reason": "gap: Door 406 (M_Single-Flush : 0915 x 2134mm) — no Doors type of 915 x 2134 mm in the catalogue (type_catalog: type_catalog@1 · ma1-bds · 0123456789ab…)"
+      "reason": "gap: Door 406 (M_Single-Flush : 0915 x 2134mm) — no Doors type named at 915 x 2134 mm in the catalogue (type_catalog: type_catalog@1 · ma1-bds · 0123456789ab…)"
     }
   ]
 }

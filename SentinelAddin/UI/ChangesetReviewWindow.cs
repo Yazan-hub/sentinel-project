@@ -1,8 +1,8 @@
 #nullable disable
 // Governed AI modeling (A2): the human gate. One row per proposed element with the REFEREE'S
-// verdict — pre-ticked only when the IDS accepted it, or (MA-0) when it is a Promote retype/attach: a single-answer
+// verdict — pre-ticked only when the IDS accepted a create, or (MA-0) when it is a Promote retype/attach: a single-answer
 // op (§3.4 step 7) whose ghost carries no property sets, so its IDS verdict certifies nothing (the badge still shows
-// it). A human may tick a rejected row (overrule, with the failures on screen — the result records that they did);
+// it; Promote v1 door swaps wait for DR-1, see PreTick). A human may tick a rejected row (overrule, with the failures on screen — the result records that they did);
 // recorded rows say honestly that no spec adjudicated them. The elements the planner sent to a person are listed above
 // the rows and cannot be ticked. Modeless, code-only WPF, in GhostReviewWindow's visual family.
 using System;
@@ -135,10 +135,13 @@ public sealed class ChangesetReviewWindow : Window
         Content = root;
     }
 
-    /// <summary>What is ticked when the window opens (and by "Tick suggested"): what the IDS accepted, and a Promote
-    /// retype/attach. MA-1 moves this decision to the bridge (§6.3); a person still clicks Apply either way.</summary>
-    private static bool PreTick(ChangesetDto cs, ChangesetElementDto el) =>
-        el.Verdict?.Status == "accepted" || (cs.Source == "promote" && el.Op is "retype" or "attach");
+    /// <summary>What is ticked when the window opens (and by "Tick suggested"): a create the IDS accepted, and a Promote
+    /// attach or retype — a retype only with the type the plan saw (type_before), and never a door swap until the founder
+    /// confirms DR-1 (sized by the target's type name; its own Width is the leaf). An IDS verdict certifies nothing for a
+    /// retype or attach (no property sets). MA-1 moves this decision to the bridge (§6.3); a person still clicks Apply.</summary>
+    private static bool PreTick(ChangesetDto cs, ChangesetElementDto el) => el.Op is null or "create"
+        ? el.Verdict?.Status == "accepted"
+        : cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null && el.Kind != "door"));
 
     private static UIElement MakeBadge(ElementVerdictDto v)
     {

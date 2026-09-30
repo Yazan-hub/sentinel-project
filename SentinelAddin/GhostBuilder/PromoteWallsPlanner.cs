@@ -261,7 +261,7 @@ namespace Sentinel.GhostBuilder
         private static List<object> Exceptions(IReadOnlyList<PromoteHeld> held, int i, int n)
         {
             var rows = held.Skip(i * MaxExceptions).Take(MaxExceptions)
-                .Select(h => (object)new { unique_id = h.UniqueId, name = h.Label, reason = Clip(h.Reason, 300) }).ToList();
+                .Select(h => (object)new { unique_id = h.UniqueId, name = Clip(h.Label, 256), reason = Clip(h.Reason, 300) }).ToList();
             int over = held.Count - n * MaxExceptions;
             if (i == n - 1 && over > 0)
             {
@@ -281,7 +281,8 @@ namespace Sentinel.GhostBuilder
             validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
         };
 
-        // The bridge refuses a reason over its cap (exceptions 300, ghosts 500); a gap text naming the catalogue can run long.
+        // The bridge refuses a reason over its cap (exceptions 300, ghosts 500) and an exception name over 256; a gap text naming
+        // the catalogue can run long, and a v1 label carries the element's Mark, which a person types freely.
         private static string Clip(string s, int max) => s == null || s.Length <= max ? s : s.Substring(0, max - 1) + "…";
 
         private static string Mm(double v, string format) => v.ToString(format, CultureInfo.InvariantCulture);

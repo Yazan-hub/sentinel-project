@@ -73,6 +73,8 @@ static partial class Check
 
     // ── 6. the v1 planner: floors, roofs, ceilings retyped; doors, windows swapped; concept-only and idempotent ─────
     static readonly string[] AllClasses = { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows" };
+    // What every door swap's reason ends with until the founder confirms DR-1 (pinned here, not read from the planner).
+    const string DoorSize = "; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own";
 
     static Dictionary<string, IReadOnlyDictionary<string, double?>> V1Types(Action<Dictionary<string, Dictionary<string, double?>>> edit = null)
     {
@@ -209,16 +211,20 @@ static partial class Check
             Dw("window", "W800", "M_Fixed", "MA1 800 x 1200mm", 800, 1200, "Generic - 200mm", "Exterior"),
             Dw("window", "W1300", "M_Fixed", "MA1 600 x 1300mm", 600, 1300, "Generic - 200mm", "Exterior"),
             Dw("window", "WOFF", "BDS_Window_1 Panel+FX", "600x1200 mm", 600, 1200, "Generic - 200mm", "Exterior"),
+            Dw("door", "D960", "M_Single-Flush", "MA1 960 x 1980mm", 960, 1980),
+            Dw("window", "W3115", "M_Fixed", "MA1 3100 x 1500mm", 3100, 1500, "Generic - 200mm", "Exterior"),
+            Dw("window", "W2630", "M_Fixed", "MA1 2650 x 3000mm", 2650, 3000, "Generic - 200mm", "Exterior"),
+            Dw("window", "WSKY", "M_Skylight", "MA1 600 x 1200mm", 600, 1200, host: null, set: f => f.HostCategory = "Roofs"),
         }, oneTypeWalls);
         var d1 = G(dw, "D1000");
         Ok(d1 != null && d1.Kind == "door" && d1.FamilyName == "BDS_INT_1 PNL" && d1.TypeName == "BDS_INT_1 PNL_WOOD_1000 x 2100 mm"
            && d1.TypeBefore == "M_Single-Flush : MA1 1000 x 2100mm"
-           && d1.Reason == "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
-           "an interior 1000 x 2100 door → BDS_INT_1 PNL : …WOOD_1000 x 2100 mm, type_before \"Family : Type\", its pinned reason");
+           && d1.Reason == "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm" + DoorSize,
+           "an interior 1000 x 2100 door → BDS_INT_1 PNL : …WOOD_1000 x 2100 mm, type_before \"Family : Type\", its pinned reason with DR-1's consequence");
         Ok(G(dw, "D2000")?.FamilyName == "BDS_INT_2 PNL" && G(dw, "D2000").TypeName == "BDS_INT_2 PNL_WOOD_2000 x 2100 mm", "2000 x 2100 → BDS_INT_2 PNL (DR-5)");
         Ok(H(dw, "DEXT")?.StartsWith("no DD rule for HostFunction Exterior, Size W1000 x H2100 mm in BDS DD elements v1") == true
            && H(dw, "DEXT").Contains("— the catalogue has ") && H(dw, "DEXT").Contains("which one is office policy"), "an exterior door is held, naming what the catalogue has (DR-4)");
-        Ok(G(dw, "DLIE")?.FamilyName == "BDS_INT_1 PNL" && G(dw, "DLIE").Reason.EndsWith(" (host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior)"),
+        Ok(G(dw, "DLIE")?.FamilyName == "BDS_INT_1 PNL" && G(dw, "DLIE").Reason.EndsWith(" (host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior)" + DoorSize),
            "a door in a settled gypsum wall whose template says Exterior reads Interior from the DD rule (DR-2, the F2 trap)");
         Ok(H(dw, "DOFF")?.StartsWith("host BDS_EXT_STR_CONC_200 mm is an office type") == true, "a door in another office wall type is held");
         Ok(H(dw, "DONE")?.StartsWith("every wall on Level 2 is one type") == true, "a door in a one-type storey is held");
@@ -227,8 +233,15 @@ static partial class Check
         Ok(H(dw, "DINS")?.Contains("instance-sized family") == true && H(dw, "DIMP")?.Contains("914.4 x 2133.6 mm is not a whole millimetre") == true,
            "an instance-sized door and an imperial size are held");
         Ok(H(dw, "DLIAR") == "its type name says 1000 x 2100 mm, its Width x Height is 900 x 2100 mm — a person decides", "a type name that disagrees with its Width is held");
-        Ok(H(dw, "D915")?.StartsWith("gap: D915 (M_Single-Flush : 0915 x 2134mm) — no Doors type of 915 x 2134 mm in the catalogue") == true,
+        Ok(H(dw, "D915")?.StartsWith("gap: D915 (M_Single-Flush : 0915 x 2134mm) — no Doors type named at 915 x 2134 mm in the catalogue") == true,
            "915 x 2134 → a gap: no BDS door of that size");
+        Ok(H(dw, "D960")?.StartsWith("gap: D960 (M_Single-Flush : MA1 960 x 1980mm) — no Doors type named at 960 x 1980 mm in the catalogue") == true,
+           "a door at the BDS leaf size (960 x 1980) → a gap that says NAMED at: the catalogue's doors carry that Width, not that name (DR-1)");
+        Ok(H(dw, "W3115") == "the catalogue's BDS_Window_1 Panel : 3100x1500 mm (named at 3100 x 1500 mm) read another Width x Height in the template — a template fault (WN-3); a person decides"
+           && H(dw, "W2630")?.StartsWith("the catalogue's BDS_Window_3 Sliding Panels+FX : 2650x3000 mm, BDS_Window_4 Sliding Panels+FX : 2650x3000 mm (named at") == true,
+           "a window whose only catalogue types contradict their own Width x Height is a template fault, not office policy (WN-3)");
+        Ok(H(dw, "WSKY") == "its host is not a wall (Roofs) — Promote v1 swaps wall-hosted windows only; a person decides",
+           "a roof-hosted skylight names its host, not rehosting");
         Ok(None(dw, "DSET") && N(dw, "Doors").DdNow == 1, "a door already on BDS_INT_1 PNL_WOOD (Width 960) is settled by family and type, never re-measured");
         Ok(G(dw, "DOTH")?.FamilyName == "BDS_INT_1 PNL", "…the same type name in another family is not settled (proposed)");
         Ok(None(dw, "DGLS") && None(dw, "WOFF") && N(dw, "Doors").OfficeTyped == 1 && N(dw, "Windows").OfficeTyped == 1,
@@ -260,6 +273,11 @@ static partial class Check
         var onlyWalls = Json(PromoteWallsPlanner.Bodies(V1(m2, new[] { Fl("F300", "Generic 300mm", "Interior", 300) }, wallsSet, classes: new[] { "Walls" }), "yazan"));
         var ma0 = Json(PromoteWallsPlanner.Bodies(PromoteWallsPlanner.Plan(wallsSet, Levels, DocTypes, m2), "yazan"));
         Ok(onlyWalls.Count == ma0.Count && onlyWalls.Zip(ma0, JsonNode.DeepEquals).All(x => x), "Classes = [Walls] → the MA-0 bodies, byte for byte");
+        var opt = W("OPT1", "Generic - 200mm", "Exterior", 200);
+        opt.InOption = true;
+        var po = PromoteWallsPlanner.Plan(new[] { opt, W("E2", "Generic - 125mm", "Exterior", 125) }, Levels, DocTypes, m2);
+        Ok(H(po, "OPT1") == "in a design option — Sentinel does not edit design options" && po.SelectMany(p => p.Held).Count(h => h.Label == "OPT1") == 1
+           && G(po, "OPT1") == null && G(po, "E2") != null, "a wall in a design option is held whole: no retype, no attach (GN-5)");
 
         // Idempotence: apply every ghost to the facts, plan again — nothing new, and DD now grows by exactly the proposals.
         var facts = new List<ElementFact>
@@ -291,6 +309,9 @@ static partial class Check
            && (string)body["elements"][0]["validate"]["identity"]["Class"] == "IfcSlab" && body["elements"][0]["place"]["FamilyName"] == null
            && (string)body["exceptions"][0]["name"] == "D1000",
            "Bodies(title: \"Promote (DD)\"): the kind and IFC class per class, no FamilyName on a floor, held rows as exceptions");
+        var marked = V1(m2, new[] { Fl("F300", "Generic 300mm", "Interior", 300), Fl("Floor 9 (" + new string('M', 300) + ")", "Concrete 250mm", "Interior", 250) });
+        var name = (string)Json(PromoteWallsPlanner.Bodies(marked, "yazan", title: "Promote (DD)")).Single()["exceptions"][0]["name"];
+        Ok(name.Length == 256 && name.StartsWith("Floor 9 (MMM") && name.EndsWith("…"), "a held element's label (it carries a free-text Mark) is clipped to the bridge's 256");
     }
 
     // ── 8. the LOD matrix v0: which classes run, and why the others do not ─────────────────────────────────────────

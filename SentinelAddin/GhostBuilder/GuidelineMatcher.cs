@@ -104,6 +104,9 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("category")] public string Category { get; set; }
         [JsonPropertyName("family")]   public string Family { get; set; }
         [JsonPropertyName("type")]     public string Type { get; set; }
+        /// <summary>A door's or window's harvested type Width and Height (mm); null when not harvested.</summary>
+        [JsonPropertyName("width_mm")]  public double? WidthMm { get; set; }
+        [JsonPropertyName("height_mm")] public double? HeightMm { get; set; }
     }
 
     /// <summary>The template a catalogue was harvested from (Build Office System's export).</summary>
@@ -455,11 +458,18 @@ namespace Sentinel.GhostBuilder
             _catalog.Any(c => Norm(c.Category) == Norm(category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
 
         /// <summary>"Family : Type" of every catalogue type of the category whose name carries exactly this W x H
-        /// (TypeNameParse.TrySection) — what a door or window gap names.</summary>
-        public List<string> CatalogOfSize(string category, double widthMm, double heightMm) =>
-            _catalog.Where(c => Norm(c.Category) == Norm(category) && TypeNameParse.TrySection(c.Type, out var w, out var h)
-                             && Math.Abs(w - widthMm) < 0.001 && Math.Abs(h - heightMm) < 0.001)
-                    .Select(c => c.Family + " : " + c.Type).ToList();
+        /// (TypeNameParse.TrySection) — what a door or window gap names. With <paramref name="faults"/>, a type whose harvested
+        /// width_mm x height_mm say otherwise (0 x 0 included) goes there instead: its name cannot be trusted (WN-3).</summary>
+        public List<string> CatalogOfSize(string category, double widthMm, double heightMm, List<string> faults = null)
+        {
+            bool Is(double? v, double want) => v.HasValue && Math.Abs(v.Value - want) < 0.001;
+            var named = _catalog.Where(c => Norm(c.Category) == Norm(category) && TypeNameParse.TrySection(c.Type, out var w, out var h)
+                                           && Is(w, widthMm) && Is(h, heightMm)).ToList();
+            var bad = faults == null ? new List<CatalogEntry>()
+                : named.Where(c => c.WidthMm.HasValue && c.HeightMm.HasValue && !(Is(c.WidthMm, widthMm) && Is(c.HeightMm, heightMm))).ToList();
+            faults?.AddRange(bad.Select(c => c.Family + " : " + c.Type));
+            return named.Except(bad).Select(c => c.Family + " : " + c.Type).ToList();
+        }
 
         /// <summary>Has the guideline an element block for the category?</summary>
         public bool HasRulesFor(string category) => _doc.Elements.Any(e => Norm(e.Category) == Norm(category));
