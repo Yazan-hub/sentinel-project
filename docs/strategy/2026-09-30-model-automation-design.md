@@ -43,6 +43,12 @@ Market facts come from the reports. I did not re-open their sources.
 
 ---
 
+## Founder decisions (2026-09-30)
+
+- **D1 order: Option C, "Foundations, then both"** (founder's choice).
+- **D8 test data: the BDS template** (`Documents/BDS_Template_yazan.hKNTHU.rvt`, the office template the BDS catalogue came from) — MA-0 builds its concept model on a scratch copy of it.
+- Every other decision (D2–D7, D9–D20) runs on this document's **recommended default** until the founder says otherwise: working name "Sentinel Build"; build the CPU geometry-first pipeline, partner for MEP; bridge-PC CPU by default; no web search for a building's DWG/PDF, counsel before MA-7; the licence policy in §6.10; "LOD 200 as found, never survey or permit grade"; That Open beta behind adapters with pinned versions; exact typing (no snapping); drills on Revit 2024 first.
+
 ## 0. The answer in one page
 
 **What we build: one engine for every input.** Working name: **Sentinel Build** (the name is decision D2).
