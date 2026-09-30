@@ -942,3 +942,12 @@ Closed Revit: Project1 not saved; the scratch central holds the drill state (see
 - **F3 (minor)** — the docked pane's ⚡ column sits past the right edge when the Ref text is wide; the BLOCK row could not be fixed with ⚡ at the default width.
 
 **Numbers for gate G1 (as measured, e96f819):** 40 seed walls; 36 convertible by rule, 4 planted gaps held with their reason (10 %). After one Promote pass with 25 manual unticks: 16/40 seed walls DD by the planner's own count (8 exterior per storey); the 20 interior walls were retyped correctly but counted not-DD because of F2. Edits: 25 unticks on storey 1 (all non-concept template walls), 0 on storey 2. Time: ≈2 min review + apply for storey 1, ≈20 s for storey 2. Ledger: 4 changeset rows, 46 walls stamped by Promote, undo/redo rows with counts.
+
+### B33 re-check after the fix (2026-09-30 ~10:50, master 2928e99, run by the founder in Revit 2024 on the drill-state scratch central)
+
+Promote walls (DD), read-only: "**Nothing to file: no wall needs a retype or an attach that Sentinel can propose.**"
+GR_SSL 0 retype · 0 attach · 0 held · DD 0/0 · 2 on other office types, left as is. **GR-FFL 0 retype · 0 attach · 22 held · DD 18/40 · 32 on other
+office types, left as is · stamped by Promote 26.** **01-FFL 0 retype · 0 attach · 2 held · DD 18/20 · stamped by Promote 20.** F1 (office walls
+no longer planned) and F2 (promoted gypsum partitions no longer re-planned as CMU; 01-FFL 18/20 as predicted) pass live. GR-FFL's 22 held: 6 base
+offsets, 8 non-basic walls, 6 template "Generic - 200mm" walls unconnected at 6096 mm (attaching would cut them to one storey), 2 planted 125 mm gaps.
+**Seed result: 36/40 seed walls DD, 4/40 planted gaps held with their reason.** F3 (pane ⚡ column) not yet seen live.
