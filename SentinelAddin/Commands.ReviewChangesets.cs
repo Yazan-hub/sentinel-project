@@ -3,7 +3,8 @@
 // window, execute the human's ticks via ExternalEvent, report the result — with a retry dialog,
 // because the bridge's recorded status is the truth and an unreported application is a lie by
 // omission. Re-fetches the changeset right before executing: if an agent withdrew it meanwhile,
-// nothing runs (the bridge's CAS makes the report side race-safe too).
+// nothing runs (the bridge's CAS makes the report side race-safe too). Open() is the review flow itself, shared with
+// Promote walls (MA-0); a changeset whose result landed is remembered for the undo watcher.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,6 +25,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     // both re-fetch "proposed" and both execute the same changeset — physical duplicates the
     // bridge's CAS can 409 but not prevent.
     private static bool _reviewOpen;
+    // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
+    // machine credential reads as service).
+    private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };
 
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
@@ -59,6 +63,18 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         var cs = pending[0]; // FIFO; the dialog says how many wait behind it
         if (pending.Count > 1)
             TaskDialog.Show("Sentinel — AI proposals", $"{pending.Count} proposals pending — reviewing the oldest first ({cs.Name}). Run again for the next.");
+        return Open(c, doc, cfg, key, cs) ? Result.Succeeded : Result.Cancelled;
+    }
+
+    /// <summary>Open the review window on one proposed changeset of <paramref name="doc"/> (bound to <paramref name="key"/>).
+    /// False when a review window is already open. API thread (a command's Execute).</summary>
+    internal static bool Open(ExternalCommandData c, Document doc, BcfConfig cfg, string key, ChangesetDto cs)
+    {
+        if (_reviewOpen)
+        {
+            TaskDialog.Show("Sentinel — AI proposals", "A review window is already open — finish or close it first.");
+            return false;
+        }
 
         // Per-invocation handler/event (every sibling command does the same): a static pair would
         // let a second open review window clobber the staged request and double-fire callbacks.
@@ -78,6 +94,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             {
                 TaskDialog.Show("Sentinel — AI proposals",
                     fresh == null ? $"Couldn't re-check the changeset:\n{oneErr}" : $"Changeset is now \"{fresh.Status}\" — nothing was created.");
+                return;
+            }
+
+            // The bridge takes a result from a contributor or above only: ask BEFORE anything runs, or a viewer's Apply would
+            // change the model and then be refused, leaving the changeset "proposed" (Report's 401/403 stop is the backstop).
+            var role = ChangesetClient.MyRole(cfg, key, out var roleErr);
+            if (!Reporters.Contains(role))
+            {
+                TaskDialog.Show("Sentinel — AI proposals",
+                    (role == null ? $"Couldn't check your role on \"{key}\":\n{roleErr}" : $"You are {(role == "" ? "not a member" : role)} on \"{key}\" — applying or declining needs contributor or above.") +
+                    "\n\nNothing was changed. Sign in (Standards ▸ Sign in) as a contributor on this project.");
                 return;
             }
 
@@ -105,31 +132,35 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     TaskDialog.Show("Sentinel — AI proposals", $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined.");
                     return;
                 }
-                Report(cfg, key, cs.Id, result.Applied, unticked, note);
+                // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids.
+                if (Report(cfg, key, cs.Id, result.Applied, unticked, note))
+                    UndoWatcher.Remember(UndoWatcher.TxName(fresh.Name, fresh.Id), key, fresh.Id, result.Applied.Select(a => a.ProposalGuid));
                 TaskDialog.Show("Sentinel — AI proposals",
-                    $"Created {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : ""));
+                    $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : ""));
             };
             handler.Completed += onDone;
             handler.SetRequest(fresh, new HashSet<string>(ticked), doc);
             evt.Raise();
         };
         window.Show();
-        return Result.Succeeded;
+        return true;
     }
 
-    private static void Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note)
+    /// <summary>True when the bridge recorded the result.</summary>
+    private static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note)
     {
         while (true)
         {
-            if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, out var err)) return;
-            // Client errors (400 bad payload, 404, 409 already-resolved) won't heal on retry with
-            // an identical payload — show once and stop instead of an unwinnable retry loop.
-            if (err != null && (err.StartsWith("Bridge 400") || err.StartsWith("Bridge 404") || err.StartsWith("Bridge 409")))
+            if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, out var err)) return true;
+            // Client errors (400 bad payload, 401/403 not signed in or not a contributor, 404, 409 already-resolved)
+            // won't heal on retry with an identical payload — show once and stop instead of an unwinnable retry loop.
+            if (err != null && new[] { "400", "401", "403", "404", "409" }.Any(code => err.StartsWith("Bridge " + code)))
             {
                 TaskDialog.Show("Sentinel — AI proposals",
                     $"The bridge refused the result (retrying cannot fix this):\n{err}" +
-                    (applied.Count > 0 ? "\n\nElements WERE created in this model. Check the changeset's status in the bridge before any re-review." : ""));
-                return;
+                    (err.StartsWith("Bridge 401") || err.StartsWith("Bridge 403") ? "\n\nSign in (Standards ▸ Sign in) as a contributor on this project." : "") +
+                    (applied.Count > 0 ? "\n\nElements WERE changed in this model. Check the changeset's status in the bridge before any re-review." : ""));
+                return false;
             }
             // When elements WERE created, cancelling leaves the bridge still saying "proposed" —
             // and a later review run would re-execute the same changeset, DUPLICATING the elements.
@@ -143,7 +174,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 MainContent = $"{err}\n\nThe governed record does NOT yet reflect what happened in Revit.{hazard}\n\nRetry?",
                 CommonButtons = TaskDialogCommonButtons.Retry | TaskDialogCommonButtons.Cancel,
             };
-            if (d.Show() != TaskDialogResult.Retry) return;
+            if (d.Show() != TaskDialogResult.Retry) return false;
         }
     }
 }

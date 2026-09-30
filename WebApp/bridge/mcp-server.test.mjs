@@ -145,6 +145,10 @@ describe("changeset tools", () => {
     expect(t.description).toMatch(/human review in Revit/i);
     expect(t.description).toMatch(/nothing is created by this call/i);
     expect(t.description).toMatch(/wall, floor, level, grid/);
+    // MA-0: the ops and the required type name, or an agent's wall/floor create is a 400
+    expect(t.description).toMatch(/retype/);
+    expect(t.description).toMatch(/attach/);
+    expect(t.description).toMatch(/TypeName/);
     expect(t.inputSchema.required).toEqual(["project", "name", "elements"]);
   });
 

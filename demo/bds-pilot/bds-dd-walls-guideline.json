@@ -1,0 +1,22 @@
+{
+  "standard": "BDS DD walls v0 (MA-0)",
+  "office": "BDS",
+  "stage": "DD",
+  "elements": [
+    {
+      "category": "Walls",
+      "rules": [
+        {
+          "when": { "params": { "Function": "Exterior" } },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm" },
+          "why": "DD: an exterior wall is the office's external CMU at the wall type's width."
+        },
+        {
+          "when": { "params": { "Function": "Interior" } },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm" },
+          "why": "DD: an interior wall is the office's gypsum partition at the wall type's width."
+        }
+      ]
+    }
+  ]
+}
