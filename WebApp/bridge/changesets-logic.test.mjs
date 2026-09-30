@@ -464,3 +464,17 @@ describe("promote-body-v1 parity fixture (Promote v1)", () => {
     expect(v.exceptions).toEqual(body.exceptions);
   });
 });
+
+// MA-1: drill B35's seed as make-concept.py --b35 writes it; tools/promote-check reads the same file into the add-in's DTOs.
+describe("b35-seed-body parity fixture (MA-1 placement slice)", () => {
+  const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/b35-seed-body.json", import.meta.url), "utf8"));
+  it("passes validateChangeset and keeps every place field, every Mark, one Structural floor", () => {
+    const v = validateChangeset(body);
+    expect(v).toMatchObject({ name: "MA1 B35 seed", source: "concept" });
+    v.elements.forEach((el, i) => { expect(el.kind).toBe(body.elements[i].kind); expect(el.op).toBe("create"); expect(el.place).toEqual(body.elements[i].place); });
+    const n = {}; for (const e of v.elements) n[e.kind] = (n[e.kind] ?? 0) + 1;
+    expect(n).toEqual({ floor: 5, roof: 2, ceiling: 3, door: 6, window: 3 });
+    expect(v.elements.every((e) => e.place.Mark === e.validate.identity.Name)).toBe(true);
+    expect(v.elements.filter((e) => e.place.Structural).map((e) => e.place.Mark)).toEqual(["MA1-L2-F02"]);
+  });
+});

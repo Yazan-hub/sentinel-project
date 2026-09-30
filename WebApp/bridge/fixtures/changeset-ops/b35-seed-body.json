@@ -1,0 +1,533 @@
+{
+ "name": "MA1 B35 seed",
+ "source": "concept",
+ "elements": [
+  {
+   "kind": "floor",
+   "place": {
+    "TypeName": "Generic 300mm",
+    "LevelName": "GR-FFL",
+    "LocationLoop": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      12000,
+      0,
+      0.0
+     ],
+     [
+      12000,
+      12000,
+      0.0
+     ],
+     [
+      0,
+      12000,
+      0.0
+     ]
+    ],
+    "Mark": "MA1-L1-F01"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcSlab",
+     "Name": "MA1-L1-F01"
+    }
+   }
+  },
+  {
+   "kind": "floor",
+   "place": {
+    "TypeName": "Concrete 250mm",
+    "LevelName": "GR-FFL",
+    "LocationLoop": [
+     [
+      12000,
+      0,
+      0.0
+     ],
+     [
+      24000,
+      0,
+      0.0
+     ],
+     [
+      24000,
+      12000,
+      0.0
+     ],
+     [
+      12000,
+      12000,
+      0.0
+     ]
+    ],
+    "Mark": "MA1-L1-F02"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcSlab",
+     "Name": "MA1-L1-F02"
+    }
+   }
+  },
+  {
+   "kind": "floor",
+   "place": {
+    "TypeName": "Concrete 150mm",
+    "LevelName": "01-FFL",
+    "LocationLoop": [
+     [
+      0,
+      0,
+      3300.0
+     ],
+     [
+      12000,
+      0,
+      3300.0
+     ],
+     [
+      12000,
+      12000,
+      3300.0
+     ],
+     [
+      0,
+      12000,
+      3300.0
+     ]
+    ],
+    "Mark": "MA1-L2-F01"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcSlab",
+     "Name": "MA1-L2-F01"
+    }
+   }
+  },
+  {
+   "kind": "floor",
+   "place": {
+    "TypeName": "Generic 300mm",
+    "LevelName": "01-FFL",
+    "LocationLoop": [
+     [
+      12000,
+      0,
+      3300.0
+     ],
+     [
+      24000,
+      0,
+      3300.0
+     ],
+     [
+      24000,
+      4500,
+      3300.0
+     ],
+     [
+      12000,
+      4500,
+      3300.0
+     ]
+    ],
+    "Mark": "MA1-L2-F02",
+    "Structural": true
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcSlab",
+     "Name": "MA1-L2-F02"
+    }
+   }
+  },
+  {
+   "kind": "floor",
+   "place": {
+    "TypeName": "BDS_INT_ARC_SCREED_90 mm",
+    "LevelName": "01-FFL",
+    "LocationLoop": [
+     [
+      12000,
+      4500,
+      3300.0
+     ],
+     [
+      24000,
+      4500,
+      3300.0
+     ],
+     [
+      24000,
+      12000,
+      3300.0
+     ],
+     [
+      12000,
+      12000,
+      3300.0
+     ]
+    ],
+    "Mark": "MA1-L2-F03"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcSlab",
+     "Name": "MA1-L2-F03"
+    }
+   }
+  },
+  {
+   "kind": "roof",
+   "place": {
+    "LevelName": "MA0 Roof",
+    "TypeName": "Generic - 300mm",
+    "Boundary": [
+     [
+      0,
+      0
+     ],
+     [
+      12000,
+      0
+     ],
+     [
+      12000,
+      12000
+     ],
+     [
+      0,
+      12000
+     ]
+    ],
+    "Mark": "MA1-R01"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcRoof",
+     "Name": "MA1-R01"
+    }
+   }
+  },
+  {
+   "kind": "roof",
+   "place": {
+    "LevelName": "MA0 Roof",
+    "TypeName": "Generic - 225mm",
+    "Boundary": [
+     [
+      12000,
+      0
+     ],
+     [
+      24000,
+      0
+     ],
+     [
+      24000,
+      12000
+     ],
+     [
+      12000,
+      12000
+     ]
+    ],
+    "Mark": "MA1-R02"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcRoof",
+     "Name": "MA1-R02"
+    }
+   }
+  },
+  {
+   "kind": "ceiling",
+   "place": {
+    "LevelName": "GR-FFL",
+    "TypeName": "MA1 Ceiling - 50mm",
+    "Boundary": [
+     [
+      0,
+      0
+     ],
+     [
+      4000,
+      0
+     ],
+     [
+      4000,
+      4500
+     ],
+     [
+      0,
+      4500
+     ]
+    ],
+    "Offset": 2700,
+    "Mark": "MA1-C01"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcCovering",
+     "Name": "MA1-C01"
+    }
+   }
+  },
+  {
+   "kind": "ceiling",
+   "place": {
+    "LevelName": "GR-FFL",
+    "TypeName": "Generic",
+    "Boundary": [
+     [
+      4000,
+      0
+     ],
+     [
+      8000,
+      0
+     ],
+     [
+      8000,
+      4500
+     ],
+     [
+      4000,
+      4500
+     ]
+    ],
+    "Offset": 2700,
+    "Mark": "MA1-C02"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcCovering",
+     "Name": "MA1-C02"
+    }
+   }
+  },
+  {
+   "kind": "ceiling",
+   "place": {
+    "LevelName": "GR-FFL",
+    "TypeName": "600mm x 600mm ACT System",
+    "Boundary": [
+     [
+      8000,
+      0
+     ],
+     [
+      12000,
+      0
+     ],
+     [
+      12000,
+      4500
+     ],
+     [
+      8000,
+      4500
+     ]
+    ],
+    "Offset": 2700,
+    "Mark": "MA1-C03"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcCovering",
+     "Name": "MA1-C03"
+    }
+   }
+  },
+  {
+   "kind": "door",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Single-Flush",
+    "TypeName": "MA1 1000 x 2100mm",
+    "Location": [
+     8000,
+     2250,
+     0.0
+    ],
+    "Mark": "MA1-D01"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcDoor",
+     "Name": "MA1-D01"
+    }
+   }
+  },
+  {
+   "kind": "door",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Double-Flush",
+    "TypeName": "MA1 2000 x 2100mm",
+    "Location": [
+     8000,
+     9750,
+     0.0
+    ],
+    "Mark": "MA1-D02"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcDoor",
+     "Name": "MA1-D02"
+    }
+   }
+  },
+  {
+   "kind": "door",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Single-Flush",
+    "TypeName": "MA1 1000 x 2100mm",
+    "Location": [
+     6000,
+     0,
+     0.0
+    ],
+    "Mark": "MA1-D03"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcDoor",
+     "Name": "MA1-D03"
+    }
+   }
+  },
+  {
+   "kind": "door",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Single-Flush",
+    "TypeName": "0915 x 2134mm",
+    "Location": [
+     12000,
+     2250,
+     0.0
+    ],
+    "Mark": "MA1-D04"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcDoor",
+     "Name": "MA1-D04"
+    }
+   }
+  },
+  {
+   "kind": "door",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "BDS_INT_1 PNL",
+    "TypeName": "BDS_INT_1 PNL_GLASS_1000 x 2100 mm",
+    "Location": [
+     16000,
+     2250,
+     0.0
+    ],
+    "Mark": "MA1-D05"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcDoor",
+     "Name": "MA1-D05"
+    }
+   }
+  },
+  {
+   "kind": "door",
+   "place": {
+    "LevelName": "01-FFL",
+    "FamilyName": "M_Single-Flush",
+    "TypeName": "MA1 1000 x 2100mm",
+    "Location": [
+     8000,
+     2250,
+     3300.0
+    ],
+    "Mark": "MA1-D06"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcDoor",
+     "Name": "MA1-D06"
+    }
+   }
+  },
+  {
+   "kind": "window",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Fixed",
+    "TypeName": "MA1 600 x 1200mm",
+    "Location": [
+     24000,
+     3000,
+     0.0
+    ],
+    "SillHeight": 900,
+    "Mark": "MA1-W01"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcWindow",
+     "Name": "MA1-W01"
+    }
+   }
+  },
+  {
+   "kind": "window",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Fixed",
+    "TypeName": "MA1 800 x 1200mm",
+    "Location": [
+     18000,
+     12000,
+     0.0
+    ],
+    "SillHeight": 900,
+    "Mark": "MA1-W02"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcWindow",
+     "Name": "MA1-W02"
+    }
+   }
+  },
+  {
+   "kind": "window",
+   "place": {
+    "LevelName": "GR-FFL",
+    "FamilyName": "M_Fixed",
+    "TypeName": "MA1 600 x 1300mm",
+    "Location": [
+     6000,
+     12000,
+     0.0
+    ],
+    "SillHeight": 900,
+    "Mark": "MA1-W03"
+   },
+   "validate": {
+    "identity": {
+     "Class": "IfcWindow",
+     "Name": "MA1-W03"
+    }
+   }
+  }
+ ]
+}

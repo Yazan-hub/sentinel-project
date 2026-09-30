@@ -25,6 +25,28 @@ static partial class Check
         Ok(H("MA0 Roof", 8000, 2250).StartsWith("no straight wall on MA0 Roof"), "a level with no walls → no wall");
         var none = PlacementGeometry.Host(new List<(string, string, double, double, double, double)>(), "GR-FFL", 0, 0, out var whyNone);
         Ok(none == -1 && whyNone != null, "an empty wall list → -1 and a reason, no throw");
+
+        Console.WriteLine("\nMA-1 seed (WebApp/bridge/fixtures/changeset-ops/b35-seed-body.json, make-concept.py --b35)");
+        var path = Repo("WebApp", "bridge", "fixtures", "changeset-ops", "b35-seed-body.json");
+        var els = (File.Exists(path) ? JsonSerializer.Deserialize<ChangesetDto>(File.ReadAllText(path)) : null)?.Elements ?? new List<ChangesetElementDto>();
+        Ok(els.Count == 19 && string.Join(",", els.GroupBy(e => e.Kind).Select(g => g.Key + " " + g.Count())) == "floor 5,roof 2,ceiling 3,door 6,window 3",
+           "19 elements: 5 floors, 2 roofs, 3 ceilings, 6 doors, 3 windows");
+        Ok(els.All(e => e.Place?.Mark != null && e.Place.Mark == e.Validate?.Identity?.Name), "every element reads Place.Mark, equal to its name");
+        Ok(els.Where(e => e.Place.Structural == true).Select(e => e.Place.Mark).SequenceEqual(new[] { "MA1-L2-F02" }), "Structural reads, on MA1-L2-F02 only");
+        Ok(els.Where(e => e.Kind == "ceiling").All(e => e.Place.Offset == 2700 && e.Place.Boundary?.Length == 4 && e.Place.LevelName == "GR-FFL"),
+           "ceilings read Boundary and Offset 2700 on GR-FFL");
+        Ok(els.Where(e => e.Kind == "roof").All(e => e.Place.LevelName == "MA0 Roof" && e.Place.Boundary?.Length == 4 && e.Place.BaseOffset == null),
+           "roofs read Boundary on MA0 Roof and no BaseOffset");
+        Ok(els.Where(e => e.Kind == "window").All(e => e.Place.SillHeight == 900) && els.Where(e => e.Kind == "door").All(e => e.Place.SillHeight == null),
+           "windows read SillHeight 900; doors carry none");
+        var openings = els.Where(e => e.Kind is "door" or "window").ToList();
+        Ok(openings.All(e => e.Place.FamilyName != null && e.Place.Location?.Length == 3 && e.Place.Location[2] == (e.Place.LevelName == "GR-FFL" ? 0 : 3300)),
+           "doors and windows read FamilyName and Location, z = their level's elevation");
+        var want = new Dictionary<string, string> { ["MA1-D01"] = "MA0-L1-I02", ["MA1-D02"] = "MA0-L1-I07", ["MA1-D03"] = "MA0-L1-E01",
+            ["MA1-D04"] = "MA0-L1-I03", ["MA1-D05"] = "MA0-L1-I04", ["MA1-D06"] = "MA0-L2-I02", ["MA1-W01"] = "MA0-L1-E03",
+            ["MA1-W02"] = "MA0-L1-E05", ["MA1-W03"] = "MA0-L1-E06" };
+        Ok(openings.Count == 9 && openings.All(e => want.TryGetValue(e.Place.Mark, out var w) && H(e.Place.LevelName, e.Place.Location[0], e.Place.Location[1]) == w),
+           "every seed door and window finds exactly its section 6.3 wall among the MA-0 seed's walls");
     }
 
     // The MA-0 seed's walls (demo/promote-sample/make-concept.py EXTERIOR, INTERIOR, GAP) on both storeys, as the executor passes them.
