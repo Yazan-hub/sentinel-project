@@ -19,12 +19,12 @@ public static class HealRecord
         SharedParameterFile + " in the temp folder: a scratch file where the heal defines each missing parameter, not an office shared-parameter file";
 
     /// <summary>The <c>POST /cde/:key/audit</c> body for one run. <paramref name="healed"/>, <paramref name="human"/>
-    /// and <paramref name="failed"/> are family names in scan order; <paramref name="user"/> is the Windows user.</summary>
+    /// and <paramref name="failed"/> are family names in scan order; <paramref name="user"/> is the actor, UserSession.Actor.</summary>
     public static object Payload(int scanned, int clean, IReadOnlyList<string> healed, IReadOnlyList<string> human,
                                  IReadOnlyList<string> failed, string user) => new
     {
         entity_type = "family_heal",
-        actor = "revit:" + user,
+        actor = user,
         action = $"Family heal: {healed.Count} healed, {human.Count} for a human, {failed.Count} failed of {scanned}",
         new_value = new
         {

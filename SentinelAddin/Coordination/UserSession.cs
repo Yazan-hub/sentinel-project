@@ -54,6 +54,15 @@ public static class UserSession
 
     public static bool IsSignedIn => Email is not null;
 
+    /// <summary>XC-4: the one actor string every write carries — the signed-in e-mail, else "unsigned — &lt;Windows user&gt;".
+    /// Memory only, never the network: safe inside DMU Execute and on Revit's API thread.</summary>
+    public static string Actor => ActorFor(Email, Environment.UserName);
+
+    /// <summary>Pure: the e-mail when there is one, else "unsigned — " + the Windows user ("unknown" when blank).</summary>
+    public static string ActorFor(string? email, string? windowsUser) =>
+        !string.IsNullOrWhiteSpace(email) ? email!.Trim()
+        : "unsigned — " + (string.IsNullOrWhiteSpace(windowsUser) ? "unknown" : windowsUser!.Trim());
+
     /// <summary>
     /// Sign in with e-mail and password. Returns (ok, message): the message is Supabase's own words on a refusal
     /// ("Invalid login credentials") or a transport failure, never a guess. The password is used once and dropped.

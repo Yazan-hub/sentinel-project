@@ -33,7 +33,7 @@ public partial class SignInDialog : Window
         WhoText.Text = who is null
             ? (string.IsNullOrWhiteSpace(_cfg.FileToken)
                 ? "Signed out — governed calls are refused until you sign in."
-                : "Signed out — this PC's shared machine token is used, and the ledger records \"Revit\", not you.")
+                : "Signed out — this PC's shared machine token is used, and the ledger records \"" + UserSession.Actor + "\", not you.")
             : "Signed in as " + who + " — the ledger records your e-mail.";
         Form.Visibility = who is null ? Visibility.Visible : Visibility.Collapsed;
         SignInButton.Visibility = who is null ? Visibility.Visible : Visibility.Collapsed;

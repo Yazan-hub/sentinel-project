@@ -86,7 +86,7 @@ public static class RequestManager
             ElementCategory = element.Category?.Name ?? element.GetType().Name,
             OldValue = oldValue,
             NewValue = newValue,
-            RequestedBy = doc.Application.Username,
+            RequestedBy = UserSession.Actor,
         };
         RequestStore.Upsert(doc, req, new AuditEntry
         {
@@ -115,7 +115,7 @@ public static class RequestManager
             ElementCategory = element.Category?.Name ?? element.GetType().Name,
             OldValue = current,
             NewValue = proposed,
-            RequestedBy = doc.Application.Username,
+            RequestedBy = UserSession.Actor,
             Proposal = true,
         };
         RequestStore.Upsert(doc, req, new AuditEntry
@@ -135,7 +135,7 @@ public static class RequestManager
         var req = RequestStore.Find(doc, requestId);
         if (req is null || req.Status != RequestStatus.Pending) return;
 
-        var user = doc.Application.Username;
+        var user = UserSession.Actor;
         var element = doc.GetElement(req.ElementId.ToElementId());
 
         req.VerdictBy = user;

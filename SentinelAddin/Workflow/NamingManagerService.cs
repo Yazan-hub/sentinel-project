@@ -155,7 +155,7 @@ public static class NamingManagerService
     {
         ledger = null;
         var results = new List<(NamingRow, bool, string)>();
-        var user = doc.Application.Username;
+        var user = UserSession.Actor;
         var list = rows.ToList();
         var audits = new List<(ChangeRequest Request, AuditEntry Audit)>();
         var renamedMap = new Dictionary<NamingRow, string>();

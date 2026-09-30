@@ -70,7 +70,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
 
         var plans = PromoteWallsPlanner.Plan(walls, levels, docTypes, standards.Guideline);
-        var actor = Environment.UserName;
+        var actor = UserSession.Actor;
         var bodies = PromoteWallsPlanner.Bodies(plans, actor);
 
         // Walls, not reasons: one wall can be held for its type and for its top.

@@ -75,8 +75,13 @@ namespace Sentinel.Coordination
         /// <see cref="LedgerResult.Hold"/>. The IFC gate and the Publisher wait for the answer and print its line.
         /// </summary>
         public static LedgerResult DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey,
-                                                string source, bool publish) =>
-            Event("/delivery-gate", Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish), projectKey);
+                                                string source, bool publish)
+        {
+            // XC-4: the machine credential's row names UserSession.Actor; a signed-in row is the verified identity whatever this says.
+            var value = Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish);
+            value["actor"] = UserSession.Actor;
+            return Event("/delivery-gate", value, projectKey);
+        }
 
         /// <summary>Record a Naming Manager batch on the ledger: one row for the batch (the window continues on the
         /// task and shows the line).</summary>

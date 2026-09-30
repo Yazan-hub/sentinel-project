@@ -259,7 +259,7 @@ public static class FixInPlaceService
         var outcomes = new List<RowOutcome>();
         var written = new Dictionary<FixRow, string>();   // row → value written; applied only after a commit
         var audits = new List<(ChangeRequest Request, AuditEntry Audit)>();
-        var user = doc.Application.Username;
+        var user = UserSession.Actor;
         using var t = new Transaction(doc, $"Sentinel: fix-in-place {req.Requirement}");
         t.Start();
         foreach (var row in rows)

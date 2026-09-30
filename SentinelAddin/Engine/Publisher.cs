@@ -218,7 +218,7 @@ public static class Publisher
     /// "Governed Publish", or "Auto-Publish" (the bridge's hold names them revit and auto-publish).
     /// </summary>
     public static PublishOutcome Judge(PublishPlan plan, string source = "Governed Publish") =>
-        PublishOutcome.From(GovernedNotify.Propose(plan.Elements, versionId: null, actor: "Revit", projectKey: plan.Key,
+        PublishOutcome.From(GovernedNotify.Propose(plan.Elements, versionId: null, actor: UserSession.Actor, projectKey: plan.Key,
             containerName: plan.ContainerName, source: source,
             register: new RegisterRequest { Name = plan.ContainerName, SizeBytes = plan.SizeBytes, Sha256 = plan.Sha256 },
             gateRowId: plan.GateRow.Id));

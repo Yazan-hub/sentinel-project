@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Sentinel.Commands;
 using Sentinel.Coordination;
 
@@ -93,6 +94,7 @@ static class Check
             RefusedRefreshSignsOut(file);
             TransientKeepsSession(file);
             Coordinator();
+            Identity();
             ConfigPrefersSession(file);
             Parse();
         }
@@ -207,6 +209,31 @@ static class Check
         var down = ChangesetClient.CoordinatorFrom("aster-tower", null, "session not refreshed — retrying (Supabase not reached)");
         Ok(!down.Coordinator && down.Why.Contains("session not refreshed"), "role unread (offline, bridge down, session): read-only, and says why");
         Ok(!ChangesetClient.CoordinatorFrom("", null, null).Coordinator, "an unbound model is read-only");
+    }
+
+    // ── 9. XC-4: one actor string; no write names "Revit"; no coordinator list on this PC ─────────────────
+    static void Identity()
+    {
+        Ok(UserSession.ActorFor("lead@office.example", "yazan") == "lead@office.example", "signed in: the e-mail");
+        Ok(UserSession.ActorFor(null, "yazan") == "unsigned — yazan", "signed out: unsigned — <Windows user>");
+        Ok(UserSession.ActorFor(" ", "") == "unsigned — unknown", "no e-mail, no Windows user: never Revit");
+        UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
+        Ok(UserSession.Actor == "lead@office.example", "Actor reads the session");
+        UserSession.SignOut();
+        Ok(UserSession.Actor == "unsigned — " + Environment.UserName, "after sign-out: " + UserSession.Actor);
+        // the add-in's sources (the scan of tools/project-context-check)
+        string root = AppContext.BaseDirectory;
+        for (int i = 0; i < 8 && !Directory.Exists(Path.Combine(root, "SentinelAddin")); i++) root = Path.GetFullPath(Path.Combine(root, ".."));
+        var addin = Path.Combine(root, "SentinelAddin");
+        var sources = Directory.EnumerateFiles(addin, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+            .Select(f => (Path: Path.GetRelativePath(addin, f), Text: File.ReadAllText(f))).ToList();
+        string[] Hits(string pattern) => sources.Where(s => Regex.IsMatch(s.Text, pattern)).Select(s => s.Path).ToArray();
+        var who = Hits(@"Application\.Username|Environment\.UserName").Where(p => p != "App.cs" && !p.EndsWith("UserSession.cs")).ToArray();
+        Ok(who.Length == 0, "only UserSession names the Windows user (App.cs compares workset owners)" + (who.Length > 0 ? ": " + string.Join(", ", who) : ""));
+        var revit = Hits(@"actor:\s*""Revit""|""Revit"",\s*ctx\.Key|creation_author\s*=\s*""Revit""|""revit:""\s*\+");
+        Ok(revit.Length == 0, "no write labels its actor Revit" + (revit.Length > 0 ? ": " + string.Join(", ", revit) : ""));
+        Ok(Hits(@"\bIsCoordinator\b").Length == 0, "no coordinator list on this PC (settings.json) is read");
     }
 
     // ── 5. BcfConfig.ServiceToken: the session first, the file's shared token otherwise ──────────────────────

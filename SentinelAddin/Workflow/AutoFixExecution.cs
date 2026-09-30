@@ -94,7 +94,7 @@ public static class AutoFixExecution
                         ElementCategory = element.Category?.Name ?? element.GetType().Name,
                         OldValue = oldName,
                         NewValue = candidate,
-                        RequestedBy = doc.Application.Username,
+                        RequestedBy = Sentinel.Coordination.UserSession.Actor,
                         Status = RequestStatus.Approved,          // machine fix = pre-approved
                         VerdictBy = "Sentinel.AutoFix",
                         VerdictAt = DateTimeOffset.Now,
@@ -102,7 +102,7 @@ public static class AutoFixExecution
                     },
                     new AuditEntry
                     {
-                        Actor = doc.Application.Username,
+                        Actor = Sentinel.Coordination.UserSession.Actor,
                         Action = "autofix.applied",
                         Detail = ruleId + ": '" + oldName + "' -> '" + candidate + "'",
                     });

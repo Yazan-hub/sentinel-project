@@ -156,7 +156,7 @@ internal static class ChangesetClient
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
         List<AppliedEntry> applied, List<string> rejected, string note, out string error) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
-             JsonSerializer.Serialize(new { applied, rejected, note, actor = Environment.UserName }), 200, out _, out error);
+             JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor }), 200, out _, out error);
 
     private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error)
     {
@@ -215,5 +215,5 @@ internal static class ChangesetClient
     /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run).</summary>
     public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/reverted",
-             JsonSerializer.Serialize(new { op, guids, actor = Environment.UserName }, WriteJson), 201, out _, out error);
+             JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor }, WriteJson), 201, out _, out error);
 }
