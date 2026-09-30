@@ -25,7 +25,9 @@ internal sealed class BcfConfig
 
     /// <summary>The bearer to send: the signed-in person's access token (refreshed on demand), else the file's
     /// shared token; empty = no header. Decision 4: a signed-out PC keeps its shared token, an external install
-    /// (no file token) gets a 401 that the tools word as "signed out".</summary>
+    /// (no file token) gets a 401 that the tools word as "signed out". Throws
+    /// <see cref="Coordination.SessionException"/> while a session exists but cannot be used (SI-1); never the file
+    /// token then.</summary>
     [JsonIgnore]
     public string ServiceToken => global::Sentinel.Coordination.UserSession.AccessToken(SupabaseUrl, SupabaseAnonKey) ?? FileToken;
 

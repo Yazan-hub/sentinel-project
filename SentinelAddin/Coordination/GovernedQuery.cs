@@ -76,6 +76,7 @@ namespace Sentinel.Coordination
                      + (stale ? " — STALE, a live version changed" : "") + $" on '{key}'";
             }
             catch (SignedOutException) { return "Federation Gate: " + SignedOutLine; }
+            catch (SessionException e) { return "Federation Gate: " + e.Message; }
             catch { return null; }
         }
 
@@ -311,6 +312,7 @@ namespace Sentinel.Coordination
                 return rows;
             }
             catch (SignedOutException) { failure = SignedOutLine; return null; }
+            catch (SessionException e) { failure = e.Message; return null; }
             catch { return null; } // unreachable — caller shows a "bridge not reachable" note
         }
     }

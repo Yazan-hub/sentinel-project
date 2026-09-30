@@ -54,7 +54,7 @@ static class Check
     {
         Console.WriteLine("Issues raised from Revit — IssueDraft + BcfSyncManager.CreateIssueAsync\n");
         StartBridge();
-        try { Refusals(); Bodies(); Created(); Refused(); Lost(); Silent(); }
+        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); }
         finally { try { _bridge.Stop(); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
@@ -109,6 +109,18 @@ static class Check
             Ok(_seen.All(s => s.Auth == "Bearer tok-A"), "the bearer is read per call — not the token the window opened with");
         }
         Ok(r.Sentence(d, _url) == "Issue created: 'Door clashes with duct' · 2 element(s) linked · camera from '{3D}' — on the web board now.", "the created sentence: title, distinct elements, camera note");
+    }
+
+    // Fix-in-place's evidence comment and Resolved status read the bearer per call too (SI-1): never the window's token.
+    static void PerCall()
+    {
+        _topicStatus = 201; lock (_seen) _seen.Clear();
+        using var sync = new BcfSyncManager(_url, "stale-token-from-window-open");
+        var c = sync.AddCommentAsync("aster-tower", "topic-1", "Fixed in Revit by lead@office.example", "lead@office.example", () => "tok-B").GetAwaiter().GetResult();
+        var s = sync.SetStatusAsync("aster-tower", "topic-1", "Resolved", "unsigned — yazan", () => "").GetAwaiter().GetResult();
+        var legacy = sync.AddCommentAsync("aster-tower", "topic-1", "x", "y").GetAwaiter().GetResult();
+        lock (_seen) Ok(c == 201 && s == 201 && legacy == 201 && _seen.Select(x => x.Auth).SequenceEqual(new[] { "Bearer tok-B", "", "Bearer stale-token-from-window-open" }),
+            "comment and status send the bearer read per call; an empty one sends no header, never the window's token; none given → the window's");
     }
 
     static void Refused()

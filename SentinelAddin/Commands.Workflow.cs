@@ -14,7 +14,8 @@ public sealed class ShowRequestsCommand : IExternalCommand
     {
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null) return Result.Cancelled;
-        var win = new Sentinel.UI.RequestsWindow(doc, RequestManager.IsCoordinator(doc));
+        var (coordinator, why) = RequestManager.CoordinatorRole(doc);
+        var win = new Sentinel.UI.RequestsWindow(doc, coordinator, why);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         return Result.Succeeded;
@@ -63,9 +64,10 @@ public sealed class SetupWorkflowCommand : IExternalCommand
         var doc = uiapp.ActiveUIDocument?.Document;
         if (doc is null) return Result.Cancelled;
 
-        if (!RequestManager.IsCoordinator(doc))
+        var (coordinator, why) = RequestManager.CoordinatorRole(doc);
+        if (!coordinator)
         {
-            TaskDialog.Show("Sentinel", "Only a BIM Coordinator can run project setup.");
+            TaskDialog.Show("Sentinel", "Only a lead or owner of the web project can run project setup — " + why + ".");
             return Result.Cancelled;
         }
 

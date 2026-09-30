@@ -57,13 +57,17 @@ namespace Sentinel.Coordination
         public static LedgerResult Event(string path, object payload, string projectKey, TimeSpan? timeout = null)
         {
             var cfg = BcfConfig.Load(); // never throws: the file, else the environment, else localhost
-            return LedgerResult.Post(cfg.ServiceUrl, cfg.ServiceToken, projectKey, path, payload, timeout ?? LedgerResult.DefaultTimeout);
+            string token;
+            try { token = cfg.ServiceToken; }
+            catch (SessionException e) { return LedgerResult.NotRecorded(e.Message); } // SI-1: never the PC's token instead
+            return LedgerResult.Post(cfg.ServiceUrl, token, projectKey, path, payload, timeout ?? LedgerResult.DefaultTimeout);
         }
 
         /// <summary>
         /// Record an IFC Delivery Gate verdict (KF-1) on the ledger through <c>POST /cde/:key/delivery-gate</c> (spec
-        /// 2026-09-27 Decision 5), the route only the machine credential may call — the open audit route refuses
-        /// entity_type delivery_gate since 6a, so no signed-in member can forge a gate row. The web CDE timeline then
+        /// 2026-09-27 Decision 5): the machine credential, or a signed-in contributor or above under their verified
+        /// identity (GATE-E1) — the open audit route refuses entity_type delivery_gate since 6a, so a gate row comes
+        /// only from here, the gate's own words. The web CDE timeline then
         /// shows the certificate that decided whether a deliverable was fit for upload: PASS, FAIL or NOT CHECKED. The
         /// bridge words the row itself and stores <see cref="Sentinel.Engine.GateLines.AuditValue"/> as its value (pinned
         /// by tools/gate-check and tools/publish-check): the contract that judged (all null when none), <c>passed</c>
@@ -73,8 +77,13 @@ namespace Sentinel.Coordination
         /// <see cref="LedgerResult.Hold"/>. The IFC gate and the Publisher wait for the answer and print its line.
         /// </summary>
         public static LedgerResult DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey,
-                                                string source, bool publish) =>
-            Event("/delivery-gate", Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish), projectKey);
+                                                string source, bool publish)
+        {
+            // XC-4: the machine credential's row names UserSession.Actor; a signed-in row is the verified identity whatever this says.
+            var value = Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish);
+            value["actor"] = UserSession.Actor;
+            return Event("/delivery-gate", value, projectKey);
+        }
 
         /// <summary>Record a Naming Manager batch on the ledger: one row for the batch (the window continues on the
         /// task and shows the line).</summary>
@@ -151,6 +160,7 @@ namespace Sentinel.Coordination
             {
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/office/snapshot";
+                dto.Actor = UserSession.Actor; // XC-4: never the bridge's "revit"
                 var content = new StringContent(dto.ToJson(), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -221,7 +231,9 @@ namespace Sentinel.Coordination
             {
                 // The report keeps its own wire shape (snake_case, an explicit null ruleset): Event's serializer writes a
                 // JsonElement exactly as it is.
-                using var wire = JsonDocument.Parse(ScanReportDto.From(report).ToJson());
+                var dto = ScanReportDto.From(report);
+                dto.Actor = UserSession.Actor; // XC-4: never the bridge's "revit"
+                using var wire = JsonDocument.Parse(dto.ToJson());
                 return Event("/office/scan", wire.RootElement, projectKey);
             }
             catch (Exception e) { return LedgerResult.NotRecorded("the scan report could not be written (" + e.Message + ")"); }

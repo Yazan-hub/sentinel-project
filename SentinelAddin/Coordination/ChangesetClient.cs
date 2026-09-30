@@ -156,7 +156,7 @@ internal static class ChangesetClient
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
         List<AppliedEntry> applied, List<string> rejected, string note, out string error) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
-             JsonSerializer.Serialize(new { applied, rejected, note, actor = Environment.UserName }), 200, out _, out error);
+             JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor }), 200, out _, out error);
 
     private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error)
     {
@@ -190,6 +190,20 @@ internal static class ChangesetClient
         catch (Exception ex) { error = ex.Message; return null; }
     }
 
+    /// <summary>XC-4: whether this person may approve or reject change requests on <paramref name="key"/> — a signed-in
+    /// lead or owner of the web project (<paramref name="role"/>/<paramref name="error"/> are <see cref="MyRole"/>'s
+    /// answer). Every other answer, and every failure to read one, is read-only with the reason — worded for any lead-only
+    /// action, the caller names the action; nothing grants on a failure.</summary>
+    public static (bool Coordinator, string Why) CoordinatorFrom(string key, string role, string error)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return (false, "this model is not bound to a web project (Sentinel ▸ Project Setup)");
+        if (role == null) return (false, $"your role on {key} could not be read ({error})");
+        if (role is "lead" or "owner") return (true, $"{role} on {key}");
+        if (role == "service") return (false, $"signed out — sign in (Standards ▸ Sign in) as a lead or owner of {key}");
+        if (role.Length == 0) return (false, $"you are not a member of {key}");
+        return (false, $"you are {role} on {key}");
+    }
+
     /// <summary>File a changeset (POST /changesets/:key → 201 and the stored changeset). Null with the error otherwise.</summary>
     public static ChangesetDto Propose(BcfConfig cfg, string projectKey, object body, out string error)
     {
@@ -202,5 +216,5 @@ internal static class ChangesetClient
     /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run).</summary>
     public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/reverted",
-             JsonSerializer.Serialize(new { op, guids, actor = Environment.UserName }, WriteJson), 201, out _, out error);
+             JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor }, WriteJson), 201, out _, out error);
 }

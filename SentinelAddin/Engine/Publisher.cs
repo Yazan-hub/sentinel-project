@@ -246,7 +246,7 @@ public static class Publisher
     /// (GP-1, Governed Publish's Cancel) stops the wait: not reached, "cancelled — …".
     /// </summary>
     public static PublishOutcome Judge(PublishPlan plan, string source = "Governed Publish", System.Threading.CancellationToken ct = default) =>
-        PublishOutcome.From(GovernedNotify.Propose(plan.Elements, versionId: null, actor: "Revit", projectKey: plan.Key,
+        PublishOutcome.From(GovernedNotify.Propose(plan.Elements, versionId: null, actor: UserSession.Actor, projectKey: plan.Key,
             containerName: plan.ContainerName, source: source,
             register: new RegisterRequest { Name = plan.ContainerName, SizeBytes = plan.SizeBytes, Sha256 = plan.Sha256 },
             gateRowId: plan.GateRow.Id, ct: ct));

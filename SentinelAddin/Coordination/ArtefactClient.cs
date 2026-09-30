@@ -44,9 +44,11 @@ namespace Sentinel.Coordination
         public static ResolvedArtefact Resolve(string key, string kind, TimeSpan? timeout = null)
         {
             BcfConfig cfg;
-            try { cfg = BcfConfig.Load(); }
+            string token;
+            try { cfg = BcfConfig.Load(); token = cfg.ServiceToken; }
+            catch (SessionException e) { return Fallback(kind, ArtefactCache.Read((key ?? "").Trim(), (kind ?? "").Trim()), e.Message, null); } // SI-1: no bridge call
             catch (Exception e) { return None(kind, "the bridge settings could not be read (" + e.Message + ")"); }
-            return Resolve(key, kind, cfg.ServiceUrl, cfg.ServiceToken, timeout);
+            return Resolve(key, kind, cfg.ServiceUrl, token, timeout);
         }
 
         /// <summary>As <see cref="Resolve(string,string,TimeSpan?)"/> against an explicit bridge (the harness's fake one).</summary>

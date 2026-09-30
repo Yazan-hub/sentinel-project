@@ -69,7 +69,7 @@ public partial class ClashManagerDialog : Window
                 Title = "MEP clashes (" + selection.Count + ")",
                 Type = "Clash",
                 Status = "Active",
-                Author = doc.Application.Username,
+                Author = Sentinel.Coordination.UserSession.Actor,
                 Description = string.Join("\n", selection.Take(25).Select(c =>
                     "[" + c.Grade + "] " + c.OtherName + " (" + c.LinkName + ") vs " +
                     c.HostName + " @ " + c.LocationText)),

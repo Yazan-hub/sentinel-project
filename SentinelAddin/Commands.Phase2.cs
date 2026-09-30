@@ -138,7 +138,7 @@ public sealed class MepVoidsCommand : IExternalCommand
                     Title = "Provision for void required (" + candidates.Count + " candidates)",
                     Type = "Request",
                     Status = "Active",
-                    Author = doc2.Application.Username,
+                    Author = Sentinel.Coordination.UserSession.Actor,
                     Description = string.Join("\n", candidates.Take(20).Select(cd =>
                         cd.MepDescription + " (" + cd.LinkName + ") vs " + cd.HostName)),
                 };
@@ -217,7 +217,7 @@ public sealed class SanitizeLoadedCommand : IExternalCommand
 
             // One ledger row per run, waited for (6 s cap) on this Events job. Event never touches the UI, so the
             // wait cannot deadlock; the report then says what the ledger recorded, or why that is not confirmed.
-            var payload = Workflow.HealRecord.Payload(verdicts.Count, clean, healedNames, humanNames, failedNames, Environment.UserName);
+            var payload = Workflow.HealRecord.Payload(verdicts.Count, clean, healedNames, humanNames, failedNames, Sentinel.Coordination.UserSession.Actor);
             var ledger = System.Threading.Tasks.Task.Run(() => Sentinel.Coordination.GovernedNotify.Event("/audit", payload, key)).GetAwaiter().GetResult();
             var said = Sentinel.Coordination.LedgerLine.Sentence(ledger);
 

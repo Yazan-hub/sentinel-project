@@ -36,7 +36,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
     internal static IssueDraft CaptureIssue(UIDocument uidoc, out string pointsAt)
     {
         var doc = uidoc.Document;
-        var draft = new IssueDraft();
+        var draft = new IssueDraft { Author = UserSession.Actor };
         var cats = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var id in uidoc.Selection.GetElementIds())
         {
@@ -90,7 +90,10 @@ public sealed class BcfIssuesCommand : IExternalCommand
         BcfConfig cfg = BcfConfig.Load();
         var apply = new BcfApplyEvent(uiapp.ActiveUIDocument.Document);
         var externalEvent = ExternalEvent.Create(apply);
-        var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
+        string token;
+        try { token = cfg.ServiceToken; }
+        catch (SessionException e) { TaskDialog.Show("Sentinel — BCF Issues", e.Message); return Result.Cancelled; }
+        var sync = new BcfSyncManager(cfg.ServiceUrl, token);
 
         var window = new BcfIssuesWindow();
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
@@ -117,12 +120,14 @@ public sealed class BcfIssuesCommand : IExternalCommand
             window.SetStatus("Fetching open issues…");
             try
             {
-                var topics = await sync.FetchActiveAsync(bcfKey, cfg.ModelId).ConfigureAwait(false);
+                // The bearer is read per fetch, off Revit's thread (a refresh may block): a sign-in or out since the window opened counts.
+                var topics = await Task.Run(() => sync.FetchActiveAsync(bcfKey, cfg.ModelId, () => BcfConfig.Load().ServiceToken)).ConfigureAwait(false);
                 window.SetTopics(topics);
                 window.SetStatus(topics.Count == 0
                     ? "No open issues. (Raise one from the web viewer.)"
                     : $"{topics.Count} open issue(s). Double-click to zoom in Revit.");
             }
+            catch (SessionException ex) { window.SetStatus(ex.Message); }
             catch (Exception ex)
             {
                 window.SetStatus($"Could not reach the BCF service at {cfg.ServiceUrl}\n{ex.Message}");
@@ -160,7 +165,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var org = App.OrgFor(doc);
         // Display only (the banner): the bridge judges every check by its own resolved IDS. Off the UI thread.
         var ids = Task.Run(() => IdsSpecFile.Resolve(projectKey));
-        var user = doc.Application.Username;
+        static string User() => UserSession.Actor; // read at each use: a sign-in while the window is open counts
 
         // Raise an issue FROM Revit (founder's request 2026-09-28): selection and camera are read on the API thread,
         // the person describes it, and the two POSTs run off it; the window says what the bridge answered.
@@ -179,7 +184,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 if (dlg.ShowDialog() != true) { window.SetStatus("New issue cancelled — nothing was sent."); return; }
                 window.SetStatus("Creating the issue…");
                 var serviceUrl = cfg.ServiceUrl;
-                Task.Run(() => sync.CreateIssueAsync(bcfKey, draft, cfg.ModelId, () => BcfConfig.Load().ServiceToken))
+                // The token is read before the send so a SessionException faults the task in words (SI-1).
+                Task.Run(() => { var bearer = BcfConfig.Load().ServiceToken; return sync.CreateIssueAsync(bcfKey, draft, cfg.ModelId, () => bearer); })
                     .ContinueWith(t =>
                     {
                         var line = t.Status == TaskStatus.RanToCompletion ? t.Result.Sentence(draft, serviceUrl) : "Not created — " + (t.Exception?.GetBaseException().Message ?? "the request did not finish");
@@ -218,7 +224,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 try
                 {
                     var d = ua.ActiveUIDocument?.Document;
-                    // The plan, projectKey and user all belong to the document this command opened on.
+                    // The plan and projectKey belong to the document this command opened on.
                     if (d == null || !d.Equals(doc))
                     { PlanFailed("switch back to the model this issue belongs to \u2014 nothing was done"); return; }
                     var plan = FixInPlaceService.BuildPlan(d, req, guids, org);
@@ -273,7 +279,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         var keys = new HashSet<string>(ticked.Select(r => r.Key));
                         Task.Run(() =>
                         {
-                            var res = GovernedNotify.Propose(payload, null, user, projectKey: projectKey,
+                            var res = GovernedNotify.Propose(payload, null, User(), projectKey: projectKey,
                                 source: "revit-fix", note: $"fix-in-place check \u00b7 BCF {topic.Guid}", raiseBcf: false,
                                 failuresRequirement: req.Requirement);
                             if (!res.Reached)
@@ -334,7 +340,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                     var keys = new HashSet<string>(plan.Rows.Select(r => r.Key));
                     Task.Run(async () =>
                     {
-                        var res = GovernedNotify.Propose(payload, null, user, projectKey: projectKey,
+                        var res = GovernedNotify.Propose(payload, null, User(), projectKey: projectKey,
                             source: "revit-fix", note: $"fix-in-place re-check \u00b7 BCF {topic.Guid}", raiseBcf: false,
                             failuresRequirement: req.Requirement);
                         if (!res.Reached)
@@ -363,7 +369,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         // A topic lists at most 500 GUIDs (bridge viewpoint cap). When it names more failures than
                         // it lists, the unlisted ones were never examined — say so, and never resolve on them.
                         var unlisted = Math.Max(0, req.Failing - total);
-                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {user}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel} (ledger row: {ledgerLine})."
+                        var evidence = $"{(applied ? "Fixed" : "Verified")} in Revit by {User()}: {passed}/{total} element(s) now pass {req.Requirement}. Referee re-check against IDS {res.IdsLabel} (ledger row: {ledgerLine})."
                             + (unlisted > 0 ? $" {unlisted} of the {req.Failing} failing element(s) are not listed on this issue and were NOT examined." : "");
                         // The elements that ACTUALLY still fail — the fold's GUIDs, not every instance of a
                         // row that failed (a type row can fail one of its instances and pass the rest), and
@@ -374,7 +380,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (still.Count > 0) evidence += $" Still failing: {string.Join(", ", still.Take(20))}{(still.Count > 20 ? ", \u2026" : "")}.";
                         if (fold.Unresolved.Count > 0) evidence += $" Not in this model: {string.Join(", ", fold.Unresolved.Take(10))}{(fold.Unresolved.Count > 10 ? ", \u2026" : "")}.";
 
-                        var c = await sync.AddCommentAsync(bcfKey, topic.Guid, evidence, user).ConfigureAwait(false);
+                        // The bearer now, not the window's: the comment and the status go under the person they name (SI-1).
+                        string bearer;
+                        try { bearer = BcfConfig.Load().ServiceToken; }
+                        catch (SessionException e) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted ({e.Message}); the issue is unchanged."); fix.SetBusy(false); return; }
+                        var c = await sync.AddCommentAsync(bcfKey, topic.Guid, evidence, User(), () => bearer).ConfigureAwait(false);
                         if (c < 200 || c >= 300) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted (HTTP {c}); the issue is unchanged."); fix.SetBusy(false); return; }
                         if (!fold.AllPass)
                         {
@@ -386,7 +396,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             fix.SetStatus($"Re-check: {passed}/{total} listed element(s) pass, but the issue names {req.Failing} failing and lists only {total} — {unlisted} were never examined. Evidence posted; the issue stays {topic.Status}. Re-publish to raise a fresh, complete issue.");
                             fix.SetBusy(false); return;
                         }
-                        var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", user).ConfigureAwait(false);
+                        var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", User(), () => bearer).ConfigureAwait(false);
                         fix.SetStatus(s >= 200 && s < 300
                             ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved ({ledgerLine}). Closing it stays a human decision on the web."
                             : $"Evidence posted; status unchanged (HTTP {s}).");

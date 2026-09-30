@@ -323,7 +323,7 @@ public static class StandardsBuilder
     }
 
     /// OFF the API thread. GET the installed raw ruleset (project → office), merge, and when the canonical form
-    /// changed PUT ruleset@n+1 on the document's own project (actor "revit:" + the Windows user, source revit-build);
+    /// changed PUT ruleset@n+1 on the document's own project (actor UserSession.Actor, source revit-build);
     /// then reload + rescan on the API thread. Never throws; every outcome is a line for the review window.
     private static List<string> InstallRuleset(Document doc, string key, string title, string packKey, string packSemver,
         List<string> worksets, List<Rule> naming)
@@ -357,7 +357,7 @@ public static class StandardsBuilder
             // The route lifts a top-level `source` object into the pointer's provenance (bcf-service.mjs PUT artefacts).
             var body = JsonNode.Parse(m.BodyJson)!.AsObject();
             body["source"] = new JsonObject { ["tool"] = "revit-build", ["pack"] = packKey, ["document"] = title };
-            var put = GovernedNotify.InstallArtefact(key, "ruleset", body.ToJsonString(), "revit:" + Environment.UserName);
+            var put = GovernedNotify.InstallArtefact(key, "ruleset", body.ToJsonString(), UserSession.Actor);
             if (put.Error is not null)
             {
                 lines.Add($"✗ Ruleset NOT installed on {key}: {put.Error}");

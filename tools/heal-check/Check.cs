@@ -16,8 +16,8 @@ static class Check
         Console.WriteLine("Heal Loaded Families — one family_heal ledger row per run\n");
 
         // ── 1. the body POST /cde/:key/audit receives for one run (GovernedNotify serializes it the same way) ──
-        var small = JsonSerializer.Serialize(HealRecord.Payload(4, 1, new[] { "AST_Door_Single" }, new[] { "AST_Stair_CAD" }, new[] { "AST_Locked" }, "tester"));
-        Ok(small == "{\"entity_type\":\"family_heal\",\"actor\":\"revit:tester\",\"action\":\"Family heal: 1 healed, 1 for a human, 1 failed of 4\","
+        var small = JsonSerializer.Serialize(HealRecord.Payload(4, 1, new[] { "AST_Door_Single" }, new[] { "AST_Stair_CAD" }, new[] { "AST_Locked" }, "lead@office.example"));
+        Ok(small == "{\"entity_type\":\"family_heal\",\"actor\":\"lead@office.example\",\"action\":\"Family heal: 1 healed, 1 for a human, 1 failed of 4\","
                   + "\"new_value\":{\"scanned\":4,\"clean\":1,\"healed\":[\"AST_Door_Single\"],\"human\":[\"AST_Stair_CAD\"],\"failed\":[\"AST_Locked\"],"
                   + "\"healed_total\":1,\"human_total\":1,\"failed_total\":1,\"shared_parameter_source\":\"" + Source + "\",\"source\":\"revit\"}}",
            "a run is one family_heal row: counts, names, totals, the shared-parameter file, source revit");

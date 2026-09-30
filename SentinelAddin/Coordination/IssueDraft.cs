@@ -21,6 +21,7 @@ public sealed class IssueDraft
     public List<string> IfcGuids = new();
     public PerspectiveCamera? Camera;
     public string CameraNote = "";
+    public string Author = ""; // UserSession.Actor, set by CaptureIssue: a label only (see TopicBody)
 
     /// <summary>The web Issues panel's vocabularies, so an issue reads the same wherever it was raised.</summary>
     public static readonly string[] Types = { "Issue", "Clash", "Fault", "Info", "Request" };
@@ -51,7 +52,7 @@ public sealed class IssueDraft
         labels = new[] { "revit" },
         description = Description.Trim(),
         model = modelId,
-        creation_author = "Revit",
+        creation_author = Author,
     };
 
     /// <summary>POST …/topics/:guid/viewpoints — the camera (null when the active view is not 3D) and the selection.</summary>

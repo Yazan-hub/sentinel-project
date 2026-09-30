@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Sentinel.Commands;
 using Sentinel.Coordination;
 
@@ -8,6 +9,7 @@ static class Check
 {
     static int _pass, _fail;
     static void Ok(bool c, string n) { if (c) { _pass++; Console.WriteLine("  PASS  " + n); } else { _fail++; Console.WriteLine("  FAIL  " + n); } }
+    static Exception? Throws(Func<object?> f) { try { f(); return null; } catch (Exception e) { return e; } }
 
     // ── a throwaway Supabase auth on loopback ────────────────────────────────────────────────────────────────
     static HttpListener _auth = null!;
@@ -19,6 +21,7 @@ static class Check
     static readonly HashSet<string> _live = new();       // refresh tokens that are currently valid
     static int _serial;
     static bool _refuseAll;
+    static bool _unavailable;
 
     static void StartAuth()
     {
@@ -43,6 +46,7 @@ static class Check
         var grant = req.QueryString["grant_type"];
         string answer; int status = 200;
         if (req.Headers["apikey"] != Anon) { status = 401; answer = "{\"message\":\"No API key found in request\"}"; }
+        else if (_unavailable) { status = 503; answer = "{\"message\":\"upstream unavailable\"}"; }
         else if (_refuseAll) { status = 400; answer = "{\"error\":\"invalid_grant\",\"error_description\":\"Invalid Refresh Token: Already Used\"}"; }
         else if (grant == "password")
         {
@@ -88,6 +92,9 @@ static class Check
             ReuseThenRefresh();
             TwoRefreshesSpendOne(file);
             RefusedRefreshSignsOut(file);
+            TransientKeepsSession(file);
+            Coordinator();
+            Identity();
             ConfigPrefersSession(file);
             Parse();
         }
@@ -160,13 +167,90 @@ static class Check
         UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
         _expiresIn = 3600;
         _refuseAll = true;
-        var t = UserSession.AccessToken(_url, Anon);
+        var e = Throws(() => UserSession.AccessToken(_url, Anon));
         _refuseAll = false;
-        Ok(t is null && !UserSession.IsSignedIn && !File.Exists(file), "a refresh Supabase refuses signs the person out and deletes the file");
+        Ok(e is SessionException && e.Message.StartsWith("signed out — ") && !UserSession.IsSignedIn && !File.Exists(file),
+           "a refused refresh fails that call in words, signs out and deletes the file: " + e?.Message);
+        Ok(UserSession.AccessToken(_url, Anon) is null, "…and the next call runs signed out");
         UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
         Ok(UserSession.IsSignedIn && File.Exists(file), "signed in again");
         UserSession.SignOut();
         Ok(!UserSession.IsSignedIn && !File.Exists(file) && UserSession.Email is null, "sign-out forgets the session and deletes the file");
+    }
+
+    // ── 7. SI-1: a refresh that fails without a refusal keeps the session and fails the call in words ─────
+    static void TransientKeepsSession(string file)
+    {
+        _expiresIn = 5; // under UsableSeconds: nothing of the person's is left to send
+        UserSession.SignOut();
+        UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
+        _expiresIn = 3600;
+        const string Dead = "http://127.0.0.1:1/"; // nothing listens: never answered
+        var e = Throws(() => UserSession.AccessToken(Dead, Anon));
+        Ok(e is SessionException && e.Message.StartsWith("session not refreshed — retrying"), "no answer: the call fails in words: " + e?.Message);
+        Ok(UserSession.IsSignedIn && UserSession.Email == "lead@office.example" && File.Exists(file), "…the session and its file are kept");
+        var cfg = BcfConfig.Parse("{\"serviceToken\":\"shared-machine-token\",\"supabaseUrl\":\"" + Dead + "\",\"supabaseAnonKey\":\"" + Anon + "\"}");
+        Ok(Throws(() => cfg.ServiceToken) is SessionException, "while the session exists, ServiceToken never falls back to the shared token");
+        int calls = _refreshCalls;
+        Ok(Throws(() => UserSession.AccessToken(_url, Anon)) is SessionException && _refreshCalls == calls, "a refresh that just failed is not tried again at once: the next caller takes its outcome");
+        RetryDue();
+        _unavailable = true;
+        Ok(Throws(() => UserSession.AccessToken(_url, Anon)) is SessionException && UserSession.IsSignedIn, "a Supabase 503 is not a refusal: the session is kept");
+        _unavailable = false;
+        RetryDue();
+        int refused = _refusedRefreshes;
+        var t = UserSession.AccessToken(_url, Anon);
+        Ok(t is not null && t.StartsWith("access-") && _refusedRefreshes == refused, "the next call retries with the kept refresh token: " + t);
+        _expiresIn = 45; // inside the refresh window, still verifiable at the bridge
+        UserSession.SignOut();
+        UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
+        _expiresIn = 3600;
+        var own = UserSession.AccessToken(Dead, Anon);
+        Ok(own is not null && own.StartsWith("access-") && UserSession.IsSignedIn, "a failed refresh with 45 s left: the person's own token is still sent: " + own);
+        Ok(cfg.ServiceToken == own, "…by ServiceToken too, never the shared token");
+        UserSession.SignOut();
+    }
+
+    // "RetryAfterSeconds later": clear the failed refresh's time through reflection, as ForgetMemoryOnly does.
+    static void RetryDue() =>
+        typeof(UserSession).GetField("_failedAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null, 0L);
+
+    // ── 8. XC-4: the coordinator role comes from the web project; nothing grants on a failure ──────────────
+    static void Coordinator()
+    {
+        Ok(ChangesetClient.CoordinatorFrom("aster-tower", "owner", null).Coordinator && ChangesetClient.CoordinatorFrom("aster-tower", "lead", null).Coordinator, "lead and owner approve");
+        foreach (var role in new[] { "contributor", "viewer", "", "service" })
+            Ok(!ChangesetClient.CoordinatorFrom("aster-tower", role, null).Coordinator, $"'{role}' is read-only: " + ChangesetClient.CoordinatorFrom("aster-tower", role, null).Why);
+        var down = ChangesetClient.CoordinatorFrom("aster-tower", null, "session not refreshed — retrying (Supabase not reached)");
+        Ok(!down.Coordinator && down.Why.Contains("session not refreshed"), "role unread (offline, bridge down, session): read-only, and says why");
+        Ok(!ChangesetClient.CoordinatorFrom("", null, null).Coordinator, "an unbound model is read-only");
+    }
+
+    // ── 9. XC-4: one actor string; no write names "Revit"; no coordinator list on this PC ─────────────────
+    static void Identity()
+    {
+        Ok(UserSession.ActorFor("lead@office.example", "yazan") == "lead@office.example", "signed in: the e-mail");
+        Ok(UserSession.ActorFor(null, "yazan") == "unsigned — yazan", "signed out: unsigned — <Windows user>");
+        Ok(UserSession.ActorFor(" ", "") == "unsigned — unknown", "no e-mail, no Windows user: never Revit");
+        UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
+        Ok(UserSession.Actor == "lead@office.example", "Actor reads the session");
+        UserSession.SignOut();
+        Ok(UserSession.Actor == "unsigned — " + Environment.UserName, "after sign-out: " + UserSession.Actor);
+        // the add-in's sources (the scan of tools/project-context-check)
+        string root = AppContext.BaseDirectory;
+        for (int i = 0; i < 8 && !Directory.Exists(Path.Combine(root, "SentinelAddin")); i++) root = Path.GetFullPath(Path.Combine(root, ".."));
+        var addin = Path.Combine(root, "SentinelAddin");
+        var sources = Directory.EnumerateFiles(addin, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+            .Select(f => (Path: Path.GetRelativePath(addin, f), Text: File.ReadAllText(f))).ToList();
+        string[] Hits(string pattern) => sources.Where(s => Regex.IsMatch(s.Text, pattern)).Select(s => s.Path).ToArray();
+        var who = Hits(@"Application\.Username|Environment\.UserName").Where(p => p != "App.cs" && !p.EndsWith("UserSession.cs")).ToArray();
+        Ok(who.Length == 0, "only UserSession names the Windows user (App.cs compares workset owners)" + (who.Length > 0 ? ": " + string.Join(", ", who) : ""));
+        var revit = Hits(@"actor:\s*""Revit""|""Revit"",\s*ctx\.Key|creation_author\s*=\s*""Revit""|""revit:""\s*\+");
+        Ok(revit.Length == 0, "no write labels its actor Revit" + (revit.Length > 0 ? ": " + string.Join(", ", revit) : ""));
+        var notify = sources.Single(s => s.Path.EndsWith("GovernedNotify.cs")).Text;
+        Ok(Regex.Matches(notify, @"dto\.Actor = UserSession\.Actor").Count == 2, "the office scan and snapshot name the actor (the bridge's own default is \"revit\")");
+        Ok(Hits(@"\bIsCoordinator\b").Length == 0, "no coordinator list on this PC (settings.json) is read");
     }
 
     // ── 5. BcfConfig.ServiceToken: the session first, the file's shared token otherwise ──────────────────────

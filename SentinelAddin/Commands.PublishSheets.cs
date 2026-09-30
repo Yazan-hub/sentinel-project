@@ -47,7 +47,7 @@ public sealed class PublishSheetsCommand : IExternalCommand
         {
             var bytes = File.ReadAllBytes(Path.Combine(run.OutDir, s.Pdf!));
             s.ContainerName = s.Number + ".pdf";
-            var r = GovernedNotify.Propose(Array.Empty<object>(), null, "Revit", ctx.Key, containerName: s.ContainerName,
+            var r = GovernedNotify.Propose(Array.Empty<object>(), null, UserSession.Actor, ctx.Key, containerName: s.ContainerName,
                 source: "Publish Sheets", raiseBcf: false,
                 register: new RegisterRequest { Name = s.ContainerName, SizeBytes = bytes.Length, Sha256 = Sha256Hex(bytes), Revision = s.Revision });
             if (!r.Reached) { s.ProposalError = "not proposed — " + r.Error; continue; }

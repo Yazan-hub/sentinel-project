@@ -101,6 +101,7 @@ public partial class SettingsDialog : Window
                 ? $"{keys.Count} project(s) on the web app. Pick one, or type a key."
                 : "No projects on the web app yet — create one there, or type a key.";
         }
+        catch (Sentinel.Coordination.SessionException e) { WebProjectHint.Text = e.Message + " — or type the project key."; } // SI-1
         catch
         {
             WebProjectHint.Text = "Bridge unreachable — type the project key (e.g. \"demo\").";

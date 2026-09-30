@@ -1325,8 +1325,9 @@ async function handleRequest(req, res) {
       }
       // Revit's delivery gate (phase 6a, spec 2026-09-27 Decision 5): POST /cde/:key/delivery-gate {file, result, passed,
       //   contract, contract_ref, contract_source, contract_sha256, schema, entities, failures[], sha256, size_bytes,
-      //   source: revit|auto-publish|check, publish} → 201 {id, hash, hold: {id, hash} | null}. The machine credential
-      //   only (a signed-in caller is a 403); a bad field a 400; a FAIL with publish true is also held (hold:gate).
+      //   source: revit|auto-publish|check, publish} → 201 {id, hash, hold: {id, hash} | null}. The machine credential,
+      //   or a signed-in contributor or above under their verified identity (GATE-E1: a viewer is a 403, a user's 21st
+      //   row in a minute a 429); a bad field a 400; a FAIL with publish true is also held (hold:gate).
       if (p2 === "delivery-gate" && !p3 && req.method === "POST") return send(res, 201, await cde.recordDeliveryGate(p1, (await readBody(req)) || {}));
       // The Holding Area (phase 6a, spec 2026-09-27 Decisions 7-8): GET /cde/:key/holding → 200 {items, cleared_recent},
       //   derived from the hold rows and the registered versions; a read that fails is a 502 "not read — …", never an
