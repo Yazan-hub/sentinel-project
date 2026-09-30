@@ -220,6 +220,9 @@ def main(argv=None):
         default, _, name = t.partition("=")
         if default not in SEED_TYPES or not name:
             p.error(f'--type "{t}": DEFAULT must be one of: ' + ", ".join(SEED_TYPES))
+        family, sep, type_name = name.partition(" : ")
+        if " : " in default and not (sep and family.strip() and type_name.strip()):
+            p.error(f'--type "{t}": a door or window NAME is "Family : Type", as its DEFAULT is')
         types[default] = name
     if a.l2[1] <= a.l1[1]:
         p.error("--l2 must be above --l1")
