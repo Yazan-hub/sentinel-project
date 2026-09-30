@@ -891,3 +891,15 @@ Build: feature/revit-package2 at 3408bb9…c58103a (session 1), then 583af6a (se
 | B31-2 ⚡ Fix pinned | same setup, ⚡ Fix on "West - Architectural", Execute → pane "**✕ Sentinel did not rename the element: switch back to AST_ASTR26_Aster Tower_yazan.hKNTHU — nothing was changed.**"; nothing renamed — **pass** |
 | Undo finding (not a Sentinel bug) | after the Approve the Undo list was empty: the journal says "Transaction sucessfully committed and the undo stack FLUSH-ed as requested". A **manual** Project Browser rename of a view does the same (journal: ID_PRJBROWSER_RENAME … "undo stack FLUSH-ed as requested") — Revit flushes Undo on view renames in this workshared model. The one-Undo rows (B31-4) must use non-view actions |
 | Not run | Revit stopped taking mouse and keyboard input in sessions 2 and 3 (ribbon, pane and "VV" all ignored; Revit responding, ~1 core busy; foreground = Revit; no modal window; an Enscape renderer window was present and masked — the founder declined showing it). B31-3/4/5/6/7/8 and B32-1/3/5/6 remain owed; also the flipped BCF camera on a model with a moved survey point |
+
+### B31/B32 continued — session 4 (2026-09-30 ~02:26–02:39, build 4cd3d7a)
+
+Cause of the "Revit ignores input" in sessions 2–3 found: a runaway `find / -name 2026-09-30-reality-to-model.md` started by a research agent at 01:53 had used ~36 min of CPU; once stopped, clicks registered at once. The Windows 11 Snap Layouts flyout also appears over the ribbon's right end and must be dismissed.
+
+| Row | Observed |
+|---|---|
+| B31-3 BCF Issues | window opened on aster, family editor then in front: double-click an issue → status "**Sentinel did not open the issue: switch back to AST_ASTR26_Aster Tower_yazan.hKNTHU — nothing was changed.**"; Isolate ALL → "**Sentinel did not isolate the issue elements: switch back to …**" (per-operation words) — **pass** |
+| B31-3 Change Requests | window opened on aster, family editor in front: Show → dialog "**Sentinel did not show the change: switch back to …**"; Approve → dialog "**Sentinel did not approve the request: switch back to …**", the request stays listed — **pass** |
+| B31-7 reopen in one session | File ▸ Close (family, then aster), Home ▸ Open the aster local again, rename "L2 - Architectural" → "L2 - Architectural Y" (VN-01 REQUEST): Change Requests lists "**L2 - Architectural → L2 - Architectural Y**" — the live watcher re-registered and the request carries the real old name — **pass** |
+| B31-4 one Undo | not provable on aster's data: its BCF issues point at another file's GlobalIds ("No matching element in this model"), so the viewpoint changed nothing and left no entry; view renames flush Undo (above) |
+| Open | Reject on that request did not register in four tries (no hub run in the journal); not concluded as a Sentinel fault — clicks on these WPF windows needed a title-bar focus click before and still failed here. Owed with B31-5/6/8 and B32-1/3/5/6 |
