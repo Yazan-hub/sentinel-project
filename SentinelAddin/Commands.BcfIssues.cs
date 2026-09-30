@@ -90,7 +90,10 @@ public sealed class BcfIssuesCommand : IExternalCommand
         BcfConfig cfg = BcfConfig.Load();
         var apply = new BcfApplyEvent(uiapp.ActiveUIDocument.Document);
         var externalEvent = ExternalEvent.Create(apply);
-        var sync = new BcfSyncManager(cfg.ServiceUrl, cfg.ServiceToken);
+        string token;
+        try { token = cfg.ServiceToken; }
+        catch (SessionException e) { TaskDialog.Show("Sentinel — BCF Issues", e.Message); return Result.Cancelled; }
+        var sync = new BcfSyncManager(cfg.ServiceUrl, token);
 
         var window = new BcfIssuesWindow();
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
@@ -179,7 +182,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 if (dlg.ShowDialog() != true) { window.SetStatus("New issue cancelled — nothing was sent."); return; }
                 window.SetStatus("Creating the issue…");
                 var serviceUrl = cfg.ServiceUrl;
-                Task.Run(() => sync.CreateIssueAsync(bcfKey, draft, cfg.ModelId, () => BcfConfig.Load().ServiceToken))
+                // The token is read before the send so a SessionException faults the task in words (SI-1).
+                Task.Run(() => { var bearer = BcfConfig.Load().ServiceToken; return sync.CreateIssueAsync(bcfKey, draft, cfg.ModelId, () => bearer); })
                     .ContinueWith(t =>
                     {
                         var line = t.Status == TaskStatus.RanToCompletion ? t.Result.Sentence(draft, serviceUrl) : "Not created — " + (t.Exception?.GetBaseException().Message ?? "the request did not finish");

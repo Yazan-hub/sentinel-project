@@ -24,11 +24,16 @@ namespace Sentinel.Coordination;
 /// </summary>
 public static class UserSession
 {
-    private const int MinLeftSeconds = 60;
+    // B34's knob: refresh this many seconds before expiry (60–3500; default 60) so a drill reaches "near expiry" at once.
+    private static readonly int MinLeftSeconds =
+        int.TryParse(Environment.GetEnvironmentVariable("SENTINEL_SESSION_REFRESH_WITHIN"), out var w) && w >= 60 && w <= 3500 ? w : 60;
     private static readonly object Gate = new();
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
-    private static Stored? _s;      // the session in memory (null = signed out)
-    private static bool _loaded;    // the file has been read once this process
+    private static volatile Stored? _s;      // the session in memory (null = signed out)
+    private static volatile bool _loaded;    // the file has been read once this process
+
+    /// <summary>SI-1: what a call says when the session is kept but its refresh failed; the next call retries.</summary>
+    public const string NotRefreshed = "session not refreshed — retrying";
 
     private sealed class Stored
     {
@@ -42,8 +47,10 @@ public static class UserSession
         Environment.GetEnvironmentVariable("SENTINEL_SESSION_FILE") is { Length: > 0 } p ? p
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Sentinel", "session.bin");
 
-    /// <summary>Who is signed in (e-mail), or null. Reads the file once; never touches the network.</summary>
-    public static string? Email { get { lock (Gate) { LoadOnce(); return _s?.Email; } } }
+    /// <summary>Who is signed in (e-mail), or null. Reads the file once; never touches the network and never waits on
+    /// a refresh (one holds the lock for up to 18 s; <see cref="Actor"/> runs inside DMU Execute). A session kept
+    /// through a failed refresh still names its person.</summary>
+    public static string? Email { get { if (!_loaded) lock (Gate) LoadOnce(); return _s?.Email; } }
 
     public static bool IsSignedIn => Email is not null;
 
@@ -73,8 +80,11 @@ public static class UserSession
     }
 
     /// <summary>
-    /// A bearer with at least a minute left, refreshed on demand; null when signed out or when the refresh was
-    /// refused (then the session is cleared — the next call is a 401 and the tool says "signed out").
+    /// A bearer with at least a minute left, refreshed on demand; null when there is no Supabase address or no
+    /// session (the file's token rules). While a session exists it never returns null (SI-1): a refresh Supabase
+    /// refused signs out and throws <see cref="SessionException"/> ("signed out — …"; later calls run signed out),
+    /// and a refresh that failed any other way (no answer, 5xx, 408, 429) keeps the session and throws
+    /// "<see cref="NotRefreshed"/> (…)" — the next call retries. Never the PC's token instead.
     /// ponytail: the refresh is a blocking HTTP call (8 s cap) on the caller's thread; a background refresh loop is
     /// the upgrade if a UI-thread caller ever stalls.
     /// </summary>
@@ -91,7 +101,7 @@ public static class UserSession
     }
 
     // ── refresh under the cross-process mutex ─────────────────────────────────────────────────────────────────
-    private static string? Refresh(string supabaseUrl, string anonKey)
+    private static string Refresh(string supabaseUrl, string anonKey)
     {
         using var mutex = new Mutex(false, @"Local\Sentinel.UserSession");
         bool held = false;
@@ -102,13 +112,13 @@ public static class UserSession
             var onDisk = Load();
             if (onDisk is not null && SecondsLeft(onDisk) > MinLeftSeconds) { _s = onDisk; return _s.AccessToken; }
             var refreshToken = onDisk?.RefreshToken ?? _s?.RefreshToken;
-            if (string.IsNullOrEmpty(refreshToken)) { Forget(); return null; }
+            if (string.IsNullOrEmpty(refreshToken)) { Forget(); throw new SessionException("signed out — the stored session has no refresh token — Standards ▸ Sign in"); }
+            // ponytail: no backoff — during an outage each call waits up to 8 s for Supabase; add one if B34 shows it hurts.
             var r = Token(supabaseUrl, anonKey, "refresh_token", JsonSerializer.Serialize(new { refresh_token = refreshToken }));
             if (r.Session is null)
             {
-                if (r.Refused) Forget(); // revoked or expired at Supabase: signed out; a network failure keeps the file for next time
-                else _s = null;
-                return null;
+                if (r.Refused) { Forget(); throw new SessionException("signed out — Supabase refused the session (" + r.Error + ") — Standards ▸ Sign in"); }
+                throw new SessionException(NotRefreshed + " (" + r.Error + ")"); // SI-1: memory and file kept; the next call retries
             }
             _s = r.Session; Save(_s);
             return _s.AccessToken;
@@ -131,14 +141,16 @@ public static class UserSession
             msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", anonKey);
             using var resp = Http.SendAsync(msg).GetAwaiter().GetResult();
             var text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            if (!resp.IsSuccessStatusCode) return (null, SupabaseWords(text, (int)resp.StatusCode), true);
+            // Refused only when Supabase said no (a 4xx); a 5xx, 408 or 429 is a failure to answer — the session is kept.
+            var code = (int)resp.StatusCode;
+            if (!resp.IsSuccessStatusCode) return (null, SupabaseWords(text, code), code >= 400 && code < 500 && code != 408 && code != 429);
             using var jd = JsonDocument.Parse(text);
             var root = jd.RootElement;
             var access = root.GetProperty("access_token").GetString() ?? "";
             var refresh = root.GetProperty("refresh_token").GetString() ?? "";
             var expiresIn = root.TryGetProperty("expires_in", out var e) ? e.GetInt64() : 3600;
             var email = root.TryGetProperty("user", out var u) && u.TryGetProperty("email", out var em) ? em.GetString() ?? "" : "";
-            if (access.Length == 0 || refresh.Length == 0) return (null, "Supabase answered without tokens", true);
+            if (access.Length == 0 || refresh.Length == 0) return (null, "Supabase answered without tokens", false);
             return (new Stored { Email = email, AccessToken = access, RefreshToken = refresh, ExpiresAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + expiresIn }, "", false);
         }
         catch (Exception ex) { return (null, "Supabase not reached: " + ex.Message, false); }
@@ -158,7 +170,7 @@ public static class UserSession
     }
 
     // ── the DPAPI file ────────────────────────────────────────────────────────────────────────────────────────
-    private static void LoadOnce() { if (_loaded) return; _loaded = true; _s = Load(); }
+    private static void LoadOnce() { if (_loaded) return; _s = Load(); _loaded = true; } // _s before _loaded: Email reads without the lock
 
     private static Stored? Load()
     {
@@ -182,3 +194,7 @@ public static class UserSession
         catch { /* a session that could not be kept lasts this process only */ }
     }
 }
+
+/// <summary>SI-1: the signed-in session could not be used for this call — the refresh failed (the session is kept,
+/// the next call retries) or Supabase refused it (signed out). The call is not sent: never under the PC's token.</summary>
+public sealed class SessionException : Exception { public SessionException(string message) : base(message) { } }

@@ -8,6 +8,7 @@ static class Check
 {
     static int _pass, _fail;
     static void Ok(bool c, string n) { if (c) { _pass++; Console.WriteLine("  PASS  " + n); } else { _fail++; Console.WriteLine("  FAIL  " + n); } }
+    static Exception? Throws(Func<object?> f) { try { f(); return null; } catch (Exception e) { return e; } }
 
     // ── a throwaway Supabase auth on loopback ────────────────────────────────────────────────────────────────
     static HttpListener _auth = null!;
@@ -19,6 +20,7 @@ static class Check
     static readonly HashSet<string> _live = new();       // refresh tokens that are currently valid
     static int _serial;
     static bool _refuseAll;
+    static bool _unavailable;
 
     static void StartAuth()
     {
@@ -43,6 +45,7 @@ static class Check
         var grant = req.QueryString["grant_type"];
         string answer; int status = 200;
         if (req.Headers["apikey"] != Anon) { status = 401; answer = "{\"message\":\"No API key found in request\"}"; }
+        else if (_unavailable) { status = 503; answer = "{\"message\":\"upstream unavailable\"}"; }
         else if (_refuseAll) { status = 400; answer = "{\"error\":\"invalid_grant\",\"error_description\":\"Invalid Refresh Token: Already Used\"}"; }
         else if (grant == "password")
         {
@@ -88,6 +91,7 @@ static class Check
             ReuseThenRefresh();
             TwoRefreshesSpendOne(file);
             RefusedRefreshSignsOut(file);
+            TransientKeepsSession(file);
             ConfigPrefersSession(file);
             Parse();
         }
@@ -160,13 +164,37 @@ static class Check
         UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
         _expiresIn = 3600;
         _refuseAll = true;
-        var t = UserSession.AccessToken(_url, Anon);
+        var e = Throws(() => UserSession.AccessToken(_url, Anon));
         _refuseAll = false;
-        Ok(t is null && !UserSession.IsSignedIn && !File.Exists(file), "a refresh Supabase refuses signs the person out and deletes the file");
+        Ok(e is SessionException && e.Message.StartsWith("signed out — ") && !UserSession.IsSignedIn && !File.Exists(file),
+           "a refused refresh fails that call in words, signs out and deletes the file: " + e?.Message);
+        Ok(UserSession.AccessToken(_url, Anon) is null, "…and the next call runs signed out");
         UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
         Ok(UserSession.IsSignedIn && File.Exists(file), "signed in again");
         UserSession.SignOut();
         Ok(!UserSession.IsSignedIn && !File.Exists(file) && UserSession.Email is null, "sign-out forgets the session and deletes the file");
+    }
+
+    // ── 7. SI-1: a refresh that fails without a refusal keeps the session and fails the call in words ─────
+    static void TransientKeepsSession(string file)
+    {
+        _expiresIn = 30;
+        UserSession.SignOut();
+        UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
+        _expiresIn = 3600;
+        const string Dead = "http://127.0.0.1:1/"; // nothing listens: never answered
+        var e = Throws(() => UserSession.AccessToken(Dead, Anon));
+        Ok(e is SessionException && e.Message.StartsWith("session not refreshed — retrying"), "no answer: the call fails in words: " + e?.Message);
+        Ok(UserSession.IsSignedIn && UserSession.Email == "lead@office.example" && File.Exists(file), "…the session and its file are kept");
+        var cfg = BcfConfig.Parse("{\"serviceToken\":\"shared-machine-token\",\"supabaseUrl\":\"" + Dead + "\",\"supabaseAnonKey\":\"" + Anon + "\"}");
+        Ok(Throws(() => cfg.ServiceToken) is SessionException, "while the session exists, ServiceToken never falls back to the shared token");
+        _unavailable = true;
+        Ok(Throws(() => UserSession.AccessToken(_url, Anon)) is SessionException && UserSession.IsSignedIn, "a Supabase 503 is not a refusal: the session is kept");
+        _unavailable = false;
+        int refused = _refusedRefreshes;
+        var t = UserSession.AccessToken(_url, Anon);
+        Ok(t is not null && t.StartsWith("access-") && _refusedRefreshes == refused, "the next call retries with the kept refresh token: " + t);
+        UserSession.SignOut();
     }
 
     // ── 5. BcfConfig.ServiceToken: the session first, the file's shared token otherwise ──────────────────────

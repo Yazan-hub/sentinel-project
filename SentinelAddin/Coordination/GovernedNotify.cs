@@ -56,7 +56,10 @@ namespace Sentinel.Coordination
         public static LedgerResult Event(string path, object payload, string projectKey, TimeSpan? timeout = null)
         {
             var cfg = BcfConfig.Load(); // never throws: the file, else the environment, else localhost
-            return LedgerResult.Post(cfg.ServiceUrl, cfg.ServiceToken, projectKey, path, payload, timeout ?? LedgerResult.DefaultTimeout);
+            string token;
+            try { token = cfg.ServiceToken; }
+            catch (SessionException e) { return LedgerResult.NotRecorded(e.Message); } // SI-1: never the PC's token instead
+            return LedgerResult.Post(cfg.ServiceUrl, token, projectKey, path, payload, timeout ?? LedgerResult.DefaultTimeout);
         }
 
         /// <summary>
