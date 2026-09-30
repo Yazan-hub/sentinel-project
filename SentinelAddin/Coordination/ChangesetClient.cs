@@ -32,6 +32,8 @@ public sealed class PlaceDto
     // attach (MA-0): the story levels a wall's base and top are constrained to.
     [JsonPropertyName("BaseLevel")] public string BaseLevel { get; set; }
     [JsonPropertyName("TopLevel")] public string TopLevel { get; set; }
+    // retype (Promote v1): a door or window's target family — a type name alone is not one type.
+    [JsonPropertyName("FamilyName")] public string FamilyName { get; set; }
 }
 
 /// <summary>The existing wall a retype/attach ghost changes (MA-0): its Revit UniqueId, and for a retype the type the

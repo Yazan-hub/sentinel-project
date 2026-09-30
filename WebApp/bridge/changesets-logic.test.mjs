@@ -328,3 +328,22 @@ describe("promote-body parity fixture (MA-0)", () => {
     expect(new Set(body.elements.map((e) => e.op))).toEqual(new Set(["retype", "attach"]));
   });
 });
+
+// Promote v1 (PromotePlanner + Bodies(title: "Promote (DD)")): one storey carrying all six kinds, doors and windows with
+// place.FamilyName. tools/promote-check writes the same body; this asserts the bridge keeps every field of it.
+describe("promote-body-v1 parity fixture (Promote v1)", () => {
+  const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/promote-body-v1.json", import.meta.url), "utf8"));
+  it("passes validateChangeset and keeps kind, op, target, reason, place (FamilyName too) and exceptions", () => {
+    const v = validateChangeset(body);
+    expect(v).toMatchObject({ name: body.name, source: "promote" });
+    expect(v.elements).toHaveLength(body.elements.length);
+    v.elements.forEach((el, i) => {
+      const sent = body.elements[i];
+      expect(el).toMatchObject({ kind: sent.kind, op: sent.op, reason: sent.reason, place: sent.place });
+      expect(el.target).toEqual({ unique_id: sent.target.unique_id, type_before: sent.target.type_before ?? null });
+    });
+    expect(new Set(body.elements.map((e) => e.kind))).toEqual(new Set(["wall", "floor", "roof", "ceiling", "door", "window"]));
+    for (const el of v.elements.filter((e) => e.kind === "door" || e.kind === "window")) expect(el.place.FamilyName).toEqual(expect.any(String));
+    expect(v.exceptions).toEqual(body.exceptions);
+  });
+});

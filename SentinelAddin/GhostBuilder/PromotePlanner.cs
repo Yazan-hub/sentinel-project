@@ -1,0 +1,221 @@
+#nullable disable
+// Promote v1 — the pure planner for the classes after walls: floors, roofs and ceilings are retyped to the exact DD type,
+// doors and windows swapped to an office family type (their host kept). Walls stay PromoteWallsPlanner's (MA-0); this
+// merges the other classes into the same storey plans, so one storey still files one changeset. No Revit types, so
+// tools/promote-check drives it offline. Commands.PromoteWalls reads the facts.
+//
+// The same principles as the walls: EXACT OR A PERSON (D16) — a rule at confidence 1 whose type is already loaded here, or
+// a held row with its reason, never a nearest; CONCEPT ELEMENTS ONLY — an element on a type a DD rule produces is settled,
+// one on another office type (floors, roofs, ceilings: the type name; doors, windows: the family name) is left as is and
+// not counted, structure is held whole. So a second run proposes nothing a first run applied.
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using Sentinel.Engine;
+
+namespace Sentinel.GhostBuilder
+{
+    public sealed class ElementFact
+    {
+        /// <summary>"floor" | "roof" | "ceiling" | "door" | "window" (a key of PromoteWallsPlanner.Classes).</summary>
+        public string Kind, UniqueId, Label, Family, TypeName, Level, Stamp;
+        /// <summary>Floors, roofs, ceilings: the type's build-up (mm); null = none (a Basic Ceiling, sloped glazing).</summary>
+        public double? ThicknessMm;
+        /// <summary>Doors, windows: the TYPE's Width and Height (mm); null = not a type parameter (an instance-sized family).</summary>
+        public double? WidthMm, HeightMm;
+        /// <summary>Floors: the type's Function ("Interior"/"Exterior"), null when it has none.</summary>
+        public string Function;
+        /// <summary>Doors, windows: the host wall's type (null = not hosted by a wall), its type's Function, its base level.</summary>
+        public string HostTypeName, HostFunction, HostLevel;
+        public bool HostBasic;
+        /// <summary>Why Sentinel cannot retype it ("an in-place family", "a nested shared component"), or null.</summary>
+        public string NotEditable;
+        public bool InGroup, InOption, Structural;
+    }
+
+    /// <summary>One class on one storey. Total = the DD-now denominator (every element but the OfficeTyped ones); DdNow =
+    /// settled (doors, windows: and hosted by a wall); Stamped = last written by a Promote changeset (office-typed included).</summary>
+    public sealed class ClassCount { public int Total, DdNow, OfficeTyped, Stamped; }
+
+    public static class PromotePlanner
+    {
+        /// <summary>A target's build-up within this of the element's thickness counts as equal (Revit stores feet).</summary>
+        private const double TolMm = 0.5;
+
+        /// <param name="classes">The guideline categories that run (Walls, Floors, Roofs, Ceilings, Doors, Windows).</param>
+        /// <param name="docBasicWallTypes">As PromoteWallsPlanner.Plan: the document's basic wall types → their Function.</param>
+        /// <param name="docTypes">Category → the document's types of it ("Family : Type" for doors and windows, the type name
+        /// otherwise; case-insensitive) → build-up mm (null for a loadable family or none). Never across categories.</param>
+        public static List<StoreyPlan> Plan(IReadOnlyCollection<string> classes, IReadOnlyList<WallFact> walls, IReadOnlyList<ElementFact> others,
+            IReadOnlyList<LevelFact> levels, IReadOnlyDictionary<string, string> docBasicWallTypes,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m)
+        {
+            // The walls are planned even when Walls do not run: a door's location reads its host storey's one-type verdict.
+            var wallPlans = PromoteWallsPlanner.Plan(walls ?? new List<WallFact>(), levels, docBasicWallTypes, m);
+            var oneType = new HashSet<string>(wallPlans.Where(p => p.OneType).Select(p => p.Storey), StringComparer.Ordinal);
+            var plans = classes.Contains("Walls") ? wallPlans : new List<StoreyPlan>();
+
+            var byName = new Dictionary<string, LevelFact>(StringComparer.Ordinal);
+            foreach (var l in levels) if (l?.Name != null && !byName.ContainsKey(l.Name)) byName[l.Name] = l;
+            string office = string.IsNullOrWhiteSpace(m.Office) ? null : m.Office.Trim() + "_";
+
+            foreach (var e in others ?? new List<ElementFact>())
+            {
+                if (e?.Kind == null || e.Kind == "wall" || !PromoteWallsPlanner.Classes.TryGetValue(e.Kind, out var cls) || !classes.Contains(cls.Category)) continue;
+                string storey = e.Level ?? "";
+                var p = plans.FirstOrDefault(x => x.Storey == storey);
+                if (p == null) plans.Add(p = new StoreyPlan { Storey = storey });
+                if (!p.Others.TryGetValue(cls.Category, out var c)) p.Others[cls.Category] = c = new ClassCount();
+                c.Total++;
+                if (ProvenanceStamp.SourceOf(e.Stamp) == "promote") c.Stamped++;
+                byName.TryGetValue(storey, out var level);
+                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, out var g);
+                if (reason != null) p.Held.Add(new PromoteHeld { UniqueId = e.UniqueId, Label = e.Label, Reason = reason });
+                else if (g != null) p.Ghosts.Add(g); // after the walls' ghosts; Bodies puts every retype before the attaches
+            }
+
+            double Elev(string level) => level != null && byName.TryGetValue(level, out var l) ? l.ElevationMm : double.MaxValue;
+            return plans.OrderBy(p => Elev(p.Storey)).ThenBy(p => p.Storey, StringComparer.Ordinal).ToList();
+        }
+
+        /// <summary>The command's preflight: a retype ghost <paramref name="why"/> refuses (non-null) becomes a held row with that reason.</summary>
+        public static void Refuse(IEnumerable<StoreyPlan> plans, Func<PromoteGhost, string> why)
+        {
+            foreach (var p in plans)
+                foreach (var g in p.Ghosts.Where(x => x.Op == "retype").ToList())
+                {
+                    var r = why(g);
+                    if (r == null) continue;
+                    p.Ghosts.Remove(g);
+                    p.Held.Add(new PromoteHeld { UniqueId = g.UniqueId, Label = g.Label, Reason = r });
+                }
+        }
+
+        // One element through the plan's checks, in order: the reason a person decides, or null — with a ghost, or with none
+        // (settled, counted in DD now; office-typed, taken out of the denominator).
+        private static string Plan1(ElementFact e, string cat, string word, LevelFact level, ISet<string> oneType, string office,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, ClassCount c, out PromoteGhost g)
+        {
+            g = null;
+            bool family = e.Kind == "door" || e.Kind == "window";
+            if (e.NotEditable != null) return $"{e.NotEditable} — Sentinel does not retype it; a person decides";
+            if (e.InGroup) return "in a group — Sentinel does not edit group members";
+            if (e.InOption) return "in a design option — Sentinel does not edit design options";
+            if (level == null || !level.IsStory) return $"level {e.Level} is not a Building Story — Promote plans storey by storey";
+
+            // Settled, by family and type for doors and windows (window type names repeat across families) — never re-measured.
+            if (family ? m.RuleProduces(cat, e.TypeName, e.Family) : m.RuleProduces(cat, e.TypeName))
+            {
+                if (!family || e.HostTypeName != null) c.DdNow++;
+                return null;
+            }
+            if (office != null && ((family ? e.Family : e.TypeName) ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase))
+            {
+                c.OfficeTyped++; c.Total--;
+                return null;
+            }
+            if (e.Kind == "floor" && e.Structural) return "structural floor — Promote v1 does not retype structure; a person decides";
+            return family ? Swap(e, cat, oneType, office, docTypes, m, out g) : Retype(e, cat, word, docTypes, m, out g);
+        }
+
+        // Floors, roofs, ceilings: the DD rule's type at this element's thickness, loaded here with that same build-up.
+        private static string Retype(ElementFact e, string cat, string word,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g)
+        {
+            g = null;
+            var t = e.ThicknessMm;
+            if (t.HasValue && !Whole(t.Value)) return $"thickness {Mm(t.Value, "0.###")} mm is not a whole millimetre — exact match only (D16)";
+            if (!m.HasCatalog) return NoCatalog(m);
+            var ps = new Dictionary<string, string>();
+            if (e.Function != null) ps["Function"] = e.Function;
+            ps["Family"] = e.Family ?? "";
+            string what = What(ps), size = t.HasValue ? ", " + Mm(t.Value, "0") + " mm" : "";
+            var res = m.Resolve(new GuidelineInput { Category = cat, Params = ps, ThicknessMm = t });
+            if (res.Source != "rule") return $"no DD rule for {what} in {m.Standard}";
+            if (string.IsNullOrWhiteSpace(res.Type)) return "no build-up thickness to fill the DD rule's type — a person decides";
+            if (res.Confidence != 1) return m.Gap($"{e.Label} ({e.TypeName}, {what}{size})", res.Why);
+            IReadOnlyDictionary<string, double?> types = null;
+            if (docTypes == null || !docTypes.TryGetValue(cat, out types) || types == null || !types.TryGetValue(res.Type, out var build))
+                return $"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types";
+            // The harvest never recorded a floor's build-up: the name alone is unverified, and a retype must never move a face.
+            if (t.HasValue && !(build.HasValue && Math.Abs(build.Value - t.Value) <= TolMm))
+                return $"\"{res.Type}\" {(build.HasValue ? "is " + Mm(build.Value, "0.#") + " mm thick" : "has no build-up")} in this model, " +
+                       $"the {word} is {Mm(t.Value, "0")} mm — a retype would move a face; a person decides";
+            g = new PromoteGhost
+            {
+                Op = "retype", Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.TypeName, TypeName = res.Type,
+                Reason = $"DD {cat.ToLowerInvariant()}: {what}{size} → {res.Type}",
+            };
+            return null;
+        }
+
+        // Doors, windows: the office family type of exactly this size (a door: and this location), loaded here; the host is kept.
+        private static string Swap(ElementFact e, string cat, ISet<string> oneType, string office,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g)
+        {
+            g = null;
+            if (e.HostTypeName == null) return "not hosted by a wall — rehosting is MA-5";
+            if (!e.HostBasic) return $"host {e.HostTypeName} is not a basic wall — a person decides";
+
+            // A door's location: a settled host's DD rule, not the template's Function (drill B33 F2); an office host no rule
+            // produces, or a one-type storey, cannot tell inside from outside.
+            string loc = null, tail = "";
+            if (e.Kind == "door")
+            {
+                if (m.RuleProduces("Walls", e.HostTypeName))
+                {
+                    loc = m.RuleParam("Walls", e.HostTypeName, "Function");
+                    if (loc == null) return $"host {e.HostTypeName}: its DD rules do not name one Function — a person decides";
+                    if (!string.Equals(loc, e.HostFunction, StringComparison.OrdinalIgnoreCase)) tail = $" (host {e.HostTypeName}: its DD rule says {loc})";
+                }
+                else if (office != null && e.HostTypeName.StartsWith(office, StringComparison.OrdinalIgnoreCase))
+                    return $"host {e.HostTypeName} is an office type no DD wall rule produces — inside cannot be told from outside; a person decides";
+                else if (e.HostLevel != null && oneType.Contains(e.HostLevel))
+                    return $"every wall on {e.HostLevel} is one type — inside cannot be told from outside; a person decides";
+                else loc = e.HostFunction ?? "";
+            }
+
+            if (!e.WidthMm.HasValue || !e.HeightMm.HasValue) return "width or height is not a type parameter — an instance-sized family; a person decides";
+            double w = e.WidthMm.Value, h = e.HeightMm.Value;
+            if (!Whole(w) || !Whole(h)) return $"size {Mm(w, "0.###")} x {Mm(h, "0.###")} mm is not a whole millimetre — exact match only (D16)";
+            if (TypeNameParse.TrySection(e.TypeName, out var nw, out var nh) && !(Same(nw, w) && Same(nh, h)))
+                return $"its type name says {Mm(nw, "0.###")} x {Mm(nh, "0.###")} mm, its Width x Height is {Mm(w, "0")} x {Mm(h, "0")} mm — a person decides";
+            if (!m.HasCatalog) return NoCatalog(m);
+
+            var ps = new Dictionary<string, string>();
+            if (loc != null) ps["HostFunction"] = loc;
+            ps["Size"] = $"W{Mm(w, "0")} x H{Mm(h, "0")} mm";
+            string what = What(ps);
+            var res = m.Resolve(new GuidelineInput { Category = cat, Params = ps });
+            if (res.Source != "rule")
+            {
+                var have = m.CatalogOfSize(cat, w, h);
+                return have.Count == 0
+                    ? m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", $"no {cat} type of {Mm(w, "0")} x {Mm(h, "0")} mm in the catalogue")
+                    : $"no DD rule for {what} in {m.Standard} — the catalogue has {string.Join(", ", have)}; which one is office policy";
+            }
+            if (string.IsNullOrWhiteSpace(res.Type)) return "the DD rule names no type — a person decides";
+            if (res.Confidence != 1) return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", res.Why);
+            string target = res.Family + " : " + res.Type;
+            if (!(TypeNameParse.TrySection(res.Type, out var rw, out var rh) && Same(rw, w) && Same(rh, h)))
+                return $"the DD rule gives {target} for {ps["Size"]} — the rule and the type name disagree; a person decides";
+            if (!m.CatalogHas(cat, res.Family, res.Type))
+                return $"\"{target}\" is not one family and type in the catalogue ({m.CatalogLabel}) — a person decides";
+            if (docTypes == null || !docTypes.TryGetValue(cat, out var types) || types == null || !types.ContainsKey(target))
+                return $"\"{target}\" is in the catalogue but not loaded in this model — Sentinel creates no types";
+            g = new PromoteGhost
+            {
+                Op = "retype", Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.Family + " : " + e.TypeName,
+                TypeName = res.Type, FamilyName = res.Family, Reason = $"DD {cat.ToLowerInvariant()}: {what} → {target}{tail}",
+            };
+            return null;
+        }
+
+        private static string NoCatalog(GuidelineMatcher m) => $"no type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16)";
+        private static string What(Dictionary<string, string> ps) => string.Join(", ", ps.Select(kv => kv.Key + " " + kv.Value));
+        private static bool Whole(double v) => Math.Abs(v - Math.Round(v)) <= 0.001;
+        private static bool Same(double a, double b) => Math.Abs(a - b) <= 0.001;
+        private static string Mm(double v, string format) => v.ToString(format, CultureInfo.InvariantCulture);
+    }
+}
