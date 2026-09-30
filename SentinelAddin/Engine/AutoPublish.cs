@@ -18,9 +18,11 @@ namespace Sentinel.Engine;
 ///
 /// Threading: the save/sync handler reads the key (Extensible Storage: API thread) and returns at once; the policy
 /// GET (≤ 4 s) runs on a task; Prepare (export, gate, extraction — Revit API, plus the contract GET and the gate row,
-/// ≤ 4 s + ≤ 6 s) runs in a later <see cref="RevitEventHub"/> job; Judge (the 120 s /propose) runs on a task; Stage
-/// and the Doctor line land back through the hub. One run per document per 15 s, single-flighted: a save that
-/// lands while a run is in flight is skipped, silently — a save is not the place for a dialog.
+/// ≤ 4 s + ≤ 6 s) runs in a later <see cref="RevitEventHub"/> job — announced first (GP-1: "Auto-publish: exporting …"
+/// lands in the pane, and the export is queued only after the pane has painted it); Judge (the 120 s /propose) runs on
+/// a task; Stage and the Doctor line land back through the hub. One run per document per 15 s, single-flighted with
+/// Governed Publish (<see cref="Publisher.InFlight"/>): a save that lands while a publish is in flight is skipped,
+/// silently — a save is not the place for a dialog.
 /// </summary>
 public static class AutoPublish
 {
@@ -33,11 +35,6 @@ public static class AutoPublish
     private static readonly Dictionary<string, string> SaidOff = new(StringComparer.OrdinalIgnoreCase); // the last "off" line said per document
 
     private static string IdOf(Document doc) => doc.PathName.Length > 0 ? doc.PathName : doc.Title;
-    private static bool _busy;
-
-    /// <summary>True from Prepare to Stage of one run. Governed Publish refuses to start meanwhile: both would write
-    /// the same outbox name.</summary>
-    internal static bool InFlight => _busy;
 
     /// <summary>Called from App.OnSaved / App.OnSynchronized (API thread). Never blocks: what can wait on the bridge
     /// runs on a task, what needs Revit runs in a later hub job.</summary>
@@ -50,7 +47,7 @@ public static class AutoPublish
 
     private static void TriggerCore(Document? doc)
     {
-        if (doc is null || doc.IsFamilyDocument || _busy || App.Events is not { } events || App.PanelVm is not { } vm) return;
+        if (doc is null || doc.IsFamilyDocument || Publisher.InFlight || App.Events is not { } events || App.PanelVm is not { } vm) return;
         var now = DateTime.UtcNow;
         var id = IdOf(doc);
         if (LastRun.TryGetValue(id, out var last) && now - last < MinInterval) return;
@@ -77,15 +74,25 @@ public static class AutoPublish
                 }));
                 return;
             }
-            events.Enqueue(_ => Run(doc, key, events, vm));
+            events.Enqueue(_ => Announce(doc, key, events, vm));
         }, TaskScheduler.Default);
+    }
+
+    // A hub job (API thread): claim the run, say it in the pane, and queue the export behind the pane's paint — the
+    // Background priority runs after the dispatcher has rendered the line, so it shows before Revit pauses.
+    private static void Announce(Document doc, string key, RevitEventHub events, UI.SentinelPanelViewModel vm)
+    {
+        if (Publisher.InFlight || !doc.IsValidObject || ProjectContext.For(doc).Key != key) return; // in flight, closed or rebound meanwhile
+        Publisher.InFlight = true;
+        vm.LogDoctor("Auto-publish: exporting " + Publisher.ContainerName(doc) + " — Revit pauses until the export ends…");
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+            new Action(() => events.Enqueue(_ => Run(doc, key, events, vm))));
     }
 
     // A hub job (API thread): Prepare here, Judge on a task, Stage and the line back through the hub.
     private static void Run(Document doc, string key, RevitEventHub events, UI.SentinelPanelViewModel vm)
     {
-        if (_busy || !doc.IsValidObject || ProjectContext.For(doc).Key != key) return; // in flight, closed or rebound meanwhile
-        _busy = true;
+        if (!doc.IsValidObject) { Publisher.InFlight = false; vm.LogDoctor("Auto-publish: nothing exported — the model was closed"); return; }
         PublishPlan plan;
         try
         {
@@ -94,13 +101,13 @@ public static class AutoPublish
         }
         catch (Exception ex) // never let a background export crash Revit
         {
-            _busy = false;
+            Publisher.InFlight = false;
             vm.LogDoctor("Auto-publish: nothing exported — " + ex.Message);
             return;
         }
         if (!plan.Ready) // refused before the referee (no export, or a gate FAIL): the temp IFC is already discarded
         {
-            _busy = false;
+            Publisher.InFlight = false;
             vm.LogDoctor(PublishLines.Doctor(plan));
             return;
         }
@@ -118,7 +125,7 @@ public static class AutoPublish
                 var stage = Publisher.Stage(plan, t.Result, PlatformExporter.OutboxDir());
                 vm.LogDoctor(PublishLines.Doctor(plan, t.Result, stage));
             }
-            finally { _busy = false; }
+            finally { Publisher.InFlight = false; }
         }), TaskScheduler.Default);
     }
 }

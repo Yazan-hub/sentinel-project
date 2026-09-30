@@ -52,6 +52,7 @@ static class Check
         Staging();
         Lines();
         Policy();
+        Cancel();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
@@ -410,5 +411,32 @@ static class Check
         var unreachable = ArtefactClient.None("publish", "bridge unreachable (No connection could be made)");
         Ok(!Publisher.AutoEnabled(unreachable) && PublishLines.Policy(unreachable) == "Auto-publish: off — publish: none — bridge unreachable (No connection could be made)",
            "no bridge and no cache → off, the reason");
+    }
+
+    // ── 7. GP-1 Cancel: measured, never promised ─────────────────────────────────────────────────────────
+    static void Cancel()
+    {
+        Ok(PublishLines.CancelNote(1, 0).Contains("no progress so far, so Cancel may not reach it"), "Cancel in the export with no Revit progress yet says Cancel may not reach the exporter");
+        Ok(PublishLines.CancelNote(1, 12).Contains("passed to Revit's IFC exporter at its next progress update") && PublishLines.CancelNote(1, 12).Contains("If the exporter ignores it"),
+           "…with progress seen, it is passed on — and what happens if ignored is said");
+        Ok(PublishLines.CancelNote(3, 12).Contains("stops waiting for the referee"), "Cancel in the referee step stops the wait");
+        Ok(PublishLines.CancelNote(4, 12).StartsWith("Too late to cancel"), "after the referee answered, Cancel is too late — said");
+        const string Head = "Governed Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: ";
+        Is(PublishLines.CancelledExport(true, 0, false), Head + "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped.",
+           "no progress updates: Cancel could not reach the exporter");
+        Is(PublishLines.CancelledExport(true, 7, false), Head + "Revit reported 7 progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped.",
+           "updates, none after Cancel: not reached");
+        Is(PublishLines.CancelledExport(true, 7, true), Head + "Cancel was passed to Revit's IFC exporter, which ignored it and ran to the end (7 progress update(s)); Sentinel stopped after it.",
+           "passed on and the export still finished: the exporter ignores Cancel — said");
+        Is(PublishLines.CancelledExport(false, 7, true), Head + "Revit's IFC exporter stopped when asked (7 progress update(s)).", "passed on and the export stopped: honoured");
+        var p = Ready();
+        Is(PublishLines.CancelledBeforeReferee(p), "Governed Publish cancelled before the referee — nothing was registered or uploaded.\n\n" +
+           "Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nGate row: ledger #812 · receipt 5c6d7e8f90112233…",
+           "Cancel after the gate names the gate row already on the ledger");
+        var r = PublishLines.CancelledAtReferee(p);
+        Ok(r.Contains("stopped waiting and staged nothing for upload") && r.Contains("The bridge may still finish") && r.Contains("aster-tower's ledger") && r.EndsWith("Gate row: ledger #812 · receipt 5c6d7e8f90112233…"),
+           "Cancel at the referee: nothing staged, and what the bridge may still write is said, not denied");
+        var d = new PublishPlan { Key = Key, Refusal = PublishLines.CancelledBeforeExport };
+        Ok(!d.Ready && PublishLines.Dialog(d) == PublishLines.CancelledBeforeExport, "a cancelled plan is not Ready and its dialog is the cancel line");
     }
 }
