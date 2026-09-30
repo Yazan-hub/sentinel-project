@@ -16,6 +16,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\PromoteWallsPlanner.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\PromotePlanner.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ProvenanceStamp.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\UndoWatcher.cs" />
     <!-- the DTOs a filed body is read back into, and the write options Propose serialises with -->

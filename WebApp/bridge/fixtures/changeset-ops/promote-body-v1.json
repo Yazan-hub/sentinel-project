@@ -1,0 +1,142 @@
+{
+  "name": "Promote (DD) · Level 1",
+  "source": "promote",
+  "actor": "yazan",
+  "elements": [
+    {
+      "op": "retype",
+      "kind": "wall",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000190",
+        "type_before": "Generic - 200mm"
+      },
+      "place": {
+        "TypeName": "BDS_EXT_ARC_CMU_200 mm"
+      },
+      "reason": "DD walls v0: Function Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm",
+      "validate": {
+        "identity": {
+          "Class": "IfcWall",
+          "Name": "W 312312"
+        }
+      }
+    },
+    {
+      "op": "retype",
+      "kind": "floor",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000191",
+        "type_before": "Generic 300mm"
+      },
+      "place": {
+        "TypeName": "BDS_INT_STR_CONC_300 mm"
+      },
+      "reason": "DD floors: Function Interior, Family Floor, 300 mm → BDS_INT_STR_CONC_300 mm",
+      "validate": {
+        "identity": {
+          "Class": "IfcSlab",
+          "Name": "Floor 401"
+        }
+      }
+    },
+    {
+      "op": "retype",
+      "kind": "roof",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000192",
+        "type_before": "Generic - 300mm"
+      },
+      "place": {
+        "TypeName": "BDS_EXT_ARC_GENRC_300 mm"
+      },
+      "reason": "DD roofs: Family Basic Roof, 300 mm → BDS_EXT_ARC_GENRC_300 mm",
+      "validate": {
+        "identity": {
+          "Class": "IfcRoof",
+          "Name": "Roof 402"
+        }
+      }
+    },
+    {
+      "op": "retype",
+      "kind": "ceiling",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000193",
+        "type_before": "MA1 Ceiling - 50mm"
+      },
+      "place": {
+        "TypeName": "BDS_INT_ARC_GYPS_50 mm"
+      },
+      "reason": "DD ceilings: Family Compound Ceiling, 50 mm → BDS_INT_ARC_GYPS_50 mm",
+      "validate": {
+        "identity": {
+          "Class": "IfcCovering",
+          "Name": "Ceiling 403"
+        }
+      }
+    },
+    {
+      "op": "retype",
+      "kind": "door",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000194",
+        "type_before": "M_Single-Flush : MA1 1000 x 2100mm"
+      },
+      "place": {
+        "TypeName": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+        "FamilyName": "BDS_INT_1 PNL"
+      },
+      "reason": "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own",
+      "validate": {
+        "identity": {
+          "Class": "IfcDoor",
+          "Name": "Door 404"
+        }
+      }
+    },
+    {
+      "op": "retype",
+      "kind": "window",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000195",
+        "type_before": "M_Fixed : MA1 600 x 1200mm"
+      },
+      "place": {
+        "TypeName": "600x1200 mm",
+        "FamilyName": "BDS_Window_Single Panel"
+      },
+      "reason": "DD windows: Size W600 x H1200 mm → BDS_Window_Single Panel : 600x1200 mm",
+      "validate": {
+        "identity": {
+          "Class": "IfcWindow",
+          "Name": "Window 405"
+        }
+      }
+    },
+    {
+      "op": "attach",
+      "kind": "wall",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000190"
+      },
+      "place": {
+        "BaseLevel": "Level 1",
+        "TopLevel": "Level 2"
+      },
+      "reason": "DD: top to next story Level 2 +0 (was unconnected)",
+      "validate": {
+        "identity": {
+          "Class": "IfcWall",
+          "Name": "W 312312"
+        }
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000196",
+      "name": "Door 406",
+      "reason": "gap: Door 406 (M_Single-Flush : 0915 x 2134mm) — no Doors type named at 915 x 2134 mm in the catalogue (type_catalog: type_catalog@1 · ma1-bds · 0123456789ab…)"
+    }
+  ]
+}

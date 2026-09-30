@@ -276,7 +276,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 | `layers@n` | CAD layers to categories | BUILT |
 | `ruleset@n` | Scan Now rules. A BLOCK rule stops the sync | BUILT (BLOCK at sync: package 2, merged 7271431). Ghost batches are checked against it before commit (TARGET, MA-1) |
 | `ids@n` and the contract | Required properties, checked before review | BUILT |
-| `lod_matrix@n` | Stage targets for each element class, mapped to the project stages | TARGET |
+| `lod_matrix@n` | Stage targets for each element class, mapped to the project stages | v0 BUILT (Promote v1): DD only, rows by Revit category; stage_map, type_snap_mm, lod numbers: TARGET |
 | `capture_rules@n` | How to scan (point spacing of 1 cm or less, no shadow areas, doors open) [S3D §7.3] | TARGET |
 | Worksets, phase, design options for placed elements | Each placed element goes to the workset the guideline names for its category, in the view's phase. Never into a design option unless the person picks one | MISSING. TARGET: a `placement` block in `guideline@n` (MA-1) |
 | Start from the office template | Build from Evidence runs only in a model whose types match the installed catalogue. Otherwise it says "this model was not made from the office template" | MISSING. TARGET (MA-1). The engine never loads an unknown family |
@@ -1072,6 +1072,9 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - A planted duplicate reports "Placed 9 (1 deleted by Revit)".
 
 **MA-2: LOD matrix + Promote v1 (walls, floors, ceilings).**
+- **Landed early (2026-09-30):** the `lod_matrix` kind (v0, DD only) arrived with Promote v1 — floors, roofs, ceilings, doors
+  and windows — ahead of MA-1 (plan `docs/superpowers/plans/2026-09-30-promote-v1-whole-elements.md`). What stays here:
+  `stage_map`, `type_snap_mm`, `tools/lod-check`, the outer-boundary location, the wider harvest and the LOD state reader.
 - **Size:** L (5–6 weeks). **Depends on:** MA-1; the Change Requests drill.
 - **Delivers:**
   - The `lod_matrix` kind, with `stage_map` and `type_snap_mm`, C# and TS parsers, and a `tools/lod-check` parity check.

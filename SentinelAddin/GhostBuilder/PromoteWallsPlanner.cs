@@ -11,6 +11,9 @@
 // CONCEPT WALLS ONLY (drill F1/F2). A wall already on a type the DD rules produce is settled (only its top is judged); a
 // wall on any other type of the guideline's office ("BDS_…") is left as is, unheld and uncounted; a structural wall
 // is held whole. So a second run proposes nothing a first run applied, whatever Function the template gave the type.
+//
+// Promote v1 (PromotePlanner) merges floors, roofs, ceilings, doors and windows into these storey plans; the shared types
+// below grow fields for them with defaults, so the walls' plan and body are what MA-0 wrote.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -29,7 +32,7 @@ namespace Sentinel.GhostBuilder
         public double WidthMm, BaseOffsetMm, TopOffsetMm;
         /// <summary>Unconnected Height (WALL_USER_HEIGHT_PARAM); read only when TopLevel is null.</summary>
         public double HeightMm;
-        public bool IsBasic, InGroup;
+        public bool IsBasic, InGroup, InOption;
         /// <summary>The wall's Structural usage (WALL_STRUCTURAL_SIGNIFICANT = 1).</summary>
         public bool Structural;
     }
@@ -45,6 +48,8 @@ namespace Sentinel.GhostBuilder
     {
         /// <summary>"retype" or "attach".</summary>
         public string Op, UniqueId, Label, TypeBefore, TypeName, BaseLevel, TopLevel, Reason;
+        /// <summary>A key of PromoteWallsPlanner.Classes; null = wall. FamilyName: a door or window retype's target family.</summary>
+        public string Kind, FamilyName;
         /// <summary>A retype whose target has another Function in this model: "&lt;target&gt; is Function &lt;X&gt; in this
         /// model" (also the Reason's tail) — the office's template to fix. Null otherwise; never posted.</summary>
         public string Note;
@@ -63,6 +68,11 @@ namespace Sentinel.GhostBuilder
         /// another type of the guideline's office, left as is. Stamped = walls whose provenance stamp was last written by
         /// a Promote changeset.</summary>
         public int Walls, DdNow, OfficeTyped, Stamped;
+        /// <summary>Every basic, ungrouped wall on the storey, office types aside, shares one type (the one-type hold; a
+        /// door's location cannot be read from such a storey either).</summary>
+        public bool OneType;
+        /// <summary>Promote v1's other classes on this storey: guideline category → counts.</summary>
+        public Dictionary<string, ClassCount> Others = new Dictionary<string, ClassCount>(StringComparer.Ordinal);
         public List<PromoteGhost> Ghosts = new List<PromoteGhost>();
         public List<PromoteHeld> Held = new List<PromoteHeld>();
     }
@@ -73,6 +83,14 @@ namespace Sentinel.GhostBuilder
         private const double TolMm = 0.5;
         /// <summary>The bridge's MAX_CHANGESET_EXCEPTIONS (changesets-logic.mjs): more on one changeset is a 400.</summary>
         public const int MaxExceptions = 1000;
+
+        /// <summary>Promote's classes by changeset kind: the guideline category, the IFC class a ghost is adjudicated as, the label word.</summary>
+        public static readonly IReadOnlyDictionary<string, (string Category, string Ifc, string Word)> Classes =
+            new Dictionary<string, (string, string, string)>(StringComparer.Ordinal)
+            {
+                ["wall"] = ("Walls", "IfcWall", "W"), ["floor"] = ("Floors", "IfcSlab", "Floor"), ["roof"] = ("Roofs", "IfcRoof", "Roof"),
+                ["ceiling"] = ("Ceilings", "IfcCovering", "Ceiling"), ["door"] = ("Doors", "IfcDoor", "Door"), ["window"] = ("Windows", "IfcWindow", "Window"),
+            };
 
         /// <param name="docBasicWallTypes">The document's basic wall types: name (case-insensitive) → the type's Function.</param>
         public static List<StoreyPlan> Plan(IReadOnlyList<WallFact> walls, IReadOnlyList<LevelFact> levels,
@@ -100,6 +118,7 @@ namespace Sentinel.GhostBuilder
                     // Whole-wall holds: nothing is proposed for these walls.
                     if (!w.IsBasic) { Hold("not a basic wall — Promote v0 types basic walls only"); continue; }
                     if (w.InGroup) { Hold("in a group — Sentinel does not edit group members"); continue; }
+                    if (w.InOption) { Hold("in a design option — Sentinel does not edit design options"); continue; }
                     if (baseLevel == null || !baseLevel.IsStory)
                     {
                         Hold($"base level {w.BaseLevel} is not a Building Story — Promote plans storey by storey");
@@ -176,7 +195,8 @@ namespace Sentinel.GhostBuilder
                 // retypes go to a person (MA-2 reads the outer boundary). The attaches stay. Settled walls count (a storey a
                 // first run half-promoted is not one-type); the office's other types do not (template samples would mask it).
                 var aside = p.OfficeTyped > 0 ? $" besides the {p.OfficeTyped} on other office types" : "";
-                if (typed.Count >= 2 && typed.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
+                p.OneType = typed.Count >= 2 && typed.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
+                if (p.OneType)
                     foreach (var g in retypes)
                         p.Held.Add(new PromoteHeld
                         {
@@ -200,7 +220,7 @@ namespace Sentinel.GhostBuilder
         /// changesets (one stamp write, one Undo). Its held walls ride on its chunks, at most MaxExceptions each. A storey
         /// with no ghosts files no changeset (one needs an element), so its held walls ride on the first body filed, named
         /// with their storey — every held wall reaches the ledger and the review window. Empty when no storey has a ghost.</summary>
-        public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor, int max = 200)
+        public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor, int max = 200, string title = "Promote walls (DD)")
         {
             var carried = plans.Where(p => p.Ghosts.Count == 0)
                 .SelectMany(p => p.Held.Select(h => new PromoteHeld { UniqueId = h.UniqueId, Label = $"{p.Storey} · {h.Label}", Reason = h.Reason }))
@@ -213,7 +233,7 @@ namespace Sentinel.GhostBuilder
                 for (int i = 0; i < chunks.Count; i++)
                     bodies.Add(new
                     {
-                        name = $"Promote walls (DD) · {p.Storey}" + (chunks.Count > 1 ? $" ({i + 1}/{chunks.Count})" : ""),
+                        name = $"{title} · {p.Storey}" + (chunks.Count > 1 ? $" ({i + 1}/{chunks.Count})" : ""),
                         source = "promote",
                         actor,
                         elements = chunks[i].Select(Element).ToList(),
@@ -241,7 +261,7 @@ namespace Sentinel.GhostBuilder
         private static List<object> Exceptions(IReadOnlyList<PromoteHeld> held, int i, int n)
         {
             var rows = held.Skip(i * MaxExceptions).Take(MaxExceptions)
-                .Select(h => (object)new { unique_id = h.UniqueId, name = h.Label, reason = Clip(h.Reason, 300) }).ToList();
+                .Select(h => (object)new { unique_id = h.UniqueId, name = Clip(h.Label, 256), reason = Clip(h.Reason, 300) }).ToList();
             int over = held.Count - n * MaxExceptions;
             if (i == n - 1 && over > 0)
             {
@@ -254,14 +274,15 @@ namespace Sentinel.GhostBuilder
         private static object Element(PromoteGhost g) => new
         {
             op = g.Op,
-            kind = "wall",
+            kind = g.Kind ?? "wall",
             target = new { unique_id = g.UniqueId, type_before = g.TypeBefore },
-            place = g.Op == "retype" ? (object)new { g.TypeName } : new { g.BaseLevel, g.TopLevel },
+            place = g.Op == "retype" ? (object)new { g.TypeName, g.FamilyName } : new { g.BaseLevel, g.TopLevel },
             reason = Clip(g.Reason, 500),
-            validate = new { identity = new { Class = "IfcWall", Name = g.Label } },
+            validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
         };
 
-        // The bridge refuses a reason over its cap (exceptions 300, ghosts 500); a gap text naming the catalogue can run long.
+        // The bridge refuses a reason over its cap (exceptions 300, ghosts 500) and an exception name over 256; a gap text naming
+        // the catalogue can run long, and a v1 label carries the element's Mark, which a person types freely.
         private static string Clip(string s, int max) => s == null || s.Length <= max ? s : s.Substring(0, max - 1) + "…";
 
         private static string Mm(double v, string format) => v.ToString(format, CultureInfo.InvariantCulture);

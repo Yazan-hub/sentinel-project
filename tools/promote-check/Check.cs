@@ -27,6 +27,10 @@ static partial class Check
         ConceptOnly(m);
         Parity(m);
         StampAndUndo();
+        var m2 = DdElementsFile();
+        Classes(m2);
+        ParityV1(m2);
+        Matrix(m, m2);
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
