@@ -351,13 +351,17 @@ public sealed class ChangesetExecutor
 
             // MA-1: doors and windows after every wall of this changeset (Regenerate first), so one may host on a wall it creates. The
             // host is the ONE straight basic wall on the named level under the point (PlacementGeometry.Host) — none or two is a
-            // refusal in words, never a guess. The symbol must be loaded; it is activated inside this transaction (Undo deactivates it).
+            // refusal in words, never a guess; so is a curtain, stacked or curved wall of that level passing the point too (the finder
+            // cannot weigh it, so it may not be skipped). The symbol must be loaded; it is activated inside this transaction (Undo
+            // deactivates it). The instance must land in that wall — a family that is not wall-hosted rolls the changeset back.
             var openings = toPlace.Where(e => IsCreate(e) && e.Kind is "door" or "window").ToList();
             if (openings.Count > 0)
             {
                 doc.Regenerate();
-                var hosts = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>()
-                    .Where(w => w.WallType.Kind == WallKind.Basic && !w.IsStackedWallMember && (w.Location as LocationCurve)?.Curve is Line).ToList();
+                var walls = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Where(w => w.Location is LocationCurve).ToList();
+                bool Plain(Wall w) => w.WallType.Kind == WallKind.Basic && !w.IsStackedWallMember && ((LocationCurve)w.Location).Curve is Line;
+                var hosts = walls.Where(Plain).ToList();
+                var odd = walls.Where(w => !Plain(w)).ToList();
                 var lines = hosts.Select(w =>
                 {
                     var c = ((LocationCurve)w.Location).Curve;
@@ -373,10 +377,25 @@ public sealed class ChangesetExecutor
                         throw new InvalidOperationException($"{el.Kind} \"{name}\": Location z {Mm(p[2])} mm is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a {el.Kind} stands on its level" + (el.Kind == "window" ? "; its sill is place.SillHeight" : ""));
                     var sym = (FamilySymbol)CreateType(doc, el.Kind == "door" ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows,
                                                        el.Kind, el.Place.FamilyName, el.Place.TypeName);
+                    var near = odd.FirstOrDefault(w =>
+                    {
+                        var c = ((LocationCurve)w.Location).Curve;
+                        return w.LevelId.Equals(level.Id)
+                               && c.Distance(new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, c.GetEndPoint(0).Z)) <= PlacementGeometry.HostTolMm * MmToFeet;
+                    });
+                    if (near != null)
+                    {
+                        var what = near.WallType.Kind == WallKind.Curtain ? "curtain" : near.WallType.Kind == WallKind.Stacked || near.IsStackedWallMember ? "stacked"
+                                 : ((LocationCurve)near.Location).Curve is Line ? "non-basic" : "curved";
+                        throw new InvalidOperationException($"{el.Kind} \"{name}\": a {what} wall (wall {near.Id.IdValue()}) on {level.Name} passes the point — " +
+                                                            $"Sentinel hosts a {el.Kind} in one straight basic wall only; a person decides the host");
+                    }
                     var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
                     if (i < 0) throw new InvalidOperationException($"{el.Kind} \"{name}\": {why}");
                     if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
                     var fi = doc.Create.NewFamilyInstance(Pt(p), sym, hosts[i], level, StructuralType.NonStructural);
+                    if (!(fi.Host is Wall hw && hw.Id.Equals(hosts[i].Id)))
+                        throw new InvalidOperationException($"{el.Kind} \"{name}\": \"{TypeLabel(sym)}\" did not go into wall {hosts[i].Id.IdValue()} — its family is not wall-hosted; re-propose a wall-hosted {el.Kind}");
                     if (el.Place.SillHeight is double sill) Set(fi, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM, sill * MmToFeet, el.Kind);
                     if (el.Place.FlipFacing == true && !(fi.CanFlipFacing && fi.flipFacing())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its facing");
                     if (el.Place.FlipHand == true && !(fi.CanFlipHand && fi.flipHand())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its hand");
