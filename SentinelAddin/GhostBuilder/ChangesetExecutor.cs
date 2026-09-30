@@ -330,7 +330,10 @@ public sealed class ChangesetExecutor
                          ?? throw new InvalidOperationException($"roof \"{name}\": \"{el.Place.TypeName}\" is not a roof type Sentinel can sketch");
                 var arr = new CurveArray();
                 foreach (var c in Outline(el.Place.Boundary, level.Elevation, $"roof \"{name}\"")) arr.Append(c);
-                var roof = doc.Create.NewFootPrintRoof(arr, level, rt, out ModelCurveArray edges);
+                // The API reads this "out" array before filling it (the SDK sample creates it first): passed null, the call throws a
+                // bare "Value cannot be null." (B35, live).
+                var edges = new ModelCurveArray();
+                var roof = doc.Create.NewFootPrintRoof(arr, level, rt, out edges);
                 foreach (ModelCurve mc in edges) roof.set_DefinesSlope(mc, false);
                 if (el.Place.BaseOffset is double off) Set(roof, BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM, off * MmToFeet, "roof");
                 SetMark(roof, el);
