@@ -90,6 +90,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentSynchronizingWithCentral += OnSynchronizing; // BLOCK stops the sync
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
+                app.ControlledApplication.DocumentChanged += UndoWatcher.OnChanged; // MA-0: an Undo of a Sentinel changeset → a ledger row
                 app.ViewActivated += OnViewActivated; // the pane follows the active document
 
                 // 'Revit Doctor': global native-warning interception
@@ -121,6 +122,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentSynchronizingWithCentral -= OnSynchronizing;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
+        app.ControlledApplication.DocumentChanged -= UndoWatcher.OnChanged;
         app.ViewActivated -= OnViewActivated;
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
         SentinelUpdater.UnregisterAll();
@@ -487,6 +489,8 @@ public sealed class App : IExternalApplication
             "Estimate a building's massing from the project images (photos/renders/elevations) in the scoped folder, review and correct the numbers, then build it through the same governed placement, typed by the guideline and type catalogue installed on this document's web project (or its office) and named in the summary; with no guideline the walls get declared placeholder types.");
         Sub(chain, "Sentinel_Annotate", "3 · Annotate Views", "Sentinel.Commands.AnnotateViewsCommand", "ghost",
             "Create the WIP plan views prescribed by the `views` section of the guideline installed on this document's web project (or its office), named guideline@n with source and sha: one per plannable entry per level, templated and routed into the office Project Browser structure. Idempotent. No guideline installed = nothing to plan.");
+        Sub(chain, "Sentinel_PromoteWalls", "4 · Promote walls (DD)", "Sentinel.Commands.PromoteWallsCommand", "ghost",
+            "Promote this model's walls to DD by the guideline and type catalogue installed on its web project (or its office): retype each basic wall to the exact catalogue type already loaded here, attach bases and tops to story levels, and send every ambiguous wall to a person with its reason. Shows the plan first (No = read-only); files one reviewed changeset per storey. No type is ever created; each change is stamped, and an Undo of it is recorded on the ledger.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Counts from this document's web project ledger — delivery gate runs, naming renames, family heals — priced only by the roi standard installed on the project (or its office); what writes no ledger row is listed as not counted.");
     }

@@ -964,7 +964,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 
 | Package | State | Why the engine needs it |
 |---|---|---|
-| 1: right model, one undo | BUILT, merged 4638d25. B31 partly passed live (B31-1, B31-2); B31-3..8 owed | Placement goes into the pinned document, as one Undo |
+| 1: right model, one undo | BUILT, merged 4638d25. B31 partly passed live (B31-1, B31-2; session 4: B31-3 for BCF Issues and Change Requests, and B31-7); B31-3 for Review AI Proposals and Apply Standard, B31-4, -5, -6, -8 owed | Placement goes into the pinned document, as one Undo |
 | 2: right answers | BUILT, merged 7271431. B32 partly passed live (B32-2, -4, -7); B32-1, -3, -5, -6 owed | Typed parameter reads for the LOD checks. BLOCK at sync |
 | 2b: delivery gate coverage per class | Next | Per-class coverage for Verify |
 | 3: publish that exports everything | Next (B33) | Whole-model export and a clean document, used by Verify through IFC |
@@ -974,7 +974,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 
 | Owed drill | Source | When, in this plan |
 |---|---|---|
-| B31-3..8, B32-1, -3, -5, -6 | [SIM] cda0b8c | Before MA-0 (MA-0 uses DocPin, `SentinelUndo` and typed reads). Undo rows must use non-view actions |
+| B31-3 (Review AI Proposals, Apply Standard), B31-4, -5, -6, -8, B32-1, -3, -5, -6 (B31-3 BCF Issues and Change Requests and B31-7 passed in session 4) | [SIM] cda0b8c | Before MA-0 (MA-0 uses DocPin, `SentinelUndo` and typed reads). Undo rows must use non-view actions |
 | Doctor live drill + counting | [BP] §5.0 | With the MA-1 drill (MA-1 adds Doctor ledger rows) |
 | Change Requests approve/reject | [BP] §5.0 (one approve passed in B32-4) | Before MA-2 (it is the governed path that `set_parameter` shares with P2-7) |
 | Naming Manager batch rename (B16), Sanitize .rfa and Clash Manager live runs | [BP] §5.0 | Before blueprint P1, as the blueprint says. They do not block MA phases |

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
-  VOCABULARY, MAX_CHANGESET_ELEMENTS,
+  VOCABULARY, OPS, MAX_CHANGESET_ELEMENTS,
   validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 
@@ -80,7 +81,7 @@ describe("validateChangeset — per-kind place rules", () => {
   });
 
   it("floor needs a closed LocationLoop of ≥3 points", () => {
-    const floor = { kind: "floor", validate: { identity: { Class: "IFCSLAB", Name: "F1" } }, place: { LevelName: "Level 1", LocationLoop: [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]] } };
+    const floor = { kind: "floor", validate: { identity: { Class: "IFCSLAB", Name: "F1" } }, place: { TypeName: "Generic 150mm", LevelName: "Level 1", LocationLoop: [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]] } };
     expect(validateChangeset(CS([floor])).elements[0].kind).toBe("floor");
     const two = { ...floor, place: { ...floor.place, LocationLoop: [[0, 0, 0], [1, 1, 0]] } };
     expect(() => validateChangeset(CS([two]))).toThrow(/LocationLoop/);
@@ -185,5 +186,131 @@ describe("review fixes — honesty + degenerate geometry", () => {
     expect(() => validateChangeset(CS([bad]))).toThrow(/psets must be an array/);
     const atCap = Array.from({ length: MAX_CHANGESET_ELEMENTS }, () => wall());
     expect(validateChangeset(CS(atCap)).elements).toHaveLength(MAX_CHANGESET_ELEMENTS);
+  });
+});
+
+// MA-0 Promote walls: retype and attach change an existing wall named by its Revit UniqueId; a create names its type.
+describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+  const retype = (over = {}) => ({
+    op: "retype", kind: "wall",
+    target: { unique_id: UID, type_before: "Generic - 200mm" },
+    place: { TypeName: "BDS_EXT_ARC_CMU_200 mm" },
+    reason: "DD walls v0: Function Exterior, 200 mm",
+    validate: { identity: { Class: "IfcWall", Name: "W 312312" } },
+    ...over,
+  });
+  const attach = (over = {}) => ({
+    op: "attach", kind: "wall",
+    target: { unique_id: UID },
+    place: { BaseLevel: "Level 1", TopLevel: "Level 2" },
+    validate: { identity: { Class: "IfcWall", Name: "W 312312" } },
+    ...over,
+  });
+  const status400 = (fn, re) => {
+    try { fn(); throw new Error("no throw"); }
+    catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
+  };
+
+  it("OPS is create, retype, attach; VOCABULARY is unchanged", () => {
+    expect(OPS).toEqual(["create", "retype", "attach"]);
+    expect(VOCABULARY).toEqual(["wall", "floor", "level", "grid"]);
+  });
+
+  it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
+    const v = validateChangeset(CS([wall(), level()]));
+    for (const e of v.elements) expect(e).toMatchObject({ op: "create", target: null, reason: null });
+    expect(v.exceptions).toEqual([]);
+  });
+
+  it("an unknown op is a 400 that names the element index and the allowed ops", () => {
+    status400(() => validateChangeset(CS([wall(), { ...wall(), op: "delete" }])), /elements\[1\].*"delete".*create, retype, attach/);
+  });
+
+  it("retype needs a UniqueId-shaped target and a TypeName, and no LocationCurve", () => {
+    const v = validateChangeset(CS([retype()]));
+    expect(v.elements[0]).toMatchObject({
+      op: "retype", kind: "wall",
+      target: { unique_id: UID, type_before: "Generic - 200mm" },
+      place: { TypeName: "BDS_EXT_ARC_CMU_200 mm" },
+      reason: "DD walls v0: Function Exterior, 200 mm",
+    });
+    status400(() => validateChangeset(CS([retype({ target: { unique_id: "123456" } })])), /\[0\].*target\.unique_id/);
+    status400(() => validateChangeset(CS([retype({ target: undefined })])), /target\.unique_id/);
+    status400(() => validateChangeset(CS([retype({ place: { TypeName: "  " } })])), /retype needs place\.TypeName/);
+    status400(() => validateChangeset(CS([retype({ place: undefined })])), /retype needs place\.TypeName/);
+  });
+
+  it("attach needs two different levels", () => {
+    const v = validateChangeset(CS([attach()]));
+    expect(v.elements[0]).toMatchObject({ op: "attach", target: { unique_id: UID, type_before: null }, place: { BaseLevel: "Level 1", TopLevel: "Level 2" } });
+    status400(() => validateChangeset(CS([attach({ place: { BaseLevel: "Level 1", TopLevel: "Level 1" } })])), /two different levels/);
+    status400(() => validateChangeset(CS([attach({ place: { BaseLevel: "Level 1" } })])), /two different levels/);
+  });
+
+  it("retype or attach on anything but a wall is a 400", () => {
+    status400(() => validateChangeset(CS([retype({ kind: "floor" })])), /retype is for walls only/);
+    status400(() => validateChangeset(CS([attach({ kind: "level" })])), /attach is for walls only/);
+  });
+
+  it("the same (op, wall) twice is a 400; a retype plus an attach on one wall is fine", () => {
+    expect(validateChangeset(CS([retype(), attach()])).elements.map((e) => e.op)).toEqual(["retype", "attach"]);
+    status400(() => validateChangeset(CS([retype(), retype({ target: { unique_id: UID.toUpperCase() } })])), /\[1\].*second retype/);
+    status400(() => validateChangeset(CS([attach(), attach()])), /second attach/);
+  });
+
+  it("a wall or floor create without a TypeName is a 400; a level or grid needs none", () => {
+    const noType = wall(); delete noType.place.TypeName;
+    status400(() => validateChangeset(CS([noType])), /wall needs place\.TypeName/);
+    status400(() => validateChangeset(CS([wall({ place: { ...wall().place, TypeName: "" } })])), /never takes the model's first type/);
+    const floor = { kind: "floor", validate: { identity: { Class: "IFCSLAB" } }, place: { LocationLoop: [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]] } };
+    status400(() => validateChangeset(CS([floor])), /floor needs place\.TypeName/);
+    const grid = { kind: "grid", validate: { identity: { Class: "IFCGRID" } }, place: { LocationCurve: { start: [0, 0, 0], end: [0, 9000, 0] } } };
+    expect(validateChangeset(CS([level(), grid])).elements).toHaveLength(2);
+  });
+
+  it("a reason must be text of at most 500 characters", () => {
+    status400(() => validateChangeset(CS([retype({ reason: 42 })])), /reason/);
+    status400(() => validateChangeset(CS([retype({ reason: "x".repeat(501) })])), /reason/);
+  });
+
+  it("exceptions are kept and checked", () => {
+    const rows = [{ unique_id: UID, name: "W 312321", reason: "gap: no BDS type at 125 mm", extra: "dropped" }, { unique_id: "u-2", reason: "in a group" }];
+    const v = validateChangeset(CS([attach()], { exceptions: rows }));
+    expect(v.exceptions).toEqual([
+      { unique_id: UID, name: "W 312321", reason: "gap: no BDS type at 125 mm" },
+      { unique_id: "u-2", name: null, reason: "in a group" },
+    ]);
+    status400(() => validateChangeset(CS([attach()], { exceptions: "nope" })), /exceptions must be an array/);
+    status400(() => validateChangeset(CS([attach()], { exceptions: [{ unique_id: UID }] })), /exceptions\[0\].*reason/);
+    status400(() => validateChangeset(CS([attach()], { exceptions: [{ reason: "r" }] })), /exceptions\[0\].*unique_id/);
+    status400(() => validateChangeset(CS([attach()], { exceptions: [{ unique_id: "x".repeat(65), reason: "r" }] })), /unique_id/);
+    status400(() => validateChangeset(CS([attach()], { exceptions: [{ unique_id: UID, reason: "r".repeat(301) }] })), /reason/);
+    const many = Array.from({ length: 1001 }, (_, i) => ({ unique_id: `u-${i}`, reason: "r" }));
+    status400(() => validateChangeset(CS([attach()], { exceptions: many })), /too many exceptions/);
+  });
+
+  it("a posted proposal_guid is replaced by the bridge's own", () => {
+    const v = validateChangeset(CS([retype({ proposal_guid: "posted-guid" })]));
+    expect(v.elements[0].proposal_guid).not.toBe("posted-guid");
+    expect(v.elements[0].proposal_guid).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+});
+
+// The body the Revit planner files (PromoteWallsPlanner.Bodies), shared with tools/promote-check: that tool asserts the
+// planner still writes exactly this, this asserts the bridge keeps every field of it — neither side drops one silently.
+describe("promote-body parity fixture (MA-0)", () => {
+  const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/promote-body.json", import.meta.url), "utf8"));
+  it("passes validateChangeset and keeps op, target, reason, place and exceptions", () => {
+    const v = validateChangeset(body);
+    expect(v).toMatchObject({ name: body.name, source: "promote" });
+    expect(v.elements).toHaveLength(body.elements.length);
+    v.elements.forEach((el, i) => {
+      const sent = body.elements[i];
+      expect(el).toMatchObject({ kind: "wall", op: sent.op, reason: sent.reason, place: sent.place });
+      expect(el.target).toEqual({ unique_id: sent.target.unique_id, type_before: sent.target.type_before ?? null });
+    });
+    expect(v.exceptions).toEqual(body.exceptions);
+    expect(new Set(body.elements.map((e) => e.op))).toEqual(new Set(["retype", "attach"]));
   });
 });

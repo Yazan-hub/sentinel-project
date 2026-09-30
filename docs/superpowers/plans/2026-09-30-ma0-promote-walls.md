@@ -193,11 +193,13 @@ It uses the `guideline@n` shape that `GuidelineMatcher.FromBodies` (`:184-190`) 
 - The stored value:
 
   ```json
-  { "v": 1, "changeset_id": "3f2a…", "proposal_guids": ["8c1e…", "91d0…"], "unique_id_at_placement": "5a1c…-0004c3f8" }
+  { "v": 1, "changeset_id": "3f2a…", "source": "promote", "proposal_guids": ["s1…", "8c1e…", "91d0…"],
+    "unique_id_at_placement": "5a1c…-0004c3f8", "changeset_ids": ["seed…", "3f2a…"] }
   ```
 
 - A schema holds one entity per element, and a new write overwrites it (RevitAPI.xml:274114-274126). So the executor stamps **once per element** with every guid that touched it:
-  `foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId)) ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, g.Select(a => a.ProposalGuid));`
+  `foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId)) ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid));`
+- (Review fix) `Write` **merges** the element's own earlier stamp: `changeset_id` and `source` are the latest changeset's; `proposal_guids` and `changeset_ids` list every one that touched the element, oldest first; `unique_id_at_placement` stays the first placement's. A copy's stamp (another element's `unique_id_at_placement`) is not merged. So Promote on a seed wall placed by Review AI Proposals keeps the seed's provenance.
 - It writes **inside the changeset transaction**, just before the count guard at `:146`, so Ctrl+Z removes the stamp too.
 
 ### 2.6 `changeset_reverted`
@@ -242,7 +244,10 @@ public sealed class PromoteHeld  { public string UniqueId, Label, Reason; }
 public sealed class StoreyPlan   { public string Storey; public int Walls, DdNow, Stamped;
                                    public List<PromoteGhost> Ghosts = new(); public List<PromoteHeld> Held = new(); }
 public static List<StoreyPlan> Plan(IReadOnlyList<WallFact> walls, IReadOnlyList<LevelFact> levels, ISet<string> docBasicWallTypes, GuidelineMatcher m);
-public static List<object> Bodies(StoreyPlan p, string actor, int max = 200);   // chunks by GHOST count; exceptions ride on chunk 1
+public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor, int max = 200);
+// (review fix) chunks BY WALL at <= max ghosts (a wall's retype and attach stay in one changeset); a storey's held rows
+// spread over its chunks at <= 1000 each (the bridge's MAX_CHANGESET_EXCEPTIONS; overflow = one "… and N more" row);
+// the held rows of a storey with no ghosts ride on the first body filed, named "<storey> · <wall>"
 ```
 
 **Rules for each wall.** Every "held" line becomes an exception row, with the reason text shown.
@@ -259,7 +264,8 @@ public static List<object> Bodies(StoreyPlan p, string actor, int max = 200);   
 | Result is a rule at confidence 1 and the type is loaded | Retype ghost, with `TypeBefore` set |
 | Result is a rule at confidence 0 | Held with `m.Gap(label, res.Why)`, which names the catalogue (`:194`) |
 | Result is `default` or `none` | Held: "no DD rule for Function X in <guideline label>" |
-| Attach check | Find the next Building Story above the base level. If there is none, hold the wall ("no story level above"). If the base offset is not 0 (more than 0.5 mm off), hold it ("attaching would move the wall"). If the top is not already the next story at offset 0, file an attach ghost |
+| Attach check | Find the next Building Story above the base level. If there is none, hold the wall ("no story level above"). If the base offset is not 0 (more than 0.5 mm off), hold it ("attaching would move the wall"). If the top is not already the next story at offset 0, file an attach ghost — unless the wall's top now (top level + offset, or unconnected: base + offset + Unconnected Height) is above the next story: then hold it ("attaching would cut the wall down to one storey; a person decides"). The executor refuses an attach whose base is no longer the planned level at +0, or whose top is above the new top (the model changed since the plan) |
+| No type catalogue installed (review fix) | The matcher would answer the pattern unchecked, so the type is held ("no type catalogue installed … (D16)"); the attach stays |
 | **Every wall on the storey shares one type** (§3.4 step 4, `:336`) | Retype ghosts for that storey are replaced by held rows. Attach ghosts stay |
 | `DdNow` | Count of walls whose type is OK **and** whose top is OK. This is the drill's "LOD-300 rule passes before and after" |
 
@@ -499,7 +505,7 @@ These rows use the design's run order (`:988-1010`). Record the build hash, beca
 1. Run **Promote walls (DD)** and choose **No** at the summary. Record "DD now" before.
 2. Run it again and choose **Yes**. The Level 1 review window opens. Record the ticks and unticks, which are the edit count, and the time.
 3. Apply. Run Promote again: it reopens the pending Level 2 Promote changeset. Apply that too.
-4. Run Promote and choose **No** again. Record "DD after" and the stamped count.
+4. Run Promote and choose **No** again. Record "DD after" and the "stamped by Promote" count (walls whose stamp was last written by a `source: promote` changeset — the seed's own stamps do not count).
 5. Press Ctrl+Z once. Level 2 should revert. The Doctor log should show "changeset_reverted row posted", and `GET /cde/ma0-bds/audit` should show one row listing the guids. Press Ctrl+Y and check the redo row.
 6. Measure the IDS pass rate before and after with the same tool both times, and report it as it is.
 7. Switch to the BLOCK ruleset and sync. Record whether the sync is stopped (measured only).
@@ -516,7 +522,7 @@ These rows use the design's run order (`:988-1010`). Record the build hash, beca
 | A signed-in Revit gets a 403 on `/result` after the walls have already changed (`changesets-store.mjs:81`, `BcfConfig.cs:30`) | Task 2 opens it to contributors, as `:78-80` intended, and 401/403 join the no-retry list. The trade-off: a web contributor could also post a result. Otherwise, run the drill signed out |
 | Old add-in with new bridge: an older executor treats retype as a wall create and declines | Deploy the add-in and bridge together. The new executor filters with `IsCreate`, and the count guard at `:146` catches anything else |
 | One empty type declines the whole storey (all-or-nothing, `:154-158`) | The planner never files a ghost without a TypeName, and the bridge now gives a 400 on a create without one |
-| The 200 cap counts ghosts, not walls | Chunk by ghost count. A storey with more than 200 ghosts gets two Undo entries (see cuts) |
+| The 200 cap counts ghosts, not walls | Chunk by wall at up to 200 ghosts. A storey with more than 200 ghosts gets two Undo entries (see cuts) |
 | The params match is a substring test (`GuidelineMatcher.cs:359`) | Function is the only param. Thickness goes through `typePattern`, the catalogue and the document, all exact, plus the whole-mm guard |
 | A default in the rule file answers at confidence 0.6 (`:321-331`) | The rule file has no default, and the planner requires `Source == "rule" && Confidence == 1` |
 | The Function of the Generic types is unknown; the harvest drops it (`GoldenModelExtractor.cs:84` uses `AsString()` on an integer parameter) | Read it in step 5. Duplicate an Interior type for the seed. The one-type-per-storey rule holds ambiguous retypes |

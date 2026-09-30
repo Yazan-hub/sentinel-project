@@ -1,8 +1,10 @@
 #nullable disable
 // Governed AI modeling (A2): the human gate. One row per proposed element with the REFEREE'S
-// verdict — pre-ticked only when the IDS accepted it. A human may tick a rejected row (overrule,
-// with the failures on screen — the result records that they did); recorded rows say honestly
-// that no spec adjudicated them. Modeless, code-only WPF, in GhostReviewWindow's visual family.
+// verdict — pre-ticked only when the IDS accepted it, or (MA-0) when it is a Promote retype/attach: a single-answer
+// op (§3.4 step 7) whose ghost carries no property sets, so its IDS verdict certifies nothing (the badge still shows
+// it). A human may tick a rejected row (overrule, with the failures on screen — the result records that they did);
+// recorded rows say honestly that no spec adjudicated them. The walls the planner sent to a person are listed above
+// the rows and cannot be ticked. Modeless, code-only WPF, in GhostReviewWindow's visual family.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -53,15 +55,42 @@ public sealed class ChangesetReviewWindow : Window
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 
+        // The walls sent to a person (Promote's exceptions): shown with their reason, never tickable.
+        var held = _cs.Exceptions ?? new List<ExceptionRowDto>();
+        if (held.Count > 0)
+        {
+            var heldList = new StackPanel();
+            foreach (var x in held)
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+                var box = new CheckBox { IsChecked = false, IsEnabled = false, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(box, Dock.Left);
+                row.Children.Add(box);
+                row.Children.Add(new TextBlock
+                {
+                    Text = $"{x.Name ?? x.UniqueId} — {x.Reason}", Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = x.UniqueId,
+                });
+                heldList.Children.Add(row);
+            }
+            var exp = new Expander
+            {
+                Header = $"Sent to a person ({held.Select(x => x.UniqueId).Distinct().Count()} wall(s))", IsExpanded = true, Margin = new Thickness(0, 0, 0, 8),
+                Content = new ScrollViewer { Content = heldList, MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            };
+            DockPanel.SetDock(exp, Dock.Top);
+            root.Children.Add(exp);
+        }
+
         // Footer: reviewer note + actions. (Top/bottom docked before the fill so the list scrolls.)
         var foot = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         foot.Children.Add(new TextBlock { Text = "Reviewer note (recorded with the result):", Foreground = Brushes.Gray });
         foot.Children.Add(_note);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
-        var all = new Button { Content = "Tick accepted", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
+        var all = new Button { Content = "Tick suggested", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var none = new Button { Content = "Untick all", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
-        var go = new Button { Content = "Create ticked in Revit", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
-        all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = r.El.Verdict?.Status == "accepted"; };
+        var go = new Button { Content = "Apply ticked in Revit", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
+        all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = PreTick(_cs, r.El); };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
         // Re-entrancy guard (GhostReviewWindow convention): if a DecideRequested subscriber throws,
         // Close() is skipped — the button must not allow a second fire with the same snapshot.
@@ -79,7 +108,7 @@ public sealed class ChangesetReviewWindow : Window
             var box = new CheckBox
             {
                 VerticalAlignment = VerticalAlignment.Center,
-                IsChecked = el.Verdict?.Status == "accepted", // pre-tick = the referee's verdict, nothing else
+                IsChecked = PreTick(_cs, el), // the referee's verdict, or a Promote single-answer op
             };
             _rows.Add((box, el));
             DockPanel.SetDock(box, Dock.Left);
@@ -92,13 +121,24 @@ public sealed class ChangesetReviewWindow : Window
             var label = new TextBlock { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
             var type = el.Place?.TypeName; var lvl = el.Place?.LevelName;
-            label.Text = $"{el.Kind}: {name}" + (type != null ? $"  ·  {type}" : "") + (lvl != null ? $"  ·  {lvl}" : "");
+            label.Text = el.Op switch
+            {
+                "retype" => $"retype: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {type}",
+                "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
+                _ => $"{el.Kind}: {name}" + (type != null ? $"  ·  {type}" : "") + (lvl != null ? $"  ·  {lvl}" : ""),
+            };
+            if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
             row.Children.Add(label);
             list.Children.Add(row);
         }
         root.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
     }
+
+    /// <summary>What is ticked when the window opens (and by "Tick suggested"): what the IDS accepted, and a Promote
+    /// retype/attach. MA-1 moves this decision to the bridge (§6.3); a person still clicks Apply either way.</summary>
+    private static bool PreTick(ChangesetDto cs, ChangesetElementDto el) =>
+        el.Verdict?.Status == "accepted" || (cs.Source == "promote" && el.Op is "retype" or "attach");
 
     private static UIElement MakeBadge(ElementVerdictDto v)
     {

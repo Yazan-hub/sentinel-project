@@ -19,7 +19,7 @@ const wire = (deps = {}) => ({
   docReplaceIfStatus: deps.docReplaceIfStatus || cde.docReplaceIfStatus,
   audit: deps.audit || cde.audit,
   requireMinRole: deps.requireMinRole || members.requireMinRole,
-  myRole: deps.myRole || members.myRole,
+  takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
 });
 
 export async function proposeChangeset(key, body, actor, deps) {
@@ -48,11 +48,12 @@ export async function proposeChangeset(key, body, actor, deps) {
     status: "proposed", created_at: now, updated_at: now,
     adjudication: { verdict: adj.verdict, summary: adj.summary, ids_source: adj.ids_source, audit_id: adj.audit_id ?? null, unattributed: unattributedFailures(v.elements, adj) },
     elements: attachVerdicts(v.elements, adj),
+    exceptions: v.exceptions, // the walls a planner sent to a person — shown to the reviewer, never placed
     result: null,
   };
   await d.docInsert(STORE, proj.id, changeset.id, changeset);
   await d.audit(proj.id, "changeset", changeset.id, "changeset_proposed", actor || "agent", null,
-    { name: v.name, source: v.source, elements: changeset.elements.length, verdict: adj.verdict, ids_source: adj.ids_source });
+    { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source });
   return changeset;
 }
 
@@ -75,10 +76,9 @@ export async function getChangeset(key, id, deps) {
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
 export async function reportResult(key, id, { applied, rejected, note } = {}, actor, deps) {
   const d = wire(deps);
-  // H0 (changesets-1): a result says what a human ticked in Revit and is written once — the add-in's report on the
-  // machine credential, never a signed-in caller's. (When Revit signs in per user — H4 — this becomes that user's
-  // contributor check.)
-  if ((await d.myRole(key)) !== "service") throw err(403, "a changeset's result is reported by the Revit add-in (Sentinel's machine credential) — nothing was saved");
+  // A result says what a human ticked in Revit and is written once. H4: Revit signs in per user, so it is that user's
+  // contributor check (the machine credential still passes as service); a viewer reports nothing, before any read.
+  await d.requireMinRole(key, "contributor");
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, "changeset not found");
@@ -138,4 +138,27 @@ export async function withdrawChangeset(key, id, actor, deps) {
   }
   await d.audit(proj.id, "changeset", id, "changeset_withdrawn", actor || "agent", { status: "proposed" }, { status: "withdrawn" });
   return updated;
+}
+
+/** The add-in's report that a person pressed Undo (or Redo) on an applied changeset's transaction in Revit. The guids
+ *  must be ones this changeset applied. v0 writes a changeset_reverted ledger row only — the doc's status is not
+ *  changed (a Redo would otherwise need a status ping-pong). Answers the ledger row. */
+export async function reportReverted(key, id, { op, guids } = {}, actor, deps) {
+  const d = wire(deps);
+  await d.requireMinRole(key, "contributor"); // the machine credential and a signed-in contributor both pass
+  if (!["undo", "redo"].includes(op)) throw err(400, 'op must be "undo" or "redo"');
+  if (!Array.isArray(guids) || !guids.length || guids.length > 200 || !guids.every((g) => typeof g === "string") || new Set(guids).size !== guids.length)
+    throw err(400, "guids must be 1–200 distinct proposal_guids");
+  const proj = await d.ensureProject(key);
+  const cs = await d.docGet(STORE, proj.id, id);
+  if (!cs) throw err(404, "changeset not found");
+  if (cs.status !== "applied" && cs.status !== "partially_applied")
+    throw err(409, `changeset is ${cs.status} — only an applied changeset can be undone`);
+  const applied = new Set((cs.result?.applied || []).map((a) => a.proposal_guid));
+  const stray = guids.find((g) => !applied.has(g));
+  if (stray) throw err(400, `"${stray}" was not applied by this changeset`);
+  // Its own budget, not "revit reports" (naming, family_heal): the undo watcher never retries, so a throttled row is lost
+  // and the ledger disagrees with the model. Already bounded — only guids this changeset applied, only once applied.
+  d.takeWriteBudget("changeset reverts", { perUser: 120, all: 300 });
+  return d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, { op, guids, count: guids.length });
 }
