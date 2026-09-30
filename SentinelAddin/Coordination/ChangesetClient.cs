@@ -34,6 +34,18 @@ public sealed class PlaceDto
     [JsonPropertyName("TopLevel")] public string TopLevel { get; set; }
     // retype (Promote v1): a door or window's target family — a type name alone is not one type.
     [JsonPropertyName("FamilyName")] public string FamilyName { get; set; }
+    // create (MA-1): a door's or window's point on its host wall's location line (mm, z = its level), a window's sill, flips;
+    // a roof's or ceiling's outline in plan [[x,y],…] (mm), a roof's base offset, a ceiling's height above its level.
+    [JsonPropertyName("Location")] public double[] Location { get; set; }
+    [JsonPropertyName("SillHeight")] public double? SillHeight { get; set; }
+    [JsonPropertyName("FlipFacing")] public bool? FlipFacing { get; set; }
+    [JsonPropertyName("FlipHand")] public bool? FlipHand { get; set; }
+    [JsonPropertyName("Boundary")] public double[][] Boundary { get; set; }
+    [JsonPropertyName("BaseOffset")] public double? BaseOffset { get; set; }
+    [JsonPropertyName("Offset")] public double? Offset { get; set; }
+    // any create but a level or grid (MA-1): its Mark (ALL_MODEL_MARK); a floor's Structural (FLOOR_PARAM_IS_STRUCTURAL).
+    [JsonPropertyName("Mark")] public string Mark { get; set; }
+    [JsonPropertyName("Structural")] public bool? Structural { get; set; }
 }
 
 /// <summary>The existing element a retype/attach ghost changes (MA-0, Promote v1): its Revit UniqueId, and for a retype the

@@ -6,11 +6,14 @@
 // MA-0: a ghost's op is create (a new element), retype (an existing wall, floor, roof, ceiling, door or window to a type
 // already in the document — a door or window keeps its host) or attach (an existing wall's base and top to story levels). Every element the changeset touched is stamped (ProvenanceStamp),
 // inside this transaction, and the transaction is named so the undo watcher can find it.
+// MA-1: a create also places a door or window (hosted by the one wall its point lies on), a flat footprint roof or a
+// ceiling; any create but a level or grid may carry a Mark, a floor Structural.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Structure;
 using Sentinel.Coordination;
 using Sentinel.Engine;
 
@@ -74,6 +77,39 @@ public sealed class ChangesetExecutor
         var types = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
                ?? throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
+    }
+
+    /// MA-1: the one loaded type of a category a create names — by exact name, and by family for a door or window. None → load
+    /// it (Sentinel loads no families and creates no types); more than one → a person decides. System family names are never
+    /// compared (translated in non-English Revit): a roof or ceiling names its type only. RetypeTarget stays Promote's.
+    private static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
+        var hits = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>()
+            .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)
+                        && (familyName == null || t is FamilySymbol s && string.Equals(s.FamilyName, familyName, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        var label = familyName == null ? typeName : familyName + " : " + typeName;
+        if (hits.Count == 0) throw new InvalidOperationException($"{kind} type \"{label}\" does not exist in this model — load it (Sentinel loads no families and creates no types), or re-propose with the exact name of a loaded type");
+        if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} {kind} types are named \"{label}\" in this model — a person decides");
+        return hits[0];
+    }
+
+    /// MA-1: a roof's or ceiling's outline (mm; the bridge checked it is one simple loop) as lines at zFt; a closing point equal
+    /// to the first is dropped, as the bridge's outlineProblem reads it.
+    private static List<Curve> Outline(double[][] b, double zFt, string what)
+    {
+        var n = b?.Length ?? 0;
+        if (n > 3 && b[0][0] == b[n - 1][0] && b[0][1] == b[n - 1][1]) n--;
+        if (n < 3) throw new InvalidOperationException($"{what}: its Boundary needs at least 3 points");
+        XYZ P(int i) => new XYZ(b[i][0] * MmToFeet, b[i][1] * MmToFeet, zFt);
+        return Enumerable.Range(0, n).Select(i => (Curve)Line.CreateBound(P(i), P((i + 1) % n))).ToList();
+    }
+
+    /// MA-1: a create's Mark (ALL_MODEL_MARK), when it carries one (the bridge refuses one on a level or grid).
+    private static void SetMark(Element e, ChangesetElementDto el)
+    {
+        if (!string.IsNullOrWhiteSpace(el.Place?.Mark)) Set(e, BuiltInParameter.ALL_MODEL_MARK, el.Place.Mark, el.Kind);
     }
 
     /// A level named exactly (case-insensitive, as ResolveLevel reads a LevelName); blank or missing fails.
@@ -185,10 +221,22 @@ public sealed class ChangesetExecutor
         if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on wall {e.UniqueId}");
     }
 
-    private static void Set(Element e, BuiltInParameter bip, double v)
+    private static void Set(Element e, BuiltInParameter bip, double v, string kind = "wall")
     {
         var p = e.get_Parameter(bip);
-        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on wall {e.UniqueId}");
+        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on {kind} {e.UniqueId}");
+    }
+
+    private static void Set(Element e, BuiltInParameter bip, int v, string kind)
+    {
+        var p = e.get_Parameter(bip);
+        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on {kind} {e.UniqueId}");
+    }
+
+    private static void Set(Element e, BuiltInParameter bip, string v, string kind)
+    {
+        var p = e.get_Parameter(bip);
+        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on {kind} {e.UniqueId}");
     }
 
     private static bool IsCreate(ChangesetElementDto e) => e.Op is null or "create";
@@ -235,6 +283,7 @@ public sealed class ChangesetExecutor
                 var heightFt = (topMm - baseMm) * MmToFeet;
                 var offsetFt = baseMm * MmToFeet - level.Elevation;
                 var wall = Wall.Create(doc, Line.CreateBound(Pt(c.Start), Pt(c.End)), wt.Id, level.Id, heightFt, offsetFt, false, false);
+                SetMark(wall, el);
                 Collect(result, el, wall);
             }
 
@@ -261,7 +310,79 @@ public sealed class ChangesetExecutor
                 foreach (var seg in loop) arr.Append(seg);
                 var floor = doc.Create.NewFloor(arr, ft2, level, false);
 #endif
+                if (el.Place.Structural is bool st) Set(floor, BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL, st ? 1 : 0, "floor");
+                SetMark(floor, el);
                 Collect(result, el, floor);
+            }
+
+            // MA-1: a flat roof on its level — NewFootPrintRoof, and no footprint edge defines a slope (slopes are a later field).
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "roof"))
+            {
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var level = ResolveLevel(doc, el.Place);
+                var rt = CreateType(doc, BuiltInCategory.OST_Roofs, "roof", null, el.Place.TypeName) as RoofType
+                         ?? throw new InvalidOperationException($"roof \"{name}\": \"{el.Place.TypeName}\" is not a roof type Sentinel can sketch");
+                var arr = new CurveArray();
+                foreach (var c in Outline(el.Place.Boundary, level.Elevation, $"roof \"{name}\"")) arr.Append(c);
+                var roof = doc.Create.NewFootPrintRoof(arr, level, rt, out ModelCurveArray edges);
+                foreach (ModelCurve mc in edges) roof.set_DefinesSlope(mc, false);
+                if (el.Place.BaseOffset is double off) Set(roof, BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM, off * MmToFeet, "roof");
+                SetMark(roof, el);
+                Collect(result, el, roof);
+            }
+
+            // MA-1: a ceiling at its height above the level (place.Offset, required by the bridge).
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "ceiling"))
+            {
+#if REVIT2022_OR_GREATER
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var level = ResolveLevel(doc, el.Place);
+                var ct = CreateType(doc, BuiltInCategory.OST_Ceilings, "ceiling", null, el.Place.TypeName);
+                var off = el.Place.Offset ?? throw new InvalidOperationException($"ceiling \"{name}\" has no Offset (its height above {level.Name})");
+                var loop = CurveLoop.Create(Outline(el.Place.Boundary, level.Elevation, $"ceiling \"{name}\""));
+                var ceiling = Ceiling.Create(doc, new List<CurveLoop> { loop }, ct.Id, level.Id);
+                Set(ceiling, BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM, off * MmToFeet, "ceiling");
+                SetMark(ceiling, el);
+                Collect(result, el, ceiling);
+#else
+                throw new InvalidOperationException("a ceiling create needs Revit 2022 or later — this Revit has no ceiling API");
+#endif
+            }
+
+            // MA-1: doors and windows after every wall of this changeset (Regenerate first), so one may host on a wall it creates. The
+            // host is the ONE straight basic wall on the named level under the point (PlacementGeometry.Host) — none or two is a
+            // refusal in words, never a guess. The symbol must be loaded; it is activated inside this transaction (Undo deactivates it).
+            var openings = toPlace.Where(e => IsCreate(e) && e.Kind is "door" or "window").ToList();
+            if (openings.Count > 0)
+            {
+                doc.Regenerate();
+                var hosts = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>()
+                    .Where(w => w.WallType.Kind == WallKind.Basic && !w.IsStackedWallMember && (w.Location as LocationCurve)?.Curve is Line).ToList();
+                var lines = hosts.Select(w =>
+                {
+                    var c = ((LocationCurve)w.Location).Curve;
+                    XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
+                    return ("wall " + w.Id.IdValue(), (doc.GetElement(w.LevelId) as Level)?.Name, a.X / MmToFeet, a.Y / MmToFeet, b.X / MmToFeet, b.Y / MmToFeet);
+                }).ToList();
+                foreach (var el in openings)
+                {
+                    var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                    var level = ResolveLevel(doc, el.Place);
+                    var p = el.Place.Location ?? throw new InvalidOperationException($"{el.Kind} \"{name}\" has no Location");
+                    if (Math.Abs(p[2] * MmToFeet - level.Elevation) > TolFt)
+                        throw new InvalidOperationException($"{el.Kind} \"{name}\": Location z {Mm(p[2])} mm is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a {el.Kind} stands on its level" + (el.Kind == "window" ? "; its sill is place.SillHeight" : ""));
+                    var sym = (FamilySymbol)CreateType(doc, el.Kind == "door" ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows,
+                                                       el.Kind, el.Place.FamilyName, el.Place.TypeName);
+                    var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
+                    if (i < 0) throw new InvalidOperationException($"{el.Kind} \"{name}\": {why}");
+                    if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                    var fi = doc.Create.NewFamilyInstance(Pt(p), sym, hosts[i], level, StructuralType.NonStructural);
+                    if (el.Place.SillHeight is double sill) Set(fi, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM, sill * MmToFeet, el.Kind);
+                    if (el.Place.FlipFacing == true && !(fi.CanFlipFacing && fi.flipFacing())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its facing");
+                    if (el.Place.FlipHand == true && !(fi.CanFlipHand && fi.flipHand())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its hand");
+                    SetMark(fi, el);
+                    Collect(result, el, fi);
+                }
             }
 
             // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type
