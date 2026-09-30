@@ -1,0 +1,101 @@
+{
+  "standard": "BDS DD elements v1 (Promote v1) — DRAFT",
+  "office": "BDS",
+  "stage": "DD",
+  "status": "draft",
+  "elements": [
+    {
+      "category": "Walls",
+      "rules": [
+        {
+          "when": { "params": { "Function": "Exterior" } },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm" },
+          "why": "DD: an exterior wall is the office's external CMU at the wall type's width."
+        },
+        {
+          "when": { "params": { "Function": "Interior" } },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm" },
+          "why": "DD: an interior wall is the office's gypsum partition at the wall type's width."
+        }
+      ]
+    },
+    {
+      "category": "Floors",
+      "rules": [
+        {
+          "when": { "params": { "Function": "Interior" } },
+          "use": { "family": "Floor", "typePattern": "BDS_INT_STR_CONC_{thickness} mm" },
+          "why": "DD (DRAFT FL-1): an interior floor is the office's structural concrete slab at the floor type's thickness. BDS has 150, 300 and 450 mm; any other thickness is a gap. Exterior floors have no rule (FL-2)."
+        }
+      ]
+    },
+    {
+      "category": "Roofs",
+      "rules": [
+        {
+          "when": { "params": { "Family": "Basic Roof" } },
+          "use": { "family": "Basic Roof", "typePattern": "BDS_EXT_ARC_GENRC_{thickness} mm" },
+          "why": "DD (DRAFT RF-1): a basic roof is the office's one roof type at the roof type's thickness; only 300 mm exists. BDS_EXT_ARC_GENRC is itself a generic build-up: an office type, not a detailed roof."
+        }
+      ]
+    },
+    {
+      "category": "Ceilings",
+      "rules": [
+        {
+          "when": { "params": { "Family": "Compound Ceiling" } },
+          "use": { "family": "Compound Ceiling", "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm" },
+          "why": "DD (DRAFT CL-2): a layered ceiling is the office's gypsum ceiling at the ceiling type's thickness; only 50 mm exists. A Basic Ceiling has no build-up and no rule (CL-1)."
+        }
+      ]
+    },
+    {
+      "category": "Doors",
+      "rules": [
+        {
+          "when": { "params": { "HostFunction": "Interior", "Size": "W1000 x H2100 mm" } },
+          "use": { "family": "BDS_INT_1 PNL", "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" },
+          "why": "DD (DRAFT DR-1, DR-3, DR-5, DR-6): an interior door with a 1000 x 2100 opening is the office's single-leaf wood door. The size is the nominal size in the BDS type name; the family's own Width/Height (960 x 1980) is the leaf."
+        },
+        {
+          "when": { "params": { "HostFunction": "Interior", "Size": "W2000 x H2100 mm" } },
+          "use": { "family": "BDS_INT_2 PNL", "type": "BDS_INT_2 PNL_WOOD_2000 x 2100 mm" },
+          "why": "DD (DRAFT DR-1, DR-3, DR-5, DR-6): an interior door with a 2000 x 2100 opening is the office's double-leaf wood door. The size is the nominal size in the BDS type name; the family's own Width/Height (980 x 2080) is one leaf."
+        }
+      ]
+    },
+    {
+      "category": "Windows",
+      "rules": [
+        { "when": { "params": { "Size": "W600 x H1200 mm" } }, "use": { "family": "BDS_Window_Single Panel", "type": "600x1200 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 600 x 1200." },
+        { "when": { "params": { "Size": "W600 x H1900 mm" } }, "use": { "family": "BDS_Window_Single Panel", "type": "600x1900 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 600 x 1900." },
+        { "when": { "params": { "Size": "W600 x H2000 mm" } }, "use": { "family": "BDS_Window_Single Panel", "type": "600x2000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 600 x 2000." },
+        { "when": { "params": { "Size": "W1200 x H2000 mm" } }, "use": { "family": "BDS_Window_Single Panel", "type": "1200x2000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 1200 x 2000." },
+        { "when": { "params": { "Size": "W600 x H2600 mm" } }, "use": { "family": "BDS_Window_1 Panel+FX", "type": "600x2600 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 600 x 2600." },
+        { "when": { "params": { "Size": "W800 x H1200 mm" } }, "use": { "family": "BDS_Window_1 Panel+FX", "type": "800x1200 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 800 x 1200." },
+        { "when": { "params": { "Size": "W800 x H2600 mm" } }, "use": { "family": "BDS_Window_1 Panel+FX", "type": "800x2600 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 800 x 2600." },
+        { "when": { "params": { "Size": "W1000 x H3000 mm" } }, "use": { "family": "BDS_Window_1 Panel+FX", "type": "1000x3000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 1000 x 3000." },
+        { "when": { "params": { "Size": "W1200 x H2600 mm" } }, "use": { "family": "BDS_Window_1 Panel+FX", "type": "1200x2600 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 1200 x 2600." },
+        { "when": { "params": { "Size": "W1200 x H3000 mm" } }, "use": { "family": "BDS_Window_1 Panel+FX", "type": "1200x3000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 1200 x 3000." },
+        { "when": { "params": { "Size": "W1300 x H2600 mm" } }, "use": { "family": "BDS_Window_2 Sliding Panels+FX", "type": "1300x2600 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 1300 x 2600." },
+        { "when": { "params": { "Size": "W1500 x H3000 mm" } }, "use": { "family": "BDS_Window_2 Sliding Panels+FX", "type": "1500x3000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 1500 x 3000." },
+        { "when": { "params": { "Size": "W3600 x H3000 mm" } }, "use": { "family": "BDS_Window_3 Sliding Panels+FX", "type": "3600x3000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 3600 x 3000 (a sliding door type has the same name: family and category decide)." },
+        { "when": { "params": { "Size": "W3650 x H3000 mm" } }, "use": { "family": "BDS_Window_3 Sliding Panels+FX", "type": "3650x3000 mm" },
+          "why": "DD (DRAFT WN-1): the only BDS window at 3650 x 3000 (a sliding door type has the same name: family and category decide)." }
+      ]
+    }
+  ]
+}

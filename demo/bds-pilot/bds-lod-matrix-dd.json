@@ -1,0 +1,49 @@
+{
+  "standard_key": "BDS-LOD-001",
+  "semver": "0.1.0",
+  "status": "draft",
+  "rows": [
+    {
+      "category": "Walls",
+      "DD": {
+        "type": "guideline_rule", "level": "story_level", "top": "next_story_level",
+        "properties": ["Pset_WallCommon.IsExternal", "Pset_WallCommon.LoadBearing", "Pset_WallCommon.FireRating", "Pset_WallCommon.ThermalTransmittance"]
+      }
+    },
+    {
+      "category": "Floors",
+      "DD": {
+        "type": "guideline_rule", "level": "story_level",
+        "properties": ["Pset_SlabCommon.IsExternal", "Pset_SlabCommon.LoadBearing", "Pset_SlabCommon.FireRating"]
+      }
+    },
+    {
+      "category": "Roofs",
+      "DD": {
+        "type": "guideline_rule", "level": "story_level",
+        "properties": ["Pset_RoofCommon.IsExternal", "Pset_RoofCommon.FireRating", "Pset_RoofCommon.ThermalTransmittance"]
+      }
+    },
+    {
+      "category": "Ceilings",
+      "DD": {
+        "type": "guideline_rule", "level": "story_level",
+        "properties": ["Pset_CoveringCommon.FireRating", "Pset_CoveringCommon.AcousticRating"]
+      }
+    },
+    {
+      "category": "Doors",
+      "DD": {
+        "type": "guideline_rule", "level": "story_level", "host": "wall",
+        "properties": ["Pset_DoorCommon.IsExternal", "Pset_DoorCommon.FireRating"]
+      }
+    },
+    {
+      "category": "Windows",
+      "DD": {
+        "type": "guideline_rule", "level": "story_level", "host": "wall",
+        "properties": ["Pset_WindowCommon.IsExternal", "Pset_WindowCommon.ThermalTransmittance"]
+      }
+    }
+  ]
+}
