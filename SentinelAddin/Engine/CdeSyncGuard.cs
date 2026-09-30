@@ -2,17 +2,16 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.Events;
 using Sentinel.Coordination;
 
 namespace Sentinel.Engine;
 
 /// <summary>
 /// CDE Sync Guard (CDE-01): judges the central file name by the project's naming@n — the standard the bridge's
-/// /propose applies — when a sync completes (DocumentSynchronizedWithCentral, a post-event), so the guard reports
-/// loudly instead of blocking. BLOCK rules are stopped before the sync by App.OnSynchronizing; package 3 (GP-3)
-/// moves CDE-01 there too. The naming@n is resolved OFF Revit's thread (Prefetch, at open and after each sync) and only read
-/// here; the decision itself is pure (CdeSyncGuard.Judge.cs, pinned by tools/naming-port-check).
+/// /propose applies — BEFORE a sync (App.OnSynchronizing, GP-3): reject stops the sync, warn asks "Sync anyway /
+/// Cancel", and the verdict joins the pane's report after the sync (judged once). The naming@n is resolved OFF Revit's
+/// thread (Prefetch, at open and after each sync; Refresh, waited, before a sync is stopped); the decision itself is pure
+/// (CdeSyncGuard.Judge.cs, pinned by tools/naming-port-check).
 /// </summary>
 public static partial class CdeSyncGuard
 {
@@ -28,16 +27,27 @@ public static partial class CdeSyncGuard
         Task.Run(() => Naming[key] = ArtefactClient.Resolve(key, "naming"));
     }
 
+    /// <summary>Resolve the project's naming@n now — off Revit's thread, waited (ArtefactClient's 4 s cap) — and keep it
+    /// for the next sync. Called only before a sync is stopped: a lead may have set the standard to warn or off since it
+    /// was cached (the stop dialog suggests it), and a stale copy would stop every sync until the model is reopened.
+    /// Unbound → null. Never throws.</summary>
+    public static ResolvedArtefact? Refresh(ProjectContext ctx)
+    {
+        if (!ctx.IsBound) return null;
+        string key = ctx.Key;
+        return Naming[key] = Task.Run(() => ArtefactClient.Resolve(key, "naming")).GetAwaiter().GetResult();
+    }
+
     /// <summary>The naming@n last resolved for this document's project; null when unbound or not fetched yet.</summary>
     public static ResolvedArtefact? LastNaming(ProjectContext ctx) =>
         ctx.IsBound && Naming.TryGetValue(ctx.Key, out var n) ? n : null;
 
-    /// <summary>Called from App.OnSynchronized (API thread) with the document's context and
-    /// <see cref="LastNaming"/>. Returns the row for the panel, or null when compliant or not workshared.</summary>
-    public static Violation? Check(DocumentSynchronizedWithCentralEventArgs e, ProjectContext ctx, ResolvedArtefact? naming)
+    /// <summary>Called from App.OnSynchronizing (API thread, before the sync) with the document's context and
+    /// <see cref="LastNaming"/>. Returns the row (Block, Warn or a Monitor note), or null when compliant, when
+    /// naming@n's enforce is off, or when the document is not workshared.</summary>
+    public static Violation? Check(Document doc, ProjectContext ctx, ResolvedArtefact? naming)
     {
-        var doc = e.Document;
-        if (doc is null || !doc.IsWorkshared) return null;
+        if (!doc.IsWorkshared) return null;
 
         string fileName = Path.GetFileNameWithoutExtension(
             doc.GetWorksharingCentralModelPath() is ModelPath mp
@@ -49,6 +59,6 @@ public static partial class CdeSyncGuard
             : naming is null ? "naming@n not fetched from the bridge yet — CDE-01 checks from the next sync"
             : naming.Label;
         // The project code comes from the document (Project Setup) only, never the machine config.
-        return Decide(fileName, SettingsManager.LoadFromDocument(doc)?.ProjectCode, App.OrgFor(doc), naming?.BodyJson, label);
+        return Decide(fileName, SettingsManager.LoadFromDocument(doc)?.ProjectCode, naming?.BodyJson, label);
     }
 }

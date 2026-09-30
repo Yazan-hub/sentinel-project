@@ -31,13 +31,14 @@ namespace Sentinel.Coordination
 
         /// <summary>Send a governed request, attaching the bridge auth-gate bearer (F2) when the bridge requires
         /// one (BcfConfig.ServiceToken non-empty). Blocking; the caller owns/reads the response.</summary>
-        private static HttpResponseMessage Send(HttpClient client, HttpMethod method, string url, HttpContent? content, BcfConfig cfg)
+        private static HttpResponseMessage Send(HttpClient client, HttpMethod method, string url, HttpContent? content, BcfConfig cfg,
+                                                System.Threading.CancellationToken ct = default)
         {
             var msg = new HttpRequestMessage(method, url);
             if (content != null) msg.Content = content;
             if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
                 msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
-            return client.SendAsync(msg).GetAwaiter().GetResult();
+            return client.SendAsync(msg, ct).GetAwaiter().GetResult();
         }
 
         /// <summary>The document's project key, trimmed; empty when the document is not bound. No fallback.</summary>
@@ -101,14 +102,15 @@ namespace Sentinel.Coordination
         /// recorded verdict and stamps it, answering <see cref="ProposalResult.Version"/> and
         /// <see cref="ProposalResult.VerdictAuditId"/>; a rejected verdict registers nothing, and the bridge answers the
         /// hold row it wrote for it, if any (<see cref="ProposalResult.Held"/>). <paramref name="gateRowId"/> (the
-        /// Publisher: its gate row's ledger id) lets the proposal row name the gate row it follows. Blocking (120s cap);
+        /// Publisher: its gate row's ledger id) lets the proposal row name the gate row it follows. Blocking (120s cap,
+        /// or until <paramref name="ct"/> is cancelled — GP-1's Cancel: the wait stops, the bridge may still finish);
         /// never throws: <see cref="ProposalResult.Reached"/> is false on any transport/parse failure.
         /// </summary>
         public static ProposalResult Propose(object elements, string? versionId, string actor,
                                              string projectKey, string? containerName = null,
                                              string? source = null, string? note = null, bool raiseBcf = true,
                                              string? failuresRequirement = null, RegisterRequest? register = null,
-                                             long? gateRowId = null)
+                                             long? gateRowId = null, System.Threading.CancellationToken ct = default)
         {
             var r = new ProposalResult();
             var key = KeyOf(projectKey);
@@ -120,15 +122,16 @@ namespace Sentinel.Coordination
                 var body = ProposalResult.RequestBody(elements, versionId, actor, containerName, source, note, raiseBcf, failuresRequirement, register, gateRowId);
 
                 var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
+                var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg, ct);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (!resp.IsSuccessStatusCode) { r.Error = "bridge returned HTTP " + (int)resp.StatusCode; return r; }
                 return ProposalResult.Parse(json);
             }
             catch (Exception ex)
             {
-                // Distinguish a timeout (large model, still adjudicating) from a real connection failure.
-                r.Error = ex is TaskCanceledException or OperationCanceledException
+                // Distinguish Cancel, a timeout (large model, still adjudicating) and a real connection failure.
+                r.Error = ct.IsCancellationRequested ? "cancelled — Sentinel stopped waiting for the referee"
+                    : ex is TaskCanceledException or OperationCanceledException
                     ? "timed out after 120s (model may be very large)"
                     : ex.InnerException?.Message ?? ex.Message;
             }

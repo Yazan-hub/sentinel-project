@@ -120,6 +120,10 @@ public static class Publisher
     }
 
 #if !SENTINEL_CHECK
+    /// <summary>True from a publish's Prepare to its Stage — Governed Publish (whose referee wait no longer holds
+    /// Revit) or Auto-Publish. Neither starts meanwhile: both write the same temp and outbox names. API thread only.</summary>
+    internal static bool InFlight;
+
     /// <summary>The central model's user-visible path for a workshared document, else null. API thread; never throws.</summary>
     public static string? CentralPath(Document doc)
     {
@@ -139,17 +143,20 @@ public static class Publisher
     /// Everything the API thread must do before the referee is asked: the key and the name; the contract (off this
     /// thread and waited, ≤ 4 s, so the export uses the schema it asks for — <paramref name="resolve"/> is the
     /// project's artefact reader, <c>(kind, timeout) → ResolvedArtefact</c>, asked for "contract"; null means
-    /// <see cref="DeliveryContract.Load"/>); the WHOLE model exported (<see cref="PlatformExporter.Default3DView"/>)
-    /// into a folder of its own under <paramref name="tempDir"/> in <c>contract.IfcSchema ?? "IFC2X3"</c>; the gate and
+    /// <see cref="DeliveryContract.Load"/>); the WHOLE model exported (no view filter; the export's transaction rolled
+    /// back — <see cref="PlatformExporter.ExportToDir"/>) into a folder of its own under <paramref name="tempDir"/> in <c>contract.IfcSchema ?? "IFC2X3"</c>; the gate and
     /// its ledger row (waited, ≤ 6 s, so the row lands before /propose) — posted to <c>/cde/:key/delivery-gate</c> with
     /// <paramref name="source"/> ("revit" from Governed Publish, "auto-publish" from Auto-Publish) and publish true, so
     /// the bridge holds a FAIL on the web and <see cref="PublishPlan.GateRow"/>'s <see cref="LedgerResult.Hold"/> names
     /// that hold row; the elements read for the referee. An unbound
     /// document, a failed export, a gate FAIL or a throw after the export leaves <see cref="PublishPlan.Ready"/> false with the temp IFC
     /// discarded: <see cref="PublishLines.Dialog(PublishPlan,PublishOutcome?,StageResult?)"/> says which. Revit API
-    /// only here; the plan carries no Revit object.
+    /// only here; the plan carries no Revit object. GP-1: with <paramref name="progress"/> (Governed Publish) the steps
+    /// are shown, Revit's own progress feeds the window during the export, and a Cancel stops after the export or before
+    /// the referee — a refusal that says what was measured (<see cref="PublishLines.CancelledExport"/>).
     /// </summary>
-    public static PublishPlan Prepare(Document doc, string tempDir, Func<string, TimeSpan?, ResolvedArtefact>? resolve = null, string source = "revit")
+    public static PublishPlan Prepare(Document doc, string tempDir, Func<string, TimeSpan?, ResolvedArtefact>? resolve = null, string source = "revit",
+                                      Sentinel.UI.PublishProgress? progress = null)
     {
         var ctx = ProjectContext.For(doc);
         var plan = new PublishPlan { Key = ctx.Key, ContainerName = ContainerName(doc) };
@@ -165,12 +172,25 @@ public static class Publisher
         // 1) The whole model, to a temp folder of this plan's own (two runs never share a file), NOT the outbox: only
         //    a judged, registered version reaches the outbox (Stage).
         var dir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
-        var (state, path, _, error) = PlatformExporter.ExportToDir(doc, PlatformExporter.Default3DView(doc), dir, plan.ContainerName, contract?.IfcSchema ?? "IFC2X3");
+        var schema = contract?.IfcSchema ?? "IFC2X3";
+        if (progress?.Token.IsCancellationRequested == true) { plan.Refusal = PublishLines.CancelledBeforeExport; return plan; }
+        progress?.Step(1, "Export — the whole model to IFC (" + schema + "). Revit is busy until the export ends.");
+        if (progress is not null) doc.Application.ProgressChanged += progress.OnRevitProgress;
+        (PlatformExporter.State state, string path, long, string? error) export;
+        try { export = PlatformExporter.ExportToDir(doc, dir, plan.ContainerName, schema); }
+        finally { if (progress is not null) doc.Application.ProgressChanged -= progress.OnRevitProgress; }
+        var (state, path, _, error) = export;
         plan.TempIfcPath = path;
+        if (progress is { } p && p.Token.IsCancellationRequested)
+        {
+            plan.Refusal = PublishLines.CancelledExport(state == PlatformExporter.State.Ok, p.RevitUpdates, p.CancelSent, p.CancelRefused);
+            Discard(plan);
+            return plan;
+        }
         if (state != PlatformExporter.State.Ok)
         {
             plan.Refusal = state == PlatformExporter.State.MissingOrEmpty
-                ? "IFC export contained no geometry — nothing to publish. Check the model's 3D view and the IFC mappings."
+                ? "IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As)."
                 : "IFC export failed: " + (error ?? state.ToString());
             Discard(plan);
             return plan;
@@ -182,6 +202,7 @@ public static class Publisher
         //    refusal that discards it, so nothing lingers under %TEMP% unnamed — on either caller's path.
         try
         {
+            progress?.Step(2, "Delivery gate — checking the IFC against " + contractSource.Label + ".");
             plan.Gate = IfcDeliveryGate.Validate(path, contract, contractSource);
             plan.SizeBytes = plan.Gate.FileSizeBytes;
             plan.Sha256 = plan.Gate.FileSha256;
@@ -196,7 +217,13 @@ public static class Publisher
                 plan.OrgWarning = "This document's ruleset (" + (App.Engine?.SourceFor(doc).Label ?? "none") + ") has no \"org\" code — " +
                     "office property sets (Pset_<org>.*) were NOT read for this publish; the referee will report them " +
                     "missing. Install a ruleset@n with an \"org\" on " + key + " or its office, then retry.";
+            progress?.Step(2, "Reading the model's elements for the referee.");
             plan.Elements = GovernedElementExtractor.Extract(doc, key);
+            if (progress?.Token.IsCancellationRequested == true)
+            {
+                plan.Refusal = PublishLines.CancelledBeforeReferee(plan);
+                Discard(plan);
+            }
             return plan;
         }
         catch (Exception e)
@@ -215,13 +242,14 @@ public static class Publisher
     /// geometry) and stamps the verdict on it; a rejected verdict registers nothing and, judged by installed standards,
     /// is held on the web (<see cref="PublishOutcome.HoldRow"/>). Blocking (120 s cap); never throws — an unreached
     /// bridge is <see cref="PublishOutcome.Reached"/> false. <paramref name="source"/> is the proposal row's "from":
-    /// "Governed Publish", or "Auto-Publish" (the bridge's hold names them revit and auto-publish).
+    /// "Governed Publish", or "Auto-Publish" (the bridge's hold names them revit and auto-publish). <paramref name="ct"/>
+    /// (GP-1, Governed Publish's Cancel) stops the wait: not reached, "cancelled — …".
     /// </summary>
-    public static PublishOutcome Judge(PublishPlan plan, string source = "Governed Publish") =>
+    public static PublishOutcome Judge(PublishPlan plan, string source = "Governed Publish", System.Threading.CancellationToken ct = default) =>
         PublishOutcome.From(GovernedNotify.Propose(plan.Elements, versionId: null, actor: "Revit", projectKey: plan.Key,
             containerName: plan.ContainerName, source: source,
             register: new RegisterRequest { Name = plan.ContainerName, SizeBytes = plan.SizeBytes, Sha256 = plan.Sha256 },
-            gateRowId: plan.GateRow.Id));
+            gateRowId: plan.GateRow.Id, ct: ct));
 #endif
 }
 
@@ -405,6 +433,45 @@ public static class PublishLines
                    " — the verdict is \"recorded\", and publishing this version on the web needs the lead's reason. " +
                    (v.Downgraded is null ? "Install an IDS on the project or its office to judge the next one." : "Give the IDS something in its scope, or install one that covers this model, to judge the next one."));
     }
+
+    /// <summary>GP-1: what the progress window says when Cancel is clicked in <paramref name="step"/> (0 before the
+    /// export, 1 export, 2 gate, 3 referee, 4 register) — measured, not promised: during the export it says whether
+    /// Revit has raised any progress update Cancel can go through (<paramref name="revitUpdates"/>).</summary>
+    public static string CancelNote(int step, int revitUpdates) => step switch
+    {
+        0 => "Cancel asked — Sentinel stops before the export.",
+        1 when revitUpdates == 0 => "Cancel asked. Revit's IFC exporter has reported no progress so far, so Cancel may not reach it: the export runs to the end, then Sentinel stops. Nothing will be published.",
+        1 => "Cancel asked — passed to Revit's IFC exporter at its next progress update. If the exporter ignores it, the export runs to the end, then Sentinel stops. Nothing will be published.",
+        2 => "Cancel asked — Sentinel stops before the referee. Nothing will be registered or uploaded.",
+        3 => "Cancel asked — Sentinel stops waiting for the referee and stages nothing for upload.",
+        _ => "Too late to cancel — the referee has answered; Sentinel is staging what the bridge registered.",
+    };
+
+    public const string CancelledBeforeExport = "Governed Publish cancelled before the export — nothing was exported, judged, registered or uploaded.";
+
+    /// <summary>GP-1: the refusal for a Cancel during the export, with what was measured — whether Revit raised
+    /// progress updates, whether Cancel reached the exporter (<paramref name="cancelSent"/>) or Revit refused it on the
+    /// updates after it (<paramref name="refused"/>), and whether the export still ran to the end
+    /// (<paramref name="exportFinished"/>: Document.Export returned true).</summary>
+    public static string CancelledExport(bool exportFinished, int revitUpdates, bool cancelSent, int refused) =>
+        "Governed Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: " +
+        (revitUpdates == 0 ? "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped."
+         : !cancelSent && refused > 0 ? "Revit reported " + revitUpdates + " progress update(s) and refused Cancel on each of the " + refused + " after it (not a cancellable stage) — the exporter ran to the end, then Sentinel stopped."
+         : !cancelSent ? "Revit reported " + revitUpdates + " progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped."
+         : exportFinished ? "Cancel was passed to Revit's IFC exporter, which ignored it and ran to the end (" + revitUpdates + " progress update(s)); Sentinel stopped after it."
+         : "Revit's IFC exporter stopped when asked (" + revitUpdates + " progress update(s)).");
+
+    /// <summary>GP-1: Cancel during the gate or the extraction — the gate row is already on the ledger.</summary>
+    public static string CancelledBeforeReferee(PublishPlan p) =>
+        "Governed Publish cancelled before the referee — nothing was registered or uploaded.\n\n" +
+        GateLines.PublishLine(p.Gate, p.Key) + "\n" + GateRow(p);
+
+    /// <summary>GP-1: Cancel while /propose was in flight. Sentinel stops waiting and stages nothing; the bridge may
+    /// still finish the call, so what it may still write is said, not denied.</summary>
+    public static string CancelledAtReferee(PublishPlan p) =>
+        "Governed Publish cancelled while the referee was judging — Sentinel stopped waiting and staged nothing for upload.\n\n" +
+        "The bridge may still finish: its verdict row, and on accepted or recorded a version with no geometry, can still appear on " + p.Key + "'s ledger.\n\n" +
+        GateLines.PublishLine(p.Gate, p.Key) + "\n" + GateRow(p);
 
     private static string NotJudged(PublishPlan p, PublishOutcome o) =>
         o.Verdict.IdsRef is null ? "no IDS installed for " + p.Key + " or its office" : "nothing in the IDS's scope (" + o.Verdict.IdsLabel + ")";
