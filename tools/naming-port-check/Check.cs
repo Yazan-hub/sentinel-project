@@ -74,6 +74,11 @@ static class Check
            "a rejected name is a Block even when the project code is missing too");
         Ok(CdeSyncGuard.Decide("Aster Tower", "ASTR26", null, "none") is { Mode: EnforcementMode.Warn },
            "with no naming@n the project code is still checked");
+        Ok(CdeSyncGuard.StopsSync(bad!) && CdeSyncGuard.StopsSync(warn!) && !CdeSyncGuard.StopsSync(none!),
+           "reject and naming@n's warn stop the sync (to ask); a Monitor note never does");
+        Ok(!CdeSyncGuard.StopsSync(code!) && CdeSyncGuard.Decide("Tower A", "BDS20268", With("off"), label) is { Mode: EnforcementMode.Warn } off &&
+           !CdeSyncGuard.StopsSync(off) && !CdeSyncGuard.StopsSync(CdeSyncGuard.Decide("Tower A", "BDS20268", null, "none")!),
+           "the project-code Warn never stops the sync to ask (enforce: off or no naming@n) — it joins the pane after it");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

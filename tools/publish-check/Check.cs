@@ -422,13 +422,15 @@ static class Check
         Ok(PublishLines.CancelNote(3, 12).Contains("stops waiting for the referee"), "Cancel in the referee step stops the wait");
         Ok(PublishLines.CancelNote(4, 12).StartsWith("Too late to cancel"), "after the referee answered, Cancel is too late — said");
         const string Head = "Governed Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: ";
-        Is(PublishLines.CancelledExport(true, 0, false), Head + "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped.",
+        Is(PublishLines.CancelledExport(true, 0, false, 0), Head + "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped.",
            "no progress updates: Cancel could not reach the exporter");
-        Is(PublishLines.CancelledExport(true, 7, false), Head + "Revit reported 7 progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped.",
+        Is(PublishLines.CancelledExport(true, 7, false, 0), Head + "Revit reported 7 progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped.",
            "updates, none after Cancel: not reached");
-        Is(PublishLines.CancelledExport(true, 7, true), Head + "Cancel was passed to Revit's IFC exporter, which ignored it and ran to the end (7 progress update(s)); Sentinel stopped after it.",
+        Is(PublishLines.CancelledExport(true, 47, false, 40), Head + "Revit reported 47 progress update(s) and refused Cancel on each of the 40 after it (not a cancellable stage) — the exporter ran to the end, then Sentinel stopped.",
+           "updates after Cancel that Revit would not cancel: refused, not 'none after Cancel'");
+        Is(PublishLines.CancelledExport(true, 7, true, 0), Head + "Cancel was passed to Revit's IFC exporter, which ignored it and ran to the end (7 progress update(s)); Sentinel stopped after it.",
            "passed on and the export still finished: the exporter ignores Cancel — said");
-        Is(PublishLines.CancelledExport(false, 7, true), Head + "Revit's IFC exporter stopped when asked (7 progress update(s)).", "passed on and the export stopped: honoured");
+        Is(PublishLines.CancelledExport(false, 7, true, 0), Head + "Revit's IFC exporter stopped when asked (7 progress update(s)).", "passed on and the export stopped: honoured");
         var p = Ready();
         Is(PublishLines.CancelledBeforeReferee(p), "Governed Publish cancelled before the referee — nothing was registered or uploaded.\n\n" +
            "Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nGate row: ledger #812 · receipt 5c6d7e8f90112233…",

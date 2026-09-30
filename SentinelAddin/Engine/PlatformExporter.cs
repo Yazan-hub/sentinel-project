@@ -61,10 +61,13 @@ public static class PlatformExporter
                 ExportBaseQuantities = true,
             };
 
+            bool finished;
             using var t = new Transaction(doc, "Sentinel: IFC export");
             t.Start();
-            try { doc.Export(dir, ifcName, opts); }
+            try { finished = doc.Export(dir, ifcName, opts); }
             finally { if (t.GetStatus() == TransactionStatus.Started) t.RollBack(); } // the file is written; the model is not touched
+            // False = the exporter did not finish (a Cancel it honoured, or a failure): a file it left is partial, never judged.
+            if (!finished) return (State.Failed, ifcPath, 0, "Revit's IFC exporter did not finish (Document.Export returned false)");
         }
         catch (Exception ex)
         {

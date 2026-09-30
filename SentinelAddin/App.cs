@@ -270,8 +270,8 @@ public sealed class App : IExternalApplication
 
     // GP-3: CDE-01 before the sync — the central file name judged by the cached naming@n with the pure Decide, as the
     // bridge's /propose judges it. Reject → the sync stops, the dialog names the failing field; warn → "Sync anyway /
-    // Cancel"; a Monitor note (no naming@n yet, not bound) never asks. The row joins the pane's report after a sync that
-    // happened (OnSynchronized). False = the sync is stopped. A throw here is said, never lets BLOCK be skipped.
+    // Cancel"; a Monitor note (no naming@n yet, not bound) and the project-code Warn never ask. The row joins the pane's
+    // report after a sync that happened (OnSynchronized). False = the sync is stopped. A throw here is said, never lets BLOCK be skipped.
     private static bool CdeBeforeSync(DocumentSynchronizingWithCentralEventArgs e, Document doc)
     {
         _cdeAtSync = null;
@@ -280,6 +280,10 @@ public sealed class App : IExternalApplication
         {
             var ctx = ProjectContext.For(doc);
             cde = CdeSyncGuard.Check(doc, ctx, CdeSyncGuard.LastNaming(ctx));
+            // Before a sync is stopped, judged again by naming@n as it is now (Refresh): a lead may have set it to warn
+            // or off since it was cached, as the stop dialog suggests.
+            if (cde is not null && CdeSyncGuard.StopsSync(cde))
+                cde = CdeSyncGuard.Check(doc, ctx, CdeSyncGuard.Refresh(ctx));
         }
         catch (Exception ex)
         {
@@ -288,7 +292,7 @@ public sealed class App : IExternalApplication
         }
         if (cde is null) return true;
         _cdeAtSync = (doc, cde);
-        if (cde.Mode == EnforcementMode.Monitor) return true;
+        if (!CdeSyncGuard.StopsSync(cde)) return true;
         const string title = "Sentinel — Central file name (CDE-01)";
         if (!e.Cancellable)
         {

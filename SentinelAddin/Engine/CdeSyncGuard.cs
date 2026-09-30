@@ -10,7 +10,7 @@ namespace Sentinel.Engine;
 /// CDE Sync Guard (CDE-01): judges the central file name by the project's naming@n — the standard the bridge's
 /// /propose applies — BEFORE a sync (App.OnSynchronizing, GP-3): reject stops the sync, warn asks "Sync anyway /
 /// Cancel", and the verdict joins the pane's report after the sync (judged once). The naming@n is resolved OFF Revit's
-/// thread (Prefetch, at open and after each sync) and only read here; the decision itself is pure
+/// thread (Prefetch, at open and after each sync; Refresh, waited, before a sync is stopped); the decision itself is pure
 /// (CdeSyncGuard.Judge.cs, pinned by tools/naming-port-check).
 /// </summary>
 public static partial class CdeSyncGuard
@@ -25,6 +25,17 @@ public static partial class CdeSyncGuard
         if (!ctx.IsBound) return;
         string key = ctx.Key;
         Task.Run(() => Naming[key] = ArtefactClient.Resolve(key, "naming"));
+    }
+
+    /// <summary>Resolve the project's naming@n now — off Revit's thread, waited (ArtefactClient's 4 s cap) — and keep it
+    /// for the next sync. Called only before a sync is stopped: a lead may have set the standard to warn or off since it
+    /// was cached (the stop dialog suggests it), and a stale copy would stop every sync until the model is reopened.
+    /// Unbound → null. Never throws.</summary>
+    public static ResolvedArtefact? Refresh(ProjectContext ctx)
+    {
+        if (!ctx.IsBound) return null;
+        string key = ctx.Key;
+        return Naming[key] = Task.Run(() => ArtefactClient.Resolve(key, "naming")).GetAwaiter().GetResult();
     }
 
     /// <summary>The naming@n last resolved for this document's project; null when unbound or not fetched yet.</summary>

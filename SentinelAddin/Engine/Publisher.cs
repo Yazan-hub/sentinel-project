@@ -183,7 +183,7 @@ public static class Publisher
         plan.TempIfcPath = path;
         if (progress is { } p && p.Token.IsCancellationRequested)
         {
-            plan.Refusal = PublishLines.CancelledExport(state == PlatformExporter.State.Ok, p.RevitUpdates, p.CancelSent);
+            plan.Refusal = PublishLines.CancelledExport(state == PlatformExporter.State.Ok, p.RevitUpdates, p.CancelSent, p.CancelRefused);
             Discard(plan);
             return plan;
         }
@@ -450,11 +450,13 @@ public static class PublishLines
     public const string CancelledBeforeExport = "Governed Publish cancelled before the export — nothing was exported, judged, registered or uploaded.";
 
     /// <summary>GP-1: the refusal for a Cancel during the export, with what was measured — whether Revit raised
-    /// progress updates, whether Cancel reached the exporter (<paramref name="cancelSent"/>) and whether the export
-    /// still ran to the end (<paramref name="exportFinished"/>).</summary>
-    public static string CancelledExport(bool exportFinished, int revitUpdates, bool cancelSent) =>
+    /// progress updates, whether Cancel reached the exporter (<paramref name="cancelSent"/>) or Revit refused it on the
+    /// updates after it (<paramref name="refused"/>), and whether the export still ran to the end
+    /// (<paramref name="exportFinished"/>: Document.Export returned true).</summary>
+    public static string CancelledExport(bool exportFinished, int revitUpdates, bool cancelSent, int refused) =>
         "Governed Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: " +
         (revitUpdates == 0 ? "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped."
+         : !cancelSent && refused > 0 ? "Revit reported " + revitUpdates + " progress update(s) and refused Cancel on each of the " + refused + " after it (not a cancellable stage) — the exporter ran to the end, then Sentinel stopped."
          : !cancelSent ? "Revit reported " + revitUpdates + " progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped."
          : exportFinished ? "Cancel was passed to Revit's IFC exporter, which ignored it and ran to the end (" + revitUpdates + " progress update(s)); Sentinel stopped after it."
          : "Revit's IFC exporter stopped when asked (" + revitUpdates + " progress update(s)).");

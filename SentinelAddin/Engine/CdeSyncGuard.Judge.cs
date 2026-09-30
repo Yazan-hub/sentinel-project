@@ -43,7 +43,7 @@ public static partial class CdeSyncGuard
                 "Central file '" + fileName + "' does not contain the configured project code '" +
                 projectCode + "'. Verify this model belongs to the project.",
                 "اسم الملف لا يحتوي على رمز المشروع المحدد.",
-                "Project Setup");
+                ProjectSetupRef);
 
         if (namingBody is null)
             return new Violation(RuleId, EnforcementMode.Monitor, -1, fileName,
@@ -51,6 +51,14 @@ public static partial class CdeSyncGuard
                 null, namingLabel);
         return null;
     }
+
+    private const string ProjectSetupRef = "Project Setup";
+
+    /// <summary>GP-3: whether this row stops the sync before it runs — a Block, or naming@n's warn ("Sync anyway /
+    /// Cancel"). The project-code Warn and a Monitor note never ask: no naming standard judged them, and they join the
+    /// pane's report after the sync.</summary>
+    public static bool StopsSync(Violation v) =>
+        v.Mode == EnforcementMode.Block || (v.Mode == EnforcementMode.Warn && v.DocRef != ProjectSetupRef);
 
     // naming@n's enforce as the bridge reads it (`rs.enforce ?? "reject"`): absent or null → "reject"; a string as
     // written; any other value → "" (neither reject nor off: recorded, not blocking). A body that does not parse

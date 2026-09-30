@@ -65,7 +65,8 @@ public sealed class GovernedPublishCommand : IExternalCommand
                                          (kind, timeout) => ArtefactClient.Resolve(projectKey, kind, timeout), "revit", progress);
             if (plan.TempIfcPath.Length > 0) // the export ran: record what was measured (the B33 drill reads it)
                 App.PanelVm?.LogDoctor("Governed Publish: Revit reported " + progress.RevitUpdates + " progress update(s) during the IFC export" +
-                                       (progress.Token.IsCancellationRequested ? "; Cancel " + (progress.CancelSent ? "was passed to Revit." : "did not reach Revit.") : "."));
+                                       (progress.Token.IsCancellationRequested ? "; Cancel " + (progress.CancelSent ? "was passed to Revit."
+                                           : progress.CancelRefused > 0 ? "was refused by Revit on " + progress.CancelRefused + " update(s)." : "did not reach Revit.") : "."));
             if (!plan.Ready)
             {
                 progress.Close();
@@ -85,13 +86,12 @@ public sealed class GovernedPublishCommand : IExternalCommand
                 {
                     var outcome = t.Status == TaskStatus.RanToCompletion ? t.Result // Judge never throws; this guards the task
                         : PublishOutcome.From(new ProposalResult { Error = t.Exception?.GetBaseException().Message ?? "the verdict call did not finish" });
+                    // Step 4 first: a Cancel from here says "too late"; one before it (even after the verdict arrived,
+                    // while this job waited for Revit) is honoured — nothing staged, as the window promised.
+                    progress.Step(4, "Register — staging the registered version for upload.");
                     string text;
-                    if (!outcome.Reached && ct.IsCancellationRequested) { Publisher.Discard(plan); text = PublishLines.CancelledAtReferee(plan); }
-                    else
-                    {
-                        progress.Step(4, "Register — staging the registered version for upload.");
-                        text = PublishLines.Dialog(plan, outcome, Publisher.Stage(plan, outcome, PlatformExporter.OutboxDir()));
-                    }
+                    if (ct.IsCancellationRequested) { Publisher.Discard(plan); text = PublishLines.CancelledAtReferee(plan); }
+                    else text = PublishLines.Dialog(plan, outcome, Publisher.Stage(plan, outcome, PlatformExporter.OutboxDir()));
                     Publisher.InFlight = false; // staged: the next publish may start while the dialog is open
                     progress.Close();
                     // Without an office code the Pset_<org>.* rows were dropped from the read table (PsetMap), so the

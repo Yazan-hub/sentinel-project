@@ -23,7 +23,7 @@ public sealed class PublishProgress
     private Window? _win;
     private TextBlock? _step, _detail, _note;
     private ProgressBar? _bar;
-    private int _stepNo, _updates, _lastTick, _closed;
+    private int _stepNo, _updates, _refused, _lastTick, _closed;
     private volatile bool _cancelSent;
 
     /// <summary>Cancelled by the Cancel button or the window's X.</summary>
@@ -32,6 +32,8 @@ public sealed class PublishProgress
     public int RevitUpdates => Volatile.Read(ref _updates);
     /// <summary>Whether Cancel reached Revit: ProgressChangedEventArgs.Cancel() was called on an update after Cancel.</summary>
     public bool CancelSent => _cancelSent;
+    /// <summary>Updates after Cancel on which Revit refused it (not a cancellable stage: Cancel() threw).</summary>
+    public int CancelRefused => Volatile.Read(ref _refused);
 
     /// <summary>Open the window on a new STA thread and return once it is shown (≤ 5 s).</summary>
     public static PublishProgress Show(string title)
@@ -60,7 +62,7 @@ public sealed class PublishProgress
     /// <summary>"Step 2 of 4 · Delivery gate — …"; clears Revit's progress line.</summary>
     public void Step(int n, string text)
     {
-        Volatile.Write(ref _stepNo, n);
+        Interlocked.Exchange(ref _stepNo, n); // a full fence: the caller's Cancel check after this sees a Cancel that read the old step
         Post(() =>
         {
             _step!.Text = "Step " + n + " of 4 · " + text;
@@ -77,7 +79,7 @@ public sealed class PublishProgress
         if (_cts.IsCancellationRequested && !_cancelSent)
         {
             try { e.Cancel(); _cancelSent = true; }
-            catch { /* this update cannot be cancelled; the next one is tried */ }
+            catch { Interlocked.Increment(ref _refused); /* this update cannot be cancelled; the next one is tried */ }
         }
         int now = Environment.TickCount; // wraps negative after 24.9 days: compare the difference unsigned
         if ((uint)unchecked(now - Volatile.Read(ref _lastTick)) < 100u) return;
@@ -142,8 +144,8 @@ public sealed class PublishProgress
         w.Left = wa.Right - w.Width - 24;
         w.Top = wa.Bottom - 220;
         w.Loaded += (_, __) => w.Top = wa.Bottom - w.ActualHeight - 24;
-        // The X is Cancel while the publish runs; only Close() closes it.
-        w.Closing += (_, e) => { if (Volatile.Read(ref _closed) == 0) { e.Cancel = true; RequestCancel(); } };
+        // The X is Cancel while the publish runs; after Cancel it closes the window (the publish still ends with its dialog).
+        w.Closing += (_, e) => { if (Volatile.Read(ref _closed) == 0 && !_cts.IsCancellationRequested) { e.Cancel = true; RequestCancel(); } };
         w.Closed += (_, __) => Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
         _win = w;
     }
