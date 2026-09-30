@@ -143,6 +143,9 @@ export function validateArtefact(kind, body) {
     // A C# int, as DeliveryContract.FromBody reads it.
     if (body.schema_version != null && !(Number.isInteger(body.schema_version) && body.schema_version >= -2147483648 && body.schema_version <= 2147483647))
       throw bad(kind, "schema_version", "must be an integer -2147483648..2147483647");
+    // GATE-E2: the share of a class's elements that must carry each required pset and property; absent or null is 1.
+    if (body.min_coverage != null && !(typeof body.min_coverage === "number" && body.min_coverage >= 0 && body.min_coverage <= 1))
+      throw bad(kind, "min_coverage", "must be a number 0..1");
   }
   if (kind === "layers") {
     // enforce, extensions, params, disciplines, match and format stay in the body; Revit does not read them.

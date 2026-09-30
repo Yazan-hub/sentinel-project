@@ -330,6 +330,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     expect(validateArtefact("contract", contract)).toBe(true);
     const { schema_version, ...unversioned } = contract;
     expect(validateArtefact("contract", unversioned)).toBe(true);
+    for (const min_coverage of [0, 0.5, 1, null]) expect(validateArtefact("contract", { ...contract, min_coverage })).toBe(true);
     expect(validateArtefact("layers", layers)).toBe(true);
     expect(validateArtefact("layers", { standard: "S", ignore: null, layers: [{ layer: "A-WALL", category: "Walls", family: null, aliases: null }] })).toBe(true);
     expect(validateArtefact("guideline", guideline)).toBe(true);
@@ -359,6 +360,11 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     // Parity with DeliveryContract.FromBody: what Revit would read as none, the bridge does not install.
     ["contract_key", { ...contract, contract_key: "\u0085" }],
     ["schema_version", { ...contract, schema_version: 2147483648 }],
+    // GATE-E2: optional, 0..1 (DeliveryContract.FromBody refuses the same).
+    ["min_coverage", { ...contract, min_coverage: 1.5 }],
+    ["min_coverage", { ...contract, min_coverage: -0.1 }],
+    ["min_coverage", { ...contract, min_coverage: "0.5" }],
+    ["min_coverage", { ...contract, min_coverage: true }],
   ])("contract: a bad or missing %s is a 400 naming that path", (path, body) => {
     expect(fails("contract", body)).toMatchObject({ status: 400, message: expect.stringContaining(`contract: ${path} `) });
   });

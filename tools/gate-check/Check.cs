@@ -51,6 +51,8 @@ static class Check
         "\"require_georeference\":true}";
     const string Sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+    static string WithCoverage(string json) => Good.Replace("\"require_georeference\":true", "\"require_georeference\":true,\"min_coverage\":" + json);
+
     static void Refused(string body, string want, string name)
     {
         var c = DeliveryContract.FromBody(body, out var error);
@@ -81,6 +83,10 @@ static class Check
         var whole = DeliveryContract.FromBody(Good.Replace("\"min_count\":1}", "\"min_count\":1.0}"), out _);
         Ok(whole is not null && whole.RequiredEntities[0].MinCount == 1, "1.0 is the integer 1, as the bridge reads it (Number.isInteger)");
         Ok(DeliveryContract.FromBody(Good.Replace("\"require_georeference\":true", "\"require_georeference\":true,\"notes\":\"x\""), out _) is not null, "an unknown field is ignored");
+        Ok(c is { MinCoverage: 1.0 }, "min_coverage is optional: absent is 1 (every element)");
+        Ok(DeliveryContract.FromBody(WithCoverage("0.5"), out _) is { MinCoverage: 0.5 }, "min_coverage 0.5 reads as written");
+        Ok(DeliveryContract.FromBody(WithCoverage("null"), out _) is { MinCoverage: 1.0 }, "min_coverage null reads as absent, as the bridge validator accepts it");
+        Ok(DeliveryContract.FromBody(WithCoverage("0"), out _) is { MinCoverage: 0.0 }, "min_coverage 0 is kept, not defaulted");
 
         // not a contract at all
         Refused("null", "the body is null", "JSON null");
@@ -120,6 +126,8 @@ static class Check
         Refused(Good.Replace("[\"FireRating\"]", "\"FireRating\""), "required_properties must be an array", "required_properties not an array");
         Refused(Good.Replace("\"require_georeference\":true", "\"require_georeference\":\"true\""), "require_georeference must be true or false", "require_georeference as text");
         Refused(Good.Replace("\"schema_version\":1", "\"schema_version\":1.5"), "schema_version must be an integer", "a fractional schema_version");
+        foreach (var cov in new[] { "1.5", "-0.1", "\"0.5\"", "true" })
+            Refused(WithCoverage(cov), "min_coverage must be a number from 0 to 1", "min_coverage " + cov);
         // One blank set and one int range with the bridge's validateArtefact (artefact-store.test.mjs pins the Node side).
         Refused(Good.Replace("\"gate-check\"", "\"\\u0085\""), "contract_key must be a non-empty string", "a NEL-only contract_key (blank on both sides)");
         Refused(Good.Replace("\"gate-check\"", "\"\\uFEFF\""), "contract_key must be a non-empty string", "a BOM-only contract_key (blank on both sides)");
@@ -140,8 +148,9 @@ static class Check
         Ok(unbound.Contract is null && unbound.Source.Label == "none — not bound — Sentinel ▸ Project Setup", "an unbound document asks nothing and reads not bound");
     }
 
-    // A small IFC4 file that meets Good: an IFCSITE with no lat/long, a wall, a door, Pset_WallCommon with FireRating,
-    // and (optionally) an IFCMAPCONVERSION — 7 entities with it, 6 without.
+    // A small IFC4 file that meets Good: an IFCSITE with no lat/long, a wall, a door, Pset_WallCommon with FireRating on
+    // the wall (GATE-E2 judges per class, so the pset is related to it), and (optionally) an IFCMAPCONVERSION — 8
+    // entities with it, 7 without.
     static string Ifc(bool mapConversion) => string.Join("\n", new[]
     {
         "ISO-10303-21;", "HEADER;",
@@ -154,8 +163,12 @@ static class Check
         "#4=IFCDOOR('3YvctVUKr0kugbFTf53O9L',$,'D1',$,$,$,$,$,2100.,900.,.DOOR.,.SINGLE_SWING_LEFT.,$);",
         "#5=IFCPROPERTYSINGLEVALUE('FireRating',$,IFCLABEL('REI 60'),$);",
         "#6=IFCPROPERTYSET('4YvctVUKr0kugbFTf53O9L',$,'Pset_WallCommon',$,(#5));",
-    }.Concat(mapConversion ? new[] { "#7=IFCMAPCONVERSION(#8,#9,0.,0.,0.,1.,0.,$);" } : Array.Empty<string>())
+        Rel,
+    }.Concat(mapConversion ? new[] { "#8=IFCMAPCONVERSION(#9,#10,0.,0.,0.,1.,0.,$);" } : Array.Empty<string>())
      .Concat(new[] { "ENDSEC;", "END-ISO-10303-21;" }));
+
+    const string Rel = "#7=IFCRELDEFINESBYPROPERTIES('5YvctVUKr0kugbFTf53O9L',$,$,$,(#3),#6);";
+    static string Cov(IfcDeliveryGate.CoverageLine c) => $"{c.Requirement} {c.Entity} {c.Covered}/{c.Total}";
 
     static string WriteTmp(string name, string text) { var p = Path.Combine(_tmp, name); File.WriteAllText(p, text); return p; }
     static JsonElement Cert(IfcDeliveryGate.GateResult g) => JsonDocument.Parse(File.ReadAllText(g.CertificatePath)).RootElement;
@@ -167,16 +180,36 @@ static class Check
         var src = Installed(Good);
 
         var pass = IfcDeliveryGate.Validate(WriteTmp("pass.ifc", Ifc(true)), contract, src);
-        Ok(pass.Outcome == GateOutcome.Pass && pass.Passed && pass.Failures.Count == 0 && pass.TotalEntities == 7, "a file that meets contract@1 passes");
+        Ok(pass.Outcome == GateOutcome.Pass && pass.Passed && pass.Failures.Count == 0 && pass.TotalEntities == 8, "a file that meets contract@1 passes");
         Ok(pass is { ContractLabel: "contract@1 · office · 0123456789ab…", ContractRef: "contract@1", ContractSource: "office", ContractSha256: Sha, NotCheckedReason: null },
            "the result names what judged it");
         var pc = Cert(pass);
         Ok(pc.GetProperty("certificate").GetString() == "PASS" && pc.GetProperty("contract_ref").GetString() == "contract@1"
            && pc.GetProperty("contract_source").GetString() == "office" && pc.GetProperty("contract_sha256").GetString() == Sha
            && pc.GetProperty("contract_label").GetString() == "contract@1 · office · 0123456789ab…"
-           && pc.GetProperty("contract_key").GetString() == "gate-check" && pc.GetProperty("entities").GetInt32() == 7
+           && pc.GetProperty("contract_key").GetString() == "gate-check" && pc.GetProperty("entities").GetInt32() == 8
            && pc.GetProperty("sha256").GetString() == pass.FileSha256,
            "the PASS certificate carries contract_ref, contract_source, contract_sha256 and contract_label");
+
+        // ── GATE-E2: coverage per class ──
+        Ok(string.Join(" | ", pass.Coverage.Select(Cov)) == "Pset_WallCommon IFCWALL 1/1 | FireRating IFCWALL 1/1"
+           && pass.Coverage[0].Kind == "pset" && pass.Coverage[1].Kind == "property",
+           "the result records each requirement's coverage per class");
+        var pcov = pc.GetProperty("coverage");
+        Ok(pcov.GetArrayLength() == 2 && pcov[1].GetProperty("requirement").GetString() == "FireRating" && pcov[1].GetProperty("entity").GetString() == "IFCWALL"
+           && pcov[1].GetProperty("covered").GetInt32() == 1 && pcov[1].GetProperty("total").GetInt32() == 1,
+           "the certificate carries the coverage");
+        var orphan = IfcDeliveryGate.Validate(WriteTmp("orphan.ifc", Ifc(true).Replace(Rel + "\n", "")), contract, src);
+        var orphanWant = new[] { "Required property set 'Pset_WallCommon': 0/1 IFCWALL (0%) — below 100%.", "Required property 'FireRating' not found in the file." };
+        Ok(orphan.Failures.SequenceEqual(orphanWant),
+           "a pset related to no element no longer passes: Pset_WallCommon 0/1 IFCWALL, and a FireRating no class carries is not found");
+        if (!orphan.Failures.SequenceEqual(orphanWant)) Console.WriteLine("        got: " + string.Join(" | ", orphan.Failures));
+        var line = "#5=IFCPROPERTYSINGLEVALUE('Fire, ''Rating''',$,IFCLABEL('a(b)'),$);";
+        Ok(IfcDeliveryGate.StepArgs(line, line.IndexOf('(') + 1).SequenceEqual(new[] { "'Fire, ''Rating'''", "$", "IFCLABEL('a(b)')", "$" }),
+           "STEP arguments: a comma or quote inside a string and nested parentheses stay in one argument");
+        Ok(IfcDeliveryGate.Valued("IFCLABEL('REI 60')") && IfcDeliveryGate.Valued("IFCBOOLEAN(.F.)") && IfcDeliveryGate.Valued("IFCREAL(0.)")
+           && !IfcDeliveryGate.Valued("$") && !IfcDeliveryGate.Valued("IFCLABEL('')") && !IfcDeliveryGate.Valued(""),
+           "a NominalValue is a value unless it is $ or empty");
 
         Ok(pass.Warnings.Count == 0, "an IFCMAPCONVERSION georeferences the file although IFCSITE has no lat/long (the Node gate's rule)");
         var noGeo = IfcDeliveryGate.Validate(WriteTmp("nogeo.ifc", Ifc(false)), contract, src);
@@ -230,6 +263,7 @@ static class Check
         var src = Installed("{}"); // the label only; the contract comes from the case
         int n = 0;
         bool mapConversion = false, schemaMismatch = false;
+        int coverageCases = 0;
         foreach (var c in fx.RootElement.EnumerateArray())
         {
             n++;
@@ -248,6 +282,20 @@ static class Check
             Ok(got == want && g.Failures.Count == wantFailures, $"{name}: {want} with {wantFailures} failure(s), as the Node gate");
             if (got != want || g.Failures.Count != wantFailures) Console.WriteLine("        got: " + got + " — " + string.Join(" | ", g.Failures));
             if (expect.TryGetProperty("warnings", out var w)) Ok(g.Warnings.Count == w.GetInt32(), $"{name}: {w.GetInt32()} warning(s), as the Node gate");
+            // GATE-E2 cases pin the words and the coverage per class, which contract-parity.test.mjs checks the same way.
+            if (c.TryGetProperty("failure_texts", out var ft))
+            {
+                var wantTexts = ft.EnumerateArray().Select(e => e.GetString()!).ToList();
+                Ok(g.Failures.SequenceEqual(wantTexts), $"{name}: the failures word for word, as the Node gate");
+                if (!g.Failures.SequenceEqual(wantTexts)) Console.WriteLine("        got: " + string.Join(" | ", g.Failures));
+            }
+            if (c.TryGetProperty("coverage", out var cv))
+            {
+                var wantCov = cv.EnumerateArray().Select(e => e.GetString()!).ToList();
+                Ok(g.Coverage.Select(Cov).SequenceEqual(wantCov), $"{name}: coverage per class, as the Node gate");
+                if (!g.Coverage.Select(Cov).SequenceEqual(wantCov)) Console.WriteLine("        got: " + string.Join(" | ", g.Coverage.Select(Cov)));
+                coverageCases++;
+            }
 
             var text = File.ReadAllText(copy);
             if (want == "pass" && contract.RequireGeoreference && text.Contains("IFCMAPCONVERSION("))
@@ -264,6 +312,7 @@ static class Check
         Ok(n >= 3, $"the fixture carries {n} case(s) (at least 3)");
         Ok(mapConversion, "the fixture has an IFCMAPCONVERSION-only georeferenced case under require_georeference");
         Ok(schemaMismatch, "the fixture has a schema-mismatch case that fails");
+        Ok(coverageCases >= 7, $"the fixture pins coverage per class in {coverageCases} case(s) (GATE-E2: at least 7)");
     }
 
     // contract@1 as the bridge hands it over (the harness never calls the bridge).

@@ -60,6 +60,8 @@ public static class GateLines
                "Contract: " + r.ContractLabel + " · Schema: " + Schema(r) + "\n" +
                "Entities: " + r.TotalEntities + " (" + size + ")\n" +
                string.Join("\n", top) + "\n\n" +
+               (r.Coverage.Count > 0 ? "Coverage:\n• " + string.Join("\n• ", r.Coverage.Take(12).Select(c => c.Requirement + " · " + c.Entity + " " + c.Covered + "/" + c.Total)) +
+                                       (r.Coverage.Count > 12 ? "\n… and " + (r.Coverage.Count - 12) + " more" : "") + "\n\n" : "") +
                (r.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", r.Failures) + "\n\n" : "") +
                (r.Warnings.Count > 0 ? "Warnings:\n• " + string.Join("\n• ", r.Warnings) + "\n\n" : "") +
                cert;

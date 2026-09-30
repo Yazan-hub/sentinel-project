@@ -75,6 +75,13 @@ static class GateLinesCheck
         ok(dFail.StartsWith("✕ FAIL — DO NOT upload this file\n\nContract: " + Label + " · Schema: IFC2X3\n")
            && dFail.Contains("FAILURES:\n• Schema mismatch: contract requires IFC4, file is IFC2X3.\n• IFCCOLUMN: 0 found, contract requires ≥ 1.\n\n"),
            "dialog: FAIL lists every failure under the contract label");
+        ok(!dPass.Contains("Coverage:") && !dFail.Contains("Coverage:"), "dialog: no coverage block when no pset or property was required");
+        var covered = Judged(GateOutcome.Fail, "IFC4", "Required property 'FireRating': 1/3 IFCWALL (33%) — below 100%.");
+        covered.Coverage.Add(new CoverageLine { Requirement = "FireRating", Kind = "property", Entity = "IFCWALL", Covered = 1, Total = 3 });
+        for (int i = 0; i < 13; i++) covered.Coverage.Add(new CoverageLine { Requirement = "Pset_" + i, Kind = "pset", Entity = "IFCDOOR", Covered = 2, Total = 2 });
+        var dCov = GateLines.GateDialog(covered, "north-yard");
+        ok(dCov.Contains("\nIFCCOLUMN: 3\n\nCoverage:\n• FireRating · IFCWALL 1/3\n• Pset_0 · IFCDOOR 2/2\n") && dCov.Contains("• Pset_10 · IFCDOOR 2/2\n… and 2 more\n\nFAILURES:\n• Required property 'FireRating': 1/3 IFCWALL (33%) — below 100%.\n"),
+           "dialog: coverage per class (the first 12, then a count) sits between the counts and the failures");
         var dNone = GateLines.GateDialog(none, "north-yard");
         ok(dNone == "NOT CHECKED — contract: " + NoneLabel + "\n\nNothing was judged — this file is NOT certified for CDE upload.\n" +
                     "Schema: IFC2X3 (1.0 MB)\n\nCertificate: C:\\out\\a.sentinel-cert.json\nSHA-256: cdcdcdcdcdcdcdcd…",

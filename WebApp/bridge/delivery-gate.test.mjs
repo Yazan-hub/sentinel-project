@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import * as gate from "./delivery-gate.mjs";
-import { checkDelivery, countWithSubtypes, gateNotChecked, SUBTYPES, BUILDING_ELEMENTS } from "./delivery-gate.mjs";
+import { checkDelivery, countWithSubtypes, gateNotChecked, stepArgs, valued, SUBTYPES, BUILDING_ELEMENTS } from "./delivery-gate.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ifc = readFileSync(resolve(here, "fixtures/minimal.ifc"));
@@ -44,9 +44,10 @@ describe("checkDelivery", () => {
     expect(r.failures).toContain("IFCBEAM: 0 found, contract requires ≥ 2.");
   });
   it("fails a schema mismatch, a missing pset and a missing property with the C# sentences", () => {
-    const r = checkDelivery(ifc, contract({ ifc_schema: "IFC2X3", required_psets: ["Pset_SlabCommon"], required_properties: ["ThermalTransmittance"] }));
+    // No IFCBEAM in the file and no element carries ThermalTransmittance: they apply to no class, so "not found".
+    const r = checkDelivery(ifc, contract({ ifc_schema: "IFC2X3", required_psets: ["Pset_BeamCommon"], required_properties: ["ThermalTransmittance"] }));
     expect(r.failures).toContain("Schema mismatch: contract requires IFC2X3, file is IFC4.");
-    expect(r.failures).toContain("Required property set 'Pset_SlabCommon' not found in the file.");
+    expect(r.failures).toContain("Required property set 'Pset_BeamCommon' not found in the file.");
     expect(r.failures).toContain("Required property 'ThermalTransmittance' not found in the file.");
   });
   it("fails the proxy ratio: 1 of 4 building elements is 25 %, a 10 % ceiling rejects it", () => {
@@ -108,5 +109,86 @@ describe("checkDelivery", () => {
       sha256: checkDelivery(ifc, contract()).sha256, size: ifc.length,
     });
     expect(gateNotChecked("not a step file", "none").detected_schema).toBe("");
+  });
+});
+
+// n IFCWALLs; the first k carry FireRating = `value` in their own Pset_WallCommon; `typed` puts FireRating on a wall
+// type every wall shares instead (the value held on the TYPE only).
+function walls(n, { k = 0, value = "IFCLABEL('REI 60')", typed = null } = {}) {
+  const lines = ["ISO-10303-21;", "HEADER;", "FILE_SCHEMA(('IFC4'));", "ENDSEC;", "DATA;"];
+  for (let i = 1; i <= n; i++) lines.push(`#${i}=IFCWALL('W${i}',$,'Wall-${i}',$,$,$,$,$,.STANDARD.);`);
+  for (let i = 1; i <= k; i++) lines.push(
+    `#${100 + i}=IFCPROPERTYSINGLEVALUE('FireRating',$,${value},$);`,
+    `#${200 + i}=IFCPROPERTYSET('P${i}',$,'Pset_WallCommon',$,(#${100 + i}));`,
+    `#${300 + i}=IFCRELDEFINESBYPROPERTIES('R${i}',$,$,$,(#${i}),#${200 + i});`);
+  if (typed) lines.push(`#900=IFCPROPERTYSINGLEVALUE('FireRating',$,${typed},$);`, "#901=IFCPROPERTYSET('PT',$,'Pset_WallCommon',$,(#900));",
+    "#902=IFCWALLTYPE('T1',$,'Basic Wall',$,$,(#901),$,$,$,.STANDARD.);",
+    `#903=IFCRELDEFINESBYTYPE('RT',$,$,$,(${Array.from({ length: n }, (_, i) => `#${i + 1}`).join(",")}),#902);`);
+  return lines.concat("ENDSEC;", "END-ISO-10303-21;").join("\n");
+}
+const only = (over) => contract({ required_entities: [], required_psets: [], required_properties: [], forbidden_entities: [], require_georeference: false, ...over });
+const fire = (over = {}) => only({ required_properties: ["FireRating"], ...over });
+
+describe("checkDelivery — coverage per class (GATE-E2)", () => {
+  it("1 of 5 walls with FireRating fails 1/5 IFCWALL, and records the coverage", () => {
+    const r = checkDelivery(walls(5, { k: 1 }), fire());
+    expect(r.result).toBe("fail");
+    expect(r.failures).toEqual(["Required property 'FireRating': 1/5 IFCWALL (20%) — below 100%."]);
+    expect(r.coverage).toEqual([{ requirement: "FireRating", kind: "property", entity: "IFCWALL", covered: 1, total: 5 }]);
+  });
+  it("all walls filled pass", () => {
+    const r = checkDelivery(walls(5, { k: 5 }), fire());
+    expect(r.failures).toEqual([]);
+    expect(r.coverage).toEqual([{ requirement: "FireRating", kind: "property", entity: "IFCWALL", covered: 5, total: 5 }]);
+  });
+  it("a value held on the wall TYPE only counts for every wall of that type", () => {
+    const r = checkDelivery(walls(3, { typed: "IFCLABEL('EI 60')" }), fire());
+    expect(r.passed).toBe(true);
+    expect(r.coverage[0]).toMatchObject({ entity: "IFCWALL", covered: 3, total: 3 });
+  });
+  it("$ or an empty value is no value: the class still applies, and 0/3 fails — not 'not found'", () => {
+    for (const value of ["$", "IFCLABEL('')"])
+      expect(checkDelivery(walls(3, { k: 3, value }), fire()).failures).toEqual(["Required property 'FireRating': 0/3 IFCWALL (0%) — below 100%."]);
+    expect(checkDelivery(walls(3, { k: 2, value: "IFCBOOLEAN(.F.)" }), fire()).coverage[0].covered).toBe(2); // .F. is a value
+  });
+  it("min_coverage: 2 of 3 passes at 0.5 and fails at 0.9 with that threshold in the words", () => {
+    expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: 0.5 })).passed).toBe(true);
+    expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: 0.9 })).failures).toEqual(["Required property 'FireRating': 2/3 IFCWALL (67%) — below 90%."]);
+    expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: null })).passed).toBe(false); // null is absent: 1
+  });
+  it("a dotted requirement names the pset: Pset_DoorCommon.Reference applies to the door only; a property in another pset does not count", () => {
+    expect(checkDelivery(ifc, only({ required_properties: ["Pset_DoorCommon.Reference", "Pset_WallCommon.FireRating"] })).coverage).toEqual([
+      { requirement: "Pset_DoorCommon.Reference", kind: "property", entity: "IFCDOOR", covered: 1, total: 1 },
+      { requirement: "Pset_WallCommon.FireRating", kind: "property", entity: "IFCWALLSTANDARDCASE", covered: 1, total: 1 },
+    ]);
+    expect(checkDelivery(ifc, only({ required_properties: ["Pset_DoorCommon.FireRating"] })).failures)
+      .toEqual(["Required property 'Pset_DoorCommon.FireRating' not found in the file."]);
+  });
+  it("a required pset on 1 of 2 doors fails; Pset_XCommon applies to IFCX and its subtypes, even with none carrying it", () => {
+    const doors = ["ISO-10303-21;", "HEADER;", "FILE_SCHEMA(('IFC4'));", "ENDSEC;", "DATA;",
+      "#1=IFCDOOR('D1',$,'Door-1',$,$,$,$,$,2100.,900.,.DOOR.,.SINGLE_SWING_LEFT.,$);",
+      "#2=IFCDOOR('D2',$,'Door-2',$,$,$,$,$,2100.,900.,.DOOR.,.SINGLE_SWING_LEFT.,$);",
+      "#3=IFCWALLSTANDARDCASE('W1',$,'Wall-1',$,$,$,$,$,.STANDARD.);",
+      "#10=IFCPROPERTYSINGLEVALUE('FireRating',$,IFCLABEL('EI 30'),$);",
+      "#11=IFCPROPERTYSET('P1',$,'Pset_DoorCommon',$,(#10));",
+      "#12=IFCRELDEFINESBYPROPERTIES('R1',$,$,$,(#1),#11);", "ENDSEC;", "END-ISO-10303-21;"].join("\n");
+    const r = checkDelivery(doors, only({ required_psets: ["Pset_DoorCommon", "Pset_WallCommon"] }));
+    expect(r.failures).toEqual([
+      "Required property set 'Pset_DoorCommon': 1/2 IFCDOOR (50%) — below 100%.",
+      "Required property set 'Pset_WallCommon': 0/1 IFCWALLSTANDARDCASE (0%) — below 100%.",
+    ]);
+  });
+  it("the minimal fixture's coverage: Pset_WallCommon and FireRating on its one IFCWALLSTANDARDCASE", () => {
+    expect(checkDelivery(ifc, contract()).coverage).toEqual([
+      { requirement: "Pset_WallCommon", kind: "pset", entity: "IFCWALLSTANDARDCASE", covered: 1, total: 1 },
+      { requirement: "FireRating", kind: "property", entity: "IFCWALLSTANDARDCASE", covered: 1, total: 1 },
+    ]);
+  });
+  it("reads STEP arguments and values as the C# gate does", () => {
+    const line = "#5=IFCPROPERTYSINGLEVALUE('Fire, ''Rating''',$,IFCLABEL('a(b)'),$);";
+    expect(stepArgs(line, line.indexOf("(") + 1)).toEqual(["'Fire, ''Rating'''", "$", "IFCLABEL('a(b)')", "$"]);
+    for (const v of ["IFCLABEL('REI 60')", "IFCBOOLEAN(.F.)", "IFCREAL(0.)"]) expect(valued(v)).toBe(true);
+    for (const v of ["$", "IFCLABEL('')", ""]) expect(valued(v)).toBe(false);
+    expect(csharp).toContain("\"Required property set\" : \"Required property\")} '{req}': {n}/{total} {cls} ");
   });
 });
