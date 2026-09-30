@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { checkDelivery } from "../../WebApp/bridge/delivery-gate.mjs";
-import { main, newestTag, freeTag, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
+import { main, newestTag, freeTag, contractShapeError, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
 
 const ifc = readFileSync(new URL("../../WebApp/bridge/fixtures/minimal.ifc", import.meta.url));
 const contract = (over = {}) => ({
@@ -304,4 +304,33 @@ test("a download the platform answered with an error status is said in words, ne
   assert.equal(r2.type, "FAIL");
   assert.equal(r2.message, "Gate did not run — tower.ifc v2 could not be downloaded: the platform answered 429 Too Many Requests");
   assert.equal(q.writes.files.length + q.writes.metadata.length, 0);
+});
+
+// GATE-E2: the contract-parity cases that pin coverage per class (1 of 3 walls, all 3, a type-held value, $, min_coverage,
+// dotted, a pset on 1 of 2 doors) give the same verdict, words and coverage through the component as in Node and C#.
+const parityDir = new URL("../../WebApp/bridge/fixtures/contract-parity/", import.meta.url);
+const coverageCases = JSON.parse(readFileSync(new URL("cases.json", parityDir), "utf8")).filter((c) => c.coverage);
+
+test("coverage per class: every pinned parity case gives the same verdict, failures and coverage in the report", async () => {
+  assert.ok(coverageCases.length >= 7, `${coverageCases.length} coverage cases`);
+  for (const c of coverageCases) {
+    const p = platform({ items: [ifcItem({ bytes: readFileSync(new URL(c.ifc, parityDir)) })], contractBody: c.contract });
+    const r = await run(p, { fileId: "f1" });
+    const rep = JSON.parse(p.writes.files[0].text);
+    assert.equal(rep.result, c.expect.result, c.name);
+    assert.deepEqual(rep.failures, c.failure_texts, c.name);
+    assert.deepEqual(rep.coverage.map((v) => `${v.requirement} ${v.entity} ${v.covered}/${v.total}`), c.coverage, c.name);
+    assert.equal(r.type, c.expect.result === "pass" ? "SUCCESS" : "WARNING", c.name);
+    if (c.expect.result === "fail") assert.ok(r.message.includes(c.failure_texts[0]), c.name);
+  }
+});
+
+test("min_coverage: optional, 0..1 — anything else is not_checked with the reason", async () => {
+  assert.equal(contractShapeError(contract({ min_coverage: 0.5 })), null);
+  assert.equal(contractShapeError(contract({ min_coverage: null })), null);
+  for (const bad of [1.5, -0.1, "0.5", true]) {
+    const p = platform({ items: [ifcItem()], contractBody: contract({ min_coverage: bad }) });
+    const r = await run(p, { fileId: "f1" });
+    assert.equal(r.message, "Not checked — sentinel-contract.json contract@1 min_coverage is not a number from 0 to 1");
+  }
 });

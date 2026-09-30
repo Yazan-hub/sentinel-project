@@ -11,6 +11,7 @@ const svc = {
   listFiles: async () => items,
   createFile: async ({ name, versionTag }) => { writes.push(["file", name, versionTag]); return { item: { _id: "r1" } }; },
   createVersion: async (id, b, tag) => { writes.push(["version", id, tag]); },
+  getFileVersionMetadata: async () => ({}), // the labels are read before they are merged and written
   updateFileVersionMetadata: async (id, tag, m) => { writes.push(["labels", id, tag, m.sentinel_gate]); },
 };
 const ctx = { thatOpenServices: svc, executionParams: { fileId: "f1" }, executionContext: { projectId: "p1", executionId: "e1", toolId: "t", toolVersion: "1" },

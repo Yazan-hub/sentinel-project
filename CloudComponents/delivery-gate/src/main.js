@@ -67,6 +67,9 @@ export function contractShapeError(c) {
   for (const k of ["required_entities", "forbidden_entities", "required_psets", "required_properties"])
     if (!Array.isArray(c[k])) return `${k} is not a list`;
   if (typeof c.require_georeference !== "boolean") return "require_georeference is not true or false";
+  // GATE-E2: optional; absent or null is 1 (every element of a class).
+  if (c.min_coverage != null && !(typeof c.min_coverage === "number" && c.min_coverage >= 0 && c.min_coverage <= 1))
+    return "min_coverage is not a number from 0 to 1";
   return null;
 }
 
@@ -145,6 +148,7 @@ export async function main() {
     kind: REPORT_KIND, file: { id: fileId, name, versionTag }, result: r.result, passed: r.passed, reason: r.reason ?? null,
     contract: contract.body ? { ref: contract.ref, sha256: sha(JSON.stringify(contract.body)) } : null,
     detected_schema: r.detected_schema, total_entities: r.total_entities, failures: r.failures, warnings: r.warnings,
+    coverage: r.coverage ?? [], // per class, per required pset and property (GATE-E2); none when not checked
     sha256: r.sha256, size: r.size,
     run: { executionId: ctx.executionId ?? null, at: new Date().toISOString(), component: { toolId: ctx.toolId ?? null, toolVersion: ctx.toolVersion ?? null } },
   };

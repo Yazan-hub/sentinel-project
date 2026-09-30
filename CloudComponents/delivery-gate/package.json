@@ -1,6 +1,6 @@
 {
   "name": "sentinel-delivery-gate",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "description": "Sentinel Delivery Gate — judges an IFC version of the launching project against the Sentinel contract mirrored there (sentinel-contract.json); writes <name>.gate.json and labels the version. Same code as the bridge's gate.",
   "type": "module",
