@@ -1,0 +1,417 @@
+[
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Function": "Exterior"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Function": "Interior"
+      },
+      "thicknessMm": 100
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_GYPS_100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Function": "Exterior"
+      },
+      "thicknessMm": 150
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_150 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_EXT_ARC_CMU_100 mm",
+      "BDS_EXT_ARC_CMU_200 mm",
+      "BDS_EXT_ARC_CMU_300 mm",
+      "BDS_EXT_ARC_CMU_400 mm"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Function": "Foundation"
+      },
+      "thicknessMm": 200
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Floors",
+      "params": {
+        "Function": "Interior",
+        "Family": "Floor"
+      },
+      "thicknessMm": 150
+    },
+    "family": "Floor",
+    "type": "BDS_INT_STR_CONC_150 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Floors",
+      "params": {
+        "Function": "Interior",
+        "Family": "Floor"
+      },
+      "thicknessMm": 300
+    },
+    "family": "Floor",
+    "type": "BDS_INT_STR_CONC_300 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Floors",
+      "params": {
+        "Function": "Interior",
+        "Family": "Floor"
+      },
+      "thicknessMm": 450
+    },
+    "family": "Floor",
+    "type": "BDS_INT_STR_CONC_450 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Floors",
+      "params": {
+        "Function": "Interior",
+        "Family": "Floor"
+      },
+      "thicknessMm": 250
+    },
+    "family": "Floor",
+    "type": "BDS_INT_STR_CONC_250 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_INT_STR_CONC_150 mm",
+      "BDS_INT_STR_CONC_300 mm",
+      "BDS_INT_STR_CONC_450 mm"
+    ]
+  },
+  {
+    "input": {
+      "category": "Floors",
+      "params": {
+        "Function": "Exterior",
+        "Family": "Floor"
+      },
+      "thicknessMm": 300
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Floors",
+      "params": {
+        "Family": "Floor"
+      },
+      "thicknessMm": 300
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Roofs",
+      "params": {
+        "Family": "Basic Roof"
+      },
+      "thicknessMm": 300
+    },
+    "family": "Basic Roof",
+    "type": "BDS_EXT_ARC_GENRC_300 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Roofs",
+      "params": {
+        "Family": "Basic Roof"
+      },
+      "thicknessMm": 225
+    },
+    "family": "Basic Roof",
+    "type": "BDS_EXT_ARC_GENRC_225 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_EXT_ARC_GENRC_300 mm"
+    ]
+  },
+  {
+    "input": {
+      "category": "Roofs",
+      "params": {
+        "Family": "Sloped Glazing"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Ceilings",
+      "params": {
+        "Family": "Compound Ceiling"
+      },
+      "thicknessMm": 50
+    },
+    "family": "Compound Ceiling",
+    "type": "BDS_INT_ARC_GYPS_50 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Ceilings",
+      "params": {
+        "Family": "Compound Ceiling"
+      },
+      "thicknessMm": 56
+    },
+    "family": "Compound Ceiling",
+    "type": "BDS_INT_ARC_GYPS_56 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_INT_ARC_GYPS_50 mm"
+    ]
+  },
+  {
+    "input": {
+      "category": "Ceilings",
+      "params": {
+        "Family": "Compound Ceiling"
+      }
+    },
+    "family": "Compound Ceiling",
+    "type": null,
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Ceilings",
+      "params": {
+        "Family": "Basic Ceiling"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Doors",
+      "params": {
+        "HostFunction": "Interior",
+        "Size": "W1000 x H2100 mm"
+      }
+    },
+    "family": "BDS_INT_1 PNL",
+    "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Doors",
+      "params": {
+        "HostFunction": "Interior",
+        "Size": "W2000 x H2100 mm"
+      }
+    },
+    "family": "BDS_INT_2 PNL",
+    "type": "BDS_INT_2 PNL_WOOD_2000 x 2100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Doors",
+      "params": {
+        "HostFunction": "Exterior",
+        "Size": "W1000 x H2100 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Doors",
+      "params": {
+        "HostFunction": "Interior",
+        "Size": "W915 x H2134 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Doors",
+      "params": {
+        "HostFunction": "Interior",
+        "Size": "W10000 x H2100 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Doors",
+      "params": {
+        "HostFunction": "Interior",
+        "Size": "W1000 x H21000 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Windows",
+      "params": {
+        "Size": "W600 x H1200 mm"
+      }
+    },
+    "family": "BDS_Window_Single Panel",
+    "type": "600x1200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Windows",
+      "params": {
+        "Size": "W800 x H1200 mm"
+      }
+    },
+    "family": "BDS_Window_1 Panel+FX",
+    "type": "800x1200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Windows",
+      "params": {
+        "Size": "W3600 x H3000 mm"
+      }
+    },
+    "family": "BDS_Window_3 Sliding Panels+FX",
+    "type": "3600x3000 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Windows",
+      "params": {
+        "Size": "W600 x H1300 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Windows",
+      "params": {
+        "Size": "W1600 x H1200 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  },
+  {
+    "input": {
+      "category": "Windows",
+      "params": {
+        "Size": "W3100 x H2900 mm"
+      }
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null
+  }
+]

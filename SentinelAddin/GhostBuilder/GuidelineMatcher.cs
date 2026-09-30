@@ -1,7 +1,8 @@
 #nullable disable
 // C# port of WebApp/src/sentinel-core/guideline.ts — the Office Modelling Guideline resolver.
 // `guideline.test.ts` + `guideline-bds.test.ts` are the CONFORMANCE REFERENCE: this must give the same
-// answer for the same input, exactly as LayerRulesetMatcher.cs mirrors layers.ts.
+// answer for the same input, exactly as LayerRulesetMatcher.cs mirrors layers.ts. RuleProduces, RuleParam, CatalogHas,
+// CatalogOfSize and HasRulesFor are Promote's C#-only reads; they have no TS twin.
 //
 // PER-FIRM BY DESIGN. Nothing here knows about any office. The guideline and the type catalogue are artefacts —
 // guideline@n and type_catalog@n installed on the document's web project or its office (cohesion phase 4b) —
@@ -61,6 +62,8 @@ namespace Sentinel.GhostBuilder
     {
         [JsonPropertyName("standard")]   public string Standard { get; set; }
         [JsonPropertyName("office")]     public string Office { get; set; }
+        /// <summary>"draft" while the office has not confirmed the rules (Promote's summary says so), else null/"approved".</summary>
+        [JsonPropertyName("status")]     public string Status { get; set; }
         [JsonPropertyName("elements")]   public List<GuidelineElement> Elements { get; set; } = new List<GuidelineElement>();
         [JsonPropertyName("graphics")]   public GuidelineGraphics Graphics { get; set; }
         [JsonPropertyName("views")]      public List<GuidelineViewStandard> Views { get; set; }
@@ -156,6 +159,7 @@ namespace Sentinel.GhostBuilder
         public string Standard => _doc?.Standard ?? "(no guideline)";
         /// <summary>The office code the guideline names ("BDS"), or null.</summary>
         public string Office => _doc?.Office;
+        public bool IsDraft => string.Equals(_doc?.Status, "draft", StringComparison.OrdinalIgnoreCase);
         public List<GuidelineViewStandard> Views => _doc?.Views;
         public GuidelineViewNaming ViewNaming => _doc?.ViewNaming;
         public GuidelineGraphics Graphics => _doc?.Graphics;
@@ -420,15 +424,45 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Is <paramref name="typeName"/> a type one of <paramref name="category"/>'s RULES produces — its use.type,
         /// or its use.typePattern with {thickness} a number? Case-insensitive; the default is not a rule, and the catalogue
-        /// is not consulted (MA-0: a wall already on such a type is settled, whatever its type's Function says).</summary>
-        public bool RuleProduces(string category, string typeName)
+        /// is not consulted (MA-0: a wall already on such a type is settled, whatever its type's Function says). With
+        /// <paramref name="family"/>, the rule's use.family must be it too (Promote v1: window type names repeat across families).</summary>
+        public bool RuleProduces(string category, string typeName, string family = null) => Producers(category, typeName, family).Any();
+
+        private IEnumerable<GuidelineRule> Producers(string category, string typeName, string family = null)
         {
-            if (string.IsNullOrWhiteSpace(typeName)) return false;
+            if (string.IsNullOrWhiteSpace(typeName)) return Enumerable.Empty<GuidelineRule>();
             var el = _doc.Elements.FirstOrDefault(e => Norm(e.Category) == Norm(category));
-            return el != null && el.Rules.Any(r => r.Use != null
+            return el == null ? Enumerable.Empty<GuidelineRule>() : el.Rules.Where(r => r.Use != null
+                && (family == null || Norm(r.Use.Family) == Norm(family))
                 && ((!string.IsNullOrWhiteSpace(r.Use.Type) && Norm(r.Use.Type) == Norm(typeName))
                     || (!string.IsNullOrWhiteSpace(r.Use.TypePattern) && PatternRx(r.Use.TypePattern).IsMatch(typeName))));
         }
+
+        /// <summary>The when.params[<paramref name="param"/>] of the rules that produce <paramref name="typeName"/> under
+        /// <paramref name="category"/> — one value, or null when none does, none names it, or they disagree (Promote v1: a door's
+        /// location from its settled host's DD rule, not from the template's Function — drill B33 F2).</summary>
+        public string RuleParam(string category, string typeName, string param)
+        {
+            var values = Producers(category, typeName)
+                .Select(r => r.When?.Params?.FirstOrDefault(kv => Squash(kv.Key) == Squash(param)).Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return values.Count == 1 ? values[0] : null; // a producing rule that does not name it is a disagreement
+        }
+
+        /// <summary>Does the catalogue hold exactly this family AND type under the category? (Resolve's check matches the type
+        /// name only; window type names repeat across families.)</summary>
+        public bool CatalogHas(string category, string family, string type) =>
+            _catalog.Any(c => Norm(c.Category) == Norm(category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
+
+        /// <summary>"Family : Type" of every catalogue type of the category whose name carries exactly this W x H
+        /// (TypeNameParse.TrySection) — what a door or window gap names.</summary>
+        public List<string> CatalogOfSize(string category, double widthMm, double heightMm) =>
+            _catalog.Where(c => Norm(c.Category) == Norm(category) && TypeNameParse.TrySection(c.Type, out var w, out var h)
+                             && Math.Abs(w - widthMm) < 0.001 && Math.Abs(h - heightMm) < 0.001)
+                    .Select(c => c.Family + " : " + c.Type).ToList();
+
+        /// <summary>Has the guideline an element block for the category?</summary>
+        public bool HasRulesFor(string category) => _doc.Elements.Any(e => Norm(e.Category) == Norm(category));
 
         /// <summary>The catalogue's types a provisioner may clone for <paramref name="typeName"/> under
         /// <paramref name="category"/>: what <see cref="GuidelineResolution.Available"/> lists for a guideline gap — the

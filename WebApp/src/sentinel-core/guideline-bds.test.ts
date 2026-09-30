@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  resolveType, resolveWithCatalog, validateAgainstCatalog,
+  resolveType, resolveWithCatalog, validateAgainstCatalog, validateGuideline,
   type Guideline, type CatalogType,
 } from "./guideline";
 
@@ -110,5 +110,34 @@ describe("BDS guideline — graphics and views name real things", () => {
   it("does not invent a dimension or text style — neither is harvestable yet", () => {
     expect(raw.graphics.dimensionStyle).toBeNull();
     expect(raw.graphics.textStyle).toBeNull();
+  });
+});
+
+describe("BDS DD elements rule file (Promote v1)", () => {
+  const DD: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-dd-elements-guideline.json", "utf8"));
+  const WALLS: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-dd-walls-guideline.json", "utf8"));
+  const block = (g: Guideline, cat: string) => g.elements.find((e) => e.category === cat);
+  const explicit = DD.elements.flatMap((e) => e.rules.filter((r) => r.use.type).map((r) => ({ category: e.category, r })));
+
+  it("is a valid guideline whose every family, type and pattern is in the BDS catalogue", () => {
+    expect(validateGuideline(DD)).toEqual([]);
+    expect(validateAgainstCatalog(DD, CATALOG)).toEqual([]);
+  });
+
+  it("every explicit rule names one catalogue row by (category, family, type)", () => {
+    expect(explicit.length).toBe(16);
+    for (const { category, r } of explicit)
+      expect(CATALOG.filter((c) => c.category === category && c.family === r.use.family && c.type === r.use.type)).toHaveLength(1);
+  });
+
+  it("every door and window rule's Size is its own type name's W x H", () => {
+    for (const { category, r } of explicit.filter((x) => x.category === "Doors" || x.category === "Windows")) {
+      const m = /(\d+)\s*x\s*(\d+)\s*mm/i.exec(r.use.type ?? "");
+      expect(r.when.params?.Size, category + " " + r.use.type).toBe(`W${m?.[1]} x H${m?.[2]} mm`);
+    }
+  });
+
+  it("its Walls block is the walls file's, unchanged", () => {
+    expect(block(DD, "Walls")).toEqual(block(WALLS, "Walls"));
   });
 });
