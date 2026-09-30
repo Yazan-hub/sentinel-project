@@ -32,10 +32,6 @@ static class Check
         Ok(Same(OrgNames.SubSubGroupParams(bds), "BDS_View Sub Type", "View_Detail_Group"), "ViewGenerator sub-sub-group candidates");
         Ok(Same(OrgNames.DisciplineParams(bds), "BDS_Discipline", "Discipline"), "extractor discipline candidates");
         Ok(Same(OrgNames.UValueParams(bds), "ThermalTransmittance", "U-Value", "Heat Transfer Coefficient (U)", "BDS_UValue"), "extractor U-value candidates");
-        Ok(OrgNames.CentralFilePattern(bds) == @"^BDS_[A-Z0-9]{4,10}_[\w \-]+$", "CDE central-file regex text");
-        Ok(Regex.IsMatch("BDS_BDS20268_Tower A", OrgNames.CentralFilePattern(bds)) && !Regex.IsMatch("XYZ_BDS20268_Tower A", OrgNames.CentralFilePattern(bds)),
-           "CDE regex accepts the pilot's file, rejects another office's");
-        Ok(OrgNames.CentralFileHint(bds) == "BDS_[ProjectCode]_[ProjectName]", "CDE message hint");
         Ok(OrgNames.GhostEventName(bds) == "BDS Ghost Builder - Placement", "Ghost Builder external-event name");
 
         // ── 2. no org: office entries drop out, nothing is invented ────────────────────────────

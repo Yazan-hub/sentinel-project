@@ -38,10 +38,6 @@ public static class OrgNames
         Configured(org) ? templates.Select(t => Expand(t, org)).ToArray()
                         : templates.Where(t => !Uses(t)).ToArray();
 
-    // ── CDE central-file convention: {org}_[ProjectCode]_[ProjectName].rvt ────────────────────
-    public static string CentralFilePattern(string org) => "^" + Regex.Escape(org) + @"_[A-Z0-9]{4,10}_[\w \-]+$";
-    public static string CentralFileHint(string org) => Expand("{org}_[ProjectCode]_[ProjectName]", org);
-
     public static string GhostEventName(string org) =>
         Configured(org) ? org + " Ghost Builder - Placement" : "Ghost Builder - Placement";
 

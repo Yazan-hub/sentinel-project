@@ -54,8 +54,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        var docTypes = new HashSet<string>(new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-            .Where(t => t.Kind == WallKind.Basic).Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
+        var docTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // basic wall type → its Function
+        foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))
+            docTypes[t.Name] = t.Function.ToString();
         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().Select(l => new LevelFact
         {
             Name = l.Name, ElevationMm = l.Elevation * FtToMm,
@@ -73,16 +74,21 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var actor = UserSession.Actor;
         var bodies = PromoteWallsPlanner.Bodies(plans, actor);
 
-        // Walls, not reasons: one wall can be held for its type and for its top.
+        // Walls, not reasons: one wall can be held for its type and for its top. DD now counts concept and settled
+        // walls; walls on the office's other types are left out of it and named on their own.
         var lines = plans.Select(p =>
             $"{p.Storey}: {p.Ghosts.Count(g => g.Op == "retype")} retype · {p.Ghosts.Count(g => g.Op == "attach")} attach · " +
-            $"{p.Held.Select(h => h.UniqueId).Distinct().Count()} wall(s) sent to a person · DD now {p.DdNow}/{p.Walls} · stamped by Promote {p.Stamped}");
+            $"{p.Held.Select(h => h.UniqueId).Distinct().Count()} wall(s) sent to a person · DD now {p.DdNow}/{p.Walls}" +
+            (p.OfficeTyped > 0 ? $" · {p.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {p.Stamped}");
         var held = plans.SelectMany(p => p.Held.Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
+        // A retype target whose Function in this model disagrees with the rule: once per type, for the office to fix.
+        var notes = plans.SelectMany(p => p.Ghosts).Select(g => g.Note).Where(n => n != null).Distinct().ToList();
         var d = new TaskDialog(Title)
         {
             MainInstruction = bodies.Count == 0 ? "Nothing to file: no wall needs a retype or an attach that Sentinel can propose."
                                                 : $"File {bodies.Count} changeset(s)?",
             MainContent = standards.Header + "\n\n" + string.Join("\n", lines) +
+                          (notes.Count > 0 ? "\n\nTemplate check (the office's template should fix these):\n" + string.Join("\n", notes) : "") +
                           (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing changes."
                            : held.Count > 0 ? "\n\nNothing is filed, so the walls sent to a person are listed only here, not on the ledger." : ""),
             CommonButtons = bodies.Count == 0 ? TaskDialogCommonButtons.Ok : TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
@@ -131,6 +137,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             HeightMm = Mm(BuiltInParameter.WALL_USER_HEIGHT_PARAM),
             IsBasic = basic,
             InGroup = w.GroupId != ElementId.InvalidElementId,
+            Structural = w.get_Parameter(BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT)?.AsInteger() == 1,
             Stamp = ProvenanceStamp.Read(w),
         };
     }
