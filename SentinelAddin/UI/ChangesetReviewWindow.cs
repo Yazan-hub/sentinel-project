@@ -3,7 +3,7 @@
 // verdict — pre-ticked only when the IDS accepted it, or (MA-0) when it is a Promote retype/attach: a single-answer
 // op (§3.4 step 7) whose ghost carries no property sets, so its IDS verdict certifies nothing (the badge still shows
 // it). A human may tick a rejected row (overrule, with the failures on screen — the result records that they did);
-// recorded rows say honestly that no spec adjudicated them. The walls the planner sent to a person are listed above
+// recorded rows say honestly that no spec adjudicated them. The elements the planner sent to a person are listed above
 // the rows and cannot be ticked. Modeless, code-only WPF, in GhostReviewWindow's visual family.
 using System;
 using System.Collections.Generic;
@@ -55,7 +55,7 @@ public sealed class ChangesetReviewWindow : Window
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 
-        // The walls sent to a person (Promote's exceptions): shown with their reason, never tickable.
+        // The elements sent to a person (Promote's exceptions): shown with their reason, never tickable.
         var held = _cs.Exceptions ?? new List<ExceptionRowDto>();
         if (held.Count > 0)
         {
@@ -75,7 +75,7 @@ public sealed class ChangesetReviewWindow : Window
             }
             var exp = new Expander
             {
-                Header = $"Sent to a person ({held.Select(x => x.UniqueId).Distinct().Count()} wall(s))", IsExpanded = true, Margin = new Thickness(0, 0, 0, 8),
+                Header = $"Sent to a person ({held.Select(x => x.UniqueId).Distinct().Count()} element(s))", IsExpanded = true, Margin = new Thickness(0, 0, 0, 8),
                 Content = new ScrollViewer { Content = heldList, MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             };
             DockPanel.SetDock(exp, Dock.Top);
@@ -123,7 +123,7 @@ public sealed class ChangesetReviewWindow : Window
             var type = el.Place?.TypeName; var lvl = el.Place?.LevelName;
             label.Text = el.Op switch
             {
-                "retype" => $"retype: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {type}",
+                "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
                 "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
                 _ => $"{el.Kind}: {name}" + (type != null ? $"  ·  {type}" : "") + (lvl != null ? $"  ·  {lvl}" : ""),
             };
