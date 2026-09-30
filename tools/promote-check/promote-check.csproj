@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for MA-0 Promote walls v0: the DD wall rule file against the real BDS catalogue (through the
+       production GuidelineMatcher). No Revit API; `dotnet run` from this folder. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>promote-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <DefineConstants>$(DefineConstants);SENTINEL_CHECK</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
+  </ItemGroup>
+</Project>
