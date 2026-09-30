@@ -489,6 +489,41 @@ describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's 
   });
 });
 
+describe("POST /cde/:key/delivery-gate (GATE-E1, H5): Revit's gate row under the signed-in person", () => {
+  const G = "/cde/demo/delivery-gate";
+  const check = { file: "Demo.ifc", result: "pass", passed: true, failures: [], source: "check", publish: false };
+  const failPublish = { ...check, result: "fail", passed: false, failures: ["IFCPROJECT: 0 found, contract requires ≥ 1."], source: "revit", publish: true };
+
+  it("a signed-in contributor's check row is recorded under their verified identity, whatever the body claims", async () => {
+    const r = await call("POST", G, "contributor", { ...check, actor: "Revit" });
+    expect(r).toMatchObject({ status: 201, body: { id: 1, hash: "ab".repeat(32), hold: null } });
+    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["delivery_gate", "IFC delivery gate PASS: Demo.ifc", "contributor@example.test"]]);
+  });
+
+  it("a lead's publish FAIL: the gate row and its hold, both by the lead", async () => {
+    expect((await call("POST", G, "lead", failPublish)).status).toBe(201);
+    expect(db.audit_log.map((a) => [a.entity_type, a.actor])).toEqual([["delivery_gate", "lead@example.test"], ["hold", "lead@example.test"]]);
+  });
+
+  it("a viewer is a 403 in words and nothing reaches the ledger", async () => {
+    expect(await call("POST", G, "viewer", check))
+      .toEqual({ status: 403, body: { message: "a delivery_gate row is a contributor's or above (you are viewer) — nothing was saved" } });
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("the machine credential writes as before, keeping the actor Revit sent", async () => {
+    expect((await call("POST", G, "machine", { ...check, actor: "unsigned — tester" })).status).toBe(201);
+    expect(db.audit_log[0]).toMatchObject({ entity_type: "delivery_gate", actor: "unsigned — tester" });
+  });
+
+  it("a user's gate rows are budgeted: the 21st in a minute is a 429 and writes nothing", async () => {
+    for (let i = 0; i < 20; i++) expect((await call("POST", G, "owner", check)).status).toBe(201);
+    expect(await call("POST", G, "owner", check))
+      .toEqual({ status: 429, body: { message: "too many gate rows in a minute — nothing was saved; try again shortly" } });
+    expect(writes("audit_log")).toHaveLength(20);
+  });
+});
+
 describe("DELETE /cde/projects/:key (cde-3, D12): the owner's, the database's delete first", () => {
   const sides = () => {
     for (const s of ["clash", "rfi", "tender", "keystore"]) seedDoc(s, `${s}-1`, { s });

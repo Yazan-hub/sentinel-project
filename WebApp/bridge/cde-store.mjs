@@ -992,9 +992,10 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  (`gate:`, entity_type stage_gate), ROI (`roi:`), the Holding Area (`hold:`, entity_type hold — phase 6a) and the
  *  review chain (`review:`, entity_type review — phase 6b: review:start written by cde_transition, review:approve and
  *  review:reject by review_decide, migration 0032; the chain and its publish read them). The delivery gate's rows
- *  (entity_type delivery_gate) are written by intake and by POST /cde/:key/delivery-gate, open only to the machine
- *  credential (spec 2026-09-27 Decision 5). The platform gate's runs (entity_type platform_gate, one row per execution id)
- *  are written by bridge/platform-gate-ledger.mjs only (spec 2026-09-29) — reserved so nobody can squat a real run's id.
+ *  (entity_type delivery_gate) are written by intake and by POST /cde/:key/delivery-gate — the machine credential or a
+ *  signed-in contributor or above (spec 2026-09-27 Decision 5; GATE-E1). The platform gate's runs (entity_type
+ *  platform_gate, one row per execution id) are written by bridge/platform-gate-ledger.mjs only (spec 2026-09-29) —
+ *  reserved so nobody can squat a real run's id.
  *  The open audit route may not write any of them. */
 const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:"];
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
@@ -1163,16 +1164,21 @@ export function readDeliveryGate(b = {}) {
   };
 }
 
-/** POST /cde/:key/delivery-gate (spec 2026-09-27 Decision 5): Revit's gate result, written by the bridge. Open only to
- *  the machine credential — a signed-in caller is a 403 before the body is validated, so no member can post a gate row
- *  (the open audit route refuses entity_type delivery_gate). One delivery_gate row, "IFC delivery gate PASS | FAIL |
- *  NOT CHECKED: <file>", new_value the validated body with the full failure list; a FAIL from a publish is also held
- *  (hold:gate). The gate is Revit's attestation: the bridge never sees Revit's bytes. → {id, hash, hold: {id, hash} |
+/** POST /cde/:key/delivery-gate (spec 2026-09-27 Decision 5; GATE-E1/H5): Revit's gate result, written by the bridge.
+ *  Open to the machine credential and, as recordRevitReport's rows, to a signed-in contributor or above — a viewer or a
+ *  non-member is a 403 before the body is validated; a user's rows are budgeted (429). The open audit route still refuses
+ *  entity_type delivery_gate. One delivery_gate row, "IFC delivery gate PASS | FAIL | NOT CHECKED: <file>", new_value
+ *  the validated body with the full failure list, actor a signed-in caller's verified identity whatever the body claims
+ *  (audit's resolveActor); a FAIL from a publish is also held (hold:gate) — a contributor could register the file, as on
+ *  /propose. The gate is Revit's attestation: the bridge never sees Revit's bytes. → {id, hash, hold: {id, hash} |
  *  null}, each id and hash the stored row's (null when none came back — never a made-up id). */
 export async function recordDeliveryGate(key, b = {}) {
-  const { myRole } = await import("./members-store.mjs");
-  if ((await myRole(key)) !== "service") throw Object.assign(new Error("the delivery-gate route is for Sentinel's machine credential"), { status: 403 });
+  const { myRole, ROLE_RANK } = await import("./members-store.mjs");
+  const role = await myRole(key);
+  if (role !== "service" && (ROLE_RANK[role] || 0) < ROLE_RANK.contributor)
+    throw Object.assign(new Error(`a delivery_gate row is a contributor's or above (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
   const g = readDeliveryGate(b);
+  takeWriteBudget("gate rows", { perUser: 20, all: 60 }); // the machine credential (no signed-in user) is not budgeted
   const proj = await ensureProject(key);
   const actor = typeof b.actor === "string" && b.actor.trim() ? b.actor.trim() : "Revit";
   const row = await audit(proj.id, "delivery_gate", null, `IFC delivery gate ${GATE_WORDS[g.result]}: ${g.file}`, actor, null, g);

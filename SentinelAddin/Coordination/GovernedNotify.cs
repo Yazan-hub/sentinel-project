@@ -64,8 +64,9 @@ namespace Sentinel.Coordination
 
         /// <summary>
         /// Record an IFC Delivery Gate verdict (KF-1) on the ledger through <c>POST /cde/:key/delivery-gate</c> (spec
-        /// 2026-09-27 Decision 5), the route only the machine credential may call — the open audit route refuses
-        /// entity_type delivery_gate since 6a, so no signed-in member can forge a gate row. The web CDE timeline then
+        /// 2026-09-27 Decision 5): the machine credential, or a signed-in contributor or above under their verified
+        /// identity (GATE-E1) — the open audit route refuses entity_type delivery_gate since 6a, so a gate row comes
+        /// only from here, the gate's own words. The web CDE timeline then
         /// shows the certificate that decided whether a deliverable was fit for upload: PASS, FAIL or NOT CHECKED. The
         /// bridge words the row itself and stores <see cref="Sentinel.Engine.GateLines.AuditValue"/> as its value (pinned
         /// by tools/gate-check and tools/publish-check): the contract that judged (all null when none), <c>passed</c>

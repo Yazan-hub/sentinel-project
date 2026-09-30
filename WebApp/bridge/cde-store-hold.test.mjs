@@ -1,4 +1,4 @@
-// The Holding Area's writers (phase 6a, spec 2026-09-27 Decisions 4-6): writeHold; the machine-only delivery-gate route
+// The Holding Area's writers (phase 6a, spec 2026-09-27 Decisions 4-6): writeHold; the delivery-gate route
 // (recordDeliveryGate); and the hold adjudicateProposal writes for a refused registering file — only when the request
 // registers (register, or intake's internal argument), the standards that judged are the installed ones, and the caller
 // could register the file. globalThis.fetch is a fake PostgREST over in-memory tables; the caller's role and the installed
@@ -112,13 +112,21 @@ describe("writeHold — one reserved row naming the refused file", () => {
   });
 });
 
-describe("recordDeliveryGate — Revit's gate row, open only to the machine credential", () => {
+describe("recordDeliveryGate — Revit's gate row: the machine credential or a signed-in contributor or above (GATE-E1)", () => {
   const gate = { file: NAME, result: "fail", passed: false, contract: "parity-ifc4", contract_ref: "contract@1", contract_source: "office", contract_sha256: "CD".repeat(32), schema: "IFC4", entities: 40, failures: ["IFCPROJECT: 0 found, contract requires ≥ 1.", { requirement: "Pset_WallCommon", detail: "Required property set 'Pset_WallCommon' not found in the file." }], sha256: SHA, size_bytes: 1234, source: "revit", publish: true };
 
-  it.each(["owner", "lead", "contributor", "viewer", null])("a signed-in caller (%s) is refused before any store read or validation", async (role) => {
+  it.each(["viewer", null])("a signed-in %s is refused before any store read or validation", async (role) => {
     state.role = role;
-    await expect(recordDeliveryGate("aster-tower", gate)).rejects.toMatchObject({ status: 403, message: "the delivery-gate route is for Sentinel's machine credential" });
+    const message = `a delivery_gate row is a contributor's or above (you are ${role || "not a member"}) — nothing was saved`;
+    await expect(recordDeliveryGate("aster-tower", gate)).rejects.toMatchObject({ status: 403, message });
+    await expect(recordDeliveryGate("aster-tower", { ...gate, file: "x.rvt" })).rejects.toMatchObject({ status: 403, message }); // the role first: no probing the validator
     expect(calls).toHaveLength(0);
+  });
+
+  it.each(["owner", "lead", "contributor"])("a signed-in %s's gate row is written, and a publish FAIL is held", async (role) => {
+    state.role = role;
+    expect(await recordDeliveryGate("aster-tower", gate)).toEqual({ id: 901, hash: "901".padStart(64, "0"), hold: { id: 902, hash: "902".padStart(64, "0") } });
+    expect(db.audit_log.map((x) => x.entity_type)).toEqual(["delivery_gate", "hold"]);
   });
 
   it.each([
