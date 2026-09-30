@@ -903,3 +903,42 @@ Cause of the "Revit ignores input" in sessions 2–3 found: a runaway `find / -n
 | B31-7 reopen in one session | File ▸ Close (family, then aster), Home ▸ Open the aster local again, rename "L2 - Architectural" → "L2 - Architectural Y" (VN-01 REQUEST): Change Requests lists "**L2 - Architectural → L2 - Architectural Y**" — the live watcher re-registered and the request carries the real old name — **pass** |
 | B31-4 one Undo | not provable on aster's data: its BCF issues point at another file's GlobalIds ("No matching element in this model"), so the viewpoint changed nothing and left no entry; view renames flush Undo (above) |
 | Open | Reject on that request did not register in four tries (no hub run in the journal); not concluded as a Sentinel fault — clicks on these WPF windows needed a title-bar focus click before and still failed here. Owed with B31-5/6/8 and B32-1/3/5/6 |
+
+## Session B33 — drill MA0 (Promote walls v0) + owed B31/B32 rows (2026-09-30, ~08:36–09:12 local, build e96f819, Claude driving Revit 2024)
+
+Setup: scratch copy of `BDS_Project Number_Project Name (Template)` detached to a new central in `Documents/sentinel-scratch/ma0/` (originals'
+sha256 re-checked after the session: 78152a5f…, b7c98e13… — unchanged). Test bridge on 127.0.0.1:4101 (event poll off), add-in `serviceUrl`
+switched for the session and restored after. Web project `ma0-bds` (created for the drill) with `guideline@1` (bds-dd-walls-guideline.json) and
+`type_catalog@1`. Levels: GR_SSL −300, GR-FFL 0, 01_SSL 3000, 01-FFL 3300 (all Building Story). Hand-made seed type `MA0 Interior - 100mm`
+(Generic − 100mm duplicated, Function Interior). Seed: `make-concept.py --l1 "GR-FFL:0" --l2 "01-FFL:3300" --roof "MA0 Roof:6300" --ext "Generic - 200mm"
+--int "MA0 Interior - 100mm" --gap "Generic - 125mm"` → 40 walls + level MA0 Roof (ledger #1207), placed with Review AI Proposals: "Applied 41
+element(s)", Undo "Sentinel AI changeset: MA0 concept seed [1f35fd32]", MA0 Roof Building Story ✓. The central was opened directly, so Save was
+disabled; the seed was saved with Synchronize Now (own scratch central).
+
+| Step | Result | Evidence |
+|---|---|---|
+| B31-3 Review AI Proposals pinned | family editor (BDS_Splash Screen.rfa) in front, Apply ticked → "**Sentinel did not place the proposals: switch back to BDS_Project Number_Project Name (Template)_yazan.hKNTHU_detached — nothing was changed. The proposals are still pending**"; reopened on the project, still pending — **pass** | dialog |
+| MA0-1 Promote, No | GR_SSL 0 retype · 0 attach · 2 held · DD 0/2; **GR-FFL 37 retype · 32 attach · 45 held · DD 0/72**; 01-FFL 18 retype · 20 attach · 2 held · DD 0/20; nothing filed (changesets list still 1) | dialog text saved |
+| MA0-2 Promote, Yes → GR-FFL review | 69 ghosts + 61 exception rows, all ghosts pre-ticked. **13 retypes + 12 attaches were on the template's own office walls** (BDS_EXT_STR_CONC_100…400 → BDS_EXT_ARC_CMU_*, BDS_ÉXT_LSE_CONC → CMU, BDS_INT_ARC_GYPS_100 (Function Exterior) → EXT CMU_100, BDS_INT_STR_CONC_100 → GYPS_100, BDS_INT_ARC_CMU_100 → GYPS_100, metal walls). Reviewer unticked those **25 rows**; "Applied 44 element(s) … 25 unticked element(s) reported as rejected" (#1215, partially_applied). Yes → applied ≈ 2 min | **finding F1** |
+| MA0-3 Promote again | reopened the pending 01-FFL changeset (38 rows, all seed, 2 gaps held); 0 edits; "Applied 38 element(s)" (#1216) | |
+| MA0-4 Promote, No (DD after) | GR-FFL 23 retype · 12 attach · **DD 8/72 · stamped by Promote 26**; 01-FFL **10 retype** · 0 attach · **DD 8/20 · stamped 20**. The 10 remaining retypes per storey propose **BDS_EXT_ARC_CMU_100 mm for the interior walls just promoted to BDS_INT_ARC_GYPS_100 mm**: that type's Function is Exterior in the BDS template, so a second Promote would flip gypsum partitions to external CMU | **finding F2** |
+| MA0-5 Undo / redo | Undo list: one entry per changeset ("… Promote walls (DD) · 01-FFL [6d0b51a0]", "… · GR-FFL [3d94a01e]"). Ctrl+Z → 01-FFL walls lost their CMU hatch; ledger **#1217 changeset_reverted op undo count 38**; Ctrl+Y → **#1218 op redo count 38** — **pass** | audit rows |
+| MA0-6 IDS pass rate | not measured: `ma0-bds` carries no IDS (spec none); the DD-now counts above are the measured outcome | |
+| MA0-7 + B32-5 BLOCK at sync | ruleset@3 (one BLOCK level rule; "MA0 Roof" the one violation): Synchronize Now → "**Sentinel — Sync stopped: 1 BLOCK violation(s) (LB-01) must be fixed before this model syncs. • LB-01: MA0 Roof**"; central file time unchanged (08:48:27). Renamed the level to RF-FFL (by hand — see F3), the pane's live row cleared, Synchronize Now ran (central 09:03:25) — **pass** | dialog |
+| B32-3 ⚡ Fix under `{org}` | BDS ruleset@1 on ma0-bds, FN-01 `[ORG]_[BODY]`: "M_Floor Drain - Round" → proposed "BDS_M_Floor Drain - Round", "**✓ Matches the naming schema**", Execute → "✓ Auto-fixed … (FN-01)", row gone — **pass** | dialog |
+| B32-1 Yes/No and 0 | ruleset@2: PB-01 on "Annotation Crop" (Yes/No), PN-01 on "Rotation on Sheet" (integer). Flagged only views that lack the parameter (schedules, sheets, drafting, unplaced elevations); WIP_PS_XX_A-A (Annotation Crop = No) and WIP_PE_NORTH (Rotation on Sheet = None/0) **not flagged** — **pass** | pane |
+| B31-6 live row on a new project | File ▸ New ▸ Project → Project1, bound to ma0-bds (ruleset@4), renamed view "Site" → "Site X": pane "**⌛ Change request created for 'Site X' — awaiting coordinator (VN-01)**" without Scan Now — **pass** | pane |
+| Reject (open item) | Change Requests "Site → Site X": the first two Reject clicks raised no hub event (journal); the third (after a Show click) rejected — "0 pending", the view back to "Site". Flaky input on this WPF window, not reproduced as a Sentinel fault | journal |
+| B31-8 Save As then request | Project1 saved as `sentinel-scratch/ma0/Project1.rvt`, renamed "Section 1" → "Section 1 Y": Change Requests "**Section 1 → Section 1 Y**" (real old name) — **pass** | dialog |
+| B31-3 Apply Standard pinned | Build Office System opened on Project1 (worksets unticked), scratch central made active, Build → "**Sentinel did not apply the standard: switch back to Project1 — nothing was changed**" (0 created, 1 failed) — **pass** | dialog |
+| B31-4 one Undo (Apply Standard) | back on Project1, Build → "76 created, 33 skipped, 0 failed"; Undo top entry "**Sentinel: Apply standard**" (one entry) — **pass**. A change-request Show on a *view* request opens the view and changes nothing, so it leaves no Undo entry (correct) | undo list |
+| B31-5, B32-6, BCF zoom/isolate | not run: the scratch has no RVT/IFC links and no issues captured from its GlobalIds | |
+
+Closed Revit: Project1 not saved; the scratch central holds the drill state (seed kept as `ma0-seed-central-0848.rvt.bak`).
+
+**Findings (fixed on a follow-up branch, not in e96f819):**
+- **F1 (critical)** — Promote planned on walls already on the office's own types (structural concrete → CMU/gypsum pre-ticked). v0 must plan concept walls only.
+- **F2 (critical)** — not idempotent: the DD target's own Function can differ from the source wall's (BDS template: `BDS_INT_ARC_GYPS_*` is Function Exterior), so promoted interior walls re-plan as exterior CMU.
+- **F3 (minor)** — the docked pane's ⚡ column sits past the right edge when the Ref text is wide; the BLOCK row could not be fixed with ⚡ at the default width.
+
+**Numbers for gate G1 (as measured, e96f819):** 40 seed walls; 36 convertible by rule, 4 planted gaps held with their reason (10 %). After one Promote pass with 25 manual unticks: 16/40 seed walls DD by the planner's own count (8 exterior per storey); the 20 interior walls were retyped correctly but counted not-DD because of F2. Edits: 25 unticks on storey 1 (all non-concept template walls), 0 on storey 2. Time: ≈2 min review + apply for storey 1, ≈20 s for storey 2. Ledger: 4 changeset rows, 46 walls stamped by Promote, undo/redo rows with counts.
