@@ -222,13 +222,16 @@ public sealed class App : IExternalApplication
         RefreshJourney(doc);
     }
 
-    // BLOCK (founder, 2026-09-30): a BLOCK rule stops the sync, not the edit. The document's full scan runs before
-    // Revit syncs; any BLOCK violation cancels the sync and lists what to fix. Local work is untouched. A document whose
-    // ruleset@n has not landed yet is not judged here (nothing to block by).
+    // The one pre-sync gate. CDE-01 first (GP-3: the central file name by naming@n — cheap), then BLOCK (founder,
+    // 2026-09-30): a BLOCK rule stops the sync, not the edit. The document's full scan runs before Revit syncs; any BLOCK
+    // violation cancels the sync and lists what to fix. Local work is untouched. A document whose ruleset@n has not
+    // landed yet is not judged for BLOCK here (nothing to block by).
     private static void OnSynchronizing(object? sender, DocumentSynchronizingWithCentralEventArgs e)
     {
         var doc = e.Document;
-        if (doc is null || doc.IsFamilyDocument || Engine is not { } engine || !engine.Has(doc)) return;
+        if (doc is null || doc.IsFamilyDocument) return;
+        if (!CdeBeforeSync(e, doc)) return; // the sync is stopped
+        if (Engine is not { } engine || !engine.Has(doc)) return;
         if (!engine.RulesetFor(doc).Rules.Any(r => r.Mode == EnforcementMode.Block)) return; // nothing can block: no pre-sync scan
         var report = engine.ScanFull(doc);
         var all = report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
@@ -262,6 +265,61 @@ public sealed class App : IExternalApplication
             "\n\nThe Sentinel pane lists them first — fix them (⚡ Fix where offered) and sync again. Your work is safe: save locally.");
     }
 
+    // CDE-01's verdict from before this sync, for the pane after it (API thread only): judged once, reported once.
+    private static (Document Doc, Violation Row)? _cdeAtSync;
+
+    // GP-3: CDE-01 before the sync — the central file name judged by the cached naming@n with the pure Decide, as the
+    // bridge's /propose judges it. Reject → the sync stops, the dialog names the failing field; warn → "Sync anyway /
+    // Cancel"; a Monitor note (no naming@n yet, not bound) never asks. The row joins the pane's report after a sync that
+    // happened (OnSynchronized). False = the sync is stopped. A throw here is said, never lets BLOCK be skipped.
+    private static bool CdeBeforeSync(DocumentSynchronizingWithCentralEventArgs e, Document doc)
+    {
+        _cdeAtSync = null;
+        Violation? cde;
+        try
+        {
+            var ctx = ProjectContext.For(doc);
+            cde = CdeSyncGuard.Check(doc, ctx, CdeSyncGuard.LastNaming(ctx));
+        }
+        catch (Exception ex)
+        {
+            PanelVm?.LogDoctor("CDE-01 not judged before this sync — " + ex.GetType().Name + ": " + ex.Message);
+            return true;
+        }
+        if (cde is null) return true;
+        _cdeAtSync = (doc, cde);
+        if (cde.Mode == EnforcementMode.Monitor) return true;
+        const string title = "Sentinel — Central file name (CDE-01)";
+        if (!e.Cancellable)
+        {
+            PanelVm?.LogDoctor("CDE-01: " + cde.MessageEn + " Revit did not allow Sentinel to stop this sync.");
+            if (cde.Mode == EnforcementMode.Block)
+                TaskDialog.Show(title, "Revit did not let Sentinel stop this sync.\n\n" + cde.MessageEn);
+            return true;
+        }
+        if (cde.Mode == EnforcementMode.Block)
+        {
+            e.Cancel();
+            PanelVm?.LogDoctor("Sync stopped: CDE-01 — " + cde.MessageEn);
+            TaskDialog.Show(title, "Sync stopped — the central file name fails the project's naming standard.\n\n" + cde.MessageEn +
+                "\n\nNothing went to central. Your work is safe: save locally. To sync, save the central model under a conforming " +
+                "name, or a lead sets this naming standard to warn on the web.");
+            return false;
+        }
+        var ask = new TaskDialog(title)
+        {
+            MainInstruction = "The central file name does not follow the project's naming standard",
+            MainContent = cde.MessageEn,
+            CommonButtons = TaskDialogCommonButtons.Cancel,
+        };
+        ask.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Sync anyway", "The name stays a CDE-01 warning in the Sentinel pane.");
+        if (ask.Show() == TaskDialogResult.CommandLink1) return true;
+        e.Cancel();
+        _cdeAtSync = null;
+        PanelVm?.LogDoctor("Sync cancelled at CDE-01 (warn): " + cde.MessageEn);
+        return false;
+    }
+
     // What this user cannot fix in this sync does not block it (workshared models only): an element another user has
     // borrowed, or one changed/deleted in central since the last reload (it may already be fixed — Reload Latest); a
     // workset row (ElementId -1) whose workset another user holds editable, matched by name.
@@ -290,18 +348,13 @@ public sealed class App : IExternalApplication
         Workflow.RequestManager.RefreshSnapshot(e.Document);
         var report = Engine!.ScanFull(e.Document);
 
-        // CDE Sync Guard: the central file name judged by the project's naming@n (fetched off Revit's thread at
-        // open and after each sync). It judges after the sync, so a mismatch reports loudly (BLOCK rules are stopped
-        // before the sync, in OnSynchronizing); with no
-        // naming standard to judge by, CDE-01 adds one Monitor note that is never scored or counted as checked.
+        // CDE Sync Guard: judged BEFORE this sync (CdeBeforeSync, GP-3) — its row joins the report here, never judged
+        // twice; a Monitor note (no naming standard to judge by) is never scored or counted as checked.
         var ctx = ProjectContext.For(e.Document);
-        var cde = Sentinel.Engine.CdeSyncGuard.Check(e, ctx, Sentinel.Engine.CdeSyncGuard.LastNaming(ctx));
+        if (_cdeAtSync is { } at && at.Doc.IsValidObject && at.Doc.Equals(e.Document))
+            report = report.Plus(at.Row, at.Row.Mode != Sentinel.Engine.EnforcementMode.Monitor);
+        _cdeAtSync = null;
         Sentinel.Engine.CdeSyncGuard.Prefetch(ctx); // the next sync sees a naming@n installed since
-        if (cde is not null)
-        {
-            bool judged = cde.Mode != Sentinel.Engine.EnforcementMode.Monitor;
-            report = report.Plus(cde, judged);
-        }
         PanelVm!.PublishReport(e.Document, report);
         Sentinel.Engine.AutoPublish.Trigger(e.Document); // sync → auto-publish, when the project's publish@n says so
         // Phase 3 seam closed: the scan report reaches the bridge (office.model_health reads the latest). Throttled;
