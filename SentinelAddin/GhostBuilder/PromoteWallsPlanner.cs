@@ -91,7 +91,7 @@ namespace Sentinel.GhostBuilder
                 var next = baseLevel == null ? null : levels.Where(l => l.IsStory && l.ElevationMm > baseLevel.ElevationMm + TolMm)
                                                             .OrderBy(l => l.ElevationMm).FirstOrDefault();
                 var retypes = new List<PromoteGhost>();
-                var concept = new List<WallFact>(); // basic, ungrouped walls neither settled nor office-typed
+                var typed = new List<WallFact>(); // basic, ungrouped walls, settled included, office-typed not
 
                 foreach (var w in storey)
                 {
@@ -110,12 +110,9 @@ namespace Sentinel.GhostBuilder
                     // Otherwise another office type is not a concept wall — left as is, unheld, uncounted (F1) — and
                     // structure goes to a person whole.
                     bool typeOk = m.RuleProduces("Walls", w.TypeName);
-                    if (!typeOk)
-                    {
-                        if (office != null && (w.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase)) { p.OfficeTyped++; continue; }
-                        concept.Add(w);
-                        if (w.Structural) { Hold("structural wall — Promote v0 does not retype or re-top structure; a person decides"); continue; }
-                    }
+                    if (!typeOk && office != null && (w.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase)) { p.OfficeTyped++; continue; }
+                    typed.Add(w);
+                    if (!typeOk && w.Structural) { Hold("structural wall — Promote v0 does not retype or re-top structure; a person decides"); continue; }
 
                     // Type: settled, or the DD rule's exact answer already loaded in this model, or a person.
                     if (typeOk) { }
@@ -175,14 +172,16 @@ namespace Sentinel.GhostBuilder
                 }
                 p.Walls = storey.Count() - p.OfficeTyped;
 
-                // §3.4 step 4: when every concept wall on the storey shares one type, inside cannot be told from outside —
-                // the retypes go to a person (MA-2 reads the outer boundary). The attaches stay.
-                if (concept.Count >= 2 && concept.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
+                // §3.4 step 4: when every wall on the storey shares one type, inside cannot be told from outside — the
+                // retypes go to a person (MA-2 reads the outer boundary). The attaches stay. Settled walls count (a storey a
+                // first run half-promoted is not one-type); the office's other types do not (template samples would mask it).
+                var aside = p.OfficeTyped > 0 ? $" besides the {p.OfficeTyped} on other office types" : "";
+                if (typed.Count >= 2 && typed.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
                     foreach (var g in retypes)
                         p.Held.Add(new PromoteHeld
                         {
                             UniqueId = g.UniqueId, Label = g.Label,
-                            Reason = $"every wall on {storey.Key} is \"{g.TypeBefore}\" — inside cannot be told from outside; a person decides",
+                            Reason = $"every wall on {storey.Key}{aside} is \"{g.TypeBefore}\" — inside cannot be told from outside; a person decides",
                         });
                 else
                     p.Ghosts.InsertRange(0, retypes); // retypes first, then attaches: the executor runs them in that order too

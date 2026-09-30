@@ -207,6 +207,26 @@ static partial class Check
         Ok(again.Ghosts.Count == 0 && again.DdNow == 5 && again.Walls == 6 && again.OfficeTyped == 1,
            $"a second run proposes nothing (DD now {again.DdNow}/{again.Walls})");
 
+        // The one-type hold (review fix): settled walls keep a half-promoted storey mixed; the office's other types do not.
+        var half = PromoteWallsPlanner.Plan(new List<WallFact>
+        {
+            W("S1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("S2", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("C1", "MA0 Interior - 100mm", "Interior", 100, top: "Level 2"),
+            W("C2", "MA0 Interior - 100mm", "Interior", 100, top: "Level 2"),
+        }, Levels, tpl, m).Single();
+        Ok(half.Ghosts.Count(x => x.Op == "retype") == 2 && half.Held.Count == 0,
+           "a storey a first run left half-promoted still plans its leftover retypes (settled walls keep it mixed)");
+        var masked = PromoteWallsPlanner.Plan(new List<WallFact>
+        {
+            W("OT1", "BDS_EXT_STR_CONC_200 mm", "Exterior", 200),
+            W("C1", "Generic - 200mm", "Exterior", 200, top: "Level 2"),
+            W("C2", "Generic - 200mm", "Exterior", 200, top: "Level 2"),
+        }, Levels, tpl, m).Single();
+        Ok(masked.Ghosts.Count == 0 && masked.Held.Count == 2 && masked.Held.All(h => h.Reason ==
+           "every wall on Level 1 besides the 1 on other office types is \"Generic - 200mm\" — inside cannot be told from outside; a person decides"),
+           "…but a template's office-typed wall does not mask a one-type storey");
+
         // A guideline with no office code: (b) is skipped, the concrete wall takes today's path.
         var g = JsonNode.Parse(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-walls-guideline.json"))).AsObject();
         g.Remove("office");
