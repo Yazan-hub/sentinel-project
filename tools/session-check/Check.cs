@@ -92,6 +92,7 @@ static class Check
             TwoRefreshesSpendOne(file);
             RefusedRefreshSignsOut(file);
             TransientKeepsSession(file);
+            Coordinator();
             ConfigPrefersSession(file);
             Parse();
         }
@@ -195,6 +196,17 @@ static class Check
         var t = UserSession.AccessToken(_url, Anon);
         Ok(t is not null && t.StartsWith("access-") && _refusedRefreshes == refused, "the next call retries with the kept refresh token: " + t);
         UserSession.SignOut();
+    }
+
+    // ── 8. XC-4: the coordinator role comes from the web project; nothing grants on a failure ──────────────
+    static void Coordinator()
+    {
+        Ok(ChangesetClient.CoordinatorFrom("aster-tower", "owner", null).Coordinator && ChangesetClient.CoordinatorFrom("aster-tower", "lead", null).Coordinator, "lead and owner approve");
+        foreach (var role in new[] { "contributor", "viewer", "", "service" })
+            Ok(!ChangesetClient.CoordinatorFrom("aster-tower", role, null).Coordinator, $"'{role}' is read-only: " + ChangesetClient.CoordinatorFrom("aster-tower", role, null).Why);
+        var down = ChangesetClient.CoordinatorFrom("aster-tower", null, "session not refreshed — retrying (Supabase not reached)");
+        Ok(!down.Coordinator && down.Why.Contains("session not refreshed"), "role unread (offline, bridge down, session): read-only, and says why");
+        Ok(!ChangesetClient.CoordinatorFrom("", null, null).Coordinator, "an unbound model is read-only");
     }
 
     // ── 5. BcfConfig.ServiceToken: the session first, the file's shared token otherwise ──────────────────────

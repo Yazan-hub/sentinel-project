@@ -1,6 +1,7 @@
-using System.IO;
-using System.Text.Json;
 using Autodesk.Revit.DB;
+using Sentinel.Commands;
+using Sentinel.Coordination;
+using Sentinel.Engine;
 
 namespace Sentinel.Workflow;
 
@@ -18,26 +19,17 @@ public static class RequestManager
     public const string ReviewStatusParam = "ZZZ_ReviewStatus";
 
     // ---------- Roles ----------
-    private sealed class Settings { public List<string> Coordinators { get; set; } = new List<string>(); }
-
-    private static string SettingsPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Sentinel", "settings.json");
-
-    public static bool IsCoordinator(Document doc)
+    /// <summary>XC-4: the coordinator role comes from the web project (GET /cde/{key}/members/me), never a file on
+    /// this PC — a lead or owner approves and rejects; everyone else, and a role that could not be read, is read-only
+    /// with the reason (<see cref="ChangesetClient.CoordinatorFrom"/>).</summary>
+    // ponytail: blocking on the command's thread (≤ 8 s + a session refresh), as Review AI Proposals asks its role; an
+    // async read if B34 shows the freeze.
+    public static (bool Coordinator, string Why) CoordinatorRole(Document doc)
     {
-        var user = doc.Application.Username;
-        try
-        {
-            if (File.Exists(SettingsPath))
-            {
-                var s = JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath));
-                if (s is not null && s.Coordinators.Count > 0)
-                    return s.Coordinators.Any(c => string.Equals(c, user, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-        catch (Exception) { /* fall through: treat as coordinator-less setup */ }
-        return true; // no settings file yet -> don't lock anyone out during pilot
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound) return ChangesetClient.CoordinatorFrom("", null, null);
+        var role = ChangesetClient.MyRole(BcfConfig.Load(), ctx.Key, out var error);
+        return ChangesetClient.CoordinatorFrom(ctx.Key, role, error);
     }
 
     // ---------- Name snapshots (old-value capture for DMU) ----------

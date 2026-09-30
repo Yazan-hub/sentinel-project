@@ -33,7 +33,7 @@ public partial class RequestsWindow : Window
     private readonly Document _doc;
     public ObservableCollection<RequestRow> Rows { get; } = new ObservableCollection<RequestRow>();
 
-    public RequestsWindow(Document doc, bool isCoordinator)
+    public RequestsWindow(Document doc, bool isCoordinator, string why)
     {
         _doc = doc;
         InitializeComponent();
@@ -41,7 +41,7 @@ public partial class RequestsWindow : Window
         Reload();
         SubHeader.Text = isCoordinator
             ? $"{Rows.Count} pending — approve keeps a change (or applies a ⚡ proposal); reject reverts it (or drops the proposal)"
-            : $"{Rows.Count} pending — read-only (you are not listed as a coordinator)";
+            : $"{Rows.Count} pending — read-only: {why}";
         if (!isCoordinator) RequestList.IsEnabled = false;
     }
 

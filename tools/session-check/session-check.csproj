@@ -2,8 +2,11 @@
   <!-- Offline check for the Revit sign-in (H4, spec 2026-09-28): UserSession against a throwaway loopback "Supabase"
        — sign-in stores a DPAPI file, the access token is reused until it nears expiry then refreshed once, two
        refreshes at once spend one single-use refresh token, a refused refresh signs out, sign-out deletes the file;
-       and BcfConfig.ServiceToken prefers the session over the file's shared token. No Revit API, no real Supabase,
-       no %LOCALAPPDATA% (SENTINEL_SESSION_FILE points at a temp file); `dotnet run` from this folder. -->
+       and BcfConfig.ServiceToken prefers the session over the file's shared token. Package 4: a refresh that fails
+       without a refusal keeps the session and fails the call in words, never the shared token (SI-1); the
+       change-request coordinator is a lead or owner of the web project, nothing grants on a failure (XC-4). No Revit
+       API, no real Supabase, no %LOCALAPPDATA% (SENTINEL_SESSION_FILE points at a temp file); `dotnet run` from this
+       folder. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -19,5 +22,6 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\ChangesetClient.cs" />
   </ItemGroup>
 </Project>
