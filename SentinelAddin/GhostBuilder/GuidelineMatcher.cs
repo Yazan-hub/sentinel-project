@@ -154,6 +154,8 @@ namespace Sentinel.GhostBuilder
         public bool HasGuideline => _doc?.Elements != null && _doc.Elements.Count > 0;
         public bool HasCatalog => _catalog != null && _catalog.Count > 0;
         public string Standard => _doc?.Standard ?? "(no guideline)";
+        /// <summary>The office code the guideline names ("BDS"), or null.</summary>
+        public string Office => _doc?.Office;
         public List<GuidelineViewStandard> Views => _doc?.Views;
         public GuidelineViewNaming ViewNaming => _doc?.ViewNaming;
         public GuidelineGraphics Graphics => _doc?.Graphics;
@@ -402,16 +404,30 @@ namespace Sentinel.GhostBuilder
         /// <summary>Types the office's template DOES have for this pattern, smallest first.</summary>
         public List<string> PatternOptions(string pattern, string category)
         {
-            // Split on the placeholder FIRST, then escape each literal part — escaping the whole string
-            // and un-escaping the placeholder afterwards is where this goes wrong.
-            string[] parts = pattern.Split(new[] { "{thickness}" }, StringSplitOptions.None)
-                                    .Select(Regex.Escape).ToArray();
-            var rx = new Regex("^" + string.Join(@"(\d+)", parts) + "$", RegexOptions.IgnoreCase);
+            var rx = PatternRx(pattern);
             return _catalog
                 .Where(c => Norm(c.Category) == Norm(category) && rx.IsMatch(c.Type ?? string.Empty))
                 .Select(c => c.Type)
                 .OrderBy(t => int.TryParse(rx.Match(t).Groups[1].Value, out int n) ? n : 0)
                 .ToList();
+        }
+
+        // Split on the placeholder FIRST, then escape each literal part — escaping the whole string
+        // and un-escaping the placeholder afterwards is where this goes wrong.
+        private static Regex PatternRx(string pattern) =>
+            new Regex("^" + string.Join(@"(\d+)", pattern.Split(new[] { "{thickness}" }, StringSplitOptions.None).Select(Regex.Escape)) + "$",
+                      RegexOptions.IgnoreCase);
+
+        /// <summary>Is <paramref name="typeName"/> a type one of <paramref name="category"/>'s RULES produces — its use.type,
+        /// or its use.typePattern with {thickness} a number? Case-insensitive; the default is not a rule, and the catalogue
+        /// is not consulted (MA-0: a wall already on such a type is settled, whatever its type's Function says).</summary>
+        public bool RuleProduces(string category, string typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName)) return false;
+            var el = _doc.Elements.FirstOrDefault(e => Norm(e.Category) == Norm(category));
+            return el != null && el.Rules.Any(r => r.Use != null
+                && ((!string.IsNullOrWhiteSpace(r.Use.Type) && Norm(r.Use.Type) == Norm(typeName))
+                    || (!string.IsNullOrWhiteSpace(r.Use.TypePattern) && PatternRx(r.Use.TypePattern).IsMatch(typeName))));
         }
 
         /// <summary>The catalogue's types a provisioner may clone for <paramref name="typeName"/> under

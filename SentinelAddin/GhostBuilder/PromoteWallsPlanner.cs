@@ -7,6 +7,10 @@
 // EXACT OR A PERSON (D16). A type is proposed only when the DD rule answers at confidence 1 AND that type is already
 // loaded in this model: Sentinel creates no types. Anything else — a gap, no rule, a width that is not a whole mm, a
 // storey whose walls all share one type — is held with its reason, never guessed.
+//
+// CONCEPT WALLS ONLY (drill F1/F2). A wall already on a type the DD rules produce is settled (only its top is judged); a
+// wall on any other type of the guideline's office ("BDS_…") is left as is, unheld and uncounted; a structural wall
+// is held whole. So a second run proposes nothing a first run applied, whatever Function the template gave the type.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -26,6 +30,8 @@ namespace Sentinel.GhostBuilder
         /// <summary>Unconnected Height (WALL_USER_HEIGHT_PARAM); read only when TopLevel is null.</summary>
         public double HeightMm;
         public bool IsBasic, InGroup;
+        /// <summary>The wall's Structural usage (WALL_STRUCTURAL_SIGNIFICANT = 1).</summary>
+        public bool Structural;
     }
 
     public sealed class LevelFact
@@ -39,6 +45,9 @@ namespace Sentinel.GhostBuilder
     {
         /// <summary>"retype" or "attach".</summary>
         public string Op, UniqueId, Label, TypeBefore, TypeName, BaseLevel, TopLevel, Reason;
+        /// <summary>A retype whose target has another Function in this model: "&lt;target&gt; is Function &lt;X&gt; in this
+        /// model" (also the Reason's tail) — the office's template to fix. Null otherwise; never posted.</summary>
+        public string Note;
     }
 
     public sealed class PromoteHeld
@@ -49,8 +58,11 @@ namespace Sentinel.GhostBuilder
     public sealed class StoreyPlan
     {
         public string Storey;
-        /// <summary>Stamped = walls whose provenance stamp was last written by a Promote changeset.</summary>
-        public int Walls, DdNow, Stamped;
+        /// <summary>Walls = the DD-now denominator: every wall based on the storey except the OfficeTyped ones (concept
+        /// walls, held included, plus settled walls). DdNow = those whose type AND top are DD. OfficeTyped = walls on
+        /// another type of the guideline's office, left as is. Stamped = walls whose provenance stamp was last written by
+        /// a Promote changeset.</summary>
+        public int Walls, DdNow, OfficeTyped, Stamped;
         public List<PromoteGhost> Ghosts = new List<PromoteGhost>();
         public List<PromoteHeld> Held = new List<PromoteHeld>();
     }
@@ -62,21 +74,24 @@ namespace Sentinel.GhostBuilder
         /// <summary>The bridge's MAX_CHANGESET_EXCEPTIONS (changesets-logic.mjs): more on one changeset is a 400.</summary>
         public const int MaxExceptions = 1000;
 
+        /// <param name="docBasicWallTypes">The document's basic wall types: name (case-insensitive) → the type's Function.</param>
         public static List<StoreyPlan> Plan(IReadOnlyList<WallFact> walls, IReadOnlyList<LevelFact> levels,
-                                            ISet<string> docBasicWallTypes, GuidelineMatcher m)
+                                            IReadOnlyDictionary<string, string> docBasicWallTypes, GuidelineMatcher m)
         {
             var byName = new Dictionary<string, LevelFact>(StringComparer.Ordinal);
             foreach (var l in levels) if (l?.Name != null && !byName.ContainsKey(l.Name)) byName[l.Name] = l;
             double Elev(string level) => level != null && byName.TryGetValue(level, out var l) ? l.ElevationMm : double.MaxValue;
+            string office = string.IsNullOrWhiteSpace(m.Office) ? null : m.Office.Trim() + "_";
 
             var plans = new List<StoreyPlan>();
             foreach (var storey in walls.GroupBy(w => w.BaseLevel ?? "").OrderBy(g => Elev(g.Key)).ThenBy(g => g.Key, StringComparer.Ordinal))
             {
-                var p = new StoreyPlan { Storey = storey.Key, Walls = storey.Count(), Stamped = storey.Count(w => ProvenanceStamp.SourceOf(w.Stamp) == "promote") };
+                var p = new StoreyPlan { Storey = storey.Key, Stamped = storey.Count(w => ProvenanceStamp.SourceOf(w.Stamp) == "promote") };
                 byName.TryGetValue(storey.Key, out var baseLevel);
                 var next = baseLevel == null ? null : levels.Where(l => l.IsStory && l.ElevationMm > baseLevel.ElevationMm + TolMm)
                                                             .OrderBy(l => l.ElevationMm).FirstOrDefault();
                 var retypes = new List<PromoteGhost>();
+                var concept = new List<WallFact>(); // basic, ungrouped walls neither settled nor office-typed
 
                 foreach (var w in storey)
                 {
@@ -91,9 +106,20 @@ namespace Sentinel.GhostBuilder
                         continue;
                     }
 
-                    // Type: the DD rule's exact answer, already loaded in this model, or a person.
-                    bool typeOk = false;
-                    if (Math.Abs(w.WidthMm - Math.Round(w.WidthMm)) > 0.001)
+                    // Settled: already on a type the DD rules produce, whatever Function the template gave it (F2).
+                    // Otherwise another office type is not a concept wall — left as is, unheld, uncounted (F1) — and
+                    // structure goes to a person whole.
+                    bool typeOk = m.RuleProduces("Walls", w.TypeName);
+                    if (!typeOk)
+                    {
+                        if (office != null && (w.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase)) { p.OfficeTyped++; continue; }
+                        concept.Add(w);
+                        if (w.Structural) { Hold("structural wall — Promote v0 does not retype or re-top structure; a person decides"); continue; }
+                    }
+
+                    // Type: settled, or the DD rule's exact answer already loaded in this model, or a person.
+                    if (typeOk) { }
+                    else if (Math.Abs(w.WidthMm - Math.Round(w.WidthMm)) > 0.001)
                         Hold($"width {Mm(w.WidthMm, "0.###")} mm is not a whole millimetre — exact match only (D16)");
                     else if (!m.HasCatalog) // with none, the matcher answers the rule's pattern unchecked: not an exact match
                         Hold($"no type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16)");
@@ -108,14 +134,20 @@ namespace Sentinel.GhostBuilder
                         if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
                         {
                             if (string.Equals(res.Type, w.TypeName, StringComparison.OrdinalIgnoreCase)) typeOk = true;
-                            else if (docBasicWallTypes == null || !docBasicWallTypes.Contains(res.Type))
+                            else if (docBasicWallTypes == null || !docBasicWallTypes.TryGetValue(res.Type, out var fn))
                                 Hold($"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types");
                             else
+                            {
+                                // The rule is the office's: proposed even when the template gave the target another Function.
+                                var note = string.IsNullOrEmpty(fn) || string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase)
+                                    ? null : $"{res.Type} is Function {fn} in this model";
                                 retypes.Add(new PromoteGhost
                                 {
                                     Op = "retype", UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
-                                    Reason = $"DD walls v0: Function {w.Function}, {Mm(w.WidthMm, "0")} mm → {res.Type}",
+                                    Reason = $"DD walls v0: Function {w.Function}, {Mm(w.WidthMm, "0")} mm → {res.Type}" + (note == null ? "" : " — note: " + note),
+                                    Note = note,
                                 });
+                            }
                         }
                         else if (res.Source == "rule")
                             Hold(m.Gap($"{w.Label} ({w.TypeName}, {w.Function})", res.Why));
@@ -141,11 +173,11 @@ namespace Sentinel.GhostBuilder
 
                     if (typeOk && topOk) p.DdNow++;
                 }
+                p.Walls = storey.Count() - p.OfficeTyped;
 
-                // §3.4 step 4: when every wall on the storey shares one type, inside cannot be told from outside —
+                // §3.4 step 4: when every concept wall on the storey shares one type, inside cannot be told from outside —
                 // the retypes go to a person (MA-2 reads the outer boundary). The attaches stay.
-                var typed = storey.Where(w => w.IsBasic && !w.InGroup).ToList();
-                if (typed.Count >= 2 && typed.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
+                if (concept.Count >= 2 && concept.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
                     foreach (var g in retypes)
                         p.Held.Add(new PromoteHeld
                         {
