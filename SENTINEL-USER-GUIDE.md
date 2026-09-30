@@ -13,7 +13,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 ## Ribbon — Coordination panel
 | Tool | What it does |
 |---|---|
-| **Show Panel** | Opens the dockable Live Coordination panel: compliance %, violation rows (color = mode), ⚡Fix buttons, Doctor log. Double-click a row = zoom to element. |
+| **Show Panel** | Opens the dockable Live Coordination panel: Rule pass rate (checks passed ÷ checks run), violation rows (BLOCK rows first) (color = mode), ⚡Fix buttons, Doctor log. Double-click a row = zoom to element. |
 | **Scan Now** | Full model rescan on demand. |
 | **Rule Set** | Card-based viewer of the effective ruleset: mode badges, token patterns, EN/AR messages, doc references, whitelists. |
 - **BCF Issues → Fix in Revit** — for an issue the referee raised (`IDS: … — … (N failing)`): the failing elements resolve to rows (instance, or TYPE with its blast radius), you enter values, **Check** sends them to the referee *before* anything is written, **Apply ticked** writes in one transaction, a re-check judges the real model, and the issue gets an evidence comment and `Resolved` only when every element passes. Bridge down → *applied, NOT verified*; nothing on the issue changes.
@@ -21,7 +21,7 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 ## Ribbon — Quality panel
 | Tool | What it does |
 |---|---|
-| **IFC Pre-Flight** | Before exporting: audits 14 exportable categories for missing `Export to IFC As` mappings (locale-safe BuiltInParameter read) + empty mandatory properties. Generic Models/Specialty Equipment = WARN (they export as useless proxies); others = MONITOR. |
+| **IFC Pre-Flight** | Before exporting: audits 14 exportable categories for missing `Export to IFC As` mappings (locale-safe BuiltInParameter read) + the delivery contract's required properties per IFC class (missing or empty; names Sentinel cannot map, required property sets and no contract are listed as not checked). The panel figure is IFC readiness. Generic Models/Specialty Equipment = WARN (they export as useless proxies); others = MONITOR. |
 | **Health Scorecard** | Severity-weighted 0–100 score (block=8, request=4, warn=2, monitor=0.5) with A–F grade and per-domain breakdown — the PM view. |
 | **Sanitize Family** | Gateway for loading an .rfa: checks solid budget (≤150), nested CAD imports, required shared params, unnamed types. Loads only on pass. |
 | **IFC Delivery Gate** ⭐ | KF-1. Exports the active 3D view to IFC in the schema the contract asks for (IFC4 → IFC4 Reference View, IFC2X3 → IFC2x3 CV2; IFC2x3 when there is no contract), or takes an existing .ifc, re-parses the file, and diffs it against the delivery contract installed on the document's web project or its office (`contract@n`, named `contract@n · source · sha` in the dialogs and the certificate — schema, required entities/psets, proxy-ratio cap, georeference including `IfcMapConversion`). Issues a signed certificate (`.sentinel-cert.json`, SHA-256): `PASS`, `FAIL`, or `NOT_CHECKED` when no contract is installed ("none — not installed for <key> or its office"; an unbound model reads "not bound — Sentinel ▸ Project Setup") — the file and its sha are recorded, nothing is judged, never a pass. FAIL = don't upload to the CDE. The gate's ledger row is waited for (up to 6 s) and the dialog says what happened: `Recorded: ledger #<id> · receipt <16 hex>…`; `Not recorded — …` when nothing was written (the bridge did not answer, or refused before writing); `Not confirmed — … (the entry may have landed)` after a timeout or a server error; an unbound model sends nothing. The row goes to the bridge's machine-only gate route (`POST /cde/<key>/delivery-gate`, every failure listed, `source: check` — a check holds nothing); an add-in from before phase 6a gets `Not recorded — …` from a 6a bridge, so the two deploy together. |
@@ -34,12 +34,12 @@ Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
 ## Ribbon — Workflow panel
 | Tool | What it does |
 |---|---|
-| **Change Requests** | Coordinator review of pending modeller changes (view/sheet renames hit request-mode rules → captured with old value in Extensible Storage, flagged `ZZZ_ReviewStatus`=Pending). Approve keeps the change; Reject auto-reverts it. "Show" paints the element green + isolates it (restored on close). Full audit trail travels with the model. Roles: `%AppData%\Sentinel\settings.json` coordinators list. |
+| **Change Requests** | Coordinator review of pending modeller changes (view/sheet renames hit request-mode rules → captured with old value in Extensible Storage, flagged `ZZZ_ReviewStatus`=Pending). Approve keeps a change, or applies a ⚡ Fix proposal; Reject auto-reverts a change, or drops a proposal (and reverts a hand rename made while it was pending). "Show" paints the element green + isolates it (restored on close). Full audit trail travels with the model. Roles: `%AppData%\Sentinel\settings.json` coordinators list. |
 | **Project Setup** | Dual-layer settings: master ruleset path + template path + project code. Save to project (Extensible Storage — whole team) or this machine (config.json). Configured ruleset wins the resolution chain. |
 | **Review Flag** | One-time: creates the `ZZZ_ReviewStatus` parameter on Views/Sheets/Levels/Grids. Manual follow-up: create a Browser Organization scheme grouping by it. |
 
 ## Fix flow (⚡ buttons in the panel)
-Fix → dialog shows current value struck-through + editable synthesized suggestion (live-validated against the token schema) → Execute renames via the queue, dedupes names, logs as pre-approved request (not counted by the ROI Dashboard: it writes no ledger row).
+Fix → dialog shows current value struck-through + editable synthesized suggestion (live-validated against the token schema) → Execute renames via the queue on the model the row came from (refused, with a reason, if another model is active), dedupes names and re-checks the result against the rule; on a REQUEST rule the button reads **File proposal** and nothing is renamed until a coordinator approves; BLOCK rows get ⚡ Fix too, because a BLOCK rule stops Synchronize with Central until it is fixed; a direct fix logs as a pre-approved request (not counted by the ROI Dashboard: it writes no ledger row).
 
 ## Key file locations
 - Source: `sentinel-project\SentinelAddin\` · build: `.\build.ps1` (Revit must be CLOSED to deploy)

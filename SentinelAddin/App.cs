@@ -229,33 +229,54 @@ public sealed class App : IExternalApplication
     {
         var doc = e.Document;
         if (doc is null || doc.IsFamilyDocument || Engine is not { } engine || !engine.Has(doc)) return;
+        if (!engine.RulesetFor(doc).Rules.Any(r => r.Mode == EnforcementMode.Block)) return; // nothing can block: no pre-sync scan
         var report = engine.ScanFull(doc);
-        var blocks = report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
-        if (blocks.Count == 0) return;
+        var all = report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
+        if (all.Count == 0) return;
+        // Only what THIS user can fix stops THIS sync: in a workshared model an element another user owns is listed,
+        // never blocking — otherwise two users could block each other's syncs with no way out.
+        var blocks = all.Where(v => !OwnedByOther(doc, v.ElementId)).ToList();
+        var others = all.Count - blocks.Count;
+        if (blocks.Count == 0)
+        {
+            PanelVm?.LogDoctor($"{others} BLOCK violation(s) on elements other users own — not blocking this sync.");
+            return;
+        }
         var rules = string.Join(", ", blocks.Select(v => v.RuleId).Distinct());
+        var sample = string.Join("\n", blocks.Take(8).Select(v => "• " + v.RuleId + ": " + v.ElementName));
+        var more = (blocks.Count > 8 ? "\n…" : "") + (others > 0 ? $"\n({others} more on elements other users own — not blocking this sync.)" : "");
+        PanelVm?.PublishReport(doc, report);
         if (!e.Cancellable)
         {
             PanelVm?.LogDoctor($"{blocks.Count} BLOCK violation(s) ({rules}) — Revit did not allow Sentinel to stop this sync.");
+            TaskDialog.Show("Sentinel — Sync not stopped",
+                $"Revit did not let Sentinel stop this sync. {blocks.Count} BLOCK violation(s) ({rules}) went to central.\n\n{sample}{more}\n\nFix them and sync again.");
             return;
         }
         e.Cancel();
-        PanelVm?.PublishReport(doc, report);
         PanelVm?.LogDoctor($"Sync stopped: {blocks.Count} BLOCK violation(s) ({rules}).");
-        var sample = string.Join("\n", blocks.Take(8).Select(v => "• " + v.RuleId + ": " + v.ElementName));
         TaskDialog.Show("Sentinel — Sync stopped",
-            $"{blocks.Count} BLOCK violation(s) ({rules}) must be fixed before this model syncs.\n\n{sample}" +
-            (blocks.Count > 8 ? "\n…" : "") +
+            $"{blocks.Count} BLOCK violation(s) ({rules}) must be fixed before this model syncs.\n\n{sample}{more}" +
             "\n\nThe Sentinel pane lists them first — fix them (⚡ Fix where offered) and sync again. Your work is safe: save locally.");
     }
 
+    // An element another user has borrowed in a workshared model: this user cannot fix it, so it does not block them.
+    private static bool OwnedByOther(Document doc, long elementId) =>
+        doc.IsWorkshared && elementId > 0
+        && WorksharingUtils.GetCheckoutStatus(doc, elementId.ToElementId()) == CheckoutStatus.OwnedByOtherUser;
+
     private static void OnSynchronized(object? sender, DocumentSynchronizedWithCentralEventArgs e)
     {
+        // Revit raises this after a CANCELLED or failed sync too (OnSynchronizing cancels for BLOCK): nothing below —
+        // rescan, CDE-01, auto-publish, the office scan post — may run for a sync that did not happen.
+        if (e.Status != RevitAPIEventStatus.Succeeded || e.Document is null || e.Document.IsFamilyDocument) return;
         // Delta scan at sync time (Decision 1: link-proximity checks live here too)
         Workflow.RequestManager.RefreshSnapshot(e.Document);
         var report = Engine!.ScanFull(e.Document);
 
         // CDE Sync Guard: the central file name judged by the project's naming@n (fetched off Revit's thread at
-        // open and after each sync). Sync cannot be vetoed by the API, so a mismatch reports loudly; with no
+        // open and after each sync). It judges after the sync, so a mismatch reports loudly (BLOCK rules are stopped
+        // before the sync, in OnSynchronizing); with no
         // naming standard to judge by, CDE-01 adds one Monitor note that is never scored or counted as checked.
         var ctx = ProjectContext.For(e.Document);
         var cde = Sentinel.Engine.CdeSyncGuard.Check(e, ctx, Sentinel.Engine.CdeSyncGuard.LastNaming(ctx));
@@ -319,7 +340,7 @@ public sealed class App : IExternalApplication
         Push(co, "Sentinel_ShowPanel", "Show\nPanel", "Sentinel.Commands.ShowPanelCommand", "dashboard",
             "Show the Sentinel live coordination panel.");
         Push(co, "Sentinel_Requests", "Change\nRequests", "Sentinel.Commands.ShowRequestsCommand", "requests",
-            "Review pending change requests. Approve keeps the change; reject reverts it.");
+            "Review pending change requests. Approve keeps a change or applies a ⚡ Fix proposal; reject reverts a change or drops a proposal.");
         Push(co, "Sentinel_BcfIssues", "BCF\nIssues", "Sentinel.Commands.BcfIssuesCommand", "issues",
             "Review coordination issues raised by non-Revit users on the web; double-click to zoom to the element + camera.");
         var clash = Pull(co, "Sentinel_Clash", "Clash", "clash",
@@ -344,7 +365,7 @@ public sealed class App : IExternalApplication
         var ifc = Pull(va, "Sentinel_IfcGate", "IFC\nGate", "ifcgate",
             "IFC deliverable checks: pre-flight before export, and delivery-gate certification after.");
         Sub(ifc, "Sentinel_IfcPreflight", "IFC Pre-Flight", "Sentinel.Commands.IfcPreFlightCommand", "preflight",
-            "Audit IfcExportAs and mandatory property sets BEFORE exporting IFC.");
+            "Audit Export-to-IFC mappings and the delivery contract's required properties BEFORE exporting IFC.");
         Sub(ifc, "Sentinel_IfcGateCmd", "IFC Delivery Gate", "Sentinel.Commands.IfcDeliveryGateCommand", "gate",
             "Export + certify an IFC against the delivery contract installed on this document's web project (or its office), named contract@n with source and sha; the export uses the contract's IFC schema. FAIL = do not upload to the CDE; no contract = NOT CHECKED, never a pass.");
         var fam = Pull(va, "Sentinel_FamilyHealth", "Family\nHealth", "family",

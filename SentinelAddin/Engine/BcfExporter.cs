@@ -76,8 +76,10 @@ public static class BcfExporter
         if (view3d is not null)
         {
             var orientation = view3d.GetOrientation();
-            // Shared coordinates, as CaptureIssue writes and BcfApplyEvent reads back (CLM-4): internal → shared.
-            var toShared = doc.ActiveProjectLocation.GetTotalTransform();
+            // Shared coordinates (CLM-4). ProjectLocation.GetTotalTransform() maps shared → internal (an instance's
+            // own frame into the model), so internal → shared is its Inverse — as in CaptureIssue; BcfApplyEvent reads
+            // back with the transform itself.
+            var toShared = doc.ActiveProjectLocation.GetTotalTransform().Inverse;
             XYZ eye = toShared.OfPoint(orientation.EyePosition),
                 fwd = toShared.OfVector(orientation.ForwardDirection).Normalize(),
                 up = toShared.OfVector(orientation.UpDirection).Normalize();

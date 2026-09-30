@@ -149,15 +149,24 @@ public static class RequestManager
         req.VerdictBy = user;
         req.VerdictAt = DateTimeOffset.Now;
         req.VerdictNote = note;
+        // A proposal is also known from the append-only audit: a pre-BG-4 add-in rewriting the blob drops the new
+        // "proposal" field, and the request must not then be treated as an edit that already happened.
+        bool proposal = req.Proposal
+            || RequestStore.GetAudit(doc).Any(a => a.RequestId == req.Id && a.Action == "request.proposed");
+        req.Proposal = proposal;
 
         if (approve)
         {
             req.Status = RequestStatus.Approved;
             if (element is not null)
             {
-                if (req.Proposal)                              // BG-4: a proposal was never applied — Approve applies it
+                if (proposal)                                  // BG-4: a proposal was never applied — Approve applies it
                 {
-                    RevertValue(element, req.NewValue);
+                    try { RevertValue(element, req.NewValue); }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException)
+                    {   // the name was taken after the proposal was filed: the whole verdict rolls back, stays pending
+                        throw new InvalidOperationException($"'{req.NewValue}' is already in use — reject this proposal or rename by hand.");
+                    }
                     UpdateSnapshot(doc, req.ElementId, req.NewValue);
                 }
                 SetReviewFlag(element, "");
@@ -168,13 +177,17 @@ public static class RequestManager
             req.Status = RequestStatus.Rejected;
             if (element is not null)
             {
-                if (req.Proposal) SetReviewFlag(element, "");  // nothing was renamed: nothing to revert
+                var current = element is ViewSheet vs ? vs.SheetNumber : element.Name;
+                if (proposal && current == req.OldValue) SetReviewFlag(element, "");  // nothing was renamed: nothing to revert
                 else
                 {
-                    RevertValue(element, req.OldValue);        // Decision 8: auto-revert
+                    // Decision 8: auto-revert — also for a proposal whose element was renamed by hand while it was
+                    // pending (no second request could be filed then, so this is the only review that rename gets).
+                    RevertValue(element, req.OldValue);
                     SetReviewFlag(element, "");
                     UpdateSnapshot(doc, req.ElementId, req.OldValue);
                     req.Status = RequestStatus.Reverted;
+                    if (proposal) req.VerdictNote = $"{note ?? "-"} | reverted the hand rename '{current}'";
                 }
             }
         }

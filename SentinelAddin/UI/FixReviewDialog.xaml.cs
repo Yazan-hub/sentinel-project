@@ -27,6 +27,8 @@ public partial class FixReviewDialog : Window
               string.Join(_rule.Separator, _rule.Tokens.Select(t => "[" + t + "]"));
         CurrentBox.Text = elementName;
         ProposedBox.Text = suggestion;
+        // BG-4: on a REQUEST rule nothing is renamed now — the button says what happens.
+        if (_rule?.Mode == EnforcementMode.Request) ExecuteBtn.Content = "File proposal";
         Validate();
     }
 

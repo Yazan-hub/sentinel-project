@@ -46,7 +46,7 @@
                             <Button Content="⚡ Fix" FontSize="11" Padding="6,1" Margin="2"
                                     Background="#1E3A5F" Foreground="White" BorderThickness="0"
                                     Cursor="Hand" Click="OnFixClick"
-                                    ToolTip="Auto-rename this element to match the naming schema"
+                                    ToolTip="Rename this element to match the naming schema (on a REQUEST rule: file a proposal for a coordinator to approve)"
                                     Visibility="{Binding FixVisibility}"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>

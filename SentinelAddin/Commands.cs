@@ -61,11 +61,15 @@ public sealed class IfcPreFlightCommand : IExternalCommand
         c.Application.GetDockablePane(App.PaneId).Show(); // show first: Show() may rebuild the pane
         App.PanelVm.PublishReport(doc, report);
 
+        // "Not checked" notes (ElementId -1) are not issues: they are listed apart, never counted as found or as clean.
+        int notChecked = report.Violations.Count(v => v.ElementId < 0);
+        int issues = report.Violations.Count - notChecked;
+        var notCheckedLine = notChecked == 0 ? "" : $"\n\n{notChecked} requirement(s) not checked here (listed in the panel) — the delivery gate checks them in the IFC.";
         TaskDialog.Show("Sentinel — IFC Pre-Flight",
-            report.Violations.Count == 0
-                ? $"✓ No IFC issues found against {contractSource.Label}.\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms."
-                : $"{report.Violations.Count} issue(s) found across {report.ElementsChecked} elements " +
-                  $"({report.DurationMs} ms).\n\nDetails are listed in the Sentinel panel (rules IFC-01 / IFC-02).");
+            issues == 0
+                ? $"✓ No IFC issues found against {contractSource.Label}.\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms.{notCheckedLine}"
+                : $"{issues} issue(s) found across {report.ElementsChecked} elements " +
+                  $"({report.DurationMs} ms).\n\nDetails are listed in the Sentinel panel (rules IFC-01 / IFC-02).{notCheckedLine}");
         return Result.Succeeded;
     }
 }

@@ -62,7 +62,9 @@ public sealed class RuleEngineHost
             {
                 // Built directly, not via Make: the rule's own MessageEn would substitute this text into
                 // "{name}" and read as "Family '(ruleset.org is empty…)' does not match…".
-                violations.Add(new Violation(rule.Id, rule.Mode, -1, "(ruleset.org is empty — rule not evaluated)",
+                // Monitor, whatever the rule's mode: a note that a rule was NOT evaluated is never a BLOCK that stops a
+                // sync, nor a scored row (package 2 review) — nothing in the model can fix a missing office code.
+                violations.Add(new Violation(rule.Id, EnforcementMode.Monitor, -1, "(ruleset.org is empty — rule not evaluated)",
                     $"Rule {rule.Id} needs an office code — ruleset.org is empty; not evaluated", null, rule.DocRef));
                 continue;
             }

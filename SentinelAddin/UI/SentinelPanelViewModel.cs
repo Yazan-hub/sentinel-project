@@ -64,7 +64,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     private double _score = 100;
     public double Score { get => _score; private set { _score = value; OnChanged(); OnChanged(nameof(ScoreText)); } }
     private string? _notScored;   // set when no ruleset judged the rows: no percentage, no grade
-    private string _scoreLabel = "Rule pass rate";   // SCORE-E1: what the figure measures (IFC pre-flight: IFC mapping coverage)
+    private string _scoreLabel = "Rule pass rate";   // SCORE-E1: what the figure measures (IFC pre-flight: IFC readiness)
     public string ScoreText => _notScored is null ? $"{_scoreLabel} {Score:F1}%" : "Not scored — no ruleset judged this model";
 
     private string _status = "No scan yet";

@@ -46,11 +46,21 @@ public static class AutoFixExecution
             if (candidate == oldName) { onDone?.Invoke(oldName, null); return; }
 
             if (rule.Mode == EnforcementMode.Request)
-            {   // BG-4: a REQUEST rule is decided by a coordinator — file the proposal, rename nothing
+            {   // BG-4: a REQUEST rule is decided by a coordinator — file the proposal, rename nothing. The same name
+                // guards as a direct fix (a free name that still passes the rule), so Approve can apply it; success only
+                // when the transaction really committed (another user may own the request storage).
                 using var tp = new Transaction(doc, "Sentinel: Propose " + ruleId);
                 tp.Start();
-                bool filed = RequestManager.CreateProposal(doc, ruleId, element, candidate);
-                tp.Commit();
+                bool filed = false;
+                try
+                {
+                    candidate = Deduplicate(doc, element, rule, candidate);
+                    filed = RuleRegex.Matches(rule, App.OrgFor(doc), candidate, out _)
+                            && RequestManager.CreateProposal(doc, ruleId, element, candidate)
+                            && tp.Commit() == TransactionStatus.Committed;
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException) { filed = false; }
+                if (tp.GetStatus() == TransactionStatus.Started) tp.RollBack();
                 onDone?.Invoke(oldName, filed ? candidate : null);
                 return;
             }
@@ -90,8 +100,8 @@ public static class AutoFixExecution
                         Action = "autofix.applied",
                         Detail = ruleId + ": '" + oldName + "' -> '" + candidate + "'",
                     });
-                t.Commit();
-                onDone?.Invoke(oldName, candidate);
+                // "✓" only when Revit really committed the rename (it can roll back, e.g. an element another user owns).
+                onDone?.Invoke(oldName, t.Commit() == TransactionStatus.Committed ? candidate : null);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
             {

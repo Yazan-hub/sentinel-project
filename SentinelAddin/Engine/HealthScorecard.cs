@@ -84,8 +84,8 @@ public static class HealthScorecard
         sb.AppendLine(c.Headline);
         if (c.NotScored is null)
         {
-            sb.AppendLine("Rule pass rate = elements without a scored issue ÷ elements checked (MONITOR is not scored).");
-            sb.AppendLine("Weighted rule score = 100 × (1 − Σ weights ÷ (elements checked × 2)); weights BLOCK 8 · REQUEST 4 · WARN 2 · MONITOR 0.5.");
+            sb.AppendLine("Rule pass rate = checks passed ÷ checks run (one check = one element under one rule; MONITOR is not scored).");
+            sb.AppendLine("Weighted rule score = 100 × (1 − Σ weights ÷ (checks run × 2)); weights BLOCK 8 · REQUEST 4 · WARN 2 · MONITOR 0.5.");
         }
         sb.AppendLine(new string('-', 48));
         foreach (var d in c.Domains)

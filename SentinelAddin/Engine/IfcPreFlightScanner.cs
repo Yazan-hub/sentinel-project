@@ -44,9 +44,13 @@ public static class IfcPreFlightScanner
         var (mapped, unmapped) = contract is null
             ? ((IReadOnlyList<PsetEntry>)Array.Empty<PsetEntry>(), (IReadOnlyList<string>)Array.Empty<string>())
             : PsetMap.ForRequired(org, contract.RequiredProperties);
-        if (contract is null)
+        if (contract is null)   // the loader's own reason: unbound, unreachable, refused or none installed
             violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
-                "No delivery contract installed on this project or its office — required properties not checked.", null, null));
+                $"Required properties not checked — contract: {contractLabel}.", null, null));
+        else
+            foreach (var pset in contract.RequiredPsets)   // property SETS are judged in the IFC only: say so
+                violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
+                    $"Required property set '{pset}' ({contractLabel}) — not checked here; the delivery gate checks it in the IFC.", null, bep));
         foreach (var name in unmapped)
             violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
                 $"Required property '{name}' ({contractLabel}) has no Revit mapping in Sentinel — not checked here; the delivery gate checks it in the IFC.",
@@ -138,7 +142,7 @@ public static class IfcPreFlightScanner
 
         sw.Stop();
         return new ScanReport(doc.Title + " [IFC pre-flight]", DateTimeOffset.Now,
-            sw.ElapsedMilliseconds, checkedCount, violations) { ScoreLabel = "IFC mapping coverage" };
+            sw.ElapsedMilliseconds, checkedCount, violations) { ScoreLabel = "IFC readiness" };   // (elements − WARN rows) ÷ elements
     }
 
     private static bool HasNonEmpty(Element e, string name)

@@ -104,8 +104,8 @@ public sealed class ScanReport
     /// score and a grade — "none — not installed for aster-villa or its office". Score must not be read then.
     public string? NotScored { get; set; }
 
-    /// SCORE-E1: what Score measures, printed next to it — "Rule pass rate" for a ruleset scan, "IFC mapping coverage"
-    /// for IFC pre-flight. Three different percentages used to share one label.
+    /// SCORE-E1: what Score measures, printed next to it — "Rule pass rate" for a ruleset scan, "IFC readiness" for IFC
+    /// pre-flight (IFC-01 mapping + IFC-02 required properties). Three different percentages used to share one label.
     public string ScoreLabel { get; set; } = "Rule pass rate";
 
     /// The same report — same ruleset identity — with one more violation from a check outside the ruleset
