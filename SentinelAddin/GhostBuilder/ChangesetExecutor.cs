@@ -3,11 +3,15 @@
 // the created ElementIds per proposal_guid — the golden thread back to the audit trail. Any
 // failure rolls back the WHOLE changeset (partially_applied means "human unticked some", never
 // "some failed silently"). Contract geometry is MILLIMETRES; Revit internal units are feet.
+// MA-0: a ghost's op is create (a new element), retype (an existing wall to a type already in the document) or attach
+// (an existing wall's base and top to story levels). Every element the changeset touched is stamped (ProvenanceStamp),
+// inside this transaction, and the transaction is named so the undo watcher can find it.
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Sentinel.Coordination;
+using Sentinel.Engine;
 
 namespace Sentinel.GhostBuilder;
 
@@ -49,25 +53,60 @@ public sealed class ChangesetExecutor
     // A named type that doesn't exist FAILS the changeset (named reason → declined) rather than
     // silently substituting: the human ticked a row showing that TypeName, and the IDS adjudicated
     // the proposal it labels — placing an arbitrary type would break the governance chain at its
-    // last link. Only a proposal with NO TypeName may take the model's first type.
+    // last link. A proposal with NO TypeName is a gap and fails too (D16): Sentinel never takes the
+    // model's first type, and it never creates one here.
+    private const string NoTypeName = "gap: no type name — Sentinel never takes the model's first type; re-propose with a TypeName";
+
     private static WallType ResolveWallType(Document doc, string typeName)
     {
+        if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
             .Where(t => t.Kind == WallKind.Basic).ToList();
-        if (!types.Any()) throw new InvalidOperationException("the model has no basic wall types");
-        if (string.IsNullOrWhiteSpace(typeName)) return types.First();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
                ?? throw new InvalidOperationException($"wall type \"{typeName}\" does not exist in this model — load or create it, or re-propose without a TypeName");
     }
 
     private static FloorType ResolveFloorType(Document doc, string typeName)
     {
+        if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var types = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
-        if (!types.Any()) throw new InvalidOperationException("the model has no floor types");
-        if (string.IsNullOrWhiteSpace(typeName)) return types.First();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
                ?? throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load or create it, or re-propose without a TypeName");
     }
+
+    /// A level named exactly (case-insensitive, as ResolveLevel reads a LevelName); blank or missing fails.
+    private static Level LevelNamed(Document doc, string name)
+    {
+        var n = name?.Trim();
+        if (string.IsNullOrEmpty(n)) throw new InvalidOperationException("attach needs a BaseLevel and a TopLevel");
+        return new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                   .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
+               ?? throw new InvalidOperationException($"level \"{n}\" does not exist in this model — re-run Promote");
+    }
+
+    /// The existing wall a retype/attach names by UniqueId.
+    private static Wall TargetWall(Document doc, ChangesetElementDto el)
+    {
+        var uid = el.Target?.UniqueId;
+        if (string.IsNullOrWhiteSpace(uid)) throw new InvalidOperationException($"{el.Op} \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\" names no wall");
+        return doc.GetElement(uid) as Wall
+               ?? throw new InvalidOperationException($"wall {uid} is not in this model — re-run Promote");
+    }
+
+    // A parameter that is missing, read-only or refuses the value fails the changeset: attach lands as reviewed or not at all.
+    private static void Set(Element e, BuiltInParameter bip, ElementId v)
+    {
+        var p = e.get_Parameter(bip);
+        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on wall {e.UniqueId}");
+    }
+
+    private static void Set(Element e, BuiltInParameter bip, double v)
+    {
+        var p = e.get_Parameter(bip);
+        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on wall {e.UniqueId}");
+    }
+
+    private static bool IsCreate(ChangesetElementDto e) => e.Op is null or "create";
 
     public ExecutionResult Execute(Document doc, ChangesetDto cs, HashSet<string> tickedGuids)
     {
@@ -76,12 +115,12 @@ public sealed class ChangesetExecutor
             .Where(e => tickedGuids.Contains(e.ProposalGuid)).ToList();
         if (!toPlace.Any()) return result;
 
-        using var t = new Transaction(doc, $"Sentinel AI changeset: {cs.Name}");
+        using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name
         t.Start();
         try
         {
             // Levels first: walls/floors in the same changeset may target them by name.
-            foreach (var el in toPlace.Where(e => e.Kind == "level"))
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "level"))
             {
                 var lvl = Level.Create(doc, (el.Place?.BaseElevation ?? 0) * MmToFeet);
                 if (!string.IsNullOrWhiteSpace(el.Validate?.Identity?.Name)) lvl.Name = el.Validate.Identity.Name;
@@ -89,7 +128,7 @@ public sealed class ChangesetExecutor
             }
             doc.Regenerate();
 
-            foreach (var el in toPlace.Where(e => e.Kind == "grid"))
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "grid"))
             {
                 var c = el.Place.LocationCurve;
                 var grid = Grid.Create(doc, Line.CreateBound(Pt(c.Start), Pt(c.End)));
@@ -97,7 +136,7 @@ public sealed class ChangesetExecutor
                 Collect(result, el, grid);
             }
 
-            foreach (var el in toPlace.Where(e => e.Kind == "wall"))
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "wall"))
             {
                 var c = el.Place.LocationCurve;
                 var level = ResolveLevel(doc, el.Place);
@@ -114,7 +153,7 @@ public sealed class ChangesetExecutor
                 Collect(result, el, wall);
             }
 
-            foreach (var el in toPlace.Where(e => e.Kind == "floor"))
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "floor"))
             {
                 var level = ResolveLevel(doc, el.Place);
                 var ft2 = ResolveFloorType(doc, el.Place.TypeName);
@@ -140,11 +179,42 @@ public sealed class ChangesetExecutor
                 Collect(result, el, floor);
             }
 
-            // Every ticked element must have been handled by a kind loop above — if the bridge's
+            // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type
+            // the plan saw, or the reviewer approved something that is no longer true.
+            foreach (var el in toPlace.Where(e => e.Op == "retype"))
+            {
+                var w = TargetWall(doc, el);
+                var wt = ResolveWallType(doc, el.Place?.TypeName);
+                if (el.Target?.TypeBefore != null && !string.Equals(w.WallType.Name, el.Target.TypeBefore, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"wall {w.UniqueId} is now \"{w.WallType.Name}\" — the model changed since the plan; re-run Promote");
+                if (!w.IsValidType(wt.Id)) throw new InvalidOperationException($"\"{wt.Name}\" is not a valid type for wall {w.UniqueId}");
+                if (w.ChangeTypeId(wt.Id) != ElementId.InvalidElementId) throw new InvalidOperationException("Revit replaced the wall on retype");
+                Collect(result, el, w);
+            }
+
+            // Attach = the constraint parameters (Revit 2024 has no Wall.AddAttachment): base and top on story levels, offsets 0.
+            foreach (var el in toPlace.Where(e => e.Op == "attach"))
+            {
+                var w = TargetWall(doc, el);
+                var b = LevelNamed(doc, el.Place?.BaseLevel);
+                var top = LevelNamed(doc, el.Place?.TopLevel);
+                if (top.Elevation <= b.Elevation) throw new InvalidOperationException($"{top.Name} is not above {b.Name}");
+                Set(w, BuiltInParameter.WALL_BASE_CONSTRAINT, b.Id);
+                Set(w, BuiltInParameter.WALL_BASE_OFFSET, 0.0);
+                Set(w, BuiltInParameter.WALL_HEIGHT_TYPE, top.Id);
+                Set(w, BuiltInParameter.WALL_TOP_OFFSET, 0.0);
+                Collect(result, el, w);
+            }
+
+            // Every ticked element must have been handled by a loop above — if the bridge's
             // vocabulary ever grows past the executor's, the mismatch fails the changeset HERE,
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
             if (result.Applied.Count != toPlace.Count)
-                throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind were not placed — the add-in is older than the bridge's vocabulary");
+                throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary");
+            // The stamp: once per element (a second write would overwrite), with every guid that touched it — inside
+            // this transaction, so Ctrl+Z removes it too.
+            foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId))
+                ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, g.Select(a => a.ProposalGuid));
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
             // the collected ids then would be the "some failed silently" lie this file forbids.
             if (t.Commit() != TransactionStatus.Committed)
