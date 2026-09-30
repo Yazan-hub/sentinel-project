@@ -312,7 +312,7 @@ const parityDir = new URL("../../WebApp/bridge/fixtures/contract-parity/", impor
 const coverageCases = JSON.parse(readFileSync(new URL("cases.json", parityDir), "utf8")).filter((c) => c.coverage);
 
 test("coverage per class: every pinned parity case gives the same verdict, failures and coverage in the report", async () => {
-  assert.ok(coverageCases.length >= 7, `${coverageCases.length} coverage cases`);
+  assert.ok(coverageCases.length >= 14, `${coverageCases.length} coverage cases`);
   for (const c of coverageCases) {
     const p = platform({ items: [ifcItem({ bytes: readFileSync(new URL(c.ifc, parityDir)) })], contractBody: c.contract });
     const r = await run(p, { fileId: "f1" });

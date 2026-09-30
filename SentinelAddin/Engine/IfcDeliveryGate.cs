@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -68,6 +69,7 @@ public static class IfcDeliveryGate
     private static readonly Regex EntityRx = new(
         @"^#(\d+)\s*=\s*(IFC[A-Z0-9]+)\s*\(", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex SchemaRx = new(@"FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'", RegexOptions.CultureInvariant);
+    private static readonly Regex RecordStartRx = new(@"^\s*#\d+\s*=", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>Judge <paramref name="ifcPath"/> by <paramref name="contract"/>, naming <paramref name="source"/> (the
     /// pair DeliveryContract.Load returns). With no contract the outcome is NotChecked: the file's size, sha and schema
@@ -98,9 +100,10 @@ public static class IfcDeliveryGate
         // Single streaming pass — handles multi-hundred-MB deliverables.
         using (var reader = new StreamReader(ifcPath, Encoding.UTF8, true, 1 << 16))
         {
-            string? line;
-            while ((line = reader.ReadLine()) is not null)
+            string? line, next = null;
+            while ((line = next ?? reader.ReadLine()) is not null)
             {
+                next = null;
                 if (r.DetectedSchema.Length == 0 && line.Contains("FILE_SCHEMA"))
                 {
                     var m = SchemaRx.Match(line);
@@ -109,6 +112,12 @@ public static class IfcDeliveryGate
 
                 var em = EntityRx.Match(line);
                 if (!em.Success) continue;
+                // A record may wrap over lines (ISO 10303-21): join until its ';' — never past the next record's "#n=".
+                while (!RecordEnds(line) && (next = reader.ReadLine()) is not null && !RecordStartRx.IsMatch(next))
+                {
+                    line += next;
+                    next = null;
+                }
                 var entity = string.Intern(em.Groups[2].Value); // ~1 000 class names, kept per element below
                 r.TotalEntities++;
                 r.EntityCounts.TryGetValue(entity, out var n);
@@ -246,17 +255,29 @@ public static class IfcDeliveryGate
     private static readonly Regex CommonPset = new(@"^Pset_(.+)Common\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex RefRx = new(@"#([0-9]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex TypedValue = new(@"^IFC[A-Z0-9_]*\((.*)\)\z", RegexOptions.Singleline | RegexOptions.CultureInvariant);
-    private static readonly NumberFormatInfo PercentFormat = new() { PercentPositivePattern = 1, PercentNegativePattern = 1 }; // "100%" on every culture
+    /// Building elements and their subtypes (IFC4 IFCSLABSTANDARDCASE…): the classes a required property is judged on.
+    /// The proxy ratio keeps IsBuildingElement alone, so its wording stays.
+    private static readonly HashSet<string> SubtypeClasses = new(Subtypes.Values.SelectMany(s => s), StringComparer.Ordinal);
+    private static bool IsJudged(string entity) => IsBuildingElement(entity) || SubtypeClasses.Contains(entity);
 
     /// <summary>Judge one required pset or property class by class: add a coverage line for each class it applies to
     /// and a failure for each class below <paramref name="min"/>. A property ("FireRating", or "Pset_DoorCommon.FireRating")
-    /// applies to each building-element class where at least one element carries it at all; "Pset_XCommon" to IFCX and its
-    /// subtypes; any other pset to each class where it appears. An element covers it when the pset is on it or on its
+    /// applies to each building-element class (or subtype) where at least one element carries it at all — when none does, to
+    /// every class that carries it; "Pset_XCommon" and "Pset_XTypeCommon" to IFCX and its subtypes (none in the file: where
+    /// it appears); any other pset to each class where it appears. An element covers it when the pset is on it or on its
     /// type (a property: with a value — $ or '' is none). False when it applies to no class: the caller says "not found".</summary>
     private static bool Judge(GateResult r, List<(string Class, List<Pset> Psets)> elements, string req, bool isPset, double min)
     {
-        string want = req.ToLowerInvariant();
-        var (pset, prop) = isPset ? ("", want) : Parts(req);
+        string whole = req.ToLowerInvariant();
+        if (isPset) return JudgeAs(r, elements, req, true, "", whole, min);
+        // "COBie.Type.Name" is one property whose name has dots: judged whole when the pset.property reading applies nowhere.
+        var (pset, prop) = Parts(req);
+        return JudgeAs(r, elements, req, false, pset, prop, min) || (pset.Length > 0 && JudgeAs(r, elements, req, false, "", whole, min));
+    }
+
+    private static bool JudgeAs(GateResult r, List<(string Class, List<Pset> Psets)> elements, string req, bool isPset, string pset, string prop, double min)
+    {
+        string want = prop;
         // 0 = not carried, 1 = carried with no value, 2 = covered; an element counts its best pset.
         int Has(Pset p) => isPset ? (p.Name == want ? 2 : 0)
             : (pset.Length > 0 && p.Name != pset) || !p.Props.TryGetValue(prop, out var valued) ? 0 : valued ? 2 : 1;
@@ -272,21 +293,28 @@ public static class IfcDeliveryGate
         }
 
         var common = isPset ? CommonPset.Match(req) : Match.Empty;
-        string target = common.Success ? "IFC" + common.Groups[1].Value.ToUpperInvariant() : "";
-        var classes = (common.Success
-                ? r.EntityCounts.Keys.Where(k => k == target || (Subtypes.TryGetValue(target, out var subs) && subs.Contains(k)))
-                : carried.Keys.Where(k => isPset || IsBuildingElement(k)))
-            .OrderBy(k => k, StringComparer.Ordinal).ToList();
+        // Pset_AirTerminalTypeCommon belongs to IFCAIRTERMINAL (held on its type): the occurrence class, never IFCXTYPE.
+        string target = common.Success ? "IFC" + Regex.Replace(common.Groups[1].Value.ToUpperInvariant(), "TYPE$", "") : "";
+        var classes = common.Success
+            ? r.EntityCounts.Keys.Where(k => k == target || (Subtypes.TryGetValue(target, out var subs) && subs.Contains(k))).ToList()
+            : new List<string>();
+        // No such class in the file (IFC2x3 MEP is IFCFLOWTERMINAL; some targets are abstract): where the pset appears.
+        if (classes.Count == 0) classes = carried.Keys.Where(k => isPset || IsJudged(k)).ToList();
+        // A property no building element carries (NetPlannedArea on IFCSPACE): every class that carries it.
+        if (classes.Count == 0) classes = carried.Keys.ToList();
         if (classes.Count == 0) return false;
+        classes.Sort(StringComparer.Ordinal);
 
         foreach (var cls in classes)
         {
             covered.TryGetValue(cls, out int n);
             int total = r.EntityCounts[cls];
             r.Coverage.Add(new CoverageLine { Requirement = req, Kind = isPset ? "pset" : "property", Entity = cls, Covered = n, Total = total });
+            // A failing class shows its share floored, so it never reads as the threshold ("199/200 (99%)", not "(100%)");
+            // integer arithmetic and RoundHalfEven, never the framework's formatter (net48 rounds halves away from zero).
             if ((double)n / total < min)
                 r.Failures.Add($"{(isPset ? "Required property set" : "Required property")} '{req}': {n}/{total} {cls} " +
-                               $"({(100.0 * n / total).ToString("F0", CultureInfo.InvariantCulture)}%) — below {min.ToString("P0", PercentFormat)}.");
+                               $"({(100L * n / total).ToString(CultureInfo.InvariantCulture)}%) — below {RoundHalfEven(min, 100).ToString(CultureInfo.InvariantCulture)}%.");
         }
         return true;
     }
@@ -322,8 +350,9 @@ public static class IfcDeliveryGate
         private readonly Dictionary<long, List<long>> _types = new();     // object → its types
         private readonly Dictionary<long, List<long>> _typePsets = new(); // type → HasPropertySets
 
+        // Each property's name as pset.property splits it, and whole ("COBie.Type.Name" may be one name).
         public CoverageIndex(IEnumerable<string> requiredProperties) =>
-            _wanted = new HashSet<string>(requiredProperties.Select(p => Parts(p).Prop), StringComparer.Ordinal);
+            _wanted = new HashSet<string>(requiredProperties.SelectMany(p => new[] { Parts(p).Prop, p.ToLowerInvariant() }), StringComparer.Ordinal);
 
         /// <param name="argsAt">Where the arguments start: just after the entity's opening parenthesis.</param>
         public void Read(long id, string entity, string line, int argsAt)
@@ -362,9 +391,12 @@ public static class IfcDeliveryGate
                 }
             }
             // A rooted entity (its GlobalId first) is an object or a type: only those carry psets.
-            if (argsAt >= line.Length || line[argsAt] != '\'' || entity.StartsWith("IFCREL", StringComparison.Ordinal)) return;
+            int at = argsAt;
+            while (at < line.Length && (line[at] == ' ' || line[at] == '\t')) at++;
+            if (at >= line.Length || line[at] != '\'' || entity.StartsWith("IFCREL", StringComparison.Ordinal)) return;
             _classOf[id] = entity;
-            if (entity.EndsWith("TYPE", StringComparison.Ordinal) || entity.EndsWith("STYLE", StringComparison.Ordinal))
+            if (entity.EndsWith("TYPE", StringComparison.Ordinal) || entity.EndsWith("STYLE", StringComparison.Ordinal)
+                || entity == "IFCTYPEPRODUCT" || entity == "IFCTYPEOBJECT")
             {
                 var a = StepArgs(line, argsAt); // IfcTypeObject: (GlobalId, OwnerHistory, Name, Description, ApplicableOccurrence, (HasPropertySets), …)
                 if (a.Count > 5) _typePsets[id] = Refs(a[5]);
@@ -430,6 +462,37 @@ public static class IfcDeliveryGate
             else if (ch == ',' && depth == 0) { args.Add(line.Substring(from, i - from).Trim()); from = i + 1; }
         }
         return args;
+    }
+
+    /// <summary>Whether a record's text reaches its closing ';' outside a string.</summary>
+    private static bool RecordEnds(string line)
+    {
+        if (line.IndexOf('\'') < 0) return line.IndexOf(';') >= 0; // no string to step over: most geometry records
+        bool quoted = false;
+        foreach (char ch in line)
+        {
+            if (ch == '\'') quoted = !quoted; // '' inside a string flips twice
+            else if (ch == ';' && !quoted) return true;
+        }
+        return false;
+    }
+
+    /// <summary>x·scale rounded to the nearest integer, ties to even, from x's exact binary value — what .NET Core's P0
+    /// prints and delivery-gate.mjs's roundHalfEvenExact computes; net48's formatter rounds halves away from zero.</summary>
+    internal static long RoundHalfEven(double x, int scale)
+    {
+        long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
+        int biased = (int)((bits >> 52) & 0x7FF);
+        BigInteger mantissa = bits & 0xFFFFFFFFFFFFFL, den = BigInteger.One;
+        int exp2 = biased - 1075;
+        if (biased == 0) exp2 = -1074; // subnormal (and zero)
+        else mantissa |= BigInteger.One << 52; // implicit leading bit
+        BigInteger num = mantissa * scale;
+        if (exp2 >= 0) num <<= exp2; else den <<= -exp2;
+        var q = BigInteger.DivRem(num, den, out var rem);
+        var twice = rem * 2;
+        if (twice > den || (twice == den && !q.IsEven)) q += 1;
+        return x < 0 ? -(long)q : (long)q;
     }
 
     private static List<long> Refs(string arg)

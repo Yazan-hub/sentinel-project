@@ -26,8 +26,12 @@ export const BUILDING_ELEMENTS = [
   "IFCFOOTING", "IFCBUILDINGELEMENTPROXY",
 ];
 const BUILDING = new Set(BUILDING_ELEMENTS);
+// A required property is judged on building elements and their subtypes (IFC4 IFCSLABSTANDARDCASE…); the proxy ratio
+// keeps BUILDING alone, so its wording stays. Mirrors IfcDeliveryGate.IsJudged.
+const JUDGED = new Set([...BUILDING_ELEMENTS, ...Object.values(SUBTYPES).flat()]);
 
 const ENTITY_RX = /^#(\d+)\s*=\s*(IFC[A-Z0-9]+)\s*\(/;
+const RECORD_START_RX = /^\s*#\d+\s*=/;
 const SCHEMA_RX = /FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'/;
 const GEOREF_RX = /\(\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+/;
 const COMMON_PSET_RX = /^Pset_(.+)Common$/i;
@@ -112,13 +116,17 @@ export function checkDelivery(input, contract) {
   const ix = coverageIndex(contract.required_properties);
   let sawGeoref = false;
 
-  for (const line of text.split(/\r?\n/)) {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
     if (!r.detected_schema && line.includes("FILE_SCHEMA")) {
       const m = SCHEMA_RX.exec(line);
       if (m) r.detected_schema = m[1].toUpperCase();
     }
     const em = ENTITY_RX.exec(line);
     if (!em) continue;
+    // A record may wrap over lines (ISO 10303-21): join until its ';' — never past the next record's "#n=".
+    while (!recordEnds(line) && i + 1 < lines.length && !RECORD_START_RX.test(lines[i + 1])) line += lines[++i];
     const entity = em[2];
     r.total_entities++;
     r.entity_counts[entity] = (r.entity_counts[entity] || 0) + 1;
@@ -165,13 +173,21 @@ export function checkDelivery(input, contract) {
 /**
  * Judge one required pset or property class by class: a coverage entry for each class it applies to and a failure for
  * each class below `min`. A property ("FireRating", or "Pset_DoorCommon.FireRating") applies to each building-element
- * class where at least one element carries it at all; "Pset_XCommon" to IFCX and its subtypes; any other pset to each
- * class where it appears. An element covers it when the pset is on it or on its type (a property: with a value — $ or ''
- * is none). false when it applies to no class: the caller says "not found".
+ * class (or subtype) where at least one element carries it at all — when none does, to every class that carries it;
+ * "Pset_XCommon" and "Pset_XTypeCommon" to IFCX and its subtypes (none in the file: where it appears); any other pset to
+ * each class where it appears. An element covers it when the pset is on it or on its type (a property: with a value — $
+ * or '' is none). false when it applies to no class: the caller says "not found".
  */
 function judge(r, elements, req, isPset, min) {
   const want = String(req).toLowerCase();
-  const { pset, prop } = isPset ? { pset: "", prop: want } : parts(req);
+  if (isPset) return judgeAs(r, elements, req, true, "", want, min);
+  // "COBie.Type.Name" is one property whose name has dots: judged whole when the pset.property reading applies nowhere.
+  const { pset, prop } = parts(req);
+  return judgeAs(r, elements, req, false, pset, prop, min) || (pset !== "" && judgeAs(r, elements, req, false, "", want, min));
+}
+
+function judgeAs(r, elements, req, isPset, pset, prop, min) {
+  const want = prop;
   // 0 = not carried, 1 = carried with no value, 2 = covered; an element counts its best pset.
   const has = (p) => (isPset ? (p.name === want ? 2 : 0)
     : (pset && p.name !== pset) || !p.props.has(prop) ? 0 : p.props.get(prop) ? 2 : 1);
@@ -185,17 +201,22 @@ function judge(r, elements, req, isPset, min) {
   }
 
   const common = isPset ? COMMON_PSET_RX.exec(req) : null;
-  const target = common ? `IFC${common[1].toUpperCase()}` : "";
-  const classes = (common
-    ? Object.keys(r.entity_counts).filter((k) => k === target || (SUBTYPES[target] || []).includes(k))
-    : [...carried.keys()].filter((k) => isPset || BUILDING.has(k))).sort(); // code-unit order = C#'s ordinal
+  // Pset_AirTerminalTypeCommon belongs to IFCAIRTERMINAL (held on its type): the occurrence class, never IFCXTYPE.
+  const target = common ? `IFC${common[1].toUpperCase().replace(/TYPE$/, "")}` : "";
+  let classes = common ? Object.keys(r.entity_counts).filter((k) => k === target || (SUBTYPES[target] || []).includes(k)) : [];
+  // No such class in the file (IFC2x3 MEP is IFCFLOWTERMINAL; some targets are abstract): where the pset appears.
+  if (!classes.length) classes = [...carried.keys()].filter((k) => isPset || JUDGED.has(k));
+  // A property no building element carries (NetPlannedArea on IFCSPACE): every class that carries it.
+  if (!classes.length) classes = [...carried.keys()];
   if (!classes.length) return false;
+  classes.sort(); // code-unit order = C#'s ordinal
 
   for (const cls of classes) {
     const n = covered.get(cls) || 0, total = r.entity_counts[cls];
     r.coverage.push({ requirement: req, kind: isPset ? "pset" : "property", entity: cls, covered: n, total });
+    // A failing class shows its share floored, so it never reads as the threshold ("199/200 (99%)", not "(100%)").
     if (n / total < min)
-      r.failures.push(`${isPset ? "Required property set" : "Required property"} '${req}': ${n}/${total} ${cls} (${pctF0(100 * n / total)}%) — below ${pctP0(min)}%.`);
+      r.failures.push(`${isPset ? "Required property set" : "Required property"} '${req}': ${n}/${total} ${cls} (${Math.floor(100 * n / total)}%) — below ${pctP0(min)}%.`);
   }
   return true;
 }
@@ -212,7 +233,8 @@ function parts(req) {
  *  (IFCRELDEFINESBYPROPERTIES), its types (IFCRELDEFINESBYTYPE), each type's HasPropertySets, each pset's single
  *  values the contract names, and each rooted entity's class. No geometry and no other property is kept. */
 function coverageIndex(requiredProperties) {
-  const wanted = new Set(requiredProperties.map((p) => parts(p).prop));
+  // Each property's name as pset.property splits it, and whole ("COBie.Type.Name" may be one name).
+  const wanted = new Set(requiredProperties.flatMap((p) => [parts(p).prop, String(p).toLowerCase()]));
   const classOf = new Map(), psets = new Map(), props = new Map();
   const own = new Map(), types = new Map(), typePsets = new Map(); // object → psets · object → types · type → HasPropertySets
   return {
@@ -238,9 +260,11 @@ function coverageIndex(requiredProperties) {
         return;
       }
       // A rooted entity (its GlobalId first) is an object or a type: only those carry psets.
-      if (line[argsAt] !== "'" || entity.startsWith("IFCREL")) return;
+      let at = argsAt;
+      while (line[at] === " " || line[at] === "\t") at++;
+      if (line[at] !== "'" || entity.startsWith("IFCREL")) return;
       classOf.set(id, entity);
-      if (entity.endsWith("TYPE") || entity.endsWith("STYLE")) { // IfcTypeObject: (…, ApplicableOccurrence, (HasPropertySets), …)
+      if (entity.endsWith("TYPE") || entity.endsWith("STYLE") || entity === "IFCTYPEPRODUCT" || entity === "IFCTYPEOBJECT") { // IfcTypeObject: (…, ApplicableOccurrence, (HasPropertySets), …)
         const a = stepArgs(line, argsAt);
         if (a.length > 5) typePsets.set(id, refs(a[5]));
       }
@@ -297,6 +321,18 @@ export function stepArgs(line, start) {
     } else if (ch === "," && depth === 0) { args.push(line.slice(from, i).trim()); from = i + 1; }
   }
   return args;
+}
+
+/** Whether a record's text reaches its closing ';' outside a string. Mirrors IfcDeliveryGate.RecordEnds. */
+function recordEnds(line) {
+  if (!line.includes("'")) return line.includes(";"); // no string to step over: most geometry records
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "'") quoted = !quoted; // '' inside a string flips twice
+    else if (ch === ";" && !quoted) return true;
+  }
+  return false;
 }
 
 const refs = (arg) => [...arg.matchAll(REF_RX)].map((m) => Number(m[1]));

@@ -153,7 +153,7 @@ describe("checkDelivery — coverage per class (GATE-E2)", () => {
   });
   it("min_coverage: 2 of 3 passes at 0.5 and fails at 0.9 with that threshold in the words", () => {
     expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: 0.5 })).passed).toBe(true);
-    expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: 0.9 })).failures).toEqual(["Required property 'FireRating': 2/3 IFCWALL (67%) — below 90%."]);
+    expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: 0.9 })).failures).toEqual(["Required property 'FireRating': 2/3 IFCWALL (66%) — below 90%."]); // floored
     expect(checkDelivery(walls(3, { k: 2 }), fire({ min_coverage: null })).passed).toBe(false); // null is absent: 1
   });
   it("a dotted requirement names the pset: Pset_DoorCommon.Reference applies to the door only; a property in another pset does not count", () => {
@@ -177,6 +177,19 @@ describe("checkDelivery — coverage per class (GATE-E2)", () => {
       "Required property set 'Pset_DoorCommon': 1/2 IFCDOOR (50%) — below 100%.",
       "Required property set 'Pset_WallCommon': 0/1 IFCWALLSTANDARDCASE (0%) — below 100%.",
     ]);
+  });
+  it("a failing share is floored, never shown as the threshold: 199/200 reads 99%, and a half threshold rounds to even", () => {
+    expect(checkDelivery(walls(200, { k: 199 }), fire()).failures).toEqual(["Required property 'FireRating': 199/200 IFCWALL (99%) — below 100%."]);
+    expect(checkDelivery(walls(8, { k: 1 }), fire({ min_coverage: 0.125 })).passed).toBe(true); // 1/8 is 0.125: not below
+    expect(checkDelivery(walls(8, { k: 0, typed: "$" }), fire({ min_coverage: 0.125 })).failures).toEqual(["Required property 'FireRating': 0/8 IFCWALL (0%) — below 12%."]);
+  });
+  it("a record wrapped over lines is read whole; a stray quote never swallows the records after it", () => {
+    const wrapped = walls(2, { k: 1 }).replace("(#1),#201);", "(#1,\n#2),\n#201);");
+    expect(checkDelivery(wrapped, fire()).coverage).toEqual([{ requirement: "FireRating", kind: "property", entity: "IFCWALL", covered: 2, total: 2 }]);
+    const stray = walls(2, { k: 2 }).replace("'Wall-1'", "'Wall 1'-0\"'");
+    const r = checkDelivery(stray, fire());
+    expect(r.entity_counts.IFCWALL).toBe(2);
+    expect(r.coverage).toEqual([{ requirement: "FireRating", kind: "property", entity: "IFCWALL", covered: 2, total: 2 }]);
   });
   it("the minimal fixture's coverage: Pset_WallCommon and FireRating on its one IFCWALLSTANDARDCASE", () => {
     expect(checkDelivery(ifc, contract()).coverage).toEqual([

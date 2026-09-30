@@ -210,6 +210,17 @@ static class Check
         Ok(IfcDeliveryGate.Valued("IFCLABEL('REI 60')") && IfcDeliveryGate.Valued("IFCBOOLEAN(.F.)") && IfcDeliveryGate.Valued("IFCREAL(0.)")
            && !IfcDeliveryGate.Valued("$") && !IfcDeliveryGate.Valued("IFCLABEL('')") && !IfcDeliveryGate.Valued(""),
            "a NominalValue is a value unless it is $ or empty");
+        // The min in a coverage failure is RoundHalfEven, never P0 (net48, Revit 2024, rounds halves away from zero):
+        // it must print what net8's P0 and the Node gate print, on every ratio.
+        var p0 = new System.Globalization.NumberFormatInfo { PercentPositivePattern = 1 };
+        var sweep = Enumerable.Range(0, 10001).Select(i => i / 10000.0).Concat(new[] { 0.125, 0.625, 0.025, 0.015, 0.005 })
+            .Where(x => IfcDeliveryGate.RoundHalfEven(x, 100) + "%" != x.ToString("P0", p0)).ToList();
+        Ok(sweep.Count == 0 && IfcDeliveryGate.RoundHalfEven(0.125, 100) == 12 && IfcDeliveryGate.RoundHalfEven(0.625, 100) == 62,
+           "RoundHalfEven prints what net8's P0 prints over a 0.0001 sweep of 0..1; 0.125 → 12, 0.625 → 62 (net48's P0 says 13, 63)");
+        if (sweep.Count > 0) Console.WriteLine("        differs at: " + string.Join(", ", sweep.Take(5)));
+        var stray = IfcDeliveryGate.Validate(WriteTmp("stray.ifc", Ifc(true).Replace("'W1'", "'W1'-0\"'")), contract, src);
+        Ok(stray.EntityCounts.GetValueOrDefault("IFCDOOR") == 1 && stray.Coverage.Select(Cov).SequenceEqual(pass.Coverage.Select(Cov)),
+           "a stray quote in one record never swallows the records after it (a wrapped record joins only up to the next #n=)");
 
         Ok(pass.Warnings.Count == 0, "an IFCMAPCONVERSION georeferences the file although IFCSITE has no lat/long (the Node gate's rule)");
         var noGeo = IfcDeliveryGate.Validate(WriteTmp("nogeo.ifc", Ifc(false)), contract, src);
@@ -312,7 +323,7 @@ static class Check
         Ok(n >= 3, $"the fixture carries {n} case(s) (at least 3)");
         Ok(mapConversion, "the fixture has an IFCMAPCONVERSION-only georeferenced case under require_georeference");
         Ok(schemaMismatch, "the fixture has a schema-mismatch case that fails");
-        Ok(coverageCases >= 7, $"the fixture pins coverage per class in {coverageCases} case(s) (GATE-E2: at least 7)");
+        Ok(coverageCases >= 14, $"the fixture pins coverage per class in {coverageCases} case(s) (GATE-E2: at least 14)");
     }
 
     // contract@1 as the bridge hands it over (the harness never calls the bridge).
