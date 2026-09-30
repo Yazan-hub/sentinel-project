@@ -108,6 +108,35 @@ public static class RequestManager
         return true;
     }
 
+    /// BG-4: ⚡ Fix on a REQUEST rule proposes instead of renaming. MUST run inside a transaction.
+    /// False when a request is already pending for the element or the name would not change.
+    public static bool CreateProposal(Document doc, string ruleId, Element element, string proposed)
+    {
+        long id = element.Id.IdValue();
+        if (RequestStore.HasPending(doc, id)) return false;
+        var current = element is ViewSheet s ? s.SheetNumber : element.Name;
+        if (current == proposed) return false;
+        var req = new ChangeRequest
+        {
+            RuleId = ruleId,
+            ElementId = id,
+            ElementCategory = element.Category?.Name ?? element.GetType().Name,
+            OldValue = current,
+            NewValue = proposed,
+            RequestedBy = doc.Application.Username,
+            Proposal = true,
+        };
+        RequestStore.Upsert(doc, req, new AuditEntry
+        {
+            Actor = req.RequestedBy,
+            Action = "request.proposed",
+            RequestId = req.Id,
+            Detail = $"{req.ElementCategory} '{current}' -> '{proposed}' proposed ({ruleId})",
+        });
+        SetReviewFlag(element, "Pending");
+        return true;
+    }
+
     /// Coordinator verdict. MUST run inside a transaction (ExternalEvent).
     public static void Resolve(Document doc, Guid requestId, bool approve, string? note)
     {
@@ -120,21 +149,55 @@ public static class RequestManager
         req.VerdictBy = user;
         req.VerdictAt = DateTimeOffset.Now;
         req.VerdictNote = note;
+        // A proposal is also known from the append-only audit: a pre-BG-4 add-in rewriting the blob drops the new
+        // "proposal" field, and the request must not then be treated as an edit that already happened.
+        bool proposal = req.Proposal
+            || RequestStore.GetAudit(doc).Any(a => a.RequestId == req.Id && a.Action == "request.proposed");
+        req.Proposal = proposal;
 
         if (approve)
         {
             req.Status = RequestStatus.Approved;
-            if (element is not null) SetReviewFlag(element, "");
+            if (element is not null)
+            {
+                if (proposal)                                  // BG-4: a proposal was never applied — Approve applies it
+                {
+                    try { RevertValue(element, req.NewValue); }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException)
+                    {   // the name was taken after the proposal was filed: the whole verdict rolls back, stays pending
+                        throw new InvalidOperationException($"'{req.NewValue}' is already in use — reject this proposal or rename by hand.");
+                    }
+                    UpdateSnapshot(doc, req.ElementId, req.NewValue);
+                }
+                SetReviewFlag(element, "");
+            }
         }
         else
         {
             req.Status = RequestStatus.Rejected;
             if (element is not null)
             {
-                RevertValue(element, req.OldValue);          // Decision 8: auto-revert
-                SetReviewFlag(element, "");
-                UpdateSnapshot(doc, req.ElementId, req.OldValue);
-                req.Status = RequestStatus.Reverted;
+                var current = element is ViewSheet vs ? vs.SheetNumber : element.Name;
+                bool handRenamed = proposal && current != req.OldValue;
+                // A hand rename made while the proposal was pending is reverted only if it still breaks the request's
+                // rule — a compliant one was never going to be reviewed, and reverting it would bring back the bad name.
+                bool handRenameViolates = handRenamed && App.Engine is { } engine
+                    && engine.ScanElements(doc, new List<ElementId> { element.Id }).Any(v => v.RuleId == req.RuleId);
+                if (proposal && !handRenameViolates)
+                {
+                    SetReviewFlag(element, "");                // nothing to revert (or a compliant hand rename, kept)
+                    if (handRenamed) req.VerdictNote = $"{note ?? "-"} | hand rename '{current}' kept (passes {req.RuleId})";
+                }
+                else
+                {
+                    // Decision 8: auto-revert — also for a proposal whose element was renamed by hand while it was
+                    // pending (no second request could be filed then, so this is the only review that rename gets).
+                    RevertValue(element, req.OldValue);
+                    SetReviewFlag(element, "");
+                    UpdateSnapshot(doc, req.ElementId, req.OldValue);
+                    req.Status = RequestStatus.Reverted;
+                    if (proposal) req.VerdictNote = $"{note ?? "-"} | reverted the hand rename '{current}'";
+                }
             }
         }
 

@@ -5,7 +5,7 @@ using Sentinel.Engine;
 namespace Sentinel.Workflow;
 
 /// <summary>
-/// Auto-Remediator: forcefully renames a non-compliant element to satisfy its
+/// Auto-Remediator: renames a non-compliant element (or, on a REQUEST rule, files the rename as a proposal) to satisfy its
 /// JSON token schema. Fix strategy per token, left to right:
 ///   1. If a segment of the current name already matches the token def, keep it.
 ///   2. Otherwise synthesize the token's default (first alternative of its
@@ -45,11 +45,43 @@ public static class AutoFixExecution
                 : finalName!.Trim();
             if (candidate == oldName) { onDone?.Invoke(oldName, null); return; }
 
+            if (rule.Mode == EnforcementMode.Request)
+            {   // BG-4: a REQUEST rule is decided by a coordinator — file the proposal, rename nothing. The same name
+                // guards as a direct fix (a free name that still passes the rule), so Approve can apply it; success only
+                // when the transaction really committed (another user may own the request storage).
+                using var tp = new Transaction(doc, "Sentinel: Propose " + ruleId);
+                tp.Start();
+                string? why = null;   // each way a proposal can fail says its own reason (the pane shows "✕ " + why)
+                try
+                {
+                    var dedup = Deduplicate(doc, element, rule, candidate);
+                    if (!RuleRegex.Matches(rule, App.OrgFor(doc), dedup, out _))
+                        why = $"'{candidate}' is taken and '{dedup}' breaks rule {ruleId} — nothing was filed.";
+                    else if (!RequestManager.CreateProposal(doc, ruleId, element, dedup))
+                        why = $"A request is already pending for '{oldName}' (Change Requests) — nothing was filed.";
+                    else if (tp.Commit() != TransactionStatus.Committed)
+                        why = "Revit did not save the proposal — the element or the request storage is owned by another user (sync, then retry).";
+                    else candidate = dedup;
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException ex) { why = ex.Message; }
+                if (tp.GetStatus() == TransactionStatus.Started) tp.RollBack();
+                if (why is null) onDone?.Invoke(oldName, candidate);
+                else if (onRefused is not null) onRefused(why);
+                else onDone?.Invoke(oldName, null);
+                return;
+            }
+
             using var t = new Transaction(doc, "Sentinel: Auto-fix " + ruleId);
             t.Start();
             try
             {
                 candidate = Deduplicate(doc, element, rule, candidate);
+                if (!RuleRegex.Matches(rule, App.OrgFor(doc), candidate, out _))
+                {   // the de-duplicated name (a suffix) no longer passes the rule: write nothing (BG-5)
+                    t.RollBack();
+                    onDone?.Invoke(oldName, null);
+                    return;
+                }
                 if (element is ViewSheet sheet) sheet.SheetNumber = candidate;
                 else element.Name = candidate;
 
@@ -74,8 +106,8 @@ public static class AutoFixExecution
                         Action = "autofix.applied",
                         Detail = ruleId + ": '" + oldName + "' -> '" + candidate + "'",
                     });
-                t.Commit();
-                onDone?.Invoke(oldName, candidate);
+                // "✓" only when Revit really committed the rename (it can roll back, e.g. an element another user owns).
+                onDone?.Invoke(oldName, t.Commit() == TransactionStatus.Committed ? candidate : null);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
             {

@@ -52,7 +52,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         if (uidoc.ActiveView is View3D v3 && !v3.IsTemplate)
         {
             var o = v3.GetOrientation();
-            var toShared = doc.ActiveProjectLocation.GetTotalTransform();
+            var toShared = doc.ActiveProjectLocation.GetTotalTransform().Inverse; // shared → internal, inverted
             Vec3 V(XYZ p) => new() { X = p.X, Y = p.Y, Z = p.Z };
             draft.Camera = new PerspectiveCamera
             {

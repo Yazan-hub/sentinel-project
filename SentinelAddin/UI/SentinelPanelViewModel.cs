@@ -40,13 +40,14 @@ public sealed class ViolationRow
     public bool CanFix { get; }
     public Visibility FixVisibility => CanFix ? Visibility.Visible : Visibility.Collapsed;
 
-    /// Fix applies only to warn/request naming rules with a token schema on a
+    /// Fix applies only to warn/request/block naming rules (not type targets) with a token schema on a
     /// real element (worksets report ElementId -1; parameter rules have no
     /// tokens to synthesize a name from).
     private static bool ComputeCanFix(Violation v, Rule? rule)
     {
         if (v.ElementId <= 0) return false;
-        if (v.Mode != EnforcementMode.Warn && v.Mode != EnforcementMode.Request) return false;
+        // BLOCK rows are the ones that stop the sync: they need ⚡ Fix the most (audit SCAN-E3).
+        if (v.Mode != EnforcementMode.Warn && v.Mode != EnforcementMode.Request && v.Mode != EnforcementMode.Block) return false;
         // Type renames go through the Naming Manager: the one-row Fix would suffix on a collision.
         return rule is not null && rule.Tokens.Count > 0 && rule.Target != RuleTarget.Type;
     }
@@ -63,7 +64,8 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     private double _score = 100;
     public double Score { get => _score; private set { _score = value; OnChanged(); OnChanged(nameof(ScoreText)); } }
     private string? _notScored;   // set when no ruleset judged the rows: no percentage, no grade
-    public string ScoreText => _notScored is null ? $"{Score:F1}% compliant" : "Not scored — no ruleset judged this model";
+    private string _scoreLabel = "Rule pass rate";   // SCORE-E1: what the figure measures (IFC pre-flight: IFC readiness)
+    public string ScoreText => _notScored is null ? $"{_scoreLabel} {Score:F1}%" : "Not scored — no ruleset judged this model";
 
     private string _status = "No scan yet";
     public string Status { get => _status; private set { _status = value; OnChanged(); } }
@@ -76,9 +78,11 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         OnUi(() =>
         {
             Violations.Clear();
-            foreach (var v in report.Violations) Violations.Add(new ViolationRow(v, report.Ruleset));
+            // BLOCK rows first: they are what stops the sync (App.OnSynchronizing).
+            foreach (var v in report.Violations.OrderBy(v => v.Mode == EnforcementMode.Block ? 0 : 1)) Violations.Add(new ViolationRow(v, report.Ruleset));
             _notScored = report.NotScored;
-            Score = report.Score;   // raises ScoreText, which reads _notScored
+            _scoreLabel = report.ScoreLabel;
+            Score = report.Score;   // raises ScoreText, which reads _notScored and _scoreLabel
             Status = report.NotScored is { } why
                 ? $"{report.DocTitle} — {why}"
                 : $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
@@ -100,14 +104,19 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// 'Revit Doctor' log: native warnings auto-resolved/suppressed.
     public ObservableCollection<string> DoctorLog { get; } = new ObservableCollection<string>();
 
-    public void LogDoctor(string line) => OnUi(() =>
+    // The log also carries scan, ruleset, publish and refusal lines; only the Revit Doctor's own resolutions count
+    // as auto-resolved warnings (SCORE-E1 / audit: the header used to count every line). Session count.
+    private int _autoResolved;
+
+    public void LogDoctor(string line, bool autoResolved = false) => OnUi(() =>
     {
+        if (autoResolved) _autoResolved++;
         DoctorLog.Insert(0, DateTime.Now.ToString("HH:mm:ss") + "  " + line);
         while (DoctorLog.Count > 200) DoctorLog.RemoveAt(DoctorLog.Count - 1);
         OnChanged(nameof(DoctorHeader));
     });
 
-    public string DoctorHeader => $"Doctor — {DoctorLog.Count} auto-resolved warning(s)";
+    public string DoctorHeader => $"Doctor — {_autoResolved} warning(s) auto-resolved or suppressed · {DoctorLog.Count} line(s)";
 
     public void RaisePendingRequest(Violation v) =>
         OnUi(() => Status = $"⏳ Change request created for '{v.ElementName}' — awaiting coordinator ({v.RuleId})");
@@ -199,9 +208,9 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         if (row.ElementId > 0 && _reportDoc is { } doc) App.Events?.SelectAndShow(doc, row.ElementId);
     }
 
-    /// Fix button -> Auto-Remediator on the ExternalEvent queue. On success the
-    /// row is removed here immediately; the DMU snapshot update inside
-    /// AutoFixExecution prevents the rename from being re-flagged.
+    /// Fix button -> Auto-Remediator on the ExternalEvent queue. A direct fix (WARN/BLOCK) removes the row on success,
+    /// and the DMU snapshot update inside AutoFixExecution stops the rename being flagged again. A REQUEST rule files
+    /// a proposal and keeps the row until a coordinator approves it.
     public void RequestFix(ViolationRow row, System.IntPtr ownerHandle = default)
     {
         if (!row.CanFix || _reportDoc is not { } doc) return;
@@ -210,13 +219,20 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         // nothing touches the model until the coordinator clicks Execute.
         var suggestion = AutoFixExecution.Suggest(row.ElementName, row.Rule, row.Org);
         if (suggestion is null) return;
-        var dialog = new FixReviewDialog(row.ElementName, row.RuleId, row.Rule, suggestion);
+        var dialog = new FixReviewDialog(row.ElementName, row.RuleId, row.Rule, row.Org, suggestion);
         DialogOwner.Attach(dialog, ownerHandle);
         if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
 
         Status = $"⚡ Fixing '{row.ElementName}' ({row.RuleId})…";
         AutoFixExecution.Run(doc, row.ElementId, row.RuleId, (oldName, newName) => OnUi(() =>
         {
+            if (row.Mode == "REQUEST")
+            {   // BG-4: filed as a proposal — the element is unchanged until a coordinator approves, so the row stays
+                Status = newName is null
+                    ? $"✕ No proposal filed for '{row.ElementName}' — one may already be pending (Change Requests)."
+                    : $"✓ Proposed '{newName}' for '{row.ElementName}' — a coordinator approves it in Change Requests.";
+                return;
+            }
             if (newName is null)
             {
                 Status = $"✕ Could not auto-fix '{row.ElementName}' ({row.RuleId}) — rename manually.";

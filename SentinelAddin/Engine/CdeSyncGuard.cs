@@ -9,9 +9,9 @@ namespace Sentinel.Engine;
 
 /// <summary>
 /// CDE Sync Guard (CDE-01): judges the central file name by the project's naming@n — the standard the bridge's
-/// /propose applies — when a sync completes. Revit's API cannot veto a sync (DocumentSynchronizedWithCentral is
-/// a post-event and the Synchronizing pre-event is not cancellable), so the guard reports loudly instead of
-/// blocking. The naming@n is resolved OFF Revit's thread (Prefetch, at open and after each sync) and only read
+/// /propose applies — when a sync completes (DocumentSynchronizedWithCentral, a post-event), so the guard reports
+/// loudly instead of blocking. BLOCK rules are stopped before the sync by App.OnSynchronizing; package 3 (GP-3)
+/// moves CDE-01 there too. The naming@n is resolved OFF Revit's thread (Prefetch, at open and after each sync) and only read
 /// here; the decision itself is pure (CdeSyncGuard.Judge.cs, pinned by tools/naming-port-check).
 /// </summary>
 public static partial class CdeSyncGuard

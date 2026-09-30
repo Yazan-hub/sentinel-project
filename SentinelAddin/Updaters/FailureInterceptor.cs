@@ -55,12 +55,12 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
                 {
                     accessor.ResolveFailure(failure);          // Revit's own fix (axis nudge etc.)
                     resolvedAny = true;
-                    Log("Resolved: " + Trim(description));
+                    Log("Resolved: " + Trim(description), autoResolved: true);
                 }
                 else
                 {
                     accessor.DeleteWarning(failure);           // benign: dismiss (duplicate mark)
-                    Log("Suppressed: " + Trim(description));
+                    Log("Suppressed: " + Trim(description), autoResolved: true);
                 }
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
@@ -75,5 +75,5 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
 
     private static string Trim(string s) => s.Length > 120 ? s.Substring(0, 117) + "..." : s;
 
-    private static void Log(string line) => App.PanelVm?.LogDoctor(line);
+    private static void Log(string line, bool autoResolved = false) => App.PanelVm?.LogDoctor(line, autoResolved);
 }

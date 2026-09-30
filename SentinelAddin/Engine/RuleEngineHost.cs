@@ -62,7 +62,9 @@ public sealed class RuleEngineHost
             {
                 // Built directly, not via Make: the rule's own MessageEn would substitute this text into
                 // "{name}" and read as "Family '(ruleset.org is empty…)' does not match…".
-                violations.Add(new Violation(rule.Id, rule.Mode, -1, "(ruleset.org is empty — rule not evaluated)",
+                // Monitor, whatever the rule's mode: a note that a rule was NOT evaluated is never a BLOCK that stops a
+                // sync, nor a scored row (package 2 review) — nothing in the model can fix a missing office code.
+                violations.Add(new Violation(rule.Id, EnforcementMode.Monitor, -1, "(ruleset.org is empty — rule not evaluated)",
                     $"Rule {rule.Id} needs an office code — ruleset.org is empty; not evaluated", null, rule.DocRef));
                 continue;
             }
@@ -215,8 +217,8 @@ public sealed class RuleEngineHost
 
     private static void CheckParameter(Element e, Rule rule, string org, List<Violation> sink)
     {
-        var p = e.LookupParameter(rule.ParameterName!);
-        if (p is null || !p.HasValue || string.IsNullOrWhiteSpace(p.AsString()))
+        if (rule.ParameterName is null) return;   // nothing to check (the live DMU path had no guard)
+        if (!ParamValue.Filled(e, rule.ParameterName))  // by storage type, instance then type (SCAN-E1)
             sink.Add(Make(rule, org, e.Id.IdValue(), e.Name));
     }
 

@@ -50,6 +50,15 @@ static class Check
            "empty org matches nothing real (fails closed)");
         Ok(RuleRegex.NeedsOrg(tn), "TN-01 needs an org");
         Ok(!RuleRegex.NeedsOrg(new Rule { Tokens = ["LEVEL"], TokenDefs = new() { ["LEVEL"] = @"L\d{2}" }, MessageEn = "x" }), "a rule without {org} does not");
+
+        Console.WriteLine("\nRuleRegex.Matches — the ⚡ Fix dialog and the scanner give one answer (BG-5)\n");
+        var orgRule = new Rule { Id = "VW-01", Tokens = ["ORG", "BODY"], Separator = "_",
+            TokenDefs = new() { ["ORG"] = "{org}", ["BODY"] = "[A-Z0-9]+" }, MessageEn = "x" };
+        Ok(RuleRegex.Matches(orgRule, "AST", "AST_LOBBY", out var e1) && e1 is null, "a rule with {org} passes the office's own name (the dialog refused it)");
+        Ok(!RuleRegex.Matches(orgRule, "AST", "BDS_LOBBY", out _), "another office's code does not pass");
+        var bad = new Rule { Id = "X", Tokens = ["A"], TokenDefs = new() { ["A"] = "(" }, MessageEn = "x" };
+        Ok(!RuleRegex.Matches(bad, "AST", "anything", out var e2) && e2 is not null && e2.StartsWith("the rule's pattern is malformed"), "a malformed def fails closed, with the reason");
+        Ok(RuleRegex.Matches(new Rule { Id = "Y", MessageEn = "x" }, "AST", "whatever", out _), "a rule with no tokens has nothing to match");
         Ok(RuleRegex.TextWithOrg("Type '{name}' does not match {org}_[LOC]", "XXX") == "Type '{name}' does not match XXX_[LOC]", "message substitution keeps {name}");
         Ok(RuleRegex.TextWithOrg("{org}_x", "") == "{org}_x", "empty org leaves the placeholder visible in text");
 

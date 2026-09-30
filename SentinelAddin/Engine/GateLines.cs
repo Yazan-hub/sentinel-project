@@ -56,7 +56,7 @@ public static class GateLines
                    "Nothing was judged — this file is NOT certified for CDE upload.\n" +
                    "Schema: " + Schema(r) + " (" + size + ")\n\n" + cert;
         var top = r.EntityCounts.OrderByDescending(kv => kv.Value).Take(6).Select(kv => kv.Key + ": " + kv.Value);
-        return (r.Outcome == GateOutcome.Pass ? "✓ PASS — certified for CDE upload" : "✕ FAIL — DO NOT upload this file") + "\n\n" +
+        return (r.Outcome == GateOutcome.Pass ? "✓ contract PASS — IDS not checked here (Governed Publish judges ids@n)" : "✕ FAIL — DO NOT upload this file") + "\n\n" +
                "Contract: " + r.ContractLabel + " · Schema: " + Schema(r) + "\n" +
                "Entities: " + r.TotalEntities + " (" + size + ")\n" +
                string.Join("\n", top) + "\n\n" +

@@ -102,7 +102,7 @@ public sealed class SentinelUpdater : IUpdater
         //  monitor -> log only (panel)
         //  warn    -> panel + a status line
         //  request -> pending change request + flag element
-        //  block   -> nothing extra here yet: package 2 of the Revit plan makes BLOCK stop the sync
+        //  block   -> stops the sync (App.OnSynchronizing), never the edit
         if (shown)
             foreach (var v in violations.Where(v => v.Mode == EnforcementMode.Warn))
                 _panel.RaiseWarnToast(v);

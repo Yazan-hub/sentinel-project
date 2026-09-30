@@ -88,6 +88,12 @@ static class Check
         Ok(lines.All(l => !l.Contains('%')) && headline.StartsWith("Not scored — none — not installed for aster-villa or its office")
            && !headline.Contains('%') && !headline.Contains("(A)") && report.RulesetRef is null && report.RulesetSha256 is null,
            "a none source never produces a score, a grade or a ruleset ref");
+        // SCORE-E1: a scored headline names both percentages — the weighted score and the pass rate.
+        var scored = new ScanReport("Aster Villa", DateTimeOffset.Now, 3, 10,
+            new List<Violation> { new("VW-01", EnforcementMode.Warn, 1, "A", "x", null, null) });
+        var sh = HealthScorecard.Build(scored).Headline;
+        Ok(sh.StartsWith("Weighted rule score 90.0% (B) · rule pass rate 90.0%") && scored.ScoreLabel == "Rule pass rate",
+           "a scored headline names both figures; a scan report's label is Rule pass rate");
         var (rs0, src0, note0) = RulesetStore.Load("");
         Ok(rs0.Rules.Count == 0 && src0.Origin == "none" && src0.Label == "none — not bound — Sentinel ▸ Project Setup" && note0 is null, "Load(\"\") → none, not bound, nothing asked");
     }

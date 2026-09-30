@@ -104,11 +104,15 @@ public sealed class ScanReport
     /// score and a grade — "none — not installed for aster-villa or its office". Score must not be read then.
     public string? NotScored { get; set; }
 
+    /// SCORE-E1: what Score measures, printed next to it — "Rule pass rate" for a ruleset scan, "IFC readiness" for IFC
+    /// pre-flight (IFC-01 mapping + IFC-02 required properties). Three different percentages used to share one label.
+    public string ScoreLabel { get; set; } = "Rule pass rate";
+
     /// The same report — same ruleset identity — with one more violation from a check outside the ruleset
     /// (CDE-01 at sync); <paramref name="counted"/> false keeps it out of ElementsChecked (a Monitor note).
     public ScanReport Plus(Violation extra, bool counted = true) =>
         new(DocTitle, At, DurationMs, ElementsChecked + (counted ? 1 : 0), new List<Violation>(Violations) { extra })
-        { Ruleset = Ruleset, RulesetRef = RulesetRef, RulesetSha256 = RulesetSha256, NotScored = NotScored };
+        { Ruleset = Ruleset, RulesetRef = RulesetRef, RulesetSha256 = RulesetSha256, NotScored = NotScored, ScoreLabel = ScoreLabel };
 
     /// Monitor-mode findings are informational and excluded from the score
     /// (HealthScorecard still counts them at low weight for the PM view).

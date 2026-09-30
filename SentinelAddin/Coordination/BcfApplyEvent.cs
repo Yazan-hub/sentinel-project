@@ -254,7 +254,9 @@ public sealed class BcfApplyEvent : IExternalEventHandler
     /// </summary>
     private static (XYZ eye, XYZ fwd, XYZ up) ToRevit(Document doc, PerspectiveCamera c)
     {
-        Transform inv = doc.ActiveProjectLocation.GetTotalTransform().Inverse; // Shared -> Internal
+        // ProjectLocation.GetTotalTransform() maps shared → internal (an instance's own frame into the model); the
+        // Inverse used here before mapped the other way, which a Revit→Revit round trip hid (package 2 review).
+        Transform inv = doc.ActiveProjectLocation.GetTotalTransform(); // Shared -> Internal
         XYZ eye = inv.OfPoint(new XYZ(c.ViewPoint.X, c.ViewPoint.Y, c.ViewPoint.Z) * MetersToFeet);
         XYZ fwd = inv.OfVector(new XYZ(c.Direction.X, c.Direction.Y, c.Direction.Z)).Normalize();
         XYZ up = inv.OfVector(new XYZ(c.UpVector.X, c.UpVector.Y, c.UpVector.Z));

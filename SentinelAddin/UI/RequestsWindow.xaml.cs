@@ -40,7 +40,7 @@ public partial class RequestsWindow : Window
         RequestList.ItemsSource = Rows;
         Reload();
         SubHeader.Text = isCoordinator
-            ? $"{Rows.Count} pending — approve keeps the change, reject reverts it automatically"
+            ? $"{Rows.Count} pending — approve keeps a change (or applies a ⚡ proposal); reject reverts it (or drops the proposal)"
             : $"{Rows.Count} pending — read-only (you are not listed as a coordinator)";
         if (!isCoordinator) RequestList.IsEnabled = false;
     }
@@ -75,11 +75,29 @@ public partial class RequestsWindow : Window
         // only once the verdict is written.
         App.Events?.Enqueue(_doc, approve ? "approve the request" : "reject the request", (_, d) =>
         {
-            using var t = new Transaction(d, approve ? "Sentinel: Approve request" : "Sentinel: Reject request");
-            t.Start();
-            RequestManager.Resolve(d, id, approve, note: null);
-            t.Commit();
-            Dispatcher.Invoke(() => { Rows.Remove(row); SubHeader.Text = $"{Rows.Count} pending"; });
+            // The window says why a verdict did not land (a name taken since the proposal, an element another user
+            // owns) — it used to go only to the pane's Doctor log while the row silently stayed.
+            string? error = null;
+            using (var t = new Transaction(d, approve ? "Sentinel: Approve request" : "Sentinel: Reject request"))
+            {
+                t.Start();
+                try
+                {
+                    RequestManager.Resolve(d, id, approve, note: null);
+                    if (t.Commit() != TransactionStatus.Committed)
+                        error = "Revit did not save the verdict (another user may own the element) — the request stays pending.";
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is Autodesk.Revit.Exceptions.ApplicationException)
+                {
+                    if (t.GetStatus() == TransactionStatus.Started) t.RollBack();
+                    error = ex.Message;
+                }
+            }
+            Dispatcher.Invoke(() =>
+            {
+                if (error is null) { Rows.Remove(row); SubHeader.Text = $"{Rows.Count} pending"; }
+                else SubHeader.Text = "✕ " + error;
+            });
         });
     }
 }

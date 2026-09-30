@@ -17,10 +17,6 @@ public static class IfcPreFlightScanner
     public const string RuleIdExportAs = "IFC-01";
     public const string RuleIdPset = "IFC-02";
 
-    /// Mandatory office shared parameters for deliverable exports, named from the
-    /// configured office code (extend via ruleset overlay in Phase 3).
-    public static string[] MandatoryPsetParams(string org) => new[] { OrgNames.ViewStatus(org) };
-
     /// Categories that materially matter in an IFC deliverable.
     private static readonly BuiltInCategory[] ExportCategories =
     {
@@ -32,7 +28,10 @@ public static class IfcPreFlightScanner
         BuiltInCategory.OST_CurtainWallMullions, BuiltInCategory.OST_GenericModel,
     };
 
-    public static ScanReport Scan(Document doc)
+    /// <summary>IFC-02 (PRE-E2) checks what the delivery contract requires — its required property names, read on each
+    /// element whose IFC class they apply to — not an office view parameter. <paramref name="contract"/> null (none
+    /// installed) or a name Sentinel has no Revit mapping for → a Monitor note saying it was not checked.</summary>
+    public static ScanReport Scan(Document doc, DeliveryContract? contract, string contractLabel)
     {
         var sw = Stopwatch.StartNew();
         var violations = new List<Violation>();
@@ -42,15 +41,20 @@ public static class IfcPreFlightScanner
         string org = rs?.Org ?? string.Empty;
         string? bep = OrgNames.DocRef(rs, "bep");
         string exportAsRef = bep is null ? "ISO 16739" : "ISO 16739 / " + bep;
-        string[] psetParams;
-        if (OrgNames.Configured(org)) psetParams = MandatoryPsetParams(org);
-        else
-        {
-            psetParams = Array.Empty<string>();
+        var (mapped, unmapped) = contract is null
+            ? ((IReadOnlyList<PsetEntry>)Array.Empty<PsetEntry>(), (IReadOnlyList<string>)Array.Empty<string>())
+            : PsetMap.ForRequired(org, contract.RequiredProperties);
+        if (contract is null)   // the loader's own reason: unbound, unreachable, refused or none installed
             violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
-                "No office code configured (ruleset 'org' is empty) — office parameter checks skipped.",
-                "لم يتم تكوين رمز المكتب — تم تخطي فحص معاملات المكتب.", null));
-        }
+                $"Required properties not checked — contract: {contractLabel}.", null, null));
+        else
+            foreach (var pset in contract.RequiredPsets)   // property SETS are judged in the IFC only: say so
+                violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
+                    $"Required property set '{pset}' ({contractLabel}) — not checked here; the delivery gate checks it in the IFC.", null, bep));
+        foreach (var name in unmapped)
+            violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
+                $"Required property '{name}' ({contractLabel}) has no Revit mapping in Sentinel — not checked here; the delivery gate checks it in the IFC.",
+                null, bep));
 
         var catFilter = new ElementMulticategoryFilter(ExportCategories);
         var elements = new FilteredElementCollector(doc)
@@ -120,20 +124,25 @@ public static class IfcPreFlightScanner
                     exportAsRef));
             }
 
-            foreach (var pName in psetParams)
+            if (mapped.Count > 0)
             {
-                var p = e.LookupParameter(pName);
-                if (p is not null && (!p.HasValue || string.IsNullOrWhiteSpace(p.AsString())))
-                    violations.Add(new Violation(RuleIdPset, EnforcementMode.Warn,
-                        e.Id.IdValue(), Describe(e),
-                        "Mandatory property '" + pName + "' is empty for IFC export.",
-                        null, bep));
+                // The same class and read the governed extractor uses (typed, instance then type): missing and empty
+                // are both flagged — an element without the parameter used to pass.
+                var cls = GovernedElementExtractor.IfcClassOf(e, doc);
+                foreach (var entry in mapped)
+                {
+                    if (entry.Classes.Length > 0 && !entry.Classes.Any(c => cls.StartsWith(c, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (GovernedElementExtractor.ReadEntry(e, doc, entry) is null)
+                        violations.Add(new Violation(RuleIdPset, EnforcementMode.Warn, e.Id.IdValue(), Describe(e),
+                            $"Required property {entry.Pset}.{entry.Prop} is missing or empty — {contractLabel} requires it.",
+                            null, bep));
+                }
             }
         }
 
         sw.Stop();
         return new ScanReport(doc.Title + " [IFC pre-flight]", DateTimeOffset.Now,
-            sw.ElapsedMilliseconds, checkedCount, violations);
+            sw.ElapsedMilliseconds, checkedCount, violations) { ScoreLabel = "IFC readiness" };   // (elements − WARN rows) ÷ elements
     }
 
     private static bool HasNonEmpty(Element e, string name)

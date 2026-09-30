@@ -113,13 +113,8 @@ public sealed class NamingManagerCommand : IExternalCommand
             // name against the rule (org expanded) and Execute goes through the batch path with one row.
             var rs = App.Engine!.RulesetFor(doc);
             var rule = rs.Rules.FirstOrDefault(r => r.Id == row.RuleId);
-            var shown = rule == null ? null : new Rule
-            {
-                Id = rule.Id, DocRef = rule.DocRef, Separator = rule.Separator, Tokens = rule.Tokens,
-                TokenDefs = rule.TokenDefs.ToDictionary(kv => kv.Key, kv => RuleRegex.DefWithOrg(kv.Value, rs.Org)),
-            };
             var seed = row.Suggestion ?? (row.Proposed.Length > 0 ? row.Proposed : row.Current);
-            var dialog = new FixReviewDialog(row.Current, row.RuleId, shown, seed);
+            var dialog = new FixReviewDialog(row.Current, row.RuleId, rule, rs.Org, seed);   // the dialog expands {org} itself (BG-5)
             DialogOwner.Attach(dialog, c);
             if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FinalName)) return;
             row.Proposed = dialog.FinalName!.Trim();

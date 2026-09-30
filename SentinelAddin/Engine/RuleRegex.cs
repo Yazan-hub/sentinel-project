@@ -34,4 +34,14 @@ public static class RuleRegex
         return new Regex("^" + string.Join(Regex.Escape(r.Separator), parts) + "$",
                          RegexOptions.CultureInvariant);
     }
+
+    /// BG-5: the one "does this name pass the rule" answer for every surface (scanner, ⚡ Fix dialog, the fix itself).
+    /// A rule with no tokens has nothing to match. A malformed token def fails CLOSED with the reason — never a pass.
+    public static bool Matches(Rule r, string? org, string text, out string? error)
+    {
+        error = null;
+        if (r.Tokens.Count == 0) return true;
+        try { return For(r, org).IsMatch(text); }
+        catch (System.ArgumentException ex) { error = "the rule's pattern is malformed: " + ex.Message; return false; }
+    }
 }

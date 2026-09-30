@@ -82,10 +82,25 @@ public static class GovernedElementExtractor
     // Explicit IfcExportAs (instance, then type) wins; else the category default; else a generic proxy.
     internal static string IfcClassOf(Element e, Document doc)
     {
-        var explicitAs = FirstNonEmpty(e, "IfcExportAs")
-            ?? (doc.GetElement(e.GetTypeId()) is { } et ? FirstNonEmpty(et, "IfcExportAs") : null);
+        var et = doc.GetElement(e.GetTypeId());
+#if REVIT2023_OR_GREATER
+        // Revit's built-in "Export to IFC As" first (instance, then type) — what IFC-01 and the exporter honour — then
+        // the legacy shared parameter (package 2 review: IFC-02 judged class-scoped properties against the wrong class).
+        var explicitAs = BipNonEmpty(e, BuiltInParameter.IFC_EXPORT_ELEMENT_AS)
+            ?? FirstNonEmpty(e, "IfcExportAs")
+            ?? (et is null ? null : BipNonEmpty(et, BuiltInParameter.IFC_EXPORT_ELEMENT_TYPE_AS) ?? FirstNonEmpty(et, "IfcExportAs"));
+#else
+        var explicitAs = FirstNonEmpty(e, "IfcExportAs") ?? (et is null ? null : FirstNonEmpty(et, "IfcExportAs"));
+#endif
         if (!string.IsNullOrWhiteSpace(explicitAs))
-            return explicitAs!.Trim().ToUpperInvariant();
+        {
+            // "IfcWall.SHEAR" → IFCWALL; a type-level "IfcDoorType" → IFCDOOR (the occurrence class is what is judged).
+            var cls = explicitAs!.Trim().ToUpperInvariant();
+            int dot = cls.IndexOf('.');
+            if (dot > 0) cls = cls.Substring(0, dot);
+            if (cls.EndsWith("TYPE") && cls.Length > 7) cls = cls.Substring(0, cls.Length - 4);
+            return cls;
+        }
 
         long catId = e.Category?.Id.IdValue() ?? 0;
         foreach (var (cat, ifc) in CategoryToIfc)
@@ -210,6 +225,12 @@ public static class GovernedElementExtractor
             if (!string.IsNullOrWhiteSpace(v)) return v;
         }
         return null;
+    }
+
+    private static string? BipNonEmpty(Element e, BuiltInParameter bip)
+    {
+        var p = e.get_Parameter(bip);
+        return p is { HasValue: true } && !string.IsNullOrWhiteSpace(p.AsString()) ? p.AsString() : null;
     }
 
     private static string? FirstNonEmpty(Element e, string name)
