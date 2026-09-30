@@ -5,8 +5,10 @@
 // it; Promote v1 door swaps wait for DR-1, see PreTick). A human may tick a rejected row (overrule, with the failures on screen — the result records that they did);
 // recorded rows say honestly that no spec adjudicated them. The elements the planner sent to a person are listed above
 // the rows and cannot be ticked. Modeless, code-only WPF, in GhostReviewWindow's visual family.
+// MA-1: a create row names family : type, level and the numbers a reviewer checks.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Windows;
@@ -120,12 +122,12 @@ public sealed class ChangesetReviewWindow : Window
 
             var label = new TextBlock { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
-            var type = el.Place?.TypeName; var lvl = el.Place?.LevelName;
+            var type = el.Place?.TypeName;
             label.Text = el.Op switch
             {
                 "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
                 "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
-                _ => $"{el.Kind}: {name}" + (type != null ? $"  ·  {type}" : "") + (lvl != null ? $"  ·  {lvl}" : ""),
+                _ => CreateLabel(el, name),
             };
             if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
             row.Children.Add(label);
@@ -134,6 +136,24 @@ public sealed class ChangesetReviewWindow : Window
         root.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
     }
+
+    /// <summary>A create row (MA-1): kind and name, then family : type, level, and the numbers a reviewer checks. Rows of the
+    /// four v1 kinds read exactly as before.</summary>
+    private static string CreateLabel(ChangesetElementDto el, string name)
+    {
+        var p = el.Place;
+        var parts = new List<string> { $"{el.Kind}: {name}" };
+        if (p?.TypeName != null) parts.Add((p.FamilyName != null ? p.FamilyName + " : " : "") + p.TypeName);
+        if (p?.LevelName != null) parts.Add(p.LevelName);
+        if (p?.SillHeight is double s) parts.Add($"sill {Mm(s)} mm");
+        if (p?.Offset is double o) parts.Add($"offset {Mm(o)} mm");
+        if (p?.BaseOffset is double b) parts.Add($"base offset {Mm(b)} mm");
+        if (p?.Structural == true) parts.Add("structural");
+        if (p?.Mark != null && p.Mark != name) parts.Add("Mark " + p.Mark);
+        return string.Join("  ·  ", parts);
+    }
+
+    private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
     /// <summary>What is ticked when the window opens (and by "Tick suggested"): a create the IDS accepted, and a Promote
     /// attach or retype — a retype only with the type the plan saw (type_before), and never a door swap until the founder

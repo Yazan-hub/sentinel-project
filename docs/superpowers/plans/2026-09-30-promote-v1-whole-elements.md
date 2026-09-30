@@ -724,24 +724,36 @@ and `diff` the two files (identical); `--skip-walls --floor …` prints "wrote �
    (a BDS type whose build-up differs from its name will be held with E6's reason — record it); families `BDS_INT_1 PNL`,
    `BDS_INT_2 PNL`, `BDS_Window_Single Panel`, `BDS_Window_1 Panel+FX` loaded (Project Browser ▸ Families). **If a BDS target is
    missing, stop and ask.**
-5. Hand-made seed types (part of the seed, made by a person; Promote creates none): Insert ▸ Load Family from the Revit 2024 content
-   library `M_Single-Flush`, `M_Double-Flush`, `M_Fixed` (if the library is not installed, stop and ask: any non-BDS door/window family
-   with type-level Width/Height will do). Duplicate types: `M_Single-Flush : MA1 1000 x 2100mm` (1000/2100), `M_Double-Flush : MA1 2000 x 2100mm`,
-   `M_Fixed : MA1 600 x 1200mm`, `M_Fixed : MA1 800 x 1200mm`, `M_Fixed : MA1 600 x 1300mm`; ceiling `MA1 Ceiling - 50mm` (duplicate
-   `600mm x 600mm ACT System`, Edit Structure to 50 mm total). Record which parameter Width sits in (Type Properties) — B35-10.
+5. **The only hand-made part of the seed: types** (Sentinel loads no families and creates no types). Insert ▸ Load Family from
+   the Revit 2024 content library `M_Single-Flush`, `M_Double-Flush`, `M_Fixed` (if the library is not installed, stop and ask:
+   any non-BDS door/window family with type-level Width/Height will do, and its names go to §6.2 with `--type`). Duplicate types:
+   `M_Single-Flush : MA1 1000 x 2100mm` (1000/2100), `M_Double-Flush : MA1 2000 x 2100mm`, `M_Fixed : MA1 600 x 1200mm`,
+   `M_Fixed : MA1 800 x 1200mm`, `M_Fixed : MA1 600 x 1300mm`; ceiling `MA1 Ceiling - 50mm` (duplicate `600mm x 600mm ACT System`,
+   Edit Structure to 50 mm total). Record which parameter Width sits in (Type Properties) — B35-10. Everything else the seed
+   names is already in the copy: floor types `Generic 300mm`, `Concrete 150mm`, `Concrete 250mm`, `BDS_INT_ARC_SCREED_90 mm`; roof
+   types `Generic - 300mm`, `Generic - 225mm`; ceiling types `Generic`, `600mm x 600mm ACT System`; `M_Single-Flush : 0915 x 2134mm`
+   (comes with the family); `BDS_INT_1 PNL : BDS_INT_1 PNL_GLASS_1000 x 2100 mm` (the template). If two ceiling types are named
+   `Generic` (Basic and Compound), rename the Compound one — Apply would otherwise refuse ("a person decides").
 
-### 6.2 Seed floors (changeset) and the rest by hand
+### 6.2 The seed: one command, one changeset
 
 ```
-python demo/promote-sample/make-concept.py --skip-walls --l1 "GR-FFL:0" --l2 "01-FFL:3300" \
-    --floor "Generic 300mm" --floor-l2 "Concrete 150mm" --floor-gap "Concrete 250mm" --floor-office "BDS_INT_ARC_SCREED_90 mm" --out ma1-floors.json
-python demo/promote-sample/make-concept.py --sheet
+python demo/promote-sample/make-concept.py --b35 --l1 "GR-FFL:0" --l2 "01-FFL:3300" --out ma1-seed.json
 ```
-Post `ma1-floors.json` to `ma1-bds` (curl with the SIM base URL and bearer as in B8/B33, or `sentinel_propose_changeset`) and place it
-with **Review AI Proposals** (tick all). Then place the §6.3 elements by hand, set each seed element's **Mark** to its id (floors too),
-tick **Structural** on `MA1-L2-F02`. Save `ma1-seed.rvt`, close. Every B35 attempt starts from a fresh copy `ma1-run.rvt`.
+It writes the whole §6.3 seed as ONE changeset: 19 elements — 5 floors (`MA1-L2-F02` Structural), 2 flat roofs on `MA0 Roof`,
+3 ceilings 2700 above GR-FFL, 6 doors and 3 windows (sill 900) on the MA-0 walls — each with its Mark. The type names default
+to §6.3's; a type named otherwise in this copy (step 4) goes in as `--type "Generic 300mm=MA1 Floor - 300mm"` (repeatable), another
+roof level as `--roof-level`. Post `ma1-seed.json` to `ma1-bds` (curl with the SIM base URL and bearer as in B8/B33, or
+`sentinel_propose_changeset`), then run B35-0 (MA-1 placement slice plan §5.3): **Review AI Proposals**, tick every row, Apply —
+one transaction, one Undo. Save `ma1-seed.rvt`, close. Every B35 attempt starts from a fresh copy `ma1-run.rvt`.
+A declined Apply names the element and what to change (a type not loaded, a door point on no wall or on two, a level that does
+not exist); nothing was placed — fix the copy or the arguments and post again. The two-step path (`--skip-walls --floor…` +
+`--sheet`, the rest by hand) still works.
 
 ### 6.3 The seed and what run 1 must do with it
+
+Placed by `make-concept.py --b35` (§6.2): roofs and ceilings are the outlines below, doors and windows the point on their host
+wall's location line at their centre (the script's `PLACED` table); every element's Mark is its id.
 
 Seed walls are MA-0's: E01 y=0 x 0→12000, E03 x=24000 y 0→6000, E05 y=12000 x 24000→12000, E06 y=12000 x 12000→0; partitions
 I01–I05 at x = 4000…20000 from y 0→4500, I06–I10 at the same x from y 7500→12000 (names `MA0-<L1|L2>-…` from `make-concept.py`).
@@ -786,7 +798,7 @@ separately from the seed's.
 | B35-7 Idempotence | Promote, **No** | "Nothing to file"; DD now after per class (seed: Floors 2/4, Roofs 1/2, Ceilings 1/3, Doors 3/5, Windows 2/3, walls as B33's re-check) plus the template's own elements as measured; stamped by Promote per class; zero types created (compare the Project Browser type counts before/after) |
 | B35-8 Undo / redo | Ctrl+Z twice, Ctrl+Y twice | Two `changeset_reverted` rows (undo, counts 1 and the roof changeset's), then two redo rows (`GET /cde/ma1-bds/audit`) |
 | B35-9 Stale plan (optional, fresh copy) | Promote Yes; before Apply, change MA1-D02 by hand to another `M_Double-Flush` type; Apply | Declined: "door … is now "M_Double-Flush : …" — the model changed since the plan; re-run Promote"; nothing changed |
-| B35-10 Live API facts (owed) | Read from the rows above | `Generic 300mm`'s Function came through (`FUNCTION_PARAM` on a FloorType); which built-in held the concept door/window Width; `Activate()` of an inactive BDS symbol worked inside the transaction; (optional) an ExtrusionRoof's storey |
+| B35-10 Live API facts (owed) | Read from the rows above | `Generic 300mm`'s Function came through (`FUNCTION_PARAM` on a FloorType); which built-in held the concept door/window Width; `Activate()` of an inactive BDS symbol worked inside the transaction; (optional) an ExtrusionRoof's storey (the placement facts — host, sill, flat roof, ceiling offset, Structural — are B35-0 in the MA-1 placement slice plan §5.3) |
 | B35-11 Close | Close without saving; originals' sha256 | Unchanged. Record rows after B34 in `SIMULATION_ROOM_RUN_2026-09-22.md` |
 
 **Numbers for gate G2 (as measured):** per class, seed elements proposed / held (by reason) / left as is; unticks (edits) per storey;
@@ -817,7 +829,8 @@ review + apply time per storey; changesets and ledger rows; elements stamped by 
 
 ## 9. Out of scope, and found in passing
 
-- **Not in v1:** rehosting (MA-5), new geometry (roof/ceiling/door/window **create** stays refused by the bridge), `set_parameter`
+- **Not in v1:** rehosting (MA-5), new geometry (roof/ceiling/door/window **create** stays refused by the bridge) — landed after v1 in the MA-1
+  placement slice (`2026-09-30-ma1-placement-slice.md`), `set_parameter`
   for the matrix `properties` (MA-2 / P2-7), `matrixToIds`, `stage_map`, `type_snap_mm`, type-gap groups in the Holding Area, the LOD state
   ledger row, one Undo per storey across chunks, reading the outer boundary for one-type storeys.
 - **Pre-existing TS↔C# resolver divergences** (bridge research; none is reached by the DD file or the Promote planner, so the parity
