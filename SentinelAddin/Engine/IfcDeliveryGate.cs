@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,7 +20,9 @@ public enum GateOutcome { Pass, Fail, NotChecked }
 /// Emits a signed certificate (SHA-256 of the file + verdict + findings + the
 /// contract's kind@n · source · sha) stored next to the IFC; a failed gate means
 /// the file should not reach the CDE, and with no contract the certificate says
-/// NOT_CHECKED. Pure C# — the Node port is WebApp/bridge/delivery-gate.mjs, and
+/// NOT_CHECKED. Required psets and properties are judged per class (GATE-E2):
+/// "FireRating 118/120 IFCDOOR", values on the element's type count, and a class below
+/// the contract's min_coverage fails. Pure C# — the Node port is WebApp/bridge/delivery-gate.mjs, and
 /// tools/gate-check runs the shared contract-parity fixture that its test runs.
 /// </summary>
 public static class IfcDeliveryGate
@@ -45,13 +49,27 @@ public static class IfcDeliveryGate
         public List<string> Failures { get; } = new List<string>();
         public List<string> Warnings { get; } = new List<string>();
         public Dictionary<string, int> EntityCounts { get; } = new Dictionary<string, int>();
+        /// Every class each required pset or property applies to, with how many of its elements carry it (GATE-E2);
+        /// a class below the contract's min_coverage is also a failure.
+        public List<CoverageLine> Coverage { get; } = new List<CoverageLine>();
         public DateTimeOffset At { get; set; } = DateTimeOffset.Now;
         public string CertificatePath { get; set; } = string.Empty;
     }
 
+    /// <summary>One class's coverage of one requirement: "FireRating · IFCDOOR 118/120". Kind is "pset" or "property".</summary>
+    public sealed class CoverageLine
+    {
+        public string Requirement { get; set; } = string.Empty;
+        public string Kind { get; set; } = string.Empty;
+        public string Entity { get; set; } = string.Empty;
+        public int Covered { get; set; }
+        public int Total { get; set; }
+    }
+
     private static readonly Regex EntityRx = new(
-        @"^#\d+\s*=\s*(IFC[A-Z0-9]+)\s*\(", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        @"^#(\d+)\s*=\s*(IFC[A-Z0-9]+)\s*\(", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex SchemaRx = new(@"FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'", RegexOptions.CultureInvariant);
+    private static readonly Regex RecordStartRx = new(@"^\s*#\d+\s*=", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>Judge <paramref name="ifcPath"/> by <paramref name="contract"/>, naming <paramref name="source"/> (the
     /// pair DeliveryContract.Load returns). With no contract the outcome is NotChecked: the file's size, sha and schema
@@ -76,16 +94,16 @@ public static class IfcDeliveryGate
             return Seal(r);
         }
 
-        var psets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var props = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ix = new CoverageIndex(contract.RequiredProperties);
         bool sawGeoref = false;
 
         // Single streaming pass — handles multi-hundred-MB deliverables.
         using (var reader = new StreamReader(ifcPath, Encoding.UTF8, true, 1 << 16))
         {
-            string? line;
-            while ((line = reader.ReadLine()) is not null)
+            string? line, next = null;
+            while ((line = next ?? reader.ReadLine()) is not null)
             {
+                next = null;
                 if (r.DetectedSchema.Length == 0 && line.Contains("FILE_SCHEMA"))
                 {
                     var m = SchemaRx.Match(line);
@@ -94,25 +112,20 @@ public static class IfcDeliveryGate
 
                 var em = EntityRx.Match(line);
                 if (!em.Success) continue;
-                var entity = em.Groups[1].Value;
+                // A record may wrap over lines (ISO 10303-21): join until its ';' — never past the next record's "#n=".
+                while (!RecordEnds(line) && (next = reader.ReadLine()) is not null && !RecordStartRx.IsMatch(next))
+                {
+                    line += next;
+                    next = null;
+                }
+                var entity = string.Intern(em.Groups[2].Value); // ~1 000 class names, kept per element below
                 r.TotalEntities++;
                 r.EntityCounts.TryGetValue(entity, out var n);
                 r.EntityCounts[entity] = n + 1;
+                if (long.TryParse(em.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+                    ix.Read(id, entity, line, em.Length);
 
-                if (entity == "IFCPROPERTYSET")
-                {
-                    var nm = Regex.Match(line, @"IFCPROPERTYSET\s*\(\s*'[^']*'\s*,\s*#?\d*\s*,?\s*'([^']+)'");
-                    // Standard form: IFCPROPERTYSET('guid',#owner,'Name',...)
-                    var nm2 = Regex.Match(line, @"IFCPROPERTYSET\s*\([^,]+,[^,]+,\s*'([^']+)'");
-                    if (nm2.Success) psets.Add(nm2.Groups[1].Value);
-                    else if (nm.Success) psets.Add(nm.Groups[1].Value);
-                }
-                else if (entity == "IFCPROPERTYSINGLEVALUE")
-                {
-                    var pm = Regex.Match(line, @"IFCPROPERTYSINGLEVALUE\s*\(\s*'([^']+)'");
-                    if (pm.Success) props.Add(pm.Groups[1].Value);
-                }
-                else if (entity == "IFCSITE")
+                if (entity == "IFCSITE")
                 {
                     // RefLatitude present = 6th arg onward not $  (cheap check:
                     // a parenthesised latitude tuple appears in the line)
@@ -149,12 +162,14 @@ public static class IfcDeliveryGate
                                $"({100.0 * count / buildingElements:F0}%) exceeds {lim.MaxRatio:P0} — semantics are being lost to proxies.");
         }
 
+        // GATE-E2: judged per class, not "present somewhere"; a requirement no class carries is not found.
+        var elements = ix.Elements();
         foreach (var pset in contract.RequiredPsets)
-            if (!psets.Contains(pset))
+            if (!Judge(r, elements, pset, true, contract.MinCoverage))
                 r.Failures.Add($"Required property set '{pset}' not found in the file.");
 
         foreach (var prop in contract.RequiredProperties)
-            if (!props.Contains(prop))
+            if (!Judge(r, elements, prop, false, contract.MinCoverage))
                 r.Failures.Add($"Required property '{prop}' not found in the file.");
 
         if (contract.RequireGeoreference && !sawGeoref)
@@ -191,6 +206,7 @@ public static class IfcDeliveryGate
             entities = judged ? r.TotalEntities : (int?)null, // not counted is not "0 entities"
             failures = r.Failures,
             warnings = r.Warnings,
+            coverage = r.Coverage.Select(c => new { requirement = c.Requirement, kind = c.Kind, entity = c.Entity, covered = c.Covered, total = c.Total }),
             issued_at = r.At,
             issued_by = "Sentinel IFC Delivery Gate",
         }, new JsonSerializerOptions { WriteIndented = true }));
@@ -232,6 +248,270 @@ public static class IfcDeliveryGate
         if (Subtypes.TryGetValue(key, out var subs))
             foreach (var sub in subs) if (counts.TryGetValue(sub, out int m)) n += m;
         return n;
+    }
+
+    // ---- GATE-E2: required psets and properties judged per class (delivery-gate.mjs mirrors every rule below) ----
+
+    private static readonly Regex CommonPset = new(@"^Pset_(.+)Common\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex RefRx = new(@"#([0-9]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex TypedValue = new(@"^IFC[A-Z0-9_]*\((.*)\)\z", RegexOptions.Singleline | RegexOptions.CultureInvariant);
+    /// Building elements and their subtypes (IFC4 IFCSLABSTANDARDCASE…): the classes a required property is judged on.
+    /// The proxy ratio keeps IsBuildingElement alone, so its wording stays.
+    private static readonly HashSet<string> SubtypeClasses = new(Subtypes.Values.SelectMany(s => s), StringComparer.Ordinal);
+    private static bool IsJudged(string entity) => IsBuildingElement(entity) || SubtypeClasses.Contains(entity);
+
+    /// <summary>Judge one required pset or property class by class: add a coverage line for each class it applies to
+    /// and a failure for each class below <paramref name="min"/>. A property ("FireRating", or "Pset_DoorCommon.FireRating")
+    /// applies to each building-element class (or subtype) where at least one element carries it at all — when none does, to
+    /// every class that carries it; "Pset_XCommon" and "Pset_XTypeCommon" to IFCX and its subtypes (none in the file: where
+    /// it appears); any other pset to each class where it appears. An element covers it when the pset is on it or on its
+    /// type (a property: with a value — $ or '' is none). False when it applies to no class: the caller says "not found".</summary>
+    private static bool Judge(GateResult r, List<(string Class, List<Pset> Psets)> elements, string req, bool isPset, double min)
+    {
+        string whole = req.ToLowerInvariant();
+        if (isPset) return JudgeAs(r, elements, req, true, "", whole, min);
+        // "COBie.Type.Name" is one property whose name has dots: judged whole when the pset.property reading applies nowhere.
+        var (pset, prop) = Parts(req);
+        return JudgeAs(r, elements, req, false, pset, prop, min) || (pset.Length > 0 && JudgeAs(r, elements, req, false, "", whole, min));
+    }
+
+    private static bool JudgeAs(GateResult r, List<(string Class, List<Pset> Psets)> elements, string req, bool isPset, string pset, string prop, double min)
+    {
+        string want = prop;
+        // 0 = not carried, 1 = carried with no value, 2 = covered; an element counts its best pset.
+        int Has(Pset p) => isPset ? (p.Name == want ? 2 : 0)
+            : (pset.Length > 0 && p.Name != pset) || !p.Props.TryGetValue(prop, out var valued) ? 0 : valued ? 2 : 1;
+
+        var carried = new Dictionary<string, int>();
+        var covered = new Dictionary<string, int>();
+        foreach (var (cls, psets) in elements)
+        {
+            int best = 0;
+            foreach (var p in psets) best = Math.Max(best, Has(p));
+            if (best > 0) carried[cls] = carried.TryGetValue(cls, out var c) ? c + 1 : 1;
+            if (best == 2) covered[cls] = covered.TryGetValue(cls, out var v) ? v + 1 : 1;
+        }
+
+        var common = isPset ? CommonPset.Match(req) : Match.Empty;
+        // Pset_AirTerminalTypeCommon belongs to IFCAIRTERMINAL (held on its type): the occurrence class, never IFCXTYPE.
+        string target = common.Success ? "IFC" + Regex.Replace(common.Groups[1].Value.ToUpperInvariant(), "TYPE$", "") : "";
+        var classes = common.Success
+            ? r.EntityCounts.Keys.Where(k => k == target || (Subtypes.TryGetValue(target, out var subs) && subs.Contains(k))).ToList()
+            : new List<string>();
+        // No such class in the file (IFC2x3 MEP is IFCFLOWTERMINAL; some targets are abstract): where the pset appears.
+        if (classes.Count == 0) classes = carried.Keys.Where(k => isPset || IsJudged(k)).ToList();
+        // A property no building element carries (NetPlannedArea on IFCSPACE): every class that carries it.
+        if (classes.Count == 0) classes = carried.Keys.ToList();
+        if (classes.Count == 0) return false;
+        classes.Sort(StringComparer.Ordinal);
+
+        foreach (var cls in classes)
+        {
+            covered.TryGetValue(cls, out int n);
+            int total = r.EntityCounts[cls];
+            r.Coverage.Add(new CoverageLine { Requirement = req, Kind = isPset ? "pset" : "property", Entity = cls, Covered = n, Total = total });
+            // A failing class shows its share floored, so it never reads as the threshold ("199/200 (99%)", not "(100%)");
+            // integer arithmetic and RoundHalfEven, never the framework's formatter (net48 rounds halves away from zero).
+            if ((double)n / total < min)
+                r.Failures.Add($"{(isPset ? "Required property set" : "Required property")} '{req}': {n}/{total} {cls} " +
+                               $"({(100L * n / total).ToString(CultureInfo.InvariantCulture)}%) — below {RoundHalfEven(min, 100).ToString(CultureInfo.InvariantCulture)}%.");
+        }
+        return true;
+    }
+
+    /// <summary>A property set as an element carries it: its name and its single values' names → whether the value is set (lower case).</summary>
+    private sealed class Pset
+    {
+        public readonly string Name;
+        public readonly Dictionary<string, bool> Props = new();
+        public Pset(string name) { Name = name; }
+    }
+
+    /// <summary>A required property as lower-case (pset, property): "Pset_DoorCommon.FireRating" → ("pset_doorcommon",
+    /// "firerating"); "FireRating" → ("", "firerating").</summary>
+    private static (string Pset, string Prop) Parts(string req)
+    {
+        string want = req.ToLowerInvariant();
+        int dot = want.IndexOf('.');
+        return dot > 0 && dot < want.Length - 1 ? (want.Substring(0, dot), want.Substring(dot + 1)) : ("", want);
+    }
+
+    /// <summary>What coverage needs, read line by line: each object's psets (IFCRELDEFINESBYPROPERTIES), its types
+    /// (IFCRELDEFINESBYTYPE), each type's HasPropertySets, each pset's single values the contract names, and each rooted
+    /// entity's class. No geometry and no other property is kept, so a multi-hundred-MB file stays small in memory.</summary>
+    private sealed class CoverageIndex
+    {
+        private readonly HashSet<string> _wanted;                          // the property names the contract asks for
+        private readonly Dictionary<string, string> _names = new();       // one string per pset name
+        private readonly Dictionary<long, string> _classOf = new();
+        private readonly Dictionary<long, (string Name, List<long> Props)> _psets = new();
+        private readonly Dictionary<long, (string Name, bool Valued)> _props = new();
+        private readonly Dictionary<long, List<long>> _own = new();       // object → its psets
+        private readonly Dictionary<long, List<long>> _types = new();     // object → its types
+        private readonly Dictionary<long, List<long>> _typePsets = new(); // type → HasPropertySets
+
+        // Each property's name as pset.property splits it, and whole ("COBie.Type.Name" may be one name).
+        public CoverageIndex(IEnumerable<string> requiredProperties) =>
+            _wanted = new HashSet<string>(requiredProperties.SelectMany(p => new[] { Parts(p).Prop, p.ToLowerInvariant() }), StringComparer.Ordinal);
+
+        /// <param name="argsAt">Where the arguments start: just after the entity's opening parenthesis.</param>
+        public void Read(long id, string entity, string line, int argsAt)
+        {
+            switch (entity)
+            {
+                case "IFCPROPERTYSINGLEVALUE":
+                {
+                    var a = StepArgs(line, argsAt); // ('Name', Description, NominalValue, Unit)
+                    if (a.Count > 0 && _wanted.TryGetValue(Unquote(a[0]).ToLowerInvariant(), out var name))
+                        _props[id] = (name, a.Count > 2 && Valued(a[2]));
+                    return;
+                }
+                case "IFCPROPERTYSET":
+                {
+                    var a = StepArgs(line, argsAt); // (GlobalId, OwnerHistory, 'Name', Description, (HasProperties))
+                    if (a.Count <= 4) return;
+                    var name = Unquote(a[2]).ToLowerInvariant();
+                    if (!_names.TryGetValue(name, out var pooled)) _names[name] = pooled = name;
+                    _psets[id] = (pooled, Refs(a[4]));
+                    return;
+                }
+                case "IFCRELDEFINESBYPROPERTIES":
+                case "IFCRELDEFINESBYTYPE":
+                {
+                    var a = StepArgs(line, argsAt); // (GlobalId, OwnerHistory, Name, Description, (RelatedObjects), Relating…)
+                    if (a.Count < 6) return;
+                    var map = entity == "IFCRELDEFINESBYTYPE" ? _types : _own;
+                    var defs = Refs(a[5]);
+                    foreach (var obj in Refs(a[4]))
+                    {
+                        if (!map.TryGetValue(obj, out var list)) map[obj] = list = new List<long>();
+                        list.AddRange(defs);
+                    }
+                    return;
+                }
+            }
+            // A rooted entity (its GlobalId first) is an object or a type: only those carry psets.
+            int at = argsAt;
+            while (at < line.Length && (line[at] == ' ' || line[at] == '\t')) at++;
+            if (at >= line.Length || line[at] != '\'' || entity.StartsWith("IFCREL", StringComparison.Ordinal)) return;
+            _classOf[id] = entity;
+            if (entity.EndsWith("TYPE", StringComparison.Ordinal) || entity.EndsWith("STYLE", StringComparison.Ordinal)
+                || entity == "IFCTYPEPRODUCT" || entity == "IFCTYPEOBJECT")
+            {
+                var a = StepArgs(line, argsAt); // IfcTypeObject: (GlobalId, OwnerHistory, Name, Description, ApplicableOccurrence, (HasPropertySets), …)
+                if (a.Count > 5) _typePsets[id] = Refs(a[5]);
+            }
+        }
+
+        /// <summary>Every object that carries a pset, its own or its type's: its class and those psets.</summary>
+        public List<(string Class, List<Pset> Psets)> Elements()
+        {
+            var built = new Dictionary<long, Pset?>();
+            Pset? PsetOf(long id)
+            {
+                if (built.TryGetValue(id, out var p)) return p;
+                if (_psets.TryGetValue(id, out var def))
+                {
+                    p = new Pset(def.Name);
+                    foreach (var pid in def.Props)
+                        if (_props.TryGetValue(pid, out var v))
+                            p.Props[v.Name] = (p.Props.TryGetValue(v.Name, out var had) && had) || v.Valued;
+                }
+                return built[id] = p;
+            }
+            void AddAll(List<Pset> to, List<long> ids) { foreach (var id in ids) if (PsetOf(id) is { } p) to.Add(p); }
+
+            var list = new List<(string, List<Pset>)>();
+            foreach (var obj in _own.Keys.Union(_types.Keys))
+            {
+                if (!_classOf.TryGetValue(obj, out var cls)) continue;
+                var psets = new List<Pset>();
+                if (_own.TryGetValue(obj, out var own)) AddAll(psets, own);
+                if (_types.TryGetValue(obj, out var types))
+                    foreach (var t in types)
+                        if (_typePsets.TryGetValue(t, out var held)) AddAll(psets, held);
+                list.Add((cls, psets));
+            }
+            return list;
+        }
+    }
+
+    /// <summary>The top-level arguments of one STEP entity line, from just after its opening parenthesis:
+    /// <c>'a,b',$,(#1,#2),IFCLABEL('x'));</c> → <c>'a,b'</c> · <c>$</c> · <c>(#1,#2)</c> · <c>IFCLABEL('x')</c>.
+    /// Strings ('' inside one) and nesting are respected; an unterminated line gives what was read.</summary>
+    internal static List<string> StepArgs(string line, int start)
+    {
+        var args = new List<string>();
+        int depth = 0, from = start;
+        bool quoted = false;
+        for (int i = start; i < line.Length; i++)
+        {
+            char ch = line[i];
+            if (quoted)
+            {
+                if (ch == '\'') { if (i + 1 < line.Length && line[i + 1] == '\'') i++; else quoted = false; }
+                continue;
+            }
+            if (ch == '\'') quoted = true;
+            else if (ch == '(') depth++;
+            else if (ch == ')')
+            {
+                if (depth == 0) { args.Add(line.Substring(from, i - from).Trim()); return args; }
+                depth--;
+            }
+            else if (ch == ',' && depth == 0) { args.Add(line.Substring(from, i - from).Trim()); from = i + 1; }
+        }
+        return args;
+    }
+
+    /// <summary>Whether a record's text reaches its closing ';' outside a string.</summary>
+    private static bool RecordEnds(string line)
+    {
+        if (line.IndexOf('\'') < 0) return line.IndexOf(';') >= 0; // no string to step over: most geometry records
+        bool quoted = false;
+        foreach (char ch in line)
+        {
+            if (ch == '\'') quoted = !quoted; // '' inside a string flips twice
+            else if (ch == ';' && !quoted) return true;
+        }
+        return false;
+    }
+
+    /// <summary>x·scale rounded to the nearest integer, ties to even, from x's exact binary value — what .NET Core's P0
+    /// prints and delivery-gate.mjs's roundHalfEvenExact computes; net48's formatter rounds halves away from zero.</summary>
+    internal static long RoundHalfEven(double x, int scale)
+    {
+        long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
+        int biased = (int)((bits >> 52) & 0x7FF);
+        BigInteger mantissa = bits & 0xFFFFFFFFFFFFFL, den = BigInteger.One;
+        int exp2 = biased - 1075;
+        if (biased == 0) exp2 = -1074; // subnormal (and zero)
+        else mantissa |= BigInteger.One << 52; // implicit leading bit
+        BigInteger num = mantissa * scale;
+        if (exp2 >= 0) num <<= exp2; else den <<= -exp2;
+        var q = BigInteger.DivRem(num, den, out var rem);
+        var twice = rem * 2;
+        if (twice > den || (twice == den && !q.IsEven)) q += 1;
+        return x < 0 ? -(long)q : (long)q;
+    }
+
+    private static List<long> Refs(string arg)
+    {
+        var ids = new List<long>();
+        foreach (Match m in RefRx.Matches(arg))
+            if (long.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var id)) ids.Add(id);
+        return ids;
+    }
+
+    private static string Unquote(string arg) =>
+        arg.Length >= 2 && arg[0] == '\'' && arg[arg.Length - 1] == '\'' ? arg.Substring(1, arg.Length - 2).Replace("''", "'") : arg;
+
+    /// <summary>A NominalValue holds something unless it is $ or empty: IFCLABEL('') is no value.</summary>
+    internal static bool Valued(string arg)
+    {
+        var m = TypedValue.Match(arg);
+        var inner = (m.Success ? m.Groups[1].Value : arg).Trim();
+        return inner.Length > 0 && inner != "$" && inner != "''";
     }
 
     private static bool IsBuildingElement(string entity) => entity switch

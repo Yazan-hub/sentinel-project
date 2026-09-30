@@ -81,6 +81,181 @@
       "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 0.2 }],
       "require_georeference": true
     },
-    "expect": { "result": "fail", "failures": 2, "warnings": 0 }
+    "expect": { "result": "fail", "failures": 2, "warnings": 0 },
+    "failure_texts": ["IFCBEAM: 0 found, contract requires ≥ 1.", "Required property set 'Pset_SlabCommon': 0/1 IFCSLAB (0%) — below 100%."],
+    "coverage": ["Pset_WallCommon IFCWALLSTANDARDCASE 1/1", "Pset_SlabCommon IFCSLAB 0/1"]
+  },
+  {
+    "name": "coverage-1-of-3-walls-fail",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["FireRating"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 },
+    "failure_texts": ["Required property 'FireRating': 1/3 IFCWALL (33%) — below 100%."],
+    "coverage": ["FireRating IFCWALL 1/3"]
+  },
+  {
+    "name": "coverage-3-of-3-walls-pass",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": ["Pset_WallCommon"],
+      "required_properties": ["Reference"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["Pset_WallCommon IFCWALL 3/3", "Reference IFCWALL 3/3"]
+  },
+  {
+    "name": "coverage-type-held-value-counts-pass",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["ThermalTransmittance"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["ThermalTransmittance IFCWALL 3/3"]
+  },
+  {
+    "name": "coverage-dollar-is-no-value-fail",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["Combustible"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 },
+    "failure_texts": ["Required property 'Combustible': 2/3 IFCWALL (66%) — below 100%."],
+    "coverage": ["Combustible IFCWALL 2/3"]
+  },
+  {
+    "name": "coverage-min-half-two-of-three-pass",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["Combustible"], "forbidden_entities": [], "require_georeference": false, "min_coverage": 0.5
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["Combustible IFCWALL 2/3"]
+  },
+  {
+    "name": "coverage-min-ninety-fail-and-not-found",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": ["Pset_SlabCommon"],
+      "required_properties": ["FireRating", "AcousticRating"], "forbidden_entities": [], "require_georeference": false, "min_coverage": 0.9
+    },
+    "expect": { "result": "fail", "failures": 3, "warnings": 0 },
+    "failure_texts": [
+      "Required property set 'Pset_SlabCommon' not found in the file.",
+      "Required property 'FireRating': 1/3 IFCWALL (33%) — below 90%.",
+      "Required property 'AcousticRating' not found in the file."
+    ],
+    "coverage": ["FireRating IFCWALL 1/3"]
+  },
+  {
+    "name": "coverage-dotted-property-fail",
+    "ifc": "coverage-doors.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["Pset_DoorCommon.FireRating", "FireRating"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 },
+    "failure_texts": ["Required property 'Pset_DoorCommon.FireRating': 1/2 IFCDOOR (50%) — below 100%."],
+    "coverage": ["Pset_DoorCommon.FireRating IFCDOOR 1/2", "FireRating IFCDOOR 2/2", "FireRating IFCWALL 1/1"]
+  },
+  {
+    "name": "coverage-pset-on-1-of-2-doors-fail",
+    "ifc": "coverage-doors.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [],
+      "required_psets": ["Pset_DoorCommon", "Pset_ManufacturerTypeInformation", "Pset_WallCommon"],
+      "required_properties": [], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "fail", "failures": 2, "warnings": 0 },
+    "failure_texts": [
+      "Required property set 'Pset_DoorCommon': 1/2 IFCDOOR (50%) — below 100%.",
+      "Required property set 'Pset_ManufacturerTypeInformation': 1/2 IFCDOOR (50%) — below 100%."
+    ],
+    "coverage": ["Pset_DoorCommon IFCDOOR 1/2", "Pset_ManufacturerTypeInformation IFCDOOR 1/2", "Pset_WallCommon IFCWALL 1/1"]
+  },
+  {
+    "name": "coverage-floored-below-threshold-fail",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["Combustible"], "forbidden_entities": [], "require_georeference": false, "min_coverage": 0.67
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 },
+    "failure_texts": ["Required property 'Combustible': 2/3 IFCWALL (66%) — below 67%."],
+    "coverage": ["Combustible IFCWALL 2/3"]
+  },
+  {
+    "name": "coverage-threshold-half-to-even-fail",
+    "ifc": "coverage-walls.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["FireRating"], "forbidden_entities": [], "require_georeference": false, "min_coverage": 0.625
+    },
+    "expect": { "result": "fail", "failures": 1, "warnings": 0 },
+    "failure_texts": ["Required property 'FireRating': 1/3 IFCWALL (33%) — below 62%."],
+    "coverage": ["FireRating IFCWALL 1/3"]
+  },
+  {
+    "name": "coverage-typecommon-held-on-type-pass",
+    "ifc": "coverage-mixed.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": ["Pset_AirTerminalTypeCommon"],
+      "required_properties": [], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["Pset_AirTerminalTypeCommon IFCAIRTERMINAL 2/2"]
+  },
+  {
+    "name": "coverage-target-class-absent-typeproduct-pass",
+    "ifc": "coverage-mixed.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": ["Pset_LightFixtureTypeCommon"],
+      "required_properties": [], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["Pset_LightFixtureTypeCommon IFCFLOWTERMINAL 1/1"]
+  },
+  {
+    "name": "coverage-standardcase-subtype-pass",
+    "ifc": "coverage-mixed.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": ["Pset_SlabCommon"],
+      "required_properties": ["FireRating"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["Pset_SlabCommon IFCSLABSTANDARDCASE 1/1", "FireRating IFCSLABSTANDARDCASE 1/1"]
+  },
+  {
+    "name": "coverage-non-building-class-and-dotted-name-pass",
+    "ifc": "coverage-mixed.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": [],
+      "required_properties": ["NetPlannedArea", "COBie.Type.Name"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["NetPlannedArea IFCSPACE 1/1", "COBie.Type.Name IFCFLOWTERMINAL 1/1"]
+  },
+  {
+    "name": "coverage-wrapped-record-pass",
+    "ifc": "coverage-mixed.ifc",
+    "contract": {
+      "contract_key": "parity-coverage", "ifc_schema": "IFC4", "required_entities": [], "required_psets": ["Pset_WallCommon"],
+      "required_properties": ["Reference"], "forbidden_entities": [], "require_georeference": false
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 },
+    "failure_texts": [],
+    "coverage": ["Pset_WallCommon IFCWALL 2/2", "Reference IFCWALL 2/2"]
   }
 ]

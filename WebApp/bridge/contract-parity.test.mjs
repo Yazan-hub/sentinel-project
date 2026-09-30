@@ -21,5 +21,22 @@ describe("contract parity fixture — the Node gate", () => {
     expect(validateArtefact("contract", c.contract)).toBe(true);           // every case is an installable contract
     const r = checkDelivery(readFileSync(new URL(c.ifc, dir)), c.contract);
     expect({ result: r.result, failures: r.failures.length, warnings: r.warnings.length }).toEqual(c.expect);
+    // GATE-E2 cases pin the words and the coverage per class; tools/gate-check checks the C# gate the same way.
+    if (c.failure_texts) expect(r.failures).toEqual(c.failure_texts);
+    if (c.coverage) expect(r.coverage.map((v) => `${v.requirement} ${v.entity} ${v.covered}/${v.total}`)).toEqual(c.coverage);
+  });
+  it("pins coverage per class (GATE-E2): 1 of 3 walls fails, all 3 pass, a type-held value counts, $ does not, min_coverage, dotted, a pset on 1 of 2 doors", () => {
+    const pinned = cases.filter((c) => c.coverage);
+    expect(pinned.length).toBeGreaterThanOrEqual(14);
+    const texts = pinned.flatMap((c) => c.failure_texts);
+    expect(texts).toContain("Required property 'FireRating': 1/3 IFCWALL (33%) — below 100%.");
+    expect(texts).toContain("Required property set 'Pset_DoorCommon': 1/2 IFCDOOR (50%) — below 100%.");
+    expect(pinned.find((c) => c.name === "coverage-type-held-value-counts-pass").expect.result).toBe("pass");
+    expect(pinned.find((c) => c.name === "coverage-min-half-two-of-three-pass").contract.min_coverage).toBe(0.5);
+    // Review fixes: a failing share is floored and a half threshold rounds to even (net48 must not say 63%); a
+    // Pset_XTypeCommon, a StandardCase subtype, an IFCTYPEPRODUCT, a non-building class, a dotted name and a wrapped record.
+    expect(texts).toContain("Required property 'Combustible': 2/3 IFCWALL (66%) — below 67%.");
+    expect(texts).toContain("Required property 'FireRating': 1/3 IFCWALL (33%) — below 62%.");
+    expect(pinned.filter((c) => c.ifc === "coverage-mixed.ifc" && c.expect.result === "pass").length).toBe(5);
   });
 });

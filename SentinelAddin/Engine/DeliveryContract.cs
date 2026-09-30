@@ -30,6 +30,9 @@ public sealed class DeliveryContract
     public List<EntityLimit> ForbiddenEntities { get; } = new();
     /// A missing georeference (IFCSITE RefLatitude/RefLongitude, or an IFCMAPCONVERSION) is a warning.
     public bool RequireGeoreference { get; private set; }
+    /// The share of a class's elements that must carry each required pset and property (GATE-E2), 0..1; optional,
+    /// absent or null is 1 — every element.
+    public double MinCoverage { get; private set; } = 1.0;
 
     public sealed class EntityRequirement
     {
@@ -50,7 +53,8 @@ public sealed class DeliveryContract
 
     /// <summary>A contract@n body (the raw artefact JSON) → the contract, or null with <paramref name="error"/> naming
     /// the field ("required_entities[0].min_count must be an integer from 0 to 2147483647"). Every field is required,
-    /// by the bridge validator's rules (spec 2026-09-25-standards-4b decision 4); unknown fields are ignored. Never
+    /// by the bridge validator's rules (spec 2026-09-25-standards-4b decision 4) but schema_version and min_coverage;
+    /// unknown fields are ignored. Never
     /// throws.</summary>
     public static DeliveryContract? FromBody(string? json, out string? error)
     {
@@ -87,8 +91,10 @@ public sealed class DeliveryContract
             if (geo.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw Bad("require_georeference", "must be true or false");
             c.RequireGeoreference = geo.GetBoolean();
 
-            if (b.TryGetProperty("schema_version", out var sv) && sv.ValueKind != JsonValueKind.Null) // the one optional field: absent or null, as the bridge
+            if (b.TryGetProperty("schema_version", out var sv) && sv.ValueKind != JsonValueKind.Null) // optional: absent or null, as the bridge
                 c.SchemaVersion = Whole(sv, int.MinValue) ?? throw Bad("schema_version", "must be an integer");
+            if (b.TryGetProperty("min_coverage", out var mc) && mc.ValueKind != JsonValueKind.Null) // optional too: absent or null is 1
+                c.MinCoverage = mc.ValueKind == JsonValueKind.Number && mc.TryGetDouble(out var cov) && cov >= 0 && cov <= 1 ? cov : throw Bad("min_coverage", "must be a number from 0 to 1");
             return c;
         }
         catch (Exception ex)
