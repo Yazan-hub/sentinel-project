@@ -293,6 +293,39 @@ static partial class Check
            "Bodies(title: \"Promote (DD)\"): the kind and IFC class per class, no FamilyName on a floor, held rows as exceptions");
     }
 
+    // ── 8. the LOD matrix v0: which classes run, and why the others do not ─────────────────────────────────────────
+    static void Matrix(GuidelineMatcher m, GuidelineMatcher m2)
+    {
+        Console.WriteLine("\nLOD matrix (demo/bds-pilot/bds-lod-matrix-dd.json)");
+        var text = File.ReadAllText(Repo("demo", "bds-pilot", "bds-lod-matrix-dd.json"));
+        var mx = LodMatrix.FromBody(text, out var err);
+        Ok(mx != null && err == null && mx.Draft && mx.Dd["Doors"] == "host=wall; level=story_level; type=guideline_rule"
+           && mx.Properties["Doors"].Contains("Pset_DoorCommon.IsExternal"), "the draft matrix parses: DRAFT, each row's DD as one sorted string, properties listed");
+
+        var notRun = new List<string>();
+        Ok(LodMatrix.Classes(mx, "lod_matrix@1", m2, notRun).SequenceEqual(LodMatrix.Order) && notRun.Count == 0,
+           "with the elements guideline every class runs");
+        notRun.Clear();
+        var wallsOnly = LodMatrix.Classes(mx, "lod_matrix@1", m, notRun);
+        Ok(wallsOnly.SequenceEqual(new[] { "Walls" }) && notRun.SequenceEqual(LodMatrix.Order.Skip(1).Select(c => $"{c}: BDS DD walls v0 (MA-0) has no {c} rules")),
+           "with the walls-only guideline: walls, and five lines naming the classes it has no rules for");
+        notRun.Clear();
+        Ok(LodMatrix.Classes(null, "none — not installed for ma1-bds or its office", m2, notRun).SequenceEqual(new[] { "Walls" })
+           && notRun.Single() == "LOD matrix: none — not installed for ma1-bds or its office — walls only (MA-0 rules)",
+           "no matrix → walls only, exactly MA-0 (GN-3)");
+
+        var j = JsonNode.Parse(text).AsObject();
+        j["rows"][1]["DD"]["top"] = "next_story_level";
+        j["rows"].AsArray().RemoveAt(2);
+        notRun.Clear();
+        var partial = LodMatrix.Classes(LodMatrix.FromBody(j.ToJsonString(), out _), "lod_matrix@2", m2, notRun);
+        Ok(!partial.Contains("Floors") && notRun.Contains("Floors: the matrix's DD is \"level=story_level; top=next_story_level; type=guideline_rule\"; Promote v1 checks exactly \"level=story_level; type=guideline_rule\""),
+           "a Floors row asking for what v1 does not check is not run, naming both (GN-4)");
+        Ok(!partial.Contains("Roofs") && notRun.Contains("Roofs: no DD row in the LOD matrix") && partial.Contains("Doors"), "no Roofs row → Roofs not run; the rest do");
+        Ok(LodMatrix.FromBody("{\"rows\":{}}", out var bad) == null && bad == "rows must be an array" && LodMatrix.FromBody("", out var empty) == null && empty != null,
+           "a body it cannot read is an error, never a partial matrix");
+    }
+
     // ── 7. parity: the v1 body the bridge's vitest validates (promote-body-v1.json) ────────────────────────────────
     static void ParityV1(GuidelineMatcher m2)
     {

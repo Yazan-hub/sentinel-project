@@ -11,7 +11,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Sentinel.Engine;
 
 namespace Sentinel.GhostBuilder
@@ -32,6 +34,94 @@ namespace Sentinel.GhostBuilder
         /// <summary>Why Sentinel cannot retype it ("an in-place family", "a nested shared component"), or null.</summary>
         public string NotEditable;
         public bool InGroup, InOption, Structural;
+    }
+
+    /// <summary>lod_matrix@n v0 as Promote v1 reads it: per class (Revit category, as guideline@n), what DD means. The bridge
+    /// refused any key Promote does not read at install; a row that still asks for something else is not run (GN-4), so
+    /// "DD now" never reads higher than what was checked. properties are listed for a person, never enforced.</summary>
+    public sealed class LodMatrix
+    {
+        public static readonly string[] Order = { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows" };
+        /// <summary>Exactly what Promote v1 checks per class, as a row's DD reads once sorted (<see cref="Dd"/>).</summary>
+        public static readonly IReadOnlyDictionary<string, string> V1 = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Walls"] = "level=story_level; top=next_story_level; type=guideline_rule",
+            ["Floors"] = "level=story_level; type=guideline_rule", ["Roofs"] = "level=story_level; type=guideline_rule",
+            ["Ceilings"] = "level=story_level; type=guideline_rule",
+            ["Doors"] = "host=wall; level=story_level; type=guideline_rule", ["Windows"] = "host=wall; level=story_level; type=guideline_rule",
+        };
+
+        public bool Draft;
+        /// <summary>Category → its DD row without properties, as one sorted string "host=wall; level=story_level; type=guideline_rule".</summary>
+        public Dictionary<string, string> Dd = new Dictionary<string, string>(StringComparer.Ordinal);
+        public Dictionary<string, List<string>> Properties = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        /// <summary>The raw lod_matrix@n body → the matrix, or null with <paramref name="error"/> naming the field. Never throws.</summary>
+        public static LodMatrix FromBody(string json, out string error)
+        {
+            error = null;
+            try
+            {
+                using (var d = JsonDocument.Parse(json ?? ""))
+                {
+                    var b = d.RootElement;
+                    if (b.ValueKind != JsonValueKind.Object) throw new InvalidDataException("the body must be a JSON object");
+                    if (!b.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array) throw new InvalidDataException("rows must be an array");
+                    var mx = new LodMatrix
+                    {
+                        Draft = b.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String
+                                && string.Equals(st.GetString(), "draft", StringComparison.OrdinalIgnoreCase),
+                    };
+                    int i = 0;
+                    foreach (var r in rows.EnumerateArray())
+                    {
+                        string at = "rows[" + i++ + "]";
+                        if (r.ValueKind != JsonValueKind.Object) throw new InvalidDataException(at + " must be an object");
+                        if (!r.TryGetProperty("category", out var c) || c.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(c.GetString()))
+                            throw new InvalidDataException(at + ".category must be a non-empty string");
+                        if (!r.TryGetProperty("DD", out var dd) || dd.ValueKind != JsonValueKind.Object) throw new InvalidDataException(at + ".DD must be an object");
+                        var keys = new List<string>();
+                        var props = new List<string>();
+                        foreach (var kv in dd.EnumerateObject())
+                        {
+                            if (kv.Name == "properties")
+                            {
+                                if (kv.Value.ValueKind != JsonValueKind.Array || kv.Value.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String))
+                                    throw new InvalidDataException(at + ".DD.properties must be an array of strings");
+                                props.AddRange(kv.Value.EnumerateArray().Select(x => x.GetString()));
+                            }
+                            else if (kv.Value.ValueKind != JsonValueKind.String) throw new InvalidDataException(at + ".DD." + kv.Name + " must be a string");
+                            else keys.Add(kv.Name + "=" + kv.Value.GetString());
+                        }
+                        keys.Sort(StringComparer.Ordinal);
+                        mx.Dd[c.GetString()] = string.Join("; ", keys);
+                        mx.Properties[c.GetString()] = props;
+                    }
+                    return mx;
+                }
+            }
+            catch (Exception ex) { error = ex.Message; return null; }
+        }
+
+        /// <summary>The classes Promote runs, in <see cref="Order"/>; each class left out gets its reason in <paramref name="notRun"/>.
+        /// No matrix → walls only, exactly MA-0 (GN-3).</summary>
+        public static List<string> Classes(LodMatrix mx, string label, GuidelineMatcher m, List<string> notRun)
+        {
+            if (mx == null)
+            {
+                notRun.Add($"LOD matrix: {label} — walls only (MA-0 rules)");
+                return new List<string> { "Walls" };
+            }
+            var run = new List<string>();
+            foreach (var cat in Order)
+            {
+                if (!mx.Dd.TryGetValue(cat, out var dd)) notRun.Add($"{cat}: no DD row in the LOD matrix");
+                else if (dd != V1[cat]) notRun.Add($"{cat}: the matrix's DD is \"{dd}\"; Promote v1 checks exactly \"{V1[cat]}\"");
+                else if (!m.HasRulesFor(cat)) notRun.Add($"{cat}: {m.Standard} has no {cat} rules");
+                else run.Add(cat);
+            }
+            return run;
+        }
     }
 
     /// <summary>One class on one storey. Total = the DD-now denominator (every element but the OfficeTyped ones); DdNow =

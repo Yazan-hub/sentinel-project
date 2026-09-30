@@ -24,7 +24,6 @@ public sealed class PromoteWallsCommand : IExternalCommand
 {
     private const string Title = "Sentinel — Promote (DD)";
     private const double FtToMm = 304.8;
-    private static readonly string[] Order = { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows" };
     // Promote v1's classes after walls: the changeset kind and the Revit category it reads.
     private static readonly (string Kind, BuiltInCategory Bic)[] Others =
     {
@@ -55,15 +54,26 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if (unreviewed != null)
             return ReviewChangesetsCommand.Open(c, doc, cfg, key, unreviewed) ? Result.Succeeded : Result.Cancelled;
 
-        // The standards (off the API thread, the Annotate pattern), then the facts (on it).
+        // The standards and the LOD matrix (off the API thread, the Annotate pattern), then the facts (on it).
+        var mxTask = Task.Run(() => ArtefactClient.Resolve(key, "lod_matrix"));
         var standards = Task.Run(() => GhostStandards.Load(key, layers: false)).GetAwaiter().GetResult();
         if (!standards.Guideline.HasGuideline)
         {
             TaskDialog.Show(Title, $"Guideline: {standards.GuidelineSource.Label}\n\nNo DD rule file is installed for \"{key}\" or its office — nothing to plan. Install one as guideline@n.");
             return Result.Cancelled;
         }
-        var classes = new List<string> { "Walls" };
+        var mxSource = mxTask.GetAwaiter().GetResult();
+        LodMatrix mx = null;
+        if (mxSource.Origin != "none")
+        {
+            mx = LodMatrix.FromBody(mxSource.BodyJson ?? "", out var mxErr); // a body it cannot read is none, never a partial matrix
+            if (mxErr != null) mxSource = ArtefactClient.None("lod_matrix", $"{mxSource.Label} did not parse: {mxErr}");
+        }
         var notRun = new List<string>();
+        var classes = LodMatrix.Classes(mx, mxSource.Label, standards.Guideline, notRun);
+        // With no matrix the header says "walls only"; otherwise each class left out is named below the plan.
+        var header = standards.Header + "\n" + (mx == null ? notRun[0] : "LOD matrix: " + mxSource.Label + (mx.Draft ? " (DRAFT)" : ""));
+        if (mx == null) notRun.Clear();
 
         var docTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // basic wall type → its Function
         foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))
@@ -91,7 +101,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             .ToList();
         if ((classes.Contains("Walls") ? walls.Count : 0) + others.Count == 0)
         {
-            TaskDialog.Show(Title, "Nothing to promote in this model.");
+            TaskDialog.Show(Title, "Nothing to promote in this model." + (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : ""));
             return Result.Cancelled;
         }
 
@@ -122,7 +132,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 lines.Add($"{p.Storey}: {p.Ghosts.Count(g => g.Kind == null && g.Op == "retype")} retype · {p.Ghosts.Count(g => g.Op == "attach")} attach · " +
                           $"{p.Held.Where(h => Cat(h.UniqueId) == "Walls").Select(h => h.UniqueId).Distinct().Count()} wall(s) sent to a person · DD now {p.DdNow}/{p.Walls}" +
                           (p.OfficeTyped > 0 ? $" · {p.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {p.Stamped}");
-            foreach (var cat in Order.Where(p.Others.ContainsKey))
+            foreach (var cat in LodMatrix.Order.Where(p.Others.ContainsKey))
             {
                 var n = p.Others[cat];
                 lines.Add($"{p.Storey} · {cat}: {p.Ghosts.Count(g => g.Kind != null && Cat(g.UniqueId) == cat)} retype · " +
@@ -130,9 +140,11 @@ public sealed class PromoteWallsCommand : IExternalCommand
                           (n.OfficeTyped > 0 ? $" · {n.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {n.Stamped}");
             }
         }
-        var ddNow = "DD now — " + string.Join(" · ", Order.Where(classes.Contains).Select(cat => cat == "Walls"
+        var ddNow = "DD now — " + string.Join(" · ", LodMatrix.Order.Where(classes.Contains).Select(cat => cat == "Walls"
             ? $"Walls {plans.Sum(p => p.DdNow)}/{plans.Sum(p => p.Walls)}"
             : $"{cat} {plans.Sum(p => p.Others.TryGetValue(cat, out var n) ? n.DdNow : 0)}/{plans.Sum(p => p.Others.TryGetValue(cat, out var n) ? n.Total : 0)}"));
+        var asks = mx == null ? new List<string>() : LodMatrix.Order.Where(classes.Contains)
+            .Where(cat => mx.Properties.TryGetValue(cat, out var ps) && ps.Count > 0).Select(cat => $"{cat}: {string.Join(", ", mx.Properties[cat])}").ToList();
         var held = plans.SelectMany(p => p.Held.Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
         // A retype target whose Function in this model disagrees with the rule: once per type, for the office to fix.
         var notes = plans.SelectMany(p => p.Ghosts).Select(g => g.Note).Where(n => n != null).Distinct().ToList();
@@ -140,8 +152,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
         {
             MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
                                                 : $"File {bodies.Count} changeset(s)?",
-            MainContent = standards.Header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
+            MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
                           "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow +
+                          (asks.Count > 0 ? "\n\nDD also asks (listed for a person, not checked by Promote):\n" + string.Join("\n", asks) : "") +
                           (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
                           (notes.Count > 0 ? "\n\nTemplate check (the office's template should fix these):\n" + string.Join("\n", notes) : "") +
                           (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing changes."
