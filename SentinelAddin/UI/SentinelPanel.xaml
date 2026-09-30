@@ -35,11 +35,7 @@
                   MouseDoubleClick="OnRowDoubleClick" Margin="0,8,0,0"
                   SelectionMode="Single" x:Name="Grid">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Rule" Binding="{Binding RuleId}" Width="55"/>
-                <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="70"/>
-                <DataGridTextColumn Header="Element" Binding="{Binding ElementName}" Width="130"/>
-                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
-                <DataGridTextColumn Header="Ref" Binding="{Binding DocRef}" Width="105"/>
+                <!-- ⚡ first: the columns are wider than a docked pane, so a last column scrolls out of reach (drill F3) -->
                 <DataGridTemplateColumn Header="" Width="58">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
@@ -51,6 +47,11 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Rule" Binding="{Binding RuleId}" Width="55"/>
+                <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="70"/>
+                <DataGridTextColumn Header="Element" Binding="{Binding ElementName}" Width="130"/>
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+                <DataGridTextColumn Header="Ref" Binding="{Binding DocRef}" Width="105"/>
             </DataGrid.Columns>
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">
