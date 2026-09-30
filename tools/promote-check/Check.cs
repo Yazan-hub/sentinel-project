@@ -24,6 +24,7 @@ static partial class Check
 
         var m = RuleFile();
         Planner(m);
+        ConceptOnly(m);
         Parity(m);
         StampAndUndo();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

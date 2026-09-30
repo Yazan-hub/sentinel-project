@@ -15,18 +15,21 @@ static partial class Check
         new LevelFact { Name = "Level 2", ElevationMm = 3000, IsStory = true },
         new LevelFact { Name = "Roof", ElevationMm = 6000, IsStory = true },
     };
-    static readonly ISet<string> DocTypes = new HashSet<string>(new[]
-        { "Generic - 200mm", "Generic - 125mm", "Generic - 300mm", "MA0 Interior - 100mm", "BDS_EXT_ARC_CMU_200 mm", "BDS_INT_ARC_GYPS_100 mm" },
-        StringComparer.OrdinalIgnoreCase);
+    // The document's basic wall types → their Function.
+    static readonly IReadOnlyDictionary<string, string> DocTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Generic - 200mm"] = "Exterior", ["Generic - 125mm"] = "Exterior", ["Generic - 300mm"] = "Exterior",
+        ["MA0 Interior - 100mm"] = "Interior", ["BDS_EXT_ARC_CMU_200 mm"] = "Exterior", ["BDS_INT_ARC_GYPS_100 mm"] = "Interior",
+    };
 
     static int _uid;
     static WallFact W(string label, string type, string function, double mm, string baseLevel = "Level 1", string top = null,
                       double baseOff = 0, double topOff = 0, bool basic = true, bool group = false, string stamp = null,
-                      double height = 0) => new WallFact
+                      double height = 0, bool structural = false) => new WallFact
     {
         UniqueId = $"5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-{++_uid:x8}", Label = label, TypeName = type, Function = function,
         WidthMm = mm, BaseLevel = baseLevel, TopLevel = top, BaseOffsetMm = baseOff, TopOffsetMm = topOff,
-        IsBasic = basic, InGroup = group, Stamp = stamp, HeightMm = height,
+        IsBasic = basic, InGroup = group, Stamp = stamp, HeightMm = height, Structural = structural,
     };
 
     static void Planner(GuidelineMatcher m)
@@ -146,6 +149,91 @@ static partial class Check
         var nc = PromoteWallsPlanner.Plan(new List<WallFact> { W("NC1", "Generic - 200mm", "Exterior", 200) }, Levels, DocTypes, bare).Single();
         Ok(nc.Ghosts.Count == 1 && nc.Ghosts[0].Op == "attach" && nc.Held.Single().Reason.StartsWith("no type catalogue installed"),
            "no type catalogue → the retype is held (\"no type catalogue installed\"), never matched unchecked");
+    }
+
+    // ── 2b. concept walls only (drill F1/F2): settled, office-typed and structural walls ───────────────────────
+    static void ConceptOnly(GuidelineMatcher m)
+    {
+        Console.WriteLine("\nConcept walls only (drill F1/F2)");
+        // This template gives BDS_INT_ARC_GYPS_100 mm the Function Exterior (as the BDS template did in the drill).
+        var tpl = DocTypes.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        tpl["BDS_INT_ARC_GYPS_100 mm"] = "Exterior";
+        var walls = new List<WallFact>
+        {
+            W("S1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("S2", "bds_ext_arc_cmu_200 mm", "Exterior", 200),
+            W("FL1", "BDS_INT_ARC_GYPS_100 mm", "Exterior", 100, top: "Level 2"),
+            W("OT1", "BDS_EXT_STR_CONC_200 mm", "Exterior", 200),
+            W("OT2", "BDS_ÉXT_LSE_CONC_100 mm", "Exterior", 100),
+            W("OT3", "BDS_INT_STR_CONC_200 mm", "Interior", 200, structural: true),
+            W("ST1", "Generic - 200mm", "Exterior", 200, structural: true),
+            W("C1", "Generic - 200mm", "Exterior", 200),
+            W("C2", "MA0 Interior - 100mm", "Interior", 100),
+        };
+        var p = PromoteWallsPlanner.Plan(walls, Levels, tpl, m).Single();
+        bool None(string label) => !p.Ghosts.Any(g => g.Label == label) && !p.Held.Any(h => h.Label == label);
+
+        Ok(m.RuleProduces("Walls", "BDS_EXT_ARC_CMU_150 mm") && !m.RuleProduces("Walls", "BDS_EXT_ARC_CMU_ mm")
+           && !m.RuleProduces("Walls", "BDS_EXT_STR_CONC_200 mm"), "RuleProduces: a rule's pattern with a number for {thickness}, nothing else");
+        Ok(None("S1"), "a wall already on BDS_EXT_ARC_CMU_200 mm with its top attached gets no ghost, no held row");
+        Ok(p.Ghosts.Count(g => g.Label == "S2") == 1 && p.Ghosts.Single(g => g.Label == "S2").Op == "attach" && !p.Held.Any(h => h.Label == "S2"),
+           "…unattached, only its attach is planned (the type is settled, case-insensitively)");
+        Ok(None("FL1"), "a wall on BDS_INT_ARC_GYPS_100 mm whose type says Exterior is settled — no CMU retype (the F2 flip)");
+        Ok(None("OT1") && None("OT2") && None("OT3") && p.OfficeTyped == 3,
+           $"walls on the office's other types (STR/LSE concrete, even structural) get nothing and no held row, and are counted ({p.OfficeTyped})");
+        Ok(p.Held.Count == 1 && p.Held[0].Label == "ST1"
+           && p.Held[0].Reason == "structural wall — Promote v0 does not retype or re-top structure; a person decides" && !p.Ghosts.Any(g => g.Label == "ST1"),
+           "a structural concept wall is held whole: no retype, no attach");
+        var c1 = p.Ghosts.FirstOrDefault(g => g.Op == "retype" && g.Label == "C1");
+        var c2 = p.Ghosts.FirstOrDefault(g => g.Op == "retype" && g.Label == "C2");
+        Ok(c1?.Note == null && c1?.Reason == "DD walls v0: Function Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm", "a concept wall still takes today's path");
+        Ok(c2 != null && c2.TypeName == "BDS_INT_ARC_GYPS_100 mm" && c2.Note == "BDS_INT_ARC_GYPS_100 mm is Function Exterior in this model"
+           && c2.Reason == "DD walls v0: Function Interior, 100 mm → BDS_INT_ARC_GYPS_100 mm — note: BDS_INT_ARC_GYPS_100 mm is Function Exterior in this model",
+           "a retype onto a target of another Function in this model is still proposed, with the note on its reason");
+        Ok(p.DdNow == 2 && p.Walls == 6, $"DD now {p.DdNow}/{p.Walls}: the office-typed walls are out of the denominator, the settled ones in");
+
+        // The second run, after the first was applied: nothing to propose, and the gypsum partition stays gypsum.
+        var after = new List<WallFact>
+        {
+            W("S1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("S2", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("FL1", "BDS_INT_ARC_GYPS_100 mm", "Exterior", 100, top: "Level 2"),
+            W("OT1", "BDS_EXT_STR_CONC_200 mm", "Exterior", 200),
+            W("ST1", "Generic - 200mm", "Exterior", 200, structural: true),
+            W("C1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("C2", "BDS_INT_ARC_GYPS_100 mm", "Exterior", 100, top: "Level 2"),
+        };
+        var again = PromoteWallsPlanner.Plan(after, Levels, tpl, m).Single();
+        Ok(again.Ghosts.Count == 0 && again.DdNow == 5 && again.Walls == 6 && again.OfficeTyped == 1,
+           $"a second run proposes nothing (DD now {again.DdNow}/{again.Walls})");
+
+        // The one-type hold (review fix): settled walls keep a half-promoted storey mixed; the office's other types do not.
+        var half = PromoteWallsPlanner.Plan(new List<WallFact>
+        {
+            W("S1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("S2", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2"),
+            W("C1", "MA0 Interior - 100mm", "Interior", 100, top: "Level 2"),
+            W("C2", "MA0 Interior - 100mm", "Interior", 100, top: "Level 2"),
+        }, Levels, tpl, m).Single();
+        Ok(half.Ghosts.Count(x => x.Op == "retype") == 2 && half.Held.Count == 0,
+           "a storey a first run left half-promoted still plans its leftover retypes (settled walls keep it mixed)");
+        var masked = PromoteWallsPlanner.Plan(new List<WallFact>
+        {
+            W("OT1", "BDS_EXT_STR_CONC_200 mm", "Exterior", 200),
+            W("C1", "Generic - 200mm", "Exterior", 200, top: "Level 2"),
+            W("C2", "Generic - 200mm", "Exterior", 200, top: "Level 2"),
+        }, Levels, tpl, m).Single();
+        Ok(masked.Ghosts.Count == 0 && masked.Held.Count == 2 && masked.Held.All(h => h.Reason ==
+           "every wall on Level 1 besides the 1 on other office types is \"Generic - 200mm\" — inside cannot be told from outside; a person decides"),
+           "…but a template's office-typed wall does not mask a one-type storey");
+
+        // A guideline with no office code: (b) is skipped, the concrete wall takes today's path.
+        var g = JsonNode.Parse(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-walls-guideline.json"))).AsObject();
+        g.Remove("office");
+        var anon = GuidelineMatcher.FromBodies(g.ToJsonString(), File.ReadAllText(Repo("demo", "bds-pilot", "bds-type-catalog.json")), out _, out _);
+        var np = PromoteWallsPlanner.Plan(new List<WallFact> { W("OT1", "BDS_EXT_STR_CONC_200 mm", "Exterior", 200) }, Levels, DocTypes, anon).Single();
+        Ok(anon.Office == null && np.OfficeTyped == 0 && np.Ghosts.Any(x => x.Op == "retype" && x.TypeName == "BDS_EXT_ARC_CMU_200 mm"),
+           "no office code in the guideline → no office-typed skip; the wall is retyped as today");
     }
 
     static List<JsonNode> Json(IEnumerable<object> bodies) => bodies.Select(b => JsonSerializer.SerializeToNode(b, ChangesetClient.WriteJson)).ToList();

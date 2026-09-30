@@ -237,13 +237,13 @@ It uses no Revit types, and every file needs explicit `using` lines because impl
 
 ```csharp
 public sealed class WallFact  { public string UniqueId, Label, TypeName, Function, BaseLevel, TopLevel /*null = unconnected*/, Stamp;
-                                public double WidthMm, BaseOffsetMm, TopOffsetMm; public bool IsBasic, InGroup; }
+                                public double WidthMm, BaseOffsetMm, TopOffsetMm; public bool IsBasic, InGroup, Structural /*(F1 fix)*/; }
 public sealed class LevelFact { public string Name; public double ElevationMm; public bool IsStory; }
-public sealed class PromoteGhost { public string Op, UniqueId, Label, TypeBefore, TypeName, BaseLevel, TopLevel, Reason; }
+public sealed class PromoteGhost { public string Op, UniqueId, Label, TypeBefore, TypeName, BaseLevel, TopLevel, Reason, Note /*(F2 fix) never posted*/; }
 public sealed class PromoteHeld  { public string UniqueId, Label, Reason; }
-public sealed class StoreyPlan   { public string Storey; public int Walls, DdNow, Stamped;
+public sealed class StoreyPlan   { public string Storey; public int Walls /*DD-now denominator*/, DdNow, OfficeTyped /*(F1 fix)*/, Stamped;
                                    public List<PromoteGhost> Ghosts = new(); public List<PromoteHeld> Held = new(); }
-public static List<StoreyPlan> Plan(IReadOnlyList<WallFact> walls, IReadOnlyList<LevelFact> levels, ISet<string> docBasicWallTypes, GuidelineMatcher m);
+public static List<StoreyPlan> Plan(IReadOnlyList<WallFact> walls, IReadOnlyList<LevelFact> levels, IReadOnlyDictionary<string, string> docBasicWallTypes /*name → type Function (F2 fix)*/, GuidelineMatcher m);
 public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor, int max = 200);
 // (review fix) chunks BY WALL at <= max ghosts (a wall's retype and attach stay in one changeset); a storey's held rows
 // spread over its chunks at <= 1000 each (the bridge's MAX_CHANGESET_EXCEPTIONS; overflow = one "… and N more" row);
@@ -257,17 +257,20 @@ public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor,
 | Not a Basic wall | Held: "not a basic wall — Promote v0 types basic walls only" |
 | In a group | Held: "in a group — Sentinel does not edit group members". `ChangeTypeId` throws inside a group (RevitAPI.xml:274943-274985) |
 | Base level is not a Building Story | Held |
+| **Settled** (drill F1/F2 fix): the current type is one the DD rules produce — a Walls rule's `use.type`, or its `use.typePattern` with `{thickness}` a number, case-insensitive (`GuidelineMatcher.RuleProduces`) | No retype; the type is OK, whatever Function the template gave it (so a second run cannot flip a gypsum partition whose type says Exterior to CMU). The top is judged as below |
+| **Office-typed** (F1 fix): otherwise, the guideline names an office code (`office`, e.g. `BDS`) and the type name starts with `BDS_` | Nothing proposed, nothing held, not in the DD-now denominator: not a concept wall. Counted in `OfficeTyped`; the summary says "N on other office types, left as is". Skipped when the guideline has no office code |
+| **Structural** (F1 fix): otherwise, the wall's Structural usage is on (`WALL_STRUCTURAL_SIGNIFICANT` = 1) | Held whole: "structural wall — Promote v0 does not retype or re-top structure; a person decides" |
 | Width not a whole mm | Held: "…exact match only (D16)" |
 | Type check | Call `m.Resolve(new GuidelineInput { Category = "Walls", Params = { ["Function"] = fact.Function }, ThicknessMm = fact.WidthMm })` (`:299-334`) |
 | Result is a rule at confidence 1 and equals the current type | Type is already OK |
 | Result is a rule at confidence 1, but the type is not in `docBasicWallTypes` | Held: "…in the catalogue but not loaded in this model — Sentinel creates no types" |
-| Result is a rule at confidence 1 and the type is loaded | Retype ghost, with `TypeBefore` set |
+| Result is a rule at confidence 1 and the type is loaded | Retype ghost, with `TypeBefore` set. If the target's type Function in this model differs from the wall's (F2 fix), the ghost is still proposed — the rule is the office's — its reason ends " — note: <target> is Function <X> in this model" and the summary lists each such type once under "Template check" |
 | Result is a rule at confidence 0 | Held with `m.Gap(label, res.Why)`, which names the catalogue (`:194`) |
 | Result is `default` or `none` | Held: "no DD rule for Function X in <guideline label>" |
 | Attach check | Find the next Building Story above the base level. If there is none, hold the wall ("no story level above"). If the base offset is not 0 (more than 0.5 mm off), hold it ("attaching would move the wall"). If the top is not already the next story at offset 0, file an attach ghost — unless the wall's top now (top level + offset, or unconnected: base + offset + Unconnected Height) is above the next story: then hold it ("attaching would cut the wall down to one storey; a person decides"). The executor refuses an attach whose base is no longer the planned level at +0, or whose top is above the new top (the model changed since the plan) |
 | No type catalogue installed (review fix) | The matcher would answer the pattern unchecked, so the type is held ("no type catalogue installed … (D16)"); the attach stays |
-| **Every wall on the storey shares one type** (§3.4 step 4, `:336`) | Retype ghosts for that storey are replaced by held rows. Attach ghosts stay |
-| `DdNow` | Count of walls whose type is OK **and** whose top is OK. This is the drill's "LOD-300 rule passes before and after" |
+| **Every wall on the storey shares one type** (§3.4 step 4, `:336`; basic, ungrouped walls — settled walls count, so a storey a first run half-promoted stays mixed; office-typed walls do not, so template samples cannot mask a one-type storey) | Retype ghosts for that storey are replaced by held rows. Attach ghosts stay |
+| `DdNow` / `Walls` | `DdNow` counts walls whose type is OK **and** whose top is OK. This is the drill's "LOD-300 rule passes before and after". `Walls` (its denominator) is every wall based on the storey except the office-typed ones: concept walls, held included, plus settled walls |
 
 ---
 
