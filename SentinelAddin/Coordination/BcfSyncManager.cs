@@ -23,17 +23,16 @@ public sealed class BcfSyncManager : IDisposable
     private readonly HttpClient _http;
     private readonly HttpClient _sse; // long-lived SSE stream — no per-request timeout
     private readonly string _base;
+    private readonly string? _token; // the token at construction: the SSE stream, and a call given no bearer
 
     public BcfSyncManager(string baseUrl, string? bearerToken = null)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         _sse = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        _token = bearerToken;
+        // Only the stream carries it by default: a call's own bearer must never fall back to it (SI-1).
         if (!string.IsNullOrWhiteSpace(bearerToken))
-        {
-            var auth = new AuthenticationHeaderValue("Bearer", bearerToken);
-            _http.DefaultRequestHeaders.Authorization = auth;
-            _sse.DefaultRequestHeaders.Authorization = auth;
-        }
+            _sse.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         _base = baseUrl.TrimEnd('/');
     }
 
@@ -73,32 +72,35 @@ public sealed class BcfSyncManager : IDisposable
         }
     }
 
-    /// <summary>Pure network — safe on a background thread. Returns the open (non-closed) topics.</summary>
+    /// <summary>Pure network — safe on a background thread. Returns the open (non-closed) topics.
+    /// <paramref name="bearer"/> is read per call, as for <see cref="CreateIssueAsync"/>.</summary>
     public async Task<IReadOnlyList<BcfTopic>> FetchActiveAsync(
-        string projectId, string modelId, CancellationToken ct = default)
+        string projectId, string modelId, Func<string>? bearer = null, CancellationToken ct = default)
     {
         // No status filter → the service returns everything except Closed.
         string url = $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics" +
                      $"?model={Uri.EscapeDataString(modelId)}";
-        using HttpResponseMessage resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
+        using var msg = new HttpRequestMessage(HttpMethod.Get, url);
+        Authorize(msg, bearer);
+        using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         return JsonSerializer.Deserialize<List<BcfTopic>>(body) ?? new List<BcfTopic>();
     }
 
     /// <summary>POST a comment on a topic. Returns the HTTP status (0 = transport failure) — the caller
-    /// shows it; nothing here decides what the failure means.</summary>
-    public Task<int> AddCommentAsync(string projectId, string topicGuid, string comment, string author, CancellationToken ct = default) =>
-        SendJsonAsync(HttpMethod.Post,
+    /// shows it; nothing here decides what the failure means. <paramref name="bearer"/> is read per call.</summary>
+    public async Task<int> AddCommentAsync(string projectId, string topicGuid, string comment, string author, Func<string>? bearer = null, CancellationToken ct = default) =>
+        (await SendForBodyAsync(HttpMethod.Post,
             $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics/{Uri.EscapeDataString(topicGuid)}/comments",
-            new { comment, author }, ct);
+            new { comment, author }, bearer, ct).ConfigureAwait(false)).Status;
 
     /// <summary>PUT topic_status (Open / Resolved / Closed …); the bridge logs the change to the topic's
     /// history under <paramref name="author"/>. Returns the HTTP status (0 = transport failure).</summary>
-    public Task<int> SetStatusAsync(string projectId, string topicGuid, string status, string author, CancellationToken ct = default) =>
-        SendJsonAsync(HttpMethod.Put,
+    public async Task<int> SetStatusAsync(string projectId, string topicGuid, string status, string author, Func<string>? bearer = null, CancellationToken ct = default) =>
+        (await SendForBodyAsync(HttpMethod.Put,
             $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics/{Uri.EscapeDataString(topicGuid)}",
-            new { topic_status = status, author }, ct);
+            new { topic_status = status, author }, bearer, ct).ConfigureAwait(false)).Status;
 
     /// <summary>Raise an issue from Revit: POST the topic, then its viewpoint. <paramref name="bearer"/> is read per
     /// call (a signed-in session refreshes; this manager lives as long as the window). Network only — call off the
@@ -134,26 +136,18 @@ public sealed class BcfSyncManager : IDisposable
             {
                 Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
             };
-            var token = bearer?.Invoke();
-            if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            Authorize(msg, bearer);
             using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
             return ((int)resp.StatusCode, await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
         }
         catch { return (0, ""); }
     }
 
-    private async Task<int> SendJsonAsync(HttpMethod method, string url, object body, CancellationToken ct)
+    /// <summary>The call's own bearer when it has one (empty = no header), else the token at construction.</summary>
+    private void Authorize(HttpRequestMessage msg, Func<string>? bearer)
     {
-        try
-        {
-            using var msg = new HttpRequestMessage(method, url)
-            {
-                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
-            };
-            using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
-            return (int)resp.StatusCode;
-        }
-        catch { return 0; }
+        var token = bearer is null ? _token : bearer();
+        if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
     public void Dispose() { _http.Dispose(); _sse.Dispose(); }

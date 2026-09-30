@@ -192,15 +192,16 @@ internal static class ChangesetClient
 
     /// <summary>XC-4: whether this person may approve or reject change requests on <paramref name="key"/> — a signed-in
     /// lead or owner of the web project (<paramref name="role"/>/<paramref name="error"/> are <see cref="MyRole"/>'s
-    /// answer). Every other answer, and every failure to read one, is read-only with the reason; nothing grants on a failure.</summary>
+    /// answer). Every other answer, and every failure to read one, is read-only with the reason — worded for any lead-only
+    /// action, the caller names the action; nothing grants on a failure.</summary>
     public static (bool Coordinator, string Why) CoordinatorFrom(string key, string role, string error)
     {
         if (string.IsNullOrWhiteSpace(key)) return (false, "this model is not bound to a web project (Sentinel ▸ Project Setup)");
         if (role == null) return (false, $"your role on {key} could not be read ({error})");
         if (role is "lead" or "owner") return (true, $"{role} on {key}");
-        if (role == "service") return (false, $"signed out — sign in (Standards ▸ Sign in) as a lead or owner of {key} to approve or reject");
+        if (role == "service") return (false, $"signed out — sign in (Standards ▸ Sign in) as a lead or owner of {key}");
         if (role.Length == 0) return (false, $"you are not a member of {key}");
-        return (false, $"you are {role} on {key} — approving or rejecting needs lead or owner");
+        return (false, $"you are {role} on {key}");
     }
 
     /// <summary>File a changeset (POST /changesets/:key → 201 and the stored changeset). Null with the error otherwise.</summary>

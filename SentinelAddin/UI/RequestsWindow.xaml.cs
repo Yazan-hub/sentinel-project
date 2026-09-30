@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using Autodesk.Revit.DB;
+using Sentinel.Coordination;
 using Sentinel.Workflow;
 
 namespace Sentinel.UI;
@@ -31,17 +32,19 @@ public sealed class RequestRow
 public partial class RequestsWindow : Window
 {
     private readonly Document _doc;
+    private readonly string? _openedAs; // the role was read for this person; a verdict by anyone else is refused (XC-4)
     public ObservableCollection<RequestRow> Rows { get; } = new ObservableCollection<RequestRow>();
 
     public RequestsWindow(Document doc, bool isCoordinator, string why)
     {
         _doc = doc;
+        _openedAs = UserSession.Email;
         InitializeComponent();
         RequestList.ItemsSource = Rows;
         Reload();
         SubHeader.Text = isCoordinator
             ? $"{Rows.Count} pending — approve keeps a change (or applies a ⚡ proposal); reject reverts it (or drops the proposal)"
-            : $"{Rows.Count} pending — read-only: {why}";
+            : $"{Rows.Count} pending — read-only, approving or rejecting needs a lead or owner of the web project: {why}";
         if (!isCoordinator) RequestList.IsEnabled = false;
     }
 
@@ -69,6 +72,12 @@ public partial class RequestsWindow : Window
     private void Verdict(object sender, bool approve)
     {
         if ((sender as FrameworkElement)?.DataContext is not RequestRow row) return;
+        if (UserSession.Email != _openedAs)
+        {
+            RequestList.IsEnabled = false;
+            SubHeader.Text = "read-only — the signed-in person changed since this window opened; reopen Change Requests to read your role";
+            return;
+        }
         var id = row.Id;
         // Revit API work goes through the ExternalEvent hub (we're on the WPF thread), pinned to the document this window
         // was opened for (XC-1): refused in words when it is closed or another model is active. The row leaves the list

@@ -1168,10 +1168,11 @@ export function readDeliveryGate(b = {}) {
  *  Open to the machine credential and, as recordRevitReport's rows, to a signed-in contributor or above — a viewer or a
  *  non-member is a 403 before the body is validated; a user's rows are budgeted (429). The open audit route still refuses
  *  entity_type delivery_gate. One delivery_gate row, "IFC delivery gate PASS | FAIL | NOT CHECKED: <file>", new_value
- *  the validated body with the full failure list, actor a signed-in caller's verified identity whatever the body claims
- *  (audit's resolveActor); a FAIL from a publish is also held (hold:gate) — a contributor could register the file, as on
- *  /propose. The gate is Revit's attestation: the bridge never sees Revit's bytes. → {id, hash, hold: {id, hash} |
- *  null}, each id and hash the stored row's (null when none came back — never a made-up id). */
+ *  the validated body with the full failure list (a signed-in caller's source as claimed_source), actor a signed-in
+ *  caller's verified identity whatever the body claims (audit's resolveActor); a FAIL from a publish is also held
+ *  (hold:gate) — a contributor could register the file, as on /propose. The gate is Revit's attestation: the bridge
+ *  never sees Revit's bytes. → {id, hash, hold: {id, hash} | null}, each id and hash the stored row's (null when none
+ *  came back — never a made-up id). */
 export async function recordDeliveryGate(key, b = {}) {
   const { myRole, ROLE_RANK } = await import("./members-store.mjs");
   const role = await myRole(key);
@@ -1181,12 +1182,16 @@ export async function recordDeliveryGate(key, b = {}) {
   takeWriteBudget("gate rows", { perUser: 20, all: 60 }); // the machine credential (no signed-in user) is not budgeted
   const proj = await ensureProject(key);
   const actor = typeof b.actor === "string" && b.actor.trim() ? b.actor.trim() : "Revit";
-  const row = await audit(proj.id, "delivery_gate", null, `IFC delivery gate ${GATE_WORDS[g.result]}: ${g.file}`, actor, null, g);
+  // The source is a self-label: a signed-in caller's is kept as claimed_source only and their hold reads "intake", as on
+  // /propose — no member holds a file as Revit's Governed Publish (cde-rem-9).
+  const machine = role === "service";
+  const row = await audit(proj.id, "delivery_gate", null, `IFC delivery gate ${GATE_WORDS[g.result]}: ${g.file}`, actor, null,
+    machine ? g : { ...g, source: null, claimed_source: g.source });
   let hold = null;
   if (g.passed === false && g.publish) {
     const h = await writeHold(proj, {
       stage: "gate", container_name: g.file, sha256: g.sha256, size_bytes: g.size_bytes, verdict: "rejected", failures: g.failures, failures_total: g.failures_total,
-      source: g.source, gate_row_id: row?.id ?? null, proposal_row_id: null, contract_ref: g.contract_ref, ids_ref: null, naming_ref: null, actor,
+      source: machine ? g.source : "intake", gate_row_id: row?.id ?? null, proposal_row_id: null, contract_ref: g.contract_ref, ids_ref: null, naming_ref: null, actor,
     });
     hold = { id: h?.id ?? null, hash: h?.hash ?? null };
   }

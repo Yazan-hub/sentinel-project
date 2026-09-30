@@ -500,9 +500,11 @@ describe("POST /cde/:key/delivery-gate (GATE-E1, H5): Revit's gate row under the
     expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["delivery_gate", "IFC delivery gate PASS: Demo.ifc", "contributor@example.test"]]);
   });
 
-  it("a lead's publish FAIL: the gate row and its hold, both by the lead", async () => {
+  it("a lead's publish FAIL: the gate row and its hold, both by the lead; the source is claimed, never Revit's (cde-rem-9)", async () => {
     expect((await call("POST", G, "lead", failPublish)).status).toBe(201);
     expect(db.audit_log.map((a) => [a.entity_type, a.actor])).toEqual([["delivery_gate", "lead@example.test"], ["hold", "lead@example.test"]]);
+    expect(db.audit_log[0].new_value).toMatchObject({ source: null, claimed_source: "revit" });
+    expect(db.audit_log[1].new_value).toMatchObject({ source: "intake" });
   });
 
   it("a viewer is a 403 in words and nothing reaches the ledger", async () => {

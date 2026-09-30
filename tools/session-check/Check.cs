@@ -181,7 +181,7 @@ static class Check
     // ── 7. SI-1: a refresh that fails without a refusal keeps the session and fails the call in words ─────
     static void TransientKeepsSession(string file)
     {
-        _expiresIn = 30;
+        _expiresIn = 5; // under UsableSeconds: nothing of the person's is left to send
         UserSession.SignOut();
         UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
         _expiresIn = 3600;
@@ -191,14 +191,29 @@ static class Check
         Ok(UserSession.IsSignedIn && UserSession.Email == "lead@office.example" && File.Exists(file), "…the session and its file are kept");
         var cfg = BcfConfig.Parse("{\"serviceToken\":\"shared-machine-token\",\"supabaseUrl\":\"" + Dead + "\",\"supabaseAnonKey\":\"" + Anon + "\"}");
         Ok(Throws(() => cfg.ServiceToken) is SessionException, "while the session exists, ServiceToken never falls back to the shared token");
+        int calls = _refreshCalls;
+        Ok(Throws(() => UserSession.AccessToken(_url, Anon)) is SessionException && _refreshCalls == calls, "a refresh that just failed is not tried again at once: the next caller takes its outcome");
+        RetryDue();
         _unavailable = true;
         Ok(Throws(() => UserSession.AccessToken(_url, Anon)) is SessionException && UserSession.IsSignedIn, "a Supabase 503 is not a refusal: the session is kept");
         _unavailable = false;
+        RetryDue();
         int refused = _refusedRefreshes;
         var t = UserSession.AccessToken(_url, Anon);
         Ok(t is not null && t.StartsWith("access-") && _refusedRefreshes == refused, "the next call retries with the kept refresh token: " + t);
+        _expiresIn = 45; // inside the refresh window, still verifiable at the bridge
+        UserSession.SignOut();
+        UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
+        _expiresIn = 3600;
+        var own = UserSession.AccessToken(Dead, Anon);
+        Ok(own is not null && own.StartsWith("access-") && UserSession.IsSignedIn, "a failed refresh with 45 s left: the person's own token is still sent: " + own);
+        Ok(cfg.ServiceToken == own, "…by ServiceToken too, never the shared token");
         UserSession.SignOut();
     }
+
+    // "RetryAfterSeconds later": clear the failed refresh's time through reflection, as ForgetMemoryOnly does.
+    static void RetryDue() =>
+        typeof(UserSession).GetField("_failedAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.SetValue(null, 0L);
 
     // ── 8. XC-4: the coordinator role comes from the web project; nothing grants on a failure ──────────────
     static void Coordinator()
@@ -233,6 +248,8 @@ static class Check
         Ok(who.Length == 0, "only UserSession names the Windows user (App.cs compares workset owners)" + (who.Length > 0 ? ": " + string.Join(", ", who) : ""));
         var revit = Hits(@"actor:\s*""Revit""|""Revit"",\s*ctx\.Key|creation_author\s*=\s*""Revit""|""revit:""\s*\+");
         Ok(revit.Length == 0, "no write labels its actor Revit" + (revit.Length > 0 ? ": " + string.Join(", ", revit) : ""));
+        var notify = sources.Single(s => s.Path.EndsWith("GovernedNotify.cs")).Text;
+        Ok(Regex.Matches(notify, @"dto\.Actor = UserSession\.Actor").Count == 2, "the office scan and snapshot name the actor (the bridge's own default is \"revit\")");
         Ok(Hits(@"\bIsCoordinator\b").Length == 0, "no coordinator list on this PC (settings.json) is read");
     }
 

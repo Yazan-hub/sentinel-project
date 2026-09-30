@@ -120,12 +120,14 @@ public sealed class BcfIssuesCommand : IExternalCommand
             window.SetStatus("Fetching open issues…");
             try
             {
-                var topics = await sync.FetchActiveAsync(bcfKey, cfg.ModelId).ConfigureAwait(false);
+                // The bearer is read per fetch, off Revit's thread (a refresh may block): a sign-in or out since the window opened counts.
+                var topics = await Task.Run(() => sync.FetchActiveAsync(bcfKey, cfg.ModelId, () => BcfConfig.Load().ServiceToken)).ConfigureAwait(false);
                 window.SetTopics(topics);
                 window.SetStatus(topics.Count == 0
                     ? "No open issues. (Raise one from the web viewer.)"
                     : $"{topics.Count} open issue(s). Double-click to zoom in Revit.");
             }
+            catch (SessionException ex) { window.SetStatus(ex.Message); }
             catch (Exception ex)
             {
                 window.SetStatus($"Could not reach the BCF service at {cfg.ServiceUrl}\n{ex.Message}");
@@ -378,7 +380,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (still.Count > 0) evidence += $" Still failing: {string.Join(", ", still.Take(20))}{(still.Count > 20 ? ", \u2026" : "")}.";
                         if (fold.Unresolved.Count > 0) evidence += $" Not in this model: {string.Join(", ", fold.Unresolved.Take(10))}{(fold.Unresolved.Count > 10 ? ", \u2026" : "")}.";
 
-                        var c = await sync.AddCommentAsync(bcfKey, topic.Guid, evidence, User()).ConfigureAwait(false);
+                        // The bearer now, not the window's: the comment and the status go under the person they name (SI-1).
+                        string bearer;
+                        try { bearer = BcfConfig.Load().ServiceToken; }
+                        catch (SessionException e) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted ({e.Message}); the issue is unchanged."); fix.SetBusy(false); return; }
+                        var c = await sync.AddCommentAsync(bcfKey, topic.Guid, evidence, User(), () => bearer).ConfigureAwait(false);
                         if (c < 200 || c >= 300) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted (HTTP {c}); the issue is unchanged."); fix.SetBusy(false); return; }
                         if (!fold.AllPass)
                         {
@@ -390,7 +396,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             fix.SetStatus($"Re-check: {passed}/{total} listed element(s) pass, but the issue names {req.Failing} failing and lists only {total} — {unlisted} were never examined. Evidence posted; the issue stays {topic.Status}. Re-publish to raise a fresh, complete issue.");
                             fix.SetBusy(false); return;
                         }
-                        var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", User()).ConfigureAwait(false);
+                        var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", User(), () => bearer).ConfigureAwait(false);
                         fix.SetStatus(s >= 200 && s < 300
                             ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved ({ledgerLine}). Closing it stays a human decision on the web."
                             : $"Evidence posted; status unchanged (HTTP {s}).");

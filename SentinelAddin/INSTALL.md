@@ -57,5 +57,5 @@ Delete `%AppData%\Autodesk\Revit\Addins\<year>\Sentinel.addin` and the
   on the office (`--kind type_catalog`); the add-in never reads the export.
 - The add-in keeps a copy of each artefact it read at `%AppData%\Sentinel\cache\<key>\<kind>.json`, used
   only when the bridge does not answer and always labelled "cached" in the pane. Deleting the folder is safe.
-- Build Office System / Apply Standard install `ruleset@n+1` on the model's own project (actor
-  `revit:<Windows user>`) and warn when that stops the project inheriting its office's ruleset.
+- Build Office System / Apply Standard install `ruleset@n+1` on the model's own project (actor: the signed-in
+  e-mail, else `unsigned — <Windows user>`) and warn when that stops the project inheriting its office's ruleset.

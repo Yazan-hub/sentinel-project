@@ -160,6 +160,7 @@ namespace Sentinel.Coordination
             {
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + "/office/snapshot";
+                dto.Actor = UserSession.Actor; // XC-4: never the bridge's "revit"
                 var content = new StringContent(dto.ToJson(), Encoding.UTF8, "application/json");
                 var resp = Send(GovHttp, HttpMethod.Post, url, content, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -230,7 +231,9 @@ namespace Sentinel.Coordination
             {
                 // The report keeps its own wire shape (snake_case, an explicit null ruleset): Event's serializer writes a
                 // JsonElement exactly as it is.
-                using var wire = JsonDocument.Parse(ScanReportDto.From(report).ToJson());
+                var dto = ScanReportDto.From(report);
+                dto.Actor = UserSession.Actor; // XC-4: never the bridge's "revit"
+                using var wire = JsonDocument.Parse(dto.ToJson());
                 return Event("/office/scan", wire.RootElement, projectKey);
             }
             catch (Exception e) { return LedgerResult.NotRecorded("the scan report could not be written (" + e.Message + ")"); }

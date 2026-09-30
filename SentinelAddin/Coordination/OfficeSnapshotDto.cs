@@ -29,6 +29,9 @@ public sealed class OfficeSnapshotDto
     [JsonPropertyName("catalog")] public CatalogDto Catalog { get; set; } = new();
     [JsonPropertyName("ruleset")] public RulesetDto? Ruleset { get; set; }
     [JsonPropertyName("at")] public string At { get; set; } = DateTimeOffset.UtcNow.ToString("o");
+    /// Who sent it (XC-4: UserSession.Actor, set by GovernedNotify) — the bridge's own default is "revit"; a signed-in
+    /// caller's row is their verified identity whatever this says.
+    [JsonPropertyName("actor")] public string? Actor { get; set; }
 
     public sealed class SourceDto
     {
@@ -110,6 +113,7 @@ public sealed class ScanReportDto
     // the bridge then reads office.model_health as not_checkable instead of "met" on an empty scan.
     [JsonPropertyName("ruleset_ref"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? RulesetRef { get; set; }
     [JsonPropertyName("ruleset_sha256"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? RulesetSha256 { get; set; }
+    [JsonPropertyName("actor")] public string? Actor { get; set; } // XC-4, as OfficeSnapshotDto.Actor
 
     public sealed class ViolationDto
     {

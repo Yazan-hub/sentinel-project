@@ -31,6 +31,11 @@ public static class UserSession
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static volatile Stored? _s;      // the session in memory (null = signed out)
     private static volatile bool _loaded;    // the file has been read once this process
+    // SI-1 after a refresh that failed without a refusal: callers within RetryAfterSeconds take its outcome instead of
+    // queueing 8 s each behind the lock; a token with more than UsableSeconds left is still the person's to send.
+    private const int RetryAfterSeconds = 10, UsableSeconds = 15;
+    private static long _failedAt;           // unix seconds of that failure (0 = none since the last success)
+    private static string _failedWhy = "";
 
     /// <summary>SI-1: what a call says when the session is kept but its refresh failed; the next call retries.</summary>
     public const string NotRefreshed = "session not refreshed — retrying";
@@ -74,7 +79,7 @@ public static class UserSession
         var body = JsonSerializer.Serialize(new { email = email.Trim(), password });
         var r = Token(supabaseUrl, anonKey, "password", body);
         if (r.Session is null) return (false, r.Error);
-        lock (Gate) { _s = r.Session; _loaded = true; Save(_s); }
+        lock (Gate) { _s = r.Session; _loaded = true; _failedAt = 0; Save(_s); }
         return (true, "Signed in as " + r.Session.Email);
     }
 
@@ -92,8 +97,9 @@ public static class UserSession
     /// A bearer with at least a minute left, refreshed on demand; null when there is no Supabase address or no
     /// session (the file's token rules). While a session exists it never returns null (SI-1): a refresh Supabase
     /// refused signs out and throws <see cref="SessionException"/> ("signed out — …"; later calls run signed out),
-    /// and a refresh that failed any other way (no answer, 5xx, 408, 429) keeps the session and throws
-    /// "<see cref="NotRefreshed"/> (…)" — the next call retries. Never the PC's token instead.
+    /// and a refresh that failed any other way (no answer, 5xx, 408, 429) keeps the session: the access token is
+    /// still sent while it has more than <see cref="UsableSeconds"/> left, else the call throws
+    /// "<see cref="NotRefreshed"/> (…)"; the first call after <see cref="RetryAfterSeconds"/> retries. Never the PC's token instead.
     /// ponytail: the refresh is a blocking HTTP call (8 s cap) on the caller's thread; a background refresh loop is
     /// the upgrade if a UI-thread caller ever stalls.
     /// </summary>
@@ -105,6 +111,7 @@ public static class UserSession
             LoadOnce();
             if (_s is null) return null;
             if (SecondsLeft(_s) > MinLeftSeconds) return _s.AccessToken;
+            if (Now() - _failedAt < RetryAfterSeconds) return Unrefreshed(_failedWhy);
             return Refresh(supabaseUrl, anonKey);
         }
     }
@@ -122,14 +129,14 @@ public static class UserSession
             if (onDisk is not null && SecondsLeft(onDisk) > MinLeftSeconds) { _s = onDisk; return _s.AccessToken; }
             var refreshToken = onDisk?.RefreshToken ?? _s?.RefreshToken;
             if (string.IsNullOrEmpty(refreshToken)) { Forget(); throw new SessionException("signed out — the stored session has no refresh token — Standards ▸ Sign in"); }
-            // ponytail: no backoff — during an outage each call waits up to 8 s for Supabase; add one if B34 shows it hurts.
             var r = Token(supabaseUrl, anonKey, "refresh_token", JsonSerializer.Serialize(new { refresh_token = refreshToken }));
             if (r.Session is null)
             {
                 if (r.Refused) { Forget(); throw new SessionException("signed out — Supabase refused the session (" + r.Error + ") — Standards ▸ Sign in"); }
-                throw new SessionException(NotRefreshed + " (" + r.Error + ")"); // SI-1: memory and file kept; the next call retries
+                _failedAt = Now(); _failedWhy = r.Error; // SI-1: memory and file kept; a call after RetryAfterSeconds retries
+                return Unrefreshed(r.Error);
             }
-            _s = r.Session; Save(_s);
+            _s = r.Session; _failedAt = 0; Save(_s);
             return _s.AccessToken;
         }
         finally { if (held) { try { mutex.ReleaseMutex(); } catch { /* not ours */ } } }
@@ -137,7 +144,12 @@ public static class UserSession
 
     private static void Forget() { _s = null; try { File.Delete(SessionPath); } catch { /* gone */ } }
 
-    private static long SecondsLeft(Stored s) => s.ExpiresAt - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    private static long SecondsLeft(Stored s) => s.ExpiresAt - Now();
+    private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    /// <summary>SI-1 after a failed refresh: the person's own token while the bridge still accepts it, else the call fails in words.</summary>
+    private static string Unrefreshed(string why) =>
+        SecondsLeft(_s!) > UsableSeconds ? _s!.AccessToken : throw new SessionException(NotRefreshed + " (" + why + ")");
 
     // ── the Supabase auth call ────────────────────────────────────────────────────────────────────────────────
     private static (Stored? Session, string Error, bool Refused) Token(string supabaseUrl, string anonKey, string grant, string body)
