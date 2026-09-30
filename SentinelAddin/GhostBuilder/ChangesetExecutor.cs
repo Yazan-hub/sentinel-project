@@ -18,6 +18,7 @@ namespace Sentinel.GhostBuilder;
 public sealed class ChangesetExecutor
 {
     private const double MmToFeet = 1.0 / 304.8;
+    private const double TolFt = 0.5 * MmToFeet; // the planner's 0.5 mm
 
     public sealed class ExecutionResult
     {
@@ -63,7 +64,7 @@ public sealed class ChangesetExecutor
         var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
             .Where(t => t.Kind == WallKind.Basic).ToList();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"wall type \"{typeName}\" does not exist in this model — load or create it, or re-propose without a TypeName");
+               ?? throw new InvalidOperationException($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
     }
 
     private static FloorType ResolveFloorType(Document doc, string typeName)
@@ -71,7 +72,7 @@ public sealed class ChangesetExecutor
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var types = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load or create it, or re-propose without a TypeName");
+               ?? throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
     }
 
     /// A level named exactly (case-insensitive, as ResolveLevel reads a LevelName); blank or missing fails.
@@ -193,12 +194,23 @@ public sealed class ChangesetExecutor
             }
 
             // Attach = the constraint parameters (Revit 2024 has no Wall.AddAttachment): base and top on story levels, offsets 0.
+            // Like retype's type_before, the model must still be what the plan saw: the base where it stood at +0 (the
+            // planner proposes no other — attach never moves a wall), and a top no higher than the new one (attach never
+            // cuts a wall down: hosted doors and windows above would go). Otherwise a person's later edit is not overwritten.
             foreach (var el in toPlace.Where(e => e.Op == "attach"))
             {
                 var w = TargetWall(doc, el);
                 var b = LevelNamed(doc, el.Place?.BaseLevel);
                 var top = LevelNamed(doc, el.Place?.TopLevel);
                 if (top.Elevation <= b.Elevation) throw new InvalidOperationException($"{top.Name} is not above {b.Name}");
+                var baseOff = w.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0;
+                if (!b.Id.Equals(w.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)?.AsElementId()) || Math.Abs(baseOff) > TolFt)
+                    throw new InvalidOperationException($"wall {w.UniqueId} changed since the plan (its base is no longer {b.Name} +0); re-run Promote");
+                var topNow = doc.GetElement(w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.AsElementId() ?? ElementId.InvalidElementId) is Level tl
+                    ? tl.Elevation + (w.get_Parameter(BuiltInParameter.WALL_TOP_OFFSET)?.AsDouble() ?? 0)
+                    : b.Elevation + baseOff + (w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0);
+                if (topNow > top.Elevation + TolFt)
+                    throw new InvalidOperationException($"wall {w.UniqueId} rises above {top.Name} — attaching would cut it down; re-run Promote");
                 Set(w, BuiltInParameter.WALL_BASE_CONSTRAINT, b.Id);
                 Set(w, BuiltInParameter.WALL_BASE_OFFSET, 0.0);
                 Set(w, BuiltInParameter.WALL_HEIGHT_TYPE, top.Id);
@@ -211,10 +223,10 @@ public sealed class ChangesetExecutor
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
             if (result.Applied.Count != toPlace.Count)
                 throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary");
-            // The stamp: once per element (a second write would overwrite), with every guid that touched it — inside
-            // this transaction, so Ctrl+Z removes it too.
+            // The stamp: once per element, with every guid of this changeset that touched it, merged onto the element's
+            // earlier stamp (one entity per schema) — inside this transaction, so Ctrl+Z removes it too.
             foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId))
-                ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, g.Select(a => a.ProposalGuid));
+                ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid));
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
             // the collected ids then would be the "some failed silently" lie this file forbids.
             if (t.Commit() != TransactionStatus.Committed)

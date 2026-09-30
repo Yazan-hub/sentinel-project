@@ -71,18 +71,20 @@ public sealed class PromoteWallsCommand : IExternalCommand
 
         var plans = PromoteWallsPlanner.Plan(walls, levels, docTypes, standards.Guideline);
         var actor = Environment.UserName;
-        var bodies = plans.SelectMany(p => PromoteWallsPlanner.Bodies(p, actor)).ToList();
+        var bodies = PromoteWallsPlanner.Bodies(plans, actor);
 
+        // Walls, not reasons: one wall can be held for its type and for its top.
         var lines = plans.Select(p =>
             $"{p.Storey}: {p.Ghosts.Count(g => g.Op == "retype")} retype · {p.Ghosts.Count(g => g.Op == "attach")} attach · " +
-            $"{p.Held.Count} sent to a person · DD now {p.DdNow}/{p.Walls} · stamped {p.Stamped}");
+            $"{p.Held.Select(h => h.UniqueId).Distinct().Count()} wall(s) sent to a person · DD now {p.DdNow}/{p.Walls} · stamped by Promote {p.Stamped}");
         var held = plans.SelectMany(p => p.Held.Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
         var d = new TaskDialog(Title)
         {
             MainInstruction = bodies.Count == 0 ? "Nothing to file: no wall needs a retype or an attach that Sentinel can propose."
                                                 : $"File {bodies.Count} changeset(s)?",
             MainContent = standards.Header + "\n\n" + string.Join("\n", lines) +
-                          (bodies.Count == 0 ? "" : "\n\nNo = a read-only run: nothing is filed, nothing changes."),
+                          (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing changes."
+                           : held.Count > 0 ? "\n\nNothing is filed, so the walls sent to a person are listed only here, not on the ledger." : ""),
             CommonButtons = bodies.Count == 0 ? TaskDialogCommonButtons.Ok : TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
         };
         if (held.Count > 0)
@@ -126,6 +128,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TopLevel = LevelOf(BuiltInParameter.WALL_HEIGHT_TYPE),
             BaseOffsetMm = Mm(BuiltInParameter.WALL_BASE_OFFSET),
             TopOffsetMm = Mm(BuiltInParameter.WALL_TOP_OFFSET),
+            HeightMm = Mm(BuiltInParameter.WALL_USER_HEIGHT_PARAM),
             IsBasic = basic,
             InGroup = w.GroupId != ElementId.InvalidElementId,
             Stamp = ProvenanceStamp.Read(w),

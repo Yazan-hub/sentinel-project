@@ -21,11 +21,12 @@ static partial class Check
 
     static int _uid;
     static WallFact W(string label, string type, string function, double mm, string baseLevel = "Level 1", string top = null,
-                      double baseOff = 0, double topOff = 0, bool basic = true, bool group = false, string stamp = null) => new WallFact
+                      double baseOff = 0, double topOff = 0, bool basic = true, bool group = false, string stamp = null,
+                      double height = 0) => new WallFact
     {
         UniqueId = $"5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-{++_uid:x8}", Label = label, TypeName = type, Function = function,
         WidthMm = mm, BaseLevel = baseLevel, TopLevel = top, BaseOffsetMm = baseOff, TopOffsetMm = topOff,
-        IsBasic = basic, InGroup = group, Stamp = stamp,
+        IsBasic = basic, InGroup = group, Stamp = stamp, HeightMm = height,
     };
 
     static void Planner(GuidelineMatcher m)
@@ -37,7 +38,11 @@ static partial class Check
             W("I1", "MA0 Interior - 100mm", "Interior", 100),
             W("G1", "Generic - 125mm", "Exterior", 125),
             W("X1", "Generic - 300mm", "Exterior", 300, top: "Level 2"),
-            W("OK1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2", stamp: "{\"v\":1}"),
+            W("OK1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2", stamp: "{\"v\":1,\"source\":\"promote\"}"),
+            W("SEED1", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2", stamp: "{\"v\":1,\"source\":\"concept\"}"),
+            W("CORE1", "Generic - 200mm", "Exterior", 200, top: "Roof"),
+            W("TALL1", "Generic - 200mm", "Exterior", 200, height: 7000),
+            W("LOW1", "Generic - 200mm", "Exterior", 200, top: "Level 2", topOff: -250),
             W("OFF1", "Generic - 200mm", "Exterior", 200, baseOff: 100),
             W("FR1", "Generic - 200mm", "Exterior", 200.4),
             W("GRP1", "Generic - 200mm", "Exterior", 200, group: true),
@@ -72,7 +77,12 @@ static partial class Check
            "a 125 mm wall is held with a gap naming the catalogue — its attach is still planned");
         Ok(G(l1, "retype", "OK1") == null && G(l1, "attach", "OK1") == null && !l1.Held.Any(h => h.Label == "OK1"),
            "a wall already on its DD type with its top on the next story gets no ghost");
-        Ok(l1.DdNow == 1 && l1.Stamped == 1, $"…and counts once in DD now ({l1.DdNow}) and stamped ({l1.Stamped})");
+        Ok(l1.DdNow == 2 && l1.Stamped == 1, $"…and counts in DD now ({l1.DdNow}); stamped counts Promote's stamps only, not the seed's ({l1.Stamped})");
+        Ok(H(l1, "CORE1", "top (Roof +0) is above Level 2 — attaching would cut the wall down to one storey; a person decides") != null
+           && G(l1, "attach", "CORE1") == null && G(l1, "retype", "CORE1") != null, "a wall that spans two storeys is held, never cut down (its retype stays)");
+        Ok(H(l1, "TALL1", "top (unconnected, 7000 mm high) is above Level 2") != null && G(l1, "attach", "TALL1") == null,
+           "…and so is an unconnected wall taller than its storey");
+        Ok(G(l1, "attach", "LOW1") != null && G(l1, "attach", "E1") != null, "a top below the next story (or unconnected, lower) is attached up to it");
         Ok(H(l1, "OFF1", "base offset 100 mm — attaching would move the wall") != null && G(l1, "attach", "OFF1") == null
            && G(l1, "retype", "OFF1") != null, "a base offset other than 0 holds the attach (the retype stays)");
         Ok(H(l1, "FR1", "width 200.4 mm is not a whole millimetre — exact match only (D16)") != null && G(l1, "retype", "FR1") == null,
@@ -95,7 +105,7 @@ static partial class Check
             .Concat(Enumerable.Range(0, 100).Select(i => W("N" + i, "MA0 Interior - 100mm", "Interior", 100, top: "Level 2")))
             .Append(W("GAP", "Generic - 125mm", "Exterior", 125, top: "Level 2")).ToList();
         var big = PromoteWallsPlanner.Plan(many, Levels, DocTypes, m).Single();
-        var bodies = PromoteWallsPlanner.Bodies(big, "yazan").Select(b => JsonSerializer.SerializeToNode(b, ChangesetClient.WriteJson)).ToList();
+        var bodies = Json(PromoteWallsPlanner.Bodies(new[] { big }, "yazan"));
         Ok(big.Ghosts.Count == 201 && bodies.Count == 2
            && bodies[0]["elements"].AsArray().Count == 200 && bodies[1]["elements"].AsArray().Count == 1,
            "201 ghosts → 2 bodies (200 + 1)");
@@ -104,8 +114,41 @@ static partial class Check
         Ok((string)bodies[0]["name"] == "Promote walls (DD) · Level 1 (1/2)" && (string)bodies[1]["name"] == "Promote walls (DD) · Level 1 (2/2)",
            "…each named with its storey and part");
         Ok(bodies[0]["exceptions"][0]["reason"].GetValue<string>().Length <= 300, "an exception reason fits the bridge's 300-character cap");
-        Ok(PromoteWallsPlanner.Bodies(P("Ref"), "yazan").Count == 0, "a storey with no ghosts files nothing (a changeset needs an element)");
+        Ok(PromoteWallsPlanner.Bodies(new[] { P("Ref") }, "yazan").Count == 0, "a storey with no ghosts files nothing (a changeset needs an element)");
+
+        // Every held wall reaches a filed changeset: a storey with no ghosts rides on the first body, named with its storey.
+        var all = Json(PromoteWallsPlanner.Bodies(plans, "yazan"));
+        Ok(all[0]["exceptions"].AsArray().Any(x => (string)x["name"] == "Ref · REF1")
+           && all.Skip(1).All(b => b["exceptions"] == null || !b["exceptions"].AsArray().Any(x => ((string)x["name"]).StartsWith("Ref · "))),
+           "the held walls of a storey with no ghosts ride on the first body filed, named with their storey");
+        Ok(all.Sum(b => b["exceptions"]?.AsArray().Count ?? 0) == plans.Sum(p => p.Held.Count), "…so every held row is filed once");
+
+        // Chunked by wall: 150 walls x (retype + attach) + 1 = 302 ghosts → 200 + 102, and no wall in two changesets.
+        var pairs = Enumerable.Range(0, 150).Select(i => W("P" + i, "Generic - 200mm", "Exterior", 200))
+            .Append(W("Q", "MA0 Interior - 100mm", "Interior", 100)).ToList();
+        var two = Json(PromoteWallsPlanner.Bodies(PromoteWallsPlanner.Plan(pairs, Levels, DocTypes, m), "yazan"));
+        var uids = two.Select(b => b["elements"].AsArray().Select(e => (string)e["target"]["unique_id"]).Distinct().ToList()).ToList();
+        Ok(two.Count == 2 && two[0]["elements"].AsArray().Count == 200 && two[1]["elements"].AsArray().Count == 102
+           && !uids[0].Intersect(uids[1]).Any(), "chunks keep each wall's retype and attach together (200 + 102, no wall split)");
+        Ok(two.All(b => { var ops = b["elements"].AsArray().Select(e => (string)e["op"]).ToList(); return ops.TakeWhile(o => o == "retype").Count() == ops.Count(o => o == "retype"); }),
+           "…retypes first in every chunk");
+
+        // The bridge keeps at most 1000 exceptions on a changeset: the rest is one summary row.
+        var crowd = new StoreyPlan { Storey = "L9" };
+        crowd.Ghosts.Add(new PromoteGhost { Op = "attach", UniqueId = "u", Label = "A", BaseLevel = "L9", TopLevel = "L10" });
+        crowd.Held.AddRange(Enumerable.Range(0, 1001).Select(i => new PromoteHeld { UniqueId = "h" + i, Label = "H" + i, Reason = "gap" }));
+        var capped = Json(PromoteWallsPlanner.Bodies(new[] { crowd }, "yazan")).Single()["exceptions"].AsArray();
+        Ok(capped.Count == PromoteWallsPlanner.MaxExceptions && (string)capped[999]["name"] == "… and 2 more" && (string)capped[998]["name"] == "H998",
+           "1001 held rows → 999 rows + one \"… and 2 more\" row (the bridge's cap is 1000)");
+
+        // No type catalogue: the matcher would answer the pattern unchecked — the type is held, the attach stays.
+        var bare = GuidelineMatcher.FromBodies(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-walls-guideline.json")), null, out _, out _);
+        var nc = PromoteWallsPlanner.Plan(new List<WallFact> { W("NC1", "Generic - 200mm", "Exterior", 200) }, Levels, DocTypes, bare).Single();
+        Ok(nc.Ghosts.Count == 1 && nc.Ghosts[0].Op == "attach" && nc.Held.Single().Reason.StartsWith("no type catalogue installed"),
+           "no type catalogue → the retype is held (\"no type catalogue installed\"), never matched unchecked");
     }
+
+    static List<JsonNode> Json(IEnumerable<object> bodies) => bodies.Select(b => JsonSerializer.SerializeToNode(b, ChangesetClient.WriteJson)).ToList();
 
     // ── 3. parity: the same body the bridge's vitest validates ─────────────────────────────────────────────────
     static void Parity(GuidelineMatcher m)
@@ -121,7 +164,7 @@ static partial class Check
                            Function = "Exterior", WidthMm = 125, BaseLevel = "Level 1", TopLevel = "Level 2", IsBasic = true },
         };
         var plan = PromoteWallsPlanner.Plan(walls, Levels, DocTypes, m).Single();
-        var got = JsonSerializer.SerializeToNode(PromoteWallsPlanner.Bodies(plan, "yazan").Single(), ChangesetClient.WriteJson);
+        var got = Json(PromoteWallsPlanner.Bodies(new[] { plan }, "yazan")).Single();
         var path = Repo("WebApp", "bridge", "fixtures", "changeset-ops", "promote-body.json");
         var text = File.Exists(path) ? File.ReadAllText(path) : "null";
         bool same = JsonNode.DeepEquals(got, JsonNode.Parse(text));
@@ -147,10 +190,19 @@ static partial class Check
     {
         Console.WriteLine("\nStamp and undo matcher");
         const string id = "3f2a9c8b-1d0e-4f5a-8b7c-6d5e4f3a2b1c";
-        var j = JsonNode.Parse(ProvenanceStamp.Json(id, new[] { "8c1e", "91d0" }, "5a1c-0004c3f8")).AsObject();
-        Ok(j.Count == 4 && (int)j["v"] == 1 && (string)j["changeset_id"] == id
-           && string.Join(",", j["proposal_guids"].AsArray().Select(x => (string)x)) == "8c1e,91d0" && (string)j["unique_id_at_placement"] == "5a1c-0004c3f8",
-           "the stamp JSON holds v, changeset_id, proposal_guids and unique_id_at_placement");
+        string Ids(JsonNode a) => string.Join(",", a.AsArray().Select(x => (string)x));
+        var seed = ProvenanceStamp.Json("seed-cs", "concept", new[] { "s1" }, "5a1c-0004c3f8");
+        var j = JsonNode.Parse(ProvenanceStamp.Json(id, "promote", new[] { "8c1e", "91d0" }, "5a1c-0004c3f8", seed)).AsObject();
+        Ok(j.Count == 6 && (int)j["v"] == 1 && (string)j["changeset_id"] == id && (string)j["source"] == "promote"
+           && (string)j["unique_id_at_placement"] == "5a1c-0004c3f8",
+           "the stamp JSON holds v, changeset_id, source, proposal_guids, unique_id_at_placement and changeset_ids");
+        Ok(Ids(j["proposal_guids"]) == "s1,8c1e,91d0" && Ids(j["changeset_ids"]) == "seed-cs," + id,
+           "a second changeset MERGES the element's stamp: every guid and changeset that touched it, oldest first");
+        var copy = JsonNode.Parse(ProvenanceStamp.Json(id, "promote", new[] { "8c1e" }, "5a1c-0004c3f9", seed)).AsObject();
+        Ok(Ids(copy["proposal_guids"]) == "8c1e" && Ids(copy["changeset_ids"]) == id && (string)copy["unique_id_at_placement"] == "5a1c-0004c3f9",
+           "a copy's stamp (another element's unique_id_at_placement) is not merged");
+        Ok(ProvenanceStamp.SourceOf(j.ToJsonString()) == "promote" && ProvenanceStamp.SourceOf("{\"v\":1}") == null && ProvenanceStamp.SourceOf("not json") == null,
+           "SourceOf reads the last writer's source, null otherwise");
 
         var tx = UndoWatcher.TxName("Promote walls (DD) · Level 1", id);
         Ok(tx == "Sentinel AI changeset: Promote walls (DD) · Level 1 [3f2a9c8b]", "the transaction name carries the changeset id's first 8");

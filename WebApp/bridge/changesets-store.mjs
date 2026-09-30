@@ -157,6 +157,8 @@ export async function reportReverted(key, id, { op, guids } = {}, actor, deps) {
   const applied = new Set((cs.result?.applied || []).map((a) => a.proposal_guid));
   const stray = guids.find((g) => !applied.has(g));
   if (stray) throw err(400, `"${stray}" was not applied by this changeset`);
-  d.takeWriteBudget("revit reports", { perUser: 20, all: 60 });
+  // Its own budget, not "revit reports" (naming, family_heal): the undo watcher never retries, so a throttled row is lost
+  // and the ledger disagrees with the model. Already bounded — only guids this changeset applied, only once applied.
+  d.takeWriteBudget("changeset reverts", { perUser: 120, all: 300 });
   return d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, { op, guids, count: guids.length });
 }

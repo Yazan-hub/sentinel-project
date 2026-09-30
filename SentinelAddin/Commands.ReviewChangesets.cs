@@ -25,6 +25,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     // both re-fetch "proposed" and both execute the same changeset — physical duplicates the
     // bridge's CAS can 409 but not prevent.
     private static bool _reviewOpen;
+    // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
+    // machine credential reads as service).
+    private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };
 
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
@@ -91,6 +94,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             {
                 TaskDialog.Show("Sentinel — AI proposals",
                     fresh == null ? $"Couldn't re-check the changeset:\n{oneErr}" : $"Changeset is now \"{fresh.Status}\" — nothing was created.");
+                return;
+            }
+
+            // The bridge takes a result from a contributor or above only: ask BEFORE anything runs, or a viewer's Apply would
+            // change the model and then be refused, leaving the changeset "proposed" (Report's 401/403 stop is the backstop).
+            var role = ChangesetClient.MyRole(cfg, key, out var roleErr);
+            if (!Reporters.Contains(role))
+            {
+                TaskDialog.Show("Sentinel — AI proposals",
+                    (role == null ? $"Couldn't check your role on \"{key}\":\n{roleErr}" : $"You are {(role == "" ? "not a member" : role)} on \"{key}\" — applying or declining needs contributor or above.") +
+                    "\n\nNothing was changed. Sign in (Standards ▸ Sign in) as a contributor on this project.");
                 return;
             }
 

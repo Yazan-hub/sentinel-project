@@ -283,7 +283,7 @@ describe("reportReverted", () => {
     expect([pid, type, id, action, actor]).toEqual(["p1", "changeset", cs.id, "changeset_reverted", "revit"]);
     expect(oldv).toEqual({ status: "applied" });
     expect(newv).toEqual({ op: "undo", guids: [a, b], count: 2 });
-    expect(deps.takeWriteBudget).toHaveBeenCalledWith("revit reports", { perUser: 20, all: 60 });
+    expect(deps.takeWriteBudget).toHaveBeenCalledWith("changeset reverts", { perUser: 120, all: 300 });
     expect(deps.docReplaceIfStatus).not.toHaveBeenCalled();
     expect(deps.saved.get(cs.id).status).toBe("applied");
   });

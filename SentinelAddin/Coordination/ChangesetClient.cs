@@ -173,6 +173,23 @@ internal static class ChangesetClient
         catch (Exception ex) { error = ex.Message; return false; }
     }
 
+    /// <summary>The caller's role on the project (GET /cde/:key/members/me): "service" for the machine credential, a
+    /// member's role, "" for a signed-in non-member; null with the error when it could not be read.</summary>
+    public static string MyRole(BcfConfig cfg, string projectKey, out string error)
+    {
+        error = null;
+        try
+        {
+            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/cde/{Uri.EscapeDataString(projectKey)}/members/me";
+            var resp = ReadHttp.SendAsync(Req(HttpMethod.Get, url, cfg.ServiceToken)).GetAwaiter().GetResult();
+            var body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("role", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "";
+        }
+        catch (Exception ex) { error = ex.Message; return null; }
+    }
+
     /// <summary>File a changeset (POST /changesets/:key → 201 and the stored changeset). Null with the error otherwise.</summary>
     public static ChangesetDto Propose(BcfConfig cfg, string projectKey, object body, out string error)
     {

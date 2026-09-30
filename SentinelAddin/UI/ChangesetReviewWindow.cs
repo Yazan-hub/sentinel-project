@@ -75,7 +75,7 @@ public sealed class ChangesetReviewWindow : Window
             }
             var exp = new Expander
             {
-                Header = $"Sent to a person ({held.Count})", IsExpanded = true, Margin = new Thickness(0, 0, 0, 8),
+                Header = $"Sent to a person ({held.Select(x => x.UniqueId).Distinct().Count()} wall(s))", IsExpanded = true, Margin = new Thickness(0, 0, 0, 8),
                 Content = new ScrollViewer { Content = heldList, MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             };
             DockPanel.SetDock(exp, Dock.Top);
