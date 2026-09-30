@@ -47,4 +47,4 @@ Fix → dialog shows current value struck-through + editable synthesized suggest
 - Backend schema (Phase 3): `module2_knowledge_layer_schema.sql` · Roadmap: `ROADMAP.md`
 
 ## Known gaps (pre-pilot backlog)
-IFCZIP not parsed by the gate; BCF fallback GUIDs not spec-compressed; Clash Manager has no progress bar/cancel; `BDS_Void_*` / `BDS_Description` params must exist in the project for tracking/healing to fully work; ROI counts only the tools that write a ledger row (gate runs, renames, heals); Doctor dismisses duplicate-mark warnings without renumbering.
+IFCZIP not parsed by the gate; Clash Manager has no progress bar/cancel; `BDS_Void_*` / `BDS_Description` params must exist in the project for tracking/healing to fully work; ROI counts only the tools that write a ledger row (gate runs, renames, heals); Doctor dismisses duplicate-mark warnings without renumbering.

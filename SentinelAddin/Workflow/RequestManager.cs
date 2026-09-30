@@ -178,7 +178,16 @@ public static class RequestManager
             if (element is not null)
             {
                 var current = element is ViewSheet vs ? vs.SheetNumber : element.Name;
-                if (proposal && current == req.OldValue) SetReviewFlag(element, "");  // nothing was renamed: nothing to revert
+                bool handRenamed = proposal && current != req.OldValue;
+                // A hand rename made while the proposal was pending is reverted only if it still breaks the request's
+                // rule — a compliant one was never going to be reviewed, and reverting it would bring back the bad name.
+                bool handRenameViolates = handRenamed && App.Engine is { } engine
+                    && engine.ScanElements(doc, new List<ElementId> { element.Id }).Any(v => v.RuleId == req.RuleId);
+                if (proposal && !handRenameViolates)
+                {
+                    SetReviewFlag(element, "");                // nothing to revert (or a compliant hand rename, kept)
+                    if (handRenamed) req.VerdictNote = $"{note ?? "-"} | hand rename '{current}' kept (passes {req.RuleId})";
+                }
                 else
                 {
                     // Decision 8: auto-revert — also for a proposal whose element was renamed by hand while it was

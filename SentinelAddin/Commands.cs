@@ -64,10 +64,16 @@ public sealed class IfcPreFlightCommand : IExternalCommand
         // "Not checked" notes (ElementId -1) are not issues: they are listed apart, never counted as found or as clean.
         int notChecked = report.Violations.Count(v => v.ElementId < 0);
         int issues = report.Violations.Count - notChecked;
-        var notCheckedLine = notChecked == 0 ? "" : $"\n\n{notChecked} requirement(s) not checked here (listed in the panel) — the delivery gate checks them in the IFC.";
+        // With no contract the delivery gate is NOT CHECKED too: never point at it as the one that checks.
+        var notCheckedLine = notChecked == 0 ? "" : contract is null
+            ? $"\n\nRequired properties not checked — contract: {contractSource.Label}. The delivery gate cannot check them either (NOT CHECKED) until a contract is installed."
+            : $"\n\n{notChecked} requirement(s) not checked here (listed in the panel) — the delivery gate checks them in the IFC.";
+        var clean = contract is null
+            ? "No IFC-01 mapping issues found; required properties not checked (no contract)."
+            : $"✓ No IFC issues found against {contractSource.Label}.";
         TaskDialog.Show("Sentinel — IFC Pre-Flight",
             issues == 0
-                ? $"✓ No IFC issues found against {contractSource.Label}.\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms.{notCheckedLine}"
+                ? $"{clean}\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms.{notCheckedLine}"
                 : $"{issues} issue(s) found across {report.ElementsChecked} elements " +
                   $"({report.DurationMs} ms).\n\nDetails are listed in the Sentinel panel (rules IFC-01 / IFC-02).{notCheckedLine}");
         return Result.Succeeded;

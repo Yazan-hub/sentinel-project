@@ -40,7 +40,7 @@ public sealed class ViolationRow
     public bool CanFix { get; }
     public Visibility FixVisibility => CanFix ? Visibility.Visible : Visibility.Collapsed;
 
-    /// Fix applies only to warn/request naming rules with a token schema on a
+    /// Fix applies only to warn/request/block naming rules (not type targets) with a token schema on a
     /// real element (worksets report ElementId -1; parameter rules have no
     /// tokens to synthesize a name from).
     private static bool ComputeCanFix(Violation v, Rule? rule)
@@ -208,9 +208,9 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         if (row.ElementId > 0 && _reportDoc is { } doc) App.Events?.SelectAndShow(doc, row.ElementId);
     }
 
-    /// Fix button -> Auto-Remediator on the ExternalEvent queue. On success the
-    /// row is removed here immediately; the DMU snapshot update inside
-    /// AutoFixExecution prevents the rename from being re-flagged.
+    /// Fix button -> Auto-Remediator on the ExternalEvent queue. A direct fix (WARN/BLOCK) removes the row on success,
+    /// and the DMU snapshot update inside AutoFixExecution stops the rename being flagged again. A REQUEST rule files
+    /// a proposal and keeps the row until a coordinator approves it.
     public void RequestFix(ViolationRow row, System.IntPtr ownerHandle = default)
     {
         if (!row.CanFix || _reportDoc is not { } doc) return;

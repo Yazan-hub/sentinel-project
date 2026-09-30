@@ -5,7 +5,7 @@ using Sentinel.Engine;
 namespace Sentinel.Workflow;
 
 /// <summary>
-/// Auto-Remediator: forcefully renames a non-compliant element to satisfy its
+/// Auto-Remediator: renames a non-compliant element (or, on a REQUEST rule, files the rename as a proposal) to satisfy its
 /// JSON token schema. Fix strategy per token, left to right:
 ///   1. If a segment of the current name already matches the token def, keep it.
 ///   2. Otherwise synthesize the token's default (first alternative of its
@@ -51,17 +51,23 @@ public static class AutoFixExecution
                 // when the transaction really committed (another user may own the request storage).
                 using var tp = new Transaction(doc, "Sentinel: Propose " + ruleId);
                 tp.Start();
-                bool filed = false;
+                string? why = null;   // each way a proposal can fail says its own reason (the pane shows "✕ " + why)
                 try
                 {
-                    candidate = Deduplicate(doc, element, rule, candidate);
-                    filed = RuleRegex.Matches(rule, App.OrgFor(doc), candidate, out _)
-                            && RequestManager.CreateProposal(doc, ruleId, element, candidate)
-                            && tp.Commit() == TransactionStatus.Committed;
+                    var dedup = Deduplicate(doc, element, rule, candidate);
+                    if (!RuleRegex.Matches(rule, App.OrgFor(doc), dedup, out _))
+                        why = $"'{candidate}' is taken and '{dedup}' breaks rule {ruleId} — nothing was filed.";
+                    else if (!RequestManager.CreateProposal(doc, ruleId, element, dedup))
+                        why = $"A request is already pending for '{oldName}' (Change Requests) — nothing was filed.";
+                    else if (tp.Commit() != TransactionStatus.Committed)
+                        why = "Revit did not save the proposal — the element or the request storage is owned by another user (sync, then retry).";
+                    else candidate = dedup;
                 }
-                catch (Autodesk.Revit.Exceptions.ApplicationException) { filed = false; }
+                catch (Autodesk.Revit.Exceptions.ApplicationException ex) { why = ex.Message; }
                 if (tp.GetStatus() == TransactionStatus.Started) tp.RollBack();
-                onDone?.Invoke(oldName, filed ? candidate : null);
+                if (why is null) onDone?.Invoke(oldName, candidate);
+                else if (onRefused is not null) onRefused(why);
+                else onDone?.Invoke(oldName, null);
                 return;
             }
 

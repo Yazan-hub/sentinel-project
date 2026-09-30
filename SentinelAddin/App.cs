@@ -235,16 +235,18 @@ public sealed class App : IExternalApplication
         if (all.Count == 0) return;
         // Only what THIS user can fix stops THIS sync: in a workshared model an element another user owns is listed,
         // never blocking — otherwise two users could block each other's syncs with no way out.
-        var blocks = all.Where(v => !OwnedByOther(doc, v.ElementId)).ToList();
+        var blocks = all.Where(v => !NotFixableHere(doc, v)).ToList();
         var others = all.Count - blocks.Count;
         if (blocks.Count == 0)
         {
-            PanelVm?.LogDoctor($"{others} BLOCK violation(s) on elements other users own — not blocking this sync.");
+            PanelVm?.LogDoctor($"{others} BLOCK violation(s) on elements other users own or changed in central — not blocking this sync.");
             return;
         }
         var rules = string.Join(", ", blocks.Select(v => v.RuleId).Distinct());
         var sample = string.Join("\n", blocks.Take(8).Select(v => "• " + v.RuleId + ": " + v.ElementName));
-        var more = (blocks.Count > 8 ? "\n…" : "") + (others > 0 ? $"\n({others} more on elements other users own — not blocking this sync.)" : "");
+        var more = (blocks.Count > 8 ? "\n…" : "")
+            + (others > 0 ? $"\n({others} more on elements other users own or changed in central — not blocking this sync.)" : "")
+            + "\n\nIf ⚡ Fix fails on an element, run Collaborate ▸ Reload Latest first: it may already be fixed in central, or borrowed by someone else.";
         PanelVm?.PublishReport(doc, report);
         if (!e.Cancellable)
         {
@@ -260,10 +262,24 @@ public sealed class App : IExternalApplication
             "\n\nThe Sentinel pane lists them first — fix them (⚡ Fix where offered) and sync again. Your work is safe: save locally.");
     }
 
-    // An element another user has borrowed in a workshared model: this user cannot fix it, so it does not block them.
-    private static bool OwnedByOther(Document doc, long elementId) =>
-        doc.IsWorkshared && elementId > 0
-        && WorksharingUtils.GetCheckoutStatus(doc, elementId.ToElementId()) == CheckoutStatus.OwnedByOtherUser;
+    // What this user cannot fix in this sync does not block it (workshared models only): an element another user has
+    // borrowed, or one changed/deleted in central since the last reload (it may already be fixed — Reload Latest); a
+    // workset row (ElementId -1) whose workset another user holds editable, matched by name.
+    private static bool NotFixableHere(Document doc, Violation v)
+    {
+        if (!doc.IsWorkshared) return false;
+        if (v.ElementId > 0)
+        {
+            var id = v.ElementId.ToElementId();
+            if (WorksharingUtils.GetCheckoutStatus(doc, id) == CheckoutStatus.OwnedByOtherUser) return true;
+            var u = WorksharingUtils.GetModelUpdatesStatus(doc, id);
+            return u == ModelUpdatesStatus.UpdatedInCentral || u == ModelUpdatesStatus.DeletedInCentral;
+        }
+        // ponytail: matched by the row's name; a '(missing) X' row matches no workset, so it stays actionable
+        var ws = new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).FirstOrDefault(w => w.Name == v.ElementName);
+        return ws != null && !string.IsNullOrEmpty(ws.Owner)
+            && !string.Equals(ws.Owner, doc.Application.Username, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static void OnSynchronized(object? sender, DocumentSynchronizedWithCentralEventArgs e)
     {
