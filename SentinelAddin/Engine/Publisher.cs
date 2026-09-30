@@ -139,8 +139,8 @@ public static class Publisher
     /// Everything the API thread must do before the referee is asked: the key and the name; the contract (off this
     /// thread and waited, ≤ 4 s, so the export uses the schema it asks for — <paramref name="resolve"/> is the
     /// project's artefact reader, <c>(kind, timeout) → ResolvedArtefact</c>, asked for "contract"; null means
-    /// <see cref="DeliveryContract.Load"/>); the WHOLE model exported (<see cref="PlatformExporter.Default3DView"/>)
-    /// into a folder of its own under <paramref name="tempDir"/> in <c>contract.IfcSchema ?? "IFC2X3"</c>; the gate and
+    /// <see cref="DeliveryContract.Load"/>); the WHOLE model exported (no view filter; the export's transaction rolled
+    /// back — <see cref="PlatformExporter.ExportToDir"/>) into a folder of its own under <paramref name="tempDir"/> in <c>contract.IfcSchema ?? "IFC2X3"</c>; the gate and
     /// its ledger row (waited, ≤ 6 s, so the row lands before /propose) — posted to <c>/cde/:key/delivery-gate</c> with
     /// <paramref name="source"/> ("revit" from Governed Publish, "auto-publish" from Auto-Publish) and publish true, so
     /// the bridge holds a FAIL on the web and <see cref="PublishPlan.GateRow"/>'s <see cref="LedgerResult.Hold"/> names
@@ -165,12 +165,12 @@ public static class Publisher
         // 1) The whole model, to a temp folder of this plan's own (two runs never share a file), NOT the outbox: only
         //    a judged, registered version reaches the outbox (Stage).
         var dir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
-        var (state, path, _, error) = PlatformExporter.ExportToDir(doc, PlatformExporter.Default3DView(doc), dir, plan.ContainerName, contract?.IfcSchema ?? "IFC2X3");
+        var (state, path, _, error) = PlatformExporter.ExportToDir(doc, dir, plan.ContainerName, contract?.IfcSchema ?? "IFC2X3");
         plan.TempIfcPath = path;
         if (state != PlatformExporter.State.Ok)
         {
             plan.Refusal = state == PlatformExporter.State.MissingOrEmpty
-                ? "IFC export contained no geometry — nothing to publish. Check the model's 3D view and the IFC mappings."
+                ? "IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As)."
                 : "IFC export failed: " + (error ?? state.ToString());
             Discard(plan);
             return plan;

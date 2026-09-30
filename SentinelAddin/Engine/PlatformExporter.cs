@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using Autodesk.Revit.DB;
 
 namespace Sentinel.Engine;
@@ -38,14 +37,17 @@ public static class PlatformExporter
     }
 
     /// <summary>
-    /// Export <paramref name="doc"/> to <paramref name="dir"/>/<paramref name="ifcName"/>. This is the shared export
-    /// primitive behind <see cref="Publisher"/> (which exports to a temp dir first, so it can stage ONLY on a verdict)
-    /// and the IFC Delivery Gate. <paramref name="ifcSchema"/> is the delivery contract's <c>ifc_schema</c>: "IFC4"
-    /// exports IFC4 Reference View, anything else exports IFC 2x3 CV2. Same view-filter + transaction idiom. Never
-    /// throws; returns a result.
+    /// Export the WHOLE of <paramref name="doc"/> to <paramref name="dir"/>/<paramref name="ifcName"/>. This is the
+    /// shared export primitive behind <see cref="Publisher"/> (which exports to a temp dir first, so it can stage ONLY
+    /// on a verdict) and the IFC Delivery Gate. <paramref name="ifcSchema"/> is the delivery contract's
+    /// <c>ifc_schema</c>: "IFC4" exports IFC4 Reference View, anything else exports IFC 2x3 CV2. GP-2: no FilterViewId
+    /// — a filter view exports only what that view shows (its section box, hidden categories, phase; B17 exported a
+    /// per-user "{3D - user}"); no filter is the whole model. Revit exports IFC only inside an open transaction; it is
+    /// ROLLED BACK once the file is written, so an export leaves no Undo entry and does not mark the document modified
+    /// (B10: a committed one forced a second save and a second auto run). Never throws; returns a result.
     /// </summary>
     public static (State state, string path, long bytes, string? error) ExportToDir(
-        Document doc, ElementId? filterViewId, string dir, string ifcName, string ifcSchema = "IFC2X3")
+        Document doc, string dir, string ifcName, string ifcSchema = "IFC2X3")
     {
         Directory.CreateDirectory(dir);
         string ifcPath = Path.Combine(dir, ifcName);
@@ -58,14 +60,11 @@ public static class PlatformExporter
                     ? IFCVersion.IFC4RV : IFCVersion.IFC2x3CV2,
                 ExportBaseQuantities = true,
             };
-            if (filterViewId is { } vid && vid != ElementId.InvalidElementId)
-                opts.FilterViewId = vid;
 
-            // Transaction wrapper mirrors the IFC Delivery Gate / manual Publish pattern (proven path).
             using var t = new Transaction(doc, "Sentinel: IFC export");
             t.Start();
-            doc.Export(dir, ifcName, opts);
-            t.Commit();
+            try { doc.Export(dir, ifcName, opts); }
+            finally { if (t.GetStatus() == TransactionStatus.Started) t.RollBack(); } // the file is written; the model is not touched
         }
         catch (Exception ex)
         {
@@ -83,21 +82,5 @@ public static class PlatformExporter
         try { using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read); }
         catch (IOException) { return (State.Locked, path, fi.Length, null); }
         return (State.Ok, path, fi.Length, null);
-    }
-
-    /// <summary>
-    /// The default 3D view for a whole-model export: the built-in "{3D}" if present, else the first
-    /// non-template <see cref="View3D"/>, else null (which exports the entire model unfiltered).
-    /// </summary>
-    public static ElementId? Default3DView(Document doc)
-    {
-        ElementId? first = null;
-        foreach (var v in new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>())
-        {
-            if (v.IsTemplate) continue;
-            first ??= v.Id;
-            if (v.Name == "{3D}") return v.Id;
-        }
-        return first;
     }
 }

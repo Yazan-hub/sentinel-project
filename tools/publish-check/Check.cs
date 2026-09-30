@@ -261,7 +261,7 @@ static class Check
         Is(PublishLines.Dialog(plan), "", "a ready plan has no refusal");
         var unbound = new PublishPlan { Refusal = ProjectContext.NotBound + "\n\nNothing was exported or published." };
         Is(PublishLines.Dialog(unbound), "This model is not bound to a web project — Sentinel ▸ Project Setup.\n\nNothing was exported or published.", "not bound: the one text, nothing exported");
-        var noGeom = new PublishPlan { Key = Key, Refusal = "IFC export contained no geometry — nothing to publish. Check the model's 3D view and the IFC mappings." };
+        var noGeom = new PublishPlan { Key = Key, Refusal = "IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As)." };
         Is(PublishLines.Dialog(noGeom), noGeom.Refusal!, "an empty export: the refusal as the plan states it");
         var failed = Ready(Gate(GateOutcome.Fail, "IFC2X3"));
         Ok(failed.GateFailed && !failed.Ready, "a gate FAIL is not ready");
@@ -351,7 +351,7 @@ static class Check
         Is(PublishLines.Doctor(plan, badName, NotStaged), "Auto-publish rejected — nothing uploaded — the model name " + Container + " failed naming naming@2 · office · 77e1d2c3b4a5… · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, rejected by name");
         Is(PublishLines.Doctor(failed), "Auto-publish rejected — nothing uploaded — delivery gate FAIL · contract@1 · office · 0123456789ab… · Schema IFC2X3 · 1 failure(s) · gate row: ledger #812 · receipt 5c6d7e8f90112233…", "auto, gate FAIL: nothing uploaded, the contract, the gate row");
         Is(PublishLines.Doctor(plan, Unreached, NotStaged), "Auto-publish: no verdict — nothing uploaded — timed out after 120s (model may be very large)", "auto, bridge not reached");
-        Is(PublishLines.Doctor(noGeom), "Auto-publish failed — nothing uploaded — IFC export contained no geometry — nothing to publish. Check the model's 3D view and the IFC mappings.", "auto, empty export");
+        Is(PublishLines.Doctor(noGeom), "Auto-publish failed — nothing uploaded — IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As).", "auto, empty export");
         Is(PublishLines.Doctor(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged), "Auto-publish: verdict accepted but the bridge registered no version — nothing uploaded · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, no version in the reply");
         Is(PublishLines.Doctor(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (x)", KeptIfcPath = @"C:\t\a.ifc" }), "Auto-publish: " + Container + " v1 · wip registered but NOT in the upload outbox — the IFC did not reach the upload outbox (x) — the IFC is kept at C:\\t\\a.ifc", "auto, the move failed: names the kept IFC");
         Is(PublishLines.Doctor(plan), "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded", "auto, a Judge task that never answered");

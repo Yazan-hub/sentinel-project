@@ -10,7 +10,7 @@ namespace Sentinel.Commands;
 
 /// <summary>
 /// G1 — <b>Governed Publish</b>: the one publish path (cohesion phase 5b, spec Decision 8) with a dialog.
-/// <see cref="Publisher.Prepare"/> on this thread — the whole model (the default 3D view) exported to a TEMP IFC in
+/// <see cref="Publisher.Prepare"/> on this thread — the whole model (no view filter) exported to a TEMP IFC in
 /// the contract's schema, the delivery gate and its ledger row (waited for, ≤ 6 s), the elements extracted —
 /// then <see cref="Publisher.Judge"/> waited for OFF this thread: one <c>POST /cde/:key/propose</c> that judges the
 /// IDS and the name and, on accepted or recorded, registers the version and stamps its verdict (one proposal row,

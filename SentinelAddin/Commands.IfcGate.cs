@@ -8,7 +8,7 @@ using Autodesk.Revit.UI;
 namespace Sentinel.Commands;
 
 /// <summary>
-/// KF-1: IFC Delivery Gate. Exports the active 3D view to IFC in the schema the contract asks for, then re-parses the
+/// KF-1: IFC Delivery Gate. Exports the whole model to IFC in the schema the contract asks for, then re-parses the
 /// produced file against the delivery contract installed on the document's web project or its office
 /// (contract@n · source · sha). It issues a PASS / FAIL certificate; a FAIL means the file should not be uploaded to
 /// the CDE. With no contract (none installed, or the document is unbound), nothing is judged: the certificate says
@@ -38,8 +38,8 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             CommonButtons = TaskDialogCommonButtons.Cancel,
         };
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
-            "Export active view to IFC, then certify",
-            "Runs the exporter with current project setup, validates the result.");
+            "Export the whole model to IFC, then certify",
+            "Runs Revit's IFC exporter on the whole model with default options (not a saved IFC export setup), then validates the result. Revit pauses until the export finishes.");
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
             "Certify an existing IFC file",
             "Validate a file already exported (any source).");
@@ -59,13 +59,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             return Result.Succeeded;
         }
 
-        // Export path: needs a 3D view + save location.
-        if (doc.ActiveView is not View3D view3d)
-        {
-            TaskDialog.Show("Sentinel — IFC Delivery Gate",
-                "Open a 3D view first — the exporter certifies what that view shows.");
-            return Result.Cancelled;
-        }
+        // Export path: the whole model (GP-2, no view filter) to a save location.
         var save = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Export IFC deliverable",
@@ -74,7 +68,6 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         };
         if (Sentinel.UI.DialogOwner.ShowFileDialog(save, c.Application) != true) return Result.Cancelled;
         ifcPath = save.FileName;
-        var targetViewId = view3d.Id;
 
         App.Events?.Enqueue(uiapp =>
         {
@@ -90,15 +83,15 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
                     "The document this gate was started from is no longer active — nothing was exported.");
                 return;
             }
-            // The shared export primitive: the contract's schema (IFC4 → IFC4 Reference View, else IFC 2x3 CV2), the
-            // view filter, base quantities and the transaction wrapper. It never throws.
+            // The shared export primitive: the whole model in the contract's schema (IFC4 → IFC4 Reference View, else
+            // IFC 2x3 CV2), base quantities, the transaction rolled back. It never throws.
             var (state, exported, _, error) = Sentinel.Engine.PlatformExporter.ExportToDir(
-                d, targetViewId, Path.GetDirectoryName(ifcPath!)!, Path.GetFileName(ifcPath!), schema);
+                d, Path.GetDirectoryName(ifcPath!)!, Path.GetFileName(ifcPath!), schema);
             if (state != Sentinel.Engine.PlatformExporter.State.Ok)
             {
                 TaskDialog.Show("Sentinel — IFC Delivery Gate",
                     state == Sentinel.Engine.PlatformExporter.State.MissingOrEmpty
-                        ? "IFC export contained no geometry — nothing to certify. Check the view and mappings."
+                        ? "IFC export contained no geometry — nothing to certify. Check the IFC mappings (Export to IFC As)."
                         : "Export failed: " + (error ?? state.ToString()));
                 return;
             }
