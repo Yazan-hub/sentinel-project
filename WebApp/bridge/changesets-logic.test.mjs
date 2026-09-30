@@ -426,6 +426,26 @@ describe("validateChangeset — MA-1 creates", () => {
     status400(() => ok(floor({ Structural: "true" })), /place\.Structural must be true or false/);
     status400(() => ok(wall({ place: { ...wall().place, Structural: true } })), /a wall takes no place\.Structural/);
   });
+
+  it("FamilyName names a door's or window's type only — a roof, ceiling, floor or wall create taking one is a 400", () => {
+    status400(() => ok(ceiling({ FamilyName: "Compound Ceiling" })), /a ceiling takes no place\.FamilyName/);
+    status400(() => ok(roof({ FamilyName: "Sloped Glazing" })), /a roof takes no place\.FamilyName/);
+    status400(() => ok(floor({ FamilyName: "Floor" })), /a floor takes no place\.FamilyName/);
+    status400(() => ok(wall({ place: { ...wall().place, FamilyName: "Basic Wall" } })), /a wall takes no place\.FamilyName/);
+  });
+
+  it("a retype or attach carries none of a create's fields (the add-in reads them typed); a door retype still names its family", () => {
+    const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+    const retype = (kind, place) => ({ op: "retype", kind, target: { unique_id: UID }, place, validate: { identity: { Class: "IfcDoor", Name: "D" } } });
+    const attach = (place) => ({ op: "attach", kind: "wall", target: { unique_id: UID }, place, validate: { identity: { Class: "IfcWall", Name: "W" } } });
+    status400(() => ok(retype("door", { FamilyName: "F", TypeName: "T", Mark: 101 })), /retype takes no place\.Mark — only a create sets it/);
+    status400(() => ok(retype("door", { FamilyName: "F", TypeName: "T", Location: "garbage" })), /retype takes no place\.Location/);
+    status400(() => ok(retype("floor", { TypeName: "T", Structural: "true" })), /retype takes no place\.Structural/);
+    status400(() => ok(retype("window", { FamilyName: "F", TypeName: "T", SillHeight: "900" })), /retype takes no place\.SillHeight/);
+    status400(() => ok(retype("wall", { TypeName: "T", FamilyName: 5 })), /retype takes no place\.FamilyName/);
+    status400(() => ok(attach({ BaseLevel: "L1", TopLevel: "L2", Mark: "W1" })), /attach takes no place\.Mark/);
+    expect(ok(retype("door", { FamilyName: "F", TypeName: "T" })).place).toEqual({ FamilyName: "F", TypeName: "T" });
+  });
 });
 
 // The body the Revit planner files (PromoteWallsPlanner.Bodies), shared with tools/promote-check: that tool asserts the

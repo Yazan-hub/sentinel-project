@@ -27,9 +27,9 @@ const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <=
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
 const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
 // MA-1: the create place fields and the kinds that take them — a field on any other kind is a 400, never ignored (a level's
-// or grid's name is identity.Name, so it has no Mark).
+// or grid's name is identity.Name, so it has no Mark; only a door's or window's type is named with its family).
 const PLACE_FIELDS = {
-  Mark: ["wall", "floor", "roof", "ceiling", "door", "window"], Structural: ["floor"],
+  FamilyName: ["door", "window"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window"], Structural: ["floor"],
   Location: ["door", "window"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"], SillHeight: ["window"],
   Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
 };
@@ -144,6 +144,11 @@ export function validateChangeset(body) {
       const before = el.target.type_before ?? null;
       if (before !== null && !text(before, 256)) throw err(400, `${at}: target.type_before must be text of at most 256 characters`);
       const p = el.place && typeof el.place === "object" ? el.place : {};
+      // A create's place fields ride on no retype or attach: the add-in would ignore them, and reads each into a typed field,
+      // so one of the wrong type would fail every review in the project. A door's or window's retype names its family.
+      for (const f of Object.keys(PLACE_FIELDS))
+        if (p[f] !== undefined && !(f === "FamilyName" && op === "retype" && PLACE_FIELDS.FamilyName.includes(el.kind)))
+          throw err(400, `${at}: ${op} takes no place.${f} — only a create sets it`);
       if (op === "retype" && !text(p.TypeName, 256)) throw err(400, `${at}: retype needs place.TypeName`);
       if (op === "retype" && (el.kind === "door" || el.kind === "window") && !text(p.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} retype needs place.FamilyName — a type name alone is not one type`);
