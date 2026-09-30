@@ -36,8 +36,8 @@ public sealed class PlaceDto
     [JsonPropertyName("FamilyName")] public string FamilyName { get; set; }
 }
 
-/// <summary>The existing wall a retype/attach ghost changes (MA-0): its Revit UniqueId, and for a retype the type the
-/// plan saw — the executor refuses when the model has changed since.</summary>
+/// <summary>The existing element a retype/attach ghost changes (MA-0, Promote v1): its Revit UniqueId, and for a retype the
+/// type the plan saw ("Family : Type" for a door or window) — the executor refuses when the model has changed since.</summary>
 public sealed class TargetDto
 {
     [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
