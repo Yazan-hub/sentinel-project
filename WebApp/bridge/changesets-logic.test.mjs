@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS,
-  validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
+  validateChangeset, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 
 const wall = (over = {}) => ({
@@ -18,9 +18,14 @@ const level = (over = {}) => ({
   ...over,
 });
 const CS = (elements, over = {}) => ({ name: "Core walls", source: "test-agent", elements, ...over });
+const status400 = (fn, re) => {
+  try { fn(); throw new Error("no throw"); }
+  catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
+};
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window"];
 
 describe("VOCABULARY", () => {
-  it("is the frozen v1 list", () => expect(VOCABULARY).toEqual(["wall", "floor", "level", "grid"]));
+  it("is the MA-1 list", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -50,11 +55,11 @@ describe("validateChangeset — shape", () => {
   });
 
   it("rejects a kind outside the vocabulary, naming the element index and the allowed set", () => {
-    try { validateChangeset(CS([wall(), { ...wall(), kind: "door" }])); throw new Error("no throw"); }
+    try { validateChangeset(CS([wall(), { ...wall(), kind: "column" }])); throw new Error("no throw"); }
     catch (e) {
       expect(e.status).toBe(400);
       expect(e.message).toMatch(/\[1\]/);
-      expect(e.message).toMatch(/wall, floor, level, grid/);
+      expect(e.message).toMatch(/wall, floor, level, grid, roof, ceiling, door, window/);
     }
   });
 
@@ -207,14 +212,10 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     validate: { identity: { Class: "IfcWall", Name: "W 312312" } },
     ...over,
   });
-  const status400 = (fn, re) => {
-    try { fn(); throw new Error("no throw"); }
-    catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
-  };
 
-  it("OPS is create, retype, attach; VOCABULARY is unchanged", () => {
+  it("OPS is create, retype, attach; VOCABULARY is the MA-1 list", () => {
     expect(OPS).toEqual(["create", "retype", "attach"]);
-    expect(VOCABULARY).toEqual(["wall", "floor", "level", "grid"]);
+    expect(VOCABULARY).toEqual(MA1);
   });
 
   it("OP_KINDS: create takes the vocabulary, retype six element kinds, attach walls only", () => {
@@ -264,7 +265,7 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     }
     status400(() => validateChangeset(CS([attach({ kind: "floor" })])), /not supported for attach — allowed: wall/);
     status400(() => validateChangeset(CS([retype({ kind: "level" })])), /not supported for retype — allowed: wall, floor, roof, ceiling, door, window/);
-    status400(() => validateChangeset(CS([wall({ kind: "door" })])), /kind "door" is not supported — allowed: wall, floor, level, grid/);
+    status400(() => validateChangeset(CS([wall({ kind: "column" })])), /kind "column" is not supported — allowed: wall, floor, level, grid, roof, ceiling, door, window/);
   });
 
   it("the same (op, wall) twice is a 400; a retype plus an attach on one wall is fine", () => {
@@ -308,6 +309,122 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     const v = validateChangeset(CS([retype({ proposal_guid: "posted-guid" })]));
     expect(v.elements[0].proposal_guid).not.toBe("posted-guid");
     expect(v.elements[0].proposal_guid).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+});
+
+// MA-1 placement slice: a roof's or ceiling's outline is one simple closed loop, said in words when it is not.
+describe("outlineProblem (MA-1)", () => {
+  const square = [[0, 0], [4000, 0], [4000, 4500], [0, 4500]];
+  it("passes simple outlines, with or without a closing point", () => {
+    expect(outlineProblem(square)).toBeNull();
+    expect(outlineProblem([...square, [0, 0]])).toBeNull();
+    expect(outlineProblem([[0, 0], [3000, 0], [0, 3000]])).toBeNull();
+    expect(outlineProblem([[0, 0], [6000, 0], [6000, 2000], [2000, 2000], [2000, 6000], [0, 6000]])).toBeNull();
+  });
+
+  it("passes a 256-point regular polygon, fast", () => {
+    const poly = Array.from({ length: 256 }, (_, i) => [5000 * Math.cos((2 * Math.PI * i) / 256), 5000 * Math.sin((2 * Math.PI * i) / 256)]);
+    const t = performance.now();
+    expect(outlineProblem(poly)).toBeNull();
+    expect(performance.now() - t).toBeLessThan(200);
+  });
+
+  it("refuses the wrong count or shape of points", () => {
+    const many = Array.from({ length: 257 }, (_, i) => [i, i * i]);
+    for (const b of [many, [[0, 0], [1, 1]], [[0, 0, 0], [10, 0, 0], [10, 10, 0]], [[0, 0], [NaN, 0], [10, 10]], "x", undefined])
+      expect(outlineProblem(b)).toMatch(/3 to 256 finite \[x,y\]/);
+    expect(outlineProblem([[0, 0], [10, 0], [0, 0]])).toMatch(/3 points besides a closing one/);
+  });
+
+  it("names the edge that is too short, the vertex that doubles back and the edges that cross", () => {
+    expect(outlineProblem([[0, 0], [0, 0], [10, 0], [10, 10]])).toMatch(/shorter than 1 mm, Boundary\[0\]→\[1\]/);
+    expect(outlineProblem([[0, 0], [0.5, 0], [10, 10]])).toMatch(/shorter than 1 mm, Boundary\[0\]→\[1\]/);
+    expect(outlineProblem([[0, 0], [5000, 0], [10000, 0]])).toMatch(/doubles back on itself at Boundary\[0\]/);
+    expect(outlineProblem([[0, 0], [10000, 0], [5000, 0], [5000, 5000]])).toMatch(/doubles back on itself at Boundary\[1\]/);
+    expect(outlineProblem([[0, 0], [10, 0], [0, 10], [10, 10]])).toMatch(/crosses or touches itself: Boundary\[1\]→\[2\] and \[3\]→\[0\]/);
+    expect(outlineProblem([[0, 0], [20, 0], [0, 10], [5, 10]])).toMatch(/crosses or touches itself: Boundary\[1\]→\[2\] and \[3\]→\[0\]/);
+    expect(outlineProblem([[0, 0], [20, 0], [20, 10], [10, 0], [0, 10]])).toMatch(/crosses or touches itself: Boundary\[0\]→\[1\] and \[2\]→\[3\]/);
+    expect(outlineProblem([[0, 0], [1000, 0], [500, 0.001]])).toMatch(/encloses less than 1 mm²/);
+  });
+});
+
+describe("validateChangeset — MA-1 creates", () => {
+  const make = (kind, Class, Name, base) => (over = {}) => ({ kind, validate: { identity: { Class, Name } }, place: { ...base, ...over } });
+  const door = make("door", "IfcDoor", "MA1-D01", { LevelName: "GR-FFL", FamilyName: "M_Single-Flush", TypeName: "MA1 1000 x 2100mm", Location: [8000, 2250, 0], Mark: "MA1-D01" });
+  const win = make("window", "IfcWindow", "MA1-W01", { LevelName: "GR-FFL", FamilyName: "M_Fixed", TypeName: "MA1 600 x 1200mm", Location: [24000, 3000, 0], SillHeight: 900, Mark: "MA1-W01" });
+  const roof = make("roof", "IfcRoof", "MA1-R01", { LevelName: "MA0 Roof", TypeName: "Generic - 300mm", Boundary: [[0, 0], [12000, 0], [12000, 12000], [0, 12000]], Mark: "MA1-R01" });
+  const ceiling = make("ceiling", "IfcCovering", "MA1-C01", { LevelName: "GR-FFL", TypeName: "MA1 Ceiling - 50mm", Boundary: [[0, 0], [4000, 0], [4000, 4500], [0, 4500]], Offset: 2700, Mark: "MA1-C01" });
+  const floor = make("floor", "IFCSLAB", "F1", { TypeName: "Generic 150mm", LocationLoop: [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]] });
+  const grid = make("grid", "IFCGRID", "A", { LocationCurve: { start: [0, 0, 0], end: [0, 9000, 0] } });
+  const ok = (el) => validateChangeset(CS([el])).elements[0];
+
+  it("passes each valid door, window, roof and ceiling and keeps its place", () => {
+    for (const b of [door, win, roof, ceiling]) {
+      const sent = b();
+      expect(ok(sent)).toMatchObject({ kind: sent.kind, op: "create", target: null });
+      expect(ok(sent).place).toEqual(sent.place);
+    }
+  });
+
+  it("a door or window needs FamilyName, TypeName, LevelName and a finite [x,y,z] Location", () => {
+    for (const b of [door, win]) {
+      for (const f of ["FamilyName", "TypeName", "LevelName", "Location"]) status400(() => ok(b({ [f]: undefined })), new RegExp(`needs place\\.${f}`));
+      status400(() => ok(b({ Location: [1, 2] })), /needs place\.Location/);
+      status400(() => ok(b({ Location: [NaN, 0, 0] })), /needs place\.Location/);
+    }
+  });
+
+  it("a window's SillHeight is 0 to 100000 mm; a door takes none", () => {
+    for (const s of [-1, 100001, "900"]) status400(() => ok(win({ SillHeight: s })), /SillHeight must be a number of mm from 0 to 100000/);
+    for (const s of [0, 100000]) expect(ok(win({ SillHeight: s })).place.SillHeight).toBe(s);
+    status400(() => ok(door({ SillHeight: 900 })), /a door takes no place\.SillHeight/);
+  });
+
+  it("FlipFacing and FlipHand are booleans on doors and windows", () => {
+    status400(() => ok(door({ FlipFacing: "yes" })), /place\.FlipFacing must be true or false/);
+    for (const b of [door, win]) for (const v of [true, false]) expect(ok(b({ FlipFacing: v, FlipHand: v })).place).toMatchObject({ FlipFacing: v, FlipHand: v });
+  });
+
+  it("a field on a kind that does not take it is a 400, never ignored", () => {
+    status400(() => ok(roof({ FlipFacing: true })), /a roof takes no place\.FlipFacing/);
+    status400(() => ok(roof({ Offset: 0 })), /a roof takes no place\.Offset/);
+    status400(() => ok(ceiling({ BaseOffset: 0 })), /a ceiling takes no place\.BaseOffset/);
+    status400(() => ok(wall({ place: { ...wall().place, Location: [0, 0, 0] } })), /a wall takes no place\.Location/);
+    status400(() => ok(floor({ Boundary: [[0, 0], [1, 0], [1, 1]] })), /a floor takes no place\.Boundary/);
+  });
+
+  it("a roof or ceiling needs one simple Boundary", () => {
+    for (const b of [roof, ceiling]) {
+      status400(() => ok(b({ Boundary: undefined })), /place\.Boundary must be 3 to 256/);
+      status400(() => ok(b({ Boundary: [[0, 0], [10, 0], [0, 10], [10, 10]] })), /place\.Boundary crosses or touches itself/);
+    }
+  });
+
+  it("a ceiling needs its Offset; a roof's BaseOffset is optional", () => {
+    status400(() => ok(ceiling({ Offset: undefined })), /a ceiling needs place\.Offset/);
+    status400(() => ok(ceiling({ Offset: 1e6 })), /a ceiling needs place\.Offset/);
+    expect(ok(roof({ BaseOffset: -300 })).place.BaseOffset).toBe(-300);
+    status400(() => ok(roof({ BaseOffset: "0" })), /place\.BaseOffset/);
+  });
+
+  it("a roof, ceiling, door or window needs LevelName; a floor still does not", () => {
+    for (const b of [roof, ceiling, door, win]) status400(() => ok(b({ LevelName: undefined })), /needs place\.LevelName/);
+    expect(ok(floor()).kind).toBe("floor");
+  });
+
+  it("Mark rides on every create but a level or grid, as text", () => {
+    for (const b of [roof, ceiling, door, win]) expect(ok(b({ Mark: "M-1" })).place.Mark).toBe("M-1");
+    expect(ok(floor({ Mark: "M-1" })).place.Mark).toBe("M-1");
+    expect(ok(wall({ place: { ...wall().place, Mark: "M-1" } })).place.Mark).toBe("M-1");
+    status400(() => ok(level({ place: { BaseElevation: 3000, Mark: "L" } })), /a level takes no place\.Mark/);
+    status400(() => ok(grid({ Mark: "A" })), /a grid takes no place\.Mark/);
+    for (const m of ["", 5, "x".repeat(257)]) status400(() => ok(door({ Mark: m })), /place\.Mark must be text/);
+  });
+
+  it("Structural is a boolean on floors only", () => {
+    for (const v of [true, false]) expect(ok(floor({ Structural: v })).place.Structural).toBe(v);
+    status400(() => ok(floor({ Structural: "true" })), /place\.Structural must be true or false/);
+    status400(() => ok(wall({ place: { ...wall().place, Structural: true } })), /a wall takes no place\.Structural/);
   });
 });
 

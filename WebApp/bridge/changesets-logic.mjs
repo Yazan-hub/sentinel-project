@@ -6,7 +6,8 @@
 // Revit add-in executes only what a human ticks, and only after re-checking the status.
 import { randomUUID } from "node:crypto";
 
-export const VOCABULARY = ["wall", "floor", "level", "grid"];
+// MA-1 placement slice: roof, ceiling, door, window
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window"];
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. */
@@ -15,6 +16,8 @@ export const OPS = ["create", "retype", "attach"];
 export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"] };
 export const MAX_CHANGESET_ELEMENTS = 200;
 export const MAX_CHANGESET_EXCEPTIONS = 1000;
+export const MAX_BOUNDARY_POINTS = 256;
+export const MAX_OFFSET_MM = 100000;
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
@@ -22,11 +25,60 @@ const point = (p) => Array.isArray(p) && p.length === 3 && p.every(finite);
 const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <= max;
 // Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
+const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
+// MA-1: the create place fields and the kinds that take them — a field on any other kind is a 400, never ignored (a level's
+// or grid's name is identity.Name, so it has no Mark).
+const PLACE_FIELDS = {
+  Mark: ["wall", "floor", "roof", "ceiling", "door", "window"], Structural: ["floor"],
+  Location: ["door", "window"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"], SillHeight: ["window"],
+  Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
+};
+
+const MIN_EDGE_MM = 1; // Revit refuses a line shorter than about 0.8 mm
+const xy = (p) => Array.isArray(p) && p.length === 2 && p.every(finite);
+const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+const within = (a, b, p) => Math.min(a[0], b[0]) <= p[0] && p[0] <= Math.max(a[0], b[0]) && Math.min(a[1], b[1]) <= p[1] && p[1] <= Math.max(a[1], b[1]);
+/** Whether segments ab and cd share any point: a crossing, a touch or a collinear overlap. */
+function meet(a, b, c, d) {
+  const d1 = Math.sign(cross(a, b, c)), d2 = Math.sign(cross(a, b, d)), d3 = Math.sign(cross(c, d, a)), d4 = Math.sign(cross(c, d, b));
+  if (d1 !== d2 && d3 !== d4) return true;
+  return (d1 === 0 && within(a, b, c)) || (d2 === 0 && within(a, b, d)) || (d3 === 0 && within(c, d, a)) || (d4 === 0 && within(c, d, b));
+}
+
+/** MA-1: a roof's or ceiling's outline in plan, [[x,y],…] mm, a closing point equal to the first allowed: why Revit could not
+ *  sketch it as one simple closed loop, or null. Exact arithmetic on the numbers sent. ponytail: O(n²) pair test, fine at 256
+ *  points x 200 elements; a sweep if outlines ever grow. */
+export function outlineProblem(b) {
+  if (!Array.isArray(b) || b.length < 3 || b.length > MAX_BOUNDARY_POINTS || !b.every(xy)) return `must be 3 to ${MAX_BOUNDARY_POINTS} finite [x,y] points`;
+  const n = b.length - (b[0][0] === b.at(-1)[0] && b[0][1] === b.at(-1)[1] ? 1 : 0);
+  if (n < 3) return "needs 3 points besides a closing one";
+  const at = (i) => b[i % n];
+  for (let i = 0; i < n; i++)
+    if (Math.hypot(at(i + 1)[0] - at(i)[0], at(i + 1)[1] - at(i)[1]) < MIN_EDGE_MM) return `has an edge shorter than ${MIN_EDGE_MM} mm, Boundary[${i}]→[${(i + 1) % n}]`;
+  for (let i = 0; i < n; i++) {
+    const [p, q, r] = [at(i + n - 1), at(i), at(i + 1)];
+    if (cross(p, q, r) === 0 && (q[0] - p[0]) * (r[0] - q[0]) + (q[1] - p[1]) * (r[1] - q[1]) < 0) return `doubles back on itself at Boundary[${i}]`;
+  }
+  for (let i = 0; i < n; i++)
+    for (let j = i + 2; j < n; j++)
+      if (!(i === 0 && j === n - 1) && meet(at(i), at(i + 1), at(j), at(j + 1)))
+        return `crosses or touches itself: Boundary[${i}]→[${(i + 1) % n}] and [${j}]→[${(j + 1) % n}]`;
+  // Last: a symmetric bow-tie's signed area cancels to 0, so the crossing test must speak first.
+  let area2 = 0;
+  for (let i = 0; i < n; i++) area2 += cross([0, 0], at(i), at(i + 1));
+  if (Math.abs(area2) < 2) return "encloses less than 1 mm²";
+  return null;
+}
 
 /** Per-kind geometry sanity. Deliberately shallow: real placement failures surface in Revit's
  *  transaction (and roll the whole changeset back) — this guards against garbage, not bad design. */
 function checkPlace(kind, place, at) {
   if (!place || typeof place !== "object") throw err(400, `${at}: place is required`);
+  for (const [f, kinds] of Object.entries(PLACE_FIELDS))
+    if (place[f] !== undefined && !kinds.includes(kind)) throw err(400, `${at}: a ${kind} takes no place.${f}`);
+  if (place.Mark !== undefined && !text(place.Mark, 256)) throw err(400, `${at}: place.Mark must be text of at most 256 characters`);
+  for (const f of ["Structural", "FlipFacing", "FlipHand"])
+    if (place[f] !== undefined && typeof place[f] !== "boolean") throw err(400, `${at}: place.${f} must be true or false`);
   if (kind === "wall" || kind === "grid") {
     const c = place.LocationCurve;
     if (!c || !point(c.start) || !point(c.end)) throw err(400, `${at}: ${kind} needs place.LocationCurve with finite [x,y,z] start and end`);
@@ -42,6 +94,15 @@ function checkPlace(kind, place, at) {
     if (distinct < 3) throw err(400, `${at}: floor LocationLoop needs at least 3 DISTINCT points (got ${distinct})`);
   } else if (kind === "level") {
     if (!finite(place.BaseElevation)) throw err(400, `${at}: level needs a finite numeric place.BaseElevation`);
+  } else if (kind === "door" || kind === "window") {
+    if (!point(place.Location)) throw err(400, `${at}: a ${kind} needs place.Location, the finite [x,y,z] point on its host wall's location line (z = its level's elevation)`);
+    if (place.SillHeight !== undefined && !inRange(place.SillHeight, 0, MAX_OFFSET_MM)) throw err(400, `${at}: place.SillHeight must be a number of mm from 0 to ${MAX_OFFSET_MM}`);
+  } else if (kind === "roof" || kind === "ceiling") {
+    const why = outlineProblem(place.Boundary);
+    if (why) throw err(400, `${at}: ${kind} place.Boundary ${why}`);
+    const f = kind === "roof" ? "BaseOffset" : "Offset";
+    if ((kind === "ceiling" || place[f] !== undefined) && !inRange(place[f], -MAX_OFFSET_MM, MAX_OFFSET_MM))
+      throw err(400, `${at}: ${kind === "ceiling" ? "a ceiling needs " : ""}place.${f}, a number of mm within ±${MAX_OFFSET_MM}`);
   }
 }
 
@@ -71,8 +132,12 @@ export function validateChangeset(body) {
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
       // After checkPlace, so a geometry error still reads as one. The Revit executor refuses an empty type too.
-      if ((el.kind === "wall" || el.kind === "floor") && !text(el.place.TypeName, 256))
+      if (el.kind !== "level" && el.kind !== "grid" && !text(el.place.TypeName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
+      if ((el.kind === "door" || el.kind === "window") && !text(el.place.FamilyName, 256))
+        throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
+      if (["roof", "ceiling", "door", "window"].includes(el.kind) && !text(el.place.LevelName, 256))
+        throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
     } else {
       const uid = el.target?.unique_id;
       if (typeof uid !== "string" || !UNIQUE_ID.test(uid)) throw err(400, `${at}: ${op} needs target.unique_id, a Revit UniqueId`);
