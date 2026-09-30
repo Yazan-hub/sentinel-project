@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  VOCABULARY, OPS, MAX_CHANGESET_ELEMENTS,
+  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS,
   validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 
@@ -217,6 +217,10 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     expect(VOCABULARY).toEqual(["wall", "floor", "level", "grid"]);
   });
 
+  it("OP_KINDS: create takes the vocabulary, retype six element kinds, attach walls only", () => {
+    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"] });
+  });
+
   it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
     const v = validateChangeset(CS([wall(), level()]));
     for (const e of v.elements) expect(e).toMatchObject({ op: "create", target: null, reason: null });
@@ -248,9 +252,19 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     status400(() => validateChangeset(CS([attach({ place: { BaseLevel: "Level 1" } })])), /two different levels/);
   });
 
-  it("retype or attach on anything but a wall is a 400", () => {
-    status400(() => validateChangeset(CS([retype({ kind: "floor" })])), /retype is for walls only/);
-    status400(() => validateChangeset(CS([attach({ kind: "level" })])), /attach is for walls only/);
+  it("Promote v1: retype takes floors, roofs, ceilings, doors and windows; a door or window needs place.FamilyName", () => {
+    for (const kind of ["floor", "roof", "ceiling"]) {
+      const v = validateChangeset(CS([retype({ kind, place: { TypeName: "BDS_INT_STR_CONC_300 mm" } })]));
+      expect(v.elements[0]).toMatchObject({ op: "retype", kind, place: { TypeName: "BDS_INT_STR_CONC_300 mm" } });
+    }
+    for (const kind of ["door", "window"]) {
+      status400(() => validateChangeset(CS([retype({ kind, place: { TypeName: "600x1200 mm" } })])), /needs place\.FamilyName/);
+      const v = validateChangeset(CS([retype({ kind, place: { TypeName: "600x1200 mm", FamilyName: "BDS_Window_Single Panel" } })]));
+      expect(v.elements[0].place).toEqual({ TypeName: "600x1200 mm", FamilyName: "BDS_Window_Single Panel" });
+    }
+    status400(() => validateChangeset(CS([attach({ kind: "floor" })])), /not supported for attach — allowed: wall/);
+    status400(() => validateChangeset(CS([retype({ kind: "level" })])), /not supported for retype — allowed: wall, floor, roof, ceiling, door, window/);
+    status400(() => validateChangeset(CS([wall({ kind: "door" })])), /kind "door" is not supported — allowed: wall, floor, level, grid/);
   });
 
   it("the same (op, wall) twice is a 400; a retype plus an attach on one wall is fine", () => {

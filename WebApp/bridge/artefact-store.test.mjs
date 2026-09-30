@@ -315,6 +315,8 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     expect(validateArtefact("layers", readRepoJson("config/base-standard/layers.json"))).toBe(true);
     expect(validateArtefact("layers", readRepoJson("demo/bds-pilot/bds-layers.json"))).toBe(true);
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-guideline.json"))).toBe(true);
+    expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-dd-elements-guideline.json"))).toBe(true);
+    expect(validateArtefact("lod_matrix", readRepoJson("demo/bds-pilot/bds-lod-matrix-dd.json"))).toBe(true);
     expect(validateArtefact("type_catalog", readRepoJson("demo/bds-pilot/bds-type-catalog.json"))).toBe(true);
     expect(validateArtefact("type_catalog", readRepoJson("demo/aster/aster-type-catalog.json"))).toBe(true);
   });
@@ -325,6 +327,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
       expect(c.template.title).toEqual(expect.any(String));
       expect(c.types).toHaveLength(c.count);
     }
+    expect(readRepoJson("demo/bds-pilot/bds-lod-matrix-dd.json")).not.toHaveProperty("source");
   });
   it("accepts well-formed bodies; optional fields may be absent or null; extra fields stay", () => {
     expect(validateArtefact("contract", contract)).toBe(true);
@@ -607,5 +610,30 @@ describe("validateArtefact — carbon_factors (item 6, 6D)", () => {
     [{ ...ok, source: "x" }, "carbon_factors: source is not a carbon_factors field — the body is {label, unit_label?, factors}"],
   ])("a pack that could not price honestly is refused in words (%#)", (body, message) => {
     expect(fails("carbon_factors", body)).toMatchObject({ status: 400, message });
+  });
+});
+
+describe("validateArtefact — lod_matrix (Promote v1)", () => {
+  const ok = readRepoJson("demo/bds-pilot/bds-lod-matrix-dd.json");
+  const row = (i, over) => withItem(ok, "rows", i, over);
+  it("the demo matrix installs", () => {
+    expect(fails("lod_matrix", ok)).toBeNull();
+    expect(KINDS).toContain("lod_matrix");
+  });
+  it.each([
+    [{ ...ok, source: "x" }, "lod_matrix: source is not a lod_matrix field — the body is {standard_key, semver, status?, rows}"],
+    [{ ...ok, semver: "1" }, "lod_matrix: semver must be x.y.z"],
+    [{ ...ok, status: "final" }, "lod_matrix: status must be draft or approved"],
+    [{ ...ok, rows: [] }, "lod_matrix: rows must be a non-empty array"],
+    [row(0, { DD: { ...ok.rows[0].DD, joins: "clean" } }), "lod_matrix: rows[0].DD.joins is not a DD rule Promote reads — type, level, top, host, properties"],
+    [row(0, { DD: { ...ok.rows[0].DD, top: "roof" } }), "lod_matrix: rows[0].DD.top must be next_story_level"],
+    [row(1, { category: "Walls" }), "lod_matrix: rows[1].category appears twice — one row per class"],
+    [row(1, { category: "Stairs" }), "lod_matrix: rows[1].category must be Walls | Floors | Roofs | Ceilings | Doors | Windows"],
+    [row(1, { CD: {} }), "lod_matrix: rows[1].CD is not a row field — a row is {category, DD} (v0 knows the DD stage only)"],
+    [row(1, { DD: { level: "story_level" } }), "lod_matrix: rows[1].DD.type is required — DD means typed by a guideline rule"],
+    [row(1, { DD: { ...ok.rows[1].DD, properties: [""] } }), "lod_matrix: rows[1].DD.properties must be an array of non-empty strings (listed for a person, not enforced)"],
+    [row(1, { DD: { ...ok.rows[1].DD, constructor: "x" } }), "lod_matrix: rows[1].DD.constructor is not a DD rule Promote reads — type, level, top, host, properties"],
+  ])("a matrix Promote would not read as written is refused in words (%#)", (body, message) => {
+    expect(fails("lod_matrix", body)).toMatchObject({ status: 400, message });
   });
 });

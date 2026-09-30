@@ -7,9 +7,12 @@
 import { randomUUID } from "node:crypto";
 
 export const VOCABULARY = ["wall", "floor", "level", "grid"];
-/** What a ghost does. create places a new element (the v1 path); retype and attach change an EXISTING wall, named by
- *  its Revit UniqueId (MA-0 Promote walls). An element without op is a create. */
+/** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
+ *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
+ *  an existing wall. An element without op is a create. */
 export const OPS = ["create", "retype", "attach"];
+/** The kinds each op takes. */
+export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"] };
 export const MAX_CHANGESET_ELEMENTS = 200;
 export const MAX_CHANGESET_EXCEPTIONS = 1000;
 
@@ -45,7 +48,7 @@ function checkPlace(kind, place, at) {
 /** Validate + normalise a proposed changeset. Assigns proposal_guids (a posted one is ignored); a missing
  *  validate.identity.GlobalId is synced to the proposal_guid so adjudication failures (tagged by
  *  GlobalId) map back to the element that earned them. Each element comes back with its op, target and reason, and
- *  the changeset with its exceptions (the walls a planner sent to a person). The element is rebuilt field by field,
+ *  the changeset with its exceptions (the elements a planner sent to a person). The element is rebuilt field by field,
  *  so a field added to the shape must be added here too, or it is dropped without an error. */
 export function validateChangeset(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "a changeset must be an object");
@@ -54,16 +57,16 @@ export function validateChangeset(body) {
   if (!Array.isArray(body.elements) || !body.elements.length) throw err(400, "elements must be a non-empty array");
   if (body.elements.length > MAX_CHANGESET_ELEMENTS) throw err(413, `too many elements (${body.elements.length}; limit ${MAX_CHANGESET_ELEMENTS})`);
 
-  const seen = new Set(); // (op, wall) pairs: one ghost per change, so a wall can carry one retype and one attach
+  const seen = new Set(); // (op, element) pairs: one ghost per change, so a wall can carry one retype and one attach
   const elements = body.elements.map((el, i) => {
     const at = `elements[${i}]`;
     if (!el || typeof el !== "object") throw err(400, `${at}: must be an object`);
-    if (!VOCABULARY.includes(el.kind)) throw err(400, `${at}: kind "${el.kind}" is not supported — allowed: ${VOCABULARY.join(", ")}`);
+    const op = el.op ?? "create";
+    if (!OPS.includes(op)) throw err(400, `${at}: op "${op}" is not supported — allowed: ${OPS.join(", ")}`);
+    if (!OP_KINDS[op].includes(el.kind)) throw err(400, `${at}: kind "${el.kind}" is not supported${op === "create" ? "" : ` for ${op}`} — allowed: ${OP_KINDS[op].join(", ")}`);
     const validate = el.validate && typeof el.validate === "object" ? el.validate : {};
     if (!validate.identity || typeof validate.identity.Class !== "string" || !validate.identity.Class)
       throw err(400, `${at}: validate.identity.Class is required (the IFC class adjudication reads)`);
-    const op = el.op ?? "create";
-    if (!OPS.includes(op)) throw err(400, `${at}: op "${op}" is not supported — allowed: ${OPS.join(", ")}`);
     let target = null;
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
@@ -71,17 +74,18 @@ export function validateChangeset(body) {
       if ((el.kind === "wall" || el.kind === "floor") && !text(el.place.TypeName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
     } else {
-      if (el.kind !== "wall") throw err(400, `${at}: ${op} is for walls only (v0)`);
       const uid = el.target?.unique_id;
       if (typeof uid !== "string" || !UNIQUE_ID.test(uid)) throw err(400, `${at}: ${op} needs target.unique_id, a Revit UniqueId`);
       const before = el.target.type_before ?? null;
       if (before !== null && !text(before, 256)) throw err(400, `${at}: target.type_before must be text of at most 256 characters`);
       const p = el.place && typeof el.place === "object" ? el.place : {};
       if (op === "retype" && !text(p.TypeName, 256)) throw err(400, `${at}: retype needs place.TypeName`);
+      if (op === "retype" && (el.kind === "door" || el.kind === "window") && !text(p.FamilyName, 256))
+        throw err(400, `${at}: a ${el.kind} retype needs place.FamilyName — a type name alone is not one type`);
       if (op === "attach" && (!text(p.BaseLevel, 256) || !text(p.TopLevel, 256) || p.BaseLevel === p.TopLevel))
         throw err(400, `${at}: attach needs two different levels, place.BaseLevel and place.TopLevel`);
       const k = `${op}:${uid.toLowerCase()}`;
-      if (seen.has(k)) throw err(400, `${at}: a second ${op} for the same wall`);
+      if (seen.has(k)) throw err(400, `${at}: a second ${op} for the same element`);
       seen.add(k);
       target = { unique_id: uid, type_before: before };
     }
@@ -106,7 +110,7 @@ export function validateChangeset(body) {
   };
 }
 
-/** The walls a planner sent to a person instead of proposing a change: optional, at most 1000 rows of
+/** The elements a planner sent to a person instead of proposing a change: optional, at most 1000 rows of
  *  {unique_id (≤64), name?, reason (≤300)}. They ride on the changeset for the reviewer; a bad row is a 400. */
 function checkExceptions(rows) {
   if (rows == null) return [];

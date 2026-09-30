@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { resolveActor } from "./bridge-auth.mjs";
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix"];
 const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -69,6 +69,8 @@ const REVIEW_STEP = ["name", "role", "approvals"];                       // a re
 const REVIEW_ROLES = ["contributor", "lead", "owner"];                    // the least role an approver of the step holds
 const IFC_ENTITY = /^IFC[A-Z0-9_]+$/;
 const LAYER_CATEGORIES = ["Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture"];
+const LOD_CATEGORIES = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows"];          // what Promote v1 promotes
+const LOD_DD = { type: ["guideline_rule"], level: ["story_level"], top: ["next_story_level"], host: ["wall"] }; // what it reads
 const MAX_CATALOG_TYPES = 20000;                                         // = office-store MAX_CATALOG_TYPES (importing it would load cde-store)
 const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const intCount = (v) => Number.isInteger(v) && v >= 0 && v <= 2147483647; // a C# int: a larger count would not load in Revit
@@ -243,6 +245,30 @@ export function validateArtefact(kind, body) {
       if (!filled(s.name) || s.name.length > 80) throw bad(kind, `${at}.name`, "must be a non-empty string of at most 80 characters");
       if (!REVIEW_ROLES.includes(s.role)) throw bad(kind, `${at}.role`, "must be contributor, lead or owner");
       if (!(Number.isInteger(s.approvals) && s.approvals >= 1 && s.approvals <= 5)) throw bad(kind, `${at}.approvals`, "must be an integer 1..5");
+    });
+  }
+  if (kind === "lod_matrix") {
+    // The office's LOD matrix v0 (Promote v1): per class, what DD means — only rules Promote checks. A key it would not read is
+    // refused, not kept: "DD now" must never read higher than what was checked. rows are keyed by Revit category, as guideline@n.
+    const stray = Object.keys(body).find((k) => !["standard_key", "semver", "status", "rows"].includes(k));
+    if (stray !== undefined) throw bad(kind, stray, "is not a lod_matrix field — the body is {standard_key, semver, status?, rows}");
+    standardHead(kind, body);
+    if (body.status != null && !["draft", "approved"].includes(body.status)) throw bad(kind, "status", "must be draft or approved");
+    if (!Array.isArray(body.rows) || !body.rows.length) throw bad(kind, "rows", "must be a non-empty array");
+    const seen = new Set();
+    objects(kind, "rows", body.rows, (r, at) => {
+      const strayRow = Object.keys(r).find((k) => k !== "category" && k !== "DD");
+      if (strayRow !== undefined) throw bad(kind, `${at}.${strayRow}`, "is not a row field — a row is {category, DD} (v0 knows the DD stage only)");
+      if (!LOD_CATEGORIES.includes(r.category)) throw bad(kind, `${at}.category`, `must be ${LOD_CATEGORIES.join(" | ")}`);
+      if (seen.has(r.category)) throw bad(kind, `${at}.category`, "appears twice — one row per class");
+      seen.add(r.category);
+      if (!isObj(r.DD)) throw bad(kind, `${at}.DD`, "must be an object");
+      for (const [k, v] of Object.entries(r.DD)) {
+        if (k === "properties") { if (!names(v)) throw bad(kind, `${at}.DD.properties`, "must be an array of non-empty strings (listed for a person, not enforced)"); continue; }
+        if (!Object.hasOwn(LOD_DD, k)) throw bad(kind, `${at}.DD.${k}`, `is not a DD rule Promote reads — ${[...Object.keys(LOD_DD), "properties"].join(", ")}`);
+        if (!LOD_DD[k].includes(v)) throw bad(kind, `${at}.DD.${k}`, `must be ${LOD_DD[k].join(" | ")}`);
+      }
+      if (r.DD.type === undefined) throw bad(kind, `${at}.DD.type`, "is required — DD means typed by a guideline rule");
     });
   }
   return true;
