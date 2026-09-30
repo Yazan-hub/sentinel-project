@@ -29,6 +29,25 @@ public sealed class PlaceDto
     [JsonPropertyName("BaseElevation")] public double? BaseElevation { get; set; }
     [JsonPropertyName("TopElevation")] public double? TopElevation { get; set; }
     [JsonPropertyName("Name")] public string Name { get; set; }
+    // attach (MA-0): the story levels a wall's base and top are constrained to.
+    [JsonPropertyName("BaseLevel")] public string BaseLevel { get; set; }
+    [JsonPropertyName("TopLevel")] public string TopLevel { get; set; }
+}
+
+/// <summary>The existing wall a retype/attach ghost changes (MA-0): its Revit UniqueId, and for a retype the type the
+/// plan saw — the executor refuses when the model has changed since.</summary>
+public sealed class TargetDto
+{
+    [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
+    [JsonPropertyName("type_before")] public string TypeBefore { get; set; }
+}
+
+/// <summary>A wall a planner sent to a person instead of proposing a change (the changeset's exceptions).</summary>
+public sealed class ExceptionRowDto
+{
+    [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; }
+    [JsonPropertyName("reason")] public string Reason { get; set; }
 }
 
 public sealed class ElementVerdictDto
@@ -53,6 +72,10 @@ public sealed class ChangesetElementDto
 {
     [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
     [JsonPropertyName("kind")] public string Kind { get; set; }
+    /// <summary>"create" (null on an older bridge), "retype" or "attach".</summary>
+    [JsonPropertyName("op")] public string Op { get; set; }
+    [JsonPropertyName("target")] public TargetDto Target { get; set; }
+    [JsonPropertyName("reason")] public string Reason { get; set; }
     [JsonPropertyName("validate")] public ValidateDto Validate { get; set; }
     [JsonPropertyName("place")] public PlaceDto Place { get; set; }
     [JsonPropertyName("verdict")] public ElementVerdictDto Verdict { get; set; }
@@ -74,6 +97,7 @@ public sealed class ChangesetDto
     [JsonPropertyName("created_at")] public string CreatedAt { get; set; }
     [JsonPropertyName("adjudication")] public AdjudicationDto Adjudication { get; set; }
     [JsonPropertyName("elements")] public List<ChangesetElementDto> Elements { get; set; } = new();
+    [JsonPropertyName("exceptions")] public List<ExceptionRowDto> Exceptions { get; set; } = new();
 }
 
 public sealed class AppliedEntry
@@ -89,6 +113,8 @@ internal static class ChangesetClient
     // fire-and-forget notify paths). Writes: 120s — result reporting must confirm.
     private static readonly HttpClient ReadHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly HttpClient WriteHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+    /// <summary>How a request body is written: nulls left out (a retype's target has no type_before on an attach).</summary>
+    internal static readonly JsonSerializerOptions WriteJson = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     private static HttpRequestMessage Req(HttpMethod m, string url, string token)
     {
@@ -128,20 +154,36 @@ internal static class ChangesetClient
     }
 
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
-        List<AppliedEntry> applied, List<string> rejected, string note, out string error)
+        List<AppliedEntry> applied, List<string> rejected, string note, out string error) =>
+        Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
+             JsonSerializer.Serialize(new { applied, rejected, note, actor = Environment.UserName }), 200, out _, out error);
+
+    private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error)
     {
-        error = null;
+        body = null; error = null;
         try
         {
-            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result";
-            var payload = JsonSerializer.Serialize(new { applied, rejected, note, actor = Environment.UserName });
-            var msg = Req(HttpMethod.Post, url, cfg.ServiceToken);
+            var msg = Req(HttpMethod.Post, $"{cfg.ServiceUrl.TrimEnd('/')}{path}", cfg.ServiceToken);
             msg.Content = new StringContent(payload, Encoding.UTF8, "application/json");
             var resp = WriteHttp.SendAsync(msg).GetAwaiter().GetResult();
-            var body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return false; }
+            body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            if ((int)resp.StatusCode != expect) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return false; }
             return true;
         }
         catch (Exception ex) { error = ex.Message; return false; }
     }
+
+    /// <summary>File a changeset (POST /changesets/:key → 201 and the stored changeset). Null with the error otherwise.</summary>
+    public static ChangesetDto Propose(BcfConfig cfg, string projectKey, object body, out string error)
+    {
+        if (!Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}", JsonSerializer.Serialize(body, WriteJson), 201, out var resp, out error)) return null;
+        try { return JsonSerializer.Deserialize<ChangesetDto>(resp); }
+        catch (Exception ex) { error = ex.Message; return null; }
+    }
+
+    /// <summary>A person undid or redid an applied changeset in Revit: one changeset_reverted ledger row
+    /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run).</summary>
+    public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error) =>
+        Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/reverted",
+             JsonSerializer.Serialize(new { op, guids, actor = Environment.UserName }, WriteJson), 201, out _, out error);
 }

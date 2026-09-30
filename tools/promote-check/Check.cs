@@ -23,6 +23,9 @@ static partial class Check
         Console.WriteLine("  repo root: " + _root + "\n");
 
         var m = RuleFile();
+        Planner(m);
+        Parity(m);
+        StampAndUndo();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

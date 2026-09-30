@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, MAX_CHANGESET_ELEMENTS,
   validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
@@ -293,5 +294,23 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     const v = validateChangeset(CS([retype({ proposal_guid: "posted-guid" })]));
     expect(v.elements[0].proposal_guid).not.toBe("posted-guid");
     expect(v.elements[0].proposal_guid).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+});
+
+// The body the Revit planner files (PromoteWallsPlanner.Bodies), shared with tools/promote-check: that tool asserts the
+// planner still writes exactly this, this asserts the bridge keeps every field of it — neither side drops one silently.
+describe("promote-body parity fixture (MA-0)", () => {
+  const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/promote-body.json", import.meta.url), "utf8"));
+  it("passes validateChangeset and keeps op, target, reason, place and exceptions", () => {
+    const v = validateChangeset(body);
+    expect(v).toMatchObject({ name: body.name, source: "promote" });
+    expect(v.elements).toHaveLength(body.elements.length);
+    v.elements.forEach((el, i) => {
+      const sent = body.elements[i];
+      expect(el).toMatchObject({ kind: "wall", op: sent.op, reason: sent.reason, place: sent.place });
+      expect(el.target).toEqual({ unique_id: sent.target.unique_id, type_before: sent.target.type_before ?? null });
+    });
+    expect(v.exceptions).toEqual(body.exceptions);
+    expect(new Set(body.elements.map((e) => e.op))).toEqual(new Set(["retype", "attach"]));
   });
 });
