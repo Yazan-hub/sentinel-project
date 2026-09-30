@@ -1,5 +1,4 @@
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -22,8 +21,6 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         var uidoc = c.Application.ActiveUIDocument;
         var doc = uidoc?.Document;
         if (uidoc is null || doc is null) return Result.Cancelled;
-        var targetDocPath = doc.PathName;
-        var targetTitle = doc.Title;
         var projectKey = Sentinel.Engine.ProjectContext.For(doc).Key; // empty when unbound: certify locally, record nothing
         // The contract in force for this document's project (project → office → none). The key is read here, on the
         // API thread; the fetch runs OFF it and the command waits, as Governed Publish waits on /propose (the client
@@ -69,20 +66,12 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         if (Sentinel.UI.DialogOwner.ShowFileDialog(save, c.Application) != true) return Result.Cancelled;
         ifcPath = save.FileName;
 
-        App.Events?.Enqueue(uiapp =>
+        // XC-1 (DocPin): the job runs deferred on the ExternalEvent queue, and by then focus may have moved to another
+        // open document (observed live: gate invoked on Project1, ran against a different doc). It runs on the Document
+        // captured here, only while it is open and active; otherwise the hub says "switch back to <title>" and nothing
+        // is exported.
+        App.Events?.Enqueue(doc, "export the IFC", (_, d) =>
         {
-            // Pin to the document/view captured at command time — the handler runs deferred on the
-            // ExternalEvent queue, and by then focus may have moved to a different open document
-            // (observed live: gate invoked on Project1, ran against a different doc). Never operate
-            // on whichever document merely has focus at event time.
-            var d = uiapp.Application.Documents.Cast<Document>().FirstOrDefault(x =>
-                (!string.IsNullOrEmpty(targetDocPath) && x.PathName == targetDocPath) || x.Title == targetTitle);
-            if (d is null)
-            {
-                TaskDialog.Show("Sentinel — IFC Delivery Gate",
-                    "The document this gate was started from is no longer active — nothing was exported.");
-                return;
-            }
             // The shared export primitive: the whole model in the contract's schema (IFC4 → IFC4 Reference View, else
             // IFC 2x3 CV2), base quantities, the transaction rolled back. It never throws.
             var (state, exported, _, error) = Sentinel.Engine.PlatformExporter.ExportToDir(
