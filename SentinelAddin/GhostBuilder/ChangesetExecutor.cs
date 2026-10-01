@@ -248,6 +248,7 @@ public sealed class ChangesetExecutor
             .Where(e => tickedGuids.Contains(e.ProposalGuid)).ToList();
         if (!toPlace.Any()) return result;
 
+        string at = null; // the element being placed when something throws — the refusal names it
         using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name
         t.Start();
         try
@@ -255,6 +256,7 @@ public sealed class ChangesetExecutor
             // Levels first: walls/floors in the same changeset may target them by name.
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "level"))
             {
+                at = Label(el);
                 var lvl = Level.Create(doc, (el.Place?.BaseElevation ?? 0) * MmToFeet);
                 if (!string.IsNullOrWhiteSpace(el.Validate?.Identity?.Name)) lvl.Name = el.Validate.Identity.Name;
                 Collect(result, el, lvl);
@@ -263,6 +265,7 @@ public sealed class ChangesetExecutor
 
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "grid"))
             {
+                at = Label(el);
                 var c = el.Place.LocationCurve;
                 var grid = Grid.Create(doc, Line.CreateBound(Pt(c.Start), Pt(c.End)));
                 if (!string.IsNullOrWhiteSpace(el.Validate?.Identity?.Name)) grid.Name = el.Validate.Identity.Name;
@@ -271,6 +274,7 @@ public sealed class ChangesetExecutor
 
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "wall"))
             {
+                at = Label(el);
                 var c = el.Place.LocationCurve;
                 var level = ResolveLevel(doc, el.Place);
                 var wt = ResolveWallType(doc, el.Place.TypeName);
@@ -289,6 +293,7 @@ public sealed class ChangesetExecutor
 
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "floor"))
             {
+                at = Label(el);
                 var level = ResolveLevel(doc, el.Place);
                 var ft2 = ResolveFloorType(doc, el.Place.TypeName);
                 var pts = el.Place.LocationLoop.Select(Pt).ToList();
@@ -318,13 +323,17 @@ public sealed class ChangesetExecutor
             // MA-1: a flat roof on its level — NewFootPrintRoof, and no footprint edge defines a slope (slopes are a later field).
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "roof"))
             {
+                at = Label(el);
                 var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
                 var level = ResolveLevel(doc, el.Place);
                 var rt = CreateType(doc, BuiltInCategory.OST_Roofs, "roof", null, el.Place.TypeName) as RoofType
                          ?? throw new InvalidOperationException($"roof \"{name}\": \"{el.Place.TypeName}\" is not a roof type Sentinel can sketch");
                 var arr = new CurveArray();
                 foreach (var c in Outline(el.Place.Boundary, level.Elevation, $"roof \"{name}\"")) arr.Append(c);
-                var roof = doc.Create.NewFootPrintRoof(arr, level, rt, out ModelCurveArray edges);
+                // The API reads this "out" array before filling it (the SDK sample creates it first): passed null, the call throws a
+                // bare "Value cannot be null." (B35, live).
+                var edges = new ModelCurveArray();
+                var roof = doc.Create.NewFootPrintRoof(arr, level, rt, out edges);
                 foreach (ModelCurve mc in edges) roof.set_DefinesSlope(mc, false);
                 if (el.Place.BaseOffset is double off) Set(roof, BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM, off * MmToFeet, "roof");
                 SetMark(roof, el);
@@ -334,6 +343,7 @@ public sealed class ChangesetExecutor
             // MA-1: a ceiling at its height above the level (place.Offset, required by the bridge).
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "ceiling"))
             {
+                at = Label(el);
 #if REVIT2022_OR_GREATER
                 var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
                 var level = ResolveLevel(doc, el.Place);
@@ -370,6 +380,7 @@ public sealed class ChangesetExecutor
                 }).ToList();
                 foreach (var el in openings)
                 {
+                    at = Label(el);
                     var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
                     var level = ResolveLevel(doc, el.Place);
                     var p = el.Place.Location ?? throw new InvalidOperationException($"{el.Kind} \"{name}\" has no Location");
@@ -409,6 +420,7 @@ public sealed class ChangesetExecutor
             // a door or window swaps to a symbol of its own category and keeps its host; Unsafe repeats the planner's holds.
             foreach (var el in toPlace.Where(e => e.Op == "retype"))
             {
+                at = Label(el);
                 var e = Target(doc, el);
                 var cur = doc.GetElement(e.GetTypeId()) as ElementType
                           ?? throw new InvalidOperationException($"{el.Kind} {e.UniqueId} has no type Sentinel can read");
@@ -431,6 +443,7 @@ public sealed class ChangesetExecutor
             // cuts a wall down: hosted doors and windows above would go). Otherwise a person's later edit is not overwritten.
             foreach (var el in toPlace.Where(e => e.Op == "attach"))
             {
+                at = Label(el);
                 var w = TargetWall(doc, el);
                 var b = LevelNamed(doc, el.Place?.BaseLevel);
                 var top = LevelNamed(doc, el.Place?.TopLevel);
@@ -457,6 +470,7 @@ public sealed class ChangesetExecutor
                 throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary");
             // The stamp: once per element, with every guid of this changeset that touched it, merged onto the element's
             // earlier stamp (one entity per schema) — inside this transaction, so Ctrl+Z removes it too.
+            at = "the provenance stamp";
             foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId))
                 ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid));
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
@@ -468,8 +482,22 @@ public sealed class ChangesetExecutor
         catch (Exception ex)
         {
             if (t.HasStarted() && !t.HasEnded()) t.RollBack();
-            return new ExecutionResult { Error = ex.Message }; // fresh result: NOTHING was applied
+            // Our own refusals already name the element; anything else (a Revit API or .NET exception) is named here, with
+            // its type and the first Sentinel frame, so a declined changeset says which element failed and where.
+            return new ExecutionResult { Error = ex is InvalidOperationException ? ex.Message : $"{at ?? "the changeset"}: {ex.GetType().Name}: {ex.Message}{Frame(ex)}" }; // fresh result: NOTHING was applied
         }
+    }
+
+    private static string Label(ChangesetElementDto el) => $"{el.Kind} \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\"";
+
+    // The first stack frame inside Sentinel, e.g. " (at ChangesetExecutor.Execute)"; empty when there is none.
+    private static string Frame(Exception ex)
+    {
+        var line = (ex.StackTrace ?? "").Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.IndexOf("Sentinel.", StringComparison.Ordinal) >= 0);
+        if (line == null) return "";
+        var at = line.StartsWith("at ") ? line.Substring(3) : line;
+        var paren = at.IndexOf('(');
+        return " (at " + (paren > 0 ? at.Substring(0, paren) : at) + ")";
     }
 
     private static void Collect(ExecutionResult result, ChangesetElementDto el, Element created)
