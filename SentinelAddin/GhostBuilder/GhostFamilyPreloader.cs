@@ -30,6 +30,7 @@ namespace Sentinel.GhostBuilder
             public int AlreadyPresent;
             public int NotFoundInLibrary;
             public readonly List<string> Warnings = new List<string>();
+            public readonly List<string> LoadedNames = new List<string>();
         }
 
         /// <summary>
@@ -80,6 +81,7 @@ namespace Sentinel.GhostBuilder
                 if (_doc.LoadFamily(path, out Family loaded) && loaded != null)
                 {
                     report.Loaded++;
+                    report.LoadedNames.Add(loaded.Name);
                     present.Add(loaded.Name); // avoid reloading a family that shares a file
                 }
                 else

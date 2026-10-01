@@ -320,7 +320,7 @@ namespace Sentinel.GhostBuilder
             public int SkippedUnknownFamily;
             public int SkippedNoGeometry;
             public readonly List<string> Warnings = new List<string>();
-            /// <summary>Types this build created to fill a guideline gap (office standard extended by a size).</summary>
+            /// <summary>Types and families this build added to the model: families loaded, wall and floor types the mapping names, guideline-gap sizes.</summary>
             public readonly List<string> CreatedTypes = new List<string>();
             /// <summary>Wall elements typed by the guideline, by the layer mapping (guideline none, or no measured
             /// thickness), or left as a reported gap (skipped, or a massing placeholder) — ElementPlacementFactory's tallies.</summary>

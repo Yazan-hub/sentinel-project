@@ -189,6 +189,11 @@ namespace Sentinel.GhostBuilder
                 report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);
                 if (pre != null) report.Warnings.InsertRange(0, pre.Warnings);
+                // What this build added to the model's type library before placing — named, not just counted (GHB-5: the
+                // review showed the forecast; this is what actually happened).
+                report.CreatedTypes.InsertRange(0, floorProv.CreatedNames.Select(n => $"{n} (floor type the layer mapping names)"));
+                report.CreatedTypes.InsertRange(0, wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
+                if (pre != null) report.CreatedTypes.InsertRange(0, pre.LoadedNames.Select(n => $"family {n} (loaded from the Ghost family library)"));
 
                 foreach (var (id, _) in report.NewElements) handler.Ours.Add(id.IdValue());
                 TransactionStatus status = t.Commit();
