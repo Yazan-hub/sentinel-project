@@ -10,6 +10,7 @@ static partial class Check
     {
         Policy();
         TypePick();
+        ReviewChoices();
     }
 
     // ── the failure rule: a user's element is never deleted or resolved; warnings are counted, never erased ──
@@ -112,5 +113,91 @@ static partial class Check
         Ok(GhostTypePick.Pick(new List<(string Family, string Type)>(), "Doors", "Single-Flush", "0864 x 2134mm", out var none) == -1
            && none == "Doors type \"Single-Flush : 0864 x 2134mm\" is not loaded in this model — load it or pick a loaded type in the review",
            "nothing loaded → a gap naming family and type");
+    }
+
+    // ── the review: a type drop-down per row, "(ignore)", copies out, the forecast of what the build will add ──
+    static void ReviewChoices()
+    {
+        Console.WriteLine("\nMA-1a — the review's type drop-down (GhostReviewWindow)");
+        var proposal = new MappingResult
+        {
+            Mappings = new List<LayerMapping>
+            {
+                new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls",    BdsFamily = "BDS_Wall_Ext",    Confidence = 1.0, Source = "standard" },
+                new LayerMapping { CadLayer = "A-DOOR",     Category = "Doors",    BdsFamily = "Generic_Door",    Confidence = 1.0, Source = "standard" },
+                new LayerMapping { CadLayer = "A-FLOR",     Category = "Floors",   BdsFamily = "BDS_Floor",       Confidence = 1.0, Source = "standard" },
+                new LayerMapping { CadLayer = "A-LEVEL",    Category = "Ceilings", BdsFamily = "Generic Ceiling", Confidence = 0.8, Source = "llm" },
+            }
+        };
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["A-WALL-EXT"] = 4, ["A-DOOR"] = 2, ["A-FLOR"] = 1, ["A-LEVEL"] = 3 };
+        var loaded = new Dictionary<string, IReadOnlyList<(string? Family, string Type)>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Walls"]  = new List<(string? Family, string Type)> { (null, "Exterior - Brick on CMU"), (null, "Generic - 200mm") },
+            ["Floors"] = new List<(string? Family, string Type)> { (null, "BDS_Floor") },
+            ["Doors"]  = new List<(string? Family, string Type)> { ("Single-Flush", "0864 x 2134mm"), ("Single-Flush", "0915 x 2134mm") },
+        };
+
+        var w = new GhostReviewWindow();          // constructed, never shown
+        MappingResult? emitted = null;
+        w.BuildRequested += (m, _) => emitted = m;
+        w.LoadTypes(loaded);
+        w.Load(proposal, counts, "Scratch.rvt", "Layers: …", guided: true, hasLibrary: true);
+        (CheckBox Box, ComboBox Type, LayerMapping Map) Row(GhostReviewWindow win, string layer) => win.Rows.First(r => r.Map.CadLayer == layer);
+        void Choose(GhostReviewWindow win, string layer, string label) { var t = Row(win, layer).Type; t.SelectedItem = t.Items.Cast<object>().First(i => i.ToString() == label); }
+
+        Ok(Row(w, "A-DOOR").Type.Items.Cast<object>().Select(i => i.ToString()).SequenceEqual(new[]
+           { "as proposed: Generic_Door", "Single-Flush : 0864 x 2134mm", "Single-Flush : 0915 x 2134mm", "(ignore)" }),
+           "a row offers: as proposed, every loaded type of its category (family : type), and (ignore)");
+        Ok(w.ForecastText == string.Join(Environment.NewLine, new[]
+           {
+               "Types this build will add to the model (forecast — the summary lists what was added):",
+               "  + Doors family \"Generic_Door\" (layer A-DOOR) — loaded from the Ghost family library if it holds Generic_Door.rfa, else skipped",
+               "  + Walls type \"BDS_Wall_Ext\" (layer A-WALL-EXT) — cloned from the type catalogue, or reported as a gap",
+               "  + Walls typed by the guideline at a thickness the model lacks — made at Build, each listed in the summary",
+           }),
+           "before Build, the review lists what the ticked rows will add (BDS_Floor is loaded: not listed)");
+
+        Choose(w, "A-DOOR", "Single-Flush : 0864 x 2134mm");
+        Ok(!w.ForecastText.Contains("Generic_Door"), "picking a loaded door type takes Generic_Door off the forecast");
+        Choose(w, "A-FLOR", "(ignore)");
+        Ok(Row(w, "A-FLOR").Box.IsChecked == false && !Row(w, "A-FLOR").Box.IsEnabled, "(ignore) unticks the row and locks its box");
+        Choose(w, "A-LEVEL", "(ignore)");
+        w.Build();
+        var built = emitted?.Mappings ?? new List<LayerMapping>();
+        Ok(built.Select(m => m.CadLayer).SequenceEqual(new[] { "A-DOOR", "A-WALL-EXT" }), "Build emits the ticked rows only — never an ignored one");
+        Ok(built.FirstOrDefault(m => m.CadLayer == "A-DOOR") is { Source: "reviewer", BdsFamily: "Single-Flush", BdsFamilyType: "0864 x 2134mm" },
+           "a picked type leaves as the reviewer's: that family and type");
+        Ok(built.All(b => proposal.Mappings.All(p => !ReferenceEquals(b, p)))
+           && proposal.Mappings[1] is { Source: "standard", BdsFamily: "Generic_Door", BdsFamilyType: null },
+           "every row leaves as a copy — the proposal (and the mapper's cached rows) are never edited");
+        Ok(w.Choices.Select(c => $"{c.CadLayer}:{c.Source}:{c.Ignore}").SequenceEqual(new[] { "A-LEVEL:reviewer:True", "A-DOOR:reviewer:False", "A-FLOR:reviewer:True" }),
+           "the reviewer's choices — a pick and two ignores, ticked or not — are what the command remembers");
+
+        // A2: a remembered ignore on a category with no loaded type can still be undone ("as proposed"), or forgotten.
+        var w2 = new GhostReviewWindow();
+        w2.LoadTypes(loaded);
+        w2.Load(new MappingResult { Mappings = new List<LayerMapping>
+            { new LayerMapping { CadLayer = "A-LEVEL", Category = "Ceilings", BdsFamily = "Generic Ceiling", Confidence = 1.0, Source = "reviewer", Ignore = true } } },
+            counts, "Scratch.rvt", "Layers: …");
+        var lv = w2.Rows[0];
+        bool cameBackIgnored = lv.Type.SelectedItem?.ToString() == "(ignore)" && lv.Box.IsChecked == false && !lv.Box.IsEnabled;
+        Choose(w2, "A-LEVEL", "as proposed: Generic Ceiling");
+        Ok(cameBackIgnored && lv.Box.IsEnabled
+           && w2.Choices.Select(c => $"{c.CadLayer}:{c.Source}:{c.Ignore}:{c.BdsFamily}").SequenceEqual(new[] { "A-LEVEL:reviewer:False:Generic Ceiling" }),
+           "a remembered ignore comes back as (ignore), unticked and locked — and \"as proposed\" undoes it, even with no type loaded");
+        Choose(w2, "A-LEVEL", "(forget my choice)");
+        Ok(lv.Type.Items.Cast<object>().Select(i => i.ToString()).SequenceEqual(new[] { "as proposed: Generic Ceiling", "(ignore)", "(forget my choice)" })
+           && lv.Box.IsChecked == false && !lv.Box.IsEnabled && w2.Choices.Count == 1 && w2.Choices[0].Forget,
+           "a remembered row offers (forget my choice): not built this run, handed to Remember to forget");
+        Ok(GhostReviewWindow.SourceNote("reviewer") == "  · your earlier review" && !GhostReviewWindow.PreTick(10, 1.0, "reviewer", 0.5),
+           "a remembered reviewer row says so and starts unticked, like every row that is not the standard");
+
+        // A3: with no Ghost family library, a door family that is not loaded is a skip, never an addition.
+        var w3 = new GhostReviewWindow();
+        w3.LoadTypes(loaded);
+        w3.Load(new MappingResult { Mappings = new List<LayerMapping> { proposal.Mappings[1] } }, counts, "Scratch.rvt", "Layers: …");
+        Ok(w3.ForecastText == "Types: this build adds no type or family to the model." + Environment.NewLine
+           + "  – Doors family \"Generic_Door\" (layer A-DOOR) — not loaded, and no Ghost family library is set — the row will be skipped",
+           "no family library: a door family that is not loaded is forecast as skipped, never as an addition");
     }
 }

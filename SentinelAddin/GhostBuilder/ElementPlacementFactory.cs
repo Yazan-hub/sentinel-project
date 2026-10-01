@@ -93,10 +93,11 @@ namespace Sentinel.GhostBuilder
         /// parameter is written only on a type NOT in it — one this build added. Null: no type is written.</summary>
         public ISet<long> TypesBefore;
 
-        /// <summary>Who typed each wall element — the build summary's three lines: the guideline; the layer mapping
-        /// (guideline none, or no measured thickness); nobody — a gap reported as a warning, or a massing placeholder
-        /// noted for retyping. A wall skipped for having no geometry is in none of them.</summary>
-        public int WallsByGuideline, WallsByMapping, WallGaps;
+        /// <summary>Who typed each wall (Revit walls; a skipped CAD wall counts one gap) — the build summary's lines: the
+        /// guideline; the layer mapping (guideline none, or no measured thickness); the reviewer (a type picked in the review);
+        /// nobody — a gap reported as a warning, or a massing placeholder noted for retyping. A wall skipped for having no
+        /// geometry is in none of them.</summary>
+        public int WallsByGuideline, WallsByMapping, WallsByReviewer, WallGaps;
 
         /// <summary>
         /// Place one element. <paramref name="warning"/> is set (non-null) when the element is
@@ -143,6 +144,13 @@ namespace Sentinel.GhostBuilder
         {
             gapReason = null;
             typedBy = "mapping";
+            // GHB-5: a type the reviewer picked in the review is used as picked — over the guideline and the mapping — and
+            // counted on its own summary line; a person chose it, so nothing re-decides it (founder decision F2).
+            if (map.Source == "reviewer" && !string.IsNullOrWhiteSpace(map.BdsFamilyType ?? map.BdsFamily))
+            {
+                typedBy = "reviewer";
+                return map.BdsFamilyType ?? map.BdsFamily;
+            }
             bool guided = _guideline != null && _guideline.HasGuideline;
             if (!guided || el.ThicknessMm <= 0)
             {
@@ -279,6 +287,7 @@ namespace Sentinel.GhostBuilder
             if (placed == 0) return Outcome.SkippedNoGeometry;
             if (typedBy == "guideline") WallsByGuideline += placed;
             else if (typedBy == "mapping") WallsByMapping += placed;
+            else if (typedBy == "reviewer") WallsByReviewer += placed;
             else WallGaps += placed; // a massing placeholder: placed, but typed by nobody — reported for retyping
             return Outcome.Placed;
         }

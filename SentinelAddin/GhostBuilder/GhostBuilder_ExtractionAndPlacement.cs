@@ -322,9 +322,10 @@ namespace Sentinel.GhostBuilder
             public readonly List<string> Warnings = new List<string>();
             /// <summary>Types and families this build added to the model: families loaded, wall and floor types the mapping names, guideline-gap sizes.</summary>
             public readonly List<string> CreatedTypes = new List<string>();
-            /// <summary>Wall elements typed by the guideline, by the layer mapping (guideline none, or no measured
-            /// thickness), or left as a reported gap (skipped, or a massing placeholder) — ElementPlacementFactory's tallies.</summary>
-            public int WallsByGuideline, WallsByMapping, WallGaps;
+            /// <summary>Walls typed by the guideline, by the layer mapping (guideline none, or no measured thickness), by the
+            /// reviewer (a type picked in the review), or left as a reported gap (skipped, or a massing placeholder) —
+            /// ElementPlacementFactory's tallies, taken before the commit.</summary>
+            public int WallsByGuideline, WallsByMapping, WallsByReviewer, WallGaps;
             /// <summary>Wall and floor types a ticked mapping row named that this build did not create — no sibling from
             /// the type catalogue in this document, or a clone that failed (the provisioners' gaps, each named in Warnings with its reason).</summary>
             public int TypeGaps;
@@ -407,6 +408,7 @@ namespace Sentinel.GhostBuilder
             report.CreatedTypes.AddRange(factory.CreatedTypes);
             report.WallsByGuideline = factory.WallsByGuideline;
             report.WallsByMapping = factory.WallsByMapping;
+            report.WallsByReviewer = factory.WallsByReviewer;
             report.WallGaps = factory.WallGaps;
             report.NewElements.AddRange(factory.NewElements);
 

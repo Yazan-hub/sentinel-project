@@ -29,7 +29,19 @@ public sealed class GhostReviewWindow : Window
     {
         MinWidth = 160, Margin = new Thickness(6, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center,
     };
-    private readonly List<(CheckBox Box, LayerMapping Map)> _rows = new();
+    private readonly List<(CheckBox Box, ComboBox Type, LayerMapping Map)> _rows = new();
+    // GHB-5: the types loaded in the model per category (LoadTypes), what the ticked rows will add (the forecast), whether
+    // a guideline is installed (a measured wall may then get a type at Build that no row names), and whether a Ghost family
+    // library is set (without one, a family that is not loaded is skipped, never added — A3).
+    private IReadOnlyDictionary<string, IReadOnlyList<(string? Family, string Type)>> _types =
+        new Dictionary<string, IReadOnlyList<(string? Family, string Type)>>();
+    private readonly TextBlock _forecast = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private bool _guided, _hasLibrary;
+
+    /// <summary>The reviewer's choices — a loaded type picked, "(ignore)", or "(forget my choice)" — ticked or not, as copies
+    /// with Source "reviewer": what the command hands LayerMapper.Remember when the review builds or closes (GHB-5).</summary>
+    public IReadOnlyList<LayerMapping> Choices =>
+        _rows.Select(r => Effective(r.Map, r.Type.SelectedItem as TypeItem)).Where(m => m.Source == "reviewer").ToList();
     // The three standards the proposal was made with (GhostStandards.Header), none included.
     private readonly TextBlock _standards = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
 
@@ -59,12 +71,17 @@ public sealed class GhostReviewWindow : Window
         "heuristic" => "  · heuristic guess",
         "llm" => "  · local model",
         "cache" => "  · local model (remembered)",
+        "reviewer" => "  · your earlier review",
         "unmapped" => "  · not mapped",
         _ => "  · " + (string.IsNullOrWhiteSpace(source) ? "no source" : source),
     };
 
     /// <summary>The standards line as shown (for the harness).</summary>
     internal string StandardsLine => _standards.Text;
+
+    /// <summary>The rows and the forecast as shown (for the harness).</summary>
+    internal IReadOnlyList<(CheckBox Box, ComboBox Type, LayerMapping Map)> Rows => _rows;
+    internal string ForecastText => _forecast.Text;
 
     // net48's LangVersion lacks IsExternalInit (needed for `record`), so this is a plain class.
     private sealed class LevelChoice
@@ -73,6 +90,23 @@ public sealed class GhostReviewWindow : Window
         public string Name { get; }
         public long Id { get; }
         public override string ToString() => Name;
+    }
+
+    // One entry of a row's type drop-down: the row as proposed, a type loaded in this model, "(ignore)", or — on a remembered
+    // row — "(forget my choice)". A plain class (net48).
+    private sealed class TypeItem
+    {
+        public TypeItem(string label, string? family, string? type, bool ignore = false, bool proposed = false, bool forget = false)
+        {
+            Label = label; Family = family; Type = type; Ignore = ignore; Proposed = proposed; Forget = forget;
+        }
+        public string Label { get; }
+        public string? Family { get; }
+        public string? Type { get; }
+        public bool Ignore { get; }
+        public bool Proposed { get; }
+        public bool Forget { get; }
+        public override string ToString() => Label;
     }
 
     public GhostReviewWindow()
@@ -110,7 +144,7 @@ public sealed class GhostReviewWindow : Window
 
         var header = new TextBlock
         {
-            Text = "Nothing has been built yet. Tick the layers to build, then Build.",
+            Text = "Nothing has been built yet. Tick the layers to build — pick a type or (ignore) where the proposal is wrong — then Build.",
             FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap,
         };
 
@@ -121,7 +155,7 @@ public sealed class GhostReviewWindow : Window
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (top, Dock.Top), (_status, Dock.Bottom), (buttons, Dock.Bottom),
+            (top, Dock.Top), (_status, Dock.Bottom), (buttons, Dock.Bottom), (_forecast, Dock.Bottom),
         })
         {
             DockPanel.SetDock(el, dock);
@@ -147,9 +181,15 @@ public sealed class GhostReviewWindow : Window
     /// "Layers: … · Guideline: … · Type catalogue: …", none included. Shown under the title.</param>
     /// <param name="preTickAbove">Confidence at or above which a row starts ticked (low-confidence guesses
     /// are opt-in, exactly as in the standards review).</param>
+    /// <param name="guided">A guideline is installed: the forecast says measured walls may get a type made at Build.</param>
+    /// <param name="hasLibrary">A Ghost family library is set: a door, window, column or furniture family that is not loaded
+    /// may be loaded from it at Build. Without one, the forecast says that row will be skipped (A3).</param>
     public void Load(MappingResult proposal, IReadOnlyDictionary<string, int> elementsPerLayer,
-                     string targetLabel, string standardsHeader, double preTickAbove = 0.5) => Dispatcher.Invoke(() =>
+                     string targetLabel, string standardsHeader, double preTickAbove = 0.5, bool guided = false,
+                     bool hasLibrary = false) => Dispatcher.Invoke(() =>
     {
+        _guided = guided;
+        _hasLibrary = hasLibrary;
         _standards.Text = standardsHeader;
         _rows.Clear();
         _tree.Items.Clear();
@@ -182,12 +222,38 @@ public sealed class GhostReviewWindow : Window
                 cb.Checked += (_, __) => UpdateStatus();
                 cb.Unchecked += (_, __) => UpdateStatus();
 
-                string type = m.BdsFamilyType ?? m.BdsFamily ?? "(no type)";
+                // GHB-5: the type is a choice, not a label — as proposed, any type of this category loaded in the model,
+                // "(ignore)" (never built; remembered), and on a remembered row "(forget my choice)" (A2). A remembered
+                // ignore comes back selected, its box unticked and locked; "as proposed" undoes it.
+                var pick = new ComboBox
+                {
+                    MinWidth = 220, Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeights.Normal,
+                };
+                List<TypeItem> items = ItemsFor(m);
+                foreach (TypeItem item in items) pick.Items.Add(item);
+                pick.SelectedIndex = m.Ignore ? items.FindIndex(i => i.Ignore) : 0;
+                void Lock()
+                {
+                    // An ignore is never built; a forgotten choice is not built on this run either (it is asked again next run).
+                    bool off = (pick.SelectedItem as TypeItem) is { } t && (t.Ignore || t.Forget);
+                    if (off) cb.IsChecked = false;
+                    cb.IsEnabled = !off;
+                }
+                Lock();
+                pick.SelectionChanged += (_, __) => { Lock(); UpdateStatus(); };
+
                 string suffix = SourceNote(m.Source) + (absurd ? "  ⚠ high count — likely annotation" : "");
                 var name = new TextBlock
                 {
-                    Text = $"{m.CadLayer}  →  {type}   ·   {n:N0} element(s){suffix}",
-                    Margin = new Thickness(6, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Text = $"{m.CadLayer}  →",
+                    Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeights.Normal,
+                };
+                var count = new TextBlock
+                {
+                    Text = $"·   {n:N0} element(s){suffix}",
+                    Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
                     FontWeight = FontWeights.Normal,
                 };
                 var badge = new TextBlock
@@ -200,6 +266,8 @@ public sealed class GhostReviewWindow : Window
                 var line1 = new StackPanel { Orientation = Orientation.Horizontal };
                 line1.Children.Add(cb);
                 line1.Children.Add(name);
+                line1.Children.Add(pick);
+                line1.Children.Add(count);
                 line1.Children.Add(badge);
 
                 // The whole row is a VERTICAL stack: identity on line 1, parameters WRAPPED underneath.
@@ -228,7 +296,7 @@ public sealed class GhostReviewWindow : Window
                     // to wrap TO, instead of growing sideways forever.
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 });
-                _rows.Add((cb, m));
+                _rows.Add((cb, pick, m));
             }
 
             _tree.Items.Add(node);
@@ -242,7 +310,8 @@ public sealed class GhostReviewWindow : Window
         }
 
         _status.Text = $"{_rows.Count} layer(s), {totalElements:N0} element(s) proposed for '{targetLabel}'. " +
-                       "Only rows of the installed layers standard start ticked; heuristic, local-model, unmapped and high-count rows start unticked — review before building.";
+                       "Only rows of the installed layers standard start ticked; heuristic, local-model, unmapped and high-count rows start unticked — review before building. " +
+                       "A type you pick, or (ignore), is remembered for this project when you Build or close.";
         UpdateStatus();
     });
 
@@ -255,6 +324,83 @@ public sealed class GhostReviewWindow : Window
         _levelBox.SelectedIndex = Math.Max(0,
             levels.ToList().FindIndex(l => l.Id == defaultId));
     });
+
+    /// <summary>The types loaded in the model, per mapping category — Walls (basic), Floors and Ceilings by name; Doors,
+    /// Windows, Columns and Furniture as family : type — read on the API thread: what each row's drop-down offers. Call
+    /// before Load.</summary>
+    public void LoadTypes(IReadOnlyDictionary<string, IReadOnlyList<(string? Family, string Type)>> byCategory) =>
+        _types = byCategory ?? new Dictionary<string, IReadOnlyList<(string? Family, string Type)>>();
+
+    // A row's drop-down: the row as proposed (always — an ignore keeps its proposed type, so it can be undone: A2), each loaded
+    // type of its category, "(ignore)", and on a row that came from memory "(forget my choice)".
+    private List<TypeItem> ItemsFor(LayerMapping m)
+    {
+        var items = new List<TypeItem> { new TypeItem("as proposed: " + TypeLabel(m.BdsFamily, m.BdsFamilyType), m.BdsFamily, m.BdsFamilyType, proposed: true) };
+        if (m.Category != null && _types.TryGetValue(m.Category, out var loaded))
+            foreach (var (family, type) in loaded) items.Add(new TypeItem(TypeLabel(family, type), family, type));
+        items.Add(new TypeItem("(ignore)", null, null, ignore: true));
+        if (m.Source == "reviewer") items.Add(new TypeItem("(forget my choice)", null, null, forget: true));
+        return items;
+    }
+
+    private static string TypeLabel(string? family, string? type) =>
+        type == null ? family ?? "(no type)" : family == null ? type : family + " : " + type;
+
+    /// <summary>The row that leaves the window — always a COPY (the mapper's rows, LayerMapper's cache among them, are never
+    /// edited): as proposed (an ignore undone), or the reviewer's pick (Source "reviewer", that family and type), or ignore
+    /// (Source "reviewer", Ignore), or a remembered choice to forget (Forget: LayerMapper.Remember deletes it).</summary>
+    private static LayerMapping Effective(LayerMapping m, TypeItem? pick)
+    {
+        var c = m.Copy();
+        if (pick == null) return c;
+        if (pick.Proposed) { c.Ignore = false; return c; }
+        if (pick.Forget) { c.Forget = true; return c; }
+        c.Source = "reviewer";
+        c.Confidence = 1.0;
+        c.Ignore = pick.Ignore;
+        if (!pick.Ignore) { c.BdsFamily = pick.Family; c.BdsFamilyType = pick.Type; }
+        c.Rationale = pick.Ignore ? "ignored by the reviewer" : "picked by the reviewer from the types loaded in this model";
+        return c;
+    }
+
+    // The ticked rows as they would leave the window.
+    private List<LayerMapping> Ticked() =>
+        _rows.Where(r => r.Box.IsChecked == true).Select(r => Effective(r.Map, r.Type.SelectedItem as TypeItem)).ToList();
+
+    /// <summary>GHB-5, before Build: what the ticked rows will add to the model's type library — a forecast from the rows and
+    /// the types already loaded (the summary after Build lists what was added). A wall or floor type the model lacks is
+    /// cloned from the type catalogue or reported as a gap (the provisioners); a door, window, column or furniture family it
+    /// lacks is loaded from the Ghost family library when that holds the .rfa (the preloader) — with no library set, that row
+    /// is skipped, never added (A3); with a guideline, a measured wall the model has no type for is made at Build (known only
+    /// once the walls are paired). Each line starts "+ " (added) or "– " (skipped).</summary>
+    internal static List<string> TypesToCreate(IReadOnlyList<LayerMapping> ticked,
+        IReadOnlyDictionary<string, IReadOnlyList<(string? Family, string Type)>> loaded, bool guided, bool hasLibrary)
+    {
+        var lines = new List<string>();
+        foreach (LayerMapping m in ticked)
+        {
+            if (m.Category == null) continue;
+            IReadOnlyList<(string? Family, string Type)> have =
+                loaded.TryGetValue(m.Category, out var l) ? l : Array.Empty<(string? Family, string Type)>();
+            if (m.Category is "Walls" or "Floors")
+            {
+                string? name = m.BdsFamilyType ?? m.BdsFamily;
+                if (name != null && !have.Any(h => Same(h.Type, name)))
+                    lines.Add($"+ {m.Category} type \"{name}\" (layer {m.CadLayer}) — cloned from the type catalogue, or reported as a gap");
+            }
+            else if (m.Category is "Doors" or "Windows" or "Columns" or "Furniture"
+                     && m.BdsFamily != null && !have.Any(h => Same(h.Family, m.BdsFamily)))
+                lines.Add(hasLibrary
+                    ? $"+ {m.Category} family \"{m.BdsFamily}\" (layer {m.CadLayer}) — loaded from the Ghost family library if it holds {m.BdsFamily}.rfa, else skipped"
+                    : $"– {m.Category} family \"{m.BdsFamily}\" (layer {m.CadLayer}) — not loaded, and no Ghost family library is set — the row will be skipped");
+        }
+        lines = lines.Distinct().ToList();
+        if (guided && ticked.Any(m => m.Category == "Walls"))
+            lines.Add("+ Walls typed by the guideline at a thickness the model lacks — made at Build, each listed in the summary");
+        return lines;
+    }
+
+    private static bool Same(string? a, string? b) => string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static int Count(IReadOnlyDictionary<string, int> counts, string layer) =>
         layer != null && counts != null && counts.TryGetValue(layer, out int n) ? n : 0;
@@ -275,16 +421,21 @@ public sealed class GhostReviewWindow : Window
 
     private void UpdateStatus()
     {
-        int ticked = _rows.Count(r => r.Box.IsChecked == true);
-        _build.IsEnabled = ticked > 0;
-        _build.Content = ticked > 0 ? $"Build {ticked} ticked layer(s) ▶" : "Build ticked layers ▶";
+        var ticked = Ticked();
+        _build.IsEnabled = ticked.Count > 0;
+        _build.Content = ticked.Count > 0 ? $"Build {ticked.Count} ticked layer(s) ▶" : "Build ticked layers ▶";
+        var lines = TypesToCreate(ticked, _types, _guided, _hasLibrary);
+        _forecast.Text = (lines.Any(a => a.StartsWith("+", StringComparison.Ordinal))
+                ? "Types this build will add to the model (forecast — the summary lists what was added):"
+                : "Types: this build adds no type or family to the model.")
+            + string.Concat(lines.Select(a => Environment.NewLine + "  " + a));
     }
 
     /// <summary>Approve the ticked rows — what the Build button does. Public so the gate's rule
-    /// ("only ticked rows leave this window") is directly checkable without a live Revit.</summary>
+    /// ("only ticked rows leave this window", as copies with the reviewer's picks) is directly checkable without a live Revit.</summary>
     public void Build()
     {
-        var ticked = _rows.Where(r => r.Box.IsChecked == true).Select(r => r.Map).ToList();
+        var ticked = Ticked();
         if (ticked.Count == 0) { _status.Text = "Nothing ticked — tick at least one layer first."; return; }
 
         _build.IsEnabled = false;              // one build per review; the window closes when it completes

@@ -226,6 +226,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             .Select(l => (l.Name, IdOf(l)))
             .ToList();
         if (levels.Count > 0) review.LoadLevels(levels, levels[0].Item2);
+        review.LoadTypes(LoadedTypes(doc)); // GHB-5: what each row's type drop-down offers, read here on the API thread
 
         review.BuildRequested += (approved, levelId) =>
         {
@@ -310,7 +311,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();
-                    review.Load(mapping, perLayer, doc.Title, resolved.Header); // the header names what maps and types this proposal
+                    review.Load(mapping, perLayer, doc.Title, resolved.Header, guided: resolved.Guideline.HasGuideline,
+                                hasLibrary: libraryDir != null); // the header names what maps and types this proposal
                     review.Show();
                 });
             }
@@ -334,6 +336,30 @@ public sealed class GhostBuilderCommand : IExternalCommand
         return Result.Succeeded;
     }
 
+    /// <summary>GHB-5: what each review row's type drop-down offers, read on the API thread as plain strings (the review
+    /// window is Revit-free): basic wall, floor and ceiling types by name; door, window, column and furniture types as
+    /// family : type. Basic walls only, as ChangesetExecutor resolves them, so a pick stays valid when Ghost moves onto it.</summary>
+    private static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
+    {
+        IReadOnlyList<(string? Family, string Type)> Names(IEnumerable<ElementType> types) => types
+            .Select(t => (Family: t is FamilySymbol s ? s.FamilyName : null, Type: t.Name))
+            .OrderBy(x => x.Family ?? "", System.StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Type, System.StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        IEnumerable<ElementType> Of(BuiltInCategory bic) =>
+            new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>();
+        return new Dictionary<string, IReadOnlyList<(string? Family, string Type)>>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["Walls"] = Names(new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(w => w.Kind == WallKind.Basic)),
+            ["Floors"] = Names(new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()),
+            ["Ceilings"] = Names(Of(BuiltInCategory.OST_Ceilings)),
+            ["Doors"] = Names(Of(BuiltInCategory.OST_Doors).OfType<FamilySymbol>()),
+            ["Windows"] = Names(Of(BuiltInCategory.OST_Windows).OfType<FamilySymbol>()),
+            ["Columns"] = Names(Of(BuiltInCategory.OST_Columns).OfType<FamilySymbol>()),
+            ["Furniture"] = Names(Of(BuiltInCategory.OST_Furniture).OfType<FamilySymbol>()),
+        };
+    }
+
     private static void CloseOnUi(GhostBuilderProgressWindow w, System.Action release) =>
         w.Dispatcher.Invoke(() => { release(); w.Close(); });
 
@@ -355,6 +381,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             parts.Add($"{r.WallsByMapping} typed by the layer mapping " + (s.GuidelineSource.Origin == "none"
                 ? "(guideline none — the pre-guideline behaviour)"
                 : "(no measured thickness for the guideline to type)"));
+        if (r.WallsByReviewer > 0) parts.Add($"{r.WallsByReviewer} typed by the reviewer (picked in the review)");
         if (r.WallGaps > 0) parts.Add($"{r.WallGaps} left as a reported gap (each named below; a massing placeholder is noted for retyping)");
         return "Walls: " + (parts.Count == 0 ? "none placed" : string.Join(" · ", parts));
     }
