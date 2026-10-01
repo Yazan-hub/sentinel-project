@@ -73,7 +73,7 @@ static partial class Check
 
     // ── 6. the v1 planner: floors, roofs, ceilings retyped; doors, windows swapped; concept-only and idempotent ─────
     static readonly string[] AllClasses = { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows" };
-    // What every door swap's reason ends with until the founder confirms DR-1 (pinned here, not read from the planner).
+    // What every door swap's reason ends with (DR-1, confirmed 2026-10-01; pinned here, not read from the planner).
     const string DoorSize = "; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own";
 
     static Dictionary<string, IReadOnlyDictionary<string, double?>> V1Types(Action<Dictionary<string, Dictionary<string, double?>>> edit = null)

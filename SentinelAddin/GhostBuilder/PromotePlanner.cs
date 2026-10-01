@@ -313,8 +313,8 @@ namespace Sentinel.GhostBuilder
             return null;
         }
 
-        // DR-1 (DRAFT): a door is sized by the target's type NAME, so after the swap its Width x Height read the new family's own
-        // (for BDS, the leaf). The review window leaves door swaps unticked until the founder confirms DR-1.
+        // DR-1 (confirmed by the founder 2026-10-01): a door is sized by the target's type NAME, so after the swap its Width x
+        // Height read the new family's own (for BDS, the leaf). The reason says so on every door swap row.
         private const string DoorSize = "; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own";
 
         private static string NoCatalog(GuidelineMatcher m) => $"no type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16)";
