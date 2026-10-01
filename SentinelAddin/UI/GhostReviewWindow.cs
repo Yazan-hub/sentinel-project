@@ -155,7 +155,8 @@ public sealed class GhostReviewWindow : Window
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (top, Dock.Top), (_status, Dock.Bottom), (buttons, Dock.Bottom), (_forecast, Dock.Bottom),
+            (top, Dock.Top), (_status, Dock.Bottom), (buttons, Dock.Bottom),
+            (new ScrollViewer { Content = _forecast, MaxHeight = 120, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, Dock.Bottom),
         })
         {
             DockPanel.SetDock(el, dock);
@@ -353,7 +354,8 @@ public sealed class GhostReviewWindow : Window
     {
         var c = m.Copy();
         if (pick == null) return c;
-        if (pick.Proposed) { c.Ignore = false; return c; }
+        // A remembered ignore undone: forget it too, so the row builds as its tier would (not as a reviewer pick).
+        if (pick.Proposed) { if (m.Ignore) c.Forget = true; c.Ignore = false; return c; }
         if (pick.Forget) { c.Forget = true; return c; }
         c.Source = "reviewer";
         c.Confidence = 1.0;
@@ -395,7 +397,8 @@ public sealed class GhostReviewWindow : Window
                     : $"– {m.Category} family \"{m.BdsFamily}\" (layer {m.CadLayer}) — not loaded, and no Ghost family library is set — the row will be skipped");
         }
         lines = lines.Distinct().ToList();
-        if (guided && ticked.Any(m => m.Category == "Walls"))
+        // A reviewer's wall type is used as picked, never re-typed by the guideline (a forgotten one is not a pick).
+        if (guided && ticked.Any(m => m.Category == "Walls" && (m.Source != "reviewer" || m.Forget)))
             lines.Add("+ Walls typed by the guideline at a thickness the model lacks — made at Build, each listed in the summary");
         return lines;
     }

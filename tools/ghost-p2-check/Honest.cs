@@ -183,12 +183,17 @@ static partial class Check
         bool cameBackIgnored = lv.Type.SelectedItem?.ToString() == "(ignore)" && lv.Box.IsChecked == false && !lv.Box.IsEnabled;
         Choose(w2, "A-LEVEL", "as proposed: Generic Ceiling");
         Ok(cameBackIgnored && lv.Box.IsEnabled
-           && w2.Choices.Select(c => $"{c.CadLayer}:{c.Source}:{c.Ignore}:{c.BdsFamily}").SequenceEqual(new[] { "A-LEVEL:reviewer:False:Generic Ceiling" }),
-           "a remembered ignore comes back as (ignore), unticked and locked — and \"as proposed\" undoes it, even with no type loaded");
+           && w2.Choices.Select(c => $"{c.CadLayer}:{c.Source}:{c.Ignore}:{c.Forget}:{c.BdsFamily}").SequenceEqual(new[] { "A-LEVEL:reviewer:False:True:Generic Ceiling" }),
+           "a remembered ignore comes back as (ignore), unticked and locked — and \"as proposed\" undoes it (forgotten, so it builds as its tier would), even with no type loaded");
         Choose(w2, "A-LEVEL", "(forget my choice)");
         Ok(lv.Type.Items.Cast<object>().Select(i => i.ToString()).SequenceEqual(new[] { "as proposed: Generic Ceiling", "(ignore)", "(forget my choice)" })
            && lv.Box.IsChecked == false && !lv.Box.IsEnabled && w2.Choices.Count == 1 && w2.Choices[0].Forget,
            "a remembered row offers (forget my choice): not built this run, handed to Remember to forget");
+        var picked = new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls", BdsFamilyType = "Generic - 200mm", Source = "reviewer" };
+        var forgot = picked.Copy(); forgot.Forget = true;
+        Ok(GhostReviewWindow.TypesToCreate(new[] { picked }, loaded, guided: true, hasLibrary: true).Count == 0
+           && GhostReviewWindow.TypesToCreate(new[] { forgot }, loaded, guided: true, hasLibrary: true).Single().StartsWith("+ Walls typed by the guideline"),
+           "a guided review whose only Walls row is a reviewer pick forecasts no guideline type (a forgotten pick does)");
         Ok(GhostReviewWindow.SourceNote("reviewer") == "  · your earlier review" && !GhostReviewWindow.PreTick(10, 1.0, "reviewer", 0.5),
            "a remembered reviewer row says so and starts unticked, like every row that is not the standard");
 

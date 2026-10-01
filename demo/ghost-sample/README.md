@@ -18,7 +18,7 @@ Regenerate either with `python make-sample.py` — no third-party libraries need
 | `A-WALL-EXT` | 4 lines (perimeter) | Deterministic BDS match — **no model call**. The spec's *"fire rating of FR60"* should land on these walls (or their type). |
 | `A-WALL-INT` | 1 line | Second deterministic match; the spec says explicitly it is **not** rated, so a model that puts FR60 here is over-reaching. |
 | `A-FLOR` | closed polyline | Closed outline → boundary loop → `Floor.Create`, plus the floor-type provisioner. |
-| `A-DOOR` | 2 closed rectangles | The centroid path for point families. Skips honestly if the project has no door family loaded — that's a valid outcome, not a bug. |
+| `A-DOOR` | 2 closed rectangles | The centroid path for point families. Places only the ONE loaded door type the mapping or the review names (pick it in the row's drop-down); a family that is not loaded, or one with several types and none named, is skipped and named in the summary — never the first door family loaded (MA-1a). |
 | `EXTERIOR-ENVELOPE` | 1 line | **The only layer the deterministic pass cannot match**, so it is the only one sent to the local model — and the spec paragraph about the envelope zone is exactly the context it needs. This is the P2 thesis in one row. |
 | `A-ANNO` | 1 line | Tier 0 ignore (`*-ANNO`). **Must never reach the review window.** |
 | `DEFPOINTS` | 1 line | Tier 0 ignore. Same. |

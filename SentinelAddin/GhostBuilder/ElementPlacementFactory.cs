@@ -146,7 +146,7 @@ namespace Sentinel.GhostBuilder
             typedBy = "mapping";
             // GHB-5: a type the reviewer picked in the review is used as picked — over the guideline and the mapping — and
             // counted on its own summary line; a person chose it, so nothing re-decides it (founder decision F2).
-            if (map.Source == "reviewer" && !string.IsNullOrWhiteSpace(map.BdsFamilyType ?? map.BdsFamily))
+            if (map.Source == "reviewer" && !map.Forget && !string.IsNullOrWhiteSpace(map.BdsFamilyType ?? map.BdsFamily))
             {
                 typedBy = "reviewer";
                 return map.BdsFamilyType ?? map.BdsFamily;
@@ -283,12 +283,13 @@ namespace Sentinel.GhostBuilder
                 ApplyParams(Wall.Create(_doc, run, wt.Id, _level.Id,
                             height, el.BaseElevation, flip: false, structural: false), map);
                 placed++;
+                // Tallied per wall, so a later edge that throws leaves the Walls line agreeing with Placed.
+                if (typedBy == "guideline") WallsByGuideline++;
+                else if (typedBy == "mapping") WallsByMapping++;
+                else if (typedBy == "reviewer") WallsByReviewer++;
+                else WallGaps++; // a massing placeholder: placed, but typed by nobody — reported for retyping
             }
             if (placed == 0) return Outcome.SkippedNoGeometry;
-            if (typedBy == "guideline") WallsByGuideline += placed;
-            else if (typedBy == "mapping") WallsByMapping += placed;
-            else if (typedBy == "reviewer") WallsByReviewer += placed;
-            else WallGaps += placed; // a massing placeholder: placed, but typed by nobody — reported for retyping
             return Outcome.Placed;
         }
 
@@ -332,6 +333,10 @@ namespace Sentinel.GhostBuilder
                 sym = DefaultSymbol(category);
                 if (sym != null)
                     Notes.Add($"Placeholder {category} type '{sym.FamilyName} : {sym.Name}' (the template's default) used on '{el.CadLayer}' — the massing names no {category} type. Retype before issue.");
+                else // massing has no review to pick in: say what the model lacks
+                    why = syms.Count == 0
+                        ? $"no {category} family is loaded in this model (the template has no default {category} type) — load one"
+                        : $"the template has no default {category} type to use as a placeholder — set one";
             }
             if (sym == null)
             {

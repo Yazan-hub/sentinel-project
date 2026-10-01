@@ -47,14 +47,14 @@ namespace Sentinel.GhostBuilder
                     var severity = Sev(f.GetSeverity());
                     var failing = Ids(f.GetFailingElementIds());
                     var additional = Ids(f.GetAdditionalElementIds());
-                    string key = f.GetFailureDefinitionId().Guid + "|" + string.Join(",", failing.OrderBy(i => i));
+                    var named = failing.Concat(additional).Distinct().ToList(); // E1/A5: failing ∪ additional
+                    string key = f.GetFailureDefinitionId().Guid + "|" + string.Join(",", named.OrderBy(i => i));
                     var act = GhostFailurePolicy.Decide(severity, f.HasResolutions(), failing, additional, Ours, _resolved.Contains(key));
                     if (act == GhostFailurePolicy.Act.Count)
                     {
-                        SeenWarnings.Add((key, text, failing)); // counted after the commit; Revit keeps the warning
+                        SeenWarnings.Add((key, text, named)); // counted after the commit; Revit keeps the warning
                         continue;
                     }
-                    var named = failing.Concat(additional).Distinct().ToList();
                     if (act == GhostFailurePolicy.Act.RollBack)
                         return RollBack(GhostFailurePolicy.RollBackReason(text, severity, named.Where(i => !Ours.Contains(i)).ToList()));
 

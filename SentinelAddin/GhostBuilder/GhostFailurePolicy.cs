@@ -22,7 +22,7 @@ namespace Sentinel.GhostBuilder
 
         private static readonly long[] None = new long[0];
 
-        /// <param name="triedResolution">This same failure (definition and failing ids) was given Revit's resolution on an
+        /// <param name="triedResolution">This same failure (definition and named ids) was given Revit's resolution on an
         /// earlier pass and came back.</param>
         public static Act Decide(Severity severity, bool hasResolutions, IReadOnlyCollection<long> failing,
                                  IReadOnlyCollection<long> additional, ISet<long> ours, bool triedResolution = false)
