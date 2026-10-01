@@ -1,0 +1,39 @@
+Evidence for That Open — the app channel after their fix (re-test of report 1)
+Measured 2026-10-01 (UTC) on Windows 11, node v26.5.0, socket.io-client 4.8.3. The listener is a real app tab: the
+published Sentinel app (1.0.40) open on platform.thatopen.com, project 6a4c4df825f9ecf5f416d4c2, app
+6a56513872a416a2841b0667. Command "sentinel.status" (the app answers it). No token appears in this file.
+
+=== 1. DNS — the two servers are gone; one address now ===
+platform.thatopen.com → 35.156.159.219 only (system resolver, 8.8.8.8, 1.1.1.1, 9.9.9.9; 4 lookups each; no AAAA,
+no CNAME). PTR ec2-35-156-159-219.eu-central-1.compute.amazonaws.com.
+The old addresses 3.69.132.147 and 52.58.243.60 refuse the channel (connect_error "xhr poll error", 2 of 2 each, 17:14 UTC).
+
+=== 2. The room fix — WebSocket asks, each on a fresh connection ===
+17:15:57  4 of 4  delivered 1, the app replied (180–333 ms each)
+17:16:2x 20 of 20 delivered 1, the app replied
+A fresh connection lands on any server behind the balancer (section 4 shows they spread), yet every ask reached the
+one open tab: the servers now share their rooms. Report 1 is FIXED.
+
+=== 3. New: the quickstart's default transport (long-polling first) fails ===
+mode default (socket.io-client defaults, as the quickstart §5b writes it), 17:15:46
+1 connect_error xhr poll error 400
+2 connect_error xhr post error 400
+3 connect_error xhr post error 400
+4 connected, then disconnect "transport error"; no channel:subscribed in 10 s
+mode polling only, 17:15:58
+1 connect_error xhr post error 400
+2 connect_error xhr poll error 400
+3 connected, then disconnect "transport error"; no channel:subscribed in 10 s
+→ 0 of 7 asks got through; WebSocket-only got 24 of 24 in the same minute.
+
+=== 4. Why: no sticky sessions behind the one address ===
+WebApp/scripts/thatopen-polling-repro.mjs, 17:19:04 UTC: open an engine.io polling session (GET), then 4 POSTs on its sid.
+keep-alive (one TCP connection):      0 of 24 follow-up requests lost the session
+a new connection per request:        11 of 24 → HTTP 400 {"code":1,"message":"Session ID unknown"}
+(an earlier run at 17:16:52 UTC: 14 of 24). Together 25 of 48 ≈ half: consistent with two servers behind a
+connection-level balancer with no session affinity (no cookie is set; response headers: vary, content-type,
+content-length, cache-control, date, connection).
+
+=== 5. Effect on an SDK user (Sentinel's own asker, before and after) ===
+before (default transports, retries on): 1 of 5 answered; 4 timed out after 10 s ("last connection error: xhr poll/post error")
+after  (transports: ["websocket"]):       10 of 10 answered, 355–454 ms each

@@ -1,6 +1,6 @@
 # Reports and questions for That Open (drafts — the founder sends them)
 
-## 1. The app channel's two servers do not share rooms (measured 2026-09-29, twice)
+## 1. The app channel's two servers do not share rooms (measured 2026-09-29, twice) — FIXED by That Open, re-tested 2026-10-01
 
 ### The message to send (plain words)
 
@@ -78,6 +78,35 @@ A script cannot stand in for the app tab: a listener counts only when it connect
 `client.channel.external()` meets this today.
 
 **Our workaround.** Sentinel's asker asks on every address at once and keeps the first reply
-(`WebApp/bridge/ask-sentinel.mjs`).
+(`WebApp/bridge/ask-sentinel.mjs`). Since 2026-10-01 it also connects WebSocket-only (see the re-test below).
+
+### Re-test after That Open's fix (2026-10-01) — fixed; one new issue
+
+Full log: [thatopen-evidence/2026-10-01-channel-after-fix.log](thatopen-evidence/2026-10-01-channel-after-fix.log).
+
+- **Fixed.** platform.thatopen.com now resolves to one address (35.156.159.219); the two old servers refuse connections.
+  24 of 24 WebSocket asks, each on a fresh connection, reached the open app and got its reply.
+- **New: long-polling breaks behind the new balancer.** Several servers sit behind the one address and a new TCP
+  connection can land on any of them; there are no sticky sessions. socket.io's default transport (long-polling first,
+  as in the quickstart) sends follow-up requests that meet a server which never opened the session: HTTP 400
+  `{"code":1,"message":"Session ID unknown"}` — 25 of 48 follow-up requests on new connections, 0 of 24 on one kept-alive
+  connection. With the defaults, 0 of 7 asks got through; Sentinel's asker answered 1 of 5 before we switched it to
+  WebSocket only (10 of 10 after).
+- **Sentinel's side:** `WebApp/bridge/ask-sentinel.mjs` now connects with `transports: ["websocket"]`.
+- **Repro:** [WebApp/scripts/thatopen-polling-repro.mjs](../WebApp/scripts/thatopen-polling-repro.mjs) (no dependencies):
+  `THATOPEN_TOKEN=<API token> node thatopen-polling-repro.mjs 6`.
+
+**The reply to send (plain words):**
+
+> Thanks a lot — confirmed, the channel works now: 24 of 24 commands reached my open app and it answered every time.
+>
+> One thing the new setup broke: socket.io's default transport. Your one address now spreads connections over several
+> servers with no sticky sessions, so long-polling (which socket.io tries first, and which the quickstart uses) often
+> lands on a server that doesn't know the session and gets HTTP 400 "Session ID unknown" — about half the requests in
+> my test, and 0 of 7 commands went through with the default settings. WebSocket-only works every time.
+>
+> Two easy fixes: turn on sticky sessions (session affinity) on the load balancer, or add `transports: ["websocket"]`
+> to the quickstart's `io(...)` call. Log and a tiny repro script (no dependencies):
+> https://github.com/Yazan-hub/sentinel-project/blob/master/docs/THATOPEN_REPORTS.md
 
 ## 2. WebGPU (see ROADMAP item 2) — blocked upstream; question already raised.

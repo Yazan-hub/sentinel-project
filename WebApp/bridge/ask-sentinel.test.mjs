@@ -102,6 +102,7 @@ describe("ask — the platform's channel servers do not share their rooms: every
           // Which server this socket reached: the pinned agent's lookup names it.
           let addr; opts.agent.options.lookup("platform.test", {}, (_e, a) => { addr = a; });
           expect(opts.forceNew).toBe(true);
+          expect(opts.transports).toEqual(["websocket"]); // long-polling breaks behind the platform's balancer
           return (sockets[addr] = fakeSocket({ onPublish: (s, msg, ack) => behave[addr](s, msg, ack) }));
         },
       },
