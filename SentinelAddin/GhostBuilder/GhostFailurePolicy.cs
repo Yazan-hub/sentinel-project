@@ -4,6 +4,7 @@
 // An error is given Revit's own resolution only when every element it names (failing and additional) is one this build
 // created, and only once; otherwise only this build's elements among the ids it names are deleted; an error that names
 // none of them rolls the whole build back. A user's element is never deleted, resolved or unjoined by Sentinel.
+// Beside it, the two other honest-build rules: the Doctor skips this transaction (A4); no write onto a user's type (A7).
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -89,5 +90,26 @@ namespace Sentinel.GhostBuilder
         /// <summary>A build Revit rolled back: nothing exists, so this is the whole report.</summary>
         public static string NotBuiltLine(string reason) =>
             "Nothing was built — Revit rolled the build back, so the model is as it was before Build: " + reason;
+
+        /// <summary>A6: Commit returned neither Committed nor RolledBack (Pending, …): Revit may still finish or drop the build,
+        /// so nothing is recounted and this is the whole report.</summary>
+        public static string NotFinishedLine(string status) =>
+            $"Revit has not finished the build (status {status}) — check the model before re-running";
+
+        /// <summary>The Ghost transaction's name (DWG and massing) — unchanged; step 2 renames it with the changeset.</summary>
+        public const string TxName = "Ghost Builder - LOD 200";
+
+        /// <summary>A4: the global Doctor (FailureInterceptor) leaves this transaction's warnings alone — Ghost counts them and
+        /// leaves them in the model ([BP] P1-3). Step 2 must widen this to the executor's transaction for Ghost-sourced
+        /// changesets, or P1-3 regresses.</summary>
+        public static bool DoctorSkips(string transactionName) => transactionName == TxName;
+
+        /// <summary>A7: a parameter is written onto a TYPE only when this build added that type (provisioned, cloned or loaded
+        /// this run); on any other type the write would change the user's own instances, so it is not applied. Null = write;
+        /// otherwise the reason for the Note.</summary>
+        public static string TypeParamBlocked(bool typeAddedByThisBuild, string typeName, int existingInstances) =>
+            typeAddedByThisBuild ? null
+            : existingInstances > 0 ? $"not applied to type \"{typeName}\" — it would change {existingInstances} existing instance(s)"
+            : $"not applied to type \"{typeName}\" — it is the model's own type, not one this build added";
     }
 }

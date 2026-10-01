@@ -75,5 +75,14 @@ static partial class Check
            "a warning naming an element of this build that Revit removed is not counted — it went with the element");
         Ok(GhostFailurePolicy.NotBuiltLine("X (y)") == "Nothing was built — Revit rolled the build back, so the model is as it was before Build: X (y)",
            "a rolled-back build reads as nothing built");
+        Ok(GhostFailurePolicy.NotFinishedLine("Pending") == "Revit has not finished the build (status Pending) — check the model before re-running",
+           "A6: a build Revit has not finished (Pending) reads as not finished — never as nothing built, never recounted");
+        Ok(GhostFailurePolicy.DoctorSkips("Ghost Builder - LOD 200") && !GhostFailurePolicy.DoctorSkips("Sentinel: Fix") && !GhostFailurePolicy.DoctorSkips(null!),
+           "A4: the Doctor skips the Ghost transaction only — it never erases a warning Ghost counts");
+        Ok(GhostFailurePolicy.TypeParamBlocked(true, "Ghost 275mm", 0) == null,
+           "A7: a type this build added takes the type parameter");
+        Ok(GhostFailurePolicy.TypeParamBlocked(false, "Generic - 200mm", 3) == "not applied to type \"Generic - 200mm\" — it would change 3 existing instance(s)"
+           && GhostFailurePolicy.TypeParamBlocked(false, "Generic - 200mm", 0) == "not applied to type \"Generic - 200mm\" — it is the model's own type, not one this build added",
+           "A7: a type the model already had is never written — the Note says how many existing instances it would change");
     }
 }

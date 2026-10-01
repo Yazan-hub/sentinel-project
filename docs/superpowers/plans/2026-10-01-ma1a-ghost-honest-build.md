@@ -108,6 +108,7 @@ expected check totals in the tasks change accordingly — report the real totals
 | `GhostTypePick` in the factory | Ghost's reader resolves rows to exact (FamilyName, TypeName) before filing. `CreateType` may adopt the same pure rule |
 | `PlacedLine`, `WarningsLine`, `NotBuiltLine` | Reused as they are for the changeset result text |
 | Review drop-down, "(ignore)", `Source = "reviewer"`, `LayerMapper.Remember`, the forecast | **Kept** as the reader side. A reviewer row's (BdsFamily, BdsFamilyType) maps 1:1 to `PlaceDto.FamilyName` / `TypeName` (`Coordination/ChangesetClient.cs`) |
+| The Doctor exemption, `GhostFailurePolicy.DoctorSkips(transactionName)` (A4) | The Doctor exemption must cover the executor's transaction for Ghost-sourced changesets (change the predicate), or P1-3 regresses |
 | Provisioners and preloader inside the build transaction (unchanged; now named in the summary) | Step 2 decides where type creation lives (a planning stage before filing); the forecast is its seed |
 
 These are **not** built here, because they need a changeset id or are other rows:

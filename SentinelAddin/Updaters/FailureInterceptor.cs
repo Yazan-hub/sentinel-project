@@ -41,6 +41,8 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
 
     private static FailureProcessingResult Process(FailuresAccessor accessor)
     {
+        // Ghost Builder counts its own warnings and leaves them in the model ([BP] P1-3, GHB-5): the Doctor does not erase them.
+        if (Sentinel.GhostBuilder.GhostFailurePolicy.DoctorSkips(accessor.GetTransactionName())) return FailureProcessingResult.Continue;
         bool resolvedAny = false;
         foreach (var failure in accessor.GetFailureMessages())
         {

@@ -86,6 +86,15 @@ namespace Sentinel.GhostBuilder
         /// office standard was extended, not just that walls were placed.</summary>
         public readonly List<string> CreatedTypes = new List<string>();
 
+        /// <summary>Every element this build created, with what it is ("Walls on 'A-WALL-EXT'"): the failure handler's "ours"
+        /// and the ids Placed is counted from after the commit (GhostBuilderOrchestrator). Filled at ApplyParams, which every
+        /// create site calls with its new element.</summary>
+        public readonly List<(ElementId Id, string What)> NewElements = new List<(ElementId Id, string What)>();
+
+        /// <summary>A7: the ids of every type in the document before this build started (GhostBuilderOrchestrator). A type
+        /// parameter is written only on a type NOT in it — one this build added. Null: no type is written.</summary>
+        public ISet<long> TypesBefore;
+
         /// <summary>Who typed each wall element — the build summary's three lines: the guideline; the layer mapping
         /// (guideline none, or no measured thickness); nobody — a gap reported as a warning, or a massing placeholder
         /// noted for retyping. A wall skipped for having no geometry is in none of them.</summary>
@@ -270,9 +279,9 @@ namespace Sentinel.GhostBuilder
                 placed++;
             }
             if (placed == 0) return Outcome.SkippedNoGeometry;
-            if (typedBy == "guideline") WallsByGuideline++;
-            else if (typedBy == "mapping") WallsByMapping++;
-            else WallGaps++; // a massing placeholder: placed, but typed by nobody — reported for retyping
+            if (typedBy == "guideline") WallsByGuideline += placed;
+            else if (typedBy == "mapping") WallsByMapping += placed;
+            else WallGaps += placed; // a massing placeholder: placed, but typed by nobody — reported for retyping
             return Outcome.Placed;
         }
 
@@ -437,7 +446,8 @@ namespace Sentinel.GhostBuilder
         ///
         /// Instance parameter first. Spec data usually lives on the TYPE (Fire Rating on a WallType, not the
         /// wall), so a missing/read-only instance parameter falls back to the element's type — written once
-        /// per (type, parameter) and NOTED, because that write is visible on every other instance of the type.
+        /// per (type, parameter) and NOTED, because that write is visible on every other instance of the type. A7: only a
+        /// type this build added is written; a type the model already had is left alone and the Note says why.
         ///
         /// Values are set via SetValueString for anything non-textual, so "200" is read in the document's
         /// display units. A raw Parameter.Set(double) would take it as 200 FEET.
@@ -445,6 +455,9 @@ namespace Sentinel.GhostBuilder
         /// </summary>
         private void ApplyParams(Element e, LayerMapping map)
         {
+            // Every create site (Wall.Create, NewFamilyInstance, Floor.Create/NewFloor, Ceiling.Create) passes its new element
+            // here: record it as this build's (GHB-5 — the failure handler's "ours", and what Placed is counted from).
+            if (e != null) NewElements.Add((e.Id, $"{map?.Category ?? "Element"} on '{map?.CadLayer}'"));
             if (e == null || map?.Params == null || map.Params.Count == 0) return;
 
             foreach (ParamAssignment pa in map.Params)
@@ -470,7 +483,15 @@ namespace Sentinel.GhostBuilder
                     continue;
                 }
 
-                if (!_typeParamsDone.Add(et.Id.ToString() + "|" + pa.Name)) continue; // already written for this type
+                if (!_typeParamsDone.Add(et.Id.ToString() + "|" + pa.Name)) continue; // already decided for this type
+                // A7: only a type this build added is written; on any other the write would change the user's instances too.
+                bool added = TypesBefore != null && !TypesBefore.Contains(et.Id.IdValue());
+                string blocked = GhostFailurePolicy.TypeParamBlocked(added, et.Name, added ? 0 : ExistingInstances(et));
+                if (blocked != null)
+                {
+                    Notes.Add($"'{pa.Name}' = '{pa.Value}' for layer '{map.CadLayer}' elements{Provenance(map)}: {blocked}.");
+                    continue;
+                }
                 if (SetValue(tp, pa.Value))
                     Notes.Add($"Set TYPE parameter '{pa.Name}' = '{pa.Value}' on '{et.Name}'{Provenance(map)} " +
                               "— this affects every instance of that type.");
@@ -478,6 +499,16 @@ namespace Sentinel.GhostBuilder
                     Notes.Add($"Could not apply '{pa.Name}' = '{pa.Value}' to type '{et.Name}' " +
                               "(value not accepted by the parameter); skipped.");
             }
+        }
+
+        // The instances of a type that are not this build's — what a type-parameter write would silently change (A7).
+        private int ExistingInstances(ElementType et)
+        {
+            var mine = new HashSet<long>(NewElements.Select(n => n.Id.IdValue()));
+            long typeId = et.Id.IdValue();
+            var c = new FilteredElementCollector(_doc).WhereElementIsNotElementType();
+            if (et.Category != null) c = c.OfCategoryId(et.Category.Id);
+            return c.Count(x => x.GetTypeId().IdValue() == typeId && !mine.Contains(x.Id.IdValue()));
         }
 
         private static string Provenance(LayerMapping map) =>
