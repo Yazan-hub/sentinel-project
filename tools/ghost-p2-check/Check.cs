@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
 
-static class Check
+static partial class Check
 {
     static int _pass, _fail;
 
@@ -178,6 +178,8 @@ static class Check
         w2.Load(new MappingResult { Mappings = new List<LayerMapping>() }, counts, "Project.rvt", header);
         w2.Build();
         Ok(emitted == null, "empty proposal cannot be built");
+
+        Honest(); // MA-1a step 1: failure rule, family-type pick, review drop-down (Honest.cs)
 
         if (Environment.GetCommandLineArgs().Contains("--live")) LiveDryRun().GetAwaiter().GetResult();
 

@@ -30,8 +30,20 @@ namespace Sentinel.GhostBuilder
         /// <summary>Which tier produced this mapping (LayerMapper): "standard" (a row or alias of the project's
         /// installed layers@n — the only source the review pre-ticks), "heuristic" (an AIA major or keyword guess),
         /// "llm" (the local model), "cache" (the local model's answer remembered for this project under the same
-        /// layers sha) or "unmapped" (the local model could not be reached; Rationale says so).</summary>
+        /// layers sha), "reviewer" (a type the reviewer picked in the review, or "(ignore)" — GHB-5, remembered too)
+        /// or "unmapped" (the local model could not be reached; Rationale says so).</summary>
         [JsonPropertyName("source")]        public string Source { get; set; } = "llm";
+
+        /// <summary>The reviewer chose "(ignore)" (Source "reviewer"): this layer is never built, and the choice is remembered.</summary>
+        [JsonPropertyName("ignore")]        public bool Ignore { get; set; }
+
+        /// <summary>The reviewer chose "(forget my choice)" on a remembered row: LayerMapper.Remember deletes it, so the next
+        /// run asks the heuristic or the local model again (A2). Never written to disk.</summary>
+        [JsonIgnore]                        public bool Forget { get; set; }
+
+        /// <summary>A copy the review may change without touching the mapper's own row (LayerMapper keeps its model answers by
+        /// reference). Params is shared: nothing edits it after the proposal.</summary>
+        public LayerMapping Copy() => (LayerMapping)MemberwiseClone();
     }
 
     /// <summary>One Revit parameter the project documents state for a mapped layer's elements

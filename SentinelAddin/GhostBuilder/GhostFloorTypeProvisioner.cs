@@ -29,6 +29,7 @@ namespace Sentinel.GhostBuilder
             /// <summary>Names not created — no catalogue sibling in this document, or a clone that failed (each in Warnings with its reason).</summary>
             public int Gaps;
             public readonly List<string> Warnings = new List<string>();
+            public readonly List<string> CreatedNames = new List<string>();
         }
 
         public ProvisionReport Provision(MappingResult mapping)
@@ -56,6 +57,7 @@ namespace Sentinel.GhostBuilder
                 if (GhostTypeCreator.CreateFloorType(_doc, name, mm, siblings, out string reason) != null)
                 {
                     report.Created++;
+                    report.CreatedNames.Add(name);
                     existing.Add(name); // don't re-create if two mappings share a name
                     continue;
                 }

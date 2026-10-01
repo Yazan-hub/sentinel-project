@@ -110,11 +110,16 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         sb.AppendLine("Guideline: " + s.GuidelineSource.Label + " · Type catalogue: " + s.CatalogSource.Label);
         if (s.CatalogSource.Origin == "none") sb.AppendLine(GhostBuilderCommand.CatalogueNotChecked(s));
         sb.AppendLine();
-        sb.AppendLine($"Placed: {r.Placed}");
+        if (r.RolledBack != null) return sb.AppendLine(GhostFailurePolicy.NotBuiltLine(r.RolledBack)).ToString();
+        if (r.NotFinished != null) return sb.AppendLine(r.NotFinished).ToString(); // A6
+        sb.AppendLine(GhostFailurePolicy.PlacedLine(r.Placed, r.DeletedByRevit));
         sb.AppendLine(GhostBuilderCommand.WallsLine(r, s));
+        if (r.SkippedUnknownFamily > 0) sb.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
+        var revitWarnings = GhostFailurePolicy.WarningsLine(r.RevitWarnings);
+        if (revitWarnings != null) sb.AppendLine(revitWarnings);
         if (r.CreatedTypes.Count > 0)
         {
-            sb.AppendLine().AppendLine($"Created {r.CreatedTypes.Count} new type(s):");
+            sb.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
             foreach (var t in r.CreatedTypes) sb.AppendLine($"  + {t}");
         }
         if (r.Warnings.Count > 0)

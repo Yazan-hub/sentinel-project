@@ -226,17 +226,25 @@ public sealed class GhostBuilderCommand : IExternalCommand
             .Select(l => (l.Name, IdOf(l)))
             .ToList();
         if (levels.Count > 0) review.LoadLevels(levels, levels[0].Item2);
+        review.LoadTypes(LoadedTypes(doc)); // GHB-5: what each row's type drop-down offers, read here on the API thread
 
         review.BuildRequested += (approved, levelId) =>
         {
             building = true;
+            mapper?.Remember(review.Choices); // GHB-5: the reviewer's picks and ignores, for this project's next run
             placementEvent.SetRequest(orchestrator!, inputs, approved, levelId);
             externalEvent.Raise();
         };
 
         // Closing the review without building ends the run — nothing was written, so there is nothing
-        // to report or undo. Releasing here is what frees the local model's HttpClient.
-        review.Closed += (_, __) => { if (!building) Release(); };
+        // to report or undo. The reviewer's choices are still remembered (an ignore on a drawing with nothing
+        // else to build must stick — F45). Releasing here is what frees the local model's HttpClient.
+        review.Closed += (_, __) =>
+        {
+            if (building) return;
+            mapper?.Remember(review.Choices);
+            Release();
+        };
 
         placementEvent.Completed += (report, error) =>
         {
@@ -310,7 +318,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();
-                    review.Load(mapping, perLayer, doc.Title, resolved.Header); // the header names what maps and types this proposal
+                    review.Load(mapping, perLayer, doc.Title, resolved.Header, guided: resolved.Guideline.HasGuideline,
+                                hasLibrary: libraryDir != null); // the header names what maps and types this proposal
                     review.Show();
                 });
             }
@@ -334,6 +343,30 @@ public sealed class GhostBuilderCommand : IExternalCommand
         return Result.Succeeded;
     }
 
+    /// <summary>GHB-5: what each review row's type drop-down offers, read on the API thread as plain strings (the review
+    /// window is Revit-free): basic wall, floor and ceiling types by name; door, window, column and furniture types as
+    /// family : type. Basic walls only, as ChangesetExecutor resolves them, so a pick stays valid when Ghost moves onto it.</summary>
+    private static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
+    {
+        IReadOnlyList<(string? Family, string Type)> Names(IEnumerable<ElementType> types) => types
+            .Select(t => (Family: t is FamilySymbol s ? s.FamilyName : null, Type: t.Name))
+            .OrderBy(x => x.Family ?? "", System.StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Type, System.StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        IEnumerable<ElementType> Of(BuiltInCategory bic) =>
+            new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>();
+        return new Dictionary<string, IReadOnlyList<(string? Family, string Type)>>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["Walls"] = Names(new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(w => w.Kind == WallKind.Basic)),
+            ["Floors"] = Names(new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()),
+            ["Ceilings"] = Names(Of(BuiltInCategory.OST_Ceilings)),
+            ["Doors"] = Names(Of(BuiltInCategory.OST_Doors).OfType<FamilySymbol>()),
+            ["Windows"] = Names(Of(BuiltInCategory.OST_Windows).OfType<FamilySymbol>()),
+            ["Columns"] = Names(Of(BuiltInCategory.OST_Columns).OfType<FamilySymbol>()),
+            ["Furniture"] = Names(Of(BuiltInCategory.OST_Furniture).OfType<FamilySymbol>()),
+        };
+    }
+
     private static void CloseOnUi(GhostBuilderProgressWindow w, System.Action release) =>
         w.Dispatcher.Invoke(() => { release(); w.Close(); });
 
@@ -355,6 +388,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             parts.Add($"{r.WallsByMapping} typed by the layer mapping " + (s.GuidelineSource.Origin == "none"
                 ? "(guideline none — the pre-guideline behaviour)"
                 : "(no measured thickness for the guideline to type)"));
+        if (r.WallsByReviewer > 0) parts.Add($"{r.WallsByReviewer} typed by the reviewer (picked in the review)");
         if (r.WallGaps > 0) parts.Add($"{r.WallGaps} left as a reported gap (each named below; a massing placeholder is noted for retyping)");
         return "Walls: " + (parts.Count == 0 ? "none placed" : string.Join(" · ", parts));
     }
@@ -372,17 +406,24 @@ public sealed class GhostBuilderCommand : IExternalCommand
         lines.AppendLine(s.Header);
         if (s.CatalogSource.Origin == "none") lines.AppendLine(CatalogueNotChecked(s));
         lines.AppendLine();
-        lines.AppendLine($"Placed: {r.Placed}");
+        // Revit did not commit (the failure handler rolled back, or the commit failed): nothing exists, nothing else is true.
+        if (r.RolledBack != null) return lines.AppendLine(GhostFailurePolicy.NotBuiltLine(r.RolledBack)).ToString();
+        // A6: Revit has not finished the build (Pending, …): nothing was recounted, so nothing else here is true either.
+        if (r.NotFinished != null) return lines.AppendLine(r.NotFinished).ToString();
+        // GHB-5: Placed is what exists after the commit; what Revit removed is named with the failure that named it.
+        lines.AppendLine(GhostFailurePolicy.PlacedLine(r.Placed, r.DeletedByRevit));
         lines.AppendLine(WallsLine(r, s));
         if (r.TypeGaps > 0) lines.AppendLine($"Types: {r.TypeGaps} named by the layer mapping not created (each named below with its reason)");
         if (r.SkippedLowConfidence > 0) lines.AppendLine($"Skipped (low confidence): {r.SkippedLowConfidence}");
-        if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (family not in model): {r.SkippedUnknownFamily}");
+        if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
         if (r.SkippedNoGeometry > 0)    lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");
+        var revitWarnings = GhostFailurePolicy.WarningsLine(r.RevitWarnings);
+        if (revitWarnings != null) lines.AppendLine(revitWarnings);
         if (r.CreatedTypes.Count > 0)
         {
-            // The office standard was extended by a size — show it plainly; this is a deliberate change
-            // to the model's type library, not a placement side-effect.
-            lines.AppendLine().AppendLine($"Created {r.CreatedTypes.Count} new type(s) to match the drawing:");
+            // The office type library was extended — show it plainly; this is a deliberate change to the model's
+            // type library, not a placement side-effect.
+            lines.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
             foreach (var t in r.CreatedTypes) lines.AppendLine($"  + {t}");
         }
         if (r.Warnings.Count > 0)

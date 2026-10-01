@@ -29,7 +29,6 @@ namespace Sentinel.GhostBuilder
         private readonly Document _doc;
         private readonly Level _level;
         private readonly IReadOnlyDictionary<string, WallType> _wallTypes;
-        private readonly IReadOnlyDictionary<string, FamilySymbol> _symbols;
         private readonly IReadOnlyDictionary<string, FloorType> _floorTypes;
         private readonly IReadOnlyDictionary<string, ElementType> _ceilingTypes;
 
@@ -39,19 +38,19 @@ namespace Sentinel.GhostBuilder
         // false) or null = the mapping's family, the pre-guideline behaviour — counted as such (WallsByMapping).
         private readonly GuidelineMatcher _guideline;
 
-        // Massing is an LOD 100 estimate: when the office standard has no type for a wall or floor, place it
+        // Massing is an LOD 100 estimate: when the office standard has no type for a wall, floor, door or window, place it
         // with the template's DEFAULT type and say so, rather than placing nothing (simulation 3.9, F43 —
         // every wall was skipped on a template without the pilot's type names). The DWG path keeps the
-        // strict behaviour: a mis-typed wall there is a real defect, a placeholder box here is the point.
+        // strict behaviour: a mis-typed element there is a real defect, a placeholder box here is the point.
         private readonly bool _placeholderTypes;
 
-        private T DefaultType<T>(ElementTypeGroup group, IReadOnlyDictionary<string, T> cache) where T : ElementType =>
-            (_doc.GetElement(_doc.GetDefaultElementTypeId(group)) as T) ?? cache.Values.FirstOrDefault();
+        // The document's default type of a group (the template's), or null — never the model's first type (D16, MA-1a).
+        private T DefaultType<T>(ElementTypeGroup group) where T : ElementType =>
+            _doc.GetElement(_doc.GetDefaultElementTypeId(group)) as T;
 
         public ElementPlacementFactory(
             Document doc, Level level,
             IReadOnlyDictionary<string, WallType> wallTypes,
-            IReadOnlyDictionary<string, FamilySymbol> symbols,
             IReadOnlyDictionary<string, FloorType> floorTypes = null,
             IReadOnlyDictionary<string, ElementType> ceilingTypes = null,
             GuidelineMatcher guideline = null,
@@ -61,7 +60,6 @@ namespace Sentinel.GhostBuilder
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
             _level = level ?? throw new ArgumentNullException(nameof(level));
             _wallTypes = wallTypes ?? new Dictionary<string, WallType>();
-            _symbols = symbols ?? new Dictionary<string, FamilySymbol>();
             _floorTypes = floorTypes ?? new Dictionary<string, FloorType>();
             _ceilingTypes = ceilingTypes ?? new Dictionary<string, ElementType>();
             _guideline = guideline;
@@ -86,10 +84,20 @@ namespace Sentinel.GhostBuilder
         /// office standard was extended, not just that walls were placed.</summary>
         public readonly List<string> CreatedTypes = new List<string>();
 
-        /// <summary>Who typed each wall element — the build summary's three lines: the guideline; the layer mapping
-        /// (guideline none, or no measured thickness); nobody — a gap reported as a warning, or a massing placeholder
-        /// noted for retyping. A wall skipped for having no geometry is in none of them.</summary>
-        public int WallsByGuideline, WallsByMapping, WallGaps;
+        /// <summary>Every element this build created, with what it is ("Walls on 'A-WALL-EXT'"): the failure handler's "ours"
+        /// and the ids Placed is counted from after the commit (GhostBuilderOrchestrator). Filled at ApplyParams, which every
+        /// create site calls with its new element.</summary>
+        public readonly List<(ElementId Id, string What)> NewElements = new List<(ElementId Id, string What)>();
+
+        /// <summary>A7: the ids of every type in the document before this build started (GhostBuilderOrchestrator). A type
+        /// parameter is written only on a type NOT in it — one this build added. Null: no type is written.</summary>
+        public ISet<long> TypesBefore;
+
+        /// <summary>Who typed each wall (Revit walls; a skipped CAD wall counts one gap) — the build summary's lines: the
+        /// guideline; the layer mapping (guideline none, or no measured thickness); the reviewer (a type picked in the review);
+        /// nobody — a gap reported as a warning, or a massing placeholder noted for retyping. A wall skipped for having no
+        /// geometry is in none of them.</summary>
+        public int WallsByGuideline, WallsByMapping, WallsByReviewer, WallGaps;
 
         /// <summary>
         /// Place one element. <paramref name="warning"/> is set (non-null) when the element is
@@ -116,7 +124,7 @@ namespace Sentinel.GhostBuilder
                 case "Windows":
                 case "Columns":
                 case "Furniture":
-                    return PlaceFamilyInstance(el, wanted, map.Category, map, out warning);
+                    return PlaceFamilyInstance(el, map.Category, map, out warning);
 
                 default:
                     warning = $"Category '{map.Category}' (layer '{el.CadLayer}') not handled at LOD 200; skipped.";
@@ -136,6 +144,13 @@ namespace Sentinel.GhostBuilder
         {
             gapReason = null;
             typedBy = "mapping";
+            // GHB-5: a type the reviewer picked in the review is used as picked — over the guideline and the mapping — and
+            // counted on its own summary line; a person chose it, so nothing re-decides it (founder decision F2).
+            if (map.Source == "reviewer" && !map.Forget && !string.IsNullOrWhiteSpace(map.BdsFamilyType ?? map.BdsFamily))
+            {
+                typedBy = "reviewer";
+                return map.BdsFamilyType ?? map.BdsFamily;
+            }
             bool guided = _guideline != null && _guideline.HasGuideline;
             if (!guided || el.ThicknessMm <= 0)
             {
@@ -217,7 +232,7 @@ namespace Sentinel.GhostBuilder
             string resolved = ResolveWallType(el, map, out string gapReason, out string typedBy);
             if (gapReason != null && _placeholderTypes)
             {
-                var ph = DefaultType(ElementTypeGroup.WallType, _wallTypes);
+                var ph = DefaultType<WallType>(ElementTypeGroup.WallType);
                 if (ph != null)
                 {
                     Notes.Add($"Placeholder wall type '{ph.Name}' used for {el.ThicknessMm:0} mm walls on '{el.CadLayer}' — {gapReason.TrimEnd('.')}. Retype before issue.");
@@ -268,11 +283,13 @@ namespace Sentinel.GhostBuilder
                 ApplyParams(Wall.Create(_doc, run, wt.Id, _level.Id,
                             height, el.BaseElevation, flip: false, structural: false), map);
                 placed++;
+                // Tallied per wall, so a later edge that throws leaves the Walls line agreeing with Placed.
+                if (typedBy == "guideline") WallsByGuideline++;
+                else if (typedBy == "mapping") WallsByMapping++;
+                else if (typedBy == "reviewer") WallsByReviewer++;
+                else WallGaps++; // a massing placeholder: placed, but typed by nobody — reported for retyping
             }
             if (placed == 0) return Outcome.SkippedNoGeometry;
-            if (typedBy == "guideline") WallsByGuideline++;
-            else if (typedBy == "mapping") WallsByMapping++;
-            else WallGaps++; // a massing placeholder: placed, but typed by nobody — reported for retyping
             return Outcome.Placed;
         }
 
@@ -296,7 +313,7 @@ namespace Sentinel.GhostBuilder
         }
 
         // ---- Point families (doors/windows/columns/furniture): stable API, no #if ----
-        private Outcome PlaceFamilyInstance(GhostElement el, string wanted, string category, LayerMapping map, out string warning)
+        private Outcome PlaceFamilyInstance(GhostElement el, string category, LayerMapping map, out string warning)
         {
             warning = null;
 
@@ -305,16 +322,25 @@ namespace Sentinel.GhostBuilder
             XYZ pt = el.LocationPoint ?? Centroid(el.LocationLoop);
             if (pt == null) return Outcome.SkippedNoGeometry;
 
-            // Resolve the named symbol; if the model invented a name the doc lacks, fall back to ANY loaded
-            // family of the matching category, so a column/furniture layer still places when a family of that
-            // kind exists in the project. A blank project with no such family skips — honestly.
-            FamilySymbol sym = null;
-            if (wanted != null) _symbols.TryGetValue(wanted, out sym);
-            if (sym == null) sym = FallbackSymbol(category);
+            // The ONE loaded (family, type) the row names, among this category's types only (GhostTypePick: exact, or a gap a
+            // person resolves in the review) — never a symbol of another category that shares the type name, never the first
+            // one loaded. Massing (LOD 100) alone may use the category's DEFAULT family type, declared in a Note like its walls.
+            List<FamilySymbol> syms = SymbolsOf(category);
+            int i = GhostTypePick.Pick(syms.Select(s => (s.FamilyName, s.Name)).ToList(), category, map.BdsFamily, map.BdsFamilyType, out string why);
+            FamilySymbol sym = i >= 0 ? syms[i] : null;
+            if (sym == null && _placeholderTypes)
+            {
+                sym = DefaultSymbol(category);
+                if (sym != null)
+                    Notes.Add($"Placeholder {category} type '{sym.FamilyName} : {sym.Name}' (the template's default) used on '{el.CadLayer}' — the massing names no {category} type. Retype before issue.");
+                else // massing has no review to pick in: say what the model lacks
+                    why = syms.Count == 0
+                        ? $"no {category} family is loaded in this model (the template has no default {category} type) — load one"
+                        : $"the template has no default {category} type to use as a placeholder — set one";
+            }
             if (sym == null)
             {
-                warning = $"No {category} family available (layer '{el.CadLayer}'); load one for this category " +
-                          "or set the Ghost family library. Skipped.";
+                warning = $"{category} on '{el.CadLayer}': {why}; skipped.";
                 return Outcome.SkippedUnknownType;
             }
 
@@ -336,29 +362,28 @@ namespace Sentinel.GhostBuilder
             return n > 0 ? new XYZ(x / n, y / n, z / n) : null;
         }
 
-        private readonly Dictionary<string, FamilySymbol> _fallbackByCategory =
-            new Dictionary<string, FamilySymbol>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<FamilySymbol>> _symbolsByCategory =
+            new Dictionary<string, List<FamilySymbol>>(StringComparer.OrdinalIgnoreCase);
 
-        // First loaded family symbol of the category, or null when the project has none.
-        private FamilySymbol FallbackSymbol(string category)
+        // The loaded family types of one point-family category, read once per build (after the preloader ran). The
+        // category key → BuiltInCategory map is Compat's (locale-safe), not a second switch.
+        private List<FamilySymbol> SymbolsOf(string category)
         {
             string key = category ?? "";
-            if (_fallbackByCategory.TryGetValue(key, out FamilySymbol cached)) return cached;
+            if (_symbolsByCategory.TryGetValue(key, out List<FamilySymbol> cached)) return cached;
+            BuiltInCategory bic = Compat.ResolveCategoryKey(key);
+            var syms = bic == BuiltInCategory.INVALID ? new List<FamilySymbol>()
+                : new FilteredElementCollector(_doc).OfCategory(bic).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().ToList();
+            _symbolsByCategory[key] = syms;
+            return syms;
+        }
 
-            BuiltInCategory? bic = category switch
-            {
-                "Doors" => BuiltInCategory.OST_Doors,
-                "Windows" => BuiltInCategory.OST_Windows,
-                "Columns" => BuiltInCategory.OST_Columns,
-                "Furniture" => BuiltInCategory.OST_Furniture,
-                _ => (BuiltInCategory?)null,
-            };
-            FamilySymbol sym = bic == null ? null
-                : new FilteredElementCollector(_doc).OfCategory(bic.Value)
-                    .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().FirstOrDefault();
-
-            _fallbackByCategory[key] = sym;
-            return sym;
+        // Massing only: the category's default family type in this document (the template's), or null.
+        private FamilySymbol DefaultSymbol(string category)
+        {
+            BuiltInCategory bic = Compat.ResolveCategoryKey(category ?? "");
+            return bic == BuiltInCategory.INVALID ? null
+                : _doc.GetElement(_doc.GetDefaultFamilyTypeId(new ElementId(bic))) as FamilySymbol;
         }
 
         // ---- Floors & ceilings: the ONE genuine cross-version break ----
@@ -386,7 +411,7 @@ namespace Sentinel.GhostBuilder
             FloorType ft = ResolveType(_floorTypes, wanted);
             if (ft == null && _placeholderTypes)
             {
-                ft = DefaultType(ElementTypeGroup.FloorType, _floorTypes);
+                ft = DefaultType<FloorType>(ElementTypeGroup.FloorType);
                 if (ft != null)
                     Notes.Add($"Placeholder floor type '{ft.Name}' used on '{el.CadLayer}' — the office standard names no floor type for the massing. Retype before issue.");
             }
@@ -437,7 +462,8 @@ namespace Sentinel.GhostBuilder
         ///
         /// Instance parameter first. Spec data usually lives on the TYPE (Fire Rating on a WallType, not the
         /// wall), so a missing/read-only instance parameter falls back to the element's type — written once
-        /// per (type, parameter) and NOTED, because that write is visible on every other instance of the type.
+        /// per (type, parameter) and NOTED, because that write is visible on every other instance of the type. A7: only a
+        /// type this build added is written; a type the model already had is left alone and the Note says why.
         ///
         /// Values are set via SetValueString for anything non-textual, so "200" is read in the document's
         /// display units. A raw Parameter.Set(double) would take it as 200 FEET.
@@ -445,6 +471,9 @@ namespace Sentinel.GhostBuilder
         /// </summary>
         private void ApplyParams(Element e, LayerMapping map)
         {
+            // Every create site (Wall.Create, NewFamilyInstance, Floor.Create/NewFloor, Ceiling.Create) passes its new element
+            // here: record it as this build's (GHB-5 — the failure handler's "ours", and what Placed is counted from).
+            if (e != null) NewElements.Add((e.Id, $"{map?.Category ?? "Element"} on '{map?.CadLayer}'"));
             if (e == null || map?.Params == null || map.Params.Count == 0) return;
 
             foreach (ParamAssignment pa in map.Params)
@@ -470,7 +499,15 @@ namespace Sentinel.GhostBuilder
                     continue;
                 }
 
-                if (!_typeParamsDone.Add(et.Id.ToString() + "|" + pa.Name)) continue; // already written for this type
+                if (!_typeParamsDone.Add(et.Id.ToString() + "|" + pa.Name)) continue; // already decided for this type
+                // A7: only a type this build added is written; on any other the write would change the user's instances too.
+                bool added = TypesBefore != null && !TypesBefore.Contains(et.Id.IdValue());
+                string blocked = GhostFailurePolicy.TypeParamBlocked(added, et.Name, added ? 0 : ExistingInstances(et));
+                if (blocked != null)
+                {
+                    Notes.Add($"'{pa.Name}' = '{pa.Value}' for layer '{map.CadLayer}' elements{Provenance(map)}: {blocked}.");
+                    continue;
+                }
                 if (SetValue(tp, pa.Value))
                     Notes.Add($"Set TYPE parameter '{pa.Name}' = '{pa.Value}' on '{et.Name}'{Provenance(map)} " +
                               "— this affects every instance of that type.");
@@ -478,6 +515,16 @@ namespace Sentinel.GhostBuilder
                     Notes.Add($"Could not apply '{pa.Name}' = '{pa.Value}' to type '{et.Name}' " +
                               "(value not accepted by the parameter); skipped.");
             }
+        }
+
+        // The instances of a type that are not this build's — what a type-parameter write would silently change (A7).
+        private int ExistingInstances(ElementType et)
+        {
+            var mine = new HashSet<long>(NewElements.Select(n => n.Id.IdValue()));
+            long typeId = et.Id.IdValue();
+            var c = new FilteredElementCollector(_doc).WhereElementIsNotElementType();
+            if (et.Category != null) c = c.OfCategoryId(et.Category.Id);
+            return c.Count(x => x.GetTypeId().IdValue() == typeId && !mine.Contains(x.Id.IdValue()));
         }
 
         private static string Provenance(LayerMapping map) =>

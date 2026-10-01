@@ -31,6 +31,11 @@ namespace Sentinel.GhostBuilder
         private readonly GuidelineMatcher _guideline; // optional Office Modelling Guideline (per-wall types)
         private readonly bool _placeholderTypes;      // massing: default types + a note instead of skipping
 
+        /// <summary>The Ghost transaction's name (DWG and massing) — also how the global Doctor (FailureInterceptor) knows to
+        /// leave this build's warnings alone ([BP] P1-3, GhostFailurePolicy.DoctorSkips). Unchanged; step 2 renames it with
+        /// the changeset.</summary>
+        public const string TxName = GhostFailurePolicy.TxName;
+
         public GhostBuilderOrchestrator(Document doc, ILayerMapper mapper,
                                         double minConfidence = 0.5, string familyLibraryDir = null,
                                         GuidelineMatcher guideline = null, bool placeholderTypes = false)
@@ -138,19 +143,26 @@ namespace Sentinel.GhostBuilder
             if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
                 return new GhostPlacementEngine.PlacementReport { Warnings = { "Nothing to build." } };
 
-            using var t = new Transaction(_doc, "Ghost Builder - LOD 200");
+            using var t = new Transaction(_doc, TxName);
             t.Start();
 
-            // Auto-resolve the creation failures a bulk dirty-CAD build raises at commit
-            // ("Can't make Wall", "Can't keep elements joined") so the user isn't blocked behind
-            // dozens of modal "cannot be ignored" dialogs — and a stray Cancel can't nuke the build.
+            // MA-1a (GHB-5): the creation failures a bulk dirty-CAD build raises at commit are handled by GhostFailureHandler —
+            // only THIS build's elements (handler.Ours, filled below just before Commit) are ever resolved or deleted; a failure
+            // that names none of them rolls the build back; warnings are counted and left to Revit. Non-modal: the warnings
+            // Revit keeps are shown the ordinary, dismissable way. Silent: no dialog after a rollback the handler chose.
+            var handler = new GhostFailureHandler();
             FailureHandlingOptions fho = t.GetFailureHandlingOptions();
-            fho.SetFailuresPreprocessor(new GhostFailureHandler());
+            fho.SetFailuresPreprocessor(handler);
             fho.SetClearAfterRollback(true);
+            fho.SetForcedModalHandling(false);
             t.SetFailureHandlingOptions(fho);
             GhostPlacementEngine.PlacementReport report;
             try
             {
+                // A7: every type the model has before this build — a type parameter is written only on a type not in it.
+                var typesBefore = new HashSet<long>(new FilteredElementCollector(_doc).WhereElementIsElementType()
+                                                        .ToElementIds().Select(i => i.IdValue()));
+
                 // Load any mapped families missing from the doc, THEN regenerate, THEN build the
                 // engine — the engine caches the doc's families/types/levels in its constructor,
                 // so it must be created AFTER preload or the new families won't be in its cache.
@@ -170,14 +182,41 @@ namespace Sentinel.GhostBuilder
                 var floorProv = new GhostFloorTypeProvisioner(_doc, _guideline).Provision(mapping);
                 if (floorProv.Created > 0) _doc.Regenerate();
 
-                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level, _placeholderTypes);
+                var engine = new GhostPlacementEngine(_doc, _minConfidence, _guideline, level, _placeholderTypes)
+                { TypesBefore = typesBefore };
                 report = engine.Place(mapping, elements);
                 report.TypeGaps = wallProv.Gaps + floorProv.Gaps;
                 report.Warnings.InsertRange(0, floorProv.Warnings);
                 report.Warnings.InsertRange(0, wallProv.Warnings);
                 if (pre != null) report.Warnings.InsertRange(0, pre.Warnings);
+                // What this build added to the model's type library before placing — named, not just counted (GHB-5: the
+                // review showed the forecast; this is what actually happened).
+                report.CreatedTypes.InsertRange(0, floorProv.CreatedNames.Select(n => $"{n} (floor type the layer mapping names)"));
+                report.CreatedTypes.InsertRange(0, wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
+                if (pre != null) report.CreatedTypes.InsertRange(0, pre.LoadedNames.Select(n => $"family {n} (loaded from the Ghost family library)"));
 
-                t.Commit();
+                foreach (var (id, _) in report.NewElements) handler.Ours.Add(id.IdValue());
+                TransactionStatus status = t.Commit();
+                // Failure processing can roll the build back WITHOUT throwing (ChangesetExecutor checks the same): then
+                // nothing this transaction made exists — no element, type or family — and the report says only that.
+                if (status == TransactionStatus.RolledBack)
+                    return new GhostPlacementEngine.PlacementReport
+                    { RolledBack = handler.RolledBack ?? $"Revit did not commit the build (transaction status {status})" };
+                // A6: any other non-Committed status (Pending, …) — Revit may still finish or drop it: no recount, say so.
+                if (status != TransactionStatus.Committed)
+                    return new GhostPlacementEngine.PlacementReport { NotFinished = GhostFailurePolicy.NotFinishedLine(status.ToString()) };
+
+                // Placed is what survived the commit, counted from this build's own ids; each one Revit removed is named
+                // with the failure that named it, and a warning that named it went with it (not counted).
+                var gone = new HashSet<long>();
+                foreach (var (id, what) in report.NewElements)
+                {
+                    if (_doc.GetElement(id) != null) { report.Placed++; continue; }
+                    gone.Add(id.IdValue());
+                    report.DeletedByRevit.Add(what + " — " +
+                        (handler.Why.TryGetValue(id.IdValue(), out string why) ? why : "removed by Revit at commit"));
+                }
+                foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) report.RevitWarnings[kv.Key] = kv.Value;
             }
             catch
             {

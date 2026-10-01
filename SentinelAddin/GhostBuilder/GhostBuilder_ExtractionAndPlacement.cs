@@ -271,12 +271,15 @@ namespace Sentinel.GhostBuilder
 
         // Caches of what actually exists in the model (the anti-hallucination truth set).
         private readonly Dictionary<string, WallType> _wallTypes;
-        private readonly Dictionary<string, FamilySymbol> _symbols;
         private readonly Dictionary<string, FloorType> _floorTypes;
         private readonly Dictionary<string, ElementType> _ceilingTypes;
         private readonly Level _defaultLevel;
 
         private readonly GuidelineMatcher _guideline; // optional office guideline for per-wall type choice
+
+        /// <summary>A7: the document's type ids before this build (GhostBuilderOrchestrator) — handed to the factory, which
+        /// writes a type parameter only on a type not in it. Null: no type parameter is written.</summary>
+        public ISet<long> TypesBefore;
 
         public GhostPlacementEngine(Document doc, double minConfidence = 0.5, GuidelineMatcher guideline = null, Level level = null,
                                     bool placeholderTypes = false)
@@ -289,11 +292,6 @@ namespace Sentinel.GhostBuilder
             _wallTypes = new FilteredElementCollector(doc)
                 .OfClass(typeof(WallType)).Cast<WallType>()
                 .GroupBy(w => w.Name).ToDictionary(g => g.Key, g => g.First(),
-                         StringComparer.OrdinalIgnoreCase);
-
-            _symbols = new FilteredElementCollector(doc)
-                .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
-                .GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First(),
                          StringComparer.OrdinalIgnoreCase);
 
             _floorTypes = new FilteredElementCollector(doc)
@@ -315,19 +313,34 @@ namespace Sentinel.GhostBuilder
 
         public sealed class PlacementReport
         {
+            /// <summary>This build's elements that exist AFTER the commit — counted by GhostBuilderOrchestrator from NewElements
+            /// (GHB-5): never before the commit, never per CAD element (a closed loop of 4 walls is 4).</summary>
             public int Placed;
             public int SkippedLowConfidence;
             public int SkippedUnknownFamily;
             public int SkippedNoGeometry;
             public readonly List<string> Warnings = new List<string>();
-            /// <summary>Types this build created to fill a guideline gap (office standard extended by a size).</summary>
+            /// <summary>Types and families this build added to the model: families loaded, wall and floor types the mapping names, guideline-gap sizes.</summary>
             public readonly List<string> CreatedTypes = new List<string>();
-            /// <summary>Wall elements typed by the guideline, by the layer mapping (guideline none, or no measured
-            /// thickness), or left as a reported gap (skipped, or a massing placeholder) — ElementPlacementFactory's tallies.</summary>
-            public int WallsByGuideline, WallsByMapping, WallGaps;
+            /// <summary>Walls typed by the guideline, by the layer mapping (guideline none, or no measured thickness), by the
+            /// reviewer (a type picked in the review), or left as a reported gap (skipped, or a massing placeholder) —
+            /// ElementPlacementFactory's tallies, taken before the commit.</summary>
+            public int WallsByGuideline, WallsByMapping, WallsByReviewer, WallGaps;
             /// <summary>Wall and floor types a ticked mapping row named that this build did not create — no sibling from
             /// the type catalogue in this document, or a clone that failed (the provisioners' gaps, each named in Warnings with its reason).</summary>
             public int TypeGaps;
+            /// <summary>Every element this build created, with what it is ("Walls on 'A-WALL-EXT'") — the failure handler's
+            /// "ours" and the ids Placed is counted from.</summary>
+            public readonly List<(ElementId Id, string What)> NewElements = new List<(ElementId Id, string What)>();
+            /// <summary>This build's elements gone after the commit, each "what — the Revit failure that named it".</summary>
+            public readonly List<string> DeletedByRevit = new List<string>();
+            /// <summary>Revit warnings the build raised, counted by text — left in the model, never erased ([BP] P1-3).</summary>
+            public readonly Dictionary<string, int> RevitWarnings = new Dictionary<string, int>();
+            /// <summary>Set when Revit did not commit the build: why. Nothing exists then, and nothing else here is true.</summary>
+            public string RolledBack;
+            /// <summary>A6: set when Commit returned neither Committed nor RolledBack (Pending, …) — the whole report
+            /// (GhostFailurePolicy.NotFinishedLine). Nothing was recounted, and nothing else here is true.</summary>
+            public string NotFinished;
         }
 
         public PlacementReport Place(MappingResult mapping, IEnumerable<GhostElement> elements)
@@ -347,7 +360,8 @@ namespace Sentinel.GhostBuilder
 
             // All creation logic lives in the factory; the engine just iterates and tallies.
             var factory = new ElementPlacementFactory(
-                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes, _guideline, _placeholderTypes);
+                _doc, _defaultLevel, _wallTypes, _floorTypes, _ceilingTypes, _guideline, _placeholderTypes);
+            factory.TypesBefore = TypesBefore; // A7
 
             foreach (GhostElement el in elements)
             {
@@ -382,7 +396,7 @@ namespace Sentinel.GhostBuilder
 
                 switch (outcome)
                 {
-                    case ElementPlacementFactory.Outcome.Placed:             report.Placed++; break;
+                    // Outcome.Placed is not counted here: Placed is what exists after the commit (GhostBuilderOrchestrator).
                     case ElementPlacementFactory.Outcome.SkippedNoGeometry:  report.SkippedNoGeometry++; break;
                     case ElementPlacementFactory.Outcome.SkippedUnknownType: report.SkippedUnknownFamily++; break;
                     // SkippedUnsupported: counted only via its warning, not a hard bucket.
@@ -394,7 +408,9 @@ namespace Sentinel.GhostBuilder
             report.CreatedTypes.AddRange(factory.CreatedTypes);
             report.WallsByGuideline = factory.WallsByGuideline;
             report.WallsByMapping = factory.WallsByMapping;
+            report.WallsByReviewer = factory.WallsByReviewer;
             report.WallGaps = factory.WallGaps;
+            report.NewElements.AddRange(factory.NewElements);
 
             return report;
         }
