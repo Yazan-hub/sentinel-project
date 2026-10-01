@@ -41,7 +41,8 @@ export async function platformAddresses(apiUrl) {
 
 /** Resolves {delivered, answer} with the first reply; anything else rejects in words, scrubbed.
  *  The platform's channel servers share one name but not their rooms (seen 2026-09-29: the tab's socket on one address,
- *  an ask on the other → delivered 0), so the command is asked on every address and the first reply wins; when none
+ *  an ask on the other → delivered 0; fixed by That Open 2026-10-01, one address since — asking each stays harmless),
+ *  so the command is asked on every address and the first reply wins; when none
  *  replies, the most telling reason is said ("not open" only when every address said so).
  *  deps: {config, connect(url, opts) → socket.io-client socket, addresses(apiUrl)} — all injectable for tests. */
 export async function ask(opts, deps = {}) {
@@ -57,11 +58,13 @@ export async function ask(opts, deps = {}) {
 }
 
 /** A connection pinned to one address (TLS still checks the platform's name); forceNew, since socket.io otherwise
- *  shares one connection per URL. */
+ *  shares one connection per URL. WebSocket only: since 2026-10-01 the platform's one address balances each TCP
+ *  connection across several servers with no sticky sessions, so long-polling's follow-up requests meet a server that
+ *  never opened the session ("Session ID unknown", HTTP 400 — 14 of 24 measured) while a WebSocket is one connection. */
 const socketOpts = (apiUrl, address) => {
-  if (!address) return { forceNew: true };
+  if (!address) return { forceNew: true, transports: ["websocket"] };
   const pin = (_h, o, cb) => (o?.all ? cb(null, [address]) : cb(null, address.address, address.family));
-  return { forceNew: true, agent: new (apiUrl.startsWith("https:") ? https : http).Agent({ lookup: pin }) };
+  return { forceNew: true, transports: ["websocket"], agent: new (apiUrl.startsWith("https:") ? https : http).Agent({ lookup: pin }) };
 };
 
 async function askChannel({ projectId, appId, type, payload, timeoutMs = 10_000, kind = "cli", address = null }, deps) {
