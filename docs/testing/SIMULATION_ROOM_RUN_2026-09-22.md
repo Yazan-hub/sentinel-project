@@ -951,3 +951,46 @@ office types, left as is · stamped by Promote 26.** **01-FFL 0 retype · 0 atta
 no longer planned) and F2 (promoted gypsum partitions no longer re-planned as CMU; 01-FFL 18/20 as predicted) pass live. GR-FFL's 22 held: 6 base
 offsets, 8 non-basic walls, 6 template "Generic - 200mm" walls unconnected at 6096 mm (attaching would cut them to one storey), 2 planted 125 mm gaps.
 **Seed result: 36/40 seed walls DD, 4/40 planted gaps held with their reason.** F3 (pane ⚡ column) not yet seen live.
+
+## Session B35 — drill Promote v1 (whole elements) + the MA-1 placement seed (2026-09-30 21:48 → 2026-10-01 18:58 local, builds b63ef13 + df6cd16, Claude driving Revit 2024)
+
+Setup: scratch copy `Documents/sentinel-scratch/ma1/ma1-src.rvt` (from the B33 drill-state central), detached with worksets discarded
+→ `ma1-src_detached.rvt` (plain Save works on it). Originals' sha256 re-checked after the session: 78152a5f…, b7c98e13… — unchanged. Test
+bridge on 127.0.0.1:4101, add-in `serviceUrl` switched for the session and restored after (Funnel URL). Web project `ma1-bds` with
+`type_catalog@1`, `guideline@1` (walls only), later `lod_matrix@1` (#1261) and `guideline@2` = bds-dd-elements-guideline.json (#1262), both DRAFT.
+Stock families: the Revit content library is not on this PC; the founder OK'd "Load Autodesk Family" (Door-Passage-Single/Double-Flush,
+Window-Fixed, then Door-Interior-Single-Flush_Panel-Wood and Door-Interior-Double-Full Glass-Wood). Enscape was disabled by the founder in all
+Revit versions after its renderer (started at document open) pegged Revit's UI thread and injected input was ignored.
+
+**B35-0 seed by changeset create (MA-1 placement slice).** One script (`make-concept.py --b35 --type DEFAULT=NAME`), one changeset per class,
+one Undo entry each: floors 5 "Applied 5" (#1240), ceilings 3 (#1242), windows 3 hosted by point in their wall, sill 900 (#1244). Roofs
+declined twice with a bare "Value cannot be null." (#1241, #1254) → **F4**; after the fix "Applied 2" (#1257). Doors in `Door-Passage-*`
+declined (#1243): those US families cannot regenerate in a 100 mm partition ("Can't make type", "Profile sketch is empty"); the same door
+placed in a 200 mm wall (#1250, undone #1251). Re-seeded with the interior families: "Applied 6" (#1260). Seed saved 18:48.
+
+| Step | Result | Evidence |
+|---|---|---|
+| B35-1 no LOD matrix | "LOD matrix: none … walls only (MA-0 rules)"; GR-FFL 24 retype · 20 attach · 22 held · 32 office-typed; 01-FFL 18 · 20 · 2 held; Walls 0/60; Template check note: `BDS_INT_ARC_GYPS_100 mm` is Function Exterior — **pass** (MA-0 behaviour kept) | b35-1.txt |
+| B35-2 matrix, walls-only guideline | "lod_matrix@1 … (DRAFT)" + one line per class "BDS DD walls v0 (MA-0) has no Floors/Roofs/… rules"; walls unchanged — **pass** | b35-2.txt |
+| B35-3 guideline@2, No | "File 3 changeset(s)", DRAFT banner. DD before: Walls 0/60 · Floors 5/9 · Roofs 1/3 · Ceilings 1/4 · Doors 2/7 · Windows 0/3. Held as §6.3 expects: F02 gap 250, L2-F02 structural (FL-3), R02 gap 225, C02 no rule for Basic Ceiling (CL-1), C03 gap GYPS_56, D03 exterior host (DR-4), D04 "no Doors type named at 915 x 2134 mm", W03 two families (WN-2). F03 and D05 left as is (office types). **W01/W02 held, not swapped**: "BDS_Window_Single Panel : 600x1200 mm / BDS_Window_1 Panel+FX : 800x1200 mm is in the catalogue but not loaded in this model" → **F5** | b35-3.txt |
+| B35-4 GR-FFL review | floor + ceiling retypes pre-ticked; door swaps D01/D02 **not** pre-ticked (DR-1 unconfirmed, by design); reviewer ticked both; "Applied 48 element(s)" (#1269) ≈ 1.5 min after Yes; 2 ticks, 0 unticks | dialog |
+| B35-5 01-FFL + roof | "Applied 39 element(s) … 1 unticked element(s) reported as rejected" (D06 unticked as planned, #1270 partially_applied); MA0 Roof "Applied 1" (R01, #1271) | dialog |
+| B35-6 settled host (DR-2) | Promote again: "File 1 changeset(s)", exactly one ghost: D06 → `BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm`, reason "(host BDS_INT_ARC_GYPS_100 mm: its DD rule says Interior); sized by its type name (DR-1)…" although that host type is Function Exterior; "Applied 1" (#1274) — **pass** | b35-6.txt |
+| B35-7 idempotence | "**Nothing to file: no element needs a change Sentinel can propose.**" DD now — Walls 36/60 · Floors 7/9 · Roofs 2/3 · Ceilings 2/4 · Doors 5/7 · Windows 0/3. Stamped by Promote: GR-FFL walls 26, floors 1, ceilings 1, doors 2; 01-FFL walls 20, floors 1, doors 1; MA0 Roof roofs 1 — **pass** | b35-7.txt |
+| B35-8 undo / redo | Ctrl+Z ×2, Ctrl+Y ×2, nothing in between: #1275 undo D06 changeset (count 1), #1276 undo roof changeset (count 1), #1277 redo roof, #1278 redo D06 — one row each, in stack order — **pass** | audit rows |
+| B35-9 stale plan | not run (optional; the executor's `Unsafe()` re-check is covered by promote-check) | |
+| B35-10 live API facts | `FUNCTION_PARAM` on a FloorType came through ("Function Interior, Family Floor, 300 mm" on Generic 300mm). The concept door types' Width × Height were read as type parameters (W1000 x H2100, W2000 x H2100; the code reads `FAMILY_WIDTH_PARAM` then `DOOR_WIDTH` — which of the two answered was not isolated). The door swaps to `BDS_INT_1 PNL` / `BDS_INT_2 PNL` types applied inside the changeset transaction (whether the symbols were inactive before was not recorded). Floors, roofs and ceilings retyped with no face moved | changeset JSON |
+| B35-11 close | Revit closed without saving (the seed-complete save stays the restart point); originals unchanged | sha256 |
+
+**Findings:**
+- **F4 (fixed, df6cd16 + 9212c4f)** — `NewFootPrintRoof` reads its `out ModelCurveArray` before filling it: passed null, every roof create threw a
+  bare "Value cannot be null.". The array is created first now; and a declined changeset names the element and the exception type.
+- **F5 (data, owed by the founder)** — `type_catalog@1` (harvested 2026-07-23) lists BDS window types this template copy does not have loaded,
+  so both window swaps were held (correctly — Sentinel loads no families). Window swaps are not proven live until the types are loaded or the
+  catalogue is re-harvested.
+
+**Numbers for gate G2 (as measured, df6cd16 on b63ef13):** 17 concept elements besides walls (4 floors, 2 roofs, 3 ceilings, 5 doors,
+3 windows) + 2 office-typed controls left as is. **7 promoted** (2 floors, 1 roof, 1 ceiling, 3 doors), **10 held with their reason** (8 as
+planned + W01/W02 by F5); 0 wrong proposals. Walls as B33: 36/40 seed walls DD. Edits: 2 ticks (door swaps, by design) + 1 planned untick.
+Time: ≈1.5 min review + apply for GR-FFL. Ledger: 4 Promote changesets, 53 elements stamped by Promote, undo/redo rows
+with counts. Policy decisions GN/FL/RF/CL/DR/WN/LM are still DRAFT until the founder confirms them.
