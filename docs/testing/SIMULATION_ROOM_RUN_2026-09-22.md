@@ -994,3 +994,26 @@ placed in a 200 mm wall (#1250, undone #1251). Re-seeded with the interior famil
 planned + W01/W02 by F5); 0 wrong proposals. Walls as B33: 36/40 seed walls DD. Edits: 2 ticks (door swaps, by design) + 1 planned untick.
 Time: ≈1.5 min review + apply for GR-FFL. Ledger: 4 Promote changesets, 53 elements stamped by Promote, undo/redo rows
 with counts. Policy decisions GN/FL/RF/CL/DR/WN/LM are still DRAFT until the founder confirms them.
+
+## Session MA1a-S1 — Ghost Builder honest build live (2026-10-02 ~00:15–00:28 local, branch feature/ma1a-ghost-honest-build d4259b3, Claude driving Revit 2024)
+
+Setup: `Documents/Sentinel drills/ma1a-s1-scratch.rvt` = a copy of the B35 detached BDS model (deviation from "new project from the
+template": that model is already detached and its seed stands for the user's elements). Project Setup on the copy only: web project
+`demo` (layers@1, guideline@1, type_catalog@1 from bds-office), Ghost source folder = `demo/ghost-sample`; no Ghost family library;
+Ollama qwen2.5:7b-instruct. The `demo` mapping cache was moved aside first and restored after. Counts by mcp-server-for-revit
+`analyze_model_statistics` (read-only; its plugin server switched on in Revit). Build level GR_SSL (the window's default).
+
+| Row | Result | Evidence |
+|---|---|---|
+| S1-1 types listed before Build | Review: "Nothing has been built yet"; A-ANNO/DEFPOINTS absent; forecast "– Doors family "BDS_Door" (layer A-DOOR) — not loaded, and no Ghost family library is set — the row will be skipped", "+ Floors type "BDS_Floor" … cloned from the type catalogue, or reported as a gap", the two wall types, "+ Walls typed by the guideline …". After picks: "Types: this build adds no type or family to the model" — **pass** | screenshots |
+| S1-2 missing family type → gap | Build as proposed: "Placed: 0", "Skipped (type or family not in the model): 5", "Doors on 'A-DOOR': Doors family "BDS_Door" is not loaded in this model — load it or set the Ghost family library; skipped. (×2)"; BDS_Wall_Ext/Int and BDS_Floor "gap … no sibling type in this document". Walls 89, floors 36, doors 38 unchanged; no door of any family placed — **pass** | counts |
+| S1-3 Placed counts survivors | S1-2: 0 = 0. S1-4: Placed 8 = walls +5, floors +1, doors +2. S1-5: Placed 8 = +5/+1/+2 again (a closed loop of 4 counts 4) — **pass** | counts |
+| S1-4 type drop-down | Picked BDS_EXT_1 PNL : …WOOD_1000 x 2100 mm, BDS_EXT_ARC_SCREED_90 mm, BDS_EXT_ARC_CMU_200/100 mm: "Placed: 8", "Walls: 5 typed by the reviewer". Spec values were **not written onto the existing types** (A7): "'Fire Rating' = 'FR60' … not applied to type "BDS_EXT_ARC_CMU_200 mm" — it would change 1 existing instance(s)" — **pass** | summary |
+| S1-5 planted duplicate | Same picks again on top of S1-4's build: "Placed: 8", "Revit warnings raised by this build: 10 — left in the model … never erased" (walls overlap ×9, floors overlap ×1); walls 94→99, floors 37→38, doors 40→42, so every S1-4 element survived. Review Warnings: 15 = 1 (stair, before) + 4 (S1-4) + 10 (S1-5) — **pass** | Review Warnings |
+| S1-6 a build error naming a user element | Not seen live: both builds raised warnings only. The rule is proven offline (GhostFailurePolicy checks) | — |
+| S1-7 remembered as reviewer | EXTERIOR-ENVELOPE (local-model row) set to BDS_EXT_ARC_CMU_300 mm and built alone: "Placed: 1", "Walls: 1 typed by the reviewer"; cache row `"source":"reviewer","rationale":"your earlier review","params":null` (A1); next run "as proposed: BDS_EXT_ARC_CMU_300 mm · your earlier review", unticked. (ignore) + Cancel → saved `"ignore":true`; next run "(ignore)", unticked and locked; "as proposed" offered on it (A2) → Cancel → the key is dropped (forget). Standard rows (A-DOOR …) come back "as proposed" each run (F3 A: the standard outranks a remembered pick) — **pass** | cache JSON |
+| S1-8 what Revit shows | Revit's own non-blocking warning box at the bottom right ("Warning: 1 out of 4"), no modal dialog — **pass** | screenshot |
+| S1-9 Massing placeholder | Not run: no building photos on this PC (the Snowdon Tower folder has 6 RPC shrub/tree images only) | — |
+
+Not exercised live: the Doctor exemption by transaction name (no auto-resolvable warning arose in a Ghost build); a Pending commit status.
+Closed Revit without saving; BDS template sha256 78152a5f… unchanged.

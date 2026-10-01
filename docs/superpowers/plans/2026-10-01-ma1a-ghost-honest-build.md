@@ -1823,7 +1823,7 @@ EOF
 3. Which errors a dirty-CAD build raises at commit, and whether their failing or additional ids include pre-existing elements (audit `:912`: "plausible, not seen live") (S1-5, S1-6a).
 4. Whether a default resolution can act beyond the failure's failing and additional ids. The rule resolves only when every one of those is the build's own (E3), so a breach would show as a user element changed in S1-5.
 5. Which error, if any, a dirty-CAD build raises against a pre-existing wall (S1-6a); not planted (A8).
-6. Whether deleting this build's failing ids clears an error that also names a user element, or whether Revit re-posts it. The handler then rolls back, which is safe, but S1-6b's first case would read RolledBack.
+6. Whether deleting this build's failing ids clears an error that also names a user element, or whether Revit re-posts it. The handler then rolls back, which is safe (not planted — A8).
 7. Whether `FailuresAccessor.GetTransactionName()` returns `Ghost Builder - LOD 200` inside the ExternalEvent, which the Doctor exemption needs (S1-5, Doctor lines).
 8. Whether `Document.GetDefaultFamilyTypeId(OST_Doors / OST_Windows)` returns a type on the office template, for the massing placeholder (S1-9).
 9. Unchanged here and noted for MA1b: whether the unhosted `NewFamilyInstance` places a door at all (audit §3.4.5, GHB-1).
@@ -1850,3 +1850,8 @@ EOF
 - The rest of BG-3 (the Doctor's scope).
 - `ChangesetExecutor` has no post-commit survivor check (step 2).
 - The provenance stamp, transaction rename, `SentinelUndo` and ledger rows (step 2).
+
+
+## Drill result (2026-10-02)
+
+Run as session MA1a-S1 in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md`: S1-1..S1-5, S1-7, S1-8 pass; S1-6 not seen live (warnings only); S1-9 not run (no building photos).
