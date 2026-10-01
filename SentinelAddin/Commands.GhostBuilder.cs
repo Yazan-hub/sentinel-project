@@ -231,13 +231,20 @@ public sealed class GhostBuilderCommand : IExternalCommand
         review.BuildRequested += (approved, levelId) =>
         {
             building = true;
+            mapper?.Remember(review.Choices); // GHB-5: the reviewer's picks and ignores, for this project's next run
             placementEvent.SetRequest(orchestrator!, inputs, approved, levelId);
             externalEvent.Raise();
         };
 
         // Closing the review without building ends the run — nothing was written, so there is nothing
-        // to report or undo. Releasing here is what frees the local model's HttpClient.
-        review.Closed += (_, __) => { if (!building) Release(); };
+        // to report or undo. The reviewer's choices are still remembered (an ignore on a drawing with nothing
+        // else to build must stick — F45). Releasing here is what frees the local model's HttpClient.
+        review.Closed += (_, __) =>
+        {
+            if (building) return;
+            mapper?.Remember(review.Choices);
+            Release();
+        };
 
         placementEvent.Completed += (report, error) =>
         {

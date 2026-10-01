@@ -30,8 +30,9 @@ namespace Sentinel.GhostBuilder
     ///   1. STANDARD   — the project's layers@n, exact row or alias: Source "standard", the only rows the review
     ///                   pre-ticks.
     ///   2. REMEMBERED — this project's earlier local-model answers (%AppData%\Sentinel\cache\&lt;key&gt;\dwg_mappings.json),
-    ///                   used only under the same layers sha: Source "cache". Another project's guess, or one made
-    ///                   under another layers standard, never answers; an unbound document remembers nothing.
+    ///                   used only under the same layers sha: Source "cache"; and the reviewer's own choices (a type
+    ///                   picked in the review, or "(ignore)" — GHB-5): Source "reviewer". Another project's guess, or one
+    ///                   made under another layers standard, never answers; an unbound document remembers nothing.
     ///   3. HEURISTIC  — the AIA discipline-major parse and the keyword list: Source "heuristic", a guess.
     ///   4. LOCAL LLM  — the layers nothing above recognised, in one call: Source "llm", remembered for next time.
     ///                   When the model cannot be reached, every row above is kept and these layers come back
@@ -117,7 +118,9 @@ namespace Sentinel.GhostBuilder
                 {
                     if (m == null || string.IsNullOrWhiteSpace(m.CadLayer)) continue;
                     m.Source = "llm";
-                    _cache[Normalize(m.CadLayer)] = m;   // remembered for this project, under this layers sha
+                    // Remembered for this project, under this layers sha — a COPY (A1): EnrichParamsAsync later edits the
+                    // returned row in place, and a document's values must never reach the cache file.
+                    _cache[Normalize(m.CadLayer)] = m.Copy();
                     _dirty = true;
                     resolved.Add(m);
                 }
@@ -142,7 +145,7 @@ namespace Sentinel.GhostBuilder
                 // another layers standard are not this run's.
                 if (file?.Mappings == null || file.Key != key || file.LayersSha != stamp) return dict;
                 foreach (var kv in file.Mappings)
-                    if (kv.Value != null && kv.Value.Source == "llm") dict[kv.Key] = kv.Value;
+                    if (kv.Value != null && (kv.Value.Source == "llm" || kv.Value.Source == "reviewer")) dict[kv.Key] = kv.Value;
             }
             catch (Exception) { /* corrupt/unreadable cache -> start empty; the next model answer rewrites it */ }
             return dict;
@@ -162,8 +165,8 @@ namespace Sentinel.GhostBuilder
             catch (Exception) { /* best-effort: a read-only cache dir must not fail the mapping run */ }
         }
 
-        // A remembered answer on the DWG's ACTUAL layer string (the placement join is by layer), labelled "cache";
-        // the stored copy stays untouched.
+        // A remembered row on the DWG's ACTUAL layer string (the placement join is by layer): the model's answer labelled
+        // "cache", the reviewer's choice kept as "reviewer" (an ignore included); the stored copy stays untouched.
         private LayerMapping Remembered(LayerMapping src, string layer) => new LayerMapping
         {
             CadLayer = layer,
@@ -174,8 +177,37 @@ namespace Sentinel.GhostBuilder
             Params = src.Params,
             Rationale = string.IsNullOrWhiteSpace(src.Rationale) ? "remembered: the local model's answer on an earlier run for " + _key : src.Rationale,
             SourceDoc = src.SourceDoc,
-            Source = "cache",
+            Source = src.Source == "reviewer" ? "reviewer" : "cache",
+            Ignore = src.Ignore,
         };
+
+        /// <summary>GHB-5: keep the reviewer's choices — a type picked in the review, or "(ignore)" — for this project, under
+        /// this layers sha, beside the model's remembered answers. They come back as "reviewer" rows (tier 2), after the
+        /// installed standard: the office's layers@n still wins (F3). Only the choice is kept, never a document's values
+        /// (A1); a choice marked Forget deletes the remembered row, so the next run asks the heuristic or the model again
+        /// (A2). Rows of any other source are not remembered here; an unbound document remembers nothing.</summary>
+        public void Remember(IEnumerable<LayerMapping>? choices)
+        {
+            foreach (LayerMapping m in choices ?? Enumerable.Empty<LayerMapping>())
+            {
+                if (m == null || m.Source != "reviewer" || string.IsNullOrWhiteSpace(m.CadLayer)) continue;
+                string key = Normalize(m.CadLayer);
+                if (m.Forget) { if (_cache.Remove(key)) _dirty = true; continue; }
+                _cache[key] = new LayerMapping
+                {
+                    CadLayer = m.CadLayer,
+                    Category = m.Category,
+                    BdsFamily = m.BdsFamily,
+                    BdsFamilyType = m.BdsFamilyType,
+                    Confidence = m.Confidence,
+                    Rationale = "your earlier review",
+                    Source = "reviewer",
+                    Ignore = m.Ignore,
+                };
+                _dirty = true;
+            }
+            if (_dirty) SaveCache();
+        }
 
         public void Dispose() => (_llm as IDisposable)?.Dispose();
     }

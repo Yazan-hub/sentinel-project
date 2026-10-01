@@ -188,4 +188,61 @@ static partial class Check
             Ok(cancelled, "ESC still cancels the run: a cancelled call is not 'unreachable'");
         }
     }
+
+    // ── 5. GHB-5: what the reviewer chose is remembered as "reviewer" — after the installed standard, before any guess ──
+    static void ReviewerMemory()
+    {
+        Console.WriteLine("\nLayerMapper — what the reviewer chose is remembered (GHB-5)\n");
+        var layers = LayerRulesetMatcher.FromBody(Good, out _)!;
+        layers.Sha = Sha;
+        static bool NoValue(JsonElement row, string name) => !row.TryGetProperty(name, out var v) || v.ValueKind == JsonValueKind.Null;
+        static List<ParamAssignment> Fr60() => new() { new ParamAssignment { Name = "Fire Rating", Value = "FR60" } };
+        using (var mapper = new LayerMapper(new FakeModel(), layers, "rev"))
+        {
+            var first = Run(mapper, "A-LEVEL", "EXT-PARTITION", "EXTERIOR-ENVELOPE");
+            first["EXTERIOR-ENVELOPE"].Params = Fr60(); // what EnrichParamsAsync does to the returned row, after mapping
+            mapper.Remember(new[]
+            {
+                new LayerMapping { CadLayer = "A-LEVEL", Category = "Ceilings", BdsFamily = "Generic Ceiling", Confidence = 1, Source = "reviewer", Ignore = true },
+                new LayerMapping { CadLayer = "EXT-PARTITION", Category = "Walls", BdsFamilyType = "Generic - 200mm", Confidence = 1, Source = "reviewer",
+                                   Params = Fr60(), SourceDoc = "spec.pdf", Rationale = "picked by the reviewer from the types loaded in this model" },
+                new LayerMapping { CadLayer = "A-WALL-EXT", Category = "Walls", BdsFamilyType = "Generic - 200mm", Confidence = 1, Source = "reviewer" },
+                new LayerMapping { CadLayer = "S-FNDN", Category = "Floors", BdsFamily = "Generic Floor", Confidence = 1, Source = "llm" },
+            });
+        }
+        var saved = JsonDocument.Parse(File.ReadAllText(LayerMapper.CachePathFor("rev"))).RootElement.GetProperty("mappings");
+        Ok(saved.GetProperty("A-LEVEL").GetProperty("source").GetString() == "reviewer" && saved.GetProperty("A-LEVEL").GetProperty("ignore").GetBoolean()
+           && !saved.TryGetProperty("S-FNDN", out _),
+           "Remember writes the reviewer's rows (an ignore included) to the project's cache file — and only the reviewer's");
+        var ext = saved.GetProperty("EXT-PARTITION");
+        Ok(NoValue(ext, "params") && NoValue(ext, "sourceDoc") && ext.GetProperty("rationale").GetString() == "your earlier review",
+           "A1: a remembered choice that carried a document's params is saved without them — the choice only");
+        var env = saved.GetProperty("EXTERIOR-ENVELOPE");
+        Ok(env.GetProperty("source").GetString() == "llm" && NoValue(env, "params"),
+           "A1: a local-model row given params after mapping is saved without them (the cache holds a copy)");
+
+        var model = new FakeModel();
+        using (var mapper = new LayerMapper(model, layers, "rev"))
+        {
+            var rows = Run(mapper, "A-LEVEL", "EXT-PARTITION", "A-WALL-EXT", "S-FNDN");
+            Ok(rows["A-LEVEL"] is { Source: "reviewer", Ignore: true, Category: "Ceilings" }, "an ignore comes back as the reviewer's ignore — it sticks (F45's A-LEVELS)");
+            Ok(rows["EXT-PARTITION"] is { Source: "reviewer", BdsFamilyType: "Generic - 200mm", Params: null },
+               "a picked type comes back as the reviewer's, ahead of the heuristic guess — with no document values (A1)");
+            Ok(rows["A-WALL-EXT"].Source == "standard", "the installed standard still answers first: a remembered choice never outranks layers@n");
+            Ok(model.Asked.SequenceEqual(new[] { "S-FNDN" }), "a remembered choice never goes to the local model; the rest still does");
+        }
+
+        // A2: "(forget my choice)" deletes the remembered row; the next run asks the heuristic or the model again.
+        using (var mapper = new LayerMapper(new FakeModel(), layers, "rev"))
+            mapper.Remember(new[] { new LayerMapping { CadLayer = "A-LEVEL", Source = "reviewer", Ignore = true, Forget = true } });
+        var forgot = JsonDocument.Parse(File.ReadAllText(LayerMapper.CachePathFor("rev"))).RootElement.GetProperty("mappings");
+        using (var mapper = new LayerMapper(new FakeModel(), layers, "rev"))
+            Ok(!forgot.TryGetProperty("A-LEVEL", out _) && forgot.TryGetProperty("EXT-PARTITION", out _)
+               && Run(mapper, "A-LEVEL")["A-LEVEL"].Source != "reviewer",
+               "A2: a forgotten choice is deleted from the cache (the others stay) and the layer is asked again");
+
+        using (var mapper = new LayerMapper(new FakeModel(), layers, ""))
+            mapper.Remember(new[] { new LayerMapping { CadLayer = "A-LEVEL", Source = "reviewer", Ignore = true } });
+        Ok(!File.Exists(LayerMapper.CachePathFor("")), "an unbound document remembers no choice");
+    }
 }
