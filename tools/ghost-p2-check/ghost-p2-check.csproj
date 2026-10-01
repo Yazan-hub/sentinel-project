@@ -28,5 +28,6 @@
     <Compile Include="..\..\SentinelAddin\UI\GhostReviewWindow.cs" />
     <!-- MA-1a step 1 (GHB-5): the failure rule and the family-type pick — pure, no Revit API -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFailurePolicy.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostTypePick.cs" />
   </ItemGroup>
 </Project>

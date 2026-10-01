@@ -271,7 +271,6 @@ namespace Sentinel.GhostBuilder
 
         // Caches of what actually exists in the model (the anti-hallucination truth set).
         private readonly Dictionary<string, WallType> _wallTypes;
-        private readonly Dictionary<string, FamilySymbol> _symbols;
         private readonly Dictionary<string, FloorType> _floorTypes;
         private readonly Dictionary<string, ElementType> _ceilingTypes;
         private readonly Level _defaultLevel;
@@ -293,11 +292,6 @@ namespace Sentinel.GhostBuilder
             _wallTypes = new FilteredElementCollector(doc)
                 .OfClass(typeof(WallType)).Cast<WallType>()
                 .GroupBy(w => w.Name).ToDictionary(g => g.Key, g => g.First(),
-                         StringComparer.OrdinalIgnoreCase);
-
-            _symbols = new FilteredElementCollector(doc)
-                .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
-                .GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First(),
                          StringComparer.OrdinalIgnoreCase);
 
             _floorTypes = new FilteredElementCollector(doc)
@@ -365,7 +359,7 @@ namespace Sentinel.GhostBuilder
 
             // All creation logic lives in the factory; the engine just iterates and tallies.
             var factory = new ElementPlacementFactory(
-                _doc, _defaultLevel, _wallTypes, _symbols, _floorTypes, _ceilingTypes, _guideline, _placeholderTypes);
+                _doc, _defaultLevel, _wallTypes, _floorTypes, _ceilingTypes, _guideline, _placeholderTypes);
             factory.TypesBefore = TypesBefore; // A7
 
             foreach (GhostElement el in elements)

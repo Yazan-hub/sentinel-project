@@ -9,6 +9,7 @@ static partial class Check
     static void Honest()
     {
         Policy();
+        TypePick();
     }
 
     // ── the failure rule: a user's element is never deleted or resolved; warnings are counted, never erased ──
@@ -84,5 +85,32 @@ static partial class Check
         Ok(GhostFailurePolicy.TypeParamBlocked(false, "Generic - 200mm", 3) == "not applied to type \"Generic - 200mm\" — it would change 3 existing instance(s)"
            && GhostFailurePolicy.TypeParamBlocked(false, "Generic - 200mm", 0) == "not applied to type \"Generic - 200mm\" — it is the model's own type, not one this build added",
            "A7: a type the model already had is never written — the Note says how many existing instances it would change");
+    }
+
+    // ── the family-type pick: exact (category, family, type), or a gap a person resolves — never the first one loaded ──
+    static void TypePick()
+    {
+        Console.WriteLine("\nMA-1a — the family type a row names (GhostTypePick)");
+        var doors = new List<(string Family, string Type)>
+        {
+            ("Single-Flush", "0915 x 2134mm"), ("Single-Flush", "0864 x 2134mm"), ("Double-Glass", "0915 x 2134mm"), ("Bifold", "Standard"),
+        };
+        int P(string? family, string? type, out string? why) => GhostTypePick.Pick(doors, "Doors", family!, type!, out why);
+
+        Ok(P("Single-Flush", "0864 x 2134mm", out _) == 1, "family and type → that one type");
+        Ok(P(" single-flush ", "0864 X 2134MM", out _) == 1, "names compare as Revit's do: case- and space-insensitive");
+        Ok(P(null, "0915 x 2134mm", out var shared) == -1 && shared == "2 Doors types are named \"0915 x 2134mm\" — a person decides (pick one in the review)",
+           "a type name two families share is a person's call, never the first family's");
+        Ok(P(null, "Standard", out _) == 3, "a type name only one family has → that type");
+        Ok(P("Bifold", null, out _) == 3, "a family with no type named → its ONLY type");
+        Ok(P("Single-Flush", null, out var many) == -1 && many == "Doors family \"Single-Flush\" has 2 types — pick one in the review",
+           "a family with two types and none named → a gap, never its first type");
+        Ok(P("Generic_Door", null, out var missing) == -1 && missing == "Doors family \"Generic_Door\" is not loaded in this model — load it or set the Ghost family library",
+           "the base standard's Generic_Door, not loaded → a gap, never another door family (the old fallback)");
+        Ok(P(null, null, out var nothing) == -1 && nothing == "the layer mapping names no Doors family or type — Sentinel never takes the first one loaded; pick one in the review",
+           "a row that names nothing → a gap");
+        Ok(GhostTypePick.Pick(new List<(string Family, string Type)>(), "Doors", "Single-Flush", "0864 x 2134mm", out var none) == -1
+           && none == "Doors type \"Single-Flush : 0864 x 2134mm\" is not loaded in this model — load it or pick a loaded type in the review",
+           "nothing loaded → a gap naming family and type");
     }
 }
