@@ -2,6 +2,8 @@
 """Generate the GhostBuilder sample pair: a floor-plan CAD file and a spec PDF.
 
 Run:  python demo/ghost-sample/make-sample.py
+      python demo/ghost-sample/make-sample.py --step2   (MA-1a step 2 drill: sample-plan-step2.dxf)
+      python demo/ghost-sample/make-sample.py --plant   (… plus the planted failing floor: sample-plan-planted.dxf)
 
 Why a generator instead of two committed binaries: both formats are plain text, and the sample is
 only useful if you can see (and change) what it claims. Edit the SPEC_LINES or the geometry below and
@@ -15,6 +17,7 @@ For this test the two are interchangeable; if you specifically want a .dwg, open
 or the free ODA File Converter and save it as DWG — the layers carry over unchanged.
 """
 import os
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -53,6 +56,15 @@ POLYLINES = [
 
 LAYERS = ["A-WALL-EXT", "A-WALL-INT", "A-FLOR", "A-DOOR", "EXTERIOR-ENVELOPE", "A-ANNO", "DEFPOINTS"]
 
+# MA-1a step 2 drill. --step2 adds two IDENTICAL furniture outlines at one point (Revit's "identical instances" warning, one
+# of the three the global Doctor would erase or resolve — it must leave this build's alone), a ceiling outline over the east
+# room (a ceiling at the drawing's height, founder decision F7) and a free-standing curved wall (an arc wall through the
+# executor). --plant adds, on the slab layer, a closed outline that crosses itself: Revit cannot make a floor from it, so the
+# build must roll back whole — the planted failing element (drill row S2-4).
+STEP2 = [("A-FURN", rect(7000, 4500, 1500, 750)), ("A-FURN", rect(7000, 4500, 1500, 750)), ("A-CLNG", rect(4000, 0, 6000, 7000))]
+ARCS = [("A-WALL-EXT", 13000, 3000, 1000, 0, 180)]   # (layer, centre x, centre y, radius, start deg, end deg)
+BOWTIE = [("A-FLOR", [(12000, 5000), (14000, 7000), (14000, 5000), (12000, 7000), (12000, 5000)])]
+
 # ── The spec. Deliberately states values GhostBuilder should lift onto the geometry. ───────────────
 SPEC_LINES = [
     "BDS SAMPLE PROJECT - OUTLINE SPECIFICATION",
@@ -80,7 +92,7 @@ SPEC_LINES = [
 
 
 # ── DXF (R12 ASCII) ───────────────────────────────────────────────────────────────────────────────
-def dxf():
+def dxf(polylines=POLYLINES, arcs=(), layers=LAYERS):
     """R12 is the most widely-accepted DXF flavour; every entity here is core R12."""
     o = []
     def g(code, value):           # one group: the code on its own line, then the value
@@ -95,8 +107,8 @@ def dxf():
     g(0, "TABLE"); g(2, "LTYPE"); g(70, 1)
     g(0, "LTYPE"); g(2, "CONTINUOUS"); g(70, 0); g(3, "Solid line"); g(72, 65); g(73, 0); g(40, 0.0)
     g(0, "ENDTAB")
-    g(0, "TABLE"); g(2, "LAYER"); g(70, len(LAYERS))
-    for i, name in enumerate(LAYERS):
+    g(0, "TABLE"); g(2, "LAYER"); g(70, len(layers))
+    for i, name in enumerate(layers):
         g(0, "LAYER"); g(2, name); g(70, 0); g(62, (i % 7) + 1); g(6, "CONTINUOUS")
     g(0, "ENDTAB")
     g(0, "ENDSEC")
@@ -106,7 +118,10 @@ def dxf():
         g(0, "LINE"); g(8, layer)
         g(10, x1); g(20, y1); g(30, 0.0)
         g(11, x2); g(21, y2); g(31, 0.0)
-    for layer, pts in POLYLINES:
+    for layer, cx, cy, r, a0, a1 in arcs:
+        g(0, "ARC"); g(8, layer)
+        g(10, cx); g(20, cy); g(30, 0.0); g(40, r); g(50, a0); g(51, a1)
+    for layer, pts in polylines:
         # R12 polyline = POLYLINE header + one VERTEX per point + SEQEND. Flag 70=1 marks it closed;
         # the repeated first point is kept too, because that is what the extractor's closed-loop
         # detection looks for (first vertex coincident with last).
@@ -158,6 +173,13 @@ def pdf():
 
 
 if __name__ == "__main__":
+    if "--step2" in sys.argv or "--plant" in sys.argv:
+        plant = "--plant" in sys.argv
+        path = os.path.join(HERE, "sample-plan-planted.dxf" if plant else "sample-plan-step2.dxf")
+        with open(path, "w", newline="") as f:
+            f.write(dxf(POLYLINES + STEP2 + (BOWTIE if plant else []), ARCS, LAYERS + ["A-FURN", "A-CLNG"]))
+        print(f"wrote {path}  ({os.path.getsize(path):,} bytes)")
+        sys.exit(0)
     dxf_path = os.path.join(HERE, "sample-plan.dxf")
     pdf_path = os.path.join(HERE, "sample-spec.pdf")
     with open(dxf_path, "w", newline="") as f:
