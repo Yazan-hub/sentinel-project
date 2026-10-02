@@ -1,8 +1,10 @@
 // MA-1a step 1 (GHB-5) — Ghost Builder's honest build, offline: the failure rule (GhostFailurePolicy), the family-type pick
 // (GhostTypePick) and the review's type drop-down (GhostReviewWindow). All Revit-free; the Revit halves are drilled live.
+using System.IO;
 using System.Windows.Controls;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
+using Sentinel.Updaters;
 
 static partial class Check
 {
@@ -11,6 +13,55 @@ static partial class Check
         Policy();
         TypePick();
         ReviewChoices();
+        Doctor();
+    }
+
+    // ── F-S2-3 / BG-3: the global Doctor never erases a warning; its one touch is Revit's axis fix, opted in ──
+    static void Doctor()
+    {
+        Console.WriteLine("\nF-S2-3 — the Revit Doctor (DoctorPolicy)");
+        const string user = "Copy";
+        var K = DoctorPolicy.Kind.InaccurateLine;
+        DoctorPolicy.Act D(DoctorPolicy.Kind kind, bool opted = true, string tx = user, bool family = false, bool warning = true, bool res = true) =>
+            DoctorPolicy.Decide(tx, family, warning, kind, res, opted);
+
+        Ok(D(K) == DoctorPolicy.Act.Resolve, "a slightly-off-axis line in a bound, opted-in project takes Revit's own fix");
+        Ok(D(K, opted: false) == DoctorPolicy.Act.Log && D(K, res: false) == DoctorPolicy.Act.Log,
+           "not opted in (or unbound), or no resolution offered → only logged");
+        Ok(D(DoctorPolicy.Kind.DuplicateInstances) == DoctorPolicy.Act.Log && D(DoctorPolicy.Kind.DuplicateValue) == DoctorPolicy.Act.Log,
+           "identical instances and a duplicate Mark are only logged, even opted in — never touched");
+        Ok(D(K, family: true) == DoctorPolicy.Act.Leave && D(DoctorPolicy.Kind.DuplicateValue, family: true) == DoctorPolicy.Act.Leave,
+           "a family document is skipped");
+        Ok(D(K, warning: false) == DoctorPolicy.Act.Leave && D(DoctorPolicy.Kind.Other) == DoctorPolicy.Act.Leave,
+           "an error, or a warning the Doctor does not watch, is left alone (not logged)");
+        Ok(D(K, tx: GhostFailurePolicy.TypesTxName) == DoctorPolicy.Act.Leave
+           && D(DoctorPolicy.Kind.DuplicateInstances, tx: "Sentinel AI changeset: Ghost Builder · plan · Level 1 [3f2a9c8b]") == DoctorPolicy.Act.Leave,
+           "DoctorSkips still holds: Ghost's and every changeset's transactions count their own warnings");
+
+        var seen = new List<DoctorPolicy.Seen>
+        {
+            new() { Tx = user, Key = "dup|11,12", Text = "There are identical instances in the same place.", Ids = new long[] { 11, 12 } },
+            new() { Tx = user, Key = "dup|11,12", Text = "There are identical instances in the same place.", Ids = new long[] { 11, 12 } }, // the pass after a fix
+            new() { Tx = user, Key = "axis|7", Text = "Line is slightly off axis and may cause inaccuracies.", Ids = new long[] { 7 }, Resolved = true },
+            new() { Tx = user, Key = "axis|8", Text = "Line is slightly off axis and may cause inaccuracies.", Ids = new long[] { 8 }, Resolved = true },
+            new() { Tx = "Move", Key = "mark|3,4", Text = "Elements have duplicate 'Mark' values.", Ids = new long[] { 3, 4 } },
+        };
+        var lines = DoctorPolicy.Lines(seen, new List<string> { user });
+        Ok(lines.Count == 2
+           && lines[0] == ("Sentinel resolved 2 in \"Copy\" with Revit's own fix (opted in under Project Setup): Line is slightly off axis and may cause inaccuracies. ×2 (elements 7, 8)", 2)
+           && lines[1] == ("Seen: There are identical instances in the same place. in \"Copy\" (elements 11, 12) — left in the model", 0),
+           "after commit: one 'resolved N' line carrying N, one 'Seen' line per warning naming its elements — each failure once");
+        Ok(!lines.Any(l => l.Line.Contains("Move")), "a transaction that did not commit (rolled back) logs nothing");
+        Ok(DoctorPolicy.Lines(seen, new List<string>()).Count == 0 && DoctorPolicy.Lines(null!, new List<string> { user }).Count == 0
+           && DoctorPolicy.Lines(seen, null!).Count == 0, "nothing committed, nothing pending → no line, no throw");
+
+        // "No DeleteWarning anywhere": the add-in never erases a Revit warning (F-S2-3, [BP] P1-3).
+        var addin = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "SentinelAddin"));
+        var erasers = (Directory.Exists(addin) ? Directory.EnumerateFiles(addin, "*.cs", SearchOption.AllDirectories) : Enumerable.Empty<string>())
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
+                     && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)
+                     && File.ReadAllText(f).Contains(".DeleteWarning(")).Select(Path.GetFileName).ToList();
+        Ok(Directory.Exists(addin) && erasers.Count == 0, "no DeleteWarning call in the add-in" + (erasers.Count > 0 ? ": " + string.Join(", ", erasers) : ""));
     }
 
     // ── the failure rule: a user's element is never deleted or resolved; warnings are counted, never erased ──

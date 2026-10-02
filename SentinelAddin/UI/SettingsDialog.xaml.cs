@@ -29,6 +29,7 @@ public partial class SettingsDialog : Window
         // into a document fact — CDE-01 reads ProjectCode from the document only, so a machine has none to show.
         ProjectCodeBox.Text = doc is null ? "" : SettingsManager.LoadFromDocument(doc)?.ProjectCode ?? "";
         GhostFolderBox.Text = _current.GhostSourceFolder;
+        DoctorAxisFixBox.IsChecked = doc is not null && SettingsManager.LoadFromDocument(doc)?.DoctorAxisFix == true; // a document fact, as the code
         // The DOCUMENT's key only (never the merged machine value): saving at project scope can then never copy
         // a machine key into a model the user did not bind.
         WebProjectBox.Text = ProjectContext.For(doc).Key;
@@ -50,8 +51,9 @@ public partial class SettingsDialog : Window
         var machine = ScopeMachine.IsChecked == true;
         WebProjectBox.IsEnabled = !machine;
         ProjectCodeBox.IsEnabled = !machine;
+        DoctorAxisFixBox.IsEnabled = !machine;
         WebProjectScopeNote.Text = machine
-            ? "Machine scope does not bind a model or set its project code — pick \"Current project\" to set them."
+            ? "Machine scope does not bind a model, set its project code or its Doctor — pick \"Current project\" to set them."
             : "";
     }
 
@@ -152,6 +154,7 @@ public partial class SettingsDialog : Window
         var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
         var ghostFolder = GhostFolderBox.Text.Trim();
         var webProject = WebProjectKey();
+        var axisFix = DoctorAxisFixBox.IsChecked == true;
 
         if (ScopeMachine.IsChecked == true)
         {
@@ -182,6 +185,7 @@ public partial class SettingsDialog : Window
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
             settings.WebProjectKey = webProject;
+            settings.DoctorAxisFix = axisFix;
             using var t = new Transaction(doc, "Sentinel: Save project settings");
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);

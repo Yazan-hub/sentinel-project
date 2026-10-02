@@ -47,6 +47,12 @@
                          VerticalContentAlignment="Center"/>
             </DockPanel>
 
+            <!-- F-S2-3 / BG-3: a document fact, off by default; the Doctor never erases a warning either way -->
+            <CheckBox x:Name="DoctorAxisFixBox" Margin="0,0,0,16">
+                <TextBlock FontSize="12" TextWrapping="Wrap"
+                           Text="Revit Doctor: let Revit straighten slightly-off-axis lines in this model (Revit's own fix, in every transaction; a bound model only). Off: the Doctor only logs the warnings it sees and never removes one."/>
+            </CheckBox>
+
             <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1"
                     CornerRadius="6" Padding="12" Margin="0,0,0,16">
                 <StackPanel>

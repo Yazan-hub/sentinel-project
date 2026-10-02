@@ -101,22 +101,23 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             : $"Live — updated {DateTime.Now:HH:mm:ss}";
     });
 
-    /// 'Revit Doctor' log: native warnings auto-resolved/suppressed.
+    /// 'Revit Doctor' log: the warnings it saw (left in the model) and the ones Revit's own fix resolved (opt-in).
     public ObservableCollection<string> DoctorLog { get; } = new ObservableCollection<string>();
 
     // The log also carries scan, ruleset, publish and refusal lines; only the Revit Doctor's own resolutions count
-    // as auto-resolved warnings (SCORE-E1 / audit: the header used to count every line). Session count.
+    // as auto-resolved warnings (SCORE-E1 / audit: the header used to count every line). Session count. F-S2-3: the
+    // Doctor erases nothing, so nothing is "suppressed"; one line may carry several resolutions.
     private int _autoResolved;
 
-    public void LogDoctor(string line, bool autoResolved = false) => OnUi(() =>
+    public void LogDoctor(string line, int resolved = 0) => OnUi(() =>
     {
-        if (autoResolved) _autoResolved++;
+        _autoResolved += resolved;
         DoctorLog.Insert(0, DateTime.Now.ToString("HH:mm:ss") + "  " + line);
         while (DoctorLog.Count > 200) DoctorLog.RemoveAt(DoctorLog.Count - 1);
         OnChanged(nameof(DoctorHeader));
     });
 
-    public string DoctorHeader => $"Doctor — {_autoResolved} warning(s) auto-resolved or suppressed · {DoctorLog.Count} line(s)";
+    public string DoctorHeader => $"Doctor — {_autoResolved} warning(s) auto-resolved · {DoctorLog.Count} line(s)";
 
     public void RaisePendingRequest(Violation v) =>
         OnUi(() => Status = $"⏳ Change request created for '{v.ElementName}' — awaiting coordinator ({v.RuleId})");
