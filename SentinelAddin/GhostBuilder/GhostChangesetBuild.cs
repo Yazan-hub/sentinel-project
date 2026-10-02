@@ -100,6 +100,13 @@ namespace Sentinel.GhostBuilder
 
             using var group = new TransactionGroup(doc, "Ghost Builder");
             group.Start();
+            // F-S2-1: a TransactionGroup can force modal failure handling on every transaction finished inside it, whatever that
+            // transaction's own options say (TransactionGroup.IsFailureHandlingForcedModal; its default is undocumented — drill
+            // MA1a-S2's blocking "N Warnings" OK/Cancel dialog says it was on). Off, each inner transaction's
+            // SetForcedModalHandling(false) holds: the warnings Revit keeps show in its non-blocking box, as step 1's did (S1-8).
+            // No error reaches a dialog — the all-or-nothing preprocessor rolls each one back first, so no inner commit is left
+            // Pending inside the group.
+            group.IsFailureHandlingForcedModal = false;
 
             // Nothing ran yet: roll the group back (the types too) and withdraw what was filed — no changeset is left for a
             // later review to apply.
