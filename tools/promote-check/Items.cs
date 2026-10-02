@@ -137,5 +137,11 @@ static partial class Check
         Ok(BlockCheck.Added(before, before).Count == 0 && BlockCheck.Added(null, after).Count == 5, "nothing added → nothing to ask; no scan before → every BLOCK row after is new");
         Ok(BlockCheck.WentBack(added).StartsWith("You went back at the BLOCK check — nothing was placed. 2 element(s)") && BlockCheck.PlacedAnyway(added, true).Contains("placed anyway"),
            "the go-back and place-anyway lines");
+        // Review amendment C4: a parameter rule's category key Sentinel cannot resolve is said, not silent.
+        var unresolved = BlockCheck.UnresolvedCategory(new Rule { Id = "FN-01", Mode = EnforcementMode.Block, DocRef = "RTG §5" }, "Furnishings");
+        Ok(unresolved.RuleId == "FN-01" && unresolved.Mode == EnforcementMode.Monitor && unresolved.ElementId == -1 && unresolved.DocRef == "RTG §5"
+           && unresolved.MessageEn == "Rule FN-01: category \"Furnishings\" is not one Sentinel can resolve — rule not evaluated for it"
+           && BlockCheck.Added(before, after.Concat(new[] { unresolved })).Count == 3,
+           "a category key Sentinel cannot resolve is a Monitor note naming the rule and the key (C4) — said, and never a BLOCK row, whatever the rule's mode");
     }
 }

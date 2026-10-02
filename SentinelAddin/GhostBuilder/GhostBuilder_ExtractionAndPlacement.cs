@@ -344,6 +344,9 @@ namespace Sentinel.GhostBuilder
             public int SkippedNoHost;
             /// <summary>MA-1a step 2 (DWG): placed elements whose provenance stamp reads source dwg after the build.</summary>
             public int Stamped;
+            /// <summary>MA-1a item 5 (DWG): the person went back at the BLOCK check — nothing was built (NotBuilt says so) and the
+            /// review stays open for another Build.</summary>
+            public bool WentBack;
         }
 
         public PlacementReport Place(MappingResult mapping, IEnumerable<GhostElement> elements)

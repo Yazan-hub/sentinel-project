@@ -233,10 +233,10 @@ public sealed class App : IExternalApplication
         var doc = e.Document;
         if (doc is null || doc.IsFamilyDocument) return;
         if (!CdeBeforeSync(e, doc)) return; // the sync is stopped
-        if (Engine is not { } engine || !engine.Has(doc)) return;
-        if (!engine.RulesetFor(doc).Rules.Any(r => r.Mode == EnforcementMode.Block)) return; // nothing can block: no pre-sync scan
-        var report = engine.ScanFull(doc);
-        var all = report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
+        // MA-1a item 5 (review amendment C7): the one BLOCK gate, the same call the check before commit makes — null when
+        // nothing can block (the ruleset has not loaded, or holds no BLOCK rule): no pre-sync scan.
+        if (BlockCheck.Rows(doc) is not { } report) return;
+        var all =report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
         if (all.Count == 0) return;
         // Only what THIS user can fix stops THIS sync: in a workshared model an element another user owns is listed,
         // never blocking — otherwise two users could block each other's syncs with no way out.

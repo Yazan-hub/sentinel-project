@@ -16,6 +16,9 @@
 // Revit itself refuses still rolls the whole group back: nothing is left — no element, no type, no family. Every
 // transaction of the build counts Revit's warnings and rolls back on any error (B1). API thread only
 // (GhostBuilderPlacementEvent).
+// MA-1a item 5: when the ruleset has a BLOCK rule, the build is scanned before step 1 and again after step 3 (the documents'
+// values included), with the group still open; if it adds BLOCK rows the person is asked "This batch will block your sync: N
+// element(s)" — Go back abandons the build (nothing placed, filed changesets withdrawn) and the review stays open.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -158,8 +161,11 @@ namespace Sentinel.GhostBuilder
                 return report;
             }
 
+            ScanReport blockBefore = null; // MA-1a item 5: the BLOCK rows before the build; null = nothing can block it
+            string blockNote = null, blockLine = null;
             try
             {
+                blockBefore = BlockCheck.Before(doc, out blockNote);
                 // ── 1. The families and types the reviewed rows need, before anything is filed (founder decision F4) ──────────
                 var typesBefore = new HashSet<long>(new FilteredElementCollector(doc).WhereElementIsElementType().ToElementIds().Select(i => i.IdValue()));
                 // F-S2-2: the walls already in the model — a wall of this build never joins one; its own walls join each other,
@@ -456,6 +462,29 @@ namespace Sentinel.GhostBuilder
                         }
                     }
 
+                // ── 5b. MA-1a item 5: the BLOCK check — what this build adds, judged as a sync judges it, before the Undo is kept ──
+                if (blockBefore != null)
+                {
+                    var added = BlockCheck.AddedSince(doc, blockBefore);
+                    if (added.Count > 0)
+                    {
+                        if (!BlockCheck.PlaceAnyway(doc, added, "the whole build", blockBefore.RulesetRef))
+                        {
+                            // Go back: nothing placed, the filed changesets withdrawn; the review stays open for another Build.
+                            var back = Abandon(BlockCheck.WentBack(added));
+                            back.WentBack = true;
+                            return back;
+                        }
+                        blockLine = BlockCheck.PlacedAnyway(added, doc.IsWorkshared);
+                        report.Warnings.Insert(0, blockLine);
+                    }
+                }
+                else if (blockNote != null)
+                {
+                    blockLine = blockNote;
+                    report.Warnings.Add(blockNote);
+                }
+
                 // ── 6. One Undo entry, named as the first changeset's transaction ───────────────────────────────────────────
                 string undo = UndoWatcher.TxName(filed[0].Name, filed[0].Id);
                 group.SetName(undo);
@@ -479,7 +508,7 @@ namespace Sentinel.GhostBuilder
                     Count(res.Warnings);
                     if (!bound) continue;
                     var guids = res.Applied.Select(a => a.ProposalGuid).ToList();
-                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report)))
+                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine)))
                     {
                         unrecorded.Add(Short(cs.Id));
                         continue;
@@ -506,8 +535,9 @@ namespace Sentinel.GhostBuilder
 
         // The ledger note on each changeset's result: what was built from, and the types this build added (not elements of
         // any changeset, so named here).
-        private static string Note(Request r, Level level, GhostPlacementEngine.PlacementReport report) =>
-            $"Ghost Builder: {r.Drawing} on {level.Name}, as reviewed in Ghost's review" +
+        // MA-1a item 5: the BLOCK check's line (placed anyway, or not checked) rides on the note too.
+        private static string Note(Request r, Level level, GhostPlacementEngine.PlacementReport report, string block) =>
+            $"Ghost Builder: {r.Drawing} on {level.Name}, as reviewed in Ghost's review" + (block == null ? "" : "; " + block) +
             (report.CreatedTypes.Count == 0 ? "" : "; types added with this build: " + string.Join("; ", report.CreatedTypes.Take(10)) +
                                                    (report.CreatedTypes.Count > 10 ? $" (+{report.CreatedTypes.Count - 10} more)" : ""));
 

@@ -123,7 +123,7 @@ public sealed class RuleEngineHost
             case RuleTarget.Grid when e is Grid g:
                 CheckName(g, g.Name, rule, org, sink);
                 break;
-            case RuleTarget.Parameter when e is View pv && !pv.IsTemplate && IsUserView(pv):
+            case RuleTarget.Parameter when rule.Categories.Count == 0 && e is View pv && !pv.IsTemplate && IsUserView(pv): // MA-1a item 5: a rule with categories judges elements, in the full scan only
                 CheckParameter(pv, rule, org, sink);
                 break;
         }
@@ -196,6 +196,30 @@ public sealed class RuleEngineHost
     {
         if (rule.ParameterName is null) return 0;
         int n = 0;
+        // MA-1a item 5 (the full-scan half of SCAN-E1): a parameter rule WITH categories judges the model elements of those
+        // categories (Walls, Furniture, …), so a batch that leaves a BLOCK property empty is caught before commit and at sync.
+        // Full scan only: the DMU delta never judges it (a REQUEST rule there would file rename requests). A rule without
+        // categories judges views, as before (VP-01).
+        if (rule.Categories.Count > 0)
+        {
+            // ponytail: only the English keys Compat maps; a key it cannot resolve is said (review amendment C4: a Monitor note,
+            // never silent), and the rule judges the categories it can. Widen Compat's map when one is needed.
+            var bics = new List<BuiltInCategory>();
+            foreach (var key in rule.Categories.Distinct())
+            {
+                var bic = Compat.ResolveCategoryKey(key);
+                if (bic == BuiltInCategory.INVALID) sink.Add(BlockCheck.UnresolvedCategory(rule, key));
+                else if (!bics.Contains(bic)) bics.Add(bic);
+            }
+            if (bics.Count == 0) return 0;
+            foreach (Element e in new FilteredElementCollector(doc).WherePasses(new ElementMulticategoryFilter(bics)).WhereElementIsNotElementType())
+            {
+                if (IsExcluded(rule, e.Name)) continue;
+                n++;
+                CheckParameter(e, rule, org, sink, $"{e.Name} [{e.Id.IdValue()}]");
+            }
+            return n;
+        }
         foreach (View v in new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>())
         {
             if (v.IsTemplate || !IsUserView(v) || IsExcluded(rule, v.Name)) continue;
@@ -215,11 +239,11 @@ public sealed class RuleEngineHost
         sink.Add(Make(rule, org, e.Id.IdValue(), name));
     }
 
-    private static void CheckParameter(Element e, Rule rule, string org, List<Violation> sink)
+    private static void CheckParameter(Element e, Rule rule, string org, List<Violation> sink, string? name = null)
     {
         if (rule.ParameterName is null) return;   // nothing to check (the live DMU path had no guard)
         if (!ParamValue.Filled(e, rule.ParameterName))  // by storage type, instance then type (SCAN-E1)
-            sink.Add(Make(rule, org, e.Id.IdValue(), e.Name));
+            sink.Add(Make(rule, org, e.Id.IdValue(), name ?? e.Name));
     }
 
     private static Violation Make(Rule r, string org, long id, string name) =>

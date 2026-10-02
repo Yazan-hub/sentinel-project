@@ -266,6 +266,14 @@ public sealed class GhostBuilderCommand : IExternalCommand
             // Back on the API thread. Marshal UI updates to the window's dispatcher.
             review.Dispatcher.Invoke(() =>
             {
+                // MA-1a item 5: the person went back at the BLOCK check — nothing was built; the review stays open for another
+                // Build, so the local model is kept (nothing released).
+                if (error == null && report.WentBack) // with no error the report is never null
+                {
+                    building = false;
+                    review.Reopen(report.NotBuilt + (report.Ledger != null ? " " + report.Ledger : ""));
+                    return;
+                }
                 Release();
                 review.Close();
                 if (error != null)

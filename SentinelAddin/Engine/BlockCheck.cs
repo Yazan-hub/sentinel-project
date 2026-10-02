@@ -55,16 +55,29 @@ namespace Sentinel.Engine
         public static string WentBack(IReadOnlyList<Violation> added) =>
             $"You went back at the BLOCK check — nothing was placed. {Elements(added)} element(s) would have blocked your sync ({Rules(added)}).";
 
+        /// <summary>Review amendment C4: a category key of a parameter rule that Sentinel cannot resolve is said, not silent — a
+        /// Monitor note whatever the rule's mode (the NeedsOrg style: a rule that was NOT evaluated never blocks a sync and is
+        /// never a scored row), so the rule does not read as "all clean" for that category. Pure.</summary>
+        public static Violation UnresolvedCategory(Rule rule, string key) =>
+            new Violation(rule.Id, EnforcementMode.Monitor, -1, $"(category \"{key}\" is not one Sentinel can resolve — rule not evaluated for it)",
+                $"Rule {rule.Id}: category \"{key}\" is not one Sentinel can resolve — rule not evaluated for it", null, rule.DocRef);
+
 #if !SENTINEL_CHECK
-        /// <summary>The full scan before a batch, or null when nothing can block it: no BLOCK rule in the ruleset (note null), or
-        /// the ruleset has not loaded yet (note = <see cref="NotLoaded"/>). API thread; reads only, so it is safe inside an open
-        /// TransactionGroup (RuleEngineHost opens no transaction).</summary>
+        /// <summary>Review amendment C7 — the one BLOCK gate: the sync's full scan of this document when a BLOCK rule can fire on
+        /// it, else null with no scan (its ruleset has not loaded yet, or holds no BLOCK rule). The check before commit
+        /// (<see cref="Before"/>) and the sync (App.OnSynchronizing) both call it, so they cannot disagree on what can block.
+        /// The report's BLOCK rows are what block; the sync alone then drops what this user cannot fix (NotFixableHere, E9).
+        /// API thread; reads only, so it is safe inside an open TransactionGroup (RuleEngineHost opens no transaction).</summary>
+        public static ScanReport Rows(Document doc) =>
+            App.Engine is { } engine && engine.Has(doc) && engine.RulesetFor(doc).Rules.Any(r => r.Mode == EnforcementMode.Block)
+                ? engine.ScanFull(doc) : null;
+
+        /// <summary>The full scan before a batch (<see cref="Rows(Document)"/>), or null when nothing can block it: no BLOCK rule in
+        /// the ruleset (note null), or the ruleset has not loaded yet (note = <see cref="NotLoaded"/>).</summary>
         public static ScanReport Before(Document doc, out string note)
         {
-            note = null;
-            var engine = App.Engine;
-            if (engine == null || !engine.Has(doc)) { note = NotLoaded; return null; }
-            return engine.RulesetFor(doc).Rules.Any(r => r.Mode == EnforcementMode.Block) ? engine.ScanFull(doc) : null;
+            note = App.Engine == null || !App.Engine.Has(doc) ? NotLoaded : null;
+            return Rows(doc);
         }
 
         /// <summary>The BLOCK rows the batch added since <paramref name="before"/>, judged now by the sync's own scan. API thread.</summary>

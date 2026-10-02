@@ -52,6 +52,9 @@ public sealed class ChangesetExecutor
         /// A6: Commit returned neither Committed nor RolledBack (Pending, …) — Revit may still finish or drop it, so nothing is
         /// reported and nothing recounted; this is the whole result.
         public string NotFinished { get; set; }
+        /// MA-1a item 5: the BLOCK check's line — placed anyway with N element(s) that will block a sync, or why BLOCK rules
+        /// were not checked; null when none can fire. Set by ChangesetPlacementEvent; it rides on the result's note.
+        public string Block { get; set; }
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
