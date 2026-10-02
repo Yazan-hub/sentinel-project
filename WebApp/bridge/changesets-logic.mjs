@@ -28,8 +28,14 @@ const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <=
 // Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
 const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
+// How far (mm, in plan) an arc's mid point sits off the chord start→end; < 1 mm is no arc.
+const arcSag = (s, e, m) => {
+  const dx = e[0] - s[0], dy = e[1] - s[1], chord = Math.hypot(dx, dy);
+  return chord === 0 ? 0 : Math.abs(dx * (m[1] - s[1]) - dy * (m[0] - s[0])) / chord;
+};
 // MA-1: the create place fields and the kinds that take them — a field on any other kind is a 400, never ignored (a level's
-// or grid's name is identity.Name, so it has no Mark; only a door's or window's type is named with its family).
+// or grid's name is identity.Name, so it has no Mark; only a point family's type — door, window, column, furniture — is named
+// with its family).
 const PLACE_FIELDS = {
   FamilyName: ["door", "window", "column", "furniture"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture"],
   Structural: ["floor"], Location: ["door", "window", "column", "furniture"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
@@ -92,6 +98,8 @@ function checkPlace(kind, place, at) {
     if (c.start.every((v, i) => v === c.end[i])) throw err(400, `${at}: ${kind} LocationCurve start and end are identical (zero-length)`);
     // MA-1a step 2: an arc wall carries one more point on its arc (Ghost Builder's curved DWG walls); a grid stays straight.
     if (c.mid !== undefined && (kind !== "wall" || !point(c.mid))) throw err(400, `${at}: place.LocationCurve.mid is a wall's point on its arc, a finite [x,y,z]`);
+    // A mid on the chord (or on an end) makes no arc: Arc.Create would throw and decline the whole changeset.
+    if (c.mid !== undefined && arcSag(c.start, c.end, c.mid) < 1) throw err(400, `${at}: place.LocationCurve.mid lies on the line from start to end — that is a straight wall, send it without mid`);
     if (kind === "wall" && place.BaseElevation !== undefined && !finite(place.BaseElevation)) throw err(400, `${at}: BaseElevation must be a finite number`);
     if (kind === "wall" && place.TopElevation !== undefined && !finite(place.TopElevation)) throw err(400, `${at}: TopElevation must be a finite number`);
   } else if (kind === "floor") {

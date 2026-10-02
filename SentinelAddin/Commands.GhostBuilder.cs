@@ -430,7 +430,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             lines.AppendLine(WallsLine(r, s));
             if (r.TypeGaps > 0) lines.AppendLine($"Types: {r.TypeGaps} named by the layer mapping not created (each named below with its reason)");
             if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
-            if (r.SkippedNoHost > 0) lines.AppendLine($"Skipped (no single straight wall under the door or window): {r.SkippedNoHost}");
+            if (r.SkippedNoHost > 0) lines.AppendLine($"Skipped (no single straight wall of this build under the door or window): {r.SkippedNoHost}");
             if (r.SkippedNoGeometry > 0) lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");
             lines.AppendLine($"Provenance: {r.Stamped} of {r.Placed} placed element(s) stamped as source dwg");
             var revitWarnings = GhostFailurePolicy.WarningsLine(r.RevitWarnings);

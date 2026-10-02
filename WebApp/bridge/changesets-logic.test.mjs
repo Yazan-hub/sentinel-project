@@ -490,6 +490,8 @@ describe("validateChangeset — MA-1a step 2 (Ghost Builder: column, furniture, 
     for (const bad of [[1000, 1000], [NaN, 0, 0], "mid"]) status400(() => ok(arc(bad)), /LocationCurve\.mid is a wall's point on its arc/);
     const grid = { kind: "grid", validate: { identity: { Class: "IFCGRID", Name: "A" } }, place: { LocationCurve: { start: [0, 0, 0], end: [0, 9000, 0], mid: [10, 4500, 0] } } };
     status400(() => ok(grid), /LocationCurve\.mid is a wall's point on its arc/);
+    // A mid on the chord or on an end is no arc (Arc.Create would throw and decline the whole changeset).
+    for (const flat of [[1000, 0, 0], [1000, 0.5, 0], [0, 0, 0], [2000, 0, 0]]) status400(() => ok(arc(flat)), /lies on the line from start to end/);
   });
 });
 

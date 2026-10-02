@@ -95,7 +95,7 @@ static partial class Check
         // B3: the ids the rolling-back failure named, mapped to the labels of the elements this changeset placed.
         var labels = new Dictionary<long, string> { [12] = "wall \"A-WALL-EXT #12\"", [13] = "door \"A-DOOR #3\"" };
         Ok(GhostFailurePolicy.AllOrNothingReason("Can't make Wall.", E) + GhostFailurePolicy.RolledBackNames(new long[] { 12, 900, 12 }, labels)
-               == "Can't make Wall. (a Revit error at commit: the changeset is all or nothing, so none of it was kept) — Revit named wall \"A-WALL-EXT #12\", element 900 (not placed by this changeset)"
+               == "Can't make Wall. (a Revit error at commit: the changeset is all or nothing, so none of it was kept) — Revit named wall \"A-WALL-EXT #12\", element 900 (not one of this changeset's)"
            && GhostFailurePolicy.RolledBackNames(new long[0], labels) == "" && GhostFailurePolicy.RolledBackNames(null!, labels) == "",
            "B3: a rolled-back changeset names its culprit by label (which layer to untick), any other element by id; nothing when Revit named none");
         Ok(GhostFailurePolicy.NotFiledLine("Bridge 403: viewer").StartsWith("Nothing was built — the build could not be filed as a changeset")

@@ -413,6 +413,8 @@ namespace Sentinel.GhostBuilder
                 group.SetName(undo);
                 if (group.Assimilate() != TransactionStatus.Committed)
                 {
+                    if (group.GetStatus() == TransactionStatus.RolledBack)
+                        return Decline(null, "Revit did not keep the build's Undo group (status RolledBack)");
                     report.NotBuilt = GhostFailurePolicy.NotFinishedLine(group.GetStatus().ToString());
                     report.Ledger = Unreported();
                     return report;

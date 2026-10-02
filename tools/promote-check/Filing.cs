@@ -27,6 +27,8 @@ static partial class Check
            "a run (line or arc) whose ends are closer than Revit's short-curve tolerance once flat (a near-vertical CAD line) is not filed");
         var arc = GhostFiling.Run(new double[] { 0, 0 }, new double[] { 2000, 0 }, new double[] { 1000, 1000 }, 0, Tol * 304.8);
         Ok(arc?.Mid != null && arc.Mid.SequenceEqual(new double[] { 1000, 1000, 0 }), "an arc wall carries its mid point, flat at the base");
+        var onChord = GhostFiling.Run(new double[] { 0, 0 }, new double[] { 2000, 0 }, new double[] { 1000, 0.5 }, 0, Tol * 304.8);
+        Ok(onChord != null && onChord.Mid == null, "an 'arc' whose mid is < 1 mm off its chord is filed straight (the bridge refuses such a mid)");
 
         Ok(GhostFiling.SyntheticHint("Generic Door").Contains("placeholder the layer mapping wrote") && GhostFiling.SyntheticHint(" generic wall ").Length > 0
            && GhostFiling.SyntheticHint("Generic - 200mm") == "" && GhostFiling.SyntheticHint(null) == "",

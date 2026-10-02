@@ -146,7 +146,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids.
                 if (Report(cfg, key, cs.Id, result.Applied, rejected, said))
                     UndoWatcher.Remember(UndoWatcher.TxName(fresh.Name, fresh.Id), key, fresh.Id, result.Applied.Select(a => a.ProposalGuid));
-                var warnings = GhostFailurePolicy.WarningsLine(result.Warnings);
+                var warnings = GhostFailurePolicy.WarningsLine(result.Warnings, "changeset");
                 TaskDialog.Show("Sentinel — AI proposals",
                     $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : "") +
                     (gone.Count > 0 ? $"\n{gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +

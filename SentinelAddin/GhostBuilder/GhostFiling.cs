@@ -61,8 +61,15 @@ namespace Sentinel.GhostBuilder
             return new CurveDto
             {
                 Start = new[] { a[0], a[1], z }, End = new[] { b[0], b[1], z },
-                Mid = mid == null ? null : new[] { mid[0], mid[1], z },
+                Mid = mid == null || ArcSag(a, b, mid) < 1 ? null : new[] { mid[0], mid[1], z }, // < 1 mm off the chord: straight
             };
+        }
+
+        /// How far (mm, in plan) an arc's mid point sits off the chord a→b — the bridge's arcSag, same 1 mm rule.
+        internal static double ArcSag(double[] a, double[] b, double[] m)
+        {
+            double dx = b[0] - a[0], dy = b[1] - a[1], chord = Math.Sqrt(dx * dx + dy * dy);
+            return chord == 0 ? 0 : Math.Abs(dx * (m[1] - a[1]) - dy * (m[0] - a[0])) / chord;
         }
 
         // Each element is named "<layer> #<n>" (n counts this build's elements of that layer) and says where it came from.

@@ -78,11 +78,11 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>The Revit warnings this build raised, counted by text — left in the model; null when there were none.</summary>
-        public static string WarningsLine(IReadOnlyDictionary<string, int> warnings)
+        public static string WarningsLine(IReadOnlyDictionary<string, int> warnings, string what = "build")
         {
             int total = warnings?.Values.Sum() ?? 0;
             if (total == 0) return null;
-            return $"Revit warnings raised by this build: {total} — left in the model (Manage ▸ Review Warnings), never erased: " +
+            return $"Revit warnings raised by this {what}: {total} — left in the model (Manage ▸ Review Warnings), never erased: " +
                    string.Join("; ", warnings.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
                                              .Select(kv => kv.Value > 1 ? $"{kv.Key} ×{kv.Value}" : kv.Key));
         }
@@ -136,7 +136,7 @@ namespace Sentinel.GhostBuilder
         public static string RolledBackNames(IEnumerable<long> ids, IReadOnlyDictionary<long, string> labels)
         {
             var named = (ids ?? None).Distinct()
-                .Select(i => labels != null && labels.TryGetValue(i, out var l) ? l : $"element {i} (not placed by this changeset)").ToList();
+                .Select(i => labels != null && labels.TryGetValue(i, out var l) ? l : $"element {i} (not one of this changeset's)").ToList();
             if (named.Count == 0) return "";
             return " — Revit named " + string.Join(", ", named.Take(10)) + (named.Count > 10 ? $" and {named.Count - 10} more" : "");
         }
