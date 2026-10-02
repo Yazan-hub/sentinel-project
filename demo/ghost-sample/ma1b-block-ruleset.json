@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "standard_key": "ma1b-drill",
+  "semver": "1.0.0",
+  "org": "",
+  "rules": [
+    {
+      "id": "MA1B-DR-01", "target": "parameter", "mode": "block", "parameter_name": "Comments", "categories": ["Doors"],
+      "message_en": "Door '{name}': Comments is empty — the drill's BLOCK property (MA-1b).",
+      "doc_ref": "MA-1b drill"
+    }
+  ]
+}

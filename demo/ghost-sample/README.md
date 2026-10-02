@@ -63,7 +63,7 @@ the window and the undo actually need Revit.
 
 ## MA-1a step 2 drill files
 
-`make-sample.py --step2` / `--plant` write the MA1a-S2 drill drawings (see the MA-1a step 2 plan).
+`make-sample.py --step2` / `--plant` / `--ma1b` write the drill drawings (see the MA-1a step 2 and MA-1b plans).
 
 ## Verified offline
 
