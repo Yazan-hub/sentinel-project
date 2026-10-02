@@ -80,7 +80,27 @@ static partial class Check
         Ok(GhostFailurePolicy.NotFinishedLine("Pending") == "Revit has not finished the build (status Pending) — check the model before re-running",
            "A6: a build Revit has not finished (Pending) reads as not finished — never as nothing built, never recounted");
         Ok(GhostFailurePolicy.DoctorSkips("Ghost Builder - LOD 200") && !GhostFailurePolicy.DoctorSkips("Sentinel: Fix") && !GhostFailurePolicy.DoctorSkips(null!),
-           "A4: the Doctor skips the Ghost transaction only — it never erases a warning Ghost counts");
+           "A4: the Doctor skips the Ghost transaction — it never erases a warning Ghost counts");
+        // MA-1a step 2: a DWG build is changesets now, plus its own types and parameters transactions inside the one Undo.
+        Ok(GhostFailurePolicy.DoctorSkips(GhostFailurePolicy.TypesTxName) && GhostFailurePolicy.DoctorSkips(GhostFailurePolicy.ParamsTxName)
+           && GhostFailurePolicy.DoctorSkips("Sentinel AI changeset: Ghost Builder · plan · Level 1 [3f2a9c8b]")
+           && !GhostFailurePolicy.DoctorSkips("Sentinel — import DWG plan") && !GhostFailurePolicy.DoctorSkips("sentinel ai changeset: x"),
+           "step 2: the Doctor also skips a DWG build's types and parameters transactions and every changeset's — and nothing else");
+        Ok(GhostFailurePolicy.DecideAllOrNothing(W) == GhostFailurePolicy.Act.Count && GhostFailurePolicy.DecideAllOrNothing(E) == GhostFailurePolicy.Act.RollBack
+           && GhostFailurePolicy.DecideAllOrNothing(GhostFailurePolicy.Severity.Corruption) == GhostFailurePolicy.Act.RollBack,
+           "step 2: the executor's rule — a warning is counted, any error rolls the whole changeset back (never Resolve, never DeleteOurs)");
+        Ok(GhostFailurePolicy.AllOrNothingReason("Can't make Floor.", E) == "Can't make Floor. (a Revit error at commit: the changeset is all or nothing, so none of it was kept)"
+           && GhostFailurePolicy.AllOrNothingReason(" ", GhostFailurePolicy.Severity.Corruption) == "a Revit failure (Revit reports document corruption)",
+           "step 2: a changeset rolled back at commit says why");
+        // B3: the ids the rolling-back failure named, mapped to the labels of the elements this changeset placed.
+        var labels = new Dictionary<long, string> { [12] = "wall \"A-WALL-EXT #12\"", [13] = "door \"A-DOOR #3\"" };
+        Ok(GhostFailurePolicy.AllOrNothingReason("Can't make Wall.", E) + GhostFailurePolicy.RolledBackNames(new long[] { 12, 900, 12 }, labels)
+               == "Can't make Wall. (a Revit error at commit: the changeset is all or nothing, so none of it was kept) — Revit named wall \"A-WALL-EXT #12\", element 900 (not placed by this changeset)"
+           && GhostFailurePolicy.RolledBackNames(new long[0], labels) == "" && GhostFailurePolicy.RolledBackNames(null!, labels) == "",
+           "B3: a rolled-back changeset names its culprit by label (which layer to untick), any other element by id; nothing when Revit named none");
+        Ok(GhostFailurePolicy.NotFiledLine("Bridge 403: viewer").StartsWith("Nothing was built — the build could not be filed as a changeset")
+           && GhostFailurePolicy.NotFiledLine("Bridge 403: viewer").EndsWith("(no element, type or family was added): Bridge 403: viewer"),
+           "step 2: a build that could not be filed reads as nothing built, with the bridge's reason");
         Ok(GhostFailurePolicy.TypeParamBlocked(true, "Ghost 275mm", 0) == null,
            "A7: a type this build added takes the type parameter");
         Ok(GhostFailurePolicy.TypeParamBlocked(false, "Generic - 200mm", 3) == "not applied to type \"Generic - 200mm\" — it would change 3 existing instance(s)"

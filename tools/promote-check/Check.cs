@@ -32,6 +32,7 @@ static partial class Check
         ParityV1(m2);
         Matrix(m, m2);
         PlacementChecks();
+        FilingChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

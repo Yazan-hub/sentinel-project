@@ -543,3 +543,19 @@ describe("b35-seed-body parity fixture (MA-1 placement slice)", () => {
     expect(v.elements.filter((e) => e.place.Structural).map((e) => e.place.Mark)).toEqual(["MA1-L2-F02"]);
   });
 });
+
+// MA-1a step 2: the body Ghost Builder files (GhostFiling.Body); tools/promote-check writes the same body and reads it back.
+describe("ghost-dwg-body parity fixture (MA-1a step 2)", () => {
+  const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/ghost-dwg-body.json", import.meta.url), "utf8"));
+  it("passes validateChangeset as source dwg and keeps every place field — the arc's mid point, columns and furniture", () => {
+    const v = validateChangeset(body);
+    expect(v).toMatchObject({ name: body.name, source: "dwg" });
+    v.elements.forEach((el, i) => {
+      const sent = body.elements[i];
+      expect(el).toMatchObject({ kind: sent.kind, op: "create", reason: sent.reason, place: sent.place });
+      expect(el.validate.identity).toMatchObject(sent.validate.identity);
+    });
+    expect(v.elements.map((e) => e.kind)).toEqual(["wall", "wall", "floor", "ceiling", "door", "window", "column", "furniture"]);
+    expect(v.elements[1].place.LocationCurve.mid).toEqual([1000, 1000, 0]);
+  });
+});

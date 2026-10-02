@@ -96,13 +96,54 @@ namespace Sentinel.GhostBuilder
         public static string NotFinishedLine(string status) =>
             $"Revit has not finished the build (status {status}) — check the model before re-running";
 
-        /// <summary>The Ghost transaction's name (DWG and massing) — unchanged; step 2 renames it with the changeset.</summary>
+        /// <summary>Photo Massing's transaction name (it keeps its own path until MA-6). A DWG build no longer uses it: it runs
+        /// as changesets (GhostChangesetBuild).</summary>
         public const string TxName = "Ghost Builder - LOD 200";
 
-        /// <summary>A4: the global Doctor (FailureInterceptor) leaves this transaction's warnings alone — Ghost counts them and
-        /// leaves them in the model ([BP] P1-3). Step 2 must widen this to the executor's transaction for Ghost-sourced
-        /// changesets, or P1-3 regresses.</summary>
-        public static bool DoctorSkips(string transactionName) => transactionName == TxName;
+        /// <summary>MA-1a step 2: a DWG build's two own transactions inside its one Undo — the types and families its rows
+        /// need, before the changesets run, and the document values (P2) after.</summary>
+        public const string TypesTxName = "Ghost Builder - types";
+        public const string ParamsTxName = "Ghost Builder - parameters";
+
+        /// <summary>Every changeset the executor runs is named UndoWatcher.TxName(…), which starts with this (promote-check
+        /// proves the two agree).</summary>
+        public const string ChangesetTxPrefix = "Sentinel AI changeset: ";
+
+        /// <summary>A4, widened in MA-1a step 2: the global Doctor (FailureInterceptor) leaves these transactions' warnings
+        /// alone — massing's, a DWG build's types and parameters, and EVERY changeset's (Ghost's are changesets now; the
+        /// name carries no source, and a changeset counts its warnings and leaves them in the model too, [BP] P1-3).</summary>
+        public static bool DoctorSkips(string transactionName) =>
+            transactionName == TxName || transactionName == TypesTxName || transactionName == ParamsTxName
+            || (transactionName != null && transactionName.StartsWith(ChangesetTxPrefix, StringComparison.Ordinal));
+
+        /// <summary>MA-1a step 2: the changeset executor's rule (founder decision F1 B of step 1, which arrives here): a
+        /// warning is counted and left to Revit; any error rolls the whole changeset back — nothing is deleted or resolved.</summary>
+        public static Act DecideAllOrNothing(Severity severity) => severity == Severity.Warning ? Act.Count : Act.RollBack;
+
+        /// <summary>Why a changeset was rolled back at commit, in words.</summary>
+        public static string AllOrNothingReason(string description, Severity severity)
+        {
+            string what = string.IsNullOrWhiteSpace(description) ? "a Revit failure" : description.Trim();
+            return what + (severity == Severity.Corruption
+                ? " (Revit reports document corruption)"
+                : " (a Revit error at commit: the changeset is all or nothing, so none of it was kept)");
+        }
+
+        /// <summary>B3: the elements the failure that rolled a changeset back named (failing and additional ids), as the
+        /// person reads them — each one this changeset placed by its label (<paramref name="labels"/>: element id → e.g.
+        /// <c>wall "A-WALL-EXT #12"</c>), any other by its id — so they know which layer to untick. Appended to
+        /// AllOrNothingReason; empty when Revit named none.</summary>
+        public static string RolledBackNames(IEnumerable<long> ids, IReadOnlyDictionary<long, string> labels)
+        {
+            var named = (ids ?? None).Distinct()
+                .Select(i => labels != null && labels.TryGetValue(i, out var l) ? l : $"element {i} (not placed by this changeset)").ToList();
+            if (named.Count == 0) return "";
+            return " — Revit named " + string.Join(", ", named.Take(10)) + (named.Count > 10 ? $" and {named.Count - 10} more" : "");
+        }
+
+        /// <summary>MA-1a step 2: a DWG build that could not be filed as changesets — nothing exists.</summary>
+        public static string NotFiledLine(string reason) =>
+            "Nothing was built — the build could not be filed as a changeset, so Sentinel rolled it back (no element, type or family was added): " + reason;
 
         /// <summary>A7: a parameter is written onto a TYPE only when this build added that type (provisioned, cloned or loaded
         /// this run); on any other type the write would change the user's own instances, so it is not applied. Null = write;
