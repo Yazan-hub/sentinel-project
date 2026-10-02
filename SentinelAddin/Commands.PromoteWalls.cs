@@ -87,11 +87,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 d[ChangesetExecutor.TypeLabel(t)] = (t as HostObjAttributes)?.GetCompoundStructure() is CompoundStructure cs ? cs.GetWidth() * FtToMm : (double?)null;
             classTypes[PromoteWallsPlanner.Classes[kind].Category] = d;
         }
-        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().Select(l => new LevelFact
-        {
-            Name = l.Name, ElevationMm = l.Elevation * FtToMm,
-            IsStory = l.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.AsInteger() == 1,
-        }).ToList();
+        var levels = ChangesetExecutor.Stories(doc); // the one projection of the model's levels (MA-1a review amendment C6)
         // Walls are read for doors too: a door's location reads its host storey's one-type verdict.
         var walls = classes.Contains("Walls") || classes.Contains("Doors")
             ? new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Select(w => Fact(doc, w)).ToList()

@@ -50,6 +50,21 @@ namespace Sentinel.Engine
             public string LedgerRow;
         }
 
+        /// <summary>C1 + C2: the Facts one element of a changeset is stamped with. Layer, rule and source file come from
+        /// <paramref name="callers"/> only — what the in-process caller of the executor knows, by proposal_guid (null = none) —
+        /// so this takes no changeset element: a provenance the bridge returned cannot reach a stamp. The reason is the
+        /// element's own (<paramref name="touched"/>: each proposal of the changeset that touched it, with its reason). Pure.</summary>
+        public static Facts ForChangeset(IReadOnlyDictionary<string, Facts> callers, IEnumerable<(string Guid, string Reason)> touched, string ledgerRow)
+        {
+            var all = (touched ?? Enumerable.Empty<(string Guid, string Reason)>()).ToList();
+            var own = callers == null ? null : all.Select(x => x.Guid != null && callers.TryGetValue(x.Guid, out var f) ? f : null).FirstOrDefault(f => f != null);
+            return new Facts
+            {
+                Layer = own?.Layer, Rule = own?.Rule, SourceSha256 = own?.SourceSha256, LedgerRow = ledgerRow,
+                Reason = string.Join("; ", all.Select(x => x.Reason).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct()),
+            };
+        }
+
         /// <summary>The stored value, merged onto <paramref name="prior"/> (the element's stamp now, or null). Pure.</summary>
         public static string Json(string changesetId, string source, IEnumerable<string> proposalGuids, string uniqueId, string prior = null,
                                   Facts facts = null, string approver = null, string placedAt = null)

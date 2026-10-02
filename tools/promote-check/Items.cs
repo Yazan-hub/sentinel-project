@@ -85,6 +85,19 @@ static partial class Check
            && lines[5] == "Approver: a@example.com Placed at: never" && lines[6].StartsWith("Ledger row: #12 34 —")
            && lines.Count(l => l.StartsWith("Approver: ")) == 1 && lines.Count(l => l.StartsWith("Placed at: ")) == 1,
            "Describe prints one line per field: a line break inside any value is collapsed to a space (C1)");
+        // C1: the executor's stamp facts (ProvenanceStamp.ForChangeset) — layer, rule and sha from its in-process caller only.
+        var filedEl = JsonSerializer.Deserialize<ChangesetElementDto>(
+            "{\"proposal_guid\":\"g7\",\"reason\":\"as the brief asks\",\"provenance\":{\"layer\":\"A-FORGED\",\"rule\":\"office rule 1\",\"source_sha256\":\"" + sha + "\"}}");
+        var unbacked = JsonNode.Parse(ProvenanceStamp.Json("cs-7", "agent", new[] { "g7" }, uid, null,
+            ProvenanceStamp.ForChangeset(null, new[] { (filedEl.ProposalGuid, filedEl.Reason) }, "1290"))).AsObject();
+        Ok(filedEl.Provenance.Layer == "A-FORGED" && unbacked["layer"] == null && unbacked["source_sha256"] == null
+           && (string)unbacked["rule"] == "as the brief asks" && (bool)unbacked["rule_is_reason"] && (string)unbacked["ledger_row"] == "1290",
+           "a changeset element that carries provenance but has no in-process facts stamps none of it: no layer, no sha, and its rule is the proposer's reason (C1, C2)");
+        var mine = new Dictionary<string, ProvenanceStamp.Facts> { ["g1"] = new ProvenanceStamp.Facts { Layer = "A-WALL", Rule = "type by the guideline (g)", SourceSha256 = sha } };
+        var touched = ProvenanceStamp.ForChangeset(mine, new[] { ("g0", "retype"), ("g1", "attach"), ("g2", "retype") }, null);
+        Ok(touched.Layer == "A-WALL" && touched.Rule == "type by the guideline (g)" && touched.SourceSha256 == sha && touched.Reason == "retype; attach" && touched.LedgerRow == null
+           && ProvenanceStamp.ForChangeset(mine, new[] { ("g9", (string)null) }, null).Layer == null,
+           "the in-process caller's facts are found by proposal_guid; an element several proposals touched keeps each distinct reason");
 
         AdjudicationDto A(string json) => JsonSerializer.Deserialize<AdjudicationDto>(json);
         Ok(A("{\"audit_id\":1287}").LedgerRow == "1287" && A("{\"audit_id\":\"1287\"}").LedgerRow == "1287" && A("{\"audit_id\":null}").LedgerRow == null
