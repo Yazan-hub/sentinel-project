@@ -89,6 +89,16 @@ static partial class Check
             if (!filed || PlacementGeometry.AcrossWall("W30", 0, 0, rx, ry, rot) == null) agree++;
         }
         Ok(filedAt5 > 0 && agree == 41, "every block Snap files at 5 degrees off a 30-degree wall is accepted by the executor on the same wall rebuilt from feet");
+        // Final verify (2026-10-03): the sweep above passes even with the slack at 0 on this machine; this wall and rotation, found by
+        // the verifier, do not — Snap files the block and AcrossWall refuses it without the slack (the two sides land an ulp apart).
+        {
+            double x0 = 33576.51039198697, y0 = -6723.293209494666, x1 = 34258.360630524956, y1 = -6516.19982769237, rot = 11.894725619362337;
+            var wv = new List<(string, string, double, double, double, double)> { ("WV", "L1", x0, y0, x1, y1) };
+            double fx0 = x0 / ft * ft, fy0 = y0 / ft * ft, fx1 = x1 / ft * ft, fy1 = y1 / ft * ft;
+            bool filedV = S((x0 + x1) / 2, (y0 + y1) / 2, rot, w: wv, h: new List<double> { 100 }).StartsWith("WV (");
+            Ok(filedV && PlacementGeometry.AcrossWall("WV", fx0, fy0, fx1, fy1, rot) == null,
+               "the verifier's counterexample: a block Snap files an ulp inside 5 degrees is accepted by the executor only with the rounding slack");
+        }
         Ok(PlacementGeometry.AcrossWall("W30", 0, 0, rx, ry, 35 + 1e-9) == null && PlacementGeometry.AcrossWall("W30", 0, 0, rx, ry, 35.01) != null
            && S(wx / 2, wy / 2, 35.01, w: w30, h: new List<double> { 100 }).StartsWith("the block at"),
            "the executor's slack is a rounding, not a degree: 5 degrees plus a billionth passes, 5.01 is refused — and is the planner's named gap");
