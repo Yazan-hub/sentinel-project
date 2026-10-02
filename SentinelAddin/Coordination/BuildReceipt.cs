@@ -54,6 +54,8 @@ namespace Sentinel.Coordination
             public readonly Dictionary<string, object> Parameters = new Dictionary<string, object>();
         }
 
+        /// <param name="gaps">The walls and types the run left as a named gap — not its door, window or block gaps, which the
+        /// command's own ledger report counts (ghost_build's skipped). Drill MA1b B1-7 reads both: skipped 2, gaps 0 is one build.</param>
         public static object Run(string reader, string addinSha256, Facts facts, int gaps, IReadOnlyList<string> changesets, string actor)
         {
             var models = facts.Models.Where(m => m != null).ToList();

@@ -539,7 +539,8 @@ public sealed class ChangesetExecutor
                     var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
                     if (i < 0) throw new InvalidOperationException($"{el.Kind} \"{name}\": {why}");
                     // MA-1b (review amendment C1): a block's direction runs along its wall. Ghost's planner files none that does
-                    // not (its snap has the same rule); an agent's changeset is refused here, in words, before anything is created.
+                    // not (its snap has the same rule); an agent's changeset is refused here, in words,
+                    // before this instance is created; the rollback takes the rest of the changeset with it (one Undo, Error -> Decline).
                     if (el.Place.Rotation is double along
                         && PlacementGeometry.AcrossWall(lines[i].Label, lines[i].X0, lines[i].Y0, lines[i].X1, lines[i].Y1, along) is string across)
                         throw new InvalidOperationException($"{el.Kind} \"{name}\": {across}");

@@ -16,7 +16,9 @@ static partial class Check
            "a direction that cannot be read back is recorded as unread — it never undoes what Revit committed");
         int refused = executor.IndexOf("PlacementGeometry.AcrossWall(lines[i].Label, lines[i].X0, lines[i].Y0, lines[i].X1, lines[i].Y1, along) is string across", StringComparison.Ordinal);
         Ok(refused > 0 && refused < executor.IndexOf("var fi = doc.Create.NewFamilyInstance(Pt(p), sym, hosts[i], level, StructuralType.NonStructural);", StringComparison.Ordinal),
-           "the executor refuses a Rotation that does not run along the host wall, before it creates the instance (an agent's changeset is not snapped by Ghost)");
+           "the executor refuses a Rotation that does not run along the host wall, before it creates that instance (an agent's changeset is not snapped by Ghost); the rollback takes the rest of the changeset with it");
+        Ok(executor.Contains("before this instance is created; the rollback takes the rest of the changeset with it") && !executor.Contains("before anything is created"),
+           "the executor's words say what happens: this instance is refused before it exists, and the changeset's earlier elements go back with it");
         Ok(executor.Contains("fi.FacingOrientation.X, fi.FacingOrientation.Y, fi.CanFlipHand, fi.CanFlipFacing));"),
            "whether a family lacks a flip is read from the instance after the commit, never assumed");
         Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("AddRange(PlacementGeometry.TurnLines(result.Turned))"),

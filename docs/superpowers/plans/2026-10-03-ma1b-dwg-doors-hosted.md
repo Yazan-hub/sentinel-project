@@ -110,6 +110,9 @@ Second review (2026-10-03, after the tasks landed on the branch; the fixes are c
 - **C18 (Task 2 `AcrossWall`; E20 — important): the executor's 5° bound carries a slack of 1e-6° (`PlacementGeometry.ParallelSlackDeg`).** Snap measures the angle on the import's curves in mm, AcrossWall on the Revit wall's line after the mm→ft→mm round trip; at exactly 5° the two can land an ulp apart (the check shows Snap itself refusing 35.0000 on a 30° wall by one ulp), so a block the planner filed could be the executor's refusal — a whole-build decline where E20 promises Ghost never files one. Whatever Snap files, AcrossWall now accepts; 5.01° is refused as before. The planner's own bound is unchanged.
 - **C19 (Task 2 `Snap`; the dry-run note "a point past one wall's end near a corner is answered by the other wall" — minor): near a corner, a block a fraction past the end of the wall it lies along names that wall's line** ("the wall line of W1 stops 0.4 mm short of …", counted as a broken wall), not "turned 90° from W2". The sentence that was the dry run's work-around is now the fact.
 - **C20 (Task 2 `Snap`, `AcrossWall` — minor): a measured angle is printed to a hundredth** ("turned 5.04°"), never "turned 5° … (within 5°)"; the tolerance itself still prints as 5°.
+- **C21 (Task 5; `BuildReceipt` — minor): words.** The executor's comment said "before anything is created"; it is before this instance is created, and the rollback takes the rest of the changeset with it. `BuildReceipt.Run`'s `gaps` is documented as the walls and types only — the door, window and block gaps are the ledger report's `skipped` (drill B1-7 reads both: `skipped` 2, `gaps` 0 is one build).
+
+Not taken from the second review: a wider "equally near" band than `HostTolMm` (the band is the executor's own tolerance, E6; a wider one trades a 2 mm guess for more "a person decides" gaps — a judgment, not a defect, left as it is); not filing a nested block that draws no curves of its own (C5 chose to read it as one and say so; telling a group from a door block that holds leaf and swing sub-blocks is a reader change for its own plan); one `Regenerate` per Rotation door (the reviewer's own advice: leave it unless drill B1-2 is slow); the Revit 2027 `NU1510` warning (not this branch's).
 
 Not taken (returned to the reviewers with the reason): moving the reader and the drawing ahead of the executor and the planner with a live B1-1 between tasks. The tasks run with no Revit and no deploy (Global constraints), and neither the executor nor the planner depends on how the reader reads a block — they work from `place.Rotation` and `GhostElement.Block`, which a DXF-parsing reader (E1's fallback) would fill the same way. Only Task 6's `AddBlocks` would be rewritten.
 
@@ -1170,6 +1173,7 @@ def ma1b(plant):
     with open(json_path, "w", newline="\n") as f:
         f.write("{\n" + ",\n".join(entry(k, v) for k, v in expected.items()) + "\n}\n")
     print(f"wrote {json_path}  ({os.path.getsize(json_path):,} bytes)")
+
 
 if __name__ == "__main__":
     if "--ma1b" in sys.argv:
@@ -2391,9 +2395,9 @@ node -e 'import("./bridge/artefact-store.mjs").then(m => { m.validateArtefact("r
 and expect `valid ruleset`. Do not install it now: the drill installs it on its scratch project.
 
 - [ ] **Step 3: Final checks.**
-  - `promote-check` `466/466` (master `395`); `ghost-p2-check` `107/107` (master `103`); `massing-check` `17/17` (master `14`).
+  - `promote-check` `473/473` after the second review's fixes (`466/466` as the tasks landed; master `395`); `ghost-p2-check` `107/107` (master `103`); `massing-check` `17/17` (master `14`).
   - `session-check` `47/47`, `wallpair-check` `9/9`, `ghost-standards-check` `147/147`, `guideline-check` `17/17`, `roi-check` `50/50`, `event-check` `44/44`, `heal-check` `9/9`, `annotate-check` `ALL PASS` and `datum-check` `DATUM OK`: as on master.
-  - From `WebApp`, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1679 passed | 1 skipped (1680)` (master `1678 passed | 1 skipped`).
+  - From `WebApp`, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1679 passed | 1 skipped (1680)` (master `1678 passed | 1 skipped`). The whole suite, `npx vitest run` (all), is larger: 136 files, 2115 passed | 1 skipped — not a difference, a superset.
   - Both builds: `0 Error(s)`, with Revit 2024 at `5 Warning(s)` and Revit 2026 at `3 Warning(s)`.
   - `graphify` is not on PATH on this PC: say so in the merge message, and move on.
 
