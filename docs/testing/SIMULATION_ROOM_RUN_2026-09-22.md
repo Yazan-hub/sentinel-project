@@ -1067,3 +1067,60 @@ Fresh copy `Documents/Sentinel drills/ma1a-s2b-scratch.rvt` bound to `demo`, tes
 - Not a code fault: in the first two Revit starts with this build, Revit ignored injected clicks for ~10 min while its UI thread
   sat at 100%; master behaved the same way at times (the spin is Revit/environment), and clicks worked on a later start of the same
   build. Recorded so a future drill does not chase it.
+
+## Session MA1a-I35 — walls level to level, the full stamp, the BLOCK check before commit, live (2026-10-02 ~15:40–16:38 local, branch feature/ma1a-items3-5 11de0ac → a9bb0d5, Claude driving Revit 2024)
+
+Setup: two fresh copies of the B35 detached model in `Documents/Sentinel drills/`. `ma1a-i34-scratch.rvt` bound to `demo` (rows I3,
+I4). `ma1a-i5-scratch.rvt` bound to the scratch web project `ma1a-block`, which holds only `demo/ghost-sample/ma1a-block-ruleset.json`
+(ruleset@1: MA1-FN-01, BLOCK, Furniture needs a Mark; MA1-LV-01, BLOCK, level-name whitelist). Worksharing was enabled on the I5
+copy and its first save made it the central **in place** (the plan said Save As `ma1a-i5-central.rvt`; file dialogs refuse typed
+names from the tool, so the copy itself became the central). Test bridge 127.0.0.1:4101 on the branch; the founder's 4100 bridge
+was not touched. Add-in `serviceUrl` and the `demo` mapping cache were switched for the session and restored after. Signed out
+(actor "unsigned — yazan"). The Ghost source folder is a project setting of the scratch copies; the PC's own setting was not
+changed. The community MCP was used read-only (element ids of grids).
+
+| Row | Result | Evidence |
+|---|---|---|
+| I3-1 a wall on a storey rises to the next storey | Ghost Builder ▸ `sample-plan.dxf`: the review's level defaulted to GR-FFL, the import's level (C8). "Placed: 6", "Walls on GR-FFL rise to 01_SSL, the next Building Story above; their tops are attached to it (GHB-2)". Wall 2069788: Base GR-FFL, offset 0, Top "Up to level: 01_SSL". Changeset 5b921ec6, audit #1301 — **pass** (UNSURE 3: `WALL_HEIGHT_TYPE` can be set in the creating transaction) | summary, Properties |
+| I3-2 slab level | Same drawing on GR_SSL: walls rise to GR-FFL (300 mm), the rule working on a template that marks slab levels as Building Story (risk F1). Changeset 82ca56b1 — **pass** | Properties |
+| I3-3 top storey | On MA0 Roof: "no Building Story above — unconnected, 3000 mm high, the storey below's height (founder decision F2)". Changeset ff556302 — **pass** | summary |
+| I3-4 a drawing imported on an upper level | `sample-plan-up.dxf` imported in a new 01-FFL plan: default level 01-FFL; wall 2070043 Base 01-FFL, Base Offset 0, Top "Up to level: MA0 Roof"; filed base 3300. Changeset 8d041755, audit #1313 — **pass** (UNSURE 2: the import's origin Z is the level's elevation) | Properties, changeset |
+| I3-5 an agent's walls | Changeset 75756bd4 (audit #1316) through Review AI Proposals: the wall with no `TopElevation` got Top "Up to level: 01_SSL"; the wall with `TopElevation` stayed Unconnected 2500 — **pass** | Properties |
+| I4-1 read a Ghost wall's stamp | Model from Drawings ▸ 5 · Provenance on wall 2069788: Source dwg; sha256 37eb3839…a8f1c4 = the sha256 of `sample-plan.dxf` (all 64 digits compared through the filed changeset's `source_sha256`); Layer A-WALL-EXT; Rule "type picked by the reviewer in Ghost's review"; Approver "unsigned — yazan (not signed in …)"; Ledger row #1301; Placed at 2026-10-02T13:43:31Z; Changeset 5b921ec6-… — **pass** | dialog |
+| I4-2 a copy-pasted wall | The pasted copy (2069865) reads "Copied, not placed by Sentinel — this stamp came with a copy of element 368f118b-…-001f951c; the lines below are that element's record, not this one's" — **pass** (UNSURE 1: Revit's copy carries the Extensible Storage entity) | dialog |
+| I4-3 Datum stamps what it creates | `sample-grids.dxf` created nothing (all five grids already exist — "kept"), so a second drawing with more grid lines was made (`ghost-up/sample-grids-more.dxf`): "Created 0 level(s) and 2 grid(s), each stamped with where it came from". Grid 7 (2070231): Source dwg; sha256 1e891f22…c6fc5986 = the file's; Layer A-GRID; Rule "Datum from Drawings: a grid line on a layer named GRID (a plan), read origin to origin"; "Ledger row: none — not on a project ledger …"; "Changeset: none" — **pass** | dialog |
+| I4-4 Photo Massing stamps | Not run: no building photos on this PC | — |
+| an agent's stamp, an unstamped element (extra) | Agent wall 2070101: Source agent; "sha256: none recorded …"; "Layer: none"; "Rule: not recorded" (the body gave no reason); Ledger row #1316. A title block: "No Sentinel provenance stamp — Sentinel did not place or change this element." A wall built from a drawing that was **already imported** reads "sha256: none recorded — … a drawing already imported in the model" (E7) | dialogs |
+| I5 baseline | Bound to `ma1a-block`: "Rule pass rate 100.0% — 5 elements", no BLOCK row, no furniture instance; `M_Desk : 1525 x 762mm` is loaded | pane |
+| I5-1 the warning, Go back | Ghost Builder ▸ `sample-plan-step2.dxf` on GR-FFL, A-FURN (M_Desk 1525 x 762mm), A-WALL-EXT and A-WALL-INT typed by hand. **Sentinel — BLOCK check**: "This batch will block your sync: 2 element(s) (MA1-FN-01)", "• MA1-FN-01: 1525 x 762mm [2069798]" ×2, "Judged by ruleset@1 — the rules a sync runs. A BLOCK rule stops the sync, not the edit." **Go back**: the review stays open, Build enabled, status "You went back at the BLOCK check — nothing was placed. 2 element(s) would have blocked your sync (MA1-FN-01). Ledger: the 1 changeset(s) already filed were withdrawn."; no Ghost entry in the Undo list; audit #1321 `changeset_proposed` + #1322 `changeset_withdrawn` (37bfbf19). Second Build: the review **can be closed** under the dialog; Go back then shows the same two lines in a "Sentinel — Ghost Builder" dialog; audit #1324 + #1325 (0744b153) — **pass** (UNSURE 4: a TaskDialog runs between transactions inside an open group; Go back leaves no element and no Undo entry) | dialogs, Undo list, audit |
+| I5-2 Place anyway | Ghost again (the picks came back as "your earlier review"), Build, **Place anyway**: "Placed: 8" (6 walls incl. the arc, 2 desks); first Warnings line "This batch will block your sync: 2 element(s) (MA1-FN-01) — placed anyway, as the person chose; a sync stops until they are fixed."; audit #1328 `changeset_applied` note carries the line (72cace73). Scan Now: 2 MA1-FN-01 BLOCK rows — **pass** | summary, audit, pane |
+| I5-3 Review AI Proposals | Level proposal 371f1b10 (audit #1329/#1330). Apply: "1 element(s) (MA1-LV-01)", "• MA1-LV-01: MA1 Test"; **Go back**: "You went back at the BLOCK check — nothing was placed. … The proposals are still pending — run Review AI Proposals again on that model." Apply again, **Place anyway**: "Applied 1 element(s) …" + the BLOCK line; audit #1331 note starts "This batch will block your sync"; no blocking Revit dialog (F-S2-1 holds). Undo list: one entry "Sentinel AI changeset: MA1a item 5 — one level [371f1b10]". Undo → #1332 `changeset_reverted` op undo; Redo → #1333 op redo — **pass** (UNSURE 5: one row each; UNSURE 6: the level is a Building Story) | dialogs, Undo list, audit |
+| I5-4 the sync is stopped as predicted | Synchronize Now: "Sentinel — Sync stopped: 3 BLOCK violation(s) (MA1-FN-01, MA1-LV-01) must be fixed before this model syncs. • MA1-FN-01: 1525 x 762mm [2069824] • MA1-FN-01: 1525 x 762mm [2069825] • MA1-LV-01: MA1 Test" — the elements I5-2 and I5-3 named. After Mark = D-01 on both desks and deleting `MA1 Test`, the sync ran (central 16:20:17; pane 100.0%, 7 elements). The central's time was 16:09:06 before the stopped sync; it was not read again between the stop and the fix — **pass**, with that one reading missing | dialog, file time |
+
+**Found in the drill and fixed on the branch (80c15d3, a9bb0d5), each re-checked live on the rebuilt add-in:**
+- **F-I35-1 the pane kept rows of elements that no longer exist.** After Go back in I5-3 the pane still listed "MA1-LV-01 BLOCK MA1 Test"
+  for a level that was never placed (two rows after the second Apply), until the next full scan. Cause: the live pane is fed by the
+  updater, which sees additions and edits inside a transaction only — never a delete, an Undo, a Redo or a rollback (older than
+  item 5; Go back made it visible). Fix: a DocumentChanged handler drops the rows of deleted ids and re-judges what an Undo or Redo
+  brings back (seen live: Undo removed the row, Redo brought it back); a rolled-back TransactionGroup names no element there (seen
+  live on 80c15d3: the row stayed), so Sentinel's own group rollbacks now go through `SentinelUndo.RollBack`, which drops the rows
+  of elements that are gone. Re-check on a9bb0d5: the row shows while the BLOCK dialog is open and is gone after Go back.
+- **F-I35-2 the Provenance dialog clipped the hash.** In I4-3 the 64 digits ended in "…" (one unbreakable word wider than the dialog),
+  so nobody could compare them. Fix: a sha256 is shown in groups of 8. Re-check: grid 7 reads
+  "1e891f22 2acf90bc 5087ab96 d66bdb2d db8442ef 0bb5d278 967828ec c6fc5986", the file's hash. (I4-1's hash was compared in full through
+  the filed changeset's `source_sha256` on the bridge, which equals the file's; that dialog had the same width.)
+- **F-I35-3 Project Setup changed a typed project key.** Typing `ma1a-block` in the Web project box became "MA1a-block": the box
+  completed the text against the projects' display names. Fix: its text search is off and the key is read from the box's text only
+  (a listed label → that project's key; anything else → as typed). Re-check: `ma1a-block` stays as typed and the model stays bound.
+
+Notes:
+- `promote-check` 231/231 after the fixes. Add-in rebuilt and deployed for Revit 2021–2027 from a9bb0d5.
+- Left on the test ledger: on `demo`, the I3/I4 changesets (rows #1301–#1316) and a change request for the new "01-FFL" plan view
+  (VN-01, a live row); on `ma1a-block`, rows #1320–#1334 plus the re-check proposals 0505c92a (applied on a model that was not
+  saved) and 66581f4f (still proposed). `ma1a-block` stays as a scratch project.
+- Revit warnings seen and kept: "Highlighted walls overlap" ×4 and "identical instances in the same place" ×1 (the sample's two
+  desks sit on one point) — Revit's non-blocking box. Filling one Mark on both desks raised Revit's own "Elements have duplicate
+  'Mark' values" dialog, which the Doctor no longer erases.
+- Revit driving: Escape did not end the Provenance pick mode (the key was not taken); picking any element ends it. Select by ID
+  needs about 3 s after the Manage tab is clicked.
+- Closed Revit without saving the I34 copy; the I5 central holds the synced state (8 placed elements, grids as before).
