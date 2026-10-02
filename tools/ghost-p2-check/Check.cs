@@ -181,6 +181,26 @@ static partial class Check
         w2.Build();
         Ok(emitted == null, "empty proposal cannot be built");
 
+        // MAS-4: Photo Massing's review — one build per click; the command closes it, or reopens it with the reason.
+        int builds = 0;
+        var massing = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate())); // constructed, never shown
+        massing.BuildRequested += _ => builds++;
+        massing.Emit();
+        massing.Emit(); // the second click of a double-click
+        Ok(builds == 1 && !massing.CanBuild && massing.StatusText == "Building the massing…",
+           "MAS-4: a double-click on Build gives one massing — Build is disabled by the first click");
+        massing.Reopen(MassingPlanner.ReopenStatus);
+        Ok(massing.CanBuild && massing.StatusText == MassingPlanner.ReopenStatus, "MAS-4: a build that kept nothing reopens the review, the reason on its status line");
+        massing.Emit();
+        Ok(builds == 2 && !massing.CanBuild, "MAS-4: after a reopen, Build builds once more");
+        // Review amendment C12: a build that never started (the subscriber threw) must not leave Build disabled for good.
+        var failing = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
+        failing.BuildRequested += _ => throw new InvalidOperationException("no plan");
+        bool threw = false;
+        try { failing.Emit(); } catch (InvalidOperationException) { threw = true; }
+        Ok(threw && failing.CanBuild && failing.StatusText == MassingPlanner.NotStarted("no plan"),
+           "MAS-4: a build that could not start reopens the review with the reason — Build works again");
+
         Honest(); // MA-1a step 1: failure rule, family-type pick, review drop-down (Honest.cs)
 
         if (Environment.GetCommandLineArgs().Contains("--live")) LiveDryRun().GetAwaiter().GetResult();

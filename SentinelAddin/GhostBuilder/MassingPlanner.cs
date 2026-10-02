@@ -156,6 +156,32 @@ namespace Sentinel.GhostBuilder
                 ? "from the vision model's estimate as corrected in the review"
                 : "from the numbers the reviewer confirmed in the review — no vision-model reading is recorded for them");
 
+        /// <summary>MAS-4: whether a build's end closes the review. It closes when the build left something in the model
+        /// (<paramref name="placed"/> &gt; 0), or when Revit has not finished the commit (<paramref name="notFinished"/>: it
+        /// may still land, so a second Build must not be offered). A refusal before the transaction (<paramref name="failed"/>:
+        /// the wrong model in front, a design option being edited, a workset the model lacks), a rollback, or a build that
+        /// placed nothing leaves the review open with the reviewer's numbers — reading the images again takes time, and the
+        /// corrections would be lost.</summary>
+        public static bool BuildKept(bool failed, bool rolledBack, bool notFinished, int placed) =>
+            !failed && !rolledBack && (notFinished || placed > 0);
+
+        /// <summary>MAS-4: the review's status line when a build ended with nothing kept.</summary>
+        public const string ReopenStatus = "Nothing was built — the reason is in the message just shown. Your numbers are kept: put it right, then Build again.";
+
+        /// <summary>MAS-4 (review amendment C12): the review's status line when the build could not start — the request threw,
+        /// or Revit did not accept it. Completed never fires then, so the window is reopened where the failure is seen.</summary>
+        public static string NotStarted(string why) => $"The build did not start ({why}). Your numbers are kept: put it right, then Build again.";
+
+        /// <summary>MAS-4: the summary's line for the selection made after a kept build. <paramref name="selected"/> is what
+        /// Revit holds selected, read back after the selection was set (review amendment C11) — not the count asked for;
+        /// <paramref name="placed"/> is how many placed elements were asked for. Both are said when they differ.</summary>
+        public static string SelectedLine(int selected, int placed) => selected == placed
+            ? $"Selected: {selected} element(s) — the massing just placed; the view zooms to them."
+            : $"Selected: {selected} of the {placed} element(s) placed — Revit holds fewer selected than were placed; the view zooms to the massing.";
+
+        /// <summary>MAS-4: the summary's line when Revit refused the selection or the zoom — the build stands.</summary>
+        public static string NotSelectedLine(string why) => $"Selected: nothing — Revit would not select the new elements ({why}); the massing is placed.";
+
         /// <summary>Fields a reviewer must confirm before building — anything `assumed` or below the bar.</summary>
         public static List<string> FieldsNeedingReview(MassingEstimate m)
         {

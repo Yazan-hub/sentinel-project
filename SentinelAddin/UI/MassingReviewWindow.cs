@@ -22,6 +22,7 @@ public sealed class MassingReviewWindow : Window
     private readonly MassingEstimate _estimate;
     private readonly Dictionary<EstimatedValue, TextBox> _fields = new();
     private readonly TextBlock _status;
+    private readonly Button _build; // MAS-4: disabled by the click that builds; Reopen enables it again
 
     /// <summary>Fires with the reviewer-corrected estimate — build exactly this.</summary>
     public event Action<MassingEstimate>? BuildRequested;
@@ -78,11 +79,11 @@ public sealed class MassingReviewWindow : Window
                 FontStyle = FontStyles.Italic, Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 0, 8),
             });
 
-        var build = new Button { Content = "Build massing ▶", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 8, 0) };
-        build.Click += (_, __) => Emit();
+        _build = new Button { Content = "Build massing ▶", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 8, 0) };
+        _build.Click += (_, __) => Emit();
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 0, 0), IsCancel = true };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-        buttons.Children.Add(build); buttons.Children.Add(cancel);
+        buttons.Children.Add(_build); buttons.Children.Add(cancel);
         panel.Children.Add(buttons);
 
         Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -119,6 +120,12 @@ public sealed class MassingReviewWindow : Window
     /// now authoritative — source="user", confidence 1 — which is what makes a photo build trustworthy.</summary>
     public void Emit()
     {
+        // MAS-4: one build per click. A second click — the other half of a double-click, or one while Revit is still
+        // placing — finds Build disabled and does nothing. The command closes this window when the build is kept, or
+        // calls Reopen when nothing was built.
+        if (!_build.IsEnabled) return;
+        _build.IsEnabled = false;
+        _status.Text = "Building the massing…";
         foreach (var kv in _fields)
         {
             if (double.TryParse(kv.Value.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out double val))
@@ -129,6 +136,26 @@ public sealed class MassingReviewWindow : Window
             }
         }
         // Re-validate so any still-out-of-range hand-entry is caught, then hand off.
-        BuildRequested?.Invoke(MassingPlanner.Validate(_estimate));
+        // Review amendment C12: a subscriber that throws (the plan, the build inputs) never reaches the command's Completed
+        // handler — the review is reopened here, with the reason, before the exception goes on as it did before.
+        try { BuildRequested?.Invoke(MassingPlanner.Validate(_estimate)); }
+        catch (Exception ex)
+        {
+            Reopen(MassingPlanner.NotStarted(ex.Message));
+            throw;
+        }
     }
+
+    /// <summary>MAS-4: the build ended with nothing kept (refused, rolled back, or nothing placed) — Build works again, the
+    /// numbers as the reviewer left them, and the status line says why.</summary>
+    public void Reopen(string status)
+    {
+        _build.IsEnabled = true;
+        _status.Text = status;
+    }
+
+    /// <summary>Whether a click on Build would build (the offline check reads it).</summary>
+    public bool CanBuild => _build.IsEnabled;
+    /// <summary>The status line under the numbers (the offline check reads it).</summary>
+    public string StatusText => _status.Text;
 }

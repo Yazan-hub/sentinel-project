@@ -32,5 +32,8 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostTypePick.cs" />
     <!-- F-S2-3 / BG-3: the global Doctor's rule — pure, no Revit API -->
     <Compile Include="..\..\SentinelAddin\Updaters\DoctorPolicy.cs" />
+    <!-- MAS-4: Photo Massing's review (WPF, no Revit API) and the planner types it shows -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\MassingPlanner.cs" />
+    <Compile Include="..\..\SentinelAddin\UI\MassingReviewWindow.cs" />
   </ItemGroup>
 </Project>

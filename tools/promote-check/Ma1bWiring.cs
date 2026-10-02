@@ -53,5 +53,18 @@ static partial class Check
            "the summary says how the placed doors sit against their blocks, from what the executor measured after the commit");
         Ok(!planner.Contains("GHB-1, MA-1b)") && Src("Commands.GhostBuilder.cs").Contains("within half its thickness of the door or window"),
            "the gap's words no longer say the snap is still to come");
+
+        string massing = Src("Commands.Massing.cs"), massingReview = Src("UI", "MassingReviewWindow.cs");
+        Ok(massingReview.Contains("if (!_build.IsEnabled) return;") && massingReview.Contains("_build.IsEnabled = false;"),
+           "MAS-4: Photo Massing's Build is disabled by the click that builds");
+        Ok(massing.Contains("MassingPlanner.BuildKept(error != null, report?.RolledBack != null, report?.NotFinished != null, report?.Placed ?? 0)")
+           && massing.Contains("if (kept) review.Close();") && massing.Contains("else review.Reopen(MassingPlanner.ReopenStatus);"),
+           "MAS-4: the command closes the review when the build is kept, and reopens it when nothing was built");
+        Ok(massing.Contains("report.NewElements.Select(n => n.Id).Where(id => uidoc.Document.GetElement(id) != null)")
+           && massing.Contains("uidoc.Selection.SetElementIds(ids);") && massing.Contains("uidoc.ShowElements(ids);")
+           && massing.Contains("MassingPlanner.SelectedLine(uidoc.Selection.GetElementIds().Count, ids.Count)"),
+           "MAS-4: what was placed and is still in the model is selected and zoomed to, and the line prints what Revit holds selected, read back");
+        Ok(massing.Contains("if (externalEvent.Raise() != ExternalEventRequest.Accepted)") && massingReview.Contains("Reopen(MassingPlanner.NotStarted(ex.Message));"),
+           "MAS-4: a build request Revit did not accept, or one that threw before it was raised, reopens the review");
     }
 }
