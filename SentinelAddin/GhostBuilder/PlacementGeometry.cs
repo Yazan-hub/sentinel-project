@@ -30,6 +30,37 @@ public static class PlacementGeometry
         return hits.Count == 1 ? hits[0] : -1;
     }
 
+    /// <summary>F-S2-2: slack (mm) on the touch test of <see cref="EndsTouching"/>.</summary>
+    public const double JoinTolMm = 1.0;
+
+    /// <summary>F-S2-2: the ends (0 = start, 1 = end) of a NEW wall that touch a wall already in the model — the new wall's end
+    /// lies within that wall's body (its plan polyline ± half its width) grown by half the new wall's width and JoinTolMm, and
+    /// the two overlap in height. Revit would auto-join them there, and a join it cannot keep declines the whole changeset, so
+    /// the executor disallows the join at those ends of the new wall only (the existing wall is never touched). The body, not
+    /// the location line alone: a wall drawn up to an existing wall's FACE ends half that wall's width from its line, and Revit
+    /// joins it all the same. The height overlap keeps the walls of the storeys above and below (same plan, other levels) from
+    /// counting. Walls of the same changeset or build are not in <paramref name="before"/>, so their corners still join.
+    /// Millimetres; bottom/top in one frame (Level.Elevation's).</summary>
+    public static List<int> EndsTouching(double x0, double y0, double x1, double y1, double halfWidth, double bottom, double top,
+                                         IEnumerable<(IReadOnlyList<double[]> Line, double HalfWidth, double Bottom, double Top)> before)
+    {
+        var near = (before ?? Enumerable.Empty<(IReadOnlyList<double[]> Line, double HalfWidth, double Bottom, double Top)>())
+            .Where(w => w.Line != null && w.Line.Count >= 2 && w.Bottom < top - JoinTolMm && w.Top > bottom + JoinTolMm).ToList();
+        bool Touches(double x, double y) => near.Any(w =>
+            Enumerable.Range(1, w.Line.Count - 1).Min(i => Distance(w.Line[i - 1][0], w.Line[i - 1][1], w.Line[i][0], w.Line[i][1], x, y))
+            <= w.HalfWidth + halfWidth + JoinTolMm);
+        var ends = new List<int>();
+        if (Touches(x0, y0)) ends.Add(0);
+        if (Touches(x1, y1)) ends.Add(1);
+        return ends;
+    }
+
+    /// <summary>F-S2-2: how far an existing wall's body reaches from its location curve (mm), the HalfWidth EndsTouching reads.
+    /// Only a Wall Centerline location line (WALL_KEY_REF_PARAM 0) sits mid-body (width / 2); a face or core line can put the
+    /// whole width on one side, so any other line, or one Sentinel cannot read (null), reaches the full width either side. The
+    /// extra reach only disallows a few more new-wall ends, never a join that should have been stopped.</summary>
+    public static double BodyReach(double width, int? locationLine) => locationLine == 0 ? width / 2 : width;
+
     /// <summary>Distance (mm) from (x, y) to the segment — clamped to its ends, so a point past a wall's end is not on it.</summary>
     internal static double Distance(double x0, double y0, double x1, double y1, double x, double y)
     {

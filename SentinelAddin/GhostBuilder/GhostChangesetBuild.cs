@@ -100,6 +100,13 @@ namespace Sentinel.GhostBuilder
 
             using var group = new TransactionGroup(doc, "Ghost Builder");
             group.Start();
+            // F-S2-1: a TransactionGroup can force modal failure handling on every transaction finished inside it, whatever that
+            // transaction's own options say (TransactionGroup.IsFailureHandlingForcedModal; its default is undocumented — drill
+            // MA1a-S2's blocking "N Warnings" OK/Cancel dialog says it was on). Off, each inner transaction's
+            // SetForcedModalHandling(false) holds: the warnings Revit keeps show in its non-blocking box, as step 1's did (S1-8).
+            // No error reaches a dialog — the all-or-nothing preprocessor rolls each one back first, so no inner commit is left
+            // Pending inside the group.
+            group.IsFailureHandlingForcedModal = false;
 
             // Nothing ran yet: roll the group back (the types too) and withdraw what was filed — no changeset is left for a
             // later review to apply.
@@ -147,6 +154,9 @@ namespace Sentinel.GhostBuilder
             {
                 // ── 1. The families and types the reviewed rows need, before anything is filed (founder decision F4) ──────────
                 var typesBefore = new HashSet<long>(new FilteredElementCollector(doc).WhereElementIsElementType().ToElementIds().Select(i => i.IdValue()));
+                // F-S2-2: the walls already in the model — a wall of this build never joins one; its own walls join each other,
+                // across its changesets too.
+                var wallsBefore = new HashSet<long>(new FilteredElementCollector(doc).OfClass(typeof(Wall)).ToElementIds().Select(i => i.IdValue()));
                 var walls = new List<(GhostElement El, LayerMapping Map, string Type, string TypedBy)>();
                 // B7: the executor's own type rules, its refusal text the gap — a type it resolves stays resolvable (no type is
                 // removed during a build), so each is asked once.
@@ -373,7 +383,7 @@ namespace Sentinel.GhostBuilder
                 var results = new List<ChangesetExecutor.ExecutionResult>();
                 foreach (var cs in filed)
                 {
-                    var res = new ChangesetExecutor().Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
+                    var res = new ChangesetExecutor { WallsBefore = wallsBefore }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
                     // ponytail: Pending inside the group — nothing is reported, and the group is disposed unfinished; the
                     // executor's all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
                     if (res.NotFinished != null)

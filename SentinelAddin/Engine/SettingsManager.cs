@@ -43,6 +43,10 @@ public sealed class SentinelSettings
     // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
     [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
 
+    // F-S2-3 / BG-3: the Revit Doctor may apply Revit's own fix to a slightly-off-axis line in this project — a DOCUMENT fact
+    // (Project Setup, project scope), honoured only when the document is bound to a web project. OFF: the Doctor only logs.
+    [JsonPropertyName("doctor_axis_fix")] public bool DoctorAxisFix { get; set; } = false;
+
     [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
 
     // An old payload's "master_ruleset_path" is ignored on read (the ruleset comes from the web project), so an
@@ -50,7 +54,7 @@ public sealed class SentinelSettings
     [JsonIgnore] public bool IsEmpty =>
         string.IsNullOrWhiteSpace(RevitTemplatePath) && string.IsNullOrWhiteSpace(ProjectCode)
         && string.IsNullOrWhiteSpace(GhostSourceFolder) && string.IsNullOrWhiteSpace(GhostFamilyLibraryDir)
-        && string.IsNullOrWhiteSpace(WebProjectKey);
+        && string.IsNullOrWhiteSpace(WebProjectKey) && !DoctorAxisFix;
 }
 
 public static class SettingsManager

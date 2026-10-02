@@ -29,5 +29,7 @@
     <!-- MA-1a step 1 (GHB-5): the failure rule and the family-type pick — pure, no Revit API -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFailurePolicy.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostTypePick.cs" />
+    <!-- F-S2-3 / BG-3: the global Doctor's rule — pure, no Revit API -->
+    <Compile Include="..\..\SentinelAddin\Updaters\DoctorPolicy.cs" />
   </ItemGroup>
 </Project>

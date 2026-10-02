@@ -1051,3 +1051,19 @@ Closed Revit without saving; BDS template sha256 78152a5f… unchanged.
   that were already there (changes only Sentinel's walls); or drop only the failing new wall, as step 1 did.
 - **F-S2-3 (founder decision, BG-3)** — the global Doctor erases "identical instances" and duplicate-Mark warnings in every
   transaction, which contradicts "warnings are counted, never erased" (P1-3).
+
+### MA1a-S2 follow-ups re-checked live (2026-10-02 ~12:24–12:43 local, branch fix/ma1a-step2-followups 28f971b, Revit 2024)
+
+Fresh copy `Documents/Sentinel drills/ma1a-s2b-scratch.rvt` bound to `demo`, test bridge 4101, settings restored after.
+- **F-S2-2 fixed:** `sample-plan-step2.dxf` on GR_SSL — declined this morning with "Can't keep elements joined … element 2051441" —
+  now builds: "Placed: 10" (6 walls incl. the arc, floor, ceiling, 2 desks), ledger 15ed12be. New walls never join a wall that
+  was already in the model (WallUtils.DisallowWallJoinAtEnd on Sentinel's own wall only).
+- **F-S2-1 fixed:** no blocking OK/Cancel dialog; Revit's non-blocking box ("Warning: 1 out of 5 — There are identical instances…").
+  Root cause: a TransactionGroup forces modal failure handling on its inner transactions (`IsFailureHandlingForcedModal`); the
+  build now turns it off.
+- **F-S2-3 fixed:** after the build and a later ordinary transaction (Project Setup save), Manage ▸ Review Warnings still lists
+  "There are identical instances in the same place" — and now also "Elements have duplicate 'Type Mark' values", which the old
+  Doctor had erased. Project Setup has the new opt-in box for Revit's own off-axis fix (default off).
+- Not a code fault: in the first two Revit starts with this build, Revit ignored injected clicks for ~10 min while its UI thread
+  sat at 100%; master behaved the same way at times (the spin is Revit/environment), and clicks worked on a later start of the same
+  build. Recorded so a future drill does not chase it.

@@ -11,6 +11,8 @@
 // MA-1a step 2: Ghost Builder's DWG builds run here too (GhostChangesetBuild): a column or furniture create (unhosted on its
 // level) and an arc wall (LocationCurve.mid). Commit-time failures go through the all-or-nothing preprocessor (a warning is
 // counted and left in the model, any error rolls the changeset back), and what survived the commit is recounted.
+// F-S2-2: a new wall never joins a wall that was already in the model (WallUtils.DisallowWallJoinAtEnd on the new wall, at
+// each end that touches one, PlacementGeometry.EndsTouching); walls of the same changeset or build still join at corners.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -44,7 +46,38 @@ public sealed class ChangesetExecutor
         public string NotFinished { get; set; }
     }
 
+    /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
+    /// it, so a wall of its first changeset still joins one of its second at a corner); null = the walls in the model when this
+    /// changeset starts. A new wall never joins one of them.
+    public ISet<long> WallsBefore { get; set; }
+
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);
+
+    // F-S2-2: the walls a new wall must not join, as PlacementGeometry.EndsTouching reads them (mm): plan polyline (the Location
+    // Line), body reach from it (PlacementGeometry.BodyReach), bottom and top (Level.Elevation's frame, as a create's BaseElevation).
+    private List<(IReadOnlyList<double[]> Line, double HalfWidth, double Bottom, double Top)> ExistingWalls(Document doc) =>
+        new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>()
+            .Where(w => w.Location is LocationCurve && (WallsBefore == null || WallsBefore.Contains(w.Id.IdValue())))
+            .Select(w =>
+            {
+                var (bottom, top) = Heights(doc, w);
+                IReadOnlyList<double[]> line = ((LocationCurve)w.Location).Curve.Tessellate().Select(p => new[] { p.X / MmToFeet, p.Y / MmToFeet }).ToList();
+                // The curve sits on the wall's Location Line, not always its centre (PlacementGeometry.BodyReach).
+                var reach = PlacementGeometry.BodyReach(w.Width / MmToFeet, w.get_Parameter(BuiltInParameter.WALL_KEY_REF_PARAM)?.AsInteger());
+                return (line, reach, bottom / MmToFeet, top / MmToFeet);
+            }).ToList();
+
+    // A wall's bottom and top (ft): its base level + offset, and its top level + offset or its unconnected height — attach's
+    // reading. An unreadable base counts as every height, so the join is disallowed rather than risked.
+    private static (double Bottom, double Top) Heights(Document doc, Wall w)
+    {
+        if (!(doc.GetElement(w.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)?.AsElementId() ?? ElementId.InvalidElementId) is Level b))
+            return (double.NegativeInfinity, double.PositiveInfinity);
+        var bottom = b.Elevation + (w.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0);
+        return (bottom, doc.GetElement(w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.AsElementId() ?? ElementId.InvalidElementId) is Level tl
+            ? tl.Elevation + (w.get_Parameter(BuiltInParameter.WALL_TOP_OFFSET)?.AsDouble() ?? 0)
+            : bottom + (w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0));
+    }
 
     private static Level ResolveLevel(Document doc, PlaceDto place)
     {
@@ -317,7 +350,10 @@ public sealed class ChangesetExecutor
                 Collect(result, el, grid);
             }
 
-            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "wall"))
+            // F-S2-2: read before this changeset's first wall exists — a level or grid above is no wall.
+            var wallCreates = toPlace.Where(e => IsCreate(e) && e.Kind == "wall").ToList();
+            var existing = wallCreates.Count > 0 ? ExistingWalls(doc) : null;
+            foreach (var el in wallCreates)
             {
                 at = Label(el);
                 var c = el.Place.LocationCurve;
@@ -334,6 +370,10 @@ public sealed class ChangesetExecutor
                 // MA-1a step 2: a curved DWG wall carries a point on its arc (LocationCurve.mid).
                 var curve = c.Mid != null ? (Curve)Arc.Create(Pt(c.Start), Pt(c.End), Pt(c.Mid)) : Line.CreateBound(Pt(c.Start), Pt(c.End));
                 var wall = Wall.Create(doc, curve, wt.Id, level.Id, heightFt, offsetFt, false, false);
+                // F-S2-2 (founder): a new wall never joins a wall that was already in the model — disallowed on the NEW wall, at
+                // each end that touches one, before any regeneration forms the join. Only Sentinel's own wall changes.
+                foreach (var end in PlacementGeometry.EndsTouching(c.Start[0], c.Start[1], c.End[0], c.End[1], wt.Width / 2 / MmToFeet, baseMm, topMm, existing))
+                    WallUtils.DisallowWallJoinAtEnd(wall, end);
                 SetMark(wall, el);
                 Collect(result, el, wall);
             }
