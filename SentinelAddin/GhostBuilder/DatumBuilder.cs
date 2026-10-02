@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Sentinel.Engine;
 
 namespace Sentinel.GhostBuilder
 {
@@ -27,6 +28,10 @@ namespace Sentinel.GhostBuilder
             public List<DetectedGrid> Grids = new();
             public int LevelsCreated, GridsCreated;
             public List<string> Warnings = new();
+            /// <summary>MA-1a item 4: the layers the levels and the grids were read from, and the drawing's sha256 when one picked
+            /// file was read (the command sets it; null when the datum came from imports already in the model).</summary>
+            public HashSet<string> LevelLayers = new(StringComparer.OrdinalIgnoreCase), GridLayers = new(StringComparer.OrdinalIgnoreCase);
+            public string SourceSha256;
         }
 
         /// <summary>
@@ -38,13 +43,14 @@ namespace Sentinel.GhostBuilder
         {
             var levelSegs = new List<Seg>();
             var gridSegs = new List<Seg>();
+            var res = new DatumResult(); // MA-1a item 4: it collects the layers read
             foreach (var import in new FilteredElementCollector(_doc).OfClass(typeof(ImportInstance))
                                         .Cast<ImportInstance>())
             {
-                CollectSegs(import, levelLayerKeyword, levelSegs);
-                CollectSegs(import, gridLayerKeyword, gridSegs);
+                CollectSegs(import, levelLayerKeyword, levelSegs, res.LevelLayers);
+                CollectSegs(import, gridLayerKeyword, gridSegs, res.GridLayers);
             }
-            return Compute(levelSegs, gridSegs, levelLayerKeyword, gridLayerKeyword);
+            return Compute(levelSegs, gridSegs, levelLayerKeyword, gridLayerKeyword, res);
         }
 
         /// <summary>
@@ -83,6 +89,7 @@ namespace Sentinel.GhostBuilder
             var levelSegs = new List<Seg>();
             var gridSegs = new List<Seg>();
             var read = new List<string>();
+            var res = new DatumResult(); // MA-1a item 4: it collects the layers read
 
             // One transaction we deliberately ROLL BACK: the temp imports exist only long enough to read.
             using var t = new Transaction(_doc, "Sentinel — read DWG datum (temporary)");
@@ -102,8 +109,8 @@ namespace Sentinel.GhostBuilder
                     {
                         _doc.Regenerate(); // make the imported geometry readable before we read it
                         int before = levelSegs.Count + gridSegs.Count;
-                        CollectSegs(imp, levelLayerKeyword, levelSegs);
-                        CollectSegs(imp, gridLayerKeyword, gridSegs);
+                        CollectSegs(imp, levelLayerKeyword, levelSegs, res.LevelLayers);
+                        CollectSegs(imp, gridLayerKeyword, gridSegs, res.GridLayers);
                         if (levelSegs.Count + gridSegs.Count > before)
                             read.Add(System.IO.Path.GetFileName(path));
                     }
@@ -114,18 +121,15 @@ namespace Sentinel.GhostBuilder
                 if (t.HasStarted() && !t.HasEnded()) t.RollBack(); // discard every temp import — leave no trace
             }
 
-            var res = Compute(levelSegs, gridSegs, levelLayerKeyword, gridLayerKeyword);
+            Compute(levelSegs, gridSegs, levelLayerKeyword, gridLayerKeyword, res);
             if (read.Count > 0) res.Warnings.Insert(0, "Datum read from: " + string.Join(", ", read));
             return res;
         }
 
-        private DatumResult Compute(List<Seg> levelSegs, List<Seg> gridSegs, string levelKw, string gridKw)
+        private DatumResult Compute(List<Seg> levelSegs, List<Seg> gridSegs, string levelKw, string gridKw, DatumResult res)
         {
-            var res = new DatumResult
-            {
-                Levels = DatumFromDrawing.Levels(levelSegs),
-                Grids = DatumFromDrawing.Grids(gridSegs),
-            };
+            res.Levels = DatumFromDrawing.Levels(levelSegs);
+            res.Grids = DatumFromDrawing.Grids(gridSegs);
             if (res.Levels.Count == 0)
                 res.Warnings.Add($"No level lines found on a '*{levelKw}*' layer in the drawing(s) read — levels come from a section export.");
             if (res.Grids.Count == 0)
@@ -154,10 +158,27 @@ namespace Sentinel.GhostBuilder
             t.Start();
             try
             {
+                // MA-1a item 4: each level and grid it creates carries the full stamp — source dwg, no changeset, no ledger row
+                // until item 7 — inside this transaction, so Ctrl+Z removes it with them.
+                // Final review: "read origin to origin" is Sentinel's own import of the picked file (DetectFromFiles; the command
+                // sets its sha). Imports already in the model (Detect) were placed by someone else — nothing is claimed for them.
+                string how = detected.SourceSha256 != null ? ", read origin to origin" : "";
+                var levelFacts = new ProvenanceStamp.Facts { Layer = Layers(detected.LevelLayers), SourceSha256 = detected.SourceSha256,
+                    Rule = "Datum from Drawings: a level line's height on a layer named LEVEL or LEVL (a section)" + how };
+                var gridFacts = new ProvenanceStamp.Facts { Layer = Layers(detected.GridLayers), SourceSha256 = detected.SourceSha256,
+                    Rule = "Datum from Drawings: a grid line on a layer named GRID (a plan)" + how };
                 foreach (var lv in detected.Levels)
-                    if (CreateLevel(lv, detected.Warnings)) detected.LevelsCreated++;
+                    if (CreateLevel(lv, detected.Warnings) is Level level)
+                    {
+                        detected.LevelsCreated++;
+                        ProvenanceStamp.Write(level, null, "dwg", null, levelFacts);
+                    }
                 foreach (var g in detected.Grids)
-                    if (CreateGrid(g, detected.Warnings)) detected.GridsCreated++;
+                    if (CreateGrid(g, detected.Warnings) is Grid grid)
+                    {
+                        detected.GridsCreated++;
+                        ProvenanceStamp.Write(grid, null, "dwg", null, gridFacts);
+                    }
                 t.Commit();
             }
             catch
@@ -170,7 +191,7 @@ namespace Sentinel.GhostBuilder
 
         // --- Revit reads -----------------------------------------------------------------------------
 
-        private void CollectSegs(ImportInstance import, string layerKeyword, List<Seg> into)
+        private void CollectSegs(ImportInstance import, string layerKeyword, List<Seg> into, HashSet<string> layers)
         {
             if (string.IsNullOrWhiteSpace(layerKeyword)) return;
             GeometryElement geo = import.get_Geometry(new Options { ComputeReferences = false });
@@ -178,13 +199,14 @@ namespace Sentinel.GhostBuilder
             foreach (GeometryObject obj in geo)
             {
                 if (obj is GeometryInstance gi)
-                    foreach (GeometryObject n in gi.GetInstanceGeometry()) AddIfOnLayer(n, layerKeyword, into);
+                    foreach (GeometryObject n in gi.GetInstanceGeometry()) AddIfOnLayer(n, layerKeyword, into, layers);
                 else
-                    AddIfOnLayer(obj, layerKeyword, into);
+                    AddIfOnLayer(obj, layerKeyword, into, layers);
             }
         }
 
-        private void AddIfOnLayer(GeometryObject o, string layerKeyword, List<Seg> into)
+        // MA-1a item 4: a layer that gave a line is recorded for the stamp (layers).
+        private void AddIfOnLayer(GeometryObject o, string layerKeyword, List<Seg> into, HashSet<string> layers)
         {
             string layer = LayerOf(o);
             if (layer == null || !LayerMatches(layer, layerKeyword)) return;
@@ -193,14 +215,19 @@ namespace Sentinel.GhostBuilder
             {
                 case Line line:
                     into.Add(ToSeg(line.GetEndPoint(0), line.GetEndPoint(1)));
+                    layers.Add(layer);
                     break;
                 case PolyLine poly:
                     var pts = poly.GetCoordinates();
                     for (int i = 0; i < pts.Count - 1; i++) into.Add(ToSeg(pts[i], pts[i + 1]));
+                    layers.Add(layer);
                     break;
                 // arcs/splines aren't level or grid datums — ignore
             }
         }
+
+        private static string Layers(HashSet<string> layers) =>
+            layers.Count == 0 ? null : string.Join(", ", layers.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
 
         // AIA layer naming abbreviates "LEVEL" to "-LEVL" (e.g. A-ANNO-LEVL); a plain "LEVEL" substring
         // check never matches those. Accept either spelling for the level keyword — but not the bare "LEV"
@@ -228,7 +255,8 @@ namespace Sentinel.GhostBuilder
 
         // --- Revit writes ----------------------------------------------------------------------------
 
-        private bool CreateLevel(DetectedLevel lv, List<string> warnings)
+        // The level created, or null when one at that height is kept (MA-1a item 4: the caller stamps what it created).
+        private Level CreateLevel(DetectedLevel lv, List<string> warnings)
         {
             double elevFt = lv.ElevationMm * MmToFeet;
             var existing = new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>()
@@ -236,11 +264,11 @@ namespace Sentinel.GhostBuilder
             if (existing != null)
             {
                 warnings.Add($"Level at {lv.ElevationMm:0} mm already exists ('{existing.Name}') — kept.");
-                return false;
+                return null;
             }
             var level = Level.Create(_doc, elevFt);
             try { level.Name = UniqueLevelName(lv.Name, level.Id); } catch { /* name clash/illegal — leave default */ }
-            return true;
+            return level;
         }
 
         // Revit auto-names a new level by incrementing the last one ("Level 1" -> "Level 2"), so the level
@@ -255,14 +283,15 @@ namespace Sentinel.GhostBuilder
             for (int i = 2; ; i++) if (!taken.Contains($"{want} ({i})")) return $"{want} ({i})";
         }
 
-        private bool CreateGrid(DetectedGrid g, List<string> warnings)
+        // The grid created, or null when it is skipped or kept (MA-1a item 4: the caller stamps what it created).
+        private Grid CreateGrid(DetectedGrid g, List<string> warnings)
         {
             XYZ p1 = new XYZ(g.X1 * MmToFeet, g.Y1 * MmToFeet, 0);
             XYZ p2 = new XYZ(g.X2 * MmToFeet, g.Y2 * MmToFeet, 0);
             if (p1.DistanceTo(p2) < _doc.Application.ShortCurveTolerance)
             {
                 warnings.Add($"Grid '{g.Name}' too short to create — skipped.");
-                return false;
+                return null;
             }
             // A grid name must be unique; Revit throws on a clash. Skip if the label's taken.
             var taken = new FilteredElementCollector(_doc).OfClass(typeof(Grid)).Cast<Grid>()
@@ -270,11 +299,11 @@ namespace Sentinel.GhostBuilder
             if (taken.Contains(g.Name))
             {
                 warnings.Add($"Grid '{g.Name}' already exists — kept.");
-                return false;
+                return null;
             }
             var grid = Grid.Create(_doc, Line.CreateBound(p1, p2));
             try { grid.Name = g.Name; } catch { /* clash/illegal — Revit auto-named it */ }
-            return true;
+            return grid;
         }
     }
 }

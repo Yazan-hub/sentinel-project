@@ -57,6 +57,15 @@ static class Check
         var review = MassingPlanner.FieldsNeedingReview(lowc);
         Ok(review.Contains("storey height"), "review list flags the low-confidence field");
 
+        // Final review, MA-1a item 4 (E7): the images are a build's source only while it holds a number the vision model gave.
+        bool before = MassingPlanner.HasModelValue(m);
+        foreach (var v in new[] { m.FootprintWidthMm, m.FootprintDepthMm, m.Storeys, m.StoreyHeightMm }.Concat(m.Openings.SelectMany(o => new[] { o.WidthMm, o.HeightMm })))
+            v.Source = "user"; // the reviewer replaced every number
+        Ok(before && !MassingPlanner.HasModelValue(empty) && !MassingPlanner.HasModelValue(MassingPlanner.Validate(m)) && !MassingPlanner.HasModelValue(null)
+           && MassingPlanner.StampRule("Walls on 'A-WALL-EXT'", true).EndsWith("from the vision model's estimate as corrected in the review")
+           && MassingPlanner.StampRule("Walls on 'A-WALL-EXT'", false).Contains("the numbers the reviewer confirmed") && !MassingPlanner.StampRule("x", false).Contains("estimate"),
+           "an estimate the vision model gave nothing for (Ollama down), or one the reviewer replaced, names no images: its stamp's rule says the numbers are the reviewer's");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

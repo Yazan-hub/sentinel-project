@@ -441,11 +441,19 @@ public sealed class GhostReviewWindow : Window
         var ticked = Ticked();
         if (ticked.Count == 0) { _status.Text = "Nothing ticked — tick at least one layer first."; return; }
 
-        _build.IsEnabled = false;              // one build per review; the window closes when it completes
+        _build.IsEnabled = false;              // one build at a time; the window closes when it completes, or Reopen (MA-1a item 5)
         _status.Text = $"Building {ticked.Count} layer(s)…";
         long levelId = (_levelBox.SelectedItem as LevelChoice)?.Id ?? -1;
         BuildRequested?.Invoke(new MappingResult { Mappings = ticked }, levelId);
     }
 
     public void SetStatus(string text) => Dispatcher.Invoke(() => _status.Text = text);
+
+    /// <summary>MA-1a item 5: the person went back at the BLOCK check — nothing was built; the review takes another Build.
+    /// UI thread.</summary>
+    public void Reopen(string status)
+    {
+        UpdateStatus(); // the Build button again, for the rows still ticked
+        _status.Text = status;
+    }
 }

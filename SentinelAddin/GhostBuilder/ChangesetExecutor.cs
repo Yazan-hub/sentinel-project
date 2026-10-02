@@ -13,6 +13,14 @@
 // counted and left in the model, any error rolls the changeset back), and what survived the commit is recounted.
 // F-S2-2: a new wall never joins a wall that was already in the model (WallUtils.DisallowWallJoinAtEnd on the new wall, at
 // each end that touches one, PlacementGeometry.EndsTouching); walls of the same changeset or build still join at corners.
+// MA-1a item 3 (GHB-2): a wall create with no TopElevation rises to the next Building Story above its base, its top constrained
+// there at offset 0 (PromoteWallsPlanner.WallTop — Promote's attach rule); on the top story it is unconnected at the storey
+// below's height; with neither it is refused by name. An explicit TopElevation stays unconnected, as reviewed. With no
+// BaseElevation the base is the level itself. Item 4: the stamp also carries the changeset's proposal row on the ledger, the
+// approver and the time, and — from the IN-PROCESS caller only (Provenance, as WallsBefore; review amendment C1) — the
+// element's layer, rule and source file. A changeset element's own provenance field is the bridge's record and is never read
+// here: anyone who can file a changeset could write it. With no rule of the caller's, the rule is the element's reason,
+// marked as its proposer's (C2).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -44,6 +52,9 @@ public sealed class ChangesetExecutor
         /// A6: Commit returned neither Committed nor RolledBack (Pending, …) — Revit may still finish or drop it, so nothing is
         /// reported and nothing recounted; this is the whole result.
         public string NotFinished { get; set; }
+        /// MA-1a item 5: the BLOCK check's line — placed anyway with N element(s) that will block a sync, or why BLOCK rules
+        /// were not checked; null when none can fire. Set by ChangesetPlacementEvent; it rides on the result's note.
+        public string Block { get; set; }
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
@@ -51,7 +62,19 @@ public sealed class ChangesetExecutor
     /// changeset starts. A new wall never joins one of them.
     public ISet<long> WallsBefore { get; set; }
 
+    /// MA-1a item 4 (review amendment C1): what the in-process caller knows of the elements it filed, by proposal_guid — the
+    /// layer, the rule that typed it, the source file's sha256 (Ghost Builder sets it, as it sets WallsBefore). Null, or no
+    /// entry = none (Review AI Proposals, Promote). The only place a stamp's layer, rule and sha come from: el.Provenance, which
+    /// the bridge returned, is never read.
+    public IReadOnlyDictionary<string, ProvenanceStamp.Facts> Provenance { get; set; }
+
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);
+
+    /// MA-1a item 3: the model's levels as the next-story rule reads them — the one projection (review amendment C6): the
+    /// executor's wall top, Ghost's planner and Promote all read it.
+    internal static List<LevelFact> Stories(Document doc) => new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+        .Select(l => new LevelFact { Name = l.Name, ElevationMm = l.Elevation / MmToFeet, IsStory = l.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.AsInteger() == 1 })
+        .ToList();
 
     // F-S2-2: the walls a new wall must not join, as PlacementGeometry.EndsTouching reads them (mm): plan polyline (the Location
     // Line), body reach from it (PlacementGeometry.BodyReach), bottom and top (Level.Elevation's frame, as a create's BaseElevation).
@@ -353,14 +376,28 @@ public sealed class ChangesetExecutor
             // F-S2-2: read before this changeset's first wall exists — a level or grid above is no wall.
             var wallCreates = toPlace.Where(e => IsCreate(e) && e.Kind == "wall").ToList();
             var existing = wallCreates.Count > 0 ? ExistingWalls(doc) : null;
+            List<LevelFact> stories = null; // read once, when the first wall needs its top (after this changeset's levels exist)
             foreach (var el in wallCreates)
             {
                 at = Label(el);
                 var c = el.Place.LocationCurve;
                 var level = ResolveLevel(doc, el.Place);
                 var wt = ResolveWallType(doc, el.Place.TypeName);
-                var baseMm = el.Place.BaseElevation ?? 0;
-                var topMm = el.Place.TopElevation ?? (baseMm + 3000);
+                // MA-1a item 3 (GHB-2): the base is BaseElevation, or the level itself (0 mm put a named level's wall at minus its
+                // elevation). The top is TopElevation, unconnected, as reviewed; else the next Building Story above the base,
+                // constrained there; on the top story, unconnected at the storey below's height (founder decision F2); else a
+                // refusal in words — never a constant.
+                var baseMm = el.Place.BaseElevation ?? level.Elevation / MmToFeet;
+                Level topLevel = null;
+                double topMm;
+                if (el.Place.TopElevation is double sent) topMm = sent;
+                else
+                {
+                    var top = PromoteWallsPlanner.WallTop(stories ??= Stories(doc), baseMm, level.Name, out var why)
+                              ?? throw new InvalidOperationException($"wall \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\": {why}");
+                    topMm = top.TopMm;
+                    if (top.TopLevel != null) topLevel = LevelNamed(doc, top.TopLevel);
+                }
                 // An inverted/zero height is a broken proposal — fail the changeset honestly rather
                 // than silently placing a coerced wall that doesn't match what was reviewed.
                 if (topMm <= baseMm)
@@ -370,6 +407,12 @@ public sealed class ChangesetExecutor
                 // MA-1a step 2: a curved DWG wall carries a point on its arc (LocationCurve.mid).
                 var curve = c.Mid != null ? (Curve)Arc.Create(Pt(c.Start), Pt(c.End), Pt(c.Mid)) : Line.CreateBound(Pt(c.Start), Pt(c.End));
                 var wall = Wall.Create(doc, curve, wt.Id, level.Id, heightFt, offsetFt, false, false);
+                if (topLevel != null)
+                {
+                    // Attach's own two parameters (MA-0, live on Revit 2024): the top follows the story level from now on.
+                    Set(wall, BuiltInParameter.WALL_HEIGHT_TYPE, topLevel.Id);
+                    Set(wall, BuiltInParameter.WALL_TOP_OFFSET, 0.0);
+                }
                 // F-S2-2 (founder): a new wall never joins a wall that was already in the model — disallowed on the NEW wall, at
                 // each end that touches one, before any regeneration forms the join. Only Sentinel's own wall changes.
                 foreach (var end in PlacementGeometry.EndsTouching(c.Start[0], c.Start[1], c.End[0], c.End[1], wt.Width / 2 / MmToFeet, baseMm, topMm, existing))
@@ -562,8 +605,14 @@ public sealed class ChangesetExecutor
             // The stamp: once per element, with every guid of this changeset that touched it, merged onto the element's
             // earlier stamp (one entity per schema) — inside this transaction, so Ctrl+Z removes it too.
             at = "the provenance stamp";
+            // MA-1a item 4: plus the changeset's proposal row on the ledger (null for a local changeset); the approver and the
+            // time are the writer's (ProvenanceStamp.Write). C1: the layer, rule and source file are the in-process caller's
+            // (Provenance) — never el.Provenance, which came back from the bridge. C2: the element's own reason goes with them,
+            // and is the stamp's rule, marked as the proposer's, when the caller gave none.
+            var ledgerRow = cs.Adjudication?.LedgerRow;
             foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId))
-                ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid));
+                ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid),
+                    ProvenanceStamp.ForChangeset(Provenance, g.Select(a => (a.ProposalGuid, toPlace.First(e => e.ProposalGuid == a.ProposalGuid).Reason)), ledgerRow));
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
             // the collected ids then would be the "some failed silently" lie this file forbids.
             var status = t.Commit();

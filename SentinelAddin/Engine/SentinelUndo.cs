@@ -14,9 +14,18 @@ public static class SentinelUndo
         g.Start();
         bool keep;
         try { keep = body(); }
-        catch { if (g.HasStarted()) g.RollBack(); throw; }
-        if (keep) g.Assimilate(); else g.RollBack();
+        catch { RollBack(g, doc); throw; }
+        if (keep) g.Assimilate(); else RollBack(g, doc);
         return keep;
+    }
+
+    /// <summary>Rolls an open group back and lets the pane drop the rows of the elements that went with it
+    /// (SentinelUpdater.DropGone: Revit names no element for a rolled-back group). A group that is not open is left alone.</summary>
+    public static void RollBack(TransactionGroup g, Document doc)
+    {
+        if (!g.HasStarted() || g.HasEnded()) return;
+        g.RollBack();
+        Sentinel.Updaters.SentinelUpdater.DropGone(doc);
     }
 
     public static void Preview(Document doc, string name, Action body)
@@ -24,6 +33,6 @@ public static class SentinelUndo
         using var g = new TransactionGroup(doc, "Sentinel: " + name);
         g.Start();
         try { body(); }
-        finally { if (g.HasStarted()) g.RollBack(); }
+        finally { RollBack(g, doc); }
     }
 }

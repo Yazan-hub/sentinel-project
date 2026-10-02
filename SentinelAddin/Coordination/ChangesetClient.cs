@@ -84,6 +84,16 @@ public sealed class ValidateDto
     [JsonPropertyName("identity")] public IdentityDto Identity { get; set; }
 }
 
+/// <summary>MA-1a item 4: where an element came from, as its placer knows it — the CAD layer, the rule that typed it, the
+/// source file's sha256. The bridge keeps it as filed, as a record. Review amendment C1: the executor never reads it back
+/// from a changeset the bridge returned — an element's stamp takes these facts from its in-process placer only.</summary>
+public sealed class ProvenanceDto
+{
+    [JsonPropertyName("layer")] public string Layer { get; set; }
+    [JsonPropertyName("rule")] public string Rule { get; set; }
+    [JsonPropertyName("source_sha256")] public string SourceSha256 { get; set; }
+}
+
 public sealed class ChangesetElementDto
 {
     [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
@@ -95,6 +105,9 @@ public sealed class ChangesetElementDto
     [JsonPropertyName("validate")] public ValidateDto Validate { get; set; }
     [JsonPropertyName("place")] public PlaceDto Place { get; set; }
     [JsonPropertyName("verdict")] public ElementVerdictDto Verdict { get; set; }
+    /// <summary>MA-1a item 4: the filed record; null for an agent's or Promote's element (they name no drawing). Never what
+    /// the stamp is written from (C1).</summary>
+    [JsonPropertyName("provenance")] public ProvenanceDto Provenance { get; set; }
 }
 
 public sealed class AdjudicationDto
@@ -102,6 +115,12 @@ public sealed class AdjudicationDto
     [JsonPropertyName("verdict")] public string Verdict { get; set; }
     [JsonPropertyName("ids_source")] public string IdsSource { get; set; }
     [JsonPropertyName("unattributed")] public List<JsonElement> Unattributed { get; set; } = new();
+    /// <summary>MA-1a item 4: the changeset's proposal row on the ledger ("Proposal &lt;verdict&gt;"; the bridge stores it as
+    /// adjudication.audit_id). Read as it comes — a number from the ledger, null on a local changeset or an older bridge — so
+    /// an odd value never breaks reading the changeset.</summary>
+    [JsonPropertyName("audit_id")] public JsonElement? AuditId { get; set; }
+    /// <summary>The ledger_row of every element this changeset places: the audit id as text, or null.</summary>
+    [JsonIgnore] public string LedgerRow => AuditId is { ValueKind: JsonValueKind.Number or JsonValueKind.String } a ? a.ToString() : null;
 }
 
 public sealed class ChangesetDto

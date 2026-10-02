@@ -24,6 +24,9 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFailurePolicy.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ProvenanceStamp.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\UndoWatcher.cs" />
+    <!-- MA-1a item 5: the BLOCK check's diff and words, over the rule engine's Violation -->
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\BlockCheck.cs" />
     <!-- the DTOs a filed body is read back into, and the write options Propose serialises with -->
     <Compile Include="..\..\SentinelAddin\Coordination\ChangesetClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />

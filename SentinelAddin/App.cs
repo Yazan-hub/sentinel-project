@@ -91,6 +91,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
                 app.ControlledApplication.DocumentChanged += UndoWatcher.OnChanged; // MA-0: an Undo of a Sentinel changeset → a ledger row
+                app.ControlledApplication.DocumentChanged += SentinelUpdater.OnDocumentChanged; // the pane drops rows of deleted, undone or rolled-back elements
                 app.ViewActivated += OnViewActivated; // the pane follows the active document
 
                 // 'Revit Doctor': global native-warning interception
@@ -123,6 +124,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
         app.ControlledApplication.DocumentChanged -= UndoWatcher.OnChanged;
+        app.ControlledApplication.DocumentChanged -= SentinelUpdater.OnDocumentChanged;
         app.ViewActivated -= OnViewActivated;
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
         SentinelUpdater.UnregisterAll();
@@ -233,10 +235,10 @@ public sealed class App : IExternalApplication
         var doc = e.Document;
         if (doc is null || doc.IsFamilyDocument) return;
         if (!CdeBeforeSync(e, doc)) return; // the sync is stopped
-        if (Engine is not { } engine || !engine.Has(doc)) return;
-        if (!engine.RulesetFor(doc).Rules.Any(r => r.Mode == EnforcementMode.Block)) return; // nothing can block: no pre-sync scan
-        var report = engine.ScanFull(doc);
-        var all = report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
+        // MA-1a item 5 (review amendment C7): the one BLOCK gate, the same call the check before commit makes — null when
+        // nothing can block (the ruleset has not loaded, or holds no BLOCK rule): no pre-sync scan.
+        if (BlockCheck.Rows(doc) is not { } report) return;
+        var all =report.Violations.Where(v => v.Mode == EnforcementMode.Block).ToList();
         if (all.Count == 0) return;
         // Only what THIS user can fix stops THIS sync: in a workshared model an element another user owns is listed,
         // never blocking — otherwise two users could block each other's syncs with no way out.
@@ -491,6 +493,8 @@ public sealed class App : IExternalApplication
             "Create the WIP plan views prescribed by the `views` section of the guideline installed on this document's web project (or its office), named guideline@n with source and sha: one per plannable entry per level, templated and routed into the office Project Browser structure. Idempotent. No guideline installed = nothing to plan.");
         Sub(chain, "Sentinel_PromoteWalls", "4 · Promote (DD)", "Sentinel.Commands.PromoteWallsCommand", "ghost",
             "Promote this model's walls, floors, roofs, ceilings, doors and windows to DD by the guideline, type catalogue and LOD matrix installed on its web project (or its office): retype to the exact catalogue type already loaded here, swap doors and windows to an office family type keeping their host, attach wall tops to story levels, and send every ambiguous element to a person with its reason. With no LOD matrix, walls only. Shows the plan first (No = read-only); files one reviewed changeset per storey. No type is ever created; each change is stamped, and an Undo of it is recorded on the ledger.");
+        Sub(chain, "Sentinel_Provenance", "5 · Provenance", "Sentinel.Commands.ProvenanceCommand", "ghost",
+            "Read where the selected (or picked) element came from — Sentinel's provenance stamp: source, source file sha256, CAD layer, the rule that typed it, the approver, the ledger row and the time. A stamp that came with a copy reads \"copied, not placed by Sentinel\". Reads only.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Counts from this document's web project ledger — delivery gate runs, naming renames, family heals — priced only by the roi standard installed on the project (or its office); what writes no ledger row is listed as not counted.");
     }

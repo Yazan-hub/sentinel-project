@@ -11,10 +11,14 @@
 //      build added it).
 // Before filing, the plan turns into named gaps whatever the executor would refuse by rule (a missing or ambiguous type, a
 // placeholder name, a door with no single straight wall of this build under it, a family of the wrong kind or host, a run
-// too short to be a wall), so one bad row is not a whole-build decline. The type rules are the executor's own (B7). Whatever
+// too short to be a wall, a wall with no Building Story above it and no storey below — MA-1a item 3), so one bad row is not
+// a whole-build decline. The type rules are the executor's own (B7). Whatever
 // Revit itself refuses still rolls the whole group back: nothing is left — no element, no type, no family. Every
 // transaction of the build counts Revit's warnings and rolls back on any error (B1). API thread only
 // (GhostBuilderPlacementEvent).
+// MA-1a item 5: when the ruleset has a BLOCK rule, the build is scanned before step 1 and again after step 3 (the documents'
+// values included), with the group still open; if it adds BLOCK rows the person is asked "This batch will block your sync: N
+// element(s)" — Go back abandons the build (nothing placed, filed changesets withdrawn) and the review stays open.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -43,6 +47,13 @@ namespace Sentinel.GhostBuilder
             public string Key = "";
             /// <summary>The drawing's name, for the changeset names.</summary>
             public string Drawing;
+            /// <summary>MA-1a item 3: the DWG import's own Z (ft) — the drawing's Z is read from it (GhostFiling.WallBase).</summary>
+            public double ImportZFt;
+            /// <summary>MA-1a item 4: the drawing file's sha256 when this run imported it; null when the import was already in the
+            /// model (it may be older than the file — GHB-3) or was picked from the model (no file).</summary>
+            public string SourceSha256;
+            /// <summary>MA-1a item 4: the guideline and layers standards as the review header names them (artefact labels).</summary>
+            public string GuidelineLabel, LayersLabel;
         }
 
         private const double FtToMm = 304.8;
@@ -112,7 +123,7 @@ namespace Sentinel.GhostBuilder
             // later review to apply.
             GhostPlacementEngine.PlacementReport Abandon(string line)
             {
-                if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                SentinelUndo.RollBack(group, doc);
                 var kept = new List<string>();
                 if (bound) foreach (var cs in filed) if (!ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _)) kept.Add(Short(cs.Id));
                 report.NotBuilt = line;
@@ -126,7 +137,7 @@ namespace Sentinel.GhostBuilder
             // result the bridge does not take is withdrawn instead, and one that is neither is named — it is still proposed.
             GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)
             {
-                if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                SentinelUndo.RollBack(group, doc);
                 int recorded = 0;
                 var withdrawn = new List<string>();
                 var kept = new List<string>();
@@ -150,8 +161,11 @@ namespace Sentinel.GhostBuilder
                 return report;
             }
 
+            ScanReport blockBefore = null; // MA-1a item 5: the BLOCK rows before the build; null = nothing can block it
+            string blockNote = null, blockLine = null;
             try
             {
+                blockBefore = BlockCheck.Before(doc, out blockNote);
                 // ── 1. The families and types the reviewed rows need, before anything is filed (founder decision F4) ──────────
                 var typesBefore = new HashSet<long>(new FilteredElementCollector(doc).WhereElementIsElementType().ToElementIds().Select(i => i.IdValue()));
                 // F-S2-2: the walls already in the model — a wall of this build never joins one; its own walls join each other,
@@ -221,10 +235,40 @@ namespace Sentinel.GhostBuilder
                 var arcs = new List<Curve>();                                                                         // this build's curved walls (ft)
                 var seq = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 int Next(string layer) => seq[layer] = seq.TryGetValue(layer, out int k) ? k + 1 : 1;
+                // MA-1a item 4: what the stamp records beyond the layer (GhostFiling) — the rule that typed it and the drawing's sha.
+                ChangesetElementDto Prov(ChangesetElementDto dto, LayerMapping map, string typedBy)
+                {
+                    dto.Provenance.Rule = GhostFiling.Rule(typedBy, map.Source, r.GuidelineLabel, r.LayersLabel);
+                    dto.Provenance.SourceSha256 = r.SourceSha256;
+                    return dto;
+                }
 
+                // MA-1a item 3 (GHB-2): each wall's top is the executor's next-story rule, checked here, so a wall it would refuse is a
+                // named gap, never a whole-build decline; one line per answer says where the walls go. C6: the executor's own
+                // reading of the model's levels.
+                var stories = ChangesetExecutor.Stories(doc);
+                var tops = new HashSet<string>();
                 foreach (var (el, map, type, typedBy) in walls)
                 {
-                    var (baseMm, topMm) = GhostFiling.WallElevations(levelMm, el.BaseElevation, el.TopElevation, tolFt);
+                    double baseMm = GhostFiling.WallBase(levelMm, el.BaseElevation, r.ImportZFt);
+                    var top = PromoteWallsPlanner.WallTop(stories, baseMm, level.Name, out string topWhy);
+                    if (top == null)
+                    {
+                        report.WallGaps++;
+                        report.Warnings.Add($"Walls on '{el.CadLayer}': {topWhy}; skipped.");
+                        continue;
+                    }
+                    // Final review: a wall drawn below the build level would rise only to the build level itself — a named gap,
+                    // said once per layer and distance, never filed (a stub, or a height Revit refuses, which declines the build).
+                    if (GhostFiling.BelowLevelGap(level.Name, levelMm, baseMm, top.Value.TopLevel) is string below)
+                    {
+                        report.WallGaps++;
+                        tops.Add($"Walls on '{el.CadLayer}': {below}; skipped.");
+                        continue;
+                    }
+                    tops.Add(top.Value.TopLevel != null
+                        ? $"Walls on {level.Name} rise to {top.Value.TopLevel}, the next Building Story above; their tops are attached to it (GHB-2)."
+                        : $"Walls on {level.Name}: no Building Story above — unconnected, {top.Value.TopMm - baseMm:0} mm high, the storey below's height (founder decision F2).");
                     var runs = el.LocationCurve != null && el.LocationCurve.IsBound ? new List<Curve> { el.LocationCurve }
                              : (el.LocationLoop ?? new List<Curve>()).Where(c => c != null && c.IsBound).ToList();
                     int filedRuns = 0;
@@ -236,7 +280,7 @@ namespace Sentinel.GhostBuilder
                                                   m == null ? null : new[] { m.X * FtToMm, m.Y * FtToMm }, baseMm, tolFt * FtToMm);
                         if (run == null) continue;
                         int n = Next(el.CadLayer);
-                        plan.Add(new Planned { Map = map, What = $"Walls on '{el.CadLayer}'", Dto = GhostFiling.Wall(el.CadLayer, n, typedBy, type, level.Name, run, baseMm, topMm) });
+                        plan.Add(new Planned { Map = map, What = $"Walls on '{el.CadLayer}'", Dto = Prov(GhostFiling.Wall(el.CadLayer, n, typedBy, type, level.Name, run, baseMm), map, typedBy) });
                         if (m == null) straight.Add(($"{el.CadLayer} #{n} (this build)", level.Name, run.Start[0], run.Start[1], run.End[0], run.End[1]));
                         else arcs.Add(c);
                         filedRuns++;
@@ -246,6 +290,7 @@ namespace Sentinel.GhostBuilder
                     }
                     if (filedRuns == 0) report.SkippedNoGeometry++;
                 }
+                report.Warnings.AddRange(tops);
 
                 // The executor's own host rule, checked before filing: the one straight basic wall under the point, among the
                 // model's and this build's — and no curved, curtain or stacked wall passing it. B2 (F9 A): only a wall this
@@ -298,13 +343,14 @@ namespace Sentinel.GhostBuilder
                         }
                         var corners = loop.Select(c => c.GetEndPoint(0)).ToList();
                         if (k.Kind == "floor")
-                            plan.Add(new Planned { Map = map, What = what, Dto = GhostFiling.Floor(el.CadLayer, Next(el.CadLayer), name, level.Name,
-                                corners.Select(p => new[] { p.X * FtToMm, p.Y * FtToMm, p.Z * FtToMm }).ToList()) });
+                            plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Floor(el.CadLayer, Next(el.CadLayer), name, level.Name,
+                                corners.Select(p => new[] { p.X * FtToMm, p.Y * FtToMm, p.Z * FtToMm }).ToList()), map, null) });
                         else
                         {
-                            double offsetMm = corners[0].Z * FtToMm; // F7: the drawing's height above the build level
-                            plan.Add(new Planned { Map = map, What = what, Dto = GhostFiling.Ceiling(el.CadLayer, Next(el.CadLayer), name, level.Name,
-                                corners.Select(p => new[] { p.X * FtToMm, p.Y * FtToMm }).ToList(), offsetMm) });
+                            // F7: the drawing's height above the build level — measured from the import's own Z (MA-1a item 3), as walls are.
+                            double offsetMm = (corners[0].Z - r.ImportZFt) * FtToMm;
+                            plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Ceiling(el.CadLayer, Next(el.CadLayer), name, level.Name,
+                                corners.Select(p => new[] { p.X * FtToMm, p.Y * FtToMm }).ToList(), offsetMm), map, null) });
                             report.Warnings.Add($"Ceilings on '{el.CadLayer}' are placed {offsetMm:0} mm above {level.Name}, the drawing's height (founder decision F7) — set the ceiling height where the drawing gives none.");
                         }
                         continue;
@@ -347,7 +393,7 @@ namespace Sentinel.GhostBuilder
                         report.Warnings.Add($"{what}: {hostWhy} — not filed (snapping DWG door blocks onto walls is GHB-1, MA-1b).");
                         continue;
                     }
-                    plan.Add(new Planned { Map = map, What = what, Dto = GhostFiling.Point(k.Kind, el.CadLayer, Next(el.CadLayer), sym.FamilyName, sym.Name, level.Name, x, y, levelMm) });
+                    plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Point(k.Kind, el.CadLayer, Next(el.CadLayer), sym.FamilyName, sym.Name, level.Name, x, y, levelMm), map, null) });
                 }
 
                 if (plan.Count == 0)
@@ -377,13 +423,19 @@ namespace Sentinel.GhostBuilder
                 for (int c = 0; c < filed.Count; c++)
                     for (int j = 0; j < chunks[c].Count; j++) planOf[filed[c].Elements[j].ProposalGuid] = byDto[chunks[c][j]];
                 int idsRejected = filed.Sum(cs => cs.Elements.Count(e => e.Verdict?.Status == "rejected"));
+                // MA-1a item 4 (review amendment C1): each element's layer, rule and drawing sha for its stamp, from THIS build's own
+                // plan by proposal_guid — the executor never reads the provenance a changeset came back from the bridge with.
+                var facts = planOf.ToDictionary(kv => kv.Key, kv => new ProvenanceStamp.Facts
+                {
+                    Layer = kv.Value.Dto.Provenance.Layer, Rule = kv.Value.Dto.Provenance.Rule, SourceSha256 = kv.Value.Dto.Provenance.SourceSha256,
+                }, StringComparer.Ordinal);
 
                 // ── 4. Run: each changeset through the executor, in order; any failure declines the whole build ──────────────
                 executing = true;
                 var results = new List<ChangesetExecutor.ExecutionResult>();
                 foreach (var cs in filed)
                 {
-                    var res = new ChangesetExecutor { WallsBefore = wallsBefore }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
+                    var res = new ChangesetExecutor { WallsBefore = wallsBefore, Provenance = facts }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
                     // ponytail: Pending inside the group — nothing is reported, and the group is disposed unfinished; the
                     // executor's all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
                     if (res.NotFinished != null)
@@ -418,6 +470,29 @@ namespace Sentinel.GhostBuilder
                         }
                     }
 
+                // ── 5b. MA-1a item 5: the BLOCK check — what this build adds, judged as a sync judges it, before the Undo is kept ──
+                if (blockBefore != null)
+                {
+                    var added = BlockCheck.AddedSince(doc, blockBefore);
+                    if (added.Count > 0)
+                    {
+                        if (!BlockCheck.PlaceAnyway(doc, added, "the whole build", blockBefore.RulesetRef))
+                        {
+                            // Go back: nothing placed, the filed changesets withdrawn; the review stays open for another Build.
+                            var back = Abandon(BlockCheck.WentBack(added));
+                            back.WentBack = true;
+                            return back;
+                        }
+                        blockLine = BlockCheck.PlacedAnyway(added, doc.IsWorkshared);
+                        report.Warnings.Insert(0, blockLine);
+                    }
+                }
+                else if (blockNote != null)
+                {
+                    blockLine = blockNote;
+                    report.Warnings.Add(blockNote);
+                }
+
                 // ── 6. One Undo entry, named as the first changeset's transaction ───────────────────────────────────────────
                 string undo = UndoWatcher.TxName(filed[0].Name, filed[0].Id);
                 group.SetName(undo);
@@ -441,7 +516,7 @@ namespace Sentinel.GhostBuilder
                     Count(res.Warnings);
                     if (!bound) continue;
                     var guids = res.Applied.Select(a => a.ProposalGuid).ToList();
-                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report)))
+                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine)))
                     {
                         unrecorded.Add(Short(cs.Id));
                         continue;
@@ -468,8 +543,9 @@ namespace Sentinel.GhostBuilder
 
         // The ledger note on each changeset's result: what was built from, and the types this build added (not elements of
         // any changeset, so named here).
-        private static string Note(Request r, Level level, GhostPlacementEngine.PlacementReport report) =>
-            $"Ghost Builder: {r.Drawing} on {level.Name}, as reviewed in Ghost's review" +
+        // MA-1a item 5: the BLOCK check's line (placed anyway, or not checked) rides on the note too.
+        private static string Note(Request r, Level level, GhostPlacementEngine.PlacementReport report, string block) =>
+            $"Ghost Builder: {r.Drawing} on {level.Name}, as reviewed in Ghost's review" + (block == null ? "" : "; " + block) +
             (report.CreatedTypes.Count == 0 ? "" : "; types added with this build: " + string.Join("; ", report.CreatedTypes.Take(10)) +
                                                    (report.CreatedTypes.Count > 10 ? $" (+{report.CreatedTypes.Count - 10} more)" : ""));
 

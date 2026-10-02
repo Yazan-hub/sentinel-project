@@ -141,6 +141,21 @@ namespace Sentinel.GhostBuilder
             return o;
         }
 
+        /// <summary>Final review, MA-1a item 4 (E7): does the estimate still hold a number the vision model gave (source "photo")?
+        /// When Ollama is down, answers badly, or the reviewer replaced every number, it holds none: the build then came from
+        /// the review alone, and its stamp must not name the images as its source.</summary>
+        public static bool HasModelValue(MassingEstimate m) =>
+            m != null && new[] { m.FootprintWidthMm, m.FootprintDepthMm, m.Storeys, m.StoreyHeightMm }
+                .Concat((m.Openings ?? new List<OpeningEstimate>()).Where(o => o != null).SelectMany(o => new[] { o.WidthMm, o.HeightMm }))
+                .Any(v => v != null && v.Source == "photo");
+
+        /// <summary>The rule a Photo Massing element's stamp records: the vision model's estimate when the images are its source
+        /// (<paramref name="fromImages"/>: their sha is stamped with it), else the reviewer's own numbers.</summary>
+        public static string StampRule(string what, bool fromImages) =>
+            $"Photo Massing: {what} of the massing plan, " + (fromImages
+                ? "from the vision model's estimate as corrected in the review"
+                : "from the numbers the reviewer confirmed in the review — no vision-model reading is recorded for them");
+
         /// <summary>Fields a reviewer must confirm before building — anything `assumed` or below the bar.</summary>
         public static List<string> FieldsNeedingReview(MassingEstimate m)
         {

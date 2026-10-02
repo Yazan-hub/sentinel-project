@@ -58,6 +58,9 @@ namespace Sentinel.GhostBuilder
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         }
 
+        /// <summary>How many of the folder's images the vision model reads (the first ones Images lists).</summary>
+        public const int MaxImages = 6;
+
         public static int CountImages(string folder)
         {
             try { return string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder) ? 0 : Images(folder).Count; }
@@ -67,7 +70,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>Estimate the massing from up to <paramref name="maxImages"/> images in the scoped folder.
         /// Sends them together so the model can fuse multiple views. Returns a VALIDATED estimate (clamped,
         /// assumed-flagged) ready for the reviewer; an all-assumed one when vision is unavailable.</summary>
-        public async Task<MassingEstimate> EstimateAsync(string folder, int maxImages = 6, CancellationToken ct = default)
+        public async Task<MassingEstimate> EstimateAsync(string folder, int maxImages = MaxImages, CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
                 return MassingPlanner.Validate(new MassingEstimate());
@@ -142,7 +145,8 @@ namespace Sentinel.GhostBuilder
             return est;
         }
 
-        private static List<string> Images(string folder)
+        // Internal: Photo Massing's command hashes the images read for the stamp (MA-1a item 4).
+        internal static List<string> Images(string folder)
         {
             string root = Path.GetFullPath(folder);
             return Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)

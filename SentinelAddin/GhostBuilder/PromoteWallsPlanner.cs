@@ -92,6 +92,29 @@ namespace Sentinel.GhostBuilder
                 ["ceiling"] = ("Ceilings", "IfcCovering", "Ceiling"), ["door"] = ("Doors", "IfcDoor", "Door"), ["window"] = ("Windows", "IfcWindow", "Window"),
             };
 
+        /// <summary>The story level a wall based at <paramref name="baseMm"/> rises to: the lowest Building Story more than 0.5 mm
+        /// above it, or null. Promote's attach rule (MA-0), and since MA-1a item 3 the executor's wall top for every source.</summary>
+        public static LevelFact NextStory(IReadOnlyList<LevelFact> levels, double baseMm) =>
+            levels.Where(l => l != null && l.IsStory && l.ElevationMm > baseMm + TolMm).OrderBy(l => l.ElevationMm).FirstOrDefault();
+
+        /// <summary>MA-1a item 3 (GHB-2): a new wall's top when its proposal sends no TopElevation. The next story above its base
+        /// (TopLevel set: the executor constrains the top there, offset 0); with none, unconnected at the height of the storey
+        /// below its base — the story at or under the base minus the story before that (founder decision F2); with neither,
+        /// null and <paramref name="why"/>: the executor refuses the wall, Ghost's planner names it a gap. Never a constant.</summary>
+        public static (double TopMm, string TopLevel)? WallTop(IReadOnlyList<LevelFact> levels, double baseMm, string baseLevel, out string why)
+        {
+            why = null;
+            var next = NextStory(levels, baseMm);
+            if (next != null) return (next.ElevationMm, next.Name);
+            var at = levels.Where(l => l != null && l.IsStory && l.ElevationMm <= baseMm + TolMm).OrderByDescending(l => l.ElevationMm).FirstOrDefault();
+            var under = at == null ? null : levels.Where(l => l != null && l.IsStory && l.ElevationMm < at.ElevationMm - TolMm)
+                                                  .OrderByDescending(l => l.ElevationMm).FirstOrDefault();
+            if (under != null) return (baseMm + at.ElevationMm - under.ElevationMm, null);
+            why = $"no Building Story above {baseLevel}, and no storey below it to take a height from — tick Building Story on the level " +
+                  "above (its Properties), add one (Datum from Drawings), or send a TopElevation";
+            return null;
+        }
+
         /// <param name="docBasicWallTypes">The document's basic wall types: name (case-insensitive) → the type's Function.</param>
         public static List<StoreyPlan> Plan(IReadOnlyList<WallFact> walls, IReadOnlyList<LevelFact> levels,
                                             IReadOnlyDictionary<string, string> docBasicWallTypes, GuidelineMatcher m)
@@ -106,8 +129,7 @@ namespace Sentinel.GhostBuilder
             {
                 var p = new StoreyPlan { Storey = storey.Key, Stamped = storey.Count(w => ProvenanceStamp.SourceOf(w.Stamp) == "promote") };
                 byName.TryGetValue(storey.Key, out var baseLevel);
-                var next = baseLevel == null ? null : levels.Where(l => l.IsStory && l.ElevationMm > baseLevel.ElevationMm + TolMm)
-                                                            .OrderBy(l => l.ElevationMm).FirstOrDefault();
+                var next = baseLevel == null ? null : NextStory(levels, baseLevel.ElevationMm); // the executor's wall top too (MA-1a item 3)
                 var retypes = new List<PromoteGhost>();
                 var typed = new List<WallFact>(); // basic, ungrouped walls, settled included, office-typed not
 

@@ -5,6 +5,10 @@
 // body, and the local changeset an unbound model runs through the same executor without a ledger. No Revit API, so
 // tools/promote-check proves it offline against the bridge's fixture (ghost-dwg-body.json); the Revit half is
 // GhostChangesetBuild.
+// MA-1a item 3 (GHB-2): a wall is filed with its base only — the drawing's Z read from the import's own Z — and the executor
+// gives it its top (the next Building Story). Item 4: each element carries its provenance: the layer here, the rule and the
+// drawing's sha from the planner. The bridge keeps it as the filed record; the stamp takes the same facts from the planner
+// in process (ChangesetExecutor.Provenance), never from what the bridge returns (review amendment C1).
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -43,13 +47,30 @@ namespace Sentinel.GhostBuilder
                 ? $" — \"{name.Trim()}\" is a placeholder the layer mapping wrote, not a type in this model; pick a loaded type in the review"
                 : "";
 
-        /// <summary>A wall's base and top in absolute mm, as the executor reads them: the CAD Z is the wall's offset from the
-        /// build level (Ghost's rule since P1), and its height is CAD top − CAD base (10 ft when the drawing has none), at
-        /// least ten times Revit's short-curve tolerance.</summary>
-        public static (double Base, double Top) WallElevations(double levelMm, double cadBaseFt, double cadTopFt, double tolFt)
+        /// <summary>MA-1a item 3 (GHB-2): a DWG wall's base in absolute mm — the build level plus its drawing Z measured from the
+        /// import's own Z (<paramref name="importZFt"/>, ImportInstance.GetTotalTransform().Origin.Z). The extractor reads the
+        /// drawing in model coordinates, so a plan imported in a raised level's view carries that level's elevation in every Z;
+        /// adding it to the build level again put Level 3 walls at +18 m (audit GHB-2). The top is the executor's.</summary>
+        public static double WallBase(double levelMm, double cadZFt, double importZFt) => levelMm + (cadZFt - importZFt) * FtToMm;
+
+        /// <summary>Final review, MA-1a item 3: a wall the drawing puts below the build level takes the build level itself as its
+        /// next Building Story (<paramref name="topLevel"/>, WallTop's answer) — a stub as high as the gap, or a wall too short
+        /// for Revit, which would decline the whole build. Ghost's planner names it a gap with these words; null otherwise.</summary>
+        public static string BelowLevelGap(string level, double levelMm, double baseMm, string topLevel) =>
+            topLevel != null && string.Equals(topLevel, level, StringComparison.Ordinal)
+                ? $"the drawing puts this wall {levelMm - baseMm:0.#} mm below {level}, so the next Building Story above it is {level} itself — a stub, not a wall"
+                : null;
+
+        /// <summary>Review amendment C8: the level Ghost's review opens on — the drawing's own: the level at the import's
+        /// elevation (within 1 mm; the nearest), else the active plan view's level, else the lowest. The lowest alone was
+        /// GR_SSL (−300) on the BDS template, where the next-story rule gives 300 mm walls. The person can still pick any.</summary>
+        /// <param name="levels">The model's levels, lowest first; not empty.</param>
+        /// <param name="activeViewLevel">The active view's level when it is a plan view, else null.</param>
+        public static long DefaultLevel(IReadOnlyList<(long Id, double ElevationMm)> levels, double importZMm, long? activeViewLevel)
         {
-            double b = levelMm + cadBaseFt * FtToMm;
-            return (b, b + Math.Max(cadTopFt - cadBaseFt, tolFt * 10) * FtToMm);
+            var at = levels.Where(l => Math.Abs(l.ElevationMm - importZMm) <= 1).OrderBy(l => Math.Abs(l.ElevationMm - importZMm)).ToList();
+            if (at.Count > 0) return at[0].Id;
+            return activeViewLevel is long a && levels.Any(l => l.Id == a) ? a : levels[0].Id;
         }
 
         /// <summary>One wall run, flat at <paramref name="z"/> (mm): a line from <paramref name="a"/> to <paramref name="b"/>
@@ -79,11 +100,23 @@ namespace Sentinel.GhostBuilder
             Reason = Clip($"Ghost Builder: {kind} on layer {layer}" + (typedBy == null ? "" : $", typed by the {typedBy}"), 500),
             Validate = new ValidateDto { Identity = new IdentityDto { Class = Kinds.Values.First(k => k.Kind == kind).Ifc, Name = Clip($"{layer} #{n}", 256) } },
             Place = place,
+            Provenance = new ProvenanceDto { Layer = Clip(layer, 256) }, // MA-1a item 4: the planner adds the rule and the drawing's sha
         };
 
+        /// <summary>MA-1a item 4: the stamp's rule for a Ghost element, in words — what typed it: the guideline (its artefact
+        /// label), the reviewer's pick in Ghost's review, or the layer mapping and its tier (with the layers standard when the
+        /// tier is the standard).</summary>
+        /// <param name="typedBy">A wall's ElementPlacementFactory.ResolveWallType answer; null for any other kind.</param>
+        /// <param name="mappingSource">LayerMapping.Source: standard, heuristic, llm, cache or reviewer.</param>
+        public static string Rule(string typedBy, string mappingSource, string guideline, string layers) => Clip(
+            typedBy == "guideline" ? $"type by the guideline ({guideline})"
+            : typedBy == "reviewer" || mappingSource == "reviewer" ? "type picked by the reviewer in Ghost's review"
+            : $"type by the layer mapping ({mappingSource ?? "unknown"}" + (mappingSource == "standard" ? $": {layers}" : "") + ")", 500);
+
         /// <param name="typedBy">"guideline", "mapping" or "reviewer" (ElementPlacementFactory.ResolveWallType).</param>
-        public static ChangesetElementDto Wall(string layer, int n, string typedBy, string typeName, string level, CurveDto run, double baseMm, double topMm) =>
-            Create("wall", layer, n, typedBy, new PlaceDto { TypeName = typeName, LevelName = level, LocationCurve = run, BaseElevation = baseMm, TopElevation = topMm });
+        /// <param name="baseMm">Absolute (<see cref="WallBase"/>). No TopElevation: the executor tops the wall (MA-1a item 3).</param>
+        public static ChangesetElementDto Wall(string layer, int n, string typedBy, string typeName, string level, CurveDto run, double baseMm) =>
+            Create("wall", layer, n, typedBy, new PlaceDto { TypeName = typeName, LevelName = level, LocationCurve = run, BaseElevation = baseMm });
 
         /// <param name="loopMm">The outline's corners [x,y,z] mm, as drawn (the executor closes the loop).</param>
         public static ChangesetElementDto Floor(string layer, int n, string typeName, string level, IReadOnlyList<double[]> loopMm) =>

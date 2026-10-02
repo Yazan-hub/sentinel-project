@@ -128,6 +128,44 @@ public sealed class SentinelUpdater : IUpdater
         }
     }
 
+    /// <summary>DocumentChanged (App.OnStartup subscribes it): Execute sees additions and edits inside a transaction only.
+    /// An element that is deleted — or that an Undo or a Redo takes away or brings back — never reaches it, so the pane
+    /// kept a row for an element that no longer existed until the next full scan (drill MA1a-I35: Undo and Redo are
+    /// followed; a rolled-back group is not named here, see DropGone). Rows only: no change request, no toast.</summary>
+    public static void OnDocumentChanged(object? sender, Autodesk.Revit.DB.Events.DocumentChangedEventArgs e)
+    {
+        try
+        {
+            var doc = e.GetDocument();
+            if (!Registered.TryGetValue(doc, out var u) || !App.IsShown(doc)) return;
+            var gone = e.GetDeletedElementIds();
+            // A commit's additions and edits were judged in Execute; an undo, a redo or a rollback runs no updater.
+            var back = e.Operation == Autodesk.Revit.DB.Events.UndoOperation.TransactionCommitted
+                ? new List<ElementId>()
+                : e.GetAddedElementIds().Concat(e.GetModifiedElementIds()).ToList();
+            if (gone.Count == 0 && back.Count == 0) return;
+            u._panel.MergeDelta(gone.Concat(back).Select(i => i.IdValue()).ToList(), u._engine.ScanElements(doc, back), u._engine.RulesetFor(doc));
+        }
+        catch (Exception ex) { App.PanelVm?.LogDoctor("Pane refresh after an undo or delete failed: " + ex.Message); }
+    }
+
+    /// <summary>A rolled-back TransactionGroup names no element in DocumentChanged (drill MA1a-I35: after Go back at the
+    /// BLOCK check the pane kept the row of a level that was never placed, while Undo and Redo were followed). So each of
+    /// Sentinel's own group rollbacks calls this (SentinelUndo.RollBack): the pane drops the rows of elements that no
+    /// longer exist. Never throws: it runs on rollback paths.</summary>
+    public static void DropGone(Document doc)
+    {
+        try
+        {
+            if (!Registered.TryGetValue(doc, out var u) || !App.IsShown(doc)) return;
+            // Rows that are not about one element (a file-name rule's) carry no element id: left alone.
+            var gone = u._panel.Violations.Select(r => r.ElementId).Distinct()
+                .Where(id => id > 0 && doc.GetElement(id.ToElementId()) is null).ToList();
+            if (gone.Count > 0) u._panel.MergeDelta(gone, new List<Violation>(), u._engine.RulesetFor(doc));
+        }
+        catch (Exception ex) { App.PanelVm?.LogDoctor("Pane refresh after a rollback failed: " + ex.Message); }
+    }
+
     public UpdaterId GetUpdaterId() => _id;
     public ChangePriority GetChangePriority() => ChangePriority.Views;
     public string GetUpdaterName() => "Sentinel Live Compliance";

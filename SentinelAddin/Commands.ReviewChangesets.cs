@@ -143,6 +143,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 var gone = result.Gone.Select(a => a.ProposalGuid).ToList();
                 var rejected = unticked.Concat(gone).Distinct().ToList();
                 var said = gone.Count == 0 ? note : $"{gone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
+                if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                 // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids.
                 if (Report(cfg, key, cs.Id, result.Applied, rejected, said))
                     UndoWatcher.Remember(UndoWatcher.TxName(fresh.Name, fresh.Id), key, fresh.Id, result.Applied.Select(a => a.ProposalGuid));
@@ -150,7 +151,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 TaskDialog.Show("Sentinel — AI proposals",
                     $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : "") +
                     (gone.Count > 0 ? $"\n{gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
-                    (warnings != null ? "\n\n" + warnings : ""));
+                    (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : ""));
             };
             handler.Completed += onDone;
             handler.SetRequest(fresh, new HashSet<string>(ticked), doc);
