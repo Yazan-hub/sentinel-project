@@ -10,6 +10,7 @@
   { "name": "worksets as a list", "placement": { "worksets": ["ARC_Walls"] }, "error": "placement.worksets must be an object of category: workset name" },
   { "name": "a category in another case, padded", "placement": { "worksets": { " walls ": "ARC_Walls" } }, "error": null },
   { "name": "a misspelt category", "placement": { "worksets": { "Wals": "ARC_Walls" } }, "error": "placement.worksets.Wals is not a category Sentinel places (Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Levels, Grids)" },
+  { "name": "a category key that carries a byte-order mark", "placement": { "worksets": { "﻿Walls": "ARC_Walls" } }, "error": "placement.worksets.﻿Walls is not a category Sentinel places (Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Levels, Grids)" },
   { "name": "one category under two keys", "placement": { "worksets": { "Walls": "ARC_Walls", "walls": "ARC_Other" } }, "error": "placement.worksets.walls names the category Walls a second time" },
   { "name": "a workset name that is a number", "placement": { "worksets": { "Walls": 3 } }, "error": "placement.worksets.Walls must be a non-empty workset name" },
   { "name": "a blank workset name", "placement": { "worksets": { "Walls": "  " } }, "error": "placement.worksets.Walls must be a non-empty workset name" },

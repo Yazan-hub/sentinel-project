@@ -721,6 +721,48 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
     expect(t.ignored).toEqual([{ field: "elements[0].target.pretick", why: SET }]);
   });
 
+  it("review of items 6-8: a field two levels down, in another case, on an exception or in a non-text source is listed, never kept or dropped silently", () => {
+    const KEPT = "ignored: not a field this bridge keeps";
+    const base = wall();
+    const v = validateChangeset(CS([{
+      ...base,
+      place: { ...base.place, LocationCurve: { ...base.place.LocationCurve, pretick: true, measured: { x: 1 }, bulge: 2 } },
+      validate: {
+        identity: { ...base.validate.identity, Pretick: true, MEASURED: { x: 1 } },
+        psets: [{ name: "Pset_WallCommon", props: { IsExternal: true }, pretick: true }],
+        quantities: [{ name: "Qto_WallBaseQuantities", Accuracy: { status: "within_tolerance" } }],
+      },
+    }], { source: ["promote"], exceptions: [{ unique_id: "u", reason: "r", pretick: true, colour: "red" }] }));
+    expect(v.source).toBe("agent");
+    expect(v.elements[0].place.LocationCurve).toEqual(base.place.LocationCurve);
+    expect(v.elements[0].validate.identity).toEqual({ ...base.validate.identity, GlobalId: v.elements[0].proposal_guid });
+    expect(v.elements[0].validate.psets).toEqual([{ name: "Pset_WallCommon", props: { IsExternal: true } }]);
+    expect(v.elements[0].validate.quantities).toEqual([{ name: "Qto_WallBaseQuantities" }]);
+    expect(v.exceptions).toEqual([{ unique_id: "u", name: null, reason: "r" }]);
+    expect(v.ignored).toEqual([
+      { field: "source", why: KEPT },
+      { field: "elements[0].place.LocationCurve.pretick", why: SET },
+      { field: "elements[0].place.LocationCurve.measured", why: "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+      { field: "elements[0].place.LocationCurve.bulge", why: KEPT },
+      { field: "elements[0].validate.identity.Pretick", why: SET },
+      { field: "elements[0].validate.identity.MEASURED", why: "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+      { field: "elements[0].validate.psets[0].pretick", why: SET },
+      { field: "elements[0].validate.quantities[0].Accuracy", why: SET },
+      { field: "exceptions[0].pretick", why: SET },
+      { field: "exceptions[0].colour", why: KEPT },
+    ]);
+    expect(validateChangeset(CS([wall()], { source: 5 })).ignored).toEqual([{ field: "source", why: KEPT }]);
+    expect(validateChangeset(CS([wall()], { source: "  " })).ignored).toEqual([]);
+    // An arc wall keeps its mid: the curve is rebuilt from start, end and mid.
+    const arc = { ...base, place: { ...base.place, LocationCurve: { start: [0, 0, 0], end: [4000, 0, 0], mid: [2000, 500, 0] } } };
+    expect(validateChangeset(CS([arc])).elements[0].place.LocationCurve).toEqual(arc.place.LocationCurve);
+  });
+
+  it("review of items 6-8: a listed field name is one line of at most 200 characters", () => {
+    const v = validateChangeset(CS([wall({ ["x".repeat(100000)]: 1, ["a\nb\tc"]: 1 })]));
+    expect(v.ignored.map((i) => i.field)).toEqual([("elements[0]." + "x".repeat(100000)).slice(0, 200), "elements[0].a b c"]);
+  });
+
   it("the shared fixture: a contract-2 post is stored as the add-in reads it (tools/promote-check reads the same file)", () => {
     const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/contract2-trust.json", import.meta.url), "utf8"));
     const v = validateChangeset(fx.posted);

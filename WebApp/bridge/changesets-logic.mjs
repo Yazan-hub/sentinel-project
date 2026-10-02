@@ -50,6 +50,7 @@ const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
 const SET_BY_BRIDGE = "ignored: set by the bridge";
 const NOT_KEPT = "ignored: not a field this bridge keeps";
+const CURVE_KEPT = ["start", "end", "mid"]; // a LocationCurve as the add-in reads it
 const NOT_MEASURED = "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured";
 const NO_JOB = "ignored: no survey job the bridge ran is named by it — the source is marked claimed";
 const MAX_IGNORED = 200;
@@ -160,6 +161,8 @@ function sourceOf(s, note) {
     }
     if (text(s.reader, 256)) return s.reader.trim();
   }
+  // Anything else that was sent (a list, a number, an object with no reader) is replaced, and the reply says so.
+  if (s != null && typeof s !== "string") note("source", NOT_KEPT);
   return "agent";
 }
 
@@ -188,14 +191,20 @@ export function validateChangeset(body, { member = false } = {}) {
   // MA-1a item 8: the bridge, not the caller, sets the trust fields. Every posted field it does not keep is listed back
   // with the reason — a trust field, an unbacked measurement, or a field this bridge does not read — never dropped silently.
   const ignored = [];
-  const note = (field, why) => ignored.push({ field, why });
+  // The field is the caller's own key text: listed as one line of at most 200 characters, like every other caller text here.
+  const note = (field, why) => ignored.push({ field: String(field).replace(/[\u0000-\u001f]/g, " ").slice(0, 200), why });
+  // A trust field or a measurement under any spelling of its case ("Pretick"), and why it is not kept; else null.
+  const trustWhy = (k) => (TRUST_FIELDS.includes(k.toLowerCase()) ? SET_BY_BRIDGE : k.toLowerCase() === "measured" ? NOT_MEASURED : null);
+  const isBlock = (b) => !!b && typeof b === "object" && !Array.isArray(b);
+  // A block kept whole (validate.identity, a pset or quantity entry: IFC data) without its trust fields; `nested` lists them.
+  const untrusted = (b) => (isBlock(b) ? Object.fromEntries(Object.entries(b).filter(([k]) => !trustWhy(k))) : b);
   // Review amendment C3: the same one level down. `kept` = the names a block is rebuilt from; null = the block is kept
   // whole but for a trust field or a measurement (validate.identity: the IFC attributes adjudication reads).
   const nested = (block, kept, where) => {
-    if (!block || typeof block !== "object" || Array.isArray(block)) return;
+    if (!isBlock(block)) return;
     for (const k of Object.keys(block)) {
-      if (kept ? kept.includes(k) : !TRUST_FIELDS.includes(k) && k !== "measured") continue;
-      note(`${where}.${k}`, TRUST_FIELDS.includes(k) ? SET_BY_BRIDGE : k === "measured" ? NOT_MEASURED : NOT_KEPT);
+      if (kept ? kept.includes(k) : !trustWhy(k)) continue;
+      note(`${where}.${k}`, trustWhy(k) ?? NOT_KEPT);
     }
   };
   for (const k of Object.keys(body)) {
@@ -215,6 +224,7 @@ export function validateChangeset(body, { member = false } = {}) {
       else if (!ELEMENT_FIELDS.includes(k)) note(`${at}.${k}`, NOT_KEPT);
     }
     nested(el.place, PLACE_KEPT, `${at}.place`);
+    nested(el.place?.LocationCurve, CURVE_KEPT, `${at}.place.LocationCurve`);
     nested(el.target, TARGET_KEPT, `${at}.target`);
     nested(el.validate, VALIDATE_KEPT, `${at}.validate`);
     nested(el.validate?.identity, null, `${at}.validate.identity`);
@@ -265,15 +275,20 @@ export function validateChangeset(body, { member = false } = {}) {
     const provenance = checkProvenance(el.provenance, op, at);
     const proposal_guid = randomUUID();
     // The IFC attributes adjudication reads, kept whole — but never a trust field or a measurement (listed by `nested`).
-    const identity = Object.fromEntries(Object.entries(validate.identity).filter(([k]) => !TRUST_FIELDS.includes(k) && k !== "measured"));
+    const identity = untrusted(validate.identity);
+    // A pset or a quantity entry is IFC data, kept as sent — but for a trust field or a measurement on it, which is listed.
+    const entries = (list, where) => (list || []).map((x, j) => { nested(x, null, `${at}.validate.${where}[${j}]`); return untrusted(x); });
+    const place = Object.fromEntries(Object.entries(isBlock(el.place) ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k)));
+    // The curve too is rebuilt from the names the add-in reads (start, end, an arc's mid): a key inside it is listed, not stored.
+    if (isBlock(place.LocationCurve)) place.LocationCurve = Object.fromEntries(Object.entries(place.LocationCurve).filter(([k]) => CURVE_KEPT.includes(k)));
     if (!identity.GlobalId) identity.GlobalId = proposal_guid;
     return {
       proposal_guid,
       kind: el.kind,
       op, target, reason: el.reason ?? null,
-      validate: { identity, psets: validate.psets || [], quantities: validate.quantities || [] },
+      validate: { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       // Review amendment C3: rebuilt from the names the add-in reads — a posted place.pretick or place.measured is not stored.
-      place: Object.fromEntries(Object.entries(el.place && typeof el.place === "object" ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k))),
+      place,
       ...(provenance ? { provenance } : {}), // MA-1a item 4: only when sent, so every other changeset reads as before
       // Review amendment C4: contract 2's reader id and evidence ids, as sent — the caller's claim, like the source.
       ...(el.cid != null ? { cid: el.cid.trim() } : {}),
@@ -284,10 +299,11 @@ export function validateChangeset(body, { member = false } = {}) {
     };
   });
 
+  const exceptions = checkExceptions(body.exceptions, (k, at) => note(`${at}.${k}`, trustWhy(k) ?? NOT_KEPT));
   const more = ignored.length - MAX_IGNORED;
   return {
     name, source,
-    elements, exceptions: checkExceptions(body.exceptions),
+    elements, exceptions,
     // The source is the caller's claim until a bridge-run job backs a changeset (MA-4).
     claimed: true,
     ignored: more > 0 ? [...ignored.slice(0, MAX_IGNORED), { field: "…", why: `${more} more field(s) ignored the same way` }] : ignored,
@@ -316,7 +332,7 @@ function checkProvenance(p, op, at) {
 
 /** The elements a planner sent to a person instead of proposing a change: optional, at most 1000 rows of
  *  {unique_id (≤64), name?, reason (≤300)}. They ride on the changeset for the reviewer; a bad row is a 400. */
-function checkExceptions(rows) {
+function checkExceptions(rows, extra) {
   if (rows == null) return [];
   if (!Array.isArray(rows)) throw err(400, "exceptions must be an array");
   if (rows.length > MAX_CHANGESET_EXCEPTIONS) throw err(400, `too many exceptions (${rows.length}; limit ${MAX_CHANGESET_EXCEPTIONS})`);
@@ -326,6 +342,7 @@ function checkExceptions(rows) {
     if (!text(x.unique_id, 64)) throw err(400, `${at}: unique_id is required (at most 64 characters)`);
     if (!text(x.reason, 300)) throw err(400, `${at}: reason is required (at most 300 characters)`);
     if (x.name != null && !text(x.name, 256)) throw err(400, `${at}: name must be text of at most 256 characters`);
+    for (const k of Object.keys(x)) if (!["unique_id", "name", "reason"].includes(k)) extra(k, at); // listed, not kept
     return { unique_id: x.unique_id, name: x.name ?? null, reason: x.reason };
   });
 }

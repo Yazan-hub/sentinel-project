@@ -191,7 +191,9 @@ export function validateArtefact(kind, body) {
         const categories = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids"];
         const named = new Set();
         for (const [category, name] of Object.entries(p.worksets)) {
-          const canon = categories.find((c) => c.toLowerCase() === category.trim().toLowerCase());
+          // A byte-order mark is padding to JavaScript's trim() and a character to .NET's Trim(): refused here, as the add-in
+          // refuses it, so a pasted key never installs and then stops every placement.
+          const canon = category.includes("\uFEFF") ? undefined : categories.find((c) => c.toLowerCase() === category.trim().toLowerCase());
           if (!canon) throw bad(kind, `placement.worksets.${category}`, `is not a category Sentinel places (${categories.join(", ")})`);
           if (named.has(canon)) throw bad(kind, `placement.worksets.${category}`, `names the category ${canon} a second time`);
           named.add(canon);
