@@ -22,10 +22,11 @@ const status400 = (fn, re) => {
   try { fn(); throw new Error("no throw"); }
   catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
 };
-const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window"];
+// MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families).
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture"];
 
 describe("VOCABULARY", () => {
-  it("is the MA-1 list", () => expect(VOCABULARY).toEqual(MA1));
+  it("is the MA-1 list, with MA-1a step 2's column and furniture", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -55,11 +56,11 @@ describe("validateChangeset — shape", () => {
   });
 
   it("rejects a kind outside the vocabulary, naming the element index and the allowed set", () => {
-    try { validateChangeset(CS([wall(), { ...wall(), kind: "column" }])); throw new Error("no throw"); }
+    try { validateChangeset(CS([wall(), { ...wall(), kind: "beam" }])); throw new Error("no throw"); }
     catch (e) {
       expect(e.status).toBe(400);
       expect(e.message).toMatch(/\[1\]/);
-      expect(e.message).toMatch(/wall, floor, level, grid, roof, ceiling, door, window/);
+      expect(e.message).toMatch(/wall, floor, level, grid, roof, ceiling, door, window, column, furniture/);
     }
   });
 
@@ -265,7 +266,7 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     }
     status400(() => validateChangeset(CS([attach({ kind: "floor" })])), /not supported for attach — allowed: wall/);
     status400(() => validateChangeset(CS([retype({ kind: "level" })])), /not supported for retype — allowed: wall, floor, roof, ceiling, door, window/);
-    status400(() => validateChangeset(CS([wall({ kind: "column" })])), /kind "column" is not supported — allowed: wall, floor, level, grid, roof, ceiling, door, window/);
+    status400(() => validateChangeset(CS([wall({ kind: "beam" })])), /kind "beam" is not supported — allowed: wall, floor, level, grid, roof, ceiling, door, window, column, furniture/);
   });
 
   it("the same (op, wall) twice is a 400; a retype plus an attach on one wall is fine", () => {
@@ -445,6 +446,50 @@ describe("validateChangeset — MA-1 creates", () => {
     status400(() => ok(retype("wall", { TypeName: "T", FamilyName: 5 })), /retype takes no place\.FamilyName/);
     status400(() => ok(attach({ BaseLevel: "L1", TopLevel: "L2", Mark: "W1" })), /attach takes no place\.Mark/);
     expect(ok(retype("door", { FamilyName: "F", TypeName: "T" })).place).toEqual({ FamilyName: "F", TypeName: "T" });
+  });
+});
+
+// MA-1a step 2: Ghost Builder files its DWG rows as changesets — columns and furniture stand on their level unhosted, and a
+// curved DWG wall carries one more point on its arc.
+describe("validateChangeset — MA-1a step 2 (Ghost Builder: column, furniture, arc walls)", () => {
+  const make = (kind, Class, Name, base) => (over = {}) => ({ kind, validate: { identity: { Class, Name } }, place: { ...base, ...over } });
+  const column = make("column", "IfcColumn", "A-COLS #1", { LevelName: "Level 1", FamilyName: "M_Rectangular Column", TypeName: "450 x 600mm", Location: [1000, 2000, 0] });
+  const furniture = make("furniture", "IfcFurniture", "A-FURN #1", { LevelName: "Level 1", FamilyName: "M_Desk", TypeName: "1525 x 762mm", Location: [3000, 2000, 0], Mark: "D1" });
+  const arc = (mid) => wall({ place: { ...wall().place, LocationCurve: { start: [0, 0, 0], end: [2000, 0, 0], mid } } });
+  const ok = (el) => validateChangeset(CS([el])).elements[0];
+
+  it("passes a column and a furniture create and keeps its place", () => {
+    for (const b of [column, furniture]) {
+      const sent = b();
+      expect(ok(sent)).toMatchObject({ kind: sent.kind, op: "create", target: null });
+      expect(ok(sent).place).toEqual(sent.place);
+    }
+  });
+
+  it("a column or furniture needs FamilyName, TypeName, LevelName and a finite [x,y,z] Location", () => {
+    for (const b of [column, furniture]) {
+      for (const f of ["FamilyName", "TypeName", "LevelName", "Location"]) status400(() => ok(b({ [f]: undefined })), new RegExp(`needs place\\.${f}`));
+      status400(() => ok(b({ Location: [1, 2] })), /needs place\.Location, the finite \[x,y,z\] point it stands on/);
+    }
+  });
+
+  it("a column or furniture takes no sill, flip or outline", () => {
+    for (const b of [column, furniture])
+      for (const f of ["SillHeight", "FlipFacing", "FlipHand", "Boundary", "Offset"]) status400(() => ok(b({ [f]: 1 })), new RegExp(`takes no place\\.${f}`));
+  });
+
+  it("column and furniture are create-only", () => {
+    const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+    for (const kind of ["column", "furniture"])
+      status400(() => ok({ op: "retype", kind, target: { unique_id: UID }, place: { FamilyName: "F", TypeName: "T" }, validate: { identity: { Class: "IfcColumn", Name: "C" } } }),
+        new RegExp(`kind "${kind}" is not supported for retype`));
+  });
+
+  it("a wall may carry LocationCurve.mid, a finite [x,y,z] on its arc; a grid may not", () => {
+    expect(ok(arc([1000, 1000, 0])).place.LocationCurve).toEqual({ start: [0, 0, 0], end: [2000, 0, 0], mid: [1000, 1000, 0] });
+    for (const bad of [[1000, 1000], [NaN, 0, 0], "mid"]) status400(() => ok(arc(bad)), /LocationCurve\.mid is a wall's point on its arc/);
+    const grid = { kind: "grid", validate: { identity: { Class: "IFCGRID", Name: "A" } }, place: { LocationCurve: { start: [0, 0, 0], end: [0, 9000, 0], mid: [10, 4500, 0] } } };
+    status400(() => ok(grid), /LocationCurve\.mid is a wall's point on its arc/);
   });
 });
 

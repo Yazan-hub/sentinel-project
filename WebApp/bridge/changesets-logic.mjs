@@ -3,11 +3,13 @@
 // element that earned them, and the lifecycle rules live here where they are unit-testable.
 //
 // THE REFEREE RULE: nothing in this feature creates model data. A changeset is a PROPOSAL — the
-// Revit add-in executes only what a human ticks, and only after re-checking the status.
+// Revit add-in executes only what a human ticks, and only after re-checking the status. A Ghost Builder
+// build (source "dwg", MA-1a step 2) is ticked in Ghost's own review, layer by layer, before it is filed,
+// and the add-in runs it as filed.
 import { randomUUID } from "node:crypto";
 
-// MA-1 placement slice: roof, ceiling, door, window
-export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window"];
+// MA-1 placement slice: roof, ceiling, door, window. MA-1a step 2: column, furniture — Ghost Builder's unhosted point families.
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture"];
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. */
@@ -29,10 +31,13 @@ const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
 // MA-1: the create place fields and the kinds that take them — a field on any other kind is a 400, never ignored (a level's
 // or grid's name is identity.Name, so it has no Mark; only a door's or window's type is named with its family).
 const PLACE_FIELDS = {
-  FamilyName: ["door", "window"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window"], Structural: ["floor"],
-  Location: ["door", "window"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"], SillHeight: ["window"],
-  Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
+  FamilyName: ["door", "window", "column", "furniture"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture"],
+  Structural: ["floor"], Location: ["door", "window", "column", "furniture"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
+  SillHeight: ["window"], Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
 };
+// The point kinds: a family placed at place.Location on its level — a door or window in the one wall under it, a column or
+// furniture unhosted (MA-1a step 2).
+const POINT_KINDS = ["door", "window", "column", "furniture"];
 
 const MIN_EDGE_MM = 1; // Revit refuses a line shorter than about 0.8 mm
 const xy = (p) => Array.isArray(p) && p.length === 2 && p.every(finite);
@@ -85,6 +90,8 @@ function checkPlace(kind, place, at) {
     // Distinctness is near-free to check here; a zero-length curve would cost a whole-changeset
     // Revit transaction rollback (up to 200 elements) for trivially detectable garbage.
     if (c.start.every((v, i) => v === c.end[i])) throw err(400, `${at}: ${kind} LocationCurve start and end are identical (zero-length)`);
+    // MA-1a step 2: an arc wall carries one more point on its arc (Ghost Builder's curved DWG walls); a grid stays straight.
+    if (c.mid !== undefined && (kind !== "wall" || !point(c.mid))) throw err(400, `${at}: place.LocationCurve.mid is a wall's point on its arc, a finite [x,y,z]`);
     if (kind === "wall" && place.BaseElevation !== undefined && !finite(place.BaseElevation)) throw err(400, `${at}: BaseElevation must be a finite number`);
     if (kind === "wall" && place.TopElevation !== undefined && !finite(place.TopElevation)) throw err(400, `${at}: TopElevation must be a finite number`);
   } else if (kind === "floor") {
@@ -94,8 +101,10 @@ function checkPlace(kind, place, at) {
     if (distinct < 3) throw err(400, `${at}: floor LocationLoop needs at least 3 DISTINCT points (got ${distinct})`);
   } else if (kind === "level") {
     if (!finite(place.BaseElevation)) throw err(400, `${at}: level needs a finite numeric place.BaseElevation`);
-  } else if (kind === "door" || kind === "window") {
-    if (!point(place.Location)) throw err(400, `${at}: a ${kind} needs place.Location, the finite [x,y,z] point on its host wall's location line (z = its level's elevation)`);
+  } else if (POINT_KINDS.includes(kind)) {
+    if (!point(place.Location)) throw err(400, kind === "door" || kind === "window"
+      ? `${at}: a ${kind} needs place.Location, the finite [x,y,z] point on its host wall's location line (z = its level's elevation)`
+      : `${at}: a ${kind} needs place.Location, the finite [x,y,z] point it stands on (z = its level's elevation)`);
     if (place.SillHeight !== undefined && !inRange(place.SillHeight, 0, MAX_OFFSET_MM)) throw err(400, `${at}: place.SillHeight must be a number of mm from 0 to ${MAX_OFFSET_MM}`);
   } else if (kind === "roof" || kind === "ceiling") {
     const why = outlineProblem(place.Boundary);
@@ -134,9 +143,9 @@ export function validateChangeset(body) {
       // After checkPlace, so a geometry error still reads as one. The Revit executor refuses an empty type too.
       if (el.kind !== "level" && el.kind !== "grid" && !text(el.place.TypeName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
-      if ((el.kind === "door" || el.kind === "window") && !text(el.place.FamilyName, 256))
+      if (POINT_KINDS.includes(el.kind) && !text(el.place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
-      if (["roof", "ceiling", "door", "window"].includes(el.kind) && !text(el.place.LevelName, 256))
+      if (["roof", "ceiling", ...POINT_KINDS].includes(el.kind) && !text(el.place.LevelName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
     } else {
       const uid = el.target?.unique_id;

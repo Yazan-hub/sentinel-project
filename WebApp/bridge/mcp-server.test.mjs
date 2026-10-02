@@ -146,6 +146,8 @@ describe("changeset tools", () => {
     expect(t.description).toMatch(/nothing is created by this call/i);
     expect(t.description).toMatch(/wall, floor, level, grid/);
     expect(t.description).toMatch(/roof, ceiling, door, window/);
+    expect(t.description).toMatch(/door, window, column, furniture/); // MA-1a step 2
+    expect(t.description).toMatch(/mid:\[x,y,z\]/);
     expect(t.description).toMatch(/place\.Boundary/);
     // MA-0: the ops and the required type name, or an agent's wall/floor create is a 400
     expect(t.description).toMatch(/retype/);
