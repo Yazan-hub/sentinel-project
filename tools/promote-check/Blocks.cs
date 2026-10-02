@@ -66,6 +66,32 @@ static partial class Check
            "two walls drawn on top of each other: named, a person decides");
         Ok(S(0, 0, 0, w: new List<(string, string, double, double, double, double)>(), h: new List<double>()).StartsWith("no straight wall of this build"), "no wall at all: a reason, no throw");
         Ok(S(2000, 149, 0, h: new List<double> { 150, 100, 100 }) == "W1 (2000, 0)", "a thicker wall reaches further: each wall's own half thickness");
+        // Review (2026-10-03): the measured angle is printed to a hundredth, so "turned 5° … (within 5°)" is never said of 5.04°.
+        Ok(S(2000, 60, 5.04) == "the block at (2000, 60) is turned 5.04° from W1 — a door or window lies along its wall (within 5°)"
+           && PlacementGeometry.AcrossWall("w", 0, 0, 4000, 0, 5.04) == "place.Rotation 5.04° is 5.04° off the line of its wall (w) — a door or window lies along its wall (within 5°)",
+           "a block 5.04 degrees off its wall is refused with that angle, not with a rounded 5 — in the planner and in the executor");
+        // Review (2026-10-03): near a corner, a block a fraction past its wall's end is answered by the wall whose line stops short,
+        // not by the perpendicular neighbour it is turned 90° from.
+        Ok(S(4000.4, 0, 0) == "the wall line of W1 stops 0.4 mm short of (4000.4, 0) — wall pieces broken at an opening are not joined yet (GHB-6)",
+           "at a corner, a block just past the end of the wall it lies along names that wall's line, not the wall it is across");
+        // Review (2026-10-03): the planner (Snap, from the import's curves) and the executor (AcrossWall, from the Revit wall's
+        // line after the mm->ft->mm round trip) read the 5° bound on different numbers, and at exactly 5° either may land an ulp
+        // over. The executor's bound is a hair looser (ParallelSlackDeg), so whatever Snap files, AcrossWall accepts: a gap is
+        // named by the planner, never a whole-build decline by the executor.
+        double wx = Math.Cos(30 * Math.PI / 180) * 4000, wy = Math.Sin(30 * Math.PI / 180) * 4000, ft = 304.8, rx = wx / ft * ft, ry = wy / ft * ft;
+        var w30 = new List<(string, string, double, double, double, double)> { ("W30", "L1", 0, 0, wx, wy) };
+        int filedAt5 = 0, agree = 0;
+        for (int k = -20; k <= 20; k++)
+        {
+            double rot = 35 + k * 1e-13; // the angles a reader could hand over around exactly 5° off (Frame rounds to 4 decimals: 35.0000 itself is one of them)
+            bool filed = S(wx / 2, wy / 2, rot, w: w30, h: new List<double> { 100 }).StartsWith("W30 (");
+            if (filed) filedAt5++;
+            if (!filed || PlacementGeometry.AcrossWall("W30", 0, 0, rx, ry, rot) == null) agree++;
+        }
+        Ok(filedAt5 > 0 && agree == 41, "every block Snap files at 5 degrees off a 30-degree wall is accepted by the executor on the same wall rebuilt from feet");
+        Ok(PlacementGeometry.AcrossWall("W30", 0, 0, rx, ry, 35 + 1e-9) == null && PlacementGeometry.AcrossWall("W30", 0, 0, rx, ry, 35.01) != null
+           && S(wx / 2, wy / 2, 35.01, w: w30, h: new List<double> { 100 }).StartsWith("the block at"),
+           "the executor's slack is a rounding, not a degree: 5 degrees plus a billionth passes, 5.01 is refused — and is the planner's named gap");
 
         Console.WriteLine("\nMA-1b the way a block turns (PlacementGeometry.Axes, Opposes, AxisOff, Turn, TurnLines)");
         bool Near((double Hx, double Hy, double Fx, double Fy) a, double hx, double hy, double fx, double fy) =>

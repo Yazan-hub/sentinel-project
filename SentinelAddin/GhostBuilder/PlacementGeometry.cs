@@ -66,6 +66,12 @@ public static class PlacementGeometry
     /// <summary>GHB-1: how far a block's X axis may turn from a wall's line and still be that wall's opening (degrees).</summary>
     public const double ParallelTolDeg = 5.0;
 
+    /// <summary>Review (2026-10-03): the executor's bound is ParallelTolDeg plus this slack. Ghost's planner (Snap) measures the
+    /// angle on the import's curves in mm, the executor (AcrossWall) on the Revit wall's line after the mm->ft->mm round trip;
+    /// at exactly ParallelTolDeg the two can land an ulp apart, and a block the planner filed must never be a whole-build
+    /// decline in the executor. A rounding, not a degree: nothing a person could draw lands inside it.</summary>
+    public const double ParallelSlackDeg = 1e-6;
+
     /// <summary>GHB-1 calibration, one knob each. +1 = Revit's HandOrientation runs the way the block's X axis does (hinge to
     /// strike), and its FacingOrientation points to the side the block's Y axis does (the side the leaf swings to). Drill MA1b
     /// (row B1-3) compares each placed door with the block drawn under it: a door family that reads the other way round is one
@@ -153,10 +159,13 @@ public static class PlacementGeometry
             double px = w.X0 + t * dx, py = w.Y0 + t * dy, d = Math.Sqrt((px - x) * (px - x) + (py - y) * (py - y));
             if (d <= halfMm[i] + HostTolMm) near.Add((i, d, px, py));
         }
+        // Review amendment C4: the wall whose line stops short of the opening — said when no wall is near, and (review 2026-10-03)
+        // when the only walls near are the ones the block lies across: at a corner, "W1 stops 0.4 mm short" is the fact, not
+        // "turned 90° from W2".
+        string broken = stops >= 0 ? $"the wall line of {walls[stops].Label} stops {Mm(shortBy)} mm short of {at} — {BrokenWallNote}" : null;
         if (near.Count == 0)
         {
-            why = stops >= 0 ? $"the wall line of {walls[stops].Label} stops {Mm(shortBy)} mm short of {at} — {BrokenWallNote}"
-                             : $"no straight wall of this build on {level} passes within half its thickness of {at}";
+            why = broken ?? $"no straight wall of this build on {level} passes within half its thickness of {at}";
             return null;
         }
         var along = near.OrderBy(c => c.D).ToList();
@@ -167,7 +176,7 @@ public static class PlacementGeometry
             along = along.Where(c => Off(c.I) <= ParallelTolDeg).ToList();
             if (along.Count == 0)
             {
-                why = $"the block at {at} is turned {Mm(Off(nearest))}° from {walls[nearest].Label} — a door or window lies along its wall (within {Mm(ParallelTolDeg)}°)";
+                why = broken ?? $"the block at {at} is turned {Ang(Off(nearest))}° from {walls[nearest].Label} — a door or window lies along its wall (within {Mm(ParallelTolDeg)}°)";
                 return null;
             }
         }
@@ -195,12 +204,13 @@ public static class PlacementGeometry
 
     /// <summary>Review amendment C1: a door or window's Rotation must run along its host wall — null when it does (within
     /// ParallelTolDeg, either way round), else the refusal's words. The flip test (Opposes) cannot see a Rotation across the
-    /// wall (a dot product of 0 flips nothing), so the executor asks this before it creates the instance.</summary>
+    /// wall (a dot product of 0 flips nothing), so the executor asks this before it creates the instance. The bound carries
+    /// ParallelSlackDeg: what Snap filed at exactly the tolerance is accepted here.</summary>
     public static string AcrossWall(string wallLabel, double x0, double y0, double x1, double y1, double rotationDeg)
     {
         double off = AxisOff(Math.Atan2(y1 - y0, x1 - x0) * 180 / Math.PI, rotationDeg);
-        return off <= ParallelTolDeg ? null
-            : $"place.Rotation {Mm(rotationDeg)}° is {Mm(off)}° off the line of its wall ({wallLabel}) — a door or window lies along its wall (within {Mm(ParallelTolDeg)}°)";
+        return off <= ParallelTolDeg + ParallelSlackDeg ? null
+            : $"place.Rotation {Ang(rotationDeg)}° is {Ang(off)}° off the line of its wall ({wallLabel}) — a door or window lies along its wall (within {Mm(ParallelTolDeg)}°)";
     }
 
     /// <summary>One placed door or window against the block it came from: the angle between its hand line and the block's X
@@ -258,4 +268,6 @@ public static class PlacementGeometry
     }
 
     private static string Mm(double mm) => mm.ToString("0.#", CultureInfo.InvariantCulture);
+    /// <summary>A measured angle, to a hundredth: "turned 5.04°" is never printed as "turned 5°" beside "(within 5°)".</summary>
+    private static string Ang(double deg) => deg.ToString("0.##", CultureInfo.InvariantCulture);
 }
