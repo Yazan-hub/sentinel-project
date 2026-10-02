@@ -47,6 +47,30 @@ static partial class Check
             ["MA1-W02"] = "MA0-L1-E05", ["MA1-W03"] = "MA0-L1-E06" };
         Ok(openings.Count == 9 && openings.All(e => want.TryGetValue(e.Place.Mark, out var w) && H(e.Place.LevelName, e.Place.Location[0], e.Place.Location[1]) == w),
            "every seed door and window finds exactly its section 6.3 wall among the MA-0 seed's walls");
+
+        // F-S2-2: which ends of a NEW wall touch a wall already in the model (the executor disallows the join there).
+        Console.WriteLine("\nF-S2-2 new walls never join walls already in the model (PlacementGeometry.EndsTouching)");
+        var user = (Line: (IReadOnlyList<double[]>)new List<double[]> { new double[] { 0, 0 }, new double[] { 10000, 0 } }, HalfWidth: 100.0, Bottom: 0.0, Top: 3000.0);
+        var before = new[] { user };
+        string E(double x0, double y0, double x1, double y1, double bottom = 0, double top = 3000,
+                 IEnumerable<(IReadOnlyList<double[]>, double, double, double)> b = null) =>
+            string.Join(",", PlacementGeometry.EndsTouching(x0, y0, x1, y1, 100, bottom, top, b ?? before));
+        Ok(E(0, 0, 0, 5000) == "0", "an L corner on the user's wall's end → the new wall's start only");
+        Ok(E(5000, 100, 5000, 5000) == "0", "a T drawn up to the user's wall's FACE (half its width off its line) → disallowed too");
+        Ok(E(5000, 201, 5000, 5000) == "0" && E(5000, 202, 5000, 5000) == "",
+           "the touch reach is half of each wall's width + 1 mm (201 mm here): 202 mm off → free");
+        Ok(E(0, 0, 10000, 0) == "0,1", "a new wall on top of the user's wall → both ends");
+        Ok(E(0, 300, 10000, 300) == "", "a parallel wall clear of the user's wall → neither end");
+        Ok(E(0, 0, 0, 5000, 3000, 6000) == "", "the same plan on the storey above (touching only at 3000) → free: no height overlap");
+        Ok(E(0, 0, 0, 5000, 2000, 5000) == "0", "a new wall overlapping the user's wall in height → disallowed");
+        Ok(E(0, 0, 0, 5000, b: new (IReadOnlyList<double[]>, double, double, double)[0]) == "",
+           "a corner with a wall of the same build (not in 'before') → still joins");
+        Ok(string.Join(",", PlacementGeometry.EndsTouching(0, 0, 0, 5000, 100, 0, 3000, null)) == "", "no wall before → nothing disallowed, no throw");
+        var arc = (Line: (IReadOnlyList<double[]>)Enumerable.Range(0, 9).Select(i => new[] { 5000 * Math.Cos(Math.PI * i / 8), 5000 * Math.Sin(Math.PI * i / 8) }).ToList(),
+                   HalfWidth: 100.0, Bottom: 0.0, Top: 3000.0);
+        Ok(E(0, 4950, 0, 0, b: new[] { arc }) == "0", "a curved user wall (its tessellated polyline): an end at its mid-arc → disallowed");
+        var unread = (Line: user.Line, HalfWidth: 100.0, Bottom: double.NegativeInfinity, Top: double.PositiveInfinity);
+        Ok(E(0, 0, 0, 5000, 9000, 12000, new[] { unread }) == "0", "a wall whose height Sentinel cannot read counts at every height (disallowed, never risked)");
     }
 
     // The MA-0 seed's walls (demo/promote-sample/make-concept.py EXTERIOR, INTERIOR, GAP) on both storeys, as the executor passes them.
