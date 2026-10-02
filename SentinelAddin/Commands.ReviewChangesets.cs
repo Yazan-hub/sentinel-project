@@ -123,6 +123,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     TaskDialog.Show("Sentinel — AI proposals", result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again on that model.");
                     return;
                 }
+                if (result.NotFinished != null)
+                {
+                    // A6: Revit may still finish or drop the transaction — reporting either way could be a lie.
+                    TaskDialog.Show("Sentinel — AI proposals", result.NotFinished +
+                        "\n\nNothing was reported: the changeset stays proposed. Check the model before reviewing it again — a second Apply could duplicate what Revit finishes.");
+                    return;
+                }
                 if (result.Error != null)
                 {
                     // Whole changeset rolled back: report declined with the reason — honestly.
@@ -132,11 +139,18 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     TaskDialog.Show("Sentinel — AI proposals", $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined.");
                     return;
                 }
+                // MA-1a step 2: an element Revit removed at commit is reported as rejected, with the reason in the note.
+                var gone = result.Gone.Select(a => a.ProposalGuid).ToList();
+                var rejected = unticked.Concat(gone).Distinct().ToList();
+                var said = gone.Count == 0 ? note : $"{gone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
                 // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids.
-                if (Report(cfg, key, cs.Id, result.Applied, unticked, note))
+                if (Report(cfg, key, cs.Id, result.Applied, rejected, said))
                     UndoWatcher.Remember(UndoWatcher.TxName(fresh.Name, fresh.Id), key, fresh.Id, result.Applied.Select(a => a.ProposalGuid));
+                var warnings = GhostFailurePolicy.WarningsLine(result.Warnings);
                 TaskDialog.Show("Sentinel — AI proposals",
-                    $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : ""));
+                    $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : "") +
+                    (gone.Count > 0 ? $"\n{gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
+                    (warnings != null ? "\n\n" + warnings : ""));
             };
             handler.Completed += onDone;
             handler.SetRequest(fresh, new HashSet<string>(ticked), doc);
@@ -146,8 +160,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         return true;
     }
 
-    /// <summary>True when the bridge recorded the result.</summary>
-    private static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note)
+    /// <summary>True when the bridge recorded the result. Also Ghost Builder's (GhostChangesetBuild), with the same retry
+    /// dialog.</summary>
+    internal static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note)
     {
         while (true)
         {

@@ -28,6 +28,12 @@ namespace Sentinel.GhostBuilder
             new List<(string Key, string Text, IReadOnlyCollection<long> Ids)>();
         /// <summary>Set when this handler rolled the build back: why, in words.</summary>
         public string RolledBack { get; private set; }
+        /// <summary>B3: the ids (failing and additional) the failure that rolled the build back named — empty when the
+        /// rollback was not one failure's (too many passes, a refused resolution). The executor names them by label.</summary>
+        public readonly List<long> RolledBackIds = new List<long>();
+        /// <summary>MA-1a step 2: the changeset executor's rule (GhostFailurePolicy.DecideAllOrNothing) — any error rolls the
+        /// whole changeset back; nothing is resolved or deleted. Warnings are counted the same way. Off for Photo Massing.</summary>
+        public bool AllOrNothing;
 
         private readonly HashSet<string> _resolved = new HashSet<string>(); // failures already given Revit's resolution once
         private int _passes;
@@ -49,14 +55,18 @@ namespace Sentinel.GhostBuilder
                     var additional = Ids(f.GetAdditionalElementIds());
                     var named = failing.Concat(additional).Distinct().ToList(); // E1/A5: failing ∪ additional
                     string key = f.GetFailureDefinitionId().Guid + "|" + string.Join(",", named.OrderBy(i => i));
-                    var act = GhostFailurePolicy.Decide(severity, f.HasResolutions(), failing, additional, Ours, _resolved.Contains(key));
+                    var act = AllOrNothing
+                        ? GhostFailurePolicy.DecideAllOrNothing(severity)
+                        : GhostFailurePolicy.Decide(severity, f.HasResolutions(), failing, additional, Ours, _resolved.Contains(key));
                     if (act == GhostFailurePolicy.Act.Count)
                     {
                         SeenWarnings.Add((key, text, named)); // counted after the commit; Revit keeps the warning
                         continue;
                     }
                     if (act == GhostFailurePolicy.Act.RollBack)
-                        return RollBack(GhostFailurePolicy.RollBackReason(text, severity, named.Where(i => !Ours.Contains(i)).ToList()));
+                        return RollBack(AllOrNothing
+                            ? GhostFailurePolicy.AllOrNothingReason(text, severity)
+                            : GhostFailurePolicy.RollBackReason(text, severity, named.Where(i => !Ours.Contains(i)).ToList()), named);
 
                     foreach (long id in named.Where(Ours.Contains)) Why[id] = text;
                     if (act == GhostFailurePolicy.Act.Resolve)
@@ -79,9 +89,13 @@ namespace Sentinel.GhostBuilder
             }
         }
 
-        private FailureProcessingResult RollBack(string why)
+        private FailureProcessingResult RollBack(string why, IEnumerable<long> named = null)
         {
-            RolledBack ??= why;
+            if (RolledBack == null)
+            {
+                RolledBack = why;
+                if (named != null) RolledBackIds.AddRange(named); // B3: the first rollback's ids, with its reason
+            }
             return FailureProcessingResult.ProceedWithRollBack;
         }
 
