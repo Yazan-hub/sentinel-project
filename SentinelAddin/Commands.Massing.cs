@@ -68,6 +68,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 progress.SetStatus($"Reading the project images with the local vision model…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
                 MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
+                // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read, for every element's stamp.
+                string imagesSha = ProvenanceStamp.FilesSha256(MassingVisionReader.Images(folder).Take(MassingVisionReader.MaxImages));
                 if (progress.Token.IsCancellationRequested) return;
                 progress.SetStatus("Reading the project's guideline and type catalogue…");
                 standards = await fetch.ConfigureAwait(false);
@@ -85,7 +87,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                     {
                         var plan = MassingPlanner.Plan(corrected, defaultWallThicknessMm: 200);
                         var (elements, mapping) = MassingBuilder.ToBuildInputs(plan);
-                        placementEvent.SetRequest(orchestrator, elements, mapping);
+                        placementEvent.SetRequest(orchestrator, elements, mapping, imagesSha);
                         externalEvent.Raise();
                     };
                     review.Show();
@@ -139,23 +141,24 @@ public sealed class MassingPlacementEvent : IExternalEventHandler
     private GhostBuilderOrchestrator _orchestrator;
     private System.Collections.Generic.List<GhostElement> _elements;
     private MappingResult _mapping;
+    private string _imagesSha; // MA-1a item 4: the images read, for the stamp
 
     public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
     public void SetRequest(GhostBuilderOrchestrator orchestrator,
-                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping)
+                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, string imagesSha)
     {
-        _orchestrator = orchestrator; _elements = elements; _mapping = mapping;
+        _orchestrator = orchestrator; _elements = elements; _mapping = mapping; _imagesSha = imagesSha;
     }
 
     public void Execute(UIApplication app)
     {
-        var orch = _orchestrator; var els = _elements; var map = _mapping;
-        _orchestrator = null; _elements = null; _mapping = null;
+        var orch = _orchestrator; var els = _elements; var map = _mapping; var sha = _imagesSha;
+        _orchestrator = null; _elements = null; _mapping = null; _imagesSha = null;
         try
         {
             if (orch == null) throw new InvalidOperationException("No massing request staged.");
-            Completed?.Invoke(orch.PlacePrepared(els, map), null);
+            Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha), null);
         }
         catch (Exception ex) { Completed?.Invoke(null, ex); }
     }

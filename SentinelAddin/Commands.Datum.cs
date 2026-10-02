@@ -68,6 +68,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
                 return Result.Cancelled;
 
             detected = builder.DetectFromFiles(new[] { pick.SelectedPath });
+            detected.SourceSha256 = ProvenanceStamp.FileSha256(pick.SelectedPath); // MA-1a item 4: the file the datum was read from
         }
         else detected = builder.Detect();
 
@@ -91,7 +92,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
 
         var result = builder.Build(detected);
         TaskDialog.Show("Sentinel — Datum",
-            $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s)." +
+            $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
             (result.Warnings.Count > 0 ? "\n\nNotes:\n • " + string.Join("\n • ", result.Warnings.Distinct()) : "") +
             "\n\nRename them to your office's own labels in the Project Browser if needed, then model — " +
             "elements will host to these levels.");

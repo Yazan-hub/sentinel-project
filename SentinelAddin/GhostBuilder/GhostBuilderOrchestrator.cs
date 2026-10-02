@@ -84,8 +84,9 @@ namespace Sentinel.GhostBuilder
         /// already-prepared elements + mapping, without the DWG face-pairing pass, in one transaction with the provisioners,
         /// the guideline, placeholder types and GhostFailureHandler's honest-build rule.
         /// </summary>
+        /// <param name="imagesSha256">MA-1a item 4: one sha256 over the images the vision model read, for each element's stamp.</param>
         public GhostPlacementEngine.PlacementReport PlacePrepared(
-            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null)
+            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null, string imagesSha256 = null)
         {
             if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
                 return new GhostPlacementEngine.PlacementReport { Warnings = { "Nothing to build." } };
@@ -142,6 +143,15 @@ namespace Sentinel.GhostBuilder
                 report.CreatedTypes.InsertRange(0, wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
                 if (pre != null) report.CreatedTypes.InsertRange(0, pre.LoadedNames.Select(n => $"family {n} (loaded from the Ghost family library)"));
 
+                // MA-1a item 4: every element this build made carries the full stamp — source photo, no changeset, no ledger row until
+                // item 7 — inside this transaction, so Ctrl+Z removes it with them. Its layers are the massing plan's own, not a drawing's.
+                foreach (var (id, what) in report.NewElements)
+                    if (_doc.GetElement(id) is Element made)
+                        Sentinel.Engine.ProvenanceStamp.Write(made, null, "photo", null, new Sentinel.Engine.ProvenanceStamp.Facts
+                        {
+                            Rule = $"Photo Massing: {what} of the massing plan, from the vision model's estimate as corrected in the review",
+                            SourceSha256 = imagesSha256,
+                        });
                 foreach (var (id, _) in report.NewElements) handler.Ours.Add(id.IdValue());
                 TransactionStatus status = t.Commit();
                 // Failure processing can roll the build back WITHOUT throwing (ChangesetExecutor checks the same): then
