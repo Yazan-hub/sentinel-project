@@ -1017,3 +1017,37 @@ Ollama qwen2.5:7b-instruct. The `demo` mapping cache was moved aside first and r
 
 Not exercised live: the Doctor exemption by transaction name (no auto-resolvable warning arose in a Ghost build); a Pending commit status.
 Closed Revit without saving; BDS template sha256 78152a5f… unchanged.
+
+## Session MA1a-S2 — Ghost Builder on the changeset executor, live (2026-10-02 ~11:06–11:24 local, branch feature/ma1a-step2-ghost-executor f7cbca3, Claude driving Revit 2024)
+
+Setup: `Documents/Sentinel drills/ma1a-s2-scratch.rvt` (copy of the B35 detached model) bound to `demo`; Ghost source folder =
+`demo/ghost-sample` (with `sample-plan-step2.dxf` and `sample-plan-planted.dxf` from `make-sample.py`); test bridge 127.0.0.1:4101
+restarted on the branch (the founder's 4100 bridge was not touched), add-in `serviceUrl` switched for the session and restored;
+signed out (actor "unsigned — yazan"). The `demo` mapping cache was moved aside and restored. No writes through the community MCP.
+
+| Row | Result | Evidence |
+|---|---|---|
+| S2-1 one changeset, source dwg, one Undo | Picks as S1-4 (CMU 200/100, SCREED_90, BDS_EXT_1 PNL WOOD 1000×2100): "Placed: 8", "Provenance: 8 of 8 placed element(s) stamped as source dwg", "Ledger: 1 of 1 changeset(s) recorded on demo (source dwg: 1d55f7c7)"; audit #1280 `changeset_proposed` (source dwg, 8) + #1281 `changeset_applied` (applied). Undo list: "Sentinel AI changeset: Ghost Builder · sample-plan · GR_SSL [1d55f7c7]" — one entry, the DWG import its own entry below. Both doors placed (hosted in this build's walls) — **pass** | summary, audit, Undo list |
+| S2-2 Ctrl+Z / Ctrl+Y | #1282 `changeset_reverted` undo count 8 (8 guids), #1283 redo count 8; one Doctor line each ("Undo watcher: undo/redo of changeset 1d55f7c7") — **pass** (UNSURE 2: one row either way) | audit |
+| S2-3 every element stamped | S2-1 8/8, S2-5 10/10, S2-8 6/6, S2-7 6/6 — **pass** | summaries |
+| S2-4 planted failing element | `sample-plan-planted.dxf`, all rows typed: "Nothing was built — Revit rolled the build back … floor "A-FLOR #1": ArgumentException: The input curve loops cannot compose a valid boundary …"; #1285 proposed (11) / #1286 applied **declined** with the reason; no Ghost Undo entry; Review Warnings 5 = before — **pass** (UNSURE 1: Floor.Create throws on the bow-tie) | summary, audit, Review Warnings |
+| S2-5 arc wall, ceiling, furniture, Doctor | On GR_SSL the build was **declined whole**: "Can't keep elements joined … Revit named element 2051441 (not one of this changeset's), wall "A-WALL-EXT #1"" (a new wall against a wall already on the level — risk B6 seen live; nothing changed). Re-run on `MA0 Roof` (no walls): "Placed: 10" (6 walls incl. the arc, floor, ceiling, 2 desks), "Revit warnings raised by this build: 1 — … identical instances in the same place" (UNSURE 4: yes), ceiling "placed 0 mm above MA0 Roof … set the ceiling height" (F7), ledger 1f8e5b41 — **pass** on the clear level; see follow-ups F-S2-2/3 | summaries, audit #1288–#1292 |
+| S2-6 unloaded type → gap | A-DOOR left on BDS_Door: "Doors on 'A-DOOR': Doors family "BDS_Door" is not loaded … skipped. (×2)", "Skipped (type or family not in the model): 2"; the rest placed — **pass** | summary |
+| S2-7 unbound model | Project Setup web project cleared on the drill copy: rows become heuristic guesses (unticked); 3 rows typed and ticked: "Placed: 6", "Provenance: 6 of 6 … dwg", "Ledger: none — this model is not bound to a web project … ran through the changeset executor as a local changeset (source dwg, stamped), as one Undo step"; audit unchanged — **pass** | summary, audit |
+| S2-8 re-run on top | `sample-plan.dxf` again on GR_SSL: "Placed: 6", "Skipped (no single straight wall of this build under the door or window): 2" with "2 walls on GR_SSL pass within 1 mm of (6450, 0): wall 2069788, A-WALL-EXT #1 (this build) — a person decides the host — not filed"; 10 overlap warnings kept; ledger de9a66ff — **pass** | summary |
+| S2-9 Photo Massing | Not run: no building photos on this PC | — |
+
+Review Warnings at the end on the bound copy: 15 = 1 (stair) + 4 (S2-1) + 10 (S2-8); S2-5's "identical instances" warning was kept by
+the build (Revit showed it) but **the global Doctor suppressed it at the next ordinary transaction** (pane log "11:20:02 Suppressed:
+There are identical instances in the same place.") — the Doctor's pre-existing AutoResolvable rule, not the Ghost build.
+Closed Revit without saving; BDS template sha256 78152a5f… unchanged.
+
+**Follow-ups (not blocking the merge):**
+- **F-S2-1 (UX)** — after a Ghost build with warnings, Revit now shows its **blocking** warning dialog (OK / Cancel) where step 1
+  showed the non-blocking box (UNSURE 9: `SetForcedModalHandling(false)` is not honoured on this path). OK keeps the build; Cancel
+  would roll that changeset back (safe, all or nothing).
+- **F-S2-2 (founder decision)** — all or nothing means one new wall that cannot keep a join with a wall already in the model
+  declines the whole build (seen live). Options: keep it (safe, the culprit is named); or stop new walls from auto-joining walls
+  that were already there (changes only Sentinel's walls); or drop only the failing new wall, as step 1 did.
+- **F-S2-3 (founder decision, BG-3)** — the global Doctor erases "identical instances" and duplicate-Mark warnings in every
+  transaction, which contradicts "warnings are counted, never erased" (P1-3).
