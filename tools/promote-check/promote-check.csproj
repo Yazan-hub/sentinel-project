@@ -29,6 +29,8 @@
     <Compile Include="..\..\SentinelAddin\Engine\BlockCheck.cs" />
     <!-- MA-1a item 6: the placement block's lookups and words, and the office-template count -->
     <Compile Include="..\..\SentinelAddin\Engine\PlacementPolicy.cs" />
+    <!-- MA-1a item 7: the modelling commands' report rows and the Doctor's one-minute buffer -->
+    <Compile Include="..\..\SentinelAddin\Coordination\CommandReports.cs" />
     <!-- the DTOs a filed body is read back into, and the write options Propose serialises with -->
     <Compile Include="..\..\SentinelAddin\Coordination\ChangesetClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
