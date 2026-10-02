@@ -32,6 +32,7 @@ namespace Sentinel.GhostBuilder
                                  string ollamaUrl = "http://localhost:11434/api/generate")
         {
             _model = string.IsNullOrWhiteSpace(model) ? "llava" : model;
+            Usage = new ModelUsage(_model);
             _url = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local vision inference is slow
         }
@@ -87,15 +88,20 @@ namespace Sentinel.GhostBuilder
                     images = new[] { b64 },
                     stream = false,
                 });
+                Usage.Asked(); // MA-1a item 8: every round trip is counted, answered or not
                 using var body = new StringContent(payload, Encoding.UTF8, "application/json");
                 using HttpResponseMessage resp = await _http.PostAsync(_url, body, ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode) return string.Empty; // model not pulled / other -> skip gracefully
                 using JsonDocument doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                Usage.Got(doc.RootElement);
                 return doc.RootElement.TryGetProperty("response", out var r) ? r.GetString() ?? string.Empty : string.Empty;
             }
             catch (OperationCanceledException) { throw; }
             catch { return string.Empty; } // vision is best-effort; never break the build
         }
+
+        /// <summary>MA-1a item 8: this model's calls, answers and token counts in this run, for the build:run receipt.</summary>
+        public ModelUsage Usage { get; }
 
         public void Dispose() => _http.Dispose();
     }

@@ -318,6 +318,10 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         var outcomes = FixInPlaceService.Apply(d, ticked, req, topic.Guid);
                         var done = outcomes.Count(o => o.Ok);
                         if (done > 0) applied = true;
+                        // MA-1a item 7 (P1-9): one fix_in_place row for the Apply, sent off this thread. The re-check below
+                        // files its own referee row.
+                        if (done > 0)
+                            GovernedNotify.Report("Fix-in-place", CommandReports.FixInPlace(req.Requirement, topic.Guid, done, outcomes.Count - done, UserSession.Actor), projectKey);
                         foreach (var o in outcomes.Where(o => !o.Ok)) { o.Row.Verdict = FixVerdict.Fail; o.Row.Reason = "not written: " + o.Message; }
                         fix.RefreshRows();
                         fix.SetStatus($"Applied {done}/{outcomes.Count} row(s). Re-checking the model with the referee\u2026");

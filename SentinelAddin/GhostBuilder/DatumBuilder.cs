@@ -27,6 +27,11 @@ namespace Sentinel.GhostBuilder
             public List<DetectedLevel> Levels = new();
             public List<DetectedGrid> Grids = new();
             public int LevelsCreated, GridsCreated;
+            /// <summary>MA-1a item 7: Revit committed Build's transaction — only then do the two counts hold.</summary>
+            public bool Committed;
+            /// <summary>MA-1a item 6: the placement block's lines for what Build created, counted after its commit from the
+            /// levels and grids still in the model; null when Build was given no plan.</summary>
+            public List<string> Placement;
             public List<string> Warnings = new();
             /// <summary>MA-1a item 4: the layers the levels and the grids were read from, and the drawing's sha256 when one picked
             /// file was read (the command sets it; null when the datum came from imports already in the model).</summary>
@@ -152,14 +157,17 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Create the detected Levels + Grids in one transaction. Skips levels/grids that already
         /// exist (within tolerance) so re-running is safe. Caller runs this on the API thread.</summary>
-        public DatumResult Build(DatumResult detected)
+        /// <param name="placing">MA-1a item 6: where the new levels and grids go (PlacementApply.Resolve); null = nothing is set.</param>
+        public DatumResult Build(DatumResult detected, PlacementPlan placing = null)
         {
+            var made = new List<Element>(); // what this run created, for the placement block
             using var t = new Transaction(_doc, "Sentinel — Datum from Drawings");
             t.Start();
             try
             {
                 // MA-1a item 4: each level and grid it creates carries the full stamp — source dwg, no changeset, no ledger row
-                // until item 7 — inside this transaction, so Ctrl+Z removes it with them.
+                // of its own (item 7: the command reports the run as one datum row, after the commit) — inside this
+                // transaction, so Ctrl+Z removes it with them.
                 // Final review: "read origin to origin" is Sentinel's own import of the picked file (DetectFromFiles; the command
                 // sets its sha). Imports already in the model (Detect) were placed by someone else — nothing is claimed for them.
                 string how = detected.SourceSha256 != null ? ", read origin to origin" : "";
@@ -170,16 +178,23 @@ namespace Sentinel.GhostBuilder
                 foreach (var lv in detected.Levels)
                     if (CreateLevel(lv, detected.Warnings) is Level level)
                     {
-                        detected.LevelsCreated++;
+                        made.Add(level);
                         ProvenanceStamp.Write(level, null, "dwg", null, levelFacts);
                     }
                 foreach (var g in detected.Grids)
                     if (CreateGrid(g, detected.Warnings) is Grid grid)
                     {
-                        detected.GridsCreated++;
+                        made.Add(grid);
                         ProvenanceStamp.Write(grid, null, "dwg", null, gridFacts);
                     }
-                t.Commit();
+                // MA-1a item 6: each new level and grid on the workset the guideline names — inside this transaction.
+                PlacementApply.Apply(placing, made);
+                detected.Committed = t.Commit() == TransactionStatus.Committed;
+                // Counted after the commit, from the levels and grids still in the model (review amendments C6, C31): the
+                // report row, the receipt and the dialog say what the placement lines beside them say.
+                detected.LevelsCreated = made.Count(e => e.IsValidObject && e is Level);
+                detected.GridsCreated = made.Count(e => e.IsValidObject && e is Grid);
+                detected.Placement = placing?.Lines(_doc, made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
             }
             catch
             {

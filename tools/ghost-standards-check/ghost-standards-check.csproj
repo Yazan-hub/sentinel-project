@@ -19,6 +19,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostStandards.cs" />
     <!-- the layers@n loader, the mapping tiers and the per-project cache -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostBuilder_Architecture.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\ModelUsage.cs" /> <!-- MA-1a item 8: LocalGhostBuilder.Usage -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerRulesetMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\LayerMapper.cs" />
     <!-- Task 3 (4b-2): the guideline and type-catalogue reader, Build Office System's export and the pack types it serialises. -->

@@ -54,6 +54,9 @@ namespace Sentinel.GhostBuilder
             public string SourceSha256;
             /// <summary>MA-1a item 4: the guideline and layers standards as the review header names them (artefact labels).</summary>
             public string GuidelineLabel, LayersLabel;
+            /// <summary>MA-1a item 8: what the command's reader did — its time, its model calls, what it was given — for the
+            /// run's build:run receipt; null = no receipt.</summary>
+            public BuildReceipt.Facts Reader;
         }
 
         private const double FtToMm = 304.8;
@@ -74,6 +77,8 @@ namespace Sentinel.GhostBuilder
             var report = new GhostPlacementEngine.PlacementReport();
             var doc = r.Doc;
             if (DocPin.Check(app, doc, "build from the drawing") is { } refusal) { report.NotBuilt = refusal; return report; }
+            // MA-1a item 6: never into a design option — said before anything is read, typed or filed.
+            if (PlacementApply.DesignOptionRefusal(doc, "build") is { } inOption) { report.NotBuilt = inOption; return report; }
             var rows = (r.Mapping?.Mappings ?? new List<LayerMapping>())
                 .Where(m => m != null && !m.Ignore && !string.IsNullOrWhiteSpace(m.CadLayer)).ToList();
             if (rows.Count == 0) { report.NotBuilt = "Nothing was built — no layer was ticked."; return report; }
@@ -399,6 +404,11 @@ namespace Sentinel.GhostBuilder
                 if (plan.Count == 0)
                     return Abandon("Nothing was built — no ticked row gave an element Sentinel can place (each reason is listed below); the types step was rolled back too.");
 
+                // MA-1a item 6: the guideline's placement block against this model, before anything is filed — a workset the
+                // plan needs and the model lacks abandons the build (nothing filed, the types step rolled back).
+                var placing = PlacementApply.Resolve(doc, r.Guideline?.Placement, app.ActiveUIDocument?.ActiveView, plan.Select(p => p.Dto.Kind), out string noWorkset);
+                if (placing == null) return Abandon(noWorkset + " The types step was rolled back too.");
+
                 // ── 3. File: changesets of at most 200, hosts first (unbound: local changesets, no ledger) ───────────────────
                 var chunks = GhostFiling.Chunks(plan.Select(p => p.Dto).ToList());
                 var byDto = plan.ToDictionary(p => p.Dto); // reference identity: the bridge answers element by element, in order
@@ -435,7 +445,7 @@ namespace Sentinel.GhostBuilder
                 var results = new List<ChangesetExecutor.ExecutionResult>();
                 foreach (var cs in filed)
                 {
-                    var res = new ChangesetExecutor { WallsBefore = wallsBefore, Provenance = facts }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
+                    var res = new ChangesetExecutor { WallsBefore = wallsBefore, Provenance = facts, Placement = placing }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
                     // ponytail: Pending inside the group — nothing is reported, and the group is disposed unfinished; the
                     // executor's all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
                     if (res.NotFinished != null)
@@ -444,6 +454,9 @@ namespace Sentinel.GhostBuilder
                         report.Ledger = Unreported();
                         return report;
                     }
+                    // MA-1a item 6 (review amendment C5): Revit refused a placement write — nothing is declined. The whole
+                    // build is rolled back and what was filed is withdrawn, as for a refusal before filing.
+                    if (res.NotRun) return Abandon(res.Error + " The build was rolled back, the types step too.");
                     if (res.Error != null) return Decline(cs, res.Error);
                     results.Add(res);
                 }
@@ -525,6 +538,9 @@ namespace Sentinel.GhostBuilder
                     UndoWatcher.Remember(UndoWatcher.TxName(cs.Name, cs.Id), r.Key, cs.Id, guids); // and its own, whichever Revit reports
                 }
                 report.Placed = applied.Count;
+                // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
+                // executor's recount left in the model. Its own list: a result of the build, not a warning.
+                report.Placement.AddRange(placing.Lines(doc, applied.Select(a => a.RevitUniqueId)));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
                 report.Ledger = !bound ? localLedger
                     : $"Ledger: {filed.Count - unrecorded.Count} of {filed.Count} changeset(s) recorded on {r.Key} (source dwg: {string.Join(", ", filed.Select(f => Short(f.Id)))})" +
@@ -532,6 +548,22 @@ namespace Sentinel.GhostBuilder
                                              : $" — the result of {string.Join(", ", unrecorded)} was NOT recorded (see the message before this one); do not apply it again in Review AI Proposals.");
                 if (idsRejected > 0)
                     report.Warnings.Insert(0, $"IDS: {idsRejected} element(s) did not pass the project's IDS — built as reviewed in Ghost's review (founder decision F2); each verdict is on its changeset.");
+                // MA-1a item 7: one ghost_build row for the build that was kept — the counts of the summary — sent off this
+                // thread; the pane's log says what the ledger answered. Only when an element is still in the model (review
+                // amendment C19): a build whose every element Revit removed at commit is not an action to report.
+                if (report.Placed > 0)
+                    GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
+                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily,
+                        report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                // MA-1a item 8: the reader's build:run receipt, for the same kept build — its gaps are the walls and types
+                // this build left as a named gap. Under the report's own condition (review amendment C19): a build that
+                // left no element in the model posts neither.
+                if (r.Reader != null && report.Placed > 0)
+                {
+                    r.Reader.Parameters["level"] = level.Name;
+                    GovernedNotify.Report("Ghost Builder receipt", BuildReceipt.Run("ghost-builder", BuildReceipt.AddinSha256, r.Reader,
+                        report.WallGaps + report.TypeGaps, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                }
                 return report;
             }
             catch (Exception ex) when (!done)

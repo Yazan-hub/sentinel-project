@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
@@ -29,6 +30,13 @@ public sealed class MassingFromImagesCommand : IExternalCommand
     {
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
+        // MA-1a item 6 (review amendment C10): never into a design option — said before an image is read. The placement
+        // event asks again, for an option entered while the review is open.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Photo Massing") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Massing", inOption);
+            return Result.Cancelled;
+        }
 
         var settings = SettingsManager.Resolve(doc);
         string folder = settings.GhostSourceFolder;
@@ -45,6 +53,13 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         // fetched off this thread while the vision model reads the images. Massing reads no layer standard.
         string key = ProjectContext.For(doc).Key;
         GhostStandards standards = null; // set in the background before the review window can raise a build
+        var loadedTypes = GhostBuilderCommand.LoadedTypes(doc); // MA-1a item 6: the model's types, read on the API thread
+        string templateLine = null;                             // the office-template check's line, for the summary
+        string stampSha = null; // MA-1a item 7: the images' sha the build was stamped with (null: the numbers are the reviewer's)
+        // MA-1a item 8: the vision reader's time and usage, and the facts of the run that was built, for its receipt.
+        var readerClock = new System.Diagnostics.Stopwatch();
+        ModelUsage visionUsage = null;
+        BuildReceipt.Facts receipt = null;
 
         var placementEvent = new MassingPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
@@ -55,8 +70,15 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         placementEvent.Completed += (report, error) => progress.Dispatcher.Invoke(() =>
         {
             progress.Close();
+            // MA-1a item 7: one massing row for a build Revit committed, sent off this thread.
+            if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0)
+                GovernedNotify.Report("Photo Massing", CommandReports.Massing(report.Placed, report.DeletedByRevit.Count, report.WallGaps,
+                    report.SkippedUnknownFamily + report.SkippedNoGeometry, report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count,
+                    stampSha, UserSession.Actor), key);
+            if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0 && receipt != null)
+                GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, report.WallGaps, new string[0], UserSession.Actor), key);
             TaskDialog.Show("Sentinel — Massing",
-                error != null ? "Build failed: " + error.Message : Summarize(report, standards));
+                error != null ? "Build failed: " + error.Message : Summarize(report, standards, templateLine));
         });
 
         // Vision estimate and the standards GET on background threads; the review window (API thread) drives the build.
@@ -67,13 +89,32 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 var fetch = Task.Run(() => GhostStandards.Load(key, layers: false)); // guideline@n + type_catalog@n
                 progress.SetStatus($"Reading the project images with the local vision model…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
+                readerClock.Start();
                 MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
+                readerClock.Stop();
+                visionUsage = reader.Usage;
                 // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read, for every element's stamp.
                 string imagesSha = ProvenanceStamp.FilesSha256(MassingVisionReader.Images(folder).Take(MassingVisionReader.MaxImages));
                 if (progress.Token.IsCancellationRequested) return;
                 progress.SetStatus("Reading the project's guideline and type catalogue…");
                 standards = await fetch.ConfigureAwait(false);
                 if (progress.Token.IsCancellationRequested) return;
+                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block".
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
+                                                  !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+                {
+                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", unread); });
+                    return;
+                }
+                // MA-1a item 6, the office-template check: refused when the model holds none of the office types.
+                var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(loadedTypes);
+                if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
+                {
+                    string refused = PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label);
+                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", refused); });
+                    return;
+                }
+                templateLine = PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
                 var orchestrator = new GhostBuilderOrchestrator(doc, mapper: null, minConfidence: 0,
                                                                 familyLibraryDir: libraryDir, guideline: standards.Guideline,
                                                                 placeholderTypes: true); // LOD 100: default types, declared
@@ -89,7 +130,13 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         var (elements, mapping) = MassingBuilder.ToBuildInputs(plan);
                         // Final review (E7): the images are the stamp's source only when the build still holds a number the
                         // vision model gave — not when Ollama was down or answered badly, or the reviewer replaced them all.
-                        placementEvent.SetRequest(orchestrator, elements, mapping, MassingPlanner.HasModelValue(corrected) ? imagesSha : null);
+                        stampSha = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
+                        receipt = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds, Candidates = elements.Count };
+                        receipt.Models.Add(visionUsage);
+                        receipt.Parameters["images_read"] = Math.Min(MassingVisionReader.CountImages(folder), MassingVisionReader.MaxImages);
+                        receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
+                        receipt.Parameters["type_catalogue"] = standards.CatalogSource.Label;
+                        placementEvent.SetRequest(orchestrator, elements, mapping, stampSha, standards.Guideline.Placement); // MA-1a item 6
                         externalEvent.Raise();
                     };
                     review.Show();
@@ -106,13 +153,14 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         return Result.Succeeded;
     }
 
-    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s)
+    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s, string template = null)
     {
         if (r is null) return "No report returned.";
         var sb = new System.Text.StringBuilder();
         // What typed this massing, first: the project's guideline and type catalogue, a none named as none.
         sb.AppendLine("Guideline: " + s.GuidelineSource.Label + " · Type catalogue: " + s.CatalogSource.Label);
         if (s.CatalogSource.Origin == "none") sb.AppendLine(GhostBuilderCommand.CatalogueNotChecked(s));
+        if (template != null) sb.AppendLine(template); // MA-1a item 6: the office-template check
         sb.AppendLine();
         if (r.RolledBack != null) return sb.AppendLine(GhostFailurePolicy.NotBuiltLine(r.RolledBack)).ToString();
         if (r.NotFinished != null) return sb.AppendLine(r.NotFinished).ToString(); // A6
@@ -125,6 +173,12 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         {
             sb.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
             foreach (var t in r.CreatedTypes) sb.AppendLine($"  + {t}");
+        }
+        // MA-1a item 6: what the placement block did — a result of the build, not a note.
+        if (r.Placement.Count > 0)
+        {
+            sb.AppendLine();
+            foreach (var p in r.Placement) sb.AppendLine(p);
         }
         if (r.Warnings.Count > 0)
         {
@@ -144,23 +198,38 @@ public sealed class MassingPlacementEvent : IExternalEventHandler
     private System.Collections.Generic.List<GhostElement> _elements;
     private MappingResult _mapping;
     private string _imagesSha; // MA-1a item 4: the images read, for the stamp
+    private GuidelinePlacement _placement; // MA-1a item 6: the guideline's placement block; null = none
 
     public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
     public void SetRequest(GhostBuilderOrchestrator orchestrator,
-                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, string imagesSha)
+                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, string imagesSha,
+                           GuidelinePlacement placement = null)
     {
-        _orchestrator = orchestrator; _elements = elements; _mapping = mapping; _imagesSha = imagesSha;
+        _orchestrator = orchestrator; _elements = elements; _mapping = mapping; _imagesSha = imagesSha; _placement = placement;
     }
 
     public void Execute(UIApplication app)
     {
-        var orch = _orchestrator; var els = _elements; var map = _mapping; var sha = _imagesSha;
-        _orchestrator = null; _elements = null; _mapping = null; _imagesSha = null;
+        var orch = _orchestrator; var els = _elements; var map = _mapping; var sha = _imagesSha; var placement = _placement;
+        _orchestrator = null; _elements = null; _mapping = null; _imagesSha = null; _placement = null;
         try
         {
             if (orch == null) throw new InvalidOperationException("No massing request staged.");
-            Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha), null);
+            // XC-1 (review amendment C17): the review window is modeless — build only while the model the command was
+            // started on is the active one, so the active view (and its phase) is that model's.
+            if (DocPin.Check(app, orch.Doc, "build the massing") is { } pinned) throw new InvalidOperationException(pinned);
+            // MA-1a item 6: never into a design option, and never onto a workset the model does not have — both said
+            // before the transaction.
+            if (PlacementApply.DesignOptionRefusal(orch.Doc, "build the massing") is { } inOption) throw new InvalidOperationException(inOption);
+            // Only the kinds of the layers this plan staged are asked for (review amendment C8): a massing with no
+            // openings needs no Doors or Windows workset.
+            var kinds = map?.Mappings == null || els == null ? new System.Collections.Generic.List<string>()
+                : map.Mappings.Where(m => els.Any(e => e.CadLayer == m.CadLayer)).Select(m => PlacementPolicy.KindOf(m.Category))
+                     .Where(k => k != null).Distinct().ToList();
+            var placing = PlacementApply.Resolve(orch.Doc, placement, app.ActiveUIDocument?.ActiveView, kinds, out var noWorkset);
+            if (placing == null) throw new InvalidOperationException(noWorkset);
+            Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha, placing: placing), null);
         }
         catch (Exception ex) { Completed?.Invoke(null, ex); }
     }

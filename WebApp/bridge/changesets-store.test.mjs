@@ -353,3 +353,38 @@ describe("reportReverted", () => {
     expect(deps.takeWriteBudget).not.toHaveBeenCalled();
   });
 });
+
+// MA-1a item 8: the stored changeset — and so the 201 reply — carries the bridge's trust decisions and what it ignored.
+describe("proposeChangeset — contract 2's trust rules (MA-1a item 8)", () => {
+  it("an agent's pretick and accuracy are ignored: the reply lists them, the ghost is not pre-ticked and is not_measured", async () => {
+    const deps = baseDeps();
+    const posted = { name: "Agent walls", source: "agent", contract: 2, elements: [{ ...wall(), pretick: true, accuracy: { status: "within_tolerance" } }] };
+    const cs = await proposeChangeset("demo", posted, "agent", deps);
+    expect(cs.elements[0]).toMatchObject({ pretick: false, accuracy: { status: "not_measured" } });
+    expect(cs.claimed).toBe(true);
+    expect(cs.contract).toBe(2);
+    expect(cs.ignored).toEqual([
+      { field: "elements[0].pretick", why: "ignored: set by the bridge" },
+      { field: "elements[0].accuracy", why: "ignored: set by the bridge" },
+    ]);
+    expect(deps.docInsert.mock.calls[0][3]).toMatchObject({ claimed: true, ignored: cs.ignored });
+    expect(deps.audit.mock.calls[0][6]).toMatchObject({ claimed: true, ignored: 2 });
+  });
+
+  it("a plain changeset is stored claimed, with nothing ignored and no contract field", async () => {
+    const cs = await proposeChangeset("demo", BODY, "agent", baseDeps());
+    expect(cs).toMatchObject({ claimed: true, ignored: [] });
+    expect(cs).not.toHaveProperty("contract");
+    expect(cs.elements.map((e) => e.pretick)).toEqual([false, false]);
+  });
+
+  it("a Promote attach is pre-ticked for a signed-in member's post — never for the machine credential (review amendment C2)", async () => {
+    const body = { name: "Promote", source: "promote", elements: [{ op: "attach", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+      place: { BaseLevel: "L1", TopLevel: "L2" }, validate: { identity: { Class: "IfcWall", Name: "W 1" } } }] };
+    const member = await proposeChangeset("demo", body, "lead@office.example", baseDeps({ myRole: async () => "contributor" }));
+    expect(member.elements[0].pretick).toBe(true);
+    const machine = await proposeChangeset("demo", body, "agent", baseDeps({ myRole: async () => "service" }));
+    expect(machine.elements[0].pretick).toBe(false);
+    expect(machine.claimed).toBe(true);
+  });
+});

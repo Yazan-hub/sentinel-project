@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS,
+  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES,
   validateChangeset, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 
@@ -600,5 +600,178 @@ describe("validateChangeset — provenance (MA-1a item 4)", () => {
     status400(() => validateChangeset(CS([change("attach", { BaseLevel: "Level 1", TopLevel: "Level 2" })])), /\[0\]: attach takes no provenance — only a create carries one/);
     const v = validateChangeset(CS([change("retype", { TypeName: "BDS_EXT_ARC_CMU_200 mm" }, { provenance: null })]));
     expect(v.elements[0]).not.toHaveProperty("provenance");
+  });
+});
+
+// MA-1a item 8: contract 2's trust rules — the bridge, not the caller, sets the trust fields, and says what it ignored.
+describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => {
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+  const SET = "ignored: set by the bridge";
+  const change = (op, place, target = { unique_id: UID }) => ({ op, kind: "wall", target, place, validate: { identity: { Class: "IfcWall", Name: "W 1" } } });
+
+  it("the design's test: an agent post with pretick true and within_tolerance gives a ghost that is not pre-ticked and is not_measured", () => {
+    const v = validateChangeset(CS([wall({ pretick: true, accuracy: { status: "within_tolerance" }, measured: { thickness_mm: 203 } })], { source: "agent", contract: 2 }));
+    expect(v.elements[0].pretick).toBe(false);
+    expect(v.elements[0].accuracy).toEqual({ status: "not_measured" });
+    expect(v.elements[0]).not.toHaveProperty("measured");
+    expect(v.claimed).toBe(true);
+    expect(v.contract).toBe(2);
+    expect(v.ignored).toEqual([
+      { field: "elements[0].pretick", why: SET },
+      { field: "elements[0].accuracy", why: SET },
+      { field: "elements[0].measured", why: "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+    ]);
+  });
+
+  it("each trust field is ignored and listed back, on the body and on an element", () => {
+    const trust = { pretick: true, accuracy: { status: "within_tolerance" }, confidence: 0.99, typing: { by: "rule" }, claimed: false, proposal_guid: "mine" };
+    const v = validateChangeset(CS([wall(trust)], trust));
+    expect(v.ignored).toEqual([
+      ...TRUST_FIELDS.map((f) => ({ field: f, why: SET })),
+      ...TRUST_FIELDS.map((f) => ({ field: `elements[0].${f}`, why: SET })),
+    ]);
+    expect(v.claimed).toBe(true);
+    expect(v.elements[0]).toMatchObject({ pretick: false, accuracy: { status: "not_measured" } });
+    expect(v.elements[0].proposal_guid).not.toBe("mine");
+    for (const f of ["confidence", "typing", "claimed"]) expect(v.elements[0]).not.toHaveProperty(f);
+  });
+
+  it("a create is never pre-ticked, whatever its source; a Promote attach or a retype with the type the plan saw is — when a signed-in member filed it", () => {
+    // Review amendment C2: the store passes { member: true } for a signed-in member; the machine credential earns no pre-tick.
+    const MEMBER = { member: true };
+    for (const source of ["agent", "dwg", "promote", "sentinel-survey 0.1"])
+      expect(validateChangeset(CS([wall()], { source }), MEMBER).elements[0].pretick).toBe(false);
+    const ops = [
+      change("attach", { BaseLevel: "L1", TopLevel: "L2" }),
+      change("retype", { TypeName: "T2" }, { unique_id: UID, type_before: "T1" }),
+    ];
+    expect(validateChangeset(CS(ops, { source: "promote" }), MEMBER).elements.map((e) => e.pretick)).toEqual([true, true]);
+    expect(validateChangeset(CS(ops, { source: "promote" })).elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS(ops, { source: { reader: " promote " } })).elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS(ops, { source: "agent" }), MEMBER).elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS([change("retype", { TypeName: "T2" })], { source: "promote" }), MEMBER).elements[0].pretick).toBe(false);
+  });
+
+  it("contract 2's source object: the reader is the stored source, a job_id is ignored and listed — no survey job exists", () => {
+    const v = validateChangeset(CS([wall()], { source: { reader: "sentinel-survey 0.1", job_id: "job-0042", host: "x" } }));
+    expect(v.source).toBe("sentinel-survey 0.1");
+    expect(v.claimed).toBe(true);
+    expect(v.ignored).toEqual([
+      { field: "source.job_id", why: "ignored: no survey job the bridge ran is named by it — the source is marked claimed" },
+      { field: "source.host", why: "ignored: not a field this bridge keeps" },
+    ]);
+    expect(validateChangeset(CS([wall()], { source: { job_id: "job-1" } })).source).toBe("agent");
+  });
+
+  it("a field the bridge does not keep is listed, never dropped silently; a plain changeset has nothing ignored", () => {
+    const v = validateChangeset(CS([wall({ lod: 300, won: true })], { conflicts: [] }));
+    expect(v.ignored).toEqual([
+      { field: "conflicts", why: "ignored: not a field this bridge keeps" },
+      { field: "elements[0].lod", why: "ignored: not a field this bridge keeps" },
+      { field: "elements[0].won", why: "ignored: not a field this bridge keeps" },
+    ]);
+    const plain = validateChangeset(CS([wall(), level()], { actor: "a", agent: { kind: "agent" }, exceptions: [] }));
+    expect(plain.ignored).toEqual([]);
+    expect(plain).not.toHaveProperty("contract");
+  });
+
+  it("contract is 1 or 2; the ignored list is capped at 200 entries and says how many more", () => {
+    status400(() => validateChangeset(CS([wall()], { contract: 3 })), /contract must be 1 or 2/);
+    status400(() => validateChangeset(CS([wall()], { contract: "2" })), /contract must be 1 or 2/);
+    expect(validateChangeset(CS([wall()], { contract: 1 })).contract).toBe(1);
+    const many = validateChangeset(CS(Array.from({ length: 120 }, () => wall({ pretick: true, confidence: 1 }))));
+    expect(many.ignored).toHaveLength(201);
+    expect(many.ignored[200]).toEqual({ field: "…", why: "40 more field(s) ignored the same way" });
+  });
+
+  it("contract 2's reader id and evidence ids are kept as sent — the caller's claim (review amendment C4)", () => {
+    const v = validateChangeset(CS([wall({ cid: " scan-88 ", evidence: ["ev-1", " ev-2 "] }), wall()]));
+    expect(v.elements[0]).toMatchObject({ cid: "scan-88", evidence: ["ev-1", "ev-2"] });
+    expect(v.elements[1]).not.toHaveProperty("cid");
+    expect(v.elements[1]).not.toHaveProperty("evidence");
+    expect(v.ignored).toEqual([]);
+    status400(() => validateChangeset(CS([wall({ cid: "x".repeat(257) })])), /cid must be one line of text of at most 256 characters/);
+    status400(() => validateChangeset(CS([wall({ cid: "a\nb" })])), /cid must be one line of text/);
+    status400(() => validateChangeset(CS([wall({ evidence: "ev-1" })])), /evidence must be a list of at most 50/);
+    status400(() => validateChangeset(CS([wall({ evidence: Array.from({ length: 51 }, (_, i) => `ev-${i}`) })])), /evidence must be a list of at most 50/);
+  });
+
+  it("a trust field nested in place, target, validate or validate.identity is not stored, and is listed (review amendment C3)", () => {
+    const NOT_MEASURED = "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured";
+    const base = wall();
+    const v = validateChangeset(CS([{
+      ...base,
+      place: { ...base.place, pretick: true, accuracy: { status: "within_tolerance" }, measured: { thickness_mm: 203 }, Colour: "red" },
+      validate: { ...base.validate, measured: { thickness_mm: 203 }, identity: { ...base.validate.identity, pretick: true } },
+    }]));
+    expect(v.elements[0].place).toEqual(base.place);
+    expect(v.elements[0].validate).not.toHaveProperty("measured");
+    expect(v.elements[0].validate.identity).not.toHaveProperty("pretick");
+    expect(v.elements[0].validate.identity).toMatchObject(base.validate.identity);
+    expect(v.ignored).toEqual([
+      { field: "elements[0].place.pretick", why: SET },
+      { field: "elements[0].place.accuracy", why: SET },
+      { field: "elements[0].place.measured", why: NOT_MEASURED },
+      { field: "elements[0].place.Colour", why: "ignored: not a field this bridge keeps" },
+      { field: "elements[0].validate.measured", why: NOT_MEASURED },
+      { field: "elements[0].validate.identity.pretick", why: SET },
+    ]);
+    const t = validateChangeset(CS([change("retype", { TypeName: "T2" }, { unique_id: UID, type_before: "T1", pretick: true })], { source: "promote" }), { member: true });
+    expect(t.elements[0].target).toEqual({ unique_id: UID, type_before: "T1" });
+    expect(t.ignored).toEqual([{ field: "elements[0].target.pretick", why: SET }]);
+  });
+
+  it("review of items 6-8: a field two levels down, in another case, on an exception or in a non-text source is listed, never kept or dropped silently", () => {
+    const KEPT = "ignored: not a field this bridge keeps";
+    const base = wall();
+    const v = validateChangeset(CS([{
+      ...base,
+      place: { ...base.place, LocationCurve: { ...base.place.LocationCurve, pretick: true, measured: { x: 1 }, bulge: 2 } },
+      validate: {
+        identity: { ...base.validate.identity, Pretick: true, MEASURED: { x: 1 } },
+        psets: [{ name: "Pset_WallCommon", props: { IsExternal: true }, pretick: true }],
+        quantities: [{ name: "Qto_WallBaseQuantities", Accuracy: { status: "within_tolerance" } }],
+      },
+    }], { source: ["promote"], exceptions: [{ unique_id: "u", reason: "r", pretick: true, colour: "red" }] }));
+    expect(v.source).toBe("agent");
+    expect(v.elements[0].place.LocationCurve).toEqual(base.place.LocationCurve);
+    expect(v.elements[0].validate.identity).toEqual({ ...base.validate.identity, GlobalId: v.elements[0].proposal_guid });
+    expect(v.elements[0].validate.psets).toEqual([{ name: "Pset_WallCommon", props: { IsExternal: true } }]);
+    expect(v.elements[0].validate.quantities).toEqual([{ name: "Qto_WallBaseQuantities" }]);
+    expect(v.exceptions).toEqual([{ unique_id: "u", name: null, reason: "r" }]);
+    expect(v.ignored).toEqual([
+      { field: "source", why: KEPT },
+      { field: "elements[0].place.LocationCurve.pretick", why: SET },
+      { field: "elements[0].place.LocationCurve.measured", why: "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+      { field: "elements[0].place.LocationCurve.bulge", why: KEPT },
+      { field: "elements[0].validate.identity.Pretick", why: SET },
+      { field: "elements[0].validate.identity.MEASURED", why: "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+      { field: "elements[0].validate.psets[0].pretick", why: SET },
+      { field: "elements[0].validate.quantities[0].Accuracy", why: SET },
+      { field: "exceptions[0].pretick", why: SET },
+      { field: "exceptions[0].colour", why: KEPT },
+    ]);
+    expect(validateChangeset(CS([wall()], { source: 5 })).ignored).toEqual([{ field: "source", why: KEPT }]);
+    expect(validateChangeset(CS([wall()], { source: "  " })).ignored).toEqual([]);
+    // An arc wall keeps its mid: the curve is rebuilt from start, end and mid.
+    const arc = { ...base, place: { ...base.place, LocationCurve: { start: [0, 0, 0], end: [4000, 0, 0], mid: [2000, 500, 0] } } };
+    expect(validateChangeset(CS([arc])).elements[0].place.LocationCurve).toEqual(arc.place.LocationCurve);
+  });
+
+  it("review of items 6-8: a listed field name is one line of at most 200 characters", () => {
+    const v = validateChangeset(CS([wall({ ["x".repeat(100000)]: 1, ["a\nb\tc"]: 1 })]));
+    expect(v.ignored.map((i) => i.field)).toEqual([("elements[0]." + "x".repeat(100000)).slice(0, 200), "elements[0].a b c"]);
+  });
+
+  it("the shared fixture: a contract-2 post is stored as the add-in reads it (tools/promote-check reads the same file)", () => {
+    const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/contract2-trust.json", import.meta.url), "utf8"));
+    const v = validateChangeset(fx.posted);
+    expect(v).toMatchObject(fx.stored);
+    expect(v.elements[0].place).not.toHaveProperty("pretick");
+  });
+
+  it("the add-in's sources are named, so the MCP tool can refuse to file as one", () => {
+    expect(ADDIN_SOURCES).toEqual(["dwg", "promote"]);
+    expect(TRUST_FIELDS).toEqual(["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"]);
   });
 });

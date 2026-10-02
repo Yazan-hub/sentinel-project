@@ -58,6 +58,7 @@ public static class StandardsBuilder
 
         using var t = new Transaction(doc, "Sentinel: Build worksets");
         t.Start();
+        int from = r.Created.Count; // MA-1a item 7 (C9): this step's "created" lines hold only if Revit commits it
         foreach (var w in pack.Provision.Worksets)
         {
             if (existing.Contains(w.Name)) { r.Skipped.Add($"Workset '{w.Name}' (exists)"); continue; }
@@ -69,7 +70,17 @@ public static class StandardsBuilder
             }
             catch (Exception ex) { r.Failed.Add($"Workset '{w.Name}': {ex.Message}"); }
         }
-        t.Commit();
+        Committed(t, r, from);
+    }
+
+    /// MA-1a item 7 (review amendment C9): commit a step, and keep its "created" lines only when Revit committed it. When
+    /// it did not, the lines the step added since <paramref name="from"/> move to Failed, each saying so — a report
+    /// never claims a creation Revit did not commit.
+    private static void Committed(Transaction t, BuildReport r, int from)
+    {
+        if (t.Commit() == TransactionStatus.Committed) return;
+        foreach (var line in r.Created.Skip(from).ToList()) r.Failed.Add(line + ": Revit did not commit this step");
+        r.Created.RemoveRange(from, r.Created.Count - from);
     }
 
     // ---------------- Shared parameters ----------------
@@ -93,12 +104,13 @@ public static class StandardsBuilder
 
             using var t = new Transaction(doc, "Sentinel: Bind shared parameters");
             t.Start();
+            int from = r.Created.Count;
             foreach (var p in pack.Provision.SharedParameters)
             {
                 try { BindOne(doc, app, defFile, p, r); }
                 catch (Exception ex) { r.Failed.Add($"Param '{p.Name}': {ex.Message}"); }
             }
-            t.Commit();
+            Committed(t, r, from);
         }
         finally
         {
@@ -230,7 +242,7 @@ public static class StandardsBuilder
             var opts = new CopyPasteOptions();
             opts.SetDuplicateTypeNamesHandler(new UseDestinationTypes());
             var copied = ElementTransformUtils.CopyElements(source, ids, dest, Transform.Identity, opts);
-            t.Commit();
+            if (t.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not commit the copy");
             r.Created.Add($"View templates: copied {copied.Count} from '{source.Title}'");
         }
         catch (Exception ex) { r.Failed.Add($"View templates: {ex.Message}"); }
@@ -273,7 +285,7 @@ public static class StandardsBuilder
             var opts = new CopyPasteOptions();
             opts.SetDuplicateTypeNamesHandler(new UseDestinationTypes());
             var copied = ElementTransformUtils.CopyElements(source, ids, dest, Transform.Identity, opts);
-            t.Commit();
+            if (t.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not commit the copy");
             r.Created.Add($"Browser organization: copied {copied.Count} scheme(s) — activate via Project Browser ▸ right-click ▸ Browser Organization.");
         }
         catch (Exception ex) { r.Failed.Add($"Browser organization: {ex.Message} (fallback: Manage ▸ Transfer Project Standards)."); }

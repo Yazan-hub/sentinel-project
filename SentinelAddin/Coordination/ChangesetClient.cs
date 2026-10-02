@@ -108,6 +108,41 @@ public sealed class ChangesetElementDto
     /// <summary>MA-1a item 4: the filed record; null for an agent's or Promote's element (they name no drawing). Never what
     /// the stamp is written from (C1).</summary>
     [JsonPropertyName("provenance")] public ProvenanceDto Provenance { get; set; }
+    /// <summary>MA-1a item 8: the bridge's pre-tick decision; null from a bridge before item 8, and on an element the
+    /// add-in files (nulls are left out of a request body). Never trusted for a create (ChangesetTrust.PreTick).</summary>
+    [JsonPropertyName("pretick")] public bool? Pretick { get; set; }
+    /// <summary>MA-1a item 8: the bridge's accuracy status — "not_measured" until a survey job backs a measurement (MA-4).</summary>
+    [JsonPropertyName("accuracy")] public AccuracyDto Accuracy { get; set; }
+    /// <summary>MA-1a item 8 (review amendment C4): contract 2's reader id and evidence ids — the caller's claim, kept by
+    /// the bridge as sent. Read only: nothing in MA-1a acts on them. Null on an element the add-in files.</summary>
+    [JsonPropertyName("cid")] public string Cid { get; set; }
+    [JsonPropertyName("evidence")] public List<string> Evidence { get; set; }
+}
+
+public sealed class AccuracyDto
+{
+    [JsonPropertyName("status")] public string Status { get; set; }
+}
+
+/// <summary>MA-1a item 8: how the review reads the bridge's trust fields. Pure (tools/promote-check).</summary>
+public static class ChangesetTrust
+{
+    /// <summary>What is ticked when the review opens (and by "Tick suggested"). A create is never pre-ticked: an agent
+    /// ghost and a drawing-only ghost never are, and nothing is measured before MA-4 — held here too, whatever a bridge
+    /// answers. A retype or attach takes the bridge's decision; from a bridge before item 8 (no pretick) the window's own
+    /// rule holds: a Promote attach, and a Promote retype with the type the plan saw (DR-1). A person still clicks Apply.</summary>
+    public static bool PreTick(ChangesetDto cs, ChangesetElementDto el)
+    {
+        if (el.Op is null or "create") return false;
+        return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
+    }
+
+    /// <summary>The element's accuracy in words ("not measured"); null when the bridge sent none.</summary>
+    public static string Accuracy(ChangesetElementDto el) => el.Accuracy?.Status?.Replace('_', ' ');
+
+    /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
+    public static string SourceLabel(ChangesetDto cs) =>
+        cs.Source + (cs.Claimed == true ? " (claimed — the bridge records who a changeset says it is from, and cannot verify it)" : "");
 }
 
 public sealed class AdjudicationDto
@@ -128,6 +163,9 @@ public sealed class ChangesetDto
     [JsonPropertyName("id")] public string Id { get; set; }
     [JsonPropertyName("name")] public string Name { get; set; }
     [JsonPropertyName("source")] public string Source { get; set; }
+    /// <summary>MA-1a item 8: the bridge marks the source a claim (true on every changeset until a bridge-run job backs
+    /// one, MA-4); null from a bridge before item 8.</summary>
+    [JsonPropertyName("claimed")] public bool? Claimed { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; }
     [JsonPropertyName("created_at")] public string CreatedAt { get; set; }
     [JsonPropertyName("adjudication")] public AdjudicationDto Adjudication { get; set; }

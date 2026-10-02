@@ -29,6 +29,8 @@ namespace Sentinel.Updaters
         public sealed class Seen
         {
             public string Tx, Key, Text;
+            /// <summary>MA-1a item 7: the project key of the model the failure was seen in ("" when not bound).</summary>
+            public string Project;
             public IReadOnlyCollection<long> Ids;
             public bool Resolved;
         }

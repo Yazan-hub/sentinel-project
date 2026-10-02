@@ -55,6 +55,9 @@ public sealed class ChangesetExecutor
         /// MA-1a item 5: the BLOCK check's line — placed anyway with N element(s) that will block a sync, or why BLOCK rules
         /// were not checked; null when none can fire. Set by ChangesetPlacementEvent; it rides on the result's note.
         public string Block { get; set; }
+        /// MA-1a item 6: what the placement block did to the created elements — worksets, phase — or why it did nothing;
+        /// null when the changeset created nothing. Set by ChangesetPlacementEvent from the plan it resolved.
+        public List<string> Placement { get; set; }
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
@@ -67,6 +70,11 @@ public sealed class ChangesetExecutor
     /// entry = none (Review AI Proposals, Promote). The only place a stamp's layer, rule and sha come from: el.Provenance, which
     /// the bridge returned, is never read.
     public IReadOnlyDictionary<string, ProvenanceStamp.Facts> Provenance { get; set; }
+
+    /// MA-1a item 6: where this changeset's created elements go — the workset each category names and the view's phase —
+    /// resolved by the in-process caller on the API thread before Execute (PlacementApply.Resolve). Null = nothing is set
+    /// (a changeset that creates nothing). A design option being edited is refused here whatever this holds.
+    public PlacementPlan Placement { get; set; }
 
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);
 
@@ -343,6 +351,12 @@ public sealed class ChangesetExecutor
         var toPlace = (cs.Elements ?? new List<ChangesetElementDto>())
             .Where(e => tickedGuids.Contains(e.ProposalGuid)).ToList();
         if (!toPlace.Any()) return result;
+        // MA-1a item 6: never into a design option — refused before the transaction, for every source; the changeset stays
+        // proposed (NotRun). A retype or an attach creates nothing, so it is not refused here. A retype of a floor, roof,
+        // ceiling, door or window that is in an option is refused by Unsafe; a wall's is not (Unsafe keeps MA-0's checks
+        // for walls — Promote's planner holds a wall in an option, an agent's changeset is not held: see Risks).
+        if (toPlace.Any(IsCreate) && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption)
+            return new ExecutionResult { NotRun = true, Error = inOption };
 
         string at = null; // the element being placed when something throws — the refusal names it
         using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name
@@ -602,6 +616,12 @@ public sealed class ChangesetExecutor
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
             if (result.Applied.Count != toPlace.Count)
                 throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary");
+            // MA-1a item 6: each element this changeset CREATED goes to the workset its category names and to the view's
+            // phase — inside this transaction, so Ctrl+Z takes them back with the element. A retype or attach target keeps
+            // its own workset and phase.
+            at = "the placement block";
+            PlacementApply.Apply(Placement, result.Applied.Where(a => IsCreate(toPlace.First(e => e.ProposalGuid == a.ProposalGuid)))
+                                                  .Select(a => doc.GetElement(a.RevitUniqueId)));
             // The stamp: once per element, with every guid of this changeset that touched it, merged onto the element's
             // earlier stamp (one entity per schema) — inside this transaction, so Ctrl+Z removes it too.
             at = "the provenance stamp";
@@ -638,6 +658,14 @@ public sealed class ChangesetExecutor
             }
             foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) result.Warnings[kv.Key] = kv.Value;
             return result;
+        }
+        catch (PlacementRefused ex)
+        {
+            // MA-1a item 6 (review amendment C5): Revit refused a workset write — this session's model state, not a verdict
+            // on the changeset. Rolled back whole; the changeset stays proposed (NotRun), like the other refusals of item 6.
+            // An Error without NotRun would be reported to the ledger as declined, and could not be applied again.
+            if (t.HasStarted() && !t.HasEnded()) t.RollBack();
+            return new ExecutionResult { NotRun = true, Error = ex.Message };
         }
         catch (Exception ex)
         {

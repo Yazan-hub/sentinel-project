@@ -107,7 +107,13 @@ public static class AutoFixExecution
                         Detail = ruleId + ": '" + oldName + "' -> '" + candidate + "'",
                     });
                 // "✓" only when Revit really committed the rename (it can roll back, e.g. an element another user owns).
-                onDone?.Invoke(oldName, t.Commit() == TransactionStatus.Committed ? candidate : null);
+                string category = element.Category?.Name ?? element.GetType().Name;
+                bool committed = t.Commit() == TransactionStatus.Committed;
+                // MA-1a item 7 (P1-9): one auto_fix row for the committed rename, sent off this thread.
+                if (committed)
+                    Sentinel.Coordination.GovernedNotify.Report("Auto-fix " + ruleId, Sentinel.Coordination.CommandReports.AutoFix(
+                        ruleId, category, oldName, candidate, elementId, Sentinel.Coordination.UserSession.Actor), ProjectContext.For(doc).Key);
+                onDone?.Invoke(oldName, committed ? candidate : null);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
             {

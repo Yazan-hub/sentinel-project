@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -120,7 +121,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 handler.Completed -= onDone;
                 if (result.NotRun)
                 {
-                    TaskDialog.Show("Sentinel — AI proposals", result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again on that model.");
+                    TaskDialog.Show("Sentinel — AI proposals", result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again.");
                     return;
                 }
                 if (result.NotFinished != null)
@@ -151,10 +152,27 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 TaskDialog.Show("Sentinel — AI proposals",
                     $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : "") +
                     (gone.Count > 0 ? $"\n{gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
-                    (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : ""));
+                    (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
+                    (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "")); // MA-1a item 6
             };
+            // MA-1a item 6: the project's guideline, for its placement block — only when a ticked element is a create.
+            // Fetched off this thread and waited for (4 s at most), as Annotate does. None installed is no block, and the
+            // result says so. A guideline that could not be read is not "no block" (review amendment C7): nothing runs,
+            // and the changeset stays proposed.
+            GuidelinePlacement placement = null;
+            if (fresh.Elements.Any(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")))
+            {
+                var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
+                                                  !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+                {
+                    TaskDialog.Show("Sentinel — AI proposals", unread + "\n\nThe proposals are still pending — run Review AI Proposals again once the guideline can be read.");
+                    return;
+                }
+                placement = standards.Guideline.Placement;
+            }
             handler.Completed += onDone;
-            handler.SetRequest(fresh, new HashSet<string>(ticked), doc);
+            handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement);
             evt.Raise();
         };
         window.Show();

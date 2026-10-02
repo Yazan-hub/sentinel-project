@@ -13,6 +13,7 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { loadEnv } from "./load-env.mjs";
+import { ADDIN_SOURCES } from "./changesets-logic.mjs";
 
 // Merge config/.env without mutating process.env (the ai-gateway/cde-store idiom): importing this
 // module from a test must not copy secrets into the test runner's environment.
@@ -98,13 +99,13 @@ export const TOOLS = [
   {
     name: "sentinel_propose_changeset",
     description:
-      "Propose model elements for human review in Revit. Nothing is created by this call: elements are adjudicated against the project's IDS (verdicts attached per element) and STAGED; a person reviews and ticks each element inside Revit before anything enters the model, and the result (created element ids or rejection) is recorded in the audit trail. Element kinds: wall, floor, level, grid, roof, ceiling, door, window, column, furniture. Geometry in millimetres, project-internal coordinates: walls/grids need place.LocationCurve {start:[x,y,z], end:[x,y,z]} (an arc wall adds mid:[x,y,z], a point on its arc); floors place.LocationLoop [[x,y,z]×≥3]; levels place.BaseElevation; roofs and ceilings place.LevelName and place.Boundary, one simple closed outline [[x,y]×3–256] (a roof is flat, optional place.BaseOffset; a ceiling needs place.Offset, its height above the level); doors and windows place.FamilyName, place.LevelName and place.Location [x,y,z], a point on the location line of exactly one wall of that level, z = the level's elevation (a window: optional place.SillHeight; both: optional place.FlipFacing, place.FlipHand); columns and furniture place.FamilyName, place.LevelName and place.Location [x,y,z], unhosted on that level, z = the level's elevation. Every kind but a level or grid also needs place.TypeName, the exact name of a type already loaded in the model — Sentinel never takes the model's first type, loads no families and creates no types — and may carry place.Mark; a floor may carry place.Structural (true/false). Each element: {kind, validate:{identity:{Class, Name}, psets:[]}, place:{...}}. Optional op (default create), with none of a create's place fields (no LocationCurve, Location, Boundary, Mark or Structural — a retype keeps the element's own Mark): retype changes an EXISTING wall, floor, roof, ceiling, door or window named by target:{unique_id: its Revit UniqueId, type_before?} to place.TypeName (a door or window also needs place.FamilyName: it keeps its host); attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two different level names); one of each per element. An optional reason (≤500 characters) is shown to the reviewer.",
+      "Propose model elements for human review in Revit. Nothing is created by this call: elements are adjudicated against the project's IDS (verdicts attached per element) and STAGED; a person reviews and ticks each element inside Revit before anything enters the model, and the result (created element ids or rejection) is recorded in the audit trail. Element kinds: wall, floor, level, grid, roof, ceiling, door, window, column, furniture. Geometry in millimetres, project-internal coordinates: walls/grids need place.LocationCurve {start:[x,y,z], end:[x,y,z]} (an arc wall adds mid:[x,y,z], a point on its arc); floors place.LocationLoop [[x,y,z]×≥3]; levels place.BaseElevation; roofs and ceilings place.LevelName and place.Boundary, one simple closed outline [[x,y]×3–256] (a roof is flat, optional place.BaseOffset; a ceiling needs place.Offset, its height above the level); doors and windows place.FamilyName, place.LevelName and place.Location [x,y,z], a point on the location line of exactly one wall of that level, z = the level's elevation (a window: optional place.SillHeight; both: optional place.FlipFacing, place.FlipHand); columns and furniture place.FamilyName, place.LevelName and place.Location [x,y,z], unhosted on that level, z = the level's elevation. Every kind but a level or grid also needs place.TypeName, the exact name of a type already loaded in the model — Sentinel never takes the model's first type, loads no families and creates no types — and may carry place.Mark; a floor may carry place.Structural (true/false). Each element: {kind, validate:{identity:{Class, Name}, psets:[]}, place:{...}}. Optional op (default create), with none of a create's place fields (no LocationCurve, Location, Boundary, Mark or Structural — a retype keeps the element's own Mark): retype changes an EXISTING wall, floor, roof, ceiling, door or window named by target:{unique_id: its Revit UniqueId, type_before?} to place.TypeName (a door or window also needs place.FamilyName: it keeps its host); attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two different level names); one of each per element. An optional reason (≤500 characters) is shown to the reviewer. Trust: the bridge sets pretick, accuracy, confidence, typing, claimed and proposal_guid itself — a posted one is ignored and listed back in the reply's `ignored` as \"ignored: set by the bridge\", as is a `measured` block (no survey job backs it). An agent's element is never pre-ticked, and its accuracy is not_measured.",
     inputSchema: {
       type: "object", required: ["project", "name", "elements"],
       properties: {
         project: { type: "string", description: "the project key" },
         name: { type: "string", description: "human-readable changeset name (shown to the reviewer in Revit)" },
-        source: { type: "string", description: "agent self-label" },
+        source: { type: "string", description: "agent self-label (a claim: recorded, never verified). dwg and promote are the Revit add-in's own sources — a changeset labelled with one is filed as \"agent\"." },
         elements: { type: "array", description: "the proposed elements (see tool description for the shape)" },
         agent: { type: "object", description: "CLAIMED provenance, recorded on the ledger and never verified by Sentinel: {kind:'agent'|'human', model, tool, prompt}. The prompt is HASHED, never stored — supply it (or a prompt_sha256) so the verdict can later be tied to the exact instruction that produced the elements." },
       },
@@ -229,7 +230,14 @@ export async function callTool(name, args = {}, deps = {}) {
   if (name === "sentinel_propose_changeset") {
     const project = need(args, "project"), nm = need(args, "name");
     if (!Array.isArray(args.elements) || !args.elements.length) throw new Error("elements is required (non-empty array)");
-    const r = await f(`${BASE}/changesets/${enc(project)}`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify({ name: nm, source: args.source, elements: args.elements }) });
+    // MA-1a item 8: an agent never files as the Revit add-in (ADDIN_SOURCES), and its claimed provenance block — which
+    // the schema has always advertised — goes with the changeset to the ledger. Review amendment C1: the tool sends a
+    // source it controls — the label when it is text and not one of the add-in's, else "agent". A source that is not
+    // text is never forwarded: the bridge reads contract 2's { reader } object, and callTool does not check its
+    // arguments against the input schema, so { reader: "promote" } would otherwise be stored as "promote".
+    const label = typeof args.source === "string" ? args.source.trim() : "";
+    const source = !label || ADDIN_SOURCES.includes(label.toLowerCase()) ? "agent" : label;
+    const r = await f(`${BASE}/changesets/${enc(project)}`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify({ name: nm, source, elements: args.elements, agent: args.agent }) });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
     return await r.json();
   }

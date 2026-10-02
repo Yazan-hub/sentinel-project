@@ -62,6 +62,14 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TaskDialog.Show(Title, $"Guideline: {standards.GuidelineSource.Label}\n\nNo DD rule file is installed for \"{key}\" or its office — nothing to plan. Install one as guideline@n.");
             return Result.Cancelled;
         }
+        // MA-1a item 6, the office-template check: Promote retypes onto office types, so a model that holds none of them
+        // was not made from the office template — said before anything is planned.
+        var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(GhostBuilderCommand.LoadedTypes(doc));
+        if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
+        {
+            TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label));
+            return Result.Cancelled;
+        }
         var mxSource = mxTask.GetAwaiter().GetResult();
         LodMatrix mx = null;
         if (mxSource.Origin != "none")
@@ -74,6 +82,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         // With no matrix the header says "walls only"; otherwise each class left out is named below the plan.
         var header = standards.Header + "\n" + (mx == null ? notRun[0] : "LOD matrix: " + mxSource.Label + (mx.Draft ? " (DRAFT)" : ""));
         if (mx == null) notRun.Clear();
+        header += "\n" + PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
 
         var docTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // basic wall type → its Function
         foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))
@@ -101,6 +110,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        var plannerClock = System.Diagnostics.Stopwatch.StartNew(); // MA-1a item 8: the planner's own time, for the receipt
         var plans = PromotePlanner.Plan(classes, walls, others, levels, docTypes, classTypes, standards.Guideline);
         // Preflight: Revit's own answer on every retype before anything is filed — a refused ghost is held with the reason.
         PromotePlanner.Refuse(plans, g =>
@@ -115,6 +125,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             }
             catch (Exception ex) { return ex.Message; }
         });
+        plannerClock.Stop();
         var actor = UserSession.Actor;
         var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: classes.Count == 1 && classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
@@ -164,11 +175,23 @@ public sealed class PromoteWallsCommand : IExternalCommand
 
         ChangesetDto first = null;
         var failed = new List<string>();
+        var filedIds = new List<string>(); // MA-1a item 8: the changesets this run filed, for its receipt
         foreach (var body in bodies)
         {
             var cs = ChangesetClient.Propose(cfg, key, body, out var err);
             if (cs == null) failed.Add(err);
-            else first ??= cs;
+            else { first ??= cs; filedIds.Add(cs.Id); }
+        }
+        if (filedIds.Count > 0)
+        {
+            // MA-1a item 8: the planner's build:run receipt for the run that filed these changesets — deterministic, so no
+            // model and no tokens; its gaps are the elements it sent to a person.
+            var receipt = new BuildReceipt.Facts { Seconds = plannerClock.Elapsed.TotalSeconds, Candidates = (classes.Contains("Walls") ? walls.Count : 0) + others.Count };
+            receipt.Parameters["classes"] = classes.ToArray();
+            receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
+            receipt.Parameters["lod_matrix"] = mxSource.Label;
+            GovernedNotify.Report("Promote receipt", BuildReceipt.Run("promote", BuildReceipt.AddinSha256, receipt,
+                plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key);
         }
         if (failed.Count > 0)
             TaskDialog.Show(Title, $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)));

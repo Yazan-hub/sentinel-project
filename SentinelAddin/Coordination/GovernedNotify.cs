@@ -85,6 +85,37 @@ namespace Sentinel.Coordination
             return Event("/delivery-gate", value, projectKey);
         }
 
+        /// <summary>
+        /// MA-1a item 7: one modelling command's report row (a <see cref="CommandReports"/> body), sent and forgotten.
+        /// Returns at once: the POST runs on a pool thread (<see cref="Event"/>, 6 s cap), and when the ledger has answered
+        /// one line goes to the pane's Doctor log — "&lt;what&gt; — Recorded: ledger #812 · receipt …", "… — Not recorded — …",
+        /// "… — Not confirmed — …". An unbound model sends nothing and says so in the same log. Never throws, never
+        /// waits, never shows a dialog: no command is blocked or delayed by the ledger, and no network call is made on
+        /// Revit's API thread. Callers report only what Revit committed. <paramref name="ui"/> is the pane's dispatcher
+        /// when the caller is not on Revit's API thread.
+        /// </summary>
+        public static void Report(string what, object payload, string projectKey, System.Windows.Threading.Dispatcher? ui = null)
+        {
+            // The pane's thread: the caller's own when it is Revit's API thread (every command), else the one it hands over
+            // (the Doctor's flush runs on a pool thread, where there is no pane dispatcher to find).
+            ui = ui ?? System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            // Review amendment C22: the report route answers 413 and 429 before it writes (cde-store.mjs recordRevitReport),
+            // so for this poster they are "not recorded". LedgerResult's own wording — "the entry may have landed" — stays
+            // for the routes nobody has checked. A refused report is lost, not retried.
+            LedgerResult Refused(LedgerResult r) =>
+                r.State == LedgerState.NotConfirmed && (r.Reason.StartsWith("HTTP 413", StringComparison.Ordinal) || r.Reason.StartsWith("HTTP 429", StringComparison.Ordinal))
+                    ? LedgerResult.NotRecorded(r.Reason.Replace(" (the entry may have landed)", "")) : r;
+            void Say(LedgerResult ledger) => ui.BeginInvoke(new Action(() =>
+            {
+                try { Sentinel.App.PanelVm?.LogDoctor(what + " — " + LedgerLine.Sentence(Refused(ledger))); } catch { /* the pane is gone */ }
+            }));
+            string key = KeyOf(projectKey);
+            if (key.Length == 0) { Say(LedgerResult.NotBound()); return; }
+            Task.Run(() => Event("/audit", payload, key)).ContinueWith(t => Say(t.Status == TaskStatus.RanToCompletion
+                ? t.Result
+                : LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the report did not finish")), TaskScheduler.Default);
+        }
+
         /// <summary>Record a Naming Manager batch on the ledger: one row for the batch (the window continues on the
         /// task and shows the line).</summary>
         public static LedgerResult NamingRenamed(IEnumerable<object> rows, string actor, string projectKey)

@@ -637,3 +637,22 @@ describe("validateArtefact — lod_matrix (Promote v1)", () => {
     expect(fails("lod_matrix", body)).toMatchObject({ status: 400, message });
   });
 });
+
+// MA-1a item 6: guideline@n's placement block — a workset per category and the phase. The cases are shared with the
+// add-in's loader (tools/promote-check reads the same file), so both sides accept and refuse the same bodies in the same words.
+describe("validateArtefact — a guideline's placement block (MA-1a item 6)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/guideline-placement/cases.json", import.meta.url), "utf8"));
+  it("holds both kinds of case: accepted and refused", () => {
+    expect(cases.filter((c) => c.error === null).length).toBeGreaterThan(0);
+    expect(cases.filter((c) => c.error !== null).length).toBeGreaterThan(0);
+  });
+  it.each(cases.map((c) => [c.name, c]))("%s", (_name, c) => {
+    const body = { ...guideline, placement: c.placement };
+    if (c.error === null) expect(validateArtefact("guideline", body)).toBe(true);
+    else expect(fails("guideline", body)).toMatchObject({ status: 400, message: `guideline: ${c.error}` });
+  });
+  it("a guideline with no placement block installs as before", () => {
+    expect(validateArtefact("guideline", guideline)).toBe(true);
+    expect(guideline).not.toHaveProperty("placement");
+  });
+});

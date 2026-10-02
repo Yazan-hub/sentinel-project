@@ -7,6 +7,7 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
@@ -64,6 +65,14 @@ public sealed class GhostBuilderCommand : IExternalCommand
             TaskDialog.Show("Sentinel — Ghost Builder",
                 $"Family library folder not found:\n{libraryDir}\n\n" +
                 "Fix the path in Project Setup, or clear it to run without family preload.");
+            return Result.Cancelled;
+        }
+
+        // MA-1a item 6 (review amendment C10): never into a design option — said before a drawing is picked, imported or
+        // read. The build asks again (GhostChangesetBuild), for an option entered while the review is open.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Ghost Builder") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Ghost Builder", inOption);
             return Result.Cancelled;
         }
 
@@ -234,12 +243,29 @@ public sealed class GhostBuilderCommand : IExternalCommand
         if (levels.Count > 0)
             review.LoadLevels(levels, GhostFiling.DefaultLevel(modelLevels.Select(l => (IdOf(l), l.Elevation * 304.8)).ToList(), importZFt * 304.8,
                                                                (uidoc.ActiveView as ViewPlan)?.GenLevel is { } viewLevel ? IdOf(viewLevel) : (long?)null));
-        review.LoadTypes(LoadedTypes(doc)); // GHB-5: what each row's type drop-down offers, read here on the API thread
+        var loadedTypes = LoadedTypes(doc); // GHB-5: what each row's type drop-down offers, read here on the API thread
+        review.LoadTypes(loadedTypes);
+        string? templateLine = null; // MA-1a item 6: the office-template check's line, set in PHASE 2 for the summary
+        // MA-1a item 8: the reader's own time and the sketch reader's usage, for the build:run receipt.
+        var readerClock = new System.Diagnostics.Stopwatch();
+        ModelUsage? visionUsage = null;
 
         review.BuildRequested += (approved, levelId) =>
         {
             building = true;
             mapper?.Remember(review.Choices); // GHB-5: the reviewer's picks and ignores, for this project's next run
+            // MA-1a item 8: what this run's reader did, for its build:run receipt — names, labels and counts only.
+            var reader = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds, Candidates = inputs.Elements.Count };
+            reader.Models.Add(llm.Usage);
+            reader.Models.Add(visionUsage);
+            if (evidence.Sources.Any(s => s.EndsWith(".pdf", System.StringComparison.OrdinalIgnoreCase))) reader.Tools.Add(BuildReceipt.PdfPig);
+            reader.Parameters["drawing"] = drawing;
+            reader.Parameters["layers_read"] = inputs.Layers.Count;
+            reader.Parameters["layers_ticked"] = approved.Mappings?.Count ?? 0;
+            reader.Parameters["evidence_docs"] = evidence.Sources.Count;
+            reader.Parameters["layers_standard"] = standards!.LayersSource.Label;
+            reader.Parameters["guideline"] = standards!.GuidelineSource.Label;
+            reader.Parameters["type_catalogue"] = standards!.CatalogSource.Label;
             // MA-1a step 2: Build is the one human gate — the ticked rows are filed as changesets (source dwg) and placed by
             // ChangesetExecutor; an unbound model runs the same executor on a local changeset, with no ledger.
             placementEvent.SetRequest(new GhostChangesetBuild.Request
@@ -247,6 +273,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 Doc = doc, Elements = inputs.Elements, Mapping = approved, LevelId = levelId,
                 Guideline = standards!.Guideline, LibraryDir = libraryDir, Key = key, Drawing = drawing,
                 ImportZFt = importZFt, SourceSha256 = sourceSha, GuidelineLabel = standards!.GuidelineSource.Label, LayersLabel = standards!.LayersSource.Label,
+                Reader = reader,
             });
             externalEvent.Raise();
         };
@@ -289,7 +316,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 if (error != null)
                     TaskDialog.Show("Sentinel — Ghost Builder", "Placement failed: " + error.Message);
                 else
-                    TaskDialog.Show("Sentinel — Ghost Builder", Summarize(report, standards!));
+                    TaskDialog.Show("Sentinel — Ghost Builder", Summarize(report, standards!, templateLine));
             });
         };
 
@@ -299,12 +326,32 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             try
             {
+                readerClock.Start(); // MA-1a item 8: stopped when the review opens
                 // layers@n, guideline@n and type_catalog@n for this document's project (or its office), fetched in
                 // parallel (the catalogue within 20 s). One not installed is none, named — never a shipped file.
                 progress.SetStatus("Reading the project's layers, guideline and type catalogue…");
                 var resolved = GhostStandards.Load(key);
                 progress.Token.ThrowIfCancellationRequested();
                 standards = resolved;
+                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block" — nothing is
+                // built on a guess about the office's worksets.
+                if (PlacementPolicy.UnreadRefusal(resolved.GuidelineSource.Origin, resolved.GuidelineSource.NotInstalled || resolved.GuidelineSource.NoProject,
+                                                  !string.IsNullOrWhiteSpace(key), resolved.GuidelineSource.Reason) is { } unread)
+                {
+                    FailOnUi(progress, Release, unread);
+                    return;
+                }
+                // MA-1a item 6, the office-template check: Build from Evidence runs only in a model whose types match the
+                // installed catalogue. Refused when the model holds none of the office types (founder decision F5);
+                // otherwise the count is said in the summary. The DWG import made above stays in the model, as it does
+                // after every other refusal of this command.
+                var (officeHave, officeAll) = resolved.Guideline.OfficeTypesIn(loadedTypes);
+                if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
+                {
+                    FailOnUi(progress, Release, PlacementPolicy.TemplateRefusal(officeAll, resolved.CatalogSource.Label));
+                    return;
+                }
+                templateLine = PlacementPolicy.TemplateLine(resolved.Guideline.HasCatalog, officeHave, officeAll, resolved.CatalogSource.Label);
                 // The per-project mapping cache (%AppData%\Sentinel\cache\<key>\dwg_mappings.json), stamped by the
                 // mapper with the layers sha: another project's guess never outranks this project's layers@n.
                 mapper = new LayerMapper(llm, resolved.Layers, key);
@@ -323,6 +370,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
                     string hints = await vision.ReadFolderAsync(settings.GhostSourceFolder, ct: progress.Token).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(hints)) llm.AppendEvidence(hints);
+                    visionUsage = vision.Usage;
                 }
 
                 progress.SetStatus(evidence.IsEmpty
@@ -348,6 +396,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     .GroupBy(e => e.CadLayer ?? "", System.StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.Count(), System.StringComparer.OrdinalIgnoreCase);
 
+                readerClock.Stop();
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();
@@ -380,7 +429,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
     /// window is Revit-free): basic wall, floor and ceiling types by name; door, window, column and furniture types as
     /// family : type. Basic walls only and floors without foundation slabs, as ChangesetExecutor resolves them, so a pick
     /// is one the executor places.</summary>
-    private static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
+    internal static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
     {
         IReadOnlyList<(string? Family, string Type)> Names(IEnumerable<ElementType> types) => types
             .Select(t => (Family: t is FamilySymbol s ? s.FamilyName : null, Type: t.Name))
@@ -432,13 +481,14 @@ public sealed class GhostBuilderCommand : IExternalCommand
     internal static string CatalogueNotChecked(GhostStandards s) =>
         "Type catalogue not checked — type_catalog: " + s.CatalogSource.Label + "; types checked against this document only.";
 
-    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s)
+    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s, string? template = null)
     {
         if (r is null) return "No report returned.";
         var lines = new System.Text.StringBuilder();
         // What this build was mapped and typed by, first — the review window's header, repeated.
         lines.AppendLine(s.Header);
         if (s.CatalogSource.Origin == "none") lines.AppendLine(CatalogueNotChecked(s));
+        if (template != null) lines.AppendLine(template); // MA-1a item 6: the office-template check
         lines.AppendLine();
         // MA-1a step 2: nothing was built (refused, not filed, rolled back by Revit, not finished, or nothing to build) —
         // that line and the ledger line; the reasons below still name every row that gave no element. Nothing else is true.
@@ -467,6 +517,12 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 lines.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
                 foreach (var t in r.CreatedTypes) lines.AppendLine($"  + {t}");
             }
+        }
+        // MA-1a item 6: what the placement block did — a result of the build, not a warning.
+        if (r.Placement.Count > 0)
+        {
+            lines.AppendLine();
+            foreach (var p in r.Placement) lines.AppendLine(p);
         }
         if (r.Warnings.Count > 0)
         {

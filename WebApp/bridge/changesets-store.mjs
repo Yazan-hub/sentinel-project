@@ -19,6 +19,7 @@ const wire = (deps = {}) => ({
   docReplaceIfStatus: deps.docReplaceIfStatus || cde.docReplaceIfStatus,
   audit: deps.audit || cde.audit,
   requireMinRole: deps.requireMinRole || members.requireMinRole,
+  myRole: deps.myRole || members.myRole,
   takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
 });
 
@@ -27,7 +28,10 @@ export async function proposeChangeset(key, body, actor, deps) {
   // H0 (D4, changesets-1): proposing is a contributor's (a ledger row, and a place in the add-in's queue); a viewer
   // proposes nothing. The machine credential (the MCP server, the add-in) passes as service.
   await d.requireMinRole(key, "contributor");
-  const v = validateChangeset(body);                      // 400/413 before any store call
+  // MA-1a item 8 (review amendment C2): a Promote retype or attach is pre-ticked only when a signed-in member filed it.
+  // The machine credential ("service": a signed-out PC, the MCP server, any script that holds the token) earns none.
+  const role = await d.myRole(key);
+  const v = validateChangeset(body, { member: role != null && role !== "service" }); // 400/413 before any changeset is stored
   const proj = await d.ensureProject(key);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
@@ -49,11 +53,15 @@ export async function proposeChangeset(key, body, actor, deps) {
     adjudication: { verdict: adj.verdict, summary: adj.summary, ids_source: adj.ids_source, audit_id: adj.audit_id ?? null, unattributed: unattributedFailures(v.elements, adj) },
     elements: attachVerdicts(v.elements, adj),
     exceptions: v.exceptions, // the walls a planner sent to a person — shown to the reviewer, never placed
+    // MA-1a item 8: the bridge's trust decisions — the source is a claim, and what was posted and not kept is listed with
+    // its reason ("ignored: set by the bridge"), so the 201 reply and every later read say it.
+    claimed: v.claimed, ignored: v.ignored, ...(v.contract != null ? { contract: v.contract } : {}),
     result: null,
   };
   await d.docInsert(STORE, proj.id, changeset.id, changeset);
   await d.audit(proj.id, "changeset", changeset.id, "changeset_proposed", actor || "agent", null,
-    { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source });
+    { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source,
+      claimed: v.claimed, ignored: v.ignored.length });
   return changeset;
 }
 

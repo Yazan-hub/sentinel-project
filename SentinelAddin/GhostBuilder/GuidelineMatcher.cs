@@ -68,6 +68,17 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("graphics")]   public GuidelineGraphics Graphics { get; set; }
         [JsonPropertyName("views")]      public List<GuidelineViewStandard> Views { get; set; }
         [JsonPropertyName("viewNaming")] public GuidelineViewNaming ViewNaming { get; set; }
+        /// <summary>MA-1a item 6: where a placed element goes; null when the guideline has no block.</summary>
+        [JsonPropertyName("placement")]  public GuidelinePlacement Placement { get; set; }
+    }
+
+    /// <summary>MA-1a item 6: guideline@n's placement block. <c>worksets</c> maps a category (an <c>elements[].category</c>,
+    /// or "Levels" / "Grids") to a workset name; <c>phase</c> is "view" (the phase of the view the person builds in) or
+    /// absent. There is no design-option field: Sentinel never places into a design option (PlacementPolicy).</summary>
+    public sealed class GuidelinePlacement
+    {
+        [JsonPropertyName("worksets")] public Dictionary<string, string> Worksets { get; set; }
+        [JsonPropertyName("phase")]    public string Phase { get; set; }
     }
 
     public sealed class GuidelineTag
@@ -166,6 +177,8 @@ namespace Sentinel.GhostBuilder
         public List<GuidelineViewStandard> Views => _doc?.Views;
         public GuidelineViewNaming ViewNaming => _doc?.ViewNaming;
         public GuidelineGraphics Graphics => _doc?.Graphics;
+        /// <summary>MA-1a item 6: the guideline's placement block; null when it has none or no guideline is installed.</summary>
+        public GuidelinePlacement Placement => _doc?.Placement;
 
         /// <summary>What the catalogue check judges by: the type_catalog artefact's label ("type_catalog@1 · office ·
         /// 3f2a9c…", or "none — not installed for &lt;key&gt; or its office"). GhostStandards sets it; every gap text
@@ -252,6 +265,30 @@ namespace Sentinel.GhostBuilder
             }
             if (Present(b, "views", out var views) && views.ValueKind != JsonValueKind.Array) throw Bad("views", "must be an array");
             if (Present(b, "viewNaming", out var vn) && vn.ValueKind != JsonValueKind.Object) throw Bad("viewNaming", "must be an object");
+            // MA-1a item 6: the placement block, refused as the bridge refuses it (artefact-store.mjs), in the same words —
+            // tools/promote-check runs both against WebApp/bridge/fixtures/guideline-placement/cases.json.
+            if (Present(b, "placement", out var pl))
+            {
+                if (pl.ValueKind != JsonValueKind.Object) throw Bad("placement", "must be an object");
+                foreach (var f in pl.EnumerateObject())
+                    if (f.Name != "worksets" && f.Name != "phase") throw Bad("placement." + f.Name, "is not a placement field (worksets, phase)");
+                if (Present(pl, "worksets", out var ws))
+                {
+                    if (ws.ValueKind != JsonValueKind.Object) throw Bad("placement.worksets", "must be an object of category: workset name");
+                    // Review amendment C8: a key is a category Sentinel places, named once (case and padding ignored).
+                    var named = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var w in ws.EnumerateObject())
+                    {
+                        string canon = GuidelineMatcher.PlacementCategories.FirstOrDefault(c => string.Equals(c, w.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (canon == null) throw Bad("placement.worksets." + w.Name, "is not a category Sentinel places (" + string.Join(", ", GuidelineMatcher.PlacementCategories) + ")");
+                        if (!named.Add(canon)) throw Bad("placement.worksets." + w.Name, "names the category " + canon + " a second time");
+                        if (w.Value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(w.Value.GetString()))
+                            throw Bad("placement.worksets." + w.Name, "must be a non-empty workset name");
+                    }
+                }
+                if (Present(pl, "phase", out var ph) && !(ph.ValueKind == JsonValueKind.String && ph.GetString() == "view"))
+                    throw Bad("placement.phase", "must be \"view\" (the phase of the view the person builds in)");
+            }
         }
 
         // type_catalog@n as the bridge validates it (the office-snapshot row shape, template instead of source).
@@ -473,6 +510,31 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Has the guideline an element block for the category?</summary>
         public bool HasRulesFor(string category) => _doc.Elements.Any(e => Norm(e.Category) == Norm(category));
+
+        /// <summary>MA-1a item 6 (review amendment C8): the categories a placement block may name a workset for — the ones
+        /// Sentinel places (every changeset kind lands in one: PlacementPolicy.CategoriesOf; tools/promote-check holds the
+        /// two lists equal). The bridge's check carries the same list (artefact-store.mjs); the shared cases prove it.</summary>
+        internal static readonly string[] PlacementCategories =
+            { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids" };
+
+        /// <summary>MA-1a item 6, the office-template check: of the catalogue's types in the categories the guideline has
+        /// rules for, how many the open model holds. <paramref name="documentTypes"/> is the model's types by category as
+        /// GhostBuilderCommand.LoadedTypes reads them; a category it did not read is not counted. A type matches by its name
+        /// and, when the reader gives one, its family (a system type — a wall, a floor — has none). Total 0 = nothing to
+        /// compare: no catalogue, or no category in common.</summary>
+        public (int Present, int Total) OfficeTypesIn(IReadOnlyDictionary<string, IReadOnlyList<(string Family, string Type)>> documentTypes)
+        {
+            int present = 0, total = 0;
+            foreach (var c in _catalog)
+            {
+                if (!HasRulesFor(c.Category)) continue;
+                string key = documentTypes.Keys.FirstOrDefault(k => Norm(k) == Norm(c.Category));
+                if (key == null) continue;
+                total++;
+                if (documentTypes[key].Any(t => Norm(t.Type) == Norm(c.Type) && (t.Family == null || Norm(t.Family) == Norm(c.Family)))) present++;
+            }
+            return (present, total);
+        }
 
         /// <summary>The catalogue's types a provisioner may clone for <paramref name="typeName"/> under
         /// <paramref name="category"/>: what <see cref="GuidelineResolution.Available"/> lists for a guideline gap — the

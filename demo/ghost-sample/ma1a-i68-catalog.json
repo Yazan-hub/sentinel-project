@@ -1,0 +1,8 @@
+{
+  "template": { "title": "MA-1a items 6-8 drill template" },
+  "types": [
+    { "category": "Walls", "family": "Basic Wall", "type": "MA1 Office Wall 300" },
+    { "category": "Walls", "family": "Basic Wall", "type": "MA1 Office Wall 150" },
+    { "category": "Walls", "family": "Basic Wall", "type": "Generic - 200mm" }
+  ]
+}

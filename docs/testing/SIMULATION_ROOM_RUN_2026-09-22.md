@@ -1124,3 +1124,70 @@ Notes:
 - Revit driving: Escape did not end the Provenance pick mode (the key was not taken); picking any element ends it. Select by ID
   needs about 3 s after the Manage tab is clicked.
 - Closed Revit without saving the I34 copy; the I5 central holds the synced state (8 placed elements, grids as before).
+
+## Session MA1a-I68 — the placement block, the command reports, the receipts and the trust rules, live (2026-10-02 ~20:25–22:30 local, branch feature/ma1a-items6-8 7861807, Claude driving Revit 2024)
+
+Setup: four fresh copies of the B35 detached model in `Documents/Sentinel drills/` (`ma1a-i68-central`, `-plain`, `-unbound`, `-new`;
+only `-central` and `-plain` were opened). The central copy was workshared in place, with worksets `MA1_Walls` and `MA1_Datum`
+(no `MA1_Missing`). Scratch web projects on the test bridge 127.0.0.1:4101: `ma1a-i68` (the drill's `guideline@1` with a placement
+block, `type_catalog@1` = no type the model holds, later `@2`), `ma1a-i68-bare` (nothing installed), and B33's `ma0-bds`. The
+founder's 4100 bridge was not touched. Add-in build 7861807 deployed to Revit 2024 only (DLL sha256 020ab5d3…f58f6b). **The
+session ran signed in** (the founder's account was signed in from an earlier session and was added as contributor to the three
+scratch projects), so the signed-out cases are owed. A Windows "antivirus expired" pop-up blocked Revit from 20:25 to about 21:30;
+the three bridge-only rows ran in that time.
+
+| Row | Result | Evidence |
+|---|---|---|
+| I6-1 the office-template check refuses | Ghost Builder ▸ `sample-plan-step2.dxf`: "Nothing was built — this model was not made from the office template: it holds none of the 2 office type(s) that type_catalog@1 · project · 78bb6e85d2ff… lists in the guideline's categories. Start the project from the office template, then run this again — Sentinel never loads an unknown family." No review opened, no changeset filed. Promote: the same sentence — **pass** | dialogs, audit id unchanged |
+| I6-2 workset and phase, the template count | With `type_catalog@2`: "Office template: 1 of 3 office type(s) present", "Placed: 8", "Worksets: 6 on MA1_Walls · 2 left on the active workset (the guideline names no workset for Furniture).", "Phase: 8 element(s) set to "New Construction", the active view's phase …" — lines of their own, above Warnings. Wall 2069792: Workset MA1_Walls, Phase Created New Construction. Desk 2069799: Workset1. Active workset still Workset1. Revit warnings 5 (walls overlap ×4, identical instances ×1), as in MA1a-I35 — **pass** (UNSURE 7: no new warning; UNSURE 9, 14 held) | summary, Properties |
+| I6-3 the view's phase, one Undo | From a copy of the plan set to phase Existing: "Worksets: 1 on MA1_Walls.", "Phase: 1 element(s) set to "Existing" …". Wall 2069856: MA1_Walls, Phase Created Existing. Undo removed it (#1369 `changeset_reverted` undo), Redo brought it back (#1370 redo) — **pass** (UNSURE 6) | dialog, Properties, audit |
+| I6-4 a workset the model lacks | "Nothing was placed — the guideline's placement block names a workset this model does not have: "MA1_Missing". Create it (Standards ▸ Apply Standard, or Collaborate ▸ Worksets), then try again — Sentinel never creates a workset while placing, and never picks another." + "The proposals are still pending — run Review AI Proposals again." Changeset 42eaa956 stayed `proposed`; the workset list has no MA1_Missing — **pass** | dialog, changeset, workset list |
+| I6-5 a design option is being edited (F3) | In "Option 1 <primary>": Review AI Proposals, Ghost Builder, Datum from Drawings and Photo Massing each answered "Nothing was placed — design option "Option 1  <primary>" is being edited, and Sentinel never places into a design option. Switch to Main Model (Manage ▸ Design Options), then … again." Ghost, Datum and Massing refused before any picker opened; nothing was filed. Back in Main Model the wall applied on MA1_Walls — **pass** (UNSURE 4: the active option is reported inside an ExternalEvent). The CAD-import count could not be read from Manage Links (it lists links, not imports); "no picker opened" is the evidence | four dialogs, audit ids |
+| I6-6 a model that is not workshared (F4) | `ma1a-i68-plain.rvt`: "Worksets: not set — this model is not workshared, so it has no worksets (the guideline names 7).", "Phase: 1 element(s) set to "New Construction" …" — **pass** | dialog |
+| I6-7 no placement block | Bound to `ma1a-i68-bare` (guideline 404 `not_installed`): "Placement: no placement block (the project's guideline has none, or no guideline is installed) — each element is on the active workset and in the phase Revit gave it, as before." The wall's Phase Created: New Construction (UNSURE 1: with nothing set, Revit gives the active view's phase here) — **pass** | dialog, Properties |
+| I6-8 Datum's grids | The 14 grids of the copy are pinned: unpinned, then deleted. "Created 0 level(s) and 5 grid(s) …", "Worksets: 5 on MA1_Datum.", "Phase: 0 element(s) set …". Grid 2070008: Workset MA1_Datum. Second run from a schedule: all kept, "Worksets: no element was created.", "Phase: 0 element(s) set to "New Construction"" — a schedule answers a phase (UNSURE 3); no second `datum` row — **pass** | dialogs, Properties |
+| I6-9 a door, a column and a ceiling | "Applied 4 element(s) …", "Worksets: 4 on MA1_Walls.", "Phase: 4 element(s) set to "New Construction"": the four elements show MA1_Walls and New Construction (UNSURE 2 held for wall, door, column, ceiling). Second post, a door from the Existing view into that wall: placed, Workset MA1_Walls, but **Phase Created New Construction** — Revit kept the door in its wall's phase, with no error and no warning, while the dialog said "Phase: 1 element(s) set to "Existing"" → **F-I68-1**. The founder's decision (2026-10-02): leave it as Revit does it — **pass after the fix** | Properties, dialog |
+| I7-1 one row per action, with the signed-in actor | One `ghost_build` row (#1361: "Ghost Builder placed 8 element(s) from sample-plan-step2 on GR-FFL", placed 8, revit_warnings 5, its changeset id) and one `datum` row (#1377: "Datum from Drawings created 0 level(s) and 5 grid(s)"), each with the signed-in e-mail as actor. The pane logged "Ghost Builder — Recorded: ledger #1361 · receipt …" and "Datum from Drawings — Recorded: ledger #1377 …". The refused runs left no report row — **pass** (UNSURE 11) | audit, pane |
+| I7-2 Annotate | "Created: 5 view(s) across 5 level(s)." → #1391 `annotate`. Again: "Created: 0 … Skipped (already exist): 5", no second row — **pass** | dialog, audit |
+| I7-3 Apply Standard | Build Office System ▸ Build: #1392 "Apply Standard: 14 created, 99 skipped, 0 failed" (shared-parameter bindings; the four worksets skipped as existing; no "Ruleset:" line among `created`). The window also said "Ruleset NOT installed on ma1a-i68: HTTP 403: this action requires the lead role (you are contributor)" — the role rule working. Second Build: nothing created, no second row — **pass** | window, audit |
+| I7-4 ⚡ Fix | On `ma0-bds`: FN-01 on family "Grab Bar"; the proposed "BDS_Grab Bar" did not match (the pattern wants a second `_` part), edited to "BDS_Grab_Bar" → "✓ Auto-fixed"; #1399 `auto_fix` "Auto-fix FN-01: 1 Family renamed" with old_name, new_name, element id; pane "Auto-fix FN-01 — Recorded: ledger #1399" — **pass** | pane, audit |
+| I7-5 fix-in-place | **Owed** (no scratch project holds an open IDS issue Sentinel can write) | — |
+| I7-6 the Doctor | **Owed.** A wall rotated by a typed 0.034° and another by 0.005° raised no "slightly off axis" warning in Revit 2024 (Review Warnings unchanged, no "Seen:" line), so there was nothing for the Doctor to see or resolve (UNSURE 13: no). The row needs a wall drawn off axis by hand | Review Warnings |
+| I7-7 not bound, not reachable, the budget | (a) An unbound copy: "Created 0 level(s) and 5 grid(s)", the no-block line, pane "Datum from Drawings — Not recorded on the web: This model is not bound …" and the same for the receipt. (b) `serviceUrl` on a dead port: the dialog opened at once, the cached guideline placed the grid ("Worksets: 1 on MA1_Datum."), pane "Datum from Drawings — Not recorded — the bridge did not answer" twice. (c) 6 report rows by the signed-in person in the session, at most 2 in one minute — **pass** (UNSURE 12, 16) | dialogs, pane, audit |
+| I7-7d a project the bridge does not have (C30) | Bound to `ma1a-i68-new`: Datum answered with the no-block line, never "the guideline could not be read". The grids had not been deleted in that run, so nothing was created: the wording is seen, the create path is **owed** | dialog |
+| I7-8 ROI | `ma1a-i68`: "Fixes on the ledger, not priced: 0 auto-fix(es) · 0 fix-in-place value(s) written · 0 Doctor resolution(s)"; `ma0-bds`: "1 auto-fix(es) · 0 … · 0 …"; the last line "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row" — **pass** | windows |
+| I7-9 Photo Massing | **Owed** (no photos on this PC). Its design-option refusal passed (I6-5) | — |
+| I8-1 an agent post with `pretick: true` and `within_tolerance` | 201: `pretick` false, `accuracy` `{status: not_measured}`, `claimed` true, `ignored` lists `elements[0].pretick`, `.accuracy`, `.measured` ("no survey job the bridge ran backs it") and `.place.pretick`; the stored `place` has no `pretick`. In the review: "Proposed by agent (claimed — the bridge records who a changeset says it is from, and cannot verify it)", the row unticked, "· not measured"; Tick suggested leaves it unticked; ticked by hand it applied — **pass** | reply, review |
+| I8-2 the MCP tool never files as the add-in | `source: "promote"` and `source: {reader: "promote"}` both stored as `agent`, claimed, pretick false; both declined afterwards — **pass** | printed lines, audit |
+| I8-3 Promote's own operations, the first real template count | On `ma0-bds`: "Office template: 79 of 91 office type(s) present (type_catalog@1 …)" — the first real count for decision F5. Signed in: the retype rows opened **ticked**. Receipt #1404: reader `promote`, model_calls 0, its two changesets (both withdrawn afterwards). The signed-out case (rows open unticked, F14) is **owed** | review, audit |
+| I8-4 the receipts | Ghost (#1360): `build:run`, reader `ghost-builder`, claimed true, `addin_sha256` = the deployed DLL's, 20.3 s, candidates 12, gaps 0, tools Revit API + PdfPig + Ollama, weights `qwen2.5:7b-instruct` with `licence: null` and its note, model_calls 2, tokens {prompt 3707, output 416} (UNSURE 10: Ollama gives the counts). Datum (#1378): reader `datum`, model_calls 0, tokens null, "no model was called: this run is deterministic". No prompt, no file content, no path — **pass** | audit |
+| I8-5 a receipt cannot be forged or unmarked | A `naming` row called `build:run`: 400 "build: rows are receipts (entity_type "build") — nothing was saved". A `build` row with `claimed: false`: stored as `build:run`, `claimed: true` — **pass** | replies |
+| I8-6 the machine credential earns no pre-tick by writing `promote` (C2) | 201: source `promote`, claimed true, `pretick` false; the attach row opened unticked and Tick suggested left it so; declined — **pass** | reply, review |
+
+**Found in the drill:**
+- **F-I68-1 (fixed on the branch) — a phase Revit did not keep was counted as set.** A door placed from an Existing view into a New
+  Construction wall ends in the wall's phase; the write does not throw and the commit raises nothing, so the line said
+  "1 element(s) set to "Existing"". The lines are now counted from the phase each element still has after the commit: such an
+  element is not in the count, and the line adds "N more kept by Revit in another phase — a hosted element takes a phase its
+  host allows." One pure check (promote-check 395/395). Not re-run live.
+- **Drill data (the plan's, not the code's).** The plan's door type `M_Single-Flush : 0915 x 2134mm` is not in the B35 model: the
+  whole four-element batch was refused cleanly ("door type … does not exist in this model — load it …", reported as declined) and
+  re-posted with `Door-Interior-Single-Flush_Panel-Wood : MA1 915 x 2134mm`. Manage Links does not list CAD imports. A typed
+  rotation raises no off-axis warning (I7-6).
+
+**Owed** (not passed): I7-5 fix-in-place; I7-6 the Doctor's row; I7-9 Photo Massing; I7-7d's create path; the signed-out cases
+(I7-1's actor as `unsigned — …`, I8-3's unticked Promote rows); a floor, a window and a roof on a named workset; a two-user row
+(a workset owned by someone else); one row on Revit 2026 or 2027; a blank project from the BDS template (the second count for F5);
+full contract 2 (a post without `place.TypeName` is a 400 until MA-2).
+
+Notes:
+- Left on the test ledger: scratch projects `ma1a-i68` (rows #1342–#1395, guideline@1, type_catalog@1 and @2) and `ma1a-i68-bare`
+  (#1396–#1398); on `ma0-bds` rows #1399–#1404 and the two Promote changesets, withdrawn afterwards; the founder's account is a contributor
+  of the three scratch projects. No proposal is left pending.
+- Mistake in driving, in an unsaved scratch copy only: in `ma1a-i68-plain.rvt` a click meant to clear the selection picked the
+  CAD import, and the next Delete removed it. Both models were closed without saving.
+- Settings restored: `bcf-config.json` from its backup (same sha256); the test bridge stopped. The Ghost source folder and the
+  bindings were document settings of copies that were not saved.
+- Revit driving: after a deploy the first start may sit behind another program's pop-up; Select by ID must show the dialog before
+  typing (wait about 6 s); a contextual Modify tab appears only when the ribbon is not on Manage — check the tab before clicking
+  ribbon coordinates.

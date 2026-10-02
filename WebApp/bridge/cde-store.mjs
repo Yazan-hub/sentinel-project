@@ -1046,9 +1046,24 @@ const REPORT_MAX = 256 * 1024; // a Revit report's new_value (the renamed rows),
 /** Rows Revit writes about work it did itself in the model (H4: a signed-in person, not the machine token). The work
  *  happened in Revit, so no bridge route can write the row from the act; the row is the person's report of it, stamped
  *  with their verified identity. */
-const REVIT_REPORT_TYPES = ["naming", "family_heal"];
+const REVIT_REPORT_TYPES = ["naming", "family_heal",
+  // MA-1a item 7 (audit XC-5's modelling subset, blueprint P1-9): one row per run of a modelling command — per build,
+  // per click, per save — with counts and the actor; never one row per element.
+  "datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor",
+  // MA-1a item 8: a reader's or planner's run receipt (buildRunRow words its action build:run and marks it claimed).
+  "build"];
 
-/** A signed-in contributor or above reports a Revit-side batch (naming, family_heal): entity_type from the list above,
+/** MA-1a item 8: a build row is the add-in's own receipt of a reader or planner run. Whoever posts it — a signed-in
+ *  contributor or the machine credential — the bridge words the action (build:run) and marks the receipt claimed: no
+ *  bridge-run job backs it (survey jobs are MA-4), so nothing in it is verified. A receipt that is not an object is a 400. */
+function buildRunRow(b) {
+  const receipt = b.new_value;
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt))
+    throw Object.assign(new Error("a build row's new_value is the receipt, an object — nothing was saved"), { status: 400 });
+  return { ...b, entity_type: "build", action: "build:run", new_value: { ...receipt, claimed: true } };
+}
+
+/** A signed-in contributor or above reports a Revit-side batch (the types above): entity_type from the list,
  *  the new_value at most 256 KB (413), budgeted (429), actor the verified identity whatever the body claims. */
 async function recordRevitReport(key, role, type, b) {
   const { ROLE_RANK } = await import("./members-store.mjs");
@@ -1069,8 +1084,13 @@ async function recordRevitReport(key, role, type, b) {
 export async function recordNote(key, b = {}) {
   const { myRole, ROLE_RANK } = await import("./members-store.mjs");
   const role = await myRole(key);
-  if (role === "service") return recordAudit(key, b);
   const type = String(b.entity_type ?? "note").trim().toLowerCase();
+  // MA-1a item 8: a receipt is worded and marked by the bridge for every caller, the machine credential included; and
+  // build: actions belong to receipts, so no other row can pass for one.
+  if (type === "build") b = buildRunRow(b);
+  else if (String(b.action ?? "").trim().toLowerCase().startsWith("build:"))
+    throw Object.assign(new Error('build: rows are receipts (entity_type "build") — nothing was saved'), { status: 400 });
+  if (role === "service") return recordAudit(key, b);
   if (REVIT_REPORT_TYPES.includes(type)) return recordRevitReport(key, role, type, b);
   if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note on the ledger is a lead's (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
   const bad = (status, message) => Object.assign(new Error(message), { status });

@@ -175,6 +175,33 @@ export function validateArtefact(kind, body) {
     });
     if (body.views != null && !Array.isArray(body.views)) throw bad(kind, "views", "must be an array");
     if (body.viewNaming != null && !isObj(body.viewNaming)) throw bad(kind, "viewNaming", "must be an object");
+    // MA-1a item 6: where a placed element goes — the workset its category names, and the phase. Optional; a block the
+    // add-in could not read as written is a 400 here (GuidelineMatcher.CheckGuideline refuses the same, in the same words).
+    // No design-option field: Sentinel never places into a design option, whatever a guideline says.
+    if (body.placement != null) {
+      const p = body.placement;
+      if (!isObj(p)) throw bad(kind, "placement", "must be an object");
+      const extra = Object.keys(p).find((k) => k !== "worksets" && k !== "phase");
+      if (extra !== undefined) throw bad(kind, `placement.${extra}`, "is not a placement field (worksets, phase)");
+      if (p.worksets != null) {
+        if (!isObj(p.worksets)) throw bad(kind, "placement.worksets", "must be an object of category: workset name");
+        // Review amendment C8: a key is a category Sentinel places (GuidelineMatcher.PlacementCategories, the same list),
+        // named once — case and padding ignored. A misspelt key would install and then leave every element of that
+        // category on the active workset.
+        const categories = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids"];
+        const named = new Set();
+        for (const [category, name] of Object.entries(p.worksets)) {
+          // A byte-order mark is padding to JavaScript's trim() and a character to .NET's Trim(): refused here, as the add-in
+          // refuses it, so a pasted key never installs and then stops every placement.
+          const canon = category.includes("\uFEFF") ? undefined : categories.find((c) => c.toLowerCase() === category.trim().toLowerCase());
+          if (!canon) throw bad(kind, `placement.worksets.${category}`, `is not a category Sentinel places (${categories.join(", ")})`);
+          if (named.has(canon)) throw bad(kind, `placement.worksets.${category}`, `names the category ${canon} a second time`);
+          named.add(canon);
+          if (!filled(name)) throw bad(kind, `placement.worksets.${category}`, "must be a non-empty workset name");
+        }
+      }
+      if (p.phase != null && p.phase !== "view") throw bad(kind, "placement.phase", 'must be "view" (the phase of the view the person builds in)');
+    }
   }
   if (kind === "type_catalog") {
     if (!Array.isArray(body.types) || !body.types.length) throw bad(kind, "types", "must be a non-empty array");

@@ -26,6 +26,29 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
     // What the Doctor saw, waiting for its transaction to commit. Revit's API thread only (both events run there).
     private static readonly List<DoctorPolicy.Seen> Pending = new List<DoctorPolicy.Seen>();
 
+    // MA-1a item 7 (P1-9): what Revit's own fix resolved, gathered per project for one minute and reported as one doctor row.
+    private static readonly Sentinel.Coordination.DoctorBuffer Reported = new Sentinel.Coordination.DoctorBuffer();
+
+    // API thread (DocumentChanged). The key and the actor are read here; the flush runs a minute later on a pool thread.
+    private static void ReportResolved(Document doc, ICollection<string> committed)
+    {
+        string key = ProjectContext.For(doc).Key;
+        // Only this model's own resolutions: Pending holds every open model's, and a transaction of the same name can
+        // commit in another one.
+        var resolved = Pending.Where(p => p.Resolved && p.Project == key && committed.Contains(p.Tx)).GroupBy(p => p.Tx + "|" + p.Key).Select(g => g.First()).ToList();
+        if (resolved.Count == 0) return;
+        string actor = Sentinel.Coordination.UserSession.Actor;
+        var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher; // the pane's thread
+        bool opens = false;
+        foreach (var p in resolved) opens |= Reported.Add(key, p.Text, p.Tx, p.Ids);
+        if (!opens) return; // a flush is already on its way for this project
+        System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds)).ContinueWith(_ =>
+        {
+            if (Reported.Take(key) is { } tally)
+                Sentinel.Coordination.GovernedNotify.Report("Doctor", Sentinel.Coordination.CommandReports.Doctor(tally, actor), key, ui);
+        }, System.Threading.Tasks.TaskScheduler.Default);
+    }
+
     public static void Register(Autodesk.Revit.ApplicationServices.ControlledApplication app)
     {
         app.FailuresProcessing += OnFailuresProcessing;
@@ -56,6 +79,7 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
         {
             var committed = e.Operation == UndoOperation.TransactionCommitted ? e.GetTransactionNames() : new List<string>();
             foreach (var (line, resolved) in DoctorPolicy.Lines(Pending, committed)) App.PanelVm?.LogDoctor(line, resolved);
+            ReportResolved(e.GetDocument(), committed);
         }
         finally { Pending.Clear(); }
     }
@@ -85,6 +109,7 @@ public sealed class FailureInterceptor : IFailuresPreprocessor
             var seen = new DoctorPolicy.Seen
             {
                 Tx = tx, Text = failure.GetDescriptionText(), Ids = ids,
+                Project = ProjectContext.For(doc).Key, // MA-1a item 7: a resolution is reported under its own model's project only
                 Key = failure.GetFailureDefinitionId().Guid + "|" + string.Join(",", ids.OrderBy(i => i)),
             };
             if (act == DoctorPolicy.Act.Resolve)
