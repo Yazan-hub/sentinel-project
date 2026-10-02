@@ -96,6 +96,15 @@ export interface PlannedView {
   browserStatus?: string;
 }
 
+/** MA-1a item 6: where a placed element goes. `worksets` maps a category Sentinel places (Walls, Floors, Roofs, Ceilings,
+ *  Doors, Windows, Columns, Furniture, Levels, Grids) to a workset name; `phase: "view"` puts each element in the phase of the view the person builds in. Read by
+ *  the Revit add-in only (GuidelineMatcher.Placement); validated by the bridge (artefact-store.mjs). There is no
+ *  design-option field: Sentinel never places into a design option. */
+export interface GuidelinePlacement {
+  worksets?: Record<string, string>;
+  phase?: "view";
+}
+
 export interface Guideline {
   standard: string;
   office?: string;
@@ -106,6 +115,7 @@ export interface Guideline {
   graphics?: GuidelineGraphics;
   views?: GuidelineViewStandard[];
   viewNaming?: GuidelineViewNaming;
+  placement?: GuidelinePlacement;
 }
 
 export interface Resolution {

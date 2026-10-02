@@ -1,0 +1,18 @@
+[
+  { "name": "a workset per category and the view's phase", "placement": { "worksets": { "Walls": "ARC_Walls", "Levels": "Shared Levels and Grids" }, "phase": "view" }, "error": null },
+  { "name": "worksets only", "placement": { "worksets": { "Walls": "ARC_Walls" } }, "error": null },
+  { "name": "the phase only", "placement": { "phase": "view" }, "error": null },
+  { "name": "an empty block", "placement": {}, "error": null },
+  { "name": "null is no block", "placement": null, "error": null },
+  { "name": "text instead of a block", "placement": "ARC_Walls", "error": "placement must be an object" },
+  { "name": "a list instead of a block", "placement": [], "error": "placement must be an object" },
+  { "name": "a field the block does not have", "placement": { "designOption": "Main Model" }, "error": "placement.designOption is not a placement field (worksets, phase)" },
+  { "name": "worksets as a list", "placement": { "worksets": ["ARC_Walls"] }, "error": "placement.worksets must be an object of category: workset name" },
+  { "name": "a category in another case, padded", "placement": { "worksets": { " walls ": "ARC_Walls" } }, "error": null },
+  { "name": "a misspelt category", "placement": { "worksets": { "Wals": "ARC_Walls" } }, "error": "placement.worksets.Wals is not a category Sentinel places (Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Levels, Grids)" },
+  { "name": "one category under two keys", "placement": { "worksets": { "Walls": "ARC_Walls", "walls": "ARC_Other" } }, "error": "placement.worksets.walls names the category Walls a second time" },
+  { "name": "a workset name that is a number", "placement": { "worksets": { "Walls": 3 } }, "error": "placement.worksets.Walls must be a non-empty workset name" },
+  { "name": "a blank workset name", "placement": { "worksets": { "Walls": "  " } }, "error": "placement.worksets.Walls must be a non-empty workset name" },
+  { "name": "a named phase", "placement": { "phase": "New Construction" }, "error": "placement.phase must be \"view\" (the phase of the view the person builds in)" },
+  { "name": "a phase that is a number", "placement": { "phase": 1 }, "error": "placement.phase must be \"view\" (the phase of the view the person builds in)" }
+]
