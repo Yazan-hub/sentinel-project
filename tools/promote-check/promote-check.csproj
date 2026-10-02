@@ -31,6 +31,9 @@
     <Compile Include="..\..\SentinelAddin\Engine\PlacementPolicy.cs" />
     <!-- MA-1a item 7: the modelling commands' report rows and the Doctor's one-minute buffer -->
     <Compile Include="..\..\SentinelAddin\Coordination\CommandReports.cs" />
+    <!-- MA-1a item 8: a local model's usage in one run, and the build:run receipt -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\ModelUsage.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\BuildReceipt.cs" />
     <!-- the DTOs a filed body is read back into, and the write options Propose serialises with -->
     <Compile Include="..\..\SentinelAddin\Coordination\ChangesetClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
