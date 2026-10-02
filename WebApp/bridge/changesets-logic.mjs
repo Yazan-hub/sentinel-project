@@ -44,7 +44,7 @@ const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
-  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Boundary", "BaseOffset", "Offset", "Mark", "Structural"];
+  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural"];
 const TARGET_KEPT = ["unique_id", "type_before"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
@@ -66,6 +66,9 @@ const PLACE_FIELDS = {
   FamilyName: ["door", "window", "column", "furniture"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture"],
   Structural: ["floor"], Location: ["door", "window", "column", "furniture"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
   SillHeight: ["window"], Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
+  // MA-1b (GHB-1): a drawn block's direction — the plan angle of its X axis and whether it is mirrored. The add-in flips the
+  // placed instance to that hinge side and swing side (ChangesetExecutor), and measures what Revit holds after the commit.
+  Rotation: ["door", "window"], Mirrored: ["door", "window"],
 };
 // The point kinds: a family placed at place.Location on its level — a door or window in the one wall under it, a column or
 // furniture unhosted (MA-1a step 2).
@@ -114,8 +117,16 @@ function checkPlace(kind, place, at) {
   for (const [f, kinds] of Object.entries(PLACE_FIELDS))
     if (place[f] !== undefined && !kinds.includes(kind)) throw err(400, `${at}: a ${kind} takes no place.${f}`);
   if (place.Mark !== undefined && !text(place.Mark, 256)) throw err(400, `${at}: place.Mark must be text of at most 256 characters`);
-  for (const f of ["Structural", "FlipFacing", "FlipHand"])
+  for (const f of ["Structural", "FlipFacing", "FlipHand", "Mirrored"])
     if (place[f] !== undefined && typeof place[f] !== "boolean") throw err(400, `${at}: place.${f} must be true or false`);
+  if (place.Rotation !== undefined) {
+    if (!finite(place.Rotation) || place.Rotation < 0 || place.Rotation >= 360)
+      throw err(400, `${at}: place.Rotation must be a number of degrees from 0 up to (not including) 360 — the plan direction of the drawn block's X axis`);
+    if (place.FlipFacing !== undefined || place.FlipHand !== undefined)
+      throw err(400, `${at}: place.Rotation and place.FlipFacing or place.FlipHand say the same thing twice — send the block's Rotation (and Mirrored), or the flips, not both`);
+  }
+  if (place.Mirrored !== undefined && place.Rotation === undefined)
+    throw err(400, `${at}: place.Mirrored needs place.Rotation — a mirror is read about the block's own X axis`);
   if (kind === "wall" || kind === "grid") {
     const c = place.LocationCurve;
     if (!c || !point(c.start) || !point(c.end)) throw err(400, `${at}: ${kind} needs place.LocationCurve with finite [x,y,z] start and end`);
