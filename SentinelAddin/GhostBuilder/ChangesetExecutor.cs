@@ -740,8 +740,14 @@ public sealed class ChangesetExecutor
             {
                 if (!(doc.GetElement(a.RevitUniqueId) is FamilyInstance fi)) continue;
                 var (hx, hy, fx, fy) = PlacementGeometry.Axes(el.Place.Rotation.Value, el.Place.Mirrored == true);
-                if (PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand) fi.flipHand();
-                if (PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing) fi.flipFacing();
+                // Both answers are read BEFORE either flip (drill MA1b, F-MA1b-2): after flipHand() Revit reported the facing
+                // reversed until the next regeneration, so a facing read after it skipped the flip the door needed — the same
+                // four doors (every one whose hand had to flip) ended facing the wrong way, in the creating transaction and in
+                // this one alike.
+                bool turnHand = PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand;
+                bool turnFacing = PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing;
+                if (turnHand) fi.flipHand();
+                if (turnFacing) fi.flipFacing();
             }
             if (t.Commit() != TransactionStatus.Committed && t.HasStarted() && !t.HasEnded()) t.RollBack();
         }

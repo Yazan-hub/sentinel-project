@@ -7,14 +7,15 @@ static partial class Check
     {
         Console.WriteLine("\nMA-1b wiring (source scan: the executor, the reader, the planner, Photo Massing's review)");
         string executor = Src("GhostBuilder", "ChangesetExecutor.cs");
-        Ok(executor.Contains("PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand) fi.flipHand();")
-           && executor.Contains("PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing) fi.flipFacing();"),
-           "the executor flips a block's door toward the drawing's hinge side and swing side, only where its family can");
+        Ok(executor.Contains("bool turnHand = PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand;")
+           && executor.Contains("bool turnFacing = PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing;")
+           && executor.IndexOf("if (turnHand) fi.flipHand();", StringComparison.Ordinal) > executor.IndexOf("bool turnFacing =", StringComparison.Ordinal),
+           "the executor reads both answers before either flip, then flips a block's door toward the drawing's hinge side and swing side, only where its family can (drill MA1b)");
         int commit = executor.IndexOf("var status = t.Commit();", StringComparison.Ordinal), measured = executor.IndexOf("result.Turned.Add(PlacementGeometry.Turn(", StringComparison.Ordinal);
         Ok(commit > 0 && measured > commit, "what a placed door holds is measured after the commit, never promised before it");
         // Drill MA1b (F-MA1b-2): the flips run in their own transaction after the creating one committed — the facing a fresh
         // door reports inside that transaction was the reverse of the committed one on every wall drawn with a negative Y.
-        int turned = executor.IndexOf("TurnToBlocks(doc, cs, toPlace, result);", StringComparison.Ordinal), flipped = executor.IndexOf("fi.CanFlipFacing) fi.flipFacing();", StringComparison.Ordinal);
+        int turned = executor.IndexOf("TurnToBlocks(doc, cs, toPlace, result);", StringComparison.Ordinal), flipped = executor.IndexOf("if (turnFacing) fi.flipFacing();", StringComparison.Ordinal);
         Ok(turned > commit && turned < measured && flipped > executor.IndexOf("private static void TurnToBlocks(", StringComparison.Ordinal)
            && !executor.Contains("doc.Regenerate(); // the orientations of an instance created in this transaction"),
            "a block's door is turned after the commit, in its own transaction, from the orientation the model holds (drill MA1b)");
