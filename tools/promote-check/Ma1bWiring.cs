@@ -12,6 +12,12 @@ static partial class Check
            "the executor flips a block's door toward the drawing's hinge side and swing side, only where its family can");
         int commit = executor.IndexOf("var status = t.Commit();", StringComparison.Ordinal), measured = executor.IndexOf("result.Turned.Add(PlacementGeometry.Turn(", StringComparison.Ordinal);
         Ok(commit > 0 && measured > commit, "what a placed door holds is measured after the commit, never promised before it");
+        // Drill MA1b (F-MA1b-2): the flips run in their own transaction after the creating one committed — the facing a fresh
+        // door reports inside that transaction was the reverse of the committed one on every wall drawn with a negative Y.
+        int turned = executor.IndexOf("TurnToBlocks(doc, cs, toPlace, result);", StringComparison.Ordinal), flipped = executor.IndexOf("fi.CanFlipFacing) fi.flipFacing();", StringComparison.Ordinal);
+        Ok(turned > commit && turned < measured && flipped > executor.IndexOf("private static void TurnToBlocks(", StringComparison.Ordinal)
+           && !executor.Contains("doc.Regenerate(); // the orientations of an instance created in this transaction"),
+           "a block's door is turned after the commit, in its own transaction, from the orientation the model holds (drill MA1b)");
         Ok(executor.Contains("catch (Exception) { result.Turned.Add((Label(el), double.NaN, false, false, false, false)); }"),
            "a direction that cannot be read back is recorded as unread — it never undoes what Revit committed");
         int refused = executor.IndexOf("PlacementGeometry.AcrossWall(lines[i].Label, lines[i].X0, lines[i].Y0, lines[i].X1, lines[i].Y1, along) is string across", StringComparison.Ordinal);

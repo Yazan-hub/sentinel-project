@@ -551,16 +551,11 @@ public sealed class ChangesetExecutor
                     if (el.Place.SillHeight is double sill) Set(fi, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM, sill * MmToFeet, el.Kind);
                     if (el.Place.FlipFacing == true && !(fi.CanFlipFacing && fi.flipFacing())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its facing");
                     if (el.Place.FlipHand == true && !(fi.CanFlipHand && fi.flipHand())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its hand");
-                    // MA-1b (GHB-1): a door or window read from a drawn block — flipped toward the block's hinge side (hand) and
-                    // swing side (facing), where its family can. A family with no such flip is left as Revit placed it: what the
-                    // instance holds is measured after the commit (Turned) and said, so one such family never declines a build.
-                    if (el.Place.Rotation is double rot)
-                    {
-                        doc.Regenerate(); // the orientations of an instance created in this transaction
-                        var (hx, hy, fx, fy) = PlacementGeometry.Axes(rot, el.Place.Mirrored == true);
-                        if (PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand) fi.flipHand();
-                        if (PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing) fi.flipFacing();
-                    }
+                    // MA-1b (GHB-1): a door or window read from a drawn block is turned toward the block's hinge side (hand)
+                    // and swing side (facing) in a second transaction, after this one commits (TurnToBlocks): drill MA1b showed
+                    // that the facing a fresh door reports inside the creating transaction is, on a wall drawn with a negative
+                    // Y direction, the reverse of what the model holds after the commit — a flip decided here went the wrong way
+                    // on 4 of 10 doors (F-MA1b-2).
                     SetMark(fi, el);
                     Collect(result, el, fi);
                 }
@@ -678,6 +673,7 @@ public sealed class ChangesetExecutor
                 gone.Add(a.RevitElementId);
             }
             foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) result.Warnings[kv.Key] = kv.Value;
+            TurnToBlocks(doc, cs, toPlace, result);
             // MA-1b (GHB-1): each door or window placed from a block, as Revit holds it now — the angle between it and its
             // block, its hinge side and swing side against the drawing's. Read after the commit and the recount (an element
             // Revit removed is in Gone, not here). The transaction is over: a read that throws is recorded as unread.
@@ -722,6 +718,37 @@ public sealed class ChangesetExecutor
         var at = line.StartsWith("at ") ? line.Substring(3) : line;
         var paren = at.IndexOf('(');
         return " (at " + (paren > 0 ? at.Substring(0, paren) : at) + ")";
+    }
+
+    /// <summary>MA-1b (GHB-1, F-MA1b-2): flip each door or window placed from a block toward the block's hinge side (hand) and
+    /// swing side (facing), where its family can — in its own transaction AFTER the creating one committed, because the
+    /// orientation a hosted instance reports inside the transaction that created it is not what the model holds after the
+    /// commit (drill MA1b: reversed on every wall drawn with a negative Y direction). Every caller runs the executor inside
+    /// a TransactionGroup, so this stays one Undo. A flip Revit refuses rolls this transaction back and leaves the elements
+    /// as placed: Turned, measured after it, says what each one holds — one such family never declines a build.</summary>
+    private static void TurnToBlocks(Document doc, ChangesetDto cs, List<ChangesetElementDto> toPlace, ExecutionResult result)
+    {
+        var turn = result.Applied.Select(a => (a, el: toPlace.First(e => e.ProposalGuid == a.ProposalGuid)))
+                                 .Where(x => IsCreate(x.el) && x.el.Place?.Rotation is double).ToList();
+        if (turn.Count == 0) return;
+        using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id));
+        try
+        {
+            t.Start();
+            GhostFailureHandler.AllOrNothingOn(t);
+            foreach (var (a, el) in turn)
+            {
+                if (!(doc.GetElement(a.RevitUniqueId) is FamilyInstance fi)) continue;
+                var (hx, hy, fx, fy) = PlacementGeometry.Axes(el.Place.Rotation.Value, el.Place.Mirrored == true);
+                if (PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand) fi.flipHand();
+                if (PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing) fi.flipFacing();
+            }
+            if (t.Commit() != TransactionStatus.Committed && t.HasStarted() && !t.HasEnded()) t.RollBack();
+        }
+        catch (Exception)
+        {
+            if (t.HasStarted() && !t.HasEnded()) t.RollBack();
+        }
     }
 
     private static void Collect(ExecutionResult result, ChangesetElementDto el, Element created)
