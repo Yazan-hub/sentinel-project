@@ -27,6 +27,8 @@
     <!-- MA-1a item 5: the BLOCK check's diff and words, over the rule engine's Violation -->
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\BlockCheck.cs" />
+    <!-- MA-1a item 6: the placement block's lookups and words, and the office-template count -->
+    <Compile Include="..\..\SentinelAddin\Engine\PlacementPolicy.cs" />
     <!-- the DTOs a filed body is read back into, and the write options Propose serialises with -->
     <Compile Include="..\..\SentinelAddin\Coordination\ChangesetClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
