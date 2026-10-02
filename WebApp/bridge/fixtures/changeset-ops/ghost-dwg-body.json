@@ -35,7 +35,8 @@
     {
       "kind": "door", "op": "create", "reason": "Ghost Builder: door on layer A-DOOR",
       "validate": { "identity": { "Class": "IfcDoor", "Name": "A-DOOR #1" } },
-      "place": { "TypeName": "0915 x 2134mm", "LevelName": "Level 1", "FamilyName": "M_Single-Flush", "Location": [6450, 0, 0] },
+      "place": { "TypeName": "0915 x 2134mm", "LevelName": "Level 1", "FamilyName": "M_Single-Flush", "Location": [6450, 0, 0],
+                 "Rotation": 240, "Mirrored": true },
       "provenance": { "layer": "A-DOOR", "rule": "type picked by the reviewer in Ghost's review" }
     },
     {

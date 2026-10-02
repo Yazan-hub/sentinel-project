@@ -74,6 +74,27 @@ static partial class Check
            && GhostFiling.HostGap(modelWalls, buildWalls, "Level 1", 2500, 3000) == null,
            "a DWG opening over a wall already in the model only is a named gap (F9 A); over a wall this build creates it is filed");
 
+        // MA-1b (GHB-1): a block's door or window carries the block's direction; a drawn outline's carries none.
+        var turned = GhostFiling.Point("door", "A-DOOR", 1, "F", "T", "Level 1", 0, 0, 0, 240, true).Place;
+        var straightOn = GhostFiling.Point("window", "A-GLAZ", 1, "F", "T", "Level 1", 0, 0, 0, 90).Place;
+        var outline = GhostFiling.Point("door", "A-DOOR", 2, "F", "T", "Level 1", 0, 0, 0).Place;
+        Ok(turned.Rotation == 240 && turned.Mirrored == true && straightOn.Rotation == 90 && straightOn.Mirrored == null
+           && outline.Rotation == null && outline.Mirrored == null && turned.FlipFacing == null && turned.FlipHand == null,
+           "a block's door or window is filed with place.Rotation, and Mirrored only when it is mirrored; an outline's with neither; never a flip");
+        var sent = new List<ChangesetElementDto>
+        {
+            GhostFiling.Point("door", "A-DOOR", 1, "F", "T", "Level 1", 0, 0, 0, 240, true),
+            GhostFiling.Point("door", "A-DOOR", 2, "F", "T", "Level 1", 0, 0, 0),
+        };
+        List<ChangesetElementDto> Back() => JsonSerializer.Deserialize<List<ChangesetElementDto>>(JsonSerializer.Serialize(sent, ChangesetClient.WriteJson));
+        var oldBridge = Back();
+        oldBridge[0].Place.Rotation = null;
+        oldBridge[0].Place.Mirrored = null;
+        var unmirrored = Back();
+        unmirrored[0].Place.Mirrored = null;
+        Ok(!GhostFiling.LostRotation(sent, Back()) && GhostFiling.LostRotation(sent, oldBridge) && GhostFiling.LostRotation(sent, unmirrored),
+           "a bridge that answers without a sent Rotation or Mirrored (one still on the old code) is seen before anything is placed");
+
         var local = GhostFiling.Local("Ghost Builder · plan · Level 1", chunks[2]);
         Ok(local.Source == "dwg" && Guid.TryParse(local.Id, out _) && local.Elements.Count == 50
            && local.Elements.All(e => Guid.TryParse(e.ProposalGuid, out _)) && local.Elements.Select(e => e.ProposalGuid).Distinct().Count() == 50,
@@ -106,7 +127,7 @@ static partial class Check
                              GhostFiling.Run(new double[] { 0, 0 }, new double[] { 2000, 0 }, new double[] { 1000, 1000 }, 0, 1), 0),
             GhostFiling.Floor("A-FLOR", 1, "Generic 150mm", "Level 1", new[] { new double[] { 0, 0, 0 }, new double[] { 10000, 0, 0 }, new double[] { 10000, 7000, 0 }, new double[] { 0, 7000, 0 } }),
             GhostFiling.Ceiling("A-CLNG", 1, "600 x 600mm Grid", "Level 1", new[] { new double[] { 0, 0 }, new double[] { 4000, 0 }, new double[] { 4000, 7000 }, new double[] { 0, 7000 } }, 0),
-            GhostFiling.Point("door", "A-DOOR", 1, "M_Single-Flush", "0915 x 2134mm", "Level 1", 6450, 0, 0),
+            GhostFiling.Point("door", "A-DOOR", 1, "M_Single-Flush", "0915 x 2134mm", "Level 1", 6450, 0, 0, 240, true), // MA-1b: a mirrored block's door
             GhostFiling.Point("window", "A-GLAZ", 1, "M_Fixed", "0915 x 1220mm", "Level 1", 10000, 3500, 0),
             GhostFiling.Point("column", "A-COLS", 1, "M_Rectangular Column", "457 x 610mm", "Level 1", 5000, 3500, 0),
             GhostFiling.Point("furniture", "A-FURN", 1, "M_Desk", "1525 x 762mm", "Level 1", 2000, 2000, 0),

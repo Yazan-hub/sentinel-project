@@ -42,6 +42,10 @@ public sealed class PlaceDto
     [JsonPropertyName("SillHeight")] public double? SillHeight { get; set; }
     [JsonPropertyName("FlipFacing")] public bool? FlipFacing { get; set; }
     [JsonPropertyName("FlipHand")] public bool? FlipHand { get; set; }
+    // create (MA-1b, GHB-1): a door or window read from a drawn block — the plan angle of the block's X axis (degrees, 0 up to
+    // 360) and whether it is mirrored. The executor flips the instance to that hinge side and swing side; never sent with a flip.
+    [JsonPropertyName("Rotation")] public double? Rotation { get; set; }
+    [JsonPropertyName("Mirrored")] public bool? Mirrored { get; set; }
     [JsonPropertyName("Boundary")] public double[][] Boundary { get; set; }
     [JsonPropertyName("BaseOffset")] public double? BaseOffset { get; set; }
     [JsonPropertyName("Offset")] public double? Offset { get; set; }
