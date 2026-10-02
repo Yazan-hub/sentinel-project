@@ -242,7 +242,9 @@ public sealed class GhostBuilderCommand : IExternalCommand
         if (levels.Count > 0)
             review.LoadLevels(levels, GhostFiling.DefaultLevel(modelLevels.Select(l => (IdOf(l), l.Elevation * 304.8)).ToList(), importZFt * 304.8,
                                                                (uidoc.ActiveView as ViewPlan)?.GenLevel is { } viewLevel ? IdOf(viewLevel) : (long?)null));
-        review.LoadTypes(LoadedTypes(doc)); // GHB-5: what each row's type drop-down offers, read here on the API thread
+        var loadedTypes = LoadedTypes(doc); // GHB-5: what each row's type drop-down offers, read here on the API thread
+        review.LoadTypes(loadedTypes);
+        string? templateLine = null; // MA-1a item 6: the office-template check's line, set in PHASE 2 for the summary
 
         review.BuildRequested += (approved, levelId) =>
         {
@@ -297,7 +299,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 if (error != null)
                     TaskDialog.Show("Sentinel — Ghost Builder", "Placement failed: " + error.Message);
                 else
-                    TaskDialog.Show("Sentinel — Ghost Builder", Summarize(report, standards!));
+                    TaskDialog.Show("Sentinel — Ghost Builder", Summarize(report, standards!, templateLine));
             });
         };
 
@@ -313,6 +315,25 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 var resolved = GhostStandards.Load(key);
                 progress.Token.ThrowIfCancellationRequested();
                 standards = resolved;
+                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block" — nothing is
+                // built on a guess about the office's worksets.
+                if (PlacementPolicy.UnreadRefusal(resolved.GuidelineSource.Origin, resolved.GuidelineSource.NotInstalled,
+                                                  !string.IsNullOrWhiteSpace(key), resolved.GuidelineSource.Reason) is { } unread)
+                {
+                    FailOnUi(progress, Release, unread);
+                    return;
+                }
+                // MA-1a item 6, the office-template check: Build from Evidence runs only in a model whose types match the
+                // installed catalogue. Refused when the model holds none of the office types (founder decision F5);
+                // otherwise the count is said in the summary. The DWG import made above stays in the model, as it does
+                // after every other refusal of this command.
+                var (officeHave, officeAll) = resolved.Guideline.OfficeTypesIn(loadedTypes);
+                if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
+                {
+                    FailOnUi(progress, Release, PlacementPolicy.TemplateRefusal(officeAll, resolved.CatalogSource.Label));
+                    return;
+                }
+                templateLine = PlacementPolicy.TemplateLine(resolved.Guideline.HasCatalog, officeHave, officeAll, resolved.CatalogSource.Label);
                 // The per-project mapping cache (%AppData%\Sentinel\cache\<key>\dwg_mappings.json), stamped by the
                 // mapper with the layers sha: another project's guess never outranks this project's layers@n.
                 mapper = new LayerMapper(llm, resolved.Layers, key);
@@ -388,7 +409,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
     /// window is Revit-free): basic wall, floor and ceiling types by name; door, window, column and furniture types as
     /// family : type. Basic walls only and floors without foundation slabs, as ChangesetExecutor resolves them, so a pick
     /// is one the executor places.</summary>
-    private static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
+    internal static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
     {
         IReadOnlyList<(string? Family, string Type)> Names(IEnumerable<ElementType> types) => types
             .Select(t => (Family: t is FamilySymbol s ? s.FamilyName : null, Type: t.Name))
@@ -440,13 +461,14 @@ public sealed class GhostBuilderCommand : IExternalCommand
     internal static string CatalogueNotChecked(GhostStandards s) =>
         "Type catalogue not checked — type_catalog: " + s.CatalogSource.Label + "; types checked against this document only.";
 
-    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s)
+    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s, string? template = null)
     {
         if (r is null) return "No report returned.";
         var lines = new System.Text.StringBuilder();
         // What this build was mapped and typed by, first — the review window's header, repeated.
         lines.AppendLine(s.Header);
         if (s.CatalogSource.Origin == "none") lines.AppendLine(CatalogueNotChecked(s));
+        if (template != null) lines.AppendLine(template); // MA-1a item 6: the office-template check
         lines.AppendLine();
         // MA-1a step 2: nothing was built (refused, not filed, rolled back by Revit, not finished, or nothing to build) —
         // that line and the ledger line; the reasons below still name every row that gave no element. Nothing else is true.

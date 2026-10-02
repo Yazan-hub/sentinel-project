@@ -62,6 +62,14 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TaskDialog.Show(Title, $"Guideline: {standards.GuidelineSource.Label}\n\nNo DD rule file is installed for \"{key}\" or its office — nothing to plan. Install one as guideline@n.");
             return Result.Cancelled;
         }
+        // MA-1a item 6, the office-template check: Promote retypes onto office types, so a model that holds none of them
+        // was not made from the office template — said before anything is planned.
+        var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(GhostBuilderCommand.LoadedTypes(doc));
+        if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
+        {
+            TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label));
+            return Result.Cancelled;
+        }
         var mxSource = mxTask.GetAwaiter().GetResult();
         LodMatrix mx = null;
         if (mxSource.Origin != "none")
@@ -74,6 +82,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         // With no matrix the header says "walls only"; otherwise each class left out is named below the plan.
         var header = standards.Header + "\n" + (mx == null ? notRun[0] : "LOD matrix: " + mxSource.Label + (mx.Draft ? " (DRAFT)" : ""));
         if (mx == null) notRun.Clear();
+        header += "\n" + PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
 
         var docTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // basic wall type → its Function
         foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))

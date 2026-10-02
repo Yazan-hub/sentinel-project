@@ -206,5 +206,22 @@ static partial class Check
         int massingOption = massingCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Photo Massing\")", StringComparison.Ordinal);
         Ok(massingOption > 0 && massingCmd.IndexOf("string folder = settings.GhostSourceFolder;", StringComparison.Ordinal) > massingOption,
            "Photo Massing refuses a design option before an image is read");
+
+        // The office-template check: the three commands that load the catalogue count, refuse at none, and say the count.
+        foreach (var (file, count) in new[]
+        {
+            ("Commands.GhostBuilder.cs", "resolved.Guideline.OfficeTypesIn(loadedTypes)"),
+            ("Commands.Massing.cs", "standards.Guideline.OfficeTypesIn(loadedTypes)"),
+            ("Commands.PromoteWalls.cs", "standards.Guideline.OfficeTypesIn(GhostBuilderCommand.LoadedTypes(doc))"),
+        })
+        {
+            string src = Src(file);
+            Ok(src.Contains(count) && src.Contains("PlacementPolicy.TemplateRefuses(officeHave, officeAll)")
+               && src.Contains("PlacementPolicy.TemplateRefusal(officeAll,") && src.Contains("PlacementPolicy.TemplateLine("),
+               file + ": counts the office types in the model, refuses when there are none, and says the count");
+        }
+        // Review amendment C7: the two commands that load the full standards refuse a guideline that could not be read.
+        foreach (var file in new[] { "Commands.GhostBuilder.cs", "Commands.Massing.cs" })
+            Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
     }
 }

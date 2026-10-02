@@ -52,6 +52,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         // fetched off this thread while the vision model reads the images. Massing reads no layer standard.
         string key = ProjectContext.For(doc).Key;
         GhostStandards standards = null; // set in the background before the review window can raise a build
+        var loadedTypes = GhostBuilderCommand.LoadedTypes(doc); // MA-1a item 6: the model's types, read on the API thread
+        string templateLine = null;                             // the office-template check's line, for the summary
 
         var placementEvent = new MassingPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
@@ -63,7 +65,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         {
             progress.Close();
             TaskDialog.Show("Sentinel — Massing",
-                error != null ? "Build failed: " + error.Message : Summarize(report, standards));
+                error != null ? "Build failed: " + error.Message : Summarize(report, standards, templateLine));
         });
 
         // Vision estimate and the standards GET on background threads; the review window (API thread) drives the build.
@@ -81,6 +83,22 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 progress.SetStatus("Reading the project's guideline and type catalogue…");
                 standards = await fetch.ConfigureAwait(false);
                 if (progress.Token.IsCancellationRequested) return;
+                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block".
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                                                  !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+                {
+                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", unread); });
+                    return;
+                }
+                // MA-1a item 6, the office-template check: refused when the model holds none of the office types.
+                var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(loadedTypes);
+                if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
+                {
+                    string refused = PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label);
+                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", refused); });
+                    return;
+                }
+                templateLine = PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
                 var orchestrator = new GhostBuilderOrchestrator(doc, mapper: null, minConfidence: 0,
                                                                 familyLibraryDir: libraryDir, guideline: standards.Guideline,
                                                                 placeholderTypes: true); // LOD 100: default types, declared
@@ -114,13 +132,14 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         return Result.Succeeded;
     }
 
-    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s)
+    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s, string template = null)
     {
         if (r is null) return "No report returned.";
         var sb = new System.Text.StringBuilder();
         // What typed this massing, first: the project's guideline and type catalogue, a none named as none.
         sb.AppendLine("Guideline: " + s.GuidelineSource.Label + " · Type catalogue: " + s.CatalogSource.Label);
         if (s.CatalogSource.Origin == "none") sb.AppendLine(GhostBuilderCommand.CatalogueNotChecked(s));
+        if (template != null) sb.AppendLine(template); // MA-1a item 6: the office-template check
         sb.AppendLine();
         if (r.RolledBack != null) return sb.AppendLine(GhostFailurePolicy.NotBuiltLine(r.RolledBack)).ToString();
         if (r.NotFinished != null) return sb.AppendLine(r.NotFinished).ToString(); // A6
