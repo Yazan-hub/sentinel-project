@@ -1,0 +1,25 @@
+{
+  "standard": "MA-1a items 6-8 drill guideline",
+  "office": "drill",
+  "elements": [
+    { "category": "Walls", "rules": [] },
+    { "category": "Floors", "rules": [] },
+    { "category": "Furniture", "rules": [] }
+  ],
+  "views": [
+    { "use": "GA Plan", "viewType": "FloorPlan", "namePrefix": "MA1" }
+  ],
+  "viewNaming": { "statusPrefixes": { "WIP_": "MA1 drill" } },
+  "placement": {
+    "worksets": {
+      "Walls": "MA1_Walls",
+      "Doors": "MA1_Walls",
+      "Columns": "MA1_Walls",
+      "Ceilings": "MA1_Walls",
+      "Levels": "MA1_Datum",
+      "Grids": "MA1_Datum",
+      "Floors": "MA1_Missing"
+    },
+    "phase": "view"
+  }
+}
