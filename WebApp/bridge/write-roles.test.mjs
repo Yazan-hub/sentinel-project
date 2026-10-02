@@ -586,3 +586,53 @@ describe("POST /cde/:key/manifests/:versionId (cde-rem-7): a backfill is a lead'
     expect(log.filter((c) => c.method !== "GET")).toEqual([]);
   });
 });
+
+// MA-1a items 7 and 8: the Revit report route takes the modelling commands' reports (one row per run, counts and actor)
+// and the build:run receipt, under the limits it already has. One bridge copy serves this whole file, so the report
+// budget (20 per user a minute) is shared across these tests: the contributor posts 9, the owner 21.
+describe("POST /cde/:key/audit — the modelling commands' reports and the build:run receipt (MA-1a items 7, 8)", () => {
+  const A = "/cde/demo/audit";
+  const TYPES = ["datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor"];
+
+  it.each(TYPES)("a contributor's %s report lands as one row under the verified identity", async (type) => {
+    const r = await call("POST", A, "contributor", { entity_type: type, actor: "Someone else", action: `${type}: 2 done`, new_value: { count: 2 } });
+    expect(r.status).toBe(201);
+    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor, a.new_value])).toEqual([[type, `${type}: 2 done`, "contributor@example.test", { count: 2 }]]);
+  });
+
+  it("a viewer reports nothing, a report past 256 KB is a 413, and a type not on the list is still refused", async () => {
+    expect(await call("POST", A, "viewer", { entity_type: "datum", action: "x", new_value: {} }))
+      .toEqual({ status: 403, body: { message: "a datum row is a contributor's or above (you are viewer) — nothing was saved" } });
+    expect((await call("POST", A, "lead", { entity_type: "doctor", action: "big", new_value: { t: "x".repeat(300 * 1024) } })).status).toBe(413);
+    expect((await call("POST", A, "lead", { entity_type: "clash_view", action: "x" })).status).toBe(400);
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("a build row is a receipt: the bridge words the action build:run and marks it claimed, whoever posts it", async () => {
+    const r = await call("POST", A, "contributor", { entity_type: "build", action: "anything", new_value: { reader: "ghost-builder", model_calls: 2, claimed: false } });
+    expect(r.status).toBe(201);
+    const m = await call("POST", A, "machine", { entity_type: "build", actor: "unsigned — drill", action: "build:run", new_value: { reader: "datum" } });
+    expect(m.status).toBe(201);
+    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor, a.new_value])).toEqual([
+      ["build", "build:run", "contributor@example.test", { reader: "ghost-builder", model_calls: 2, claimed: true }],
+      ["build", "build:run", "unsigned — drill", { reader: "datum", claimed: true }],
+    ]);
+  });
+
+  it("a receipt that is not an object, and a build: action under another type, are refused — nothing is saved", async () => {
+    for (const who of ["contributor", "machine"]) {
+      expect(await call("POST", A, who, { entity_type: "build", action: "build:run", new_value: "ran" }))
+        .toEqual({ status: 400, body: { message: "a build row's new_value is the receipt, an object — nothing was saved" } });
+      expect(await call("POST", A, who, { entity_type: "naming", action: "build:run", new_value: {} }))
+        .toEqual({ status: 400, body: { message: 'build: rows are receipts (entity_type "build") — nothing was saved' } });
+    }
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("the reports share one budget: a user's 21st in a minute is a 429 and writes nothing", async () => {
+    for (let i = 0; i < 20; i++) expect((await call("POST", A, "owner", { entity_type: "auto_fix", action: `fix ${i}`, new_value: {} })).status).toBe(201);
+    expect(await call("POST", A, "owner", { entity_type: "doctor", action: "one too many", new_value: {} }))
+      .toEqual({ status: 429, body: { message: "too many revit reports in a minute — nothing was saved; try again shortly" } });
+    expect(writes("audit_log")).toHaveLength(20);
+  });
+});
