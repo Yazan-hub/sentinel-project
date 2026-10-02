@@ -281,9 +281,9 @@ static partial class Check
         string Ids(JsonNode a) => string.Join(",", a.AsArray().Select(x => (string)x));
         var seed = ProvenanceStamp.Json("seed-cs", "concept", new[] { "s1" }, "5a1c-0004c3f8");
         var j = JsonNode.Parse(ProvenanceStamp.Json(id, "promote", new[] { "8c1e", "91d0" }, "5a1c-0004c3f8", seed)).AsObject();
-        Ok(j.Count == 6 && (int)j["v"] == 1 && (string)j["changeset_id"] == id && (string)j["source"] == "promote"
+        Ok(j.Count == 13 && (int)j["v"] == 2 && (string)j["changeset_id"] == id && (string)j["source"] == "promote"
            && (string)j["unique_id_at_placement"] == "5a1c-0004c3f8",
-           "the stamp JSON holds v, changeset_id, source, proposal_guids, unique_id_at_placement and changeset_ids");
+           "the stamp JSON holds v (2), changeset_id, source, proposal_guids, unique_id_at_placement, changeset_ids, item 4's six fields and rule_is_reason (C2)");
         Ok(Ids(j["proposal_guids"]) == "s1,8c1e,91d0" && Ids(j["changeset_ids"]) == "seed-cs," + id,
            "a second changeset MERGES the element's stamp: every guid and changeset that touched it, oldest first");
         var copy = JsonNode.Parse(ProvenanceStamp.Json(id, "promote", new[] { "8c1e" }, "5a1c-0004c3f9", seed)).AsObject();
