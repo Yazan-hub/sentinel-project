@@ -92,13 +92,13 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             {
                 // ponytail: a Pending commit (NotFinished) is disposed with the group, as Ghost's build does; the executor's
                 // all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
-                if (result.NotFinished == null) group.RollBack();
+                if (result.NotFinished == null) SentinelUndo.RollBack(group, doc);
                 return result;
             }
             var added = BlockCheck.AddedSince(doc, before);
             if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, $"changeset \"{cs.Name}\"", before.RulesetRef))
             {
-                group.RollBack();
+                SentinelUndo.RollBack(group, doc);
                 return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = BlockCheck.WentBack(added) };
             }
             // The line first: nothing may throw once the group is kept (the catch below says "not placed").
@@ -111,7 +111,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
         catch (Exception ex)
         {
             // C3: the scan after the batch or the dialog threw — nothing is kept; the changeset stays proposed.
-            if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+            SentinelUndo.RollBack(group, doc);
             return NotPlaced(ex);
         }
     }

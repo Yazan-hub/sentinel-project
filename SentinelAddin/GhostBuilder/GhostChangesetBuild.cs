@@ -123,7 +123,7 @@ namespace Sentinel.GhostBuilder
             // later review to apply.
             GhostPlacementEngine.PlacementReport Abandon(string line)
             {
-                if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                SentinelUndo.RollBack(group, doc);
                 var kept = new List<string>();
                 if (bound) foreach (var cs in filed) if (!ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _)) kept.Add(Short(cs.Id));
                 report.NotBuilt = line;
@@ -137,7 +137,7 @@ namespace Sentinel.GhostBuilder
             // result the bridge does not take is withdrawn instead, and one that is neither is named — it is still proposed.
             GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)
             {
-                if (group.HasStarted() && !group.HasEnded()) group.RollBack();
+                SentinelUndo.RollBack(group, doc);
                 int recorded = 0;
                 var withdrawn = new List<string>();
                 var kept = new List<string>();
