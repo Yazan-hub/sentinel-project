@@ -55,6 +55,12 @@ public static class PlacementGeometry
         return ends;
     }
 
+    /// <summary>F-S2-2: how far an existing wall's body reaches from its location curve (mm), the HalfWidth EndsTouching reads.
+    /// Only a Wall Centerline location line (WALL_KEY_REF_PARAM 0) sits mid-body (width / 2); a face or core line can put the
+    /// whole width on one side, so any other line, or one Sentinel cannot read (null), reaches the full width either side. The
+    /// extra reach only disallows a few more new-wall ends, never a join that should have been stopped.</summary>
+    public static double BodyReach(double width, int? locationLine) => locationLine == 0 ? width / 2 : width;
+
     /// <summary>Distance (mm) from (x, y) to the segment — clamped to its ends, so a point past a wall's end is not on it.</summary>
     internal static double Distance(double x0, double y0, double x1, double y1, double x, double y)
     {

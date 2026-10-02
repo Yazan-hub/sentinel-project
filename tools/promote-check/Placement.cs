@@ -71,6 +71,14 @@ static partial class Check
         Ok(E(0, 4950, 0, 0, b: new[] { arc }) == "0", "a curved user wall (its tessellated polyline): an end at its mid-arc → disallowed");
         var unread = (Line: user.Line, HalfWidth: 100.0, Bottom: double.NegativeInfinity, Top: double.PositiveInfinity);
         Ok(E(0, 0, 0, 5000, 9000, 12000, new[] { unread }) == "0", "a wall whose height Sentinel cannot read counts at every height (disallowed, never risked)");
+        Ok(PlacementGeometry.BodyReach(300, 0) == 150 && PlacementGeometry.BodyReach(300, 2) == 300 && PlacementGeometry.BodyReach(300, 1) == 300
+           && PlacementGeometry.BodyReach(300, null) == 300, "body reach: Wall Centerline → half the width; a face or core line, or unread → the full width");
+        // A 300 mm user wall drawn on Finish Face: Exterior (its line at y 0, its body y 0..300), a 100 mm new wall teed into its
+        // interior face at y 300: with half the width (150 + 50 + 1 = 201) the end is missed and Revit would T-join it.
+        var face = (Line: user.Line, HalfWidth: PlacementGeometry.BodyReach(300, 2), Bottom: 0.0, Top: 3000.0);
+        Ok(E(5000, 300, 5000, 5000, b: new[] { face }) == "0", "a 300 mm wall on its exterior face, a 100 mm wall teed into its interior face → disallowed");
+        var centred = (Line: user.Line, HalfWidth: PlacementGeometry.BodyReach(300, 0), Bottom: 0.0, Top: 3000.0);
+        Ok(E(5000, 300, 5000, 5000, b: new[] { centred }) == "", "the same tee 300 mm off a centreline wall (body y -150..150) → free");
     }
 
     // The MA-0 seed's walls (demo/promote-sample/make-concept.py EXTERIOR, INTERIOR, GAP) on both storeys, as the executor passes them.

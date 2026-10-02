@@ -53,8 +53,8 @@ public sealed class ChangesetExecutor
 
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);
 
-    // F-S2-2: the walls a new wall must not join, as PlacementGeometry.EndsTouching reads them (mm): plan polyline, half width,
-    // bottom and top (Level.Elevation's frame, as a create's BaseElevation).
+    // F-S2-2: the walls a new wall must not join, as PlacementGeometry.EndsTouching reads them (mm): plan polyline (the Location
+    // Line), body reach from it (PlacementGeometry.BodyReach), bottom and top (Level.Elevation's frame, as a create's BaseElevation).
     private List<(IReadOnlyList<double[]> Line, double HalfWidth, double Bottom, double Top)> ExistingWalls(Document doc) =>
         new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>()
             .Where(w => w.Location is LocationCurve && (WallsBefore == null || WallsBefore.Contains(w.Id.IdValue())))
@@ -62,7 +62,9 @@ public sealed class ChangesetExecutor
             {
                 var (bottom, top) = Heights(doc, w);
                 IReadOnlyList<double[]> line = ((LocationCurve)w.Location).Curve.Tessellate().Select(p => new[] { p.X / MmToFeet, p.Y / MmToFeet }).ToList();
-                return (line, w.Width / 2 / MmToFeet, bottom / MmToFeet, top / MmToFeet);
+                // The curve sits on the wall's Location Line, not always its centre (PlacementGeometry.BodyReach).
+                var reach = PlacementGeometry.BodyReach(w.Width / MmToFeet, w.get_Parameter(BuiltInParameter.WALL_KEY_REF_PARAM)?.AsInteger());
+                return (line, reach, bottom / MmToFeet, top / MmToFeet);
             }).ToList();
 
     // A wall's bottom and top (ft): its base level + offset, and its top level + offset or its unconnected height — attach's
