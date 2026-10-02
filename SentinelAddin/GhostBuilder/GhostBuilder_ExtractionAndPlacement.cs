@@ -154,7 +154,9 @@ namespace Sentinel.GhostBuilder
                     XYZ origin = instance.Transform.Origin;
                     var nested = instance.GetInstanceGeometry();
 
-                    bool hasCurve = nested.Any(n => n is Curve || n is PolyLine);
+                    // MA-1b: a nested instance (a block insert) is geometry too — AddBlocks reads it. Without this, a drawing
+                    // that holds only blocks would give a stray point at the import's own origin.
+                    bool hasCurve = nested.Any(n => n is Curve || n is PolyLine || n is GeometryInstance);
                     foreach (GeometryObject n in nested)
                         Emit(n, hasCurve ? null : origin);
 
@@ -177,7 +179,91 @@ namespace Sentinel.GhostBuilder
                 }
             }
 
+            AddBlocks(geo, results, LayerOf); // MA-1b (GHB-1): each block insert, as one point element
             return results;
+        }
+
+        private const double FtToMm = 304.8;
+
+        /// <summary>
+        /// MA-1b (GHB-1): every block INSERT of the drawing as ONE point element on the insert's layer — the middle of what
+        /// the block draws (a door block inserted by its hinge stands at the middle of its opening), with the block's angle
+        /// and mirror (GhostElement.Block). The import is one GeometryInstance; each insert is a nested GeometryInstance of
+        /// its SYMBOL geometry, placed by its own Transform — composed here with the import's, so no frame is guessed. A block
+        /// inside a block is part of the outer one. The curves inside a block are not emitted as elements (as before): a
+        /// block is one thing. Points go through Transform.OfPoint, which takes any scale, a mirror included.
+        /// </summary>
+        private void AddBlocks(GeometryElement geo, List<GhostElement> results, Func<GeometryObject, string> layerOf)
+        {
+            int nested = 0; // the block inserts inside the insert being read (review amendment C5): set to 0 before each Gather
+            // What a block draws, in model millimetres (plan), and the first layer one of its own curves names.
+            string Gather(GeometryElement g, Transform t, List<(double X, double Y)> into)
+            {
+                string first = null;
+                foreach (GeometryObject o in g)
+                {
+                    if (o is GeometryInstance n)
+                    {
+                        nested++;
+                        GeometryElement inner = n.GetSymbolGeometry();
+                        string innerLayer = inner == null ? null : Gather(inner, t.Multiply(n.Transform), into);
+                        first = first ?? innerLayer;
+                        continue;
+                    }
+                    IList<XYZ> pts = o is PolyLine pl ? pl.GetCoordinates() : o is Curve c && c.IsBound ? c.Tessellate() : null;
+                    if (pts == null) continue;
+                    first = first ?? layerOf(o);
+                    foreach (XYZ p in pts)
+                    {
+                        XYZ q = t.OfPoint(p);
+                        into.Add((q.X * FtToMm, q.Y * FtToMm));
+                    }
+                }
+                return first;
+            }
+
+            foreach (GeometryObject top in geo)
+            {
+                if (!(top is GeometryInstance import)) continue;
+                GeometryElement drawing = import.GetSymbolGeometry();
+                if (drawing == null) continue;
+                foreach (GeometryObject o in drawing)
+                {
+                    if (!(o is GeometryInstance gi)) continue;
+                    GeometryElement symbol = gi.GetSymbolGeometry();
+                    if (symbol == null) continue;
+                    Transform t = import.Transform.Multiply(gi.Transform);
+                    var drawn = new List<(double X, double Y)>();
+                    nested = 0;
+                    string ownLayer = Gather(symbol, t, drawn);
+                    string layer = layerOf(gi) ?? ownLayer; // the insert's layer; with none, the layer of what it draws
+                    if (layer == null) continue;
+                    var (rotation, mirrored) = PlacementGeometry.Frame(t.BasisX.X, t.BasisX.Y, t.BasisY.X, t.BasisY.Y);
+                    var (cx, cy) = PlacementGeometry.BlockCentre(t.Origin.X * FtToMm, t.Origin.Y * FtToMm, rotation, drawn);
+                    results.Add(new GhostElement
+                    {
+                        CadLayer = layer,
+                        LocationPoint = new XYZ(cx / FtToMm, cy / FtToMm, t.Origin.Z),
+                        BaseElevation = t.Origin.Z,
+                        Block = new GhostBlock { Name = BlockName(gi), RotationDeg = rotation, Mirrored = mirrored, Nested = nested },
+                    });
+                }
+            }
+        }
+
+        // The block's name, when Revit gives the nested instance's symbol one (drill MA1b records what it gives); else null.
+        // It is said in a gap's sentence and decides nothing.
+        private string BlockName(GeometryInstance gi)
+        {
+            try
+            {
+#if REVIT2023_OR_GREATER
+                return _doc.GetElement(gi.GetSymbolGeometryId().SymbolId)?.Name;
+#else
+                return gi.Symbol?.Name;
+#endif
+            }
+            catch (Exception) { return null; }
         }
 
         /// <summary>
@@ -231,6 +317,17 @@ namespace Sentinel.GhostBuilder
     // 2. PLACEMENT
     // ---------------------------------------------------------------------
 
+    /// <summary>MA-1b (GHB-1): what a block INSERT of the drawing says beyond its point — its name when Revit gives one,
+    /// the plan angle of its X axis (degrees, 0 up to 360) and whether it is mirrored (PlacementGeometry.Frame).</summary>
+    public sealed class GhostBlock
+    {
+        public string Name { get; set; }
+        public double RotationDeg { get; set; }
+        public bool Mirrored { get; set; }
+        /// <summary>How many block inserts this block holds inside it (any depth). They are read as part of this ONE block.</summary>
+        public int Nested { get; set; }
+    }
+
     /// <summary>
     /// One CAD element resolved to geometry, ready to place. The extractor produces these
     /// alongside the layer names; MappingResult tells us WHICH family each layer becomes.
@@ -244,6 +341,7 @@ namespace Sentinel.GhostBuilder
         public double BaseElevation { get; set; }
         public double TopElevation { get; set; }         // Photo Massing's walls: height driver (a DWG wall's top is the executor's, MA-1a item 3)
         public double ThicknessMm { get; set; }          // walls: measured from the two drawn faces (0 = unpaired/unknown)
+        public GhostBlock Block { get; set; }            // MA-1b: a block insert — LocationPoint is the middle of what it draws; null otherwise
         // NOTE: LocationLoop is the seam for floor/ceiling placement. GhostCadExtractor populates it
         // for CLOSED polylines (open polylines still split into per-segment wall runs via
         // LocationCurve). ElementPlacementFactory maps LocationLoop to Floor/Ceiling.Create, and its

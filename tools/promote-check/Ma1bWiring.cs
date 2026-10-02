@@ -21,5 +21,16 @@ static partial class Check
            "whether a family lacks a flip is read from the instance after the commit, never assumed");
         Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("AddRange(PlacementGeometry.TurnLines(result.Turned))"),
            "Review AI Proposals shows the same lines for a changeset that carries a Rotation");
+
+        string reader = Src("GhostBuilder", "GhostBuilder_ExtractionAndPlacement.cs");
+        Ok(reader.Contains("Transform t = import.Transform.Multiply(gi.Transform);")
+           && reader.Contains("PlacementGeometry.Frame(t.BasisX.X, t.BasisX.Y, t.BasisY.X, t.BasisY.Y)"),
+           "the reader composes each insert's transform with the import's own, and takes the angle and the mirror from the composed axes");
+        Ok(reader.Contains("PlacementGeometry.BlockCentre(t.Origin.X * FtToMm, t.Origin.Y * FtToMm, rotation, drawn)"),
+           "a block stands at the middle of what it draws, not at its insertion point");
+        Ok(reader.Contains("n is Curve || n is PolyLine || n is GeometryInstance"), "a drawing that holds only blocks gives no stray point at the import's origin");
+        Ok(reader.Contains("Nested = nested }"), "the reader counts the blocks inside a block — the planner says they were read as one");
+        Ok(Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains(".Concat(elements.Where(e => e.Block != null).Select(e => e.CadLayer))"),
+           "a layer that holds only block inserts is still a row of the review");
     }
 }
