@@ -58,6 +58,11 @@ public sealed class ChangesetExecutor
         /// MA-1a item 6: what the placement block did to the created elements — worksets, phase — or why it did nothing;
         /// null when the changeset created nothing. Set by ChangesetPlacementEvent from the plan it resolved.
         public List<string> Placement { get; set; }
+        /// MA-1b (GHB-1): each door or window created with place.Rotation (read from a drawn block), as Revit holds it AFTER
+        /// the commit — the angle between it and its block, and whether its hand and facing run with the block's axes
+        /// (PlacementGeometry.Turn), and whether its family lacks the hand or the facing flip. OffDeg NaN = it could not be
+        /// read back. Empty when the changeset carried no Rotation.
+        public List<(string Label, double OffDeg, bool Hand, bool Facing, bool NoHandFlip, bool NoFacingFlip)> Turned { get; } = new();
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
@@ -533,6 +538,11 @@ public sealed class ChangesetExecutor
                     }
                     var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
                     if (i < 0) throw new InvalidOperationException($"{el.Kind} \"{name}\": {why}");
+                    // MA-1b (review amendment C1): a block's direction runs along its wall. Ghost's planner files none that does
+                    // not (its snap has the same rule); an agent's changeset is refused here, in words, before anything is created.
+                    if (el.Place.Rotation is double along
+                        && PlacementGeometry.AcrossWall(lines[i].Label, lines[i].X0, lines[i].Y0, lines[i].X1, lines[i].Y1, along) is string across)
+                        throw new InvalidOperationException($"{el.Kind} \"{name}\": {across}");
                     if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
                     var fi = doc.Create.NewFamilyInstance(Pt(p), sym, hosts[i], level, StructuralType.NonStructural);
                     if (!(fi.Host is Wall hw && hw.Id.Equals(hosts[i].Id)))
@@ -540,6 +550,16 @@ public sealed class ChangesetExecutor
                     if (el.Place.SillHeight is double sill) Set(fi, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM, sill * MmToFeet, el.Kind);
                     if (el.Place.FlipFacing == true && !(fi.CanFlipFacing && fi.flipFacing())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its facing");
                     if (el.Place.FlipHand == true && !(fi.CanFlipHand && fi.flipHand())) throw new InvalidOperationException($"{el.Kind} \"{name}\" cannot flip its hand");
+                    // MA-1b (GHB-1): a door or window read from a drawn block — flipped toward the block's hinge side (hand) and
+                    // swing side (facing), where its family can. A family with no such flip is left as Revit placed it: what the
+                    // instance holds is measured after the commit (Turned) and said, so one such family never declines a build.
+                    if (el.Place.Rotation is double rot)
+                    {
+                        doc.Regenerate(); // the orientations of an instance created in this transaction
+                        var (hx, hy, fx, fy) = PlacementGeometry.Axes(rot, el.Place.Mirrored == true);
+                        if (PlacementGeometry.Opposes(fi.HandOrientation.X, fi.HandOrientation.Y, hx, hy) && fi.CanFlipHand) fi.flipHand();
+                        if (PlacementGeometry.Opposes(fi.FacingOrientation.X, fi.FacingOrientation.Y, fx, fy) && fi.CanFlipFacing) fi.flipFacing();
+                    }
                     SetMark(fi, el);
                     Collect(result, el, fi);
                 }
@@ -657,6 +677,21 @@ public sealed class ChangesetExecutor
                 gone.Add(a.RevitElementId);
             }
             foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) result.Warnings[kv.Key] = kv.Value;
+            // MA-1b (GHB-1): each door or window placed from a block, as Revit holds it now — the angle between it and its
+            // block, its hinge side and swing side against the drawing's. Read after the commit and the recount (an element
+            // Revit removed is in Gone, not here). The transaction is over: a read that throws is recorded as unread.
+            foreach (var a in result.Applied)
+            {
+                var el = toPlace.First(e => e.ProposalGuid == a.ProposalGuid);
+                if (!IsCreate(el) || !(el.Place?.Rotation is double rot)) continue;
+                try
+                {
+                    var fi = (FamilyInstance)doc.GetElement(a.RevitUniqueId);
+                    result.Turned.Add(PlacementGeometry.Turn(Label(el), rot, el.Place.Mirrored == true,
+                        fi.HandOrientation.X, fi.HandOrientation.Y, fi.FacingOrientation.X, fi.FacingOrientation.Y, fi.CanFlipHand, fi.CanFlipFacing));
+                }
+                catch (Exception) { result.Turned.Add((Label(el), double.NaN, false, false, false, false)); }
+            }
             return result;
         }
         catch (PlacementRefused ex)

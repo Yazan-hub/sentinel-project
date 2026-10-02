@@ -44,6 +44,7 @@ static partial class Check
         ReportWiringChecks();
         TrustChecks();
         TrustWiringChecks();
+        Ma1bWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
