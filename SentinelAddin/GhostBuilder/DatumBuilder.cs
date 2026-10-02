@@ -160,10 +160,13 @@ namespace Sentinel.GhostBuilder
             {
                 // MA-1a item 4: each level and grid it creates carries the full stamp — source dwg, no changeset, no ledger row
                 // until item 7 — inside this transaction, so Ctrl+Z removes it with them.
+                // Final review: "read origin to origin" is Sentinel's own import of the picked file (DetectFromFiles; the command
+                // sets its sha). Imports already in the model (Detect) were placed by someone else — nothing is claimed for them.
+                string how = detected.SourceSha256 != null ? ", read origin to origin" : "";
                 var levelFacts = new ProvenanceStamp.Facts { Layer = Layers(detected.LevelLayers), SourceSha256 = detected.SourceSha256,
-                    Rule = "Datum from Drawings: a level line's height on a layer named LEVEL or LEVL (a section), read origin to origin" };
+                    Rule = "Datum from Drawings: a level line's height on a layer named LEVEL or LEVL (a section)" + how };
                 var gridFacts = new ProvenanceStamp.Facts { Layer = Layers(detected.GridLayers), SourceSha256 = detected.SourceSha256,
-                    Rule = "Datum from Drawings: a grid line on a layer named GRID (a plan), read origin to origin" };
+                    Rule = "Datum from Drawings: a grid line on a layer named GRID (a plan)" + how };
                 foreach (var lv in detected.Levels)
                     if (CreateLevel(lv, detected.Warnings) is Level level)
                     {

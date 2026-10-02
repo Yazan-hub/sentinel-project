@@ -63,7 +63,7 @@ static partial class Check
            && said.Contains("Ledger row: #1287") && said.Contains("Placed at: 2026-10-02T12:00:00Z (UTC, this PC's clock)") && !said.Contains("Reason given by the proposer"),
            "the reader shows the source file sha, layer, rule, approver and ledger row (drill row 'pick any wall')");
         var saidRetyped = ProvenanceStamp.Describe(retyped, uid);
-        Ok(saidRetyped.Contains("\nReason given by the proposer (promote): " + ddReason + "\n") && !saidRetyped.Contains("Rule: ")
+        Ok(saidRetyped.EndsWith("\nReason given by the proposer (promote): \"" + ddReason + "\"") && !saidRetyped.Contains("Rule: ")
            && saidRetyped.Contains("Layer: A-WALL-EXT") && saidRetyped.Contains("Source file sha256: " + sha),
            "with no rule of the placer's own the reader labels the element's reason as the proposer's — it never reads as an office rule (C2)");
         Ok(ProvenanceStamp.Describe(ghost, "5a1c-0004c3f9").StartsWith("Copied, not placed by Sentinel — this stamp came with a copy of element 5a1c-0004c3f8"),
@@ -81,10 +81,18 @@ static partial class Check
             "a@example.com" + (char)0x2028 + "Placed at: never", "2026-10-02T12:00:00Z\tx"); // 0x2028: the Unicode line separator
         var lines = ProvenanceStamp.Describe(forged, uid).Split('\n');
         Ok(lines.Length == 9 && lines[3] == "Layer: A-WALL Ledger row: #1"
-           && lines[4] == "Reason given by the proposer (agent Approver: forged): as asked Approver: the office lead"
-           && lines[5] == "Approver: a@example.com Placed at: never" && lines[6].StartsWith("Ledger row: #12 34 —")
+           && lines[4] == "Approver: a@example.com Placed at: never" && lines[5].StartsWith("Ledger row: #12 34 —")
+           && lines[8] == "Reason given by the proposer (agent Approver: forged): \"as asked Approver: the office lead\""
            && lines.Count(l => l.StartsWith("Approver: ")) == 1 && lines.Count(l => l.StartsWith("Placed at: ")) == 1,
            "Describe prints one line per field: a line break inside any value is collapsed to a space (C1)");
+        // Final review: padding with spaces of any kind cannot push a reason's tail onto a visual line of its own where the
+        // dialog wraps, and the proposer's reason is the last line, in quotes — the stamp's own Approver line stands above it.
+        string pad = new string(' ', 40) + new string((char)0x00A0, 40) + (char)0x2003; // ordinary, no-break and em spaces
+        var padded = ProvenanceStamp.Describe(ProvenanceStamp.Json("cs-10", "agent", new[] { "g10" }, uid, null,
+            new ProvenanceStamp.Facts { Layer = "A-WALL" + pad, Reason = "as asked" + pad + "Approver: the office lead" + pad }, "a@example.com", "t"), uid).Split('\n');
+        Ok(padded.Length == 9 && padded.All(l => !l.Contains("  ") && !l.Contains((char)0x00A0) && !l.Contains((char)0x2003)) && padded[3] == "Layer: A-WALL"
+           && padded[4] == "Approver: a@example.com" && padded[8] == "Reason given by the proposer (agent): \"as asked Approver: the office lead\"",
+           "a reason padded with spaces (ordinary, no-break, em) has no run of two spaces in the reader, and is printed last, in quotes");
         // C1: the executor's stamp facts (ProvenanceStamp.ForChangeset) — layer, rule and sha from its in-process caller only.
         var filedEl = JsonSerializer.Deserialize<ChangesetElementDto>(
             "{\"proposal_guid\":\"g7\",\"reason\":\"as the brief asks\",\"provenance\":{\"layer\":\"A-FORGED\",\"rule\":\"office rule 1\",\"source_sha256\":\"" + sha + "\"}}");
@@ -111,9 +119,18 @@ static partial class Check
         Ok(ProvenanceStamp.FileSha256(Path.Combine(dir, "a.jpg")) == "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
            && ProvenanceStamp.FileSha256(Path.Combine(dir, "missing.jpg")) == null, "FileSha256 is the file's sha256 (\"a\" → ca978112…), null when unreadable");
         var both = ProvenanceStamp.FilesSha256(new[] { Path.Combine(dir, "b.jpg"), Path.Combine(dir, "a.jpg") });
-        Ok(both != null && both == ProvenanceStamp.FilesSha256(new[] { Path.Combine(dir, "a.jpg"), Path.Combine(dir, "b.jpg") })
+        Ok(both == "76fd1e2e103974588b34228ebbf4c8393ecf18941bfe2cd115969be993fe3b36" // sha256 of the two "sha256  name" lines, a.jpg first
+           && both == ProvenanceStamp.FilesSha256(new[] { Path.Combine(dir, "a.jpg"), Path.Combine(dir, "b.jpg") })
            && ProvenanceStamp.FilesSha256(new string[0]) == null && ProvenanceStamp.FilesSha256(new[] { Path.Combine(dir, "missing.jpg") }) == null,
-           "FilesSha256 (Photo Massing's images) does not depend on the order read; null with no file or an unreadable one");
+           "FilesSha256 (Photo Massing's images) is the sha256 of their sorted \"sha256  name\" lines, whatever the order read; null with no file or an unreadable one");
+        // Final review: Massing reads subfolders too, so two images may share a name — they sort by their sha, not by the order read.
+        Directory.CreateDirectory(Path.Combine(dir, "front"));
+        Directory.CreateDirectory(Path.Combine(dir, "back"));
+        File.WriteAllText(Path.Combine(dir, "front", "view.jpg"), "a");
+        File.WriteAllText(Path.Combine(dir, "back", "view.jpg"), "b");
+        var twins = ProvenanceStamp.FilesSha256(new[] { Path.Combine(dir, "front", "view.jpg"), Path.Combine(dir, "back", "view.jpg") });
+        Ok(twins != null && twins != both && twins == ProvenanceStamp.FilesSha256(new[] { Path.Combine(dir, "back", "view.jpg"), Path.Combine(dir, "front", "view.jpg") }),
+           "two images of one name in different subfolders give one sha in either order read (founder decision F6)");
     }
 
     // ── 13. MA-1a item 5: the BLOCK check's diff and words ─────────────────────────────────────────────────────────────
@@ -135,6 +152,12 @@ static partial class Check
         Ok(BlockCheck.Headline(added, false).EndsWith("— once this model is workshared; it is not, so no sync runs today"), "a model that is not workshared is told so — the same check, no false alarm about today's sync");
         Ok(BlockCheck.Rows(added, 2) == "• FN-01: Desk [201]\n• FN-01: Desk [202]\n… and 1 more", "the rows read as the sync's dialog lists them");
         Ok(BlockCheck.Added(before, before).Count == 0 && BlockCheck.Added(null, after).Count == 5, "nothing added → nothing to ask; no scan before → every BLOCK row after is new");
+        // Final review: a row with no element id (a workset row) is keyed by its name — a second such row of a rule that
+        // already had one is new, not hidden behind the first.
+        var shell = new List<Violation> { V("WS-01", EnforcementMode.Block, -1, "(missing) Shell") };
+        var core = BlockCheck.Added(shell, shell.Concat(new[] { V("WS-01", EnforcementMode.Block, -1, "(missing) Core") }));
+        Ok(core.Count == 1 && core[0].ElementName == "(missing) Core" && BlockCheck.Elements(core) == 1,
+           "a BLOCK row with no element id is keyed by its name: a rule's new workset row is added, the one it already had is not");
         Ok(BlockCheck.WentBack(added).StartsWith("You went back at the BLOCK check — nothing was placed. 2 element(s)") && BlockCheck.PlacedAnyway(added, true).Contains("placed anyway"),
            "the go-back and place-anyway lines");
         // Review amendment C4: a parameter rule's category key Sentinel cannot resolve is said, not silent.

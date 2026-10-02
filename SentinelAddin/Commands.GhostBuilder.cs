@@ -270,8 +270,18 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 // Build, so the local model is kept (nothing released).
                 if (error == null && report.WentBack) // with no error the report is never null
                 {
-                    building = false;
-                    review.Reopen(report.NotBuilt + (report.Ledger != null ? " " + report.Ledger : ""));
+                    string went = report.NotBuilt + (report.Ledger != null ? " " + report.Ledger : "");
+                    if (review.IsVisible)
+                    {
+                        building = false;
+                        review.Reopen(went);
+                        return;
+                    }
+                    // Final review: the person closed the review while the BLOCK dialog was up (its Closed handler released
+                    // nothing: a build was running). There is no window to go back to, so the run ends here — the local model
+                    // is released and the went-back and ledger lines are said in a dialog. Not seen in Revit: drill I5-1.
+                    Release();
+                    TaskDialog.Show("Sentinel — Ghost Builder", went);
                     return;
                 }
                 Release();

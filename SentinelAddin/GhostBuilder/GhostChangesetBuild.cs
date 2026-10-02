@@ -258,6 +258,14 @@ namespace Sentinel.GhostBuilder
                         report.Warnings.Add($"Walls on '{el.CadLayer}': {topWhy}; skipped.");
                         continue;
                     }
+                    // Final review: a wall drawn below the build level would rise only to the build level itself — a named gap,
+                    // said once per layer and distance, never filed (a stub, or a height Revit refuses, which declines the build).
+                    if (GhostFiling.BelowLevelGap(level.Name, levelMm, baseMm, top.Value.TopLevel) is string below)
+                    {
+                        report.WallGaps++;
+                        tops.Add($"Walls on '{el.CadLayer}': {below}; skipped.");
+                        continue;
+                    }
                     tops.Add(top.Value.TopLevel != null
                         ? $"Walls on {level.Name} rise to {top.Value.TopLevel}, the next Building Story above; their tops are attached to it (GHB-2)."
                         : $"Walls on {level.Name}: no Building Story above — unconnected, {top.Value.TopMm - baseMm:0} mm high, the storey below's height (founder decision F2).");

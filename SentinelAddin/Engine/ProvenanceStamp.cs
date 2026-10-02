@@ -137,6 +137,8 @@ namespace Sentinel.Engine
                 var at = S("placed_at");
                 bool reason = r.TryGetProperty("rule_is_reason", out var ir) && ir.ValueKind == JsonValueKind.True;
                 int n = r.TryGetProperty("changeset_ids", out var ids) && ids.ValueKind == JsonValueKind.Array ? ids.GetArrayLength() : 0;
+                // Final review: the proposer's own reason (up to 500 characters of their text) is printed last and in quotes, so
+                // nothing it says — however it wraps in the dialog — stands above or between the stamp's own lines.
                 return string.Join("\n", new[]
                 {
                     placedBy == uniqueId ? "Placed or changed by Sentinel."
@@ -144,20 +146,23 @@ namespace Sentinel.Engine
                     "Source: " + source,
                     "Source file sha256: " + Or("source_sha256", "none recorded — Sentinel read no file for it (an agent's proposal, or a drawing already imported in the model)"),
                     "Layer: " + Or("layer", "none — not read from a drawing layer"),
-                    (reason ? $"Reason given by the proposer ({source}): " : "Rule: ") + Or("rule", "not recorded"),
+                    reason ? null : "Rule: " + Or("rule", "not recorded"),
                     "Approver: " + approver + (approver.StartsWith("unsigned", StringComparison.Ordinal) ? " (not signed in — Standards ▸ Sign in names you)" : ""),
                     "Ledger row: " + (row != null ? "#" + row + " — the proposal row its changeset was filed with"
                                       : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "none — not on a project ledger (an unbound model's local changeset, Datum or Photo Massing)"),
                     "Placed at: " + (at != null ? at + " (UTC, this PC's clock)" : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "not recorded"),
                     "Changeset: " + (S("changeset_id") ?? "none") + (n > 1 ? $" (the latest of {n} that touched it)" : ""),
-                });
+                    reason ? $"Reason given by the proposer ({source}): \"{Or("rule", "not recorded")}\"" : null,
+                }.Where(line => line != null));
             }
             catch (Exception) { return "This element's Sentinel stamp cannot be read."; }
         }
 
         // C1: one line per field. A line break — a control character (Cc) or a Unicode line or paragraph separator (Zl, Zp) —
         // inside a value becomes one space, so a value can never pass for another line of the stamp ("…\nApprover: someone").
-        private static string OneLine(string s) => s == null ? null : Regex.Replace(s, @"[\p{Cc}\p{Zl}\p{Zp}]+", " ");
+        // Final review: so does every run of spaces of any kind (Zs: ordinary, no-break, em …) — padding cannot push a value's
+        // tail onto a line of its own where the dialog wraps.
+        private static string OneLine(string s) => s == null ? null : Regex.Replace(s, @"[\p{Cc}\p{Z}]+", " ").Trim();
 
         /// <summary>MA-1a item 4: a file's sha256 (64 lowercase hex), or null when it cannot be read. Never throws.</summary>
         public static string FileSha256(string path)
@@ -172,17 +177,13 @@ namespace Sentinel.Engine
         }
 
         /// <summary>MA-1a item 4 (founder decision F6): one sha256 over several files (Photo Massing's images) — the sha256 of
-        /// their "sha256  name" lines sorted by name, as sha256sum prints them. Null when there is none or one cannot be read.</summary>
+        /// their "sha256  name" lines sorted by name, as sha256sum prints them; two files of one name (Massing reads subfolders
+        /// too) sort by their sha, so the answer never depends on the order read. Null when there is none or one cannot be read.</summary>
         public static string FilesSha256(IEnumerable<string> paths)
         {
-            var lines = new List<string>();
-            foreach (var p in (paths ?? Enumerable.Empty<string>()).OrderBy(x => Path.GetFileName(x), StringComparer.Ordinal))
-            {
-                var h = FileSha256(p);
-                if (h == null) return null;
-                lines.Add(h + "  " + Path.GetFileName(p));
-            }
-            if (lines.Count == 0) return null;
+            var files = (paths ?? Enumerable.Empty<string>()).Select(p => (Name: Path.GetFileName(p), Sha: FileSha256(p))).ToList();
+            if (files.Count == 0 || files.Any(f => f.Sha == null)) return null;
+            var lines = files.OrderBy(f => f.Name, StringComparer.Ordinal).ThenBy(f => f.Sha, StringComparer.Ordinal).Select(f => f.Sha + "  " + f.Name);
             using var sha = SHA256.Create();
             return Hex(sha.ComputeHash(Encoding.UTF8.GetBytes(string.Join("\n", lines) + "\n")));
         }

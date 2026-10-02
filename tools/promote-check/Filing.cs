@@ -21,6 +21,10 @@ static partial class Check
         Ok(GhostFiling.Wall("A-WALL", 1, "mapping", "Generic - 200mm", "Level 1", GhostFiling.Run(new double[] { 0, 0 }, new double[] { 5000, 0 }, null, 0, 1), 0)
                .Place.TopElevation == null,
            "a Ghost wall is filed with no TopElevation — the executor gives it the next story (no 10 ft constant)");
+        // Final review: a wall drawn below the build level would take the build level as its next story — a named gap.
+        Ok(GhostFiling.BelowLevelGap("GR-FFL", 0, -300, "GR-FFL").StartsWith("the drawing puts this wall 300 mm below GR-FFL")
+           && GhostFiling.BelowLevelGap("GR-FFL", 0, 0, "01_SSL") == null && GhostFiling.BelowLevelGap("MA0 Roof", 6300, 6300, null) == null,
+           "a wall the drawing puts below the build level is a named gap (its next story would be the build level itself); a wall on the level, or on the top story, is none");
         // MA-1a item 4: the rule the stamp records.
         Ok(GhostFiling.Rule("guideline", "llm", "guideline@3 · x", "layers@1 · y") == "type by the guideline (guideline@3 · x)"
            && GhostFiling.Rule("mapping", "standard", "g", "layers@1 · y") == "type by the layer mapping (standard: layers@1 · y)"

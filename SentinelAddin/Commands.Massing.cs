@@ -87,7 +87,9 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                     {
                         var plan = MassingPlanner.Plan(corrected, defaultWallThicknessMm: 200);
                         var (elements, mapping) = MassingBuilder.ToBuildInputs(plan);
-                        placementEvent.SetRequest(orchestrator, elements, mapping, imagesSha);
+                        // Final review (E7): the images are the stamp's source only when the build still holds a number the
+                        // vision model gave — not when Ollama was down or answered badly, or the reviewer replaced them all.
+                        placementEvent.SetRequest(orchestrator, elements, mapping, MassingPlanner.HasModelValue(corrected) ? imagesSha : null);
                         externalEvent.Raise();
                     };
                     review.Show();

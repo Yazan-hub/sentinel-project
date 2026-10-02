@@ -84,7 +84,8 @@ namespace Sentinel.GhostBuilder
         /// already-prepared elements + mapping, without the DWG face-pairing pass, in one transaction with the provisioners,
         /// the guideline, placeholder types and GhostFailureHandler's honest-build rule.
         /// </summary>
-        /// <param name="imagesSha256">MA-1a item 4: one sha256 over the images the vision model read, for each element's stamp.</param>
+        /// <param name="imagesSha256">MA-1a item 4: one sha256 over the images the vision model read, for each element's stamp —
+        /// null when the build holds no number of the model's (MassingPlanner.HasModelValue): the stamp then names no source file.</param>
         public GhostPlacementEngine.PlacementReport PlacePrepared(
             System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null, string imagesSha256 = null)
         {
@@ -149,7 +150,7 @@ namespace Sentinel.GhostBuilder
                     if (_doc.GetElement(id) is Element made)
                         Sentinel.Engine.ProvenanceStamp.Write(made, null, "photo", null, new Sentinel.Engine.ProvenanceStamp.Facts
                         {
-                            Rule = $"Photo Massing: {what} of the massing plan, from the vision model's estimate as corrected in the review",
+                            Rule = MassingPlanner.StampRule(what, imagesSha256 != null), // no sha: the numbers are the reviewer's
                             SourceSha256 = imagesSha256,
                         });
                 foreach (var (id, _) in report.NewElements) handler.Ours.Add(id.IdValue());

@@ -34,12 +34,12 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
         {
             // A Raise without a staged request must still complete — a silent return would hang
             // any caller awaiting the callback.
-            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = "no request staged", NotRun = true });
+            Raise(new ChangesetExecutor.ExecutionResult { Error = "no request staged", NotRun = true });
             return;
         }
         if (DocPin.Check(app, doc, "place the proposals") is { } refusal)
         {
-            Completed?.Invoke(new ChangesetExecutor.ExecutionResult { Error = refusal, NotRun = true });
+            Raise(new ChangesetExecutor.ExecutionResult { Error = refusal, NotRun = true });
             return;
         }
         ChangesetExecutor.ExecutionResult result;
@@ -60,7 +60,20 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // began, or by the BLOCK check — whose group RunChecked has rolled back.
             result = NotPlaced(ex);
         }
-        Completed?.Invoke(result);
+        Raise(result);
+    }
+
+    // Final review (C3's other half): a subscriber that throws — the caller's report, its dialogs — does not leave Execute
+    // either. Completed is raised once, never again: by then the changeset may be placed, so the Doctor log says what was
+    // thrown and that the result may not have been reported (RevitEventHub's rule: never crash Revit, never lose it silently).
+    private void Raise(ChangesetExecutor.ExecutionResult result)
+    {
+        try { Completed?.Invoke(result); }
+        catch (Exception ex)
+        {
+            try { App.PanelVm?.LogDoctor($"Review AI Proposals: reporting the changeset's result failed — {ex.GetType().Name}: {ex.Message}. Check the model and the proposal's state before applying it again."); }
+            catch { /* the pane itself is gone */ }
+        }
     }
 
     private static ChangesetExecutor.ExecutionResult NotPlaced(Exception ex) =>

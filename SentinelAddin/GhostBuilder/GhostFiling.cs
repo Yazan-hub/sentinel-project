@@ -53,6 +53,14 @@ namespace Sentinel.GhostBuilder
         /// adding it to the build level again put Level 3 walls at +18 m (audit GHB-2). The top is the executor's.</summary>
         public static double WallBase(double levelMm, double cadZFt, double importZFt) => levelMm + (cadZFt - importZFt) * FtToMm;
 
+        /// <summary>Final review, MA-1a item 3: a wall the drawing puts below the build level takes the build level itself as its
+        /// next Building Story (<paramref name="topLevel"/>, WallTop's answer) — a stub as high as the gap, or a wall too short
+        /// for Revit, which would decline the whole build. Ghost's planner names it a gap with these words; null otherwise.</summary>
+        public static string BelowLevelGap(string level, double levelMm, double baseMm, string topLevel) =>
+            topLevel != null && string.Equals(topLevel, level, StringComparison.Ordinal)
+                ? $"the drawing puts this wall {levelMm - baseMm:0.#} mm below {level}, so the next Building Story above it is {level} itself — a stub, not a wall"
+                : null;
+
         /// <summary>Review amendment C8: the level Ghost's review opens on — the drawing's own: the level at the import's
         /// elevation (within 1 mm; the nearest), else the active plan view's level, else the lowest. The lowest alone was
         /// GR_SSL (−300) on the BDS template, where the next-story rule gives 300 mm walls. The person can still pick any.</summary>
