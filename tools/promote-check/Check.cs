@@ -34,6 +34,7 @@ static partial class Check
         PlacementChecks();
         FilingChecks();
         DoorBlockChecks();
+        DoorSampleChecks();
         LevelToLevelChecks();
         StampV2Checks();
         BlockChecks();
