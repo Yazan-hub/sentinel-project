@@ -77,9 +77,11 @@ namespace Sentinel.GhostBuilder
 
             // Turn one geometry object into zero or more GhostElements.
             // insertPoint is set when this object came from a block instance (door/window/furniture).
-            void Emit(GeometryObject o, XYZ insertPoint)
+            // layerOverride: the layer of the object this one was made from (a curve carried into the model's frame is a new
+            // object with no graphics style of its own).
+            void Emit(GeometryObject o, XYZ insertPoint, string layerOverride = null)
             {
-                string layer = LayerOf(o);
+                string layer = layerOverride ?? LayerOf(o);
                 if (layer == null) return;
 
                 switch (o)
@@ -148,29 +150,22 @@ namespace Sentinel.GhostBuilder
             {
                 if (obj is GeometryInstance instance)
                 {
-                    // The block's insertion point = its transform origin. Emit it once as a
-                    // point candidate, and also walk its curves in case the block IS the geometry
-                    // (e.g. a wall drawn inside a block rather than a symbolic door).
-                    XYZ origin = instance.Transform.Origin;
-                    var nested = instance.GetInstanceGeometry();
-
-                    // MA-1b: a nested instance (a block insert) is geometry too — AddBlocks reads it. Without this, a drawing
-                    // that holds only blocks would give a stray point at the import's own origin.
-                    bool hasCurve = nested.Any(n => n is Curve || n is PolyLine || n is GeometryInstance);
-                    foreach (GeometryObject n in nested)
-                        Emit(n, hasCurve ? null : origin);
-
-                    // Pure symbolic block (no curves) -> single point family at the origin.
-                    if (!hasCurve)
+                    // Drill MA1b (F-MA1b-1): the import's INSTANCE geometry flattens every block insert into loose curves, so a
+                    // door block's leaf and arc came out as two curve elements on the door layer beside the block itself (36 on
+                    // A-DOOR for 12 blocks). Its SYMBOL geometry keeps each insert as a nested GeometryInstance: the curves drawn
+                    // loose in the drawing are read from there, carried into the model's frame one by one, and a nested instance
+                    // is left to AddBlocks — a block is one thing, and its curves are never loose elements.
+                    Transform t = instance.Transform;
+                    GeometryElement symbol = instance.GetSymbolGeometry();
+                    if (symbol == null) continue;
+                    foreach (GeometryObject n in symbol)
                     {
-                        string layer = LayerOf(instance) ?? nested.Select(LayerOf).FirstOrDefault(l => l != null);
-                        if (layer != null)
-                            results.Add(new GhostElement
-                            {
-                                CadLayer = layer,
-                                LocationPoint = origin,
-                                BaseElevation = origin.Z
-                            });
+                        if (n is GeometryInstance) continue;
+                        string layer = LayerOf(n);
+                        if (layer == null) continue;
+                        GeometryObject moved = n is Curve c ? (GeometryObject)c.CreateTransformed(t)
+                                             : n is PolyLine pl ? pl.GetTransformed(t) : null;
+                        if (moved != null) Emit(moved, null, layer);
                     }
                 }
                 else
@@ -190,7 +185,8 @@ namespace Sentinel.GhostBuilder
         /// the block draws (a door block inserted by its hinge stands at the middle of its opening), with the block's angle
         /// and mirror (GhostElement.Block). The import is one GeometryInstance; each insert is a nested GeometryInstance of
         /// its SYMBOL geometry, placed by its own Transform — composed here with the import's, so no frame is guessed. A block
-        /// inside a block is part of the outer one. The curves inside a block are not emitted as elements (as before): a
+        /// inside a block is part of the outer one. The curves inside a block are not emitted as elements (ExtractGhostElements
+        /// reads the loose curves from the symbol geometry too, where a block is still one nested instance — drill MA1b): a
         /// block is one thing. Points go through Transform.OfPoint, which takes any scale, a mirror included.
         /// </summary>
         private void AddBlocks(GeometryElement geo, List<GhostElement> results, Func<GeometryObject, string> layerOf)

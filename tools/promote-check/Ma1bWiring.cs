@@ -30,7 +30,12 @@ static partial class Check
            "the reader composes each insert's transform with the import's own, and takes the angle and the mirror from the composed axes");
         Ok(reader.Contains("PlacementGeometry.BlockCentre(t.Origin.X * FtToMm, t.Origin.Y * FtToMm, rotation, drawn)"),
            "a block stands at the middle of what it draws, not at its insertion point");
-        Ok(reader.Contains("n is Curve || n is PolyLine || n is GeometryInstance"), "a drawing that holds only blocks gives no stray point at the import's origin");
+        // Drill MA1b (F-MA1b-1): the loose curves are read from the import's SYMBOL geometry, where a block is still one nested
+        // instance (the instance geometry flattens blocks into loose curves: 36 on A-DOOR for 12 blocks); a nested instance is
+        // AddBlocks's alone, so a drawing of blocks gives no stray point and no block's curves become elements.
+        Ok(reader.Contains("GeometryElement symbol = instance.GetSymbolGeometry();") && reader.Contains("if (n is GeometryInstance) continue;")
+           && reader.Contains("c.CreateTransformed(t)") && reader.Contains("pl.GetTransformed(t)") && !reader.Contains("instance.GetInstanceGeometry();"),
+           "the loose curves come from the symbol geometry, carried into the model's frame; a block's curves are never loose elements (drill MA1b)");
         Ok(reader.Contains("Nested = nested }"), "the reader counts the blocks inside a block — the planner says they were read as one");
         Ok(Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains(".Concat(elements.Where(e => e.Block != null).Select(e => e.CadLayer))"),
            "a layer that holds only block inserts is still a row of the review");
