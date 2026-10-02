@@ -69,6 +69,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
 
         // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
         ImportInstance? cadLink = null;
+        string? sourceSha = null; // MA-1a item 4: the drawing's sha256 — only when this run imports it (a reused import may be older, GHB-3)
         var folderDwgs = Directory.Exists(settings.GhostSourceFolder ?? "")
             ? Directory.EnumerateFiles(settings.GhostSourceFolder!, "*.*")
                 .Where(f => f.EndsWith(".dwg", System.StringComparison.OrdinalIgnoreCase)
@@ -145,6 +146,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                         return Result.Failed;
                     }
                     t.Commit();
+                    sourceSha = ProvenanceStamp.FileSha256(dwgPath);
                 }
             }
         }
@@ -166,6 +168,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
         if (cadLink is null) return Result.Cancelled;
         // The drawing's name, for the changesets the build files (MA-1a step 2).
         string drawing = Path.GetFileNameWithoutExtension(doc.GetElement(cadLink.GetTypeId())?.Name ?? "drawing");
+        // MA-1a item 3 (GHB-2): the import's own Z — the extractor reads the drawing in model coordinates, raised by it.
+        double importZFt = cadLink.GetTotalTransform().Origin.Z;
 
         // 3. PHASE 1 — Revit API reads, on this (API) thread. Fast; safe to do inline.
         // The project key is read here (Extensible Storage); layers@n, guideline@n and type_catalog@n are fetched
@@ -217,18 +221,19 @@ public sealed class GhostBuilderCommand : IExternalCommand
         new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
         bool building = false;
 
-        // Reviewer picks the build level here too — collected from the model, elevation-ordered so the
-        // lowest level is the sane default (matches the orchestrator's own null-level fallback).
+        // Reviewer picks the build level here too — collected from the model, elevation-ordered. Review amendment C8: the box
+        // opens on the drawing's own level — the level at the import's elevation, else the active plan view's, else the
+        // lowest (GhostFiling.DefaultLevel); the lowest alone was GR_SSL on the BDS template, 300 mm under the floor level.
 #if NET48
         static long IdOf(Level l) => l.Id.IntegerValue;
 #else
         static long IdOf(Level l) => l.Id.Value;
 #endif
-        var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-            .OrderBy(l => l.Elevation)
-            .Select(l => (l.Name, IdOf(l)))
-            .ToList();
-        if (levels.Count > 0) review.LoadLevels(levels, levels[0].Item2);
+        var modelLevels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
+        var levels = modelLevels.Select(l => (l.Name, IdOf(l))).ToList();
+        if (levels.Count > 0)
+            review.LoadLevels(levels, GhostFiling.DefaultLevel(modelLevels.Select(l => (IdOf(l), l.Elevation * 304.8)).ToList(), importZFt * 304.8,
+                                                               (uidoc.ActiveView as ViewPlan)?.GenLevel is { } viewLevel ? IdOf(viewLevel) : (long?)null));
         review.LoadTypes(LoadedTypes(doc)); // GHB-5: what each row's type drop-down offers, read here on the API thread
 
         review.BuildRequested += (approved, levelId) =>
@@ -241,6 +246,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             {
                 Doc = doc, Elements = inputs.Elements, Mapping = approved, LevelId = levelId,
                 Guideline = standards!.Guideline, LibraryDir = libraryDir, Key = key, Drawing = drawing,
+                ImportZFt = importZFt, SourceSha256 = sourceSha, GuidelineLabel = standards!.GuidelineSource.Label, LayersLabel = standards!.LayersSource.Label,
             });
             externalEvent.Raise();
         };

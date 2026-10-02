@@ -559,6 +559,10 @@ describe("ghost-dwg-body parity fixture (MA-1a step 2)", () => {
     });
     expect(v.elements.map((e) => e.kind)).toEqual(["wall", "wall", "floor", "ceiling", "door", "window", "column", "furniture"]);
     expect(v.elements[1].place.LocationCurve.mid).toEqual([1000, 1000, 0]);
+    // MA-1a items 3–4: walls carry no TopElevation (the executor tops them); every element keeps its provenance as filed.
+    expect(v.elements.filter((e) => e.kind === "wall").every((e) => e.place.TopElevation === undefined)).toBe(true);
+    v.elements.forEach((el, i) => expect(el.provenance).toMatchObject(body.elements[i].provenance));
+    expect(v.elements[0].provenance.source_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

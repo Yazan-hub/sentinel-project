@@ -114,9 +114,7 @@ namespace Sentinel.GhostBuilder
                                 {
                                     CadLayer = layer,
                                     LocationLoop = loop,
-                                    BaseElevation = pts[0].Z,
-                                    // Height driver in case this layer maps to Walls, not Floors.
-                                    TopElevation = pts[0].Z + WallDefaultHeightFt
+                                    BaseElevation = pts[0].Z, // a wall's top is the executor's: the next story (MA-1a item 3)
                                 });
                                 break;
                             }
@@ -197,8 +195,7 @@ namespace Sentinel.GhostBuilder
             {
                 CadLayer = layer,
                 LocationCurve = c,
-                BaseElevation = z,
-                TopElevation = z + WallDefaultHeightFt
+                BaseElevation = z, // a wall's top is the executor's: the next story (MA-1a item 3)
             });
         }
 
@@ -228,10 +225,6 @@ namespace Sentinel.GhostBuilder
 
             return curves;
         }
-
-        // LOD 200 default wall height when the 2D CAD carries no Z info (10 ft).
-        // ponytail: hard-coded; lift to per-category config when projects vary floor-to-floor.
-        private const double WallDefaultHeightFt = 10.0;
     }
 
     // ---------------------------------------------------------------------
@@ -249,7 +242,7 @@ namespace Sentinel.GhostBuilder
         public XYZ LocationPoint { get; set; }           // point families: insertion
         public IList<Curve> LocationLoop { get; set; }   // floors/ceilings: closed boundary
         public double BaseElevation { get; set; }
-        public double TopElevation { get; set; }         // walls: height driver
+        public double TopElevation { get; set; }         // Photo Massing's walls: height driver (a DWG wall's top is the executor's, MA-1a item 3)
         public double ThicknessMm { get; set; }          // walls: measured from the two drawn faces (0 = unpaired/unknown)
         // NOTE: LocationLoop is the seam for floor/ceiling placement. GhostCadExtractor populates it
         // for CLOSED polylines (open polylines still split into per-segment wall runs via

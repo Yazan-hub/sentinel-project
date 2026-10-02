@@ -13,11 +13,25 @@ static partial class Check
         Console.WriteLine("\nMA-1a step 2 — Ghost Builder files changesets (GhostFiling)");
         const double Tol = 0.0026; // Revit's ShortCurveTolerance, about 0.79 mm, in feet
 
-        var (b, t) = GhostFiling.WallElevations(3000, 0, 10, Tol);
-        Ok(Math.Abs(b - 3000) < 1e-9 && Math.Abs(t - 6048) < 1e-9,
-           "a 10 ft CAD wall at CAD Z 0 on a level at 3000 mm → base 3000, top 6048 (absolute mm: the CAD Z is the offset from the level)");
-        var (b1, t1) = GhostFiling.WallElevations(0, 1, 1, Tol);
-        Ok(Math.Abs(b1 - 304.8) < 1e-9 && t1 > b1, "a CAD wall with no height still rises ten short-curve tolerances — the executor refuses top ≤ base");
+        // MA-1a item 3 (GHB-2): the drawing's Z is read from the import's own Z, and a wall is filed with no top.
+        Ok(Math.Abs(GhostFiling.WallBase(9000, 9000 / 304.8, 9000 / 304.8) - 9000) < 1e-6,
+           "a plan imported on L3 (+9 m) and built on L3 → base 9000 mm, offset 0 (+18 m before: audit GHB-2)");
+        Ok(Math.Abs(GhostFiling.WallBase(9000, 0, 0) - 9000) < 1e-9 && Math.Abs(GhostFiling.WallBase(3000, 1, 0) - 3304.8) < 1e-9,
+           "a plan imported on L1 and built on L3 lands on L3; a CAD Z 1 ft above the import is 304.8 mm above the build level");
+        Ok(GhostFiling.Wall("A-WALL", 1, "mapping", "Generic - 200mm", "Level 1", GhostFiling.Run(new double[] { 0, 0 }, new double[] { 5000, 0 }, null, 0, 1), 0)
+               .Place.TopElevation == null,
+           "a Ghost wall is filed with no TopElevation — the executor gives it the next story (no 10 ft constant)");
+        // MA-1a item 4: the rule the stamp records.
+        Ok(GhostFiling.Rule("guideline", "llm", "guideline@3 · x", "layers@1 · y") == "type by the guideline (guideline@3 · x)"
+           && GhostFiling.Rule("mapping", "standard", "g", "layers@1 · y") == "type by the layer mapping (standard: layers@1 · y)"
+           && GhostFiling.Rule(null, "llm", "g", "l") == "type by the layer mapping (llm)"
+           && GhostFiling.Rule(null, "reviewer", "g", "l") == "type picked by the reviewer in Ghost's review",
+           "the stamp's rule names what typed an element: the guideline (its artefact), the layer mapping's tier (the layers standard), or the reviewer");
+        // Review amendment C8: Ghost's review opens on the drawing's own level (the BDS template's levels, lowest first).
+        var bds = new List<(long, double)> { (11, -300), (12, 0), (13, 3000), (14, 3300), (15, 6300) };
+        Ok(GhostFiling.DefaultLevel(bds, 0.4, 15) == 12 && GhostFiling.DefaultLevel(bds, 3300, null) == 14
+           && GhostFiling.DefaultLevel(bds, 1500, 13) == 13 && GhostFiling.DefaultLevel(bds, 1500, null) == 11 && GhostFiling.DefaultLevel(bds, 1500, 99) == 11,
+           "the review's build level defaults to the level at the import's elevation (within 1 mm) — GR-FFL, not GR_SSL — else the active plan view's level, else the lowest (C8)");
 
         var line = GhostFiling.Run(new double[] { 0, 0 }, new double[] { 5000, 0 }, null, 3000, Tol * 304.8);
         Ok(line != null && line.Mid == null && line.Start.SequenceEqual(new double[] { 0, 0, 3000 }) && line.End.SequenceEqual(new double[] { 5000, 0, 3000 }),
@@ -37,7 +51,7 @@ static partial class Check
         CurveDto R(double x0, double y0, double x1, double y1) => GhostFiling.Run(new[] { x0, y0 }, new[] { x1, y1 }, null, 0, 1);
         var mixed = Enumerable.Range(0, 450).Select(i => i % 3 == 0
             ? GhostFiling.Point("door", "A-DOOR", i, "M_Single-Flush", "0915 x 2134mm", "Level 1", i, 0, 0)
-            : GhostFiling.Wall("A-WALL", i, "mapping", "Generic - 200mm", "Level 1", R(i, 0, i + 100, 0), 0, 3048)).ToList();
+            : GhostFiling.Wall("A-WALL", i, "mapping", "Generic - 200mm", "Level 1", R(i, 0, i + 100, 0), 0)).ToList();
         var chunks = GhostFiling.Chunks(mixed);
         var flat = chunks.SelectMany(c => c).ToList();
         Ok(chunks.Select(c => c.Count).SequenceEqual(new[] { 200, 200, 50 }), "450 elements → changesets of 200, 200 and 50 (the bridge's cap)");
@@ -83,9 +97,9 @@ static partial class Check
         Console.WriteLine("\nMA-1a step 2 parity (WebApp/bridge/fixtures/changeset-ops/ghost-dwg-body.json)");
         var els = new List<ChangesetElementDto>
         {
-            GhostFiling.Wall("A-WALL-EXT", 1, "mapping", "Generic - 200mm", "Level 1", R(0, 0, 10000, 0), 0, 3048),
+            GhostFiling.Wall("A-WALL-EXT", 1, "mapping", "Generic - 200mm", "Level 1", R(0, 0, 10000, 0), 0),
             GhostFiling.Wall("A-WALL-EXT", 2, "guideline", "Generic - 200mm", "Level 1",
-                             GhostFiling.Run(new double[] { 0, 0 }, new double[] { 2000, 0 }, new double[] { 1000, 1000 }, 0, 1), 0, 3048),
+                             GhostFiling.Run(new double[] { 0, 0 }, new double[] { 2000, 0 }, new double[] { 1000, 1000 }, 0, 1), 0),
             GhostFiling.Floor("A-FLOR", 1, "Generic 150mm", "Level 1", new[] { new double[] { 0, 0, 0 }, new double[] { 10000, 0, 0 }, new double[] { 10000, 7000, 0 }, new double[] { 0, 7000, 0 } }),
             GhostFiling.Ceiling("A-CLNG", 1, "600 x 600mm Grid", "Level 1", new[] { new double[] { 0, 0 }, new double[] { 4000, 0 }, new double[] { 4000, 7000 }, new double[] { 0, 7000 } }, 0),
             GhostFiling.Point("door", "A-DOOR", 1, "M_Single-Flush", "0915 x 2134mm", "Level 1", 6450, 0, 0),
@@ -93,6 +107,11 @@ static partial class Check
             GhostFiling.Point("column", "A-COLS", 1, "M_Rectangular Column", "457 x 610mm", "Level 1", 5000, 3500, 0),
             GhostFiling.Point("furniture", "A-FURN", 1, "M_Desk", "1525 x 762mm", "Level 1", 2000, 2000, 0),
         };
+        // MA-1a item 4: the planner adds the rule and the drawing's sha to the layer GhostFiling set (GhostChangesetBuild.Prov).
+        els[0].Provenance.Rule = GhostFiling.Rule("mapping", "standard", "guideline@3 · bds-office · 1a2b3c4d…", "layers@1 · bds-office · 9f8e7d6c…");
+        els[0].Provenance.SourceSha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        els[1].Provenance.Rule = GhostFiling.Rule("guideline", "standard", "guideline@3 · bds-office · 1a2b3c4d…", "layers@1 · bds-office · 9f8e7d6c…");
+        els[4].Provenance.Rule = GhostFiling.Rule(null, "reviewer", "none", "none");
         var got = JsonSerializer.SerializeToNode(GhostFiling.Body("Ghost Builder · sample-plan · Level 1", "yazan", els), ChangesetClient.WriteJson);
         var path = Repo("WebApp", "bridge", "fixtures", "changeset-ops", "ghost-dwg-body.json");
         var text = File.Exists(path) ? File.ReadAllText(path) : "null";
@@ -102,7 +121,9 @@ static partial class Check
             { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
         var cs = same ? JsonSerializer.Deserialize<ChangesetDto>(text) : null;
         Ok(cs?.Source == "dwg" && cs.Elements.Count == 8 && cs.Elements[1].Place.LocationCurve.Mid.SequenceEqual(new double[] { 1000, 1000, 0 })
-           && cs.Elements.Where(e => e.Kind is "column" or "furniture").All(e => e.Place.FamilyName != null && e.Place.Location?.Length == 3),
-           "the fixture reads back into the add-in's DTOs: source dwg, the arc's mid point, columns and furniture with FamilyName and Location");
+           && cs.Elements.Where(e => e.Kind is "column" or "furniture").All(e => e.Place.FamilyName != null && e.Place.Location?.Length == 3)
+           && cs.Elements.All(e => e.Provenance?.Layer != null && e.Place.TopElevation == null) && cs.Elements[0].Provenance.SourceSha256?.Length == 64,
+           "the fixture reads back into the add-in's DTOs: source dwg, the arc's mid point, columns and furniture with FamilyName and Location, " +
+           "every element's provenance, no wall TopElevation (MA-1a items 3–4)");
     }
 }
