@@ -187,6 +187,20 @@ namespace Sentinel.GhostBuilder
                     try { check(); resolvable.Add(key); return null; }
                     catch (InvalidOperationException ex) { return ex.Message; }
                 }
+                // MA-1b (E17, review amendment C2): block inserts on a row that is not Doors or Windows, per layer — not placed.
+                // Declared before the walls are typed: a block on a Walls row is set aside there too (review 2026-10-03), never
+                // a silent SkippedNoGeometry.
+                var otherBlocks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                void SetAside(GhostElement el) => otherBlocks[el.CadLayer] = otherBlocks.TryGetValue(el.CadLayer, out int soFar) ? soFar + 1 : 1;
+                string DrawnAs(GhostElement el) => el.Block == null ? ""
+                    : $"block{(string.IsNullOrWhiteSpace(el.Block.Name) ? "" : " " + el.Block.Name.Trim())}{(el.LocationPoint == null ? "" : $" at ({el.LocationPoint.X * FtToMm:0}, {el.LocationPoint.Y * FtToMm:0})")}: ";
+                // Review amendment C5: a block that holds blocks (a bound xref, a "doors" group) is ONE point here — said on every
+                // ticked row (review 2026-10-03), not only on a Doors or Windows row.
+                void NoteNested(string what, GhostElement el)
+                {
+                    if (el.Block?.Nested > 0)
+                        report.Warnings.Add($"{what}: {DrawnAs(el)}it holds {el.Block.Nested} block(s) inside it — read as ONE block, not as {el.Block.Nested} doors or windows.");
+                }
                 ElementPlacementFactory typer;
                 using (var t = new Transaction(doc, GhostFailurePolicy.TypesTxName))
                 {
@@ -215,6 +229,8 @@ namespace Sentinel.GhostBuilder
                     foreach (var el in elements)
                     {
                         if (!byLayer.TryGetValue(el.CadLayer ?? "", out var map) || !string.Equals(map.Category, "Walls", StringComparison.OrdinalIgnoreCase)) continue;
+                        // E17: a block on a Walls row is no wall — it has no run to file, so it would have been a bare SkippedNoGeometry.
+                        if (el.Block != null) { NoteNested($"Walls on '{el.CadLayer}'", el); SetAside(el); continue; }
                         string type = typer.ResolveWallType(el, map, out string gap, out string typedBy);
                         if (gap == null && Refusal("wall|" + type, () => ChangesetExecutor.ResolveWallType(doc, type)) is string no)
                             gap = no + GhostFiling.SyntheticHint(type);
@@ -242,8 +258,6 @@ namespace Sentinel.GhostBuilder
                 // the wall will be, also for a wall drawn as one line (no measured thickness).
                 var halves = new List<double>();
                 var widths = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-                // MA-1b (E17, review amendment C2): block inserts on a row that is not Doors or Windows, per layer — not placed.
-                var otherBlocks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 var arcs = new List<Curve>();                                                                         // this build's curved walls (ft)
                 var seq = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 int Next(string layer) => seq[layer] = seq.TryGetValue(layer, out int k) ? k + 1 : 1;
@@ -332,12 +346,13 @@ namespace Sentinel.GhostBuilder
                         continue;
                     }
                     string what = $"{map.Category} on '{el.CadLayer}'";
+                    NoteNested(what, el);
                     // MA-1b (E17, review amendment C2): a block on a row that is not Doors or Windows is not placed — the middle
                     // of what it draws along its X axis is no family's origin, and its angle would be lost. Counted per layer and
                     // named after the loop. Before MA-1b such a block gave no element where it stands: nothing placed is lost.
                     if (el.Block != null && k.Kind != "door" && k.Kind != "window")
                     {
-                        otherBlocks[el.CadLayer] = otherBlocks.TryGetValue(el.CadLayer, out int soFar) ? soFar + 1 : 1;
+                        SetAside(el);
                         continue;
                     }
                     if (k.Kind == "floor" || k.Kind == "ceiling")
@@ -419,11 +434,8 @@ namespace Sentinel.GhostBuilder
                         // the one along the block's axis — and the point moved onto that wall's line. Then the executor's own
                         // host rule at the moved point (B2, F9 A), so whatever it would refuse is a named gap here, never a
                         // whole-build decline, and never a free-standing door.
-                        string drawnAs = el.Block == null ? "" : $"block{(string.IsNullOrWhiteSpace(el.Block.Name) ? "" : " " + el.Block.Name.Trim())} at ({x:0}, {y:0}): ";
-                        // Review amendment C5: a block that holds blocks (a bound xref, a "doors" group) is ONE point here.
-                        if (el.Block?.Nested > 0)
-                            report.Warnings.Add($"{what}: {drawnAs}it holds {el.Block.Nested} block(s) inside it — read as ONE block, not as {el.Block.Nested} doors or windows.");
-                        var snap = PlacementGeometry.Snap(straight, halves, level.Name, x, y, el.Block?.RotationDeg, out string hostWhy);
+                        string drawnAs = DrawnAs(el); // the nested-block note (C5) was said above, before the E17 set-aside
+                        var snap= PlacementGeometry.Snap(straight, halves, level.Name, x, y, el.Block?.RotationDeg, out string hostWhy);
                         if (snap != null)
                         {
                             (x, y) = (snap.Value.X, snap.Value.Y);

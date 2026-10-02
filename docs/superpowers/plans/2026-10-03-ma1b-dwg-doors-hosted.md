@@ -103,6 +103,11 @@ Two independent reviews — whether the code says only what it measured, and whe
 - **C14 (drill wording — minor):** B1-1 says what the review shows if Revit flattens blocks; a filed angle is compared within 0.01°; the ruleset's install is one stated call with its proof; the closing list names the cache folders and scratch copies left on the PC and where the B1-13 bodies are kept; B1-13 follows B1-8 on a central that stays open; B1-9 creates the `01-FFL` plan if the copy has none; a fix that changes what Revit does is deployed and its row run again before the merge; the owed list gains the facts the plan itself said were not drilled; E11 says the one line of the walk that changes; the build line says "placed with a block's direction (place.Rotation)", true for an agent's door too.
 - **C15 (F8 → E19 — minor): "a door over a wall already in the model" is not a new choice.** It restates the step-2 plan's F9 A and is already under "What must stay true". It moved to the engineering table as E19; F8 is now the broken-walls decision (C4).
 
+Second review (2026-10-03, after the tasks landed on the branch; the fixes are commits "fix: review, MA-1b - …", each with its check in `promote-check`, now `473/473`):
+
+- **C16 (E17, C2; Task 7 — important): a block on a Walls row is set aside with the other blocks.** The E17 set-aside sat in the point loop, which skips every Walls row; a block on a layer ticked as Walls (a column block on A-WALL, a bound-xref plan on layer 0) went through the wall loop with no run to file and was a bare `SkippedNoGeometry` — no layer name, no count. `otherBlocks` is declared before the walls are typed, and a block on a Walls row is counted there: the per-layer "N block(s) on '…' not placed" line and `SkippedBlocks` cover it.
+- **C17 (C5; Task 7 — minor): "read as ONE block" is said on every ticked row.** It was said only on a Doors or Windows row, after the E17 set-aside; a block of blocks on a Columns, Furniture, Floors or Walls row got the "not placed" line alone. `NoteNested` is called once per element, before the set-aside, from one place.
+
 Not taken (returned to the reviewers with the reason): moving the reader and the drawing ahead of the executor and the planner with a live B1-1 between tasks. The tasks run with no Revit and no deploy (Global constraints), and neither the executor nor the planner depends on how the reader reads a block — they work from `place.Rotation` and `GhostElement.Block`, which a DXF-parsing reader (E1's fallback) would fill the same way. Only Task 6's `AddBlocks` would be rewritten.
 
 ## Engineering decisions (taken here; a reviewer may challenge them)
@@ -1162,7 +1167,6 @@ def ma1b(plant):
     with open(json_path, "w", newline="\n") as f:
         f.write("{\n" + ",\n".join(entry(k, v) for k, v in expected.items()) + "\n}\n")
     print(f"wrote {json_path}  ({os.path.getsize(json_path):,} bytes)")
-
 
 if __name__ == "__main__":
     if "--ma1b" in sys.argv:

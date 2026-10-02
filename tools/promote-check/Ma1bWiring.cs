@@ -44,6 +44,14 @@ static partial class Check
            && Src("Commands.GhostBuilder.cs").Contains("Skipped (a block on a row that is not Doors or Windows): {r.SkippedBlocks}")
            && planner.Contains("report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,"),
            "a block on a row that is not Doors or Windows is not placed: counted, named, and in the ledger report's skipped count");
+        // Review (2026-10-03): a block on a Walls row is set aside where the walls are typed — never a silent SkippedNoGeometry.
+        int wallRow = planner.IndexOf("if (el.Block != null) { NoteNested($\"Walls on '{el.CadLayer}'\", el); SetAside(el); continue; }", StringComparison.Ordinal);
+        Ok(wallRow > 0 && wallRow < planner.IndexOf("typer.ResolveWallType(el, map, out string gap, out string typedBy)", StringComparison.Ordinal),
+           "a block on a Walls row is counted and named with the other blocks, before it is typed as a wall");
+        // Review (2026-10-03, amendment C5): the "read as ONE block" sentence is said on every ticked row, before the E17 set-aside.
+        int nested = planner.IndexOf("NoteNested(what, el);", StringComparison.Ordinal);
+        Ok(nested > 0 && nested < planner.IndexOf("if (el.Block != null && k.Kind != \"door\" && k.Kind != \"window\")", StringComparison.Ordinal),
+           "a block that holds blocks is said to be read as one on a Columns, Furniture or Floors row too, not only on a Doors or Windows row");
         Ok(planner.Contains("if (PlacementGeometry.IsBrokenWall(hostWhy)) report.SkippedBrokenWall++;")
            && Src("Commands.GhostBuilder.cs").Contains("of these, where a wall line stops short of the opening"),
            "a door or window at a wall broken at the opening is counted on its own summary line");
