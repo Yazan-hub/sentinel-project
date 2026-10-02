@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Three things change in what Sentinel places:
-- **Walls go level to level (item 3).** A wall create without a `TopElevation` rises to the next Building Story above its base, with its top constrained there. This holds for every source: agents, Promote and Ghost Builder. Ghost reads the drawing's Z from the import's own Z, so the audit's +18 m bug is gone. The 10 ft and 3000 mm constants are deleted.
+- **Walls go level to level (item 3).** A wall create without a `TopElevation` rises to the next Building Story above its base, with its top constrained there. This holds for every source that places through the executor: agents, Promote and Ghost Builder. Photo Massing does not yet: its walls stay unconnected at the estimate's storey height until MA-6 moves Massing onto the executor (C5). Ghost reads the drawing's Z from the import's own Z, so the audit's +18 m bug is gone. The 10 ft and 3000 mm constants are deleted.
 - **Every element carries the full stamp (item 4).** Each element placed by a changeset, Ghost, Datum or Photo Massing carries the source file's sha, the layer, the rule, the approver, the ledger row and the time. A new **5 · Provenance** command shows the stamp of a picked element. A copy-pasted element reads "copied, not placed by Sentinel".
 - **Batches are checked against BLOCK rules (item 5).** Before a Ghost build or a changeset is kept, Sentinel judges it with the same full scan the sync runs. If it adds BLOCK rows, the person is asked: "This batch will block your sync: N element(s)". They may go back (nothing is placed) or place anyway.
 
@@ -2717,6 +2717,7 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session 
 - **Slab levels are stories (F1).** On the BDS template a wall on an SSL level rises only to the FFL level above, 300 mm. That is the rule working on a template that marks slab levels as Building Story. The fix is the template's (un-tick them) or the proposal's (a `TopElevation`).
 - **One-story models (F2).** A model with a single Building Story cannot Ghost-build walls: each wall is a named gap. An agent changeset without `TopElevation` is declined with the reason. Before, both got 10 ft or 3000 mm.
 - **Behaviour change for agents.** A wall create without `TopElevation` used to be 3000 mm unconnected. It is now constrained to the next story. A changeset with no `BaseElevation` on a named level used to sit at minus the level's elevation; it now sits on the level. No known producer sends either shape (the concept seed sends both elevations).
+- **Photo Massing walls are not level to level (C5).** Massing places through its own engine, not the executor, so its walls stay unconnected at the estimate's storey height: a massing wall's top is not constrained to the next Building Story, and can miss it when the model's levels differ from the estimate. This holds until MA-6 moves Massing onto the executor.
 - **The F-S2-1 regression can come back.** The review path's new group must keep `IsFailureHandlingForcedModal = false`, or Revit's blocking warnings dialog returns. Drill row I5-3 checks it, and only models with a BLOCK rule take that path.
 - **The pane can go stale after Go back.** Inner commits inside the group already fed the DMU, so after Go back the pane can list rows for elements that no longer exist until the next Scan Now. Ghost's Decline path has the same ceiling.
 - **The prediction can drift.** The sync judges with the ruleset installed at sync time and drops `NotFixableHere` rows. If a ruleset is reloaded between placing and syncing, the two answers can differ. The BLOCK dialog names the ruleset that judged it.
@@ -2734,6 +2735,7 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session 
   - **8**: `build:run` receipts, and contract 2's trust and pre-tick rules. This includes D19's bridge-side marks: warn before review, never pre-tick a BLOCK breaker unless its `set_parameter` rows are in the batch.
 - MA-1b: GHB-1 (DWG door blocks hosted, rotated and snapped), MAS-4, and the MA1b drill wording (step-2 F8). Drill I3-4 already exercises MA1b's "an import in the Level 3 plan gives Base L3 and Top L4".
 - The BLOCK check for Datum (F8, with item 7) and Photo Massing (with MA-6).
+- MA-6: Photo Massing onto the executor. Until then its walls stay unconnected at the estimate's storey height, not level to level (C5).
 - The design's structured BLOCK result on `POST /changesets/:key/:id/result` (`:831`, `:883`). Until then it rides in the note.
 - The web scanner's parity for parameter rules with `categories`, and the rest of SCAN-E1 (the loader refuses a Parameter rule without `parameter_name`).
 - Promote ignores a copied stamp (`unique_id_at_placement` ≠ the element's) when it counts "stamped by Promote".
