@@ -28,8 +28,9 @@ namespace Sentinel.Commands;
 ///     Cancellable via the window's ESC / Cancel (CancellationToken).
 ///   • Review (UI thread): the proposal is shown for approval — NOTHING is written until the user
 ///     ticks layers and clicks Build. Cancel/ESC ends the run having touched nothing (P3 gate).
-///   • ExternalEvent (API thread): geometry placement (Wall.Create etc.), the only place Revit
-///     API writes are legal. Reads and writes never touch the background thread.
+///   • ExternalEvent (API thread): the build — planned, filed as changesets (source dwg) and placed by
+///     ChangesetExecutor (GhostChangesetBuild, MA-1a step 2), the only place Revit API writes are legal.
+///     Reads and writes never touch the background thread.
 /// </summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class GhostBuilderCommand : IExternalCommand
@@ -163,6 +164,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
             }
         }
         if (cadLink is null) return Result.Cancelled;
+        // The drawing's name, for the changesets the build files (MA-1a step 2).
+        string drawing = Path.GetFileNameWithoutExtension(doc.GetElement(cadLink.GetTypeId())?.Name ?? "drawing");
 
         // 3. PHASE 1 — Revit API reads, on this (API) thread. Fast; safe to do inline.
         // The project key is read here (Extensible Storage); layers@n, guideline@n and type_catalog@n are fetched
@@ -232,7 +235,13 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             building = true;
             mapper?.Remember(review.Choices); // GHB-5: the reviewer's picks and ignores, for this project's next run
-            placementEvent.SetRequest(orchestrator!, inputs, approved, levelId);
+            // MA-1a step 2: Build is the one human gate — the ticked rows are filed as changesets (source dwg) and placed by
+            // ChangesetExecutor; an unbound model runs the same executor on a local changeset, with no ledger.
+            placementEvent.SetRequest(new GhostChangesetBuild.Request
+            {
+                Doc = doc, Elements = inputs.Elements, Mapping = approved, LevelId = levelId,
+                Guideline = standards!.Guideline, LibraryDir = libraryDir, Key = key, Drawing = drawing,
+            });
             externalEvent.Raise();
         };
 
@@ -345,7 +354,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
 
     /// <summary>GHB-5: what each review row's type drop-down offers, read on the API thread as plain strings (the review
     /// window is Revit-free): basic wall, floor and ceiling types by name; door, window, column and furniture types as
-    /// family : type. Basic walls only, as ChangesetExecutor resolves them, so a pick stays valid when Ghost moves onto it.</summary>
+    /// family : type. Basic walls only and floors without foundation slabs, as ChangesetExecutor resolves them, so a pick
+    /// is one the executor places.</summary>
     private static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> LoadedTypes(Document doc)
     {
         IReadOnlyList<(string? Family, string Type)> Names(IEnumerable<ElementType> types) => types
@@ -358,7 +368,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         return new Dictionary<string, IReadOnlyList<(string? Family, string Type)>>(System.StringComparer.OrdinalIgnoreCase)
         {
             ["Walls"] = Names(new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(w => w.Kind == WallKind.Basic)),
-            ["Floors"] = Names(new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()),
+            ["Floors"] = Names(new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().Where(f => !f.IsFoundationSlab)),
             ["Ceilings"] = Names(Of(BuiltInCategory.OST_Ceilings)),
             ["Doors"] = Names(Of(BuiltInCategory.OST_Doors).OfType<FamilySymbol>()),
             ["Windows"] = Names(Of(BuiltInCategory.OST_Windows).OfType<FamilySymbol>()),
@@ -406,25 +416,33 @@ public sealed class GhostBuilderCommand : IExternalCommand
         lines.AppendLine(s.Header);
         if (s.CatalogSource.Origin == "none") lines.AppendLine(CatalogueNotChecked(s));
         lines.AppendLine();
-        // Revit did not commit (the failure handler rolled back, or the commit failed): nothing exists, nothing else is true.
-        if (r.RolledBack != null) return lines.AppendLine(GhostFailurePolicy.NotBuiltLine(r.RolledBack)).ToString();
-        // A6: Revit has not finished the build (Pending, …): nothing was recounted, so nothing else here is true either.
-        if (r.NotFinished != null) return lines.AppendLine(r.NotFinished).ToString();
-        // GHB-5: Placed is what exists after the commit; what Revit removed is named with the failure that named it.
-        lines.AppendLine(GhostFailurePolicy.PlacedLine(r.Placed, r.DeletedByRevit));
-        lines.AppendLine(WallsLine(r, s));
-        if (r.TypeGaps > 0) lines.AppendLine($"Types: {r.TypeGaps} named by the layer mapping not created (each named below with its reason)");
-        if (r.SkippedLowConfidence > 0) lines.AppendLine($"Skipped (low confidence): {r.SkippedLowConfidence}");
-        if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
-        if (r.SkippedNoGeometry > 0)    lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");
-        var revitWarnings = GhostFailurePolicy.WarningsLine(r.RevitWarnings);
-        if (revitWarnings != null) lines.AppendLine(revitWarnings);
-        if (r.CreatedTypes.Count > 0)
+        // MA-1a step 2: nothing was built (refused, not filed, rolled back by Revit, not finished, or nothing to build) —
+        // that line and the ledger line; the reasons below still name every row that gave no element. Nothing else is true.
+        if (r.NotBuilt != null)
         {
-            // The office type library was extended — show it plainly; this is a deliberate change to the model's
-            // type library, not a placement side-effect.
-            lines.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
-            foreach (var t in r.CreatedTypes) lines.AppendLine($"  + {t}");
+            lines.AppendLine(r.NotBuilt);
+            if (r.Ledger != null) lines.AppendLine(r.Ledger);
+        }
+        else
+        {
+            // GHB-5: Placed is what exists after the commit (the executor's recount); what Revit removed is named.
+            lines.AppendLine(GhostFailurePolicy.PlacedLine(r.Placed, r.DeletedByRevit));
+            lines.AppendLine(WallsLine(r, s));
+            if (r.TypeGaps > 0) lines.AppendLine($"Types: {r.TypeGaps} named by the layer mapping not created (each named below with its reason)");
+            if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
+            if (r.SkippedNoHost > 0) lines.AppendLine($"Skipped (no single straight wall under the door or window): {r.SkippedNoHost}");
+            if (r.SkippedNoGeometry > 0) lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");
+            lines.AppendLine($"Provenance: {r.Stamped} of {r.Placed} placed element(s) stamped as source dwg");
+            var revitWarnings = GhostFailurePolicy.WarningsLine(r.RevitWarnings);
+            if (revitWarnings != null) lines.AppendLine(revitWarnings);
+            if (r.Ledger != null) lines.AppendLine(r.Ledger);
+            if (r.CreatedTypes.Count > 0)
+            {
+                // The office type library was extended — show it plainly; this is a deliberate change to the model's
+                // type library, not a placement side-effect. Inside the build's one Undo: Ctrl+Z removes them too.
+                lines.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
+                foreach (var t in r.CreatedTypes) lines.AppendLine($"  + {t}");
+            }
         }
         if (r.Warnings.Count > 0)
         {

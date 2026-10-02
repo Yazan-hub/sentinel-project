@@ -38,7 +38,7 @@ namespace Sentinel.GhostBuilder
             if (mapping?.Mappings == null) return report;
 
             var existing = new HashSet<string>(
-                new FilteredElementCollector(_doc).OfClass(typeof(FloorType)).Cast<FloorType>().Select(f => f.Name),
+                new FilteredElementCollector(_doc).OfClass(typeof(FloorType)).Cast<FloorType>().Where(f => !f.IsFoundationSlab).Select(f => f.Name),
                 StringComparer.OrdinalIgnoreCase);
 
             var wanted = mapping.Mappings

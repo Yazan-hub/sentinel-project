@@ -73,7 +73,7 @@ public sealed class ChangesetExecutor
     // model's first type, and it never creates one here.
     private const string NoTypeName = "gap: no type name — Sentinel never takes the model's first type; re-propose with a TypeName";
 
-    private static WallType ResolveWallType(Document doc, string typeName)
+    internal static WallType ResolveWallType(Document doc, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
@@ -84,7 +84,7 @@ public sealed class ChangesetExecutor
 
     // MA-1a step 2: a floor's type among the model's FLOOR types only — a foundation slab type of the same name is another
     // thing (OfClass(FloorType) holds both) — and, as CreateType does, more than one is a person's decision.
-    private static FloorType ResolveFloorType(Document doc, string typeName)
+    internal static FloorType ResolveFloorType(Document doc, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var hits = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
@@ -122,7 +122,7 @@ public sealed class ChangesetExecutor
     /// MA-1: the one loaded type of a category a create names — by exact name, and by family for a door or window. None → load
     /// it (Sentinel loads no families and creates no types); more than one → a person decides. System family names are never
     /// compared (translated in non-English Revit): a roof or ceiling names its type only. RetypeTarget stays Promote's.
-    private static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)
+    internal static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var hits = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>()
@@ -295,12 +295,7 @@ public sealed class ChangesetExecutor
         // model, any error rolls the whole changeset back (never Revit's modal dialog, never a person's "Delete Element(s)"
         // half-commit). Non-modal: the warnings Revit keeps are shown the ordinary, dismissable way. The global Doctor skips
         // this transaction (GhostFailurePolicy.DoctorSkips).
-        var handler = new GhostFailureHandler { AllOrNothing = true };
-        var fho = t.GetFailureHandlingOptions();
-        fho.SetFailuresPreprocessor(handler);
-        fho.SetClearAfterRollback(true);
-        fho.SetForcedModalHandling(false);
-        t.SetFailureHandlingOptions(fho);
+        var handler = GhostFailureHandler.AllOrNothingOn(t);
         try
         {
             // Levels first: walls/floors in the same changeset may target them by name.

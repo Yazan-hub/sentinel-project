@@ -98,6 +98,21 @@ namespace Sentinel.GhostBuilder
                                                 double x, double y, double levelMm) =>
             Create(kind, layer, n, null, new PlaceDto { FamilyName = family, TypeName = typeName, LevelName = level, Location = new[] { x, y, levelMm } });
 
+        /// <summary>B2 (founder decision F9 A): why a DWG door or window at (x, y) mm on <paramref name="level"/> is not filed, or
+        /// null. The executor's host rule (PlacementGeometry.Host: the one straight wall under the point) over the model's walls
+        /// AND this build's, so an ambiguity is still seen — but only a wall this build creates may host it: Ghost touches only
+        /// its own elements.</summary>
+        public static string HostGap(IReadOnlyList<(string Label, string Level, double X0, double Y0, double X1, double Y1)> modelWalls,
+                                     IReadOnlyList<(string Label, string Level, double X0, double Y0, double X1, double Y1)> buildWalls,
+                                     string level, double x, double y)
+        {
+            var all = modelWalls.Concat(buildWalls).ToList();
+            int i = PlacementGeometry.Host(all, level, x, y, out string why);
+            return i < 0 ? why
+                 : i < modelWalls.Count ? $"a wall already in the model ({all[i].Label}) lies under the point — a Ghost door or window is hosted only in a wall this build creates"
+                 : null;
+        }
+
         private static bool IsPoint(string kind) => kind == "door" || kind == "window" || kind == "column" || kind == "furniture";
 
         /// <summary>The elements, at most <paramref name="max"/> per changeset: every wall, floor and ceiling before any door,

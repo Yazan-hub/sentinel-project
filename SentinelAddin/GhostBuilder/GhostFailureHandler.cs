@@ -38,6 +38,21 @@ namespace Sentinel.GhostBuilder
         private readonly HashSet<string> _resolved = new HashSet<string>(); // failures already given Revit's resolution once
         private int _passes;
 
+        /// <summary>MA-1a step 2 (E2, B1): <paramref name="t"/>'s commit-time failures go through the all-or-nothing rule — a
+        /// warning is counted and left in the model, any error rolls the transaction back; never Revit's modal dialog, never a
+        /// person's "Delete Element(s)" half-commit. Non-modal, cleared after a rollback. The changeset executor's transaction
+        /// and a DWG build's types and parameters transactions. Call after Start(); returns the handler to read after Commit.</summary>
+        public static GhostFailureHandler AllOrNothingOn(Transaction t)
+        {
+            var handler = new GhostFailureHandler { AllOrNothing = true };
+            var fho = t.GetFailureHandlingOptions();
+            fho.SetFailuresPreprocessor(handler);
+            fho.SetClearAfterRollback(true);
+            fho.SetForcedModalHandling(false);
+            t.SetFailureHandlingOptions(fho);
+            return handler;
+        }
+
         public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
         {
             try

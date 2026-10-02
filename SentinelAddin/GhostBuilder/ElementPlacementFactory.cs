@@ -140,7 +140,7 @@ namespace Sentinel.GhostBuilder
         /// reviewer-facing reason naming the type catalogue in force; the wall is then skipped (massing: placed on a
         /// named placeholder), never built with an invented type, an unrelated clone, or the wrong size.
         /// </summary>
-        private string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason, out string typedBy)
+        internal string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason, out string typedBy)
         {
             gapReason = null;
             typedBy = "mapping";
@@ -349,7 +349,7 @@ namespace Sentinel.GhostBuilder
             return Outcome.Placed;
         }
 
-        private static XYZ Centroid(IList<Curve> loop)
+        internal static XYZ Centroid(IList<Curve> loop)
         {
             if (loop == null || loop.Count == 0) return null;
             double x = 0, y = 0, z = 0; int n = 0;
@@ -367,7 +367,7 @@ namespace Sentinel.GhostBuilder
 
         // The loaded family types of one point-family category, read once per build (after the preloader ran). The
         // category key → BuiltInCategory map is Compat's (locale-safe), not a second switch.
-        private List<FamilySymbol> SymbolsOf(string category)
+        internal List<FamilySymbol> SymbolsOf(string category)
         {
             string key = category ?? "";
             if (_symbolsByCategory.TryGetValue(key, out List<FamilySymbol> cached)) return cached;
@@ -469,7 +469,7 @@ namespace Sentinel.GhostBuilder
         /// display units. A raw Parameter.Set(double) would take it as 200 FEET.
         /// Never throws: a parameter that will not take a value is skipped with a note, never a failed build.
         /// </summary>
-        private void ApplyParams(Element e, LayerMapping map)
+        internal void ApplyParams(Element e, LayerMapping map)
         {
             // Every create site (Wall.Create, NewFamilyInstance, Floor.Create/NewFloor, Ceiling.Create) passes its new element
             // here: record it as this build's (GHB-5 — the failure handler's "ours", and what Placed is counted from).
@@ -547,7 +547,7 @@ namespace Sentinel.GhostBuilder
         /// Returns false if there is no loop, any curve is unbound, or the loop isn't closed —
         /// so a bad boundary is skipped, never thrown into Floor/Ceiling.Create.
         /// </summary>
-        private static bool TryBuildClosedLoop(GhostElement el, out CurveLoop loop)
+        internal static bool TryBuildClosedLoop(GhostElement el, out CurveLoop loop)
         {
             loop = null;
             IList<Curve> curves = el.LocationLoop;

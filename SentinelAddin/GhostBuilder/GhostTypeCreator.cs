@@ -83,7 +83,7 @@ namespace Sentinel.GhostBuilder
             reason = null;
             if (string.IsNullOrWhiteSpace(newName)) { reason = "no name to create"; return null; }
 
-            var floors = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
+            var floors = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().Where(f => !f.IsFoundationSlab).ToList();
             var present = floors.FirstOrDefault(f => string.Equals(f.Name, newName, StringComparison.OrdinalIgnoreCase));
             if (present != null) return present;
 

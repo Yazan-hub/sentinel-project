@@ -47,6 +47,13 @@ static partial class Check
         Ok(File.ReadAllText(Repo("WebApp", "bridge", "changesets-logic.mjs")).Contains($"MAX_CHANGESET_ELEMENTS = {GhostFiling.MaxElements};"),
            $"GhostFiling.MaxElements ({GhostFiling.MaxElements}) is the bridge's MAX_CHANGESET_ELEMENTS (changesets-logic.mjs)");
 
+        // B2 (founder decision F9 A): a DWG door or window is hosted only in a wall this build creates.
+        var modelWalls = new List<(string, string, double, double, double, double)> { ("wall 101", "Level 1", 0, 0, 5000, 0) };
+        var buildWalls = new List<(string, string, double, double, double, double)> { ("A-WALL #1 (this build)", "Level 1", 0, 3000, 5000, 3000) };
+        Ok(GhostFiling.HostGap(modelWalls, buildWalls, "Level 1", 2500, 0)?.Contains("a wall already in the model (wall 101) lies under the point") == true
+           && GhostFiling.HostGap(modelWalls, buildWalls, "Level 1", 2500, 3000) == null,
+           "a DWG opening over a wall already in the model only is a named gap (F9 A); over a wall this build creates it is filed");
+
         var local = GhostFiling.Local("Ghost Builder · plan · Level 1", chunks[2]);
         Ok(local.Source == "dwg" && Guid.TryParse(local.Id, out _) && local.Elements.Count == 50
            && local.Elements.All(e => Guid.TryParse(e.ProposalGuid, out _)) && local.Elements.Select(e => e.ProposalGuid).Distinct().Count() == 50,
