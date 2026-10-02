@@ -110,12 +110,17 @@ public partial class SettingsDialog : Window
         }
     }
 
-    /// <summary>The chosen project KEY: a picked item's Tag, else the typed text.</summary>
+    /// <summary>The chosen project KEY: the key of the listed project whose label the box shows, else the text as typed.
+    /// The box's text is the only source (drill MA1a-I35): its text search is off, because it completed a typed key against
+    /// the projects' display names ("ma1a-block" became "MA1a-block"), and with it off a typed key no longer moves the
+    /// selection, so the selected item is not read.</summary>
     private string WebProjectKey()
     {
-        if (WebProjectBox.SelectedItem is System.Windows.Controls.ComboBoxItem it && it.Tag is string key)
-            return key.Trim();
-        return (WebProjectBox.Text ?? "").Trim();
+        var text = (WebProjectBox.Text ?? "").Trim();
+        foreach (var item in WebProjectBox.Items)
+            if (item is System.Windows.Controls.ComboBoxItem { Content: string label, Tag: string key } && label == text)
+                return key.Trim();
+        return text;
     }
 
     private void OnBrowseTemplate(object sender, RoutedEventArgs e)

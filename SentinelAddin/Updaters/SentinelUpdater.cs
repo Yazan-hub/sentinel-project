@@ -128,6 +128,27 @@ public sealed class SentinelUpdater : IUpdater
         }
     }
 
+    /// <summary>DocumentChanged (App.OnStartup subscribes it): Execute sees additions and edits inside a transaction only.
+    /// An element that is deleted — or that an Undo, a Redo or a rolled-back group (the BLOCK check's Go back) takes away
+    /// or brings back — never reaches it, so the pane kept a row for an element that no longer existed until the next
+    /// full scan (drill MA1a-I35). Rows only: no change request, no toast.</summary>
+    public static void OnDocumentChanged(object? sender, Autodesk.Revit.DB.Events.DocumentChangedEventArgs e)
+    {
+        try
+        {
+            var doc = e.GetDocument();
+            if (!Registered.TryGetValue(doc, out var u) || !App.IsShown(doc)) return;
+            var gone = e.GetDeletedElementIds();
+            // A commit's additions and edits were judged in Execute; an undo, a redo or a rollback runs no updater.
+            var back = e.Operation == Autodesk.Revit.DB.Events.UndoOperation.TransactionCommitted
+                ? new List<ElementId>()
+                : e.GetAddedElementIds().Concat(e.GetModifiedElementIds()).ToList();
+            if (gone.Count == 0 && back.Count == 0) return;
+            u._panel.MergeDelta(gone.Concat(back).Select(i => i.IdValue()).ToList(), u._engine.ScanElements(doc, back), u._engine.RulesetFor(doc));
+        }
+        catch (Exception ex) { App.PanelVm?.LogDoctor("Pane refresh after an undo or delete failed: " + ex.Message); }
+    }
+
     public UpdaterId GetUpdaterId() => _id;
     public ChangePriority GetChangePriority() => ChangePriority.Views;
     public string GetUpdaterName() => "Sentinel Live Compliance";

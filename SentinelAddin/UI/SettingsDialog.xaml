@@ -32,7 +32,7 @@
                        FontSize="11" Foreground="#667"/>
             <ComboBox x:Name="WebProjectBox" Height="28" FontSize="12" Padding="6,4"
                       Margin="0,4,0,2" VerticalContentAlignment="Center" Width="280"
-                      HorizontalAlignment="Left" IsEditable="True"/>
+                      HorizontalAlignment="Left" IsEditable="True" IsTextSearchEnabled="False"/>
             <TextBlock x:Name="WebProjectHint" Text="Loading projects from the bridge…"
                        FontSize="10" Foreground="#889" Margin="0,0,0,2"/>
             <TextBlock x:Name="WebProjectScopeNote" FontSize="10" Foreground="#B26B00" Margin="0,0,0,10"

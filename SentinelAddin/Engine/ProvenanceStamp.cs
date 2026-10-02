@@ -144,7 +144,7 @@ namespace Sentinel.Engine
                     placedBy == uniqueId ? "Placed or changed by Sentinel."
                         : $"Copied, not placed by Sentinel — this stamp came with a copy of element {OneLine(placedBy) ?? "(unknown)"}; the lines below are that element's record, not this one's.",
                     "Source: " + source,
-                    "Source file sha256: " + Or("source_sha256", "none recorded — Sentinel read no file for it (an agent's proposal, or a drawing already imported in the model)"),
+                    "Source file sha256: " + Groups8(Or("source_sha256", "none recorded — Sentinel read no file for it (an agent's proposal, or a drawing already imported in the model)")),
                     "Layer: " + Or("layer", "none — not read from a drawing layer"),
                     reason ? null : "Rule: " + Or("rule", "not recorded"),
                     "Approver: " + approver + (approver.StartsWith("unsigned", StringComparison.Ordinal) ? " (not signed in — Standards ▸ Sign in names you)" : ""),
@@ -163,6 +163,10 @@ namespace Sentinel.Engine
         // Final review: so does every run of spaces of any kind (Zs: ordinary, no-break, em …) — padding cannot push a value's
         // tail onto a line of its own where the dialog wraps.
         private static string OneLine(string s) => s == null ? null : Regex.Replace(s, @"[\p{Cc}\p{Z}]+", " ").Trim();
+
+        // Drill MA1a-I35: the dialog clipped the 64 digits, one unbreakable word, to "…", so nobody could compare the hash.
+        // A sha256 is shown in groups of 8, which wrap; any other text (the "none recorded" words) is left as it is.
+        private static string Groups8(string s) => s != null && Regex.IsMatch(s, "^[0-9a-f]{64}$") ? Regex.Replace(s, ".{8}(?!$)", "$0 ") : s;
 
         /// <summary>MA-1a item 4: a file's sha256 (64 lowercase hex), or null when it cannot be read. Never throws.</summary>
         public static string FileSha256(string path)

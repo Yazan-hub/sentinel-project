@@ -57,14 +57,16 @@ static partial class Check
         Ok(datum["changeset_id"] == null && datum["changeset_ids"].AsArray().Count == 0 && datum["proposal_guids"].AsArray().Count == 0,
            "a placer with no changeset (Datum, Massing) adds no null to changeset_ids");
 
+        // Drill MA1a-I35: the reader shows the 64 digits in groups of 8 (the dialog clipped them as one word).
+        const string sha8 = "01234567 89abcdef 01234567 89abcdef 01234567 89abcdef 01234567 89abcdef";
         var said = ProvenanceStamp.Describe(ghost, uid);
-        Ok(said.StartsWith("Placed or changed by Sentinel.") && said.Contains("Source: dwg") && said.Contains("Source file sha256: " + sha)
+        Ok(said.StartsWith("Placed or changed by Sentinel.") && said.Contains("Source: dwg") && said.Contains("Source file sha256: " + sha8 + "\n")
            && said.Contains("Layer: A-WALL-EXT") && said.Contains("Rule: type by the guideline") && said.Contains("Approver: yazan@example.com")
            && said.Contains("Ledger row: #1287") && said.Contains("Placed at: 2026-10-02T12:00:00Z (UTC, this PC's clock)") && !said.Contains("Reason given by the proposer"),
            "the reader shows the source file sha, layer, rule, approver and ledger row (drill row 'pick any wall')");
         var saidRetyped = ProvenanceStamp.Describe(retyped, uid);
         Ok(saidRetyped.EndsWith("\nReason given by the proposer (promote): \"" + ddReason + "\"") && !saidRetyped.Contains("Rule: ")
-           && saidRetyped.Contains("Layer: A-WALL-EXT") && saidRetyped.Contains("Source file sha256: " + sha),
+           && saidRetyped.Contains("Layer: A-WALL-EXT") && saidRetyped.Contains("Source file sha256: " + sha8 + "\n"),
            "with no rule of the placer's own the reader labels the element's reason as the proposer's — it never reads as an office rule (C2)");
         Ok(ProvenanceStamp.Describe(ghost, "5a1c-0004c3f9").StartsWith("Copied, not placed by Sentinel — this stamp came with a copy of element 5a1c-0004c3f8"),
            "a stamp whose unique_id_at_placement is another element's reads as copied (drill row 'a copy-pasted wall')");

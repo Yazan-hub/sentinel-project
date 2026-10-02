@@ -91,6 +91,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
                 app.ControlledApplication.DocumentChanged += UndoWatcher.OnChanged; // MA-0: an Undo of a Sentinel changeset → a ledger row
+                app.ControlledApplication.DocumentChanged += SentinelUpdater.OnDocumentChanged; // the pane drops rows of deleted, undone or rolled-back elements
                 app.ViewActivated += OnViewActivated; // the pane follows the active document
 
                 // 'Revit Doctor': global native-warning interception
@@ -123,6 +124,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
         app.ControlledApplication.DocumentChanged -= UndoWatcher.OnChanged;
+        app.ControlledApplication.DocumentChanged -= SentinelUpdater.OnDocumentChanged;
         app.ViewActivated -= OnViewActivated;
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
         SentinelUpdater.UnregisterAll();
