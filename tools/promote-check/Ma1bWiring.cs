@@ -32,5 +32,26 @@ static partial class Check
         Ok(reader.Contains("Nested = nested }"), "the reader counts the blocks inside a block — the planner says they were read as one");
         Ok(Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains(".Concat(elements.Where(e => e.Block != null).Select(e => e.CadLayer))"),
            "a layer that holds only block inserts is still a row of the review");
+
+        string planner = Src("GhostBuilder", "GhostChangesetBuild.cs");
+        int snap = planner.IndexOf("PlacementGeometry.Snap(straight, halves, level.Name, x, y, el.Block?.RotationDeg, out string hostWhy)", StringComparison.Ordinal);
+        int hostRule = planner.IndexOf("hostWhy = HostProblem(x, y);", StringComparison.Ordinal);
+        Ok(snap > 0 && hostRule > snap, "Ghost's planner snaps a door or window onto its wall, then asks the executor's own host rule at the moved point");
+        Ok(planner.Contains("halves.Add(width / 2);") && planner.Contains("ChangesetExecutor.ResolveWallType(doc, type).Width * FtToMm"),
+           "half a wall's thickness is half its TYPE's width — what the wall will be, also for a wall drawn as one line");
+        Ok(planner.Contains("hosted ? el.Block?.RotationDeg : null, el.Block?.Mirrored == true"), "a hosted block is filed with its angle and mirror; an outline with none");
+        Ok(planner.Contains("if (el.Block != null && k.Kind != \"door\" && k.Kind != \"window\")") && planner.Contains("report.SkippedBlocks += kv.Value;")
+           && Src("Commands.GhostBuilder.cs").Contains("Skipped (a block on a row that is not Doors or Windows): {r.SkippedBlocks}")
+           && planner.Contains("report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,"),
+           "a block on a row that is not Doors or Windows is not placed: counted, named, and in the ledger report's skipped count");
+        Ok(planner.Contains("if (PlacementGeometry.IsBrokenWall(hostWhy)) report.SkippedBrokenWall++;")
+           && Src("Commands.GhostBuilder.cs").Contains("of these, where a wall line stops short of the opening"),
+           "a door or window at a wall broken at the opening is counted on its own summary line");
+        Ok(planner.Contains("if (el.Block?.Nested > 0)"), "a block that holds blocks inside it is said to be read as one");
+        Ok(planner.Contains("if (GhostFiling.LostRotation(chunks[c], cs.Elements))"), "a bridge that dropped the angle abandons the build before anything is placed");
+        Ok(planner.Contains("report.Placement.AddRange(PlacementGeometry.TurnLines(results.SelectMany(x => x.Turned).ToList()));"),
+           "the summary says how the placed doors sit against their blocks, from what the executor measured after the commit");
+        Ok(!planner.Contains("GHB-1, MA-1b)") && Src("Commands.GhostBuilder.cs").Contains("within half its thickness of the door or window"),
+           "the gap's words no longer say the snap is still to come");
     }
 }

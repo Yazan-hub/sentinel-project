@@ -440,9 +440,16 @@ namespace Sentinel.GhostBuilder
             public string NotBuilt;
             /// <summary>MA-1a step 2 (DWG): which changesets carry the build on the project's ledger, or why none does.</summary>
             public string Ledger;
-            /// <summary>MA-1a step 2 (DWG): doors and windows not filed because no single straight wall lies under the point, or
-            /// the one that does was already in the model (B2: only a wall this build creates hosts one).</summary>
+            /// <summary>MA-1a step 2 (DWG), MA-1b: doors and windows not filed because no single straight wall of this build lies
+            /// within half its thickness of the point (for a block: along the block's axis), or the executor's host rule refuses
+            /// the moved point — a wall already in the model under it (B2: only a wall this build creates hosts one), a second
+            /// wall, a curved one.</summary>
             public int SkippedNoHost;
+            /// <summary>MA-1b (F8): of SkippedNoHost, the doors and windows standing where a wall's line stops short of the
+            /// opening — a wall drawn in two pieces at the opening; the pieces are not joined yet (GHB-6).</summary>
+            public int SkippedBrokenWall;
+            /// <summary>MA-1b (E17): block inserts on a row that is not Doors or Windows — not placed, named per layer in Warnings.</summary>
+            public int SkippedBlocks;
             /// <summary>MA-1a step 2 (DWG): placed elements whose provenance stamp reads source dwg after the build.</summary>
             public int Stamped;
             /// <summary>MA-1a item 5 (DWG): the person went back at the BLOCK check — nothing was built (NotBuilt says so) and the
