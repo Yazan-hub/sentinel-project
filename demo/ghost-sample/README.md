@@ -18,7 +18,7 @@ Regenerate either with `python make-sample.py` — no third-party libraries need
 | `A-WALL-EXT` | 4 lines (perimeter) | Deterministic BDS match — **no model call**. The spec's *"fire rating of FR60"* should land on these walls (or their type). |
 | `A-WALL-INT` | 1 line | Second deterministic match; the spec says explicitly it is **not** rated, so a model that puts FR60 here is over-reaching. |
 | `A-FLOR` | closed polyline | Closed outline → boundary loop → `Floor.Create`, plus the floor-type provisioner. |
-| `A-DOOR` | 2 closed rectangles | The centroid path for point families. Places only the ONE loaded door type the mapping or the review names (pick it in the row's drop-down); a family that is not loaded, or one with several types and none named, is skipped and named in the summary — never the first door family loaded (MA-1a). |
+| `A-DOOR` | 2 closed rectangles | The centroid path for point families. Places only the ONE loaded door type the mapping or the review names (pick it in the row's drop-down); a family that is not loaded, or one with several types and none named, is skipped and named in the summary — never the first door family loaded (MA-1a). Since step 2 each is hosted by the one wall under its centroid, or skipped and named. |
 | `EXTERIOR-ENVELOPE` | 1 line | **The only layer the deterministic pass cannot match**, so it is the only one sent to the local model — and the spec paragraph about the envelope zone is exactly the context it needs. This is the P2 thesis in one row. |
 | `A-ANNO` | 1 line | Tier 0 ignore (`*-ANNO`). **Must never reach the review window.** |
 | `DEFPOINTS` | 1 line | Tier 0 ignore. Same. |
@@ -50,7 +50,7 @@ What must be true — each row is a real failure mode, not a formality:
 | `EXTERIOR-ENVELOPE` is interpreted sensibly | The spec-reading premise. The model's answers are remembered per web project, under the installed layers standard's sha, in `%AppData%\Sentinel\cache\<key>\dwg_mappings.json` — clear that file first, or the remembered answer is used and the model is never asked. An unbound model remembers nothing. |
 | Untick a layer → it is **not** in the model | Ticks are the gate, not decoration. |
 | A spec value (e.g. `Fire Rating = FR60`) is on the built element or its type | The P2 payload. |
-| **One** Ctrl+Z removes the whole build | Confirms the single-transaction design; if it takes several, that's a real regression. |
+| **One** Ctrl+Z removes the whole build and its new types | Since MA-1a step 2 that entry is `Sentinel AI changeset: Ghost Builder · …`; if it takes several, that's a real regression. |
 
 Expect `Thickness` and `Material` to be reported as not applied — Revit derives wall thickness from the
 type's structure and Material is an element reference, so neither takes a text value. That is honest
@@ -60,6 +60,10 @@ reporting, not a bug.
 passes against real Ollama and real documents with **no Revit at all** — that half of the code is
 Revit-free. It caught two genuine bugs before the first live run. Use it first; only the placement,
 the window and the undo actually need Revit.
+
+## MA-1a step 2 drill files
+
+`make-sample.py --step2` / `--plant` write the MA1a-S2 drill drawings (see the MA-1a step 2 plan).
 
 ## Verified offline
 

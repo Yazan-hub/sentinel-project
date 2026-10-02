@@ -6,61 +6,34 @@ using Autodesk.Revit.UI;
 namespace Sentinel.GhostBuilder
 {
     /// <summary>
-    /// PHASE 3 handoff. Places the already-computed geometry on the Revit API thread.
-    ///
-    /// The LLM mapping happens on a background thread in the command; when it finishes, the command
-    /// stages the result here and Raise()s. Revit then calls Execute() ON THE API THREAD — the only
-    /// place Wall.Create / family placement is legal. Revit API writes must NEVER run from Task.Run,
-    /// which is why placement is funneled through this ExternalEvent rather than done inline.
+    /// PHASE 3 handoff. The review's Build stages the reviewed rows here and Raise()s; Revit then calls Execute() ON THE API
+    /// THREAD — the only place a model may change. MA-1a step 2: the build is planned, filed as changesets (source dwg) and
+    /// placed by ChangesetExecutor, all in GhostChangesetBuild.Run, which checks first that the model the review was opened
+    /// on is still the active one (DocPin).
     /// </summary>
     public sealed class GhostBuilderPlacementEvent : IExternalEventHandler
     {
         /// The document's office code, set by the command that creates this handler (it names the event only).
         public string Org = "";
 
-        // Per-raise payload, staged on the UI/background thread just before Raise().
-        private GhostBuilderOrchestrator _orchestrator;
-        private GhostBuilderOrchestrator.Inputs _inputs;
-        private MappingResult _mapping;
-        private long _levelId = -1;
+        // Per-raise payload, staged on the UI thread just before Raise().
+        private GhostChangesetBuild.Request _request;
 
-        /// <summary>Fired on the API thread after placement. Report null when an error is passed.</summary>
+        /// <summary>Fired on the API thread after the build. Report null when an error is passed.</summary>
         public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
-        // (No confidence threshold here: the orchestrator owns placement policy, and since P3 the review
-        // window is the gate. The field this class used to carry was never read.)
-
-        /// <summary>Stage the pre-computed inputs + mapping for the next Raise().</summary>
-        public void SetRequest(GhostBuilderOrchestrator orchestrator,
-                               GhostBuilderOrchestrator.Inputs inputs, MappingResult mapping, long levelId = -1)
-        {
-            _orchestrator = orchestrator;
-            _inputs = inputs;
-            _mapping = mapping;
-            _levelId = levelId;
-        }
+        /// <summary>Stage the reviewed rows for the next Raise().</summary>
+        public void SetRequest(GhostChangesetBuild.Request request) => _request = request;
 
         public void Execute(UIApplication app)
         {
             // Snapshot + clear so a stale payload can't be reused.
-            var orchestrator = _orchestrator;
-            var inputs = _inputs;
-            var mapping = _mapping;
-            var levelId = _levelId;
-            _orchestrator = null; _inputs = null; _mapping = null; _levelId = -1;
-
+            var request = _request;
+            _request = null;
             try
             {
-                if (orchestrator == null)
-                    throw new InvalidOperationException("No request staged. Call SetRequest() before Raise().");
-
-                // We ARE on the API thread here — the transaction + geometry writes are legal.
-                // Level resolution happens inside the orchestrator, against ITS OWN _doc — not
-                // ActiveUIDocument. The review window is modeless, so the user can switch documents
-                // before clicking Build; resolving here against app.ActiveUIDocument could pick up a
-                // same-numbered ElementId from the wrong document.
-                var report = orchestrator.Place(inputs, mapping, levelId);
-                Completed?.Invoke(report, null);
+                if (request == null) throw new InvalidOperationException("No request staged. Call SetRequest() before Raise().");
+                Completed?.Invoke(GhostChangesetBuild.Run(app, request), null);
             }
             catch (Exception ex)
             {

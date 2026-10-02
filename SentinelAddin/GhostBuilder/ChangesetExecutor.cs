@@ -8,6 +8,9 @@
 // inside this transaction, and the transaction is named so the undo watcher can find it.
 // MA-1: a create also places a door or window (hosted by the one wall its point lies on), a flat footprint roof or a
 // ceiling; any create but a level or grid may carry a Mark, a floor Structural.
+// MA-1a step 2: Ghost Builder's DWG builds run here too (GhostChangesetBuild): a column or furniture create (unhosted on its
+// level) and an arc wall (LocationCurve.mid). Commit-time failures go through the all-or-nothing preprocessor (a warning is
+// counted and left in the model, any error rolls the changeset back), and what survived the commit is recounted.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -31,6 +34,14 @@ public sealed class ChangesetExecutor
         /// Nothing was attempted (the model was switched or closed): the changeset stays pending — never reported
         /// as declined, never as applied.
         public bool NotRun { get; set; }
+        /// MA-1a step 2: applied elements Revit no longer holds after the commit (the recount) — reported as rejected, never as
+        /// applied. Empty when every element survived, which all-or-nothing makes the rule.
+        public List<AppliedEntry> Gone { get; } = new();
+        /// MA-1a step 2: the Revit warnings this changeset raised, counted by text — left in the model, never erased ([BP] P1-3).
+        public Dictionary<string, int> Warnings { get; } = new();
+        /// A6: Commit returned neither Committed nor RolledBack (Pending, …) — Revit may still finish or drop it, so nothing is
+        /// reported and nothing recounted; this is the whole result.
+        public string NotFinished { get; set; }
     }
 
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);
@@ -62,7 +73,7 @@ public sealed class ChangesetExecutor
     // model's first type, and it never creates one here.
     private const string NoTypeName = "gap: no type name — Sentinel never takes the model's first type; re-propose with a TypeName";
 
-    private static WallType ResolveWallType(Document doc, string typeName)
+    internal static WallType ResolveWallType(Document doc, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
@@ -71,18 +82,47 @@ public sealed class ChangesetExecutor
                ?? throw new InvalidOperationException($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
     }
 
-    private static FloorType ResolveFloorType(Document doc, string typeName)
+    // MA-1a step 2: a floor's type among the model's FLOOR types only — a foundation slab type of the same name is another
+    // thing (OfClass(FloorType) holds both) — and, as CreateType does, more than one is a person's decision.
+    internal static FloorType ResolveFloorType(Document doc, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
-        var types = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
-        return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
+        var hits = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+            .Where(t => !t.IsFoundationSlab && string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (hits.Count == 0) throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
+        if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} floor types are named \"{typeName}\" in this model — a person decides");
+        return hits[0];
     }
+
+    /// MA-1: the walls a door or window may be hosted by — Basic, not a stacked member, straight — with each one's plan line
+    /// (mm) for PlacementGeometry.Host, and every other wall with a location line (one of those near the point is a refusal).
+    /// Also Ghost's planner (GhostChangesetBuild), which checks a DWG opening before it is filed.
+    internal static (List<Wall> Hosts, List<Wall> Odd, List<(string Label, string Level, double X0, double Y0, double X1, double Y1)> Lines) HostWalls(Document doc)
+    {
+        var walls = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Where(w => w.Location is LocationCurve).ToList();
+        bool Plain(Wall w) => w.WallType.Kind == WallKind.Basic && !w.IsStackedWallMember && ((LocationCurve)w.Location).Curve is Line;
+        var hosts = walls.Where(Plain).ToList();
+        var lines = hosts.Select(w =>
+        {
+            var c = ((LocationCurve)w.Location).Curve;
+            XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
+            return ("wall " + w.Id.IdValue(), (doc.GetElement(w.LevelId) as Level)?.Name, a.X / MmToFeet, a.Y / MmToFeet, b.X / MmToFeet, b.Y / MmToFeet);
+        }).ToList();
+        return (hosts, walls.Where(w => !Plain(w)).ToList(), lines);
+    }
+
+    /// A wall of <paramref name="odd"/> on the level whose location curve passes within HostTolMm of (x, y) mm, or null.
+    internal static Wall OddNear(IEnumerable<Wall> odd, ElementId levelId, double xMm, double yMm) => odd.FirstOrDefault(w =>
+    {
+        var c = ((LocationCurve)w.Location).Curve;
+        return w.LevelId.Equals(levelId)
+               && c.Distance(new XYZ(xMm * MmToFeet, yMm * MmToFeet, c.GetEndPoint(0).Z)) <= PlacementGeometry.HostTolMm * MmToFeet;
+    });
 
     /// MA-1: the one loaded type of a category a create names — by exact name, and by family for a door or window. None → load
     /// it (Sentinel loads no families and creates no types); more than one → a person decides. System family names are never
     /// compared (translated in non-English Revit): a roof or ceiling names its type only. RetypeTarget stays Promote's.
-    private static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)
+    internal static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var hits = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>()
@@ -251,6 +291,11 @@ public sealed class ChangesetExecutor
         string at = null; // the element being placed when something throws — the refusal names it
         using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name
         t.Start();
+        // MA-1a step 2: Revit's commit-time failures go through the all-or-nothing rule — a warning is counted and left in the
+        // model, any error rolls the whole changeset back (never Revit's modal dialog, never a person's "Delete Element(s)"
+        // half-commit). Non-modal: the warnings Revit keeps are shown the ordinary, dismissable way. The global Doctor skips
+        // this transaction (GhostFailurePolicy.DoctorSkips).
+        var handler = GhostFailureHandler.AllOrNothingOn(t);
         try
         {
             // Levels first: walls/floors in the same changeset may target them by name.
@@ -286,7 +331,9 @@ public sealed class ChangesetExecutor
                     throw new InvalidOperationException($"wall \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\": TopElevation ({topMm}mm) must be above BaseElevation ({baseMm}mm)");
                 var heightFt = (topMm - baseMm) * MmToFeet;
                 var offsetFt = baseMm * MmToFeet - level.Elevation;
-                var wall = Wall.Create(doc, Line.CreateBound(Pt(c.Start), Pt(c.End)), wt.Id, level.Id, heightFt, offsetFt, false, false);
+                // MA-1a step 2: a curved DWG wall carries a point on its arc (LocationCurve.mid).
+                var curve = c.Mid != null ? (Curve)Arc.Create(Pt(c.Start), Pt(c.End), Pt(c.Mid)) : Line.CreateBound(Pt(c.Start), Pt(c.End));
+                var wall = Wall.Create(doc, curve, wt.Id, level.Id, heightFt, offsetFt, false, false);
                 SetMark(wall, el);
                 Collect(result, el, wall);
             }
@@ -368,16 +415,7 @@ public sealed class ChangesetExecutor
             if (openings.Count > 0)
             {
                 doc.Regenerate();
-                var walls = new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Where(w => w.Location is LocationCurve).ToList();
-                bool Plain(Wall w) => w.WallType.Kind == WallKind.Basic && !w.IsStackedWallMember && ((LocationCurve)w.Location).Curve is Line;
-                var hosts = walls.Where(Plain).ToList();
-                var odd = walls.Where(w => !Plain(w)).ToList();
-                var lines = hosts.Select(w =>
-                {
-                    var c = ((LocationCurve)w.Location).Curve;
-                    XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
-                    return ("wall " + w.Id.IdValue(), (doc.GetElement(w.LevelId) as Level)?.Name, a.X / MmToFeet, a.Y / MmToFeet, b.X / MmToFeet, b.Y / MmToFeet);
-                }).ToList();
+                var (hosts, odd, lines) = HostWalls(doc);
                 foreach (var el in openings)
                 {
                     at = Label(el);
@@ -388,12 +426,7 @@ public sealed class ChangesetExecutor
                         throw new InvalidOperationException($"{el.Kind} \"{name}\": Location z {Mm(p[2])} mm is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a {el.Kind} stands on its level" + (el.Kind == "window" ? "; its sill is place.SillHeight" : ""));
                     var sym = (FamilySymbol)CreateType(doc, el.Kind == "door" ? BuiltInCategory.OST_Doors : BuiltInCategory.OST_Windows,
                                                        el.Kind, el.Place.FamilyName, el.Place.TypeName);
-                    var near = odd.FirstOrDefault(w =>
-                    {
-                        var c = ((LocationCurve)w.Location).Curve;
-                        return w.LevelId.Equals(level.Id)
-                               && c.Distance(new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, c.GetEndPoint(0).Z)) <= PlacementGeometry.HostTolMm * MmToFeet;
-                    });
+                    var near = OddNear(odd, level.Id, p[0], p[1]);
                     if (near != null)
                     {
                         var what = near.WallType.Kind == WallKind.Curtain ? "curtain" : near.WallType.Kind == WallKind.Stacked || near.IsStackedWallMember ? "stacked"
@@ -413,6 +446,24 @@ public sealed class ChangesetExecutor
                     SetMark(fi, el);
                     Collect(result, el, fi);
                 }
+            }
+
+            // MA-1a step 2: a column or furniture stands unhosted on its level at its point (Ghost Builder's point families): the
+            // one loaded (family, type) it names, activated inside this transaction, z = the level's elevation.
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind is "column" or "furniture"))
+            {
+                at = Label(el);
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var level = ResolveLevel(doc, el.Place);
+                var p = el.Place.Location ?? throw new InvalidOperationException($"{el.Kind} \"{name}\" has no Location");
+                if (Math.Abs(p[2] * MmToFeet - level.Elevation) > TolFt)
+                    throw new InvalidOperationException($"{el.Kind} \"{name}\": Location z {Mm(p[2])} mm is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a {el.Kind} stands on its level");
+                var sym = (FamilySymbol)CreateType(doc, el.Kind == "column" ? BuiltInCategory.OST_Columns : BuiltInCategory.OST_Furniture,
+                                                   el.Kind, el.Place.FamilyName, el.Place.TypeName);
+                if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                var fi = doc.Create.NewFamilyInstance(Pt(p), sym, level, StructuralType.NonStructural);
+                SetMark(fi, el);
+                Collect(result, el, fi);
             }
 
             // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type
@@ -475,8 +526,28 @@ public sealed class ChangesetExecutor
                 ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid));
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
             // the collected ids then would be the "some failed silently" lie this file forbids.
-            if (t.Commit() != TransactionStatus.Committed)
-                return new ExecutionResult { Error = "Revit did not commit the transaction (failure resolution rolled it back)" };
+            var status = t.Commit();
+            if (status == TransactionStatus.RolledBack)
+            {
+                // B3: the failure that rolled it back names its culprits — each element this changeset placed by its label
+                // (RevitElementId → ProposalGuid → element), so the person knows which layer to untick.
+                var labels = new Dictionary<long, string>();
+                foreach (var a in result.Applied) labels[a.RevitElementId] = Label(toPlace.First(e => e.ProposalGuid == a.ProposalGuid));
+                return new ExecutionResult { Error = "Revit did not commit the transaction (failure resolution rolled it back)" + (handler.RolledBack != null ? ": " + handler.RolledBack + GhostFailurePolicy.RolledBackNames(handler.RolledBackIds, labels) : "") };
+            }
+            // A6: Pending (or any other status) — Revit may still finish or drop it: nothing is reported, nothing recounted.
+            if (status != TransactionStatus.Committed)
+                return new ExecutionResult { NotFinished = GhostFailurePolicy.NotFinishedLine(status.ToString()) };
+            // MA-1a step 2: the recount — an element Revit no longer holds after the commit is reported as rejected, never
+            // as applied; a warning that named it went with it. The rest are counted, left in the model, never erased.
+            var gone = new HashSet<long>();
+            foreach (var a in result.Applied.Where(a => doc.GetElement(a.RevitUniqueId) == null).ToList())
+            {
+                result.Applied.Remove(a);
+                result.Gone.Add(a);
+                gone.Add(a.RevitElementId);
+            }
+            foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) result.Warnings[kv.Key] = kv.Value;
             return result;
         }
         catch (Exception ex)

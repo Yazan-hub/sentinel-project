@@ -26,24 +26,32 @@ namespace Sentinel.Engine
             public List<string> Guids;
         }
 
-        private static readonly ConcurrentDictionary<string, Entry> Registry = new ConcurrentDictionary<string, Entry>(StringComparer.Ordinal);
+        // MA-1a step 2: one Undo name may cover several changesets — a Ghost build over 200 elements is several changesets run
+        // inside one TransactionGroup, assimilated into one Undo entry named as the first changeset.
+        private static readonly ConcurrentDictionary<string, List<Entry>> Registry = new ConcurrentDictionary<string, List<Entry>>(StringComparer.Ordinal);
 
         /// <summary>The executor's transaction name — what Revit's Undo list shows and GetTransactionNames returns.</summary>
         public static string TxName(string name, string id) =>
             $"Sentinel AI changeset: {name} [{(id ?? "").Substring(0, Math.Min(8, (id ?? "").Length))}]";
 
-        /// <summary>Remember a changeset whose result the bridge accepted.</summary>
+        /// <summary>Remember a changeset whose result the bridge accepted, under the Undo name that removes it. Remembering the
+        /// same changeset again under the same name replaces it; another changeset under that name is added beside it.</summary>
         public static void Remember(string tx, string key, string changesetId, IEnumerable<string> guids)
         {
             var list = (guids ?? Enumerable.Empty<string>()).Where(g => !string.IsNullOrEmpty(g)).Distinct().ToList();
             if (string.IsNullOrEmpty(tx) || list.Count == 0) return;
-            Registry[tx] = new Entry { Key = key, ChangesetId = changesetId, Guids = list };
+            var entry = new Entry { Key = key, ChangesetId = changesetId, Guids = list };
+            Registry.AddOrUpdate(tx, _ => new List<Entry> { entry },
+                (_, old) => old.Where(o => o.ChangesetId != changesetId).Concat(new[] { entry }).ToList());
         }
 
-        /// <summary>The remembered changesets among <paramref name="names"/>; unknown names are ignored.</summary>
+        /// <summary>The remembered changesets among <paramref name="names"/>, each once (a Ghost build is remembered under its
+        /// Undo entry's name and under each changeset's own transaction name, whichever Revit reports); unknown names are
+        /// ignored.</summary>
         public static List<Entry> Hits(IEnumerable<string> names) =>
             (names ?? Enumerable.Empty<string>()).Distinct(StringComparer.Ordinal)
-                .Select(n => Registry.TryGetValue(n, out var e) ? e : null).Where(e => e != null).ToList();
+                .SelectMany(n => Registry.TryGetValue(n, out var es) ? es : new List<Entry>())
+                .GroupBy(e => e.ChangesetId ?? "", StringComparer.Ordinal).Select(g => g.First()).ToList();
 
         /// <summary>"undo", "redo", or null (any other operation is not a revert).</summary>
         public static string OpOf(bool undone, bool redone) => undone ? "undo" : redone ? "redo" : null;

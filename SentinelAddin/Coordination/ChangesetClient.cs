@@ -18,6 +18,8 @@ public sealed class CurveDto
 {
     [JsonPropertyName("start")] public double[] Start { get; set; }
     [JsonPropertyName("end")] public double[] End { get; set; }
+    /// <summary>MA-1a step 2: a point on an arc wall between its ends (a curved DWG wall); null = a straight line.</summary>
+    [JsonPropertyName("mid")] public double[] Mid { get; set; }
 }
 
 public sealed class PlaceDto
@@ -225,6 +227,12 @@ internal static class ChangesetClient
         try { return JsonSerializer.Deserialize<ChangesetDto>(resp); }
         catch (Exception ex) { error = ex.Message; return null; }
     }
+
+    /// <summary>Withdraw a proposed changeset (POST /changesets/:key/:id/withdraw → 200): a Ghost build that filed some of its
+    /// changesets and then could not file the rest takes them back, so none is left for a later review to apply.</summary>
+    public static bool Withdraw(BcfConfig cfg, string projectKey, string id, out string error) =>
+        Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/withdraw",
+             JsonSerializer.Serialize(new { actor = UserSession.Actor }, WriteJson), 200, out _, out error);
 
     /// <summary>A person undid or redid an applied changeset in Revit: one changeset_reverted ledger row
     /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run).</summary>

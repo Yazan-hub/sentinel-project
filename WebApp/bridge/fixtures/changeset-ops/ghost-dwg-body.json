@@ -1,0 +1,51 @@
+{
+  "name": "Ghost Builder · sample-plan · Level 1",
+  "source": "dwg",
+  "actor": "yazan",
+  "elements": [
+    {
+      "kind": "wall", "op": "create", "reason": "Ghost Builder: wall on layer A-WALL-EXT, typed by the mapping",
+      "validate": { "identity": { "Class": "IfcWall", "Name": "A-WALL-EXT #1" } },
+      "place": { "TypeName": "Generic - 200mm", "LevelName": "Level 1",
+                 "LocationCurve": { "start": [0, 0, 0], "end": [10000, 0, 0] }, "BaseElevation": 0, "TopElevation": 3048 }
+    },
+    {
+      "kind": "wall", "op": "create", "reason": "Ghost Builder: wall on layer A-WALL-EXT, typed by the guideline",
+      "validate": { "identity": { "Class": "IfcWall", "Name": "A-WALL-EXT #2" } },
+      "place": { "TypeName": "Generic - 200mm", "LevelName": "Level 1",
+                 "LocationCurve": { "start": [0, 0, 0], "end": [2000, 0, 0], "mid": [1000, 1000, 0] }, "BaseElevation": 0, "TopElevation": 3048 }
+    },
+    {
+      "kind": "floor", "op": "create", "reason": "Ghost Builder: floor on layer A-FLOR",
+      "validate": { "identity": { "Class": "IfcSlab", "Name": "A-FLOR #1" } },
+      "place": { "TypeName": "Generic 150mm", "LevelName": "Level 1",
+                 "LocationLoop": [[0, 0, 0], [10000, 0, 0], [10000, 7000, 0], [0, 7000, 0]] }
+    },
+    {
+      "kind": "ceiling", "op": "create", "reason": "Ghost Builder: ceiling on layer A-CLNG",
+      "validate": { "identity": { "Class": "IfcCovering", "Name": "A-CLNG #1" } },
+      "place": { "TypeName": "600 x 600mm Grid", "LevelName": "Level 1",
+                 "Boundary": [[0, 0], [4000, 0], [4000, 7000], [0, 7000]], "Offset": 0 }
+    },
+    {
+      "kind": "door", "op": "create", "reason": "Ghost Builder: door on layer A-DOOR",
+      "validate": { "identity": { "Class": "IfcDoor", "Name": "A-DOOR #1" } },
+      "place": { "TypeName": "0915 x 2134mm", "LevelName": "Level 1", "FamilyName": "M_Single-Flush", "Location": [6450, 0, 0] }
+    },
+    {
+      "kind": "window", "op": "create", "reason": "Ghost Builder: window on layer A-GLAZ",
+      "validate": { "identity": { "Class": "IfcWindow", "Name": "A-GLAZ #1" } },
+      "place": { "TypeName": "0915 x 1220mm", "LevelName": "Level 1", "FamilyName": "M_Fixed", "Location": [10000, 3500, 0] }
+    },
+    {
+      "kind": "column", "op": "create", "reason": "Ghost Builder: column on layer A-COLS",
+      "validate": { "identity": { "Class": "IfcColumn", "Name": "A-COLS #1" } },
+      "place": { "TypeName": "457 x 610mm", "LevelName": "Level 1", "FamilyName": "M_Rectangular Column", "Location": [5000, 3500, 0] }
+    },
+    {
+      "kind": "furniture", "op": "create", "reason": "Ghost Builder: furniture on layer A-FURN",
+      "validate": { "identity": { "Class": "IfcFurniture", "Name": "A-FURN #1" } },
+      "place": { "TypeName": "1525 x 762mm", "LevelName": "Level 1", "FamilyName": "M_Desk", "Location": [2000, 2000, 0] }
+    }
+  ]
+}

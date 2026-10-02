@@ -164,6 +164,8 @@ static partial class Check
         Ok(ev.Context.Contains("FR60"), "the fire rating the model must lift is in the evidence text");
         Ok(ev.Context.Contains("A-WALL-EXT"), "the layer that rating applies to is in the evidence text");
         Ok(ev.Context.Contains("EXTERIOR-ENVELOPE"), "the non-standard layer is explained in the evidence");
+        // README.md is read first, into the same 6000-char budget: a longer README cuts the spec off (FD30 is its last line).
+        Ok(ev.Context.Contains("FD30"), "the whole spec reaches the evidence (the folder's README leaves it room)");
 
         // The DXF must carry both the standard layers and the two that tier 0 has to drop.
         string dxf = File.ReadAllText(Path.Combine(sampleDir, "sample-plan.dxf"));

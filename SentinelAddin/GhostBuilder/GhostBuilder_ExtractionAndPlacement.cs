@@ -341,6 +341,16 @@ namespace Sentinel.GhostBuilder
             /// <summary>A6: set when Commit returned neither Committed nor RolledBack (Pending, …) — the whole report
             /// (GhostFailurePolicy.NotFinishedLine). Nothing was recounted, and nothing else here is true.</summary>
             public string NotFinished;
+            /// <summary>MA-1a step 2 (DWG): the whole line when nothing was built — not filed, rolled back, refused or nothing to
+            /// build. Placed and the type lines are then untrue; Warnings still name every row that gave no element.</summary>
+            public string NotBuilt;
+            /// <summary>MA-1a step 2 (DWG): which changesets carry the build on the project's ledger, or why none does.</summary>
+            public string Ledger;
+            /// <summary>MA-1a step 2 (DWG): doors and windows not filed because no single straight wall lies under the point, or
+            /// the one that does was already in the model (B2: only a wall this build creates hosts one).</summary>
+            public int SkippedNoHost;
+            /// <summary>MA-1a step 2 (DWG): placed elements whose provenance stamp reads source dwg after the build.</summary>
+            public int Stamped;
         }
 
         public PlacementReport Place(MappingResult mapping, IEnumerable<GhostElement> elements)

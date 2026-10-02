@@ -15,8 +15,9 @@ namespace Sentinel.GhostBuilder
     ///   • ExtractInputs(cadLink)  — Revit API READS. API thread only. Fast.
     ///   • MapAsync(inputs, ct)    — LLM HTTP call. Pure network, no Revit API — safe on a
     ///                               background thread (Task.Run) and cancellable.
-    ///   • Place(inputs, mapping)  — Revit API WRITES (Wall.Create, family placement) inside one
-    ///                               transaction. API thread ONLY — must run via ExternalEvent.
+    ///   • PlacePrepared(els, map) — Photo Massing's Revit API WRITES inside one transaction. API thread
+    ///                               ONLY — must run via ExternalEvent. A DWG build is placed by
+    ///                               GhostChangesetBuild through ChangesetExecutor (MA-1a step 2).
     ///
     /// The old RunAsync did all three on one thread; blocking on it pinned the UI for the whole
     /// LLM round-trip. Callers now drive the three phases across the right threads themselves.
@@ -31,9 +32,8 @@ namespace Sentinel.GhostBuilder
         private readonly GuidelineMatcher _guideline; // optional Office Modelling Guideline (per-wall types)
         private readonly bool _placeholderTypes;      // massing: default types + a note instead of skipping
 
-        /// <summary>The Ghost transaction's name (DWG and massing) — also how the global Doctor (FailureInterceptor) knows to
-        /// leave this build's warnings alone ([BP] P1-3, GhostFailurePolicy.DoctorSkips). Unchanged; step 2 renames it with
-        /// the changeset.</summary>
+        /// <summary>Photo Massing's transaction name — also how the global Doctor (FailureInterceptor) knows to leave its
+        /// warnings alone ([BP] P1-3, GhostFailurePolicy.DoctorSkips). A DWG build's transactions are its changesets'.</summary>
         public const string TxName = GhostFailurePolicy.TxName;
 
         public GhostBuilderOrchestrator(Document doc, ILayerMapper mapper,
@@ -76,66 +76,13 @@ namespace Sentinel.GhostBuilder
             return _mapper.MapLayersAsync(inputs.Layers, ct);
         }
 
-        /// <summary>
-        /// PHASE 3 — geometry creation inside one transaction. Revit API writes: API thread ONLY,
-        /// must be invoked from an IExternalEventHandler.Execute. Never from Task.Run.
-        /// </summary>
-        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping, Level level = null)
-        {
-            if (inputs?.Layers == null || inputs.Layers.Count == 0)
-                return new GhostPlacementEngine.PlacementReport
-                { Warnings = { "No CAD layers found in import; nothing to build." } };
-
-            if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
-                return new GhostPlacementEngine.PlacementReport
-                { Warnings = { "LLM returned no mappings; nothing to build." } };
-
-            // Between map and place: collapse each wall's two drawn faces into one centreline element
-            // carrying the measured thickness. A DWG draws a wall as two parallel lines a thickness apart;
-            // without this each becomes a separate paper-thin wall and the thickness — the number the
-            // Office Modelling Guideline picks the wall TYPE from — is thrown away. Additive and safe: a
-            // wall it can't pair stays exactly the run it was.
-            var elements = GhostWallPairer.PairWalls(inputs.Elements, mapping);
-            return PlacePrepared(elements, mapping, level);
-        }
+        // MA-1a step 2: a DWG build no longer places here — it pairs, plans and files changesets that ChangesetExecutor
+        // places (GhostChangesetBuild, raised by GhostBuilderPlacementEvent); Place(Inputs, …) was deleted with that move.
 
         /// <summary>
-        /// Same as Place(Inputs, MappingResult, Level), but resolves the level by ElementId against
-        /// THIS orchestrator's own _doc — never the active document. The review window is modeless,
-        /// so the user can switch documents between picking a level and clicking Build; resolving
-        /// against ActiveUIDocument would risk placing on a same-numbered ElementId from the wrong
-        /// document. -1 means "no level chosen" (falls back to the doc's lowest level, same as
-        /// passing level: null).
-        /// </summary>
-        public GhostPlacementEngine.PlacementReport Place(Inputs inputs, MappingResult mapping, long levelId)
-        {
-            Level level = null;
-            string fallbackWarning = null;
-            if (levelId >= 0)
-            {
-#if NET48
-                level = _doc.GetElement(new ElementId((int)levelId)) as Level;
-#else
-                level = _doc.GetElement(new ElementId(levelId)) as Level;
-#endif
-                if (level == null)
-                {
-                    var lowest = new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>()
-                        .OrderBy(l => l.Elevation).FirstOrDefault();
-                    fallbackWarning = lowest != null
-                        ? $"Chosen level no longer exists — built on {lowest.Name} instead."
-                        : "Chosen level no longer exists.";
-                }
-            }
-            var report = Place(inputs, mapping, level);
-            if (fallbackWarning != null) report.Warnings.Insert(0, fallbackWarning);
-            return report;
-        }
-
-        /// <summary>
-        /// Place already-prepared elements + mapping, WITHOUT the DWG face-pairing pass — for callers that
-        /// bring their own geometry with thickness already set (photo massing). Same transaction,
-        /// provisioners, guideline and audit as a DWG build, so a massing is governed identically.
+        /// Photo Massing's placement (founder decision F5: Massing keeps this path until MA-6 moves it onto changesets):
+        /// already-prepared elements + mapping, without the DWG face-pairing pass, in one transaction with the provisioners,
+        /// the guideline, placeholder types and GhostFailureHandler's honest-build rule.
         /// </summary>
         public GhostPlacementEngine.PlacementReport PlacePrepared(
             System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null)
