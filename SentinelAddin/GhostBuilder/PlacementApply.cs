@@ -37,9 +37,11 @@ namespace Sentinel.GhostBuilder
         public readonly PlacementPolicy.Written Written = new PlacementPolicy.Written();
 
         /// <summary>The summary lines, counted from the elements still in the model: call it after the commit and the
-        /// placer's own recount, with the UniqueIds of what survived. An element Revit removed at commit is in no count.</summary>
-        public List<string> Lines(IEnumerable<string> survivingUniqueIds) =>
-            PlacementPolicy.Lines(Block, Workshared, Written.Surviving(survivingUniqueIds), PhaseName);
+        /// placer's own recount, with the UniqueIds of what survived. An element Revit removed at commit is in no count,
+        /// and a phase is counted as set only where the element still has it (drill MA1a-I68: Revit moved a door to its
+        /// wall's phase).</summary>
+        public List<string> Lines(Document doc, IEnumerable<string> survivingUniqueIds) =>
+            PlacementPolicy.Lines(Block, Workshared, Written.Surviving(survivingUniqueIds, uid => doc.GetElement(uid)?.CreatedPhaseId == PhaseId), PhaseName);
     }
 
     public static class PlacementApply

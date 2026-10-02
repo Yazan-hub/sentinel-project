@@ -115,6 +115,12 @@ static partial class Check
                "Phase: 2 element(s) set to \"New Construction\", the active view's phase (a level or a grid has no phase).",
            }), "three walls set, one removed by Revit at commit: the lines say two — counted from what is still in the model");
 
+        // Drill MA1a-I68 (F-I68-1): a door placed from an "Existing" view into a "New Construction" wall ended in the
+        // wall's phase, and the line still said "1 element(s) set to Existing". A phase counts as set only where it held.
+        Ok(PlacementPolicy.Lines(block, true, written.Surviving(new[] { "u1", "u3", "u4" }, uid => uid != "u3"), "Existing")[1] ==
+           "Phase: 1 element(s) set to \"Existing\", the active view's phase (a level or a grid has no phase). 1 more kept by Revit in another phase — a hosted element takes a phase its host allows.",
+           "a phase Revit did not keep is not counted as set, and the line says so (drill MA1a-I68)");
+
         // Review amendment C7: a guideline that could not be read is not "no block".
         Ok(PlacementPolicy.UnreadRefusal("none", false, true, "bridge unreachable (timed out after 4 s)") ==
            "Nothing was placed — the project's guideline could not be read (bridge unreachable (timed out after 4 s)), so its placement block is unknown. " +
@@ -196,10 +202,10 @@ static partial class Check
            "a workset write Revit refuses leaves the changeset proposed (NotRun), never declined; Ghost Builder abandons and withdraws what it filed");
         Ok(apply.Contains("!view.Document.Equals(doc)") && Src("Commands.Massing.cs").Contains("DocPin.Check(app, orch.Doc, \"build the massing\")"),
            "a view of another model gives no phase, and Photo Massing builds only in the model it was started on");
-        Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("plan.Lines(result.Applied.Select(a => a.RevitUniqueId))")
-           && ghost.Contains("placing.Lines(applied.Select(a => a.RevitUniqueId))")
-           && Src("GhostBuilder", "DatumBuilder.cs").Contains("placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId))")
-           && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("placing.Lines(report.NewElements.Where("),
+        Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("plan.Lines(doc, result.Applied.Select(a => a.RevitUniqueId))")
+           && ghost.Contains("placing.Lines(doc, applied.Select(a => a.RevitUniqueId))")
+           && Src("GhostBuilder", "DatumBuilder.cs").Contains("placing?.Lines(_doc, made.Where(e => e.IsValidObject).Select(e => e.UniqueId))")
+           && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("placing.Lines(_doc, report.NewElements.Where("),
            "every placer counts its workset and phase lines after the commit, from the elements still in the model");
         foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs" })
             Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");

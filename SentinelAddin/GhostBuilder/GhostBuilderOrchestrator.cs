@@ -185,7 +185,7 @@ namespace Sentinel.GhostBuilder
                 foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) report.RevitWarnings[kv.Key] = kv.Value;
                 // MA-1a item 6: said once the build is committed, counted from this build's elements still in the model.
                 if (placing != null)
-                    report.Placement.AddRange(placing.Lines(report.NewElements.Where(n => _doc.GetElement(n.Id) != null).Select(n => _doc.GetElement(n.Id).UniqueId)));
+                    report.Placement.AddRange(placing.Lines(_doc, report.NewElements.Where(n => _doc.GetElement(n.Id) != null).Select(n => _doc.GetElement(n.Id).UniqueId)));
             }
             catch
             {

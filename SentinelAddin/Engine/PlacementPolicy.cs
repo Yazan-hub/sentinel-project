@@ -95,6 +95,9 @@ namespace Sentinel.Engine
             public readonly Dictionary<string, int> OnWorkset = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             public readonly Dictionary<string, int> Unnamed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             public int Phased;
+            /// <summary>Drill MA1a-I68: the phase was written, but after the commit the element is in another phase — Revit
+            /// keeps a hosted element in a phase its host allows. Said, never counted as set.</summary>
+            public int PhaseMoved;
             public void On(string workset) => OnWorkset[workset] = (OnWorkset.TryGetValue(workset, out int n) ? n : 0) + 1;
             public void NoWorkset(string category) => Unnamed[category] = (Unnamed.TryGetValue(category, out int n) ? n : 0) + 1;
         }
@@ -110,7 +113,9 @@ namespace Sentinel.Engine
             /// workset for (null: the workset part did not run), and whether its phase was set.</summary>
             public void Add(string uniqueId, string workset, string unnamedCategory, bool phased) => _set.Add((uniqueId, workset, unnamedCategory, phased));
 
-            public Tally Surviving(IEnumerable<string> uniqueIds)
+            /// <summary><paramref name="phaseHeld"/>: whether an element whose phase was written is still in that phase
+            /// (null: not asked, every written phase counts as set).</summary>
+            public Tally Surviving(IEnumerable<string> uniqueIds, Func<string, bool> phaseHeld = null)
             {
                 var alive = new HashSet<string>(uniqueIds ?? new string[0], StringComparer.Ordinal);
                 var tally = new Tally();
@@ -118,7 +123,8 @@ namespace Sentinel.Engine
                 {
                     if (s.Workset != null) tally.On(s.Workset);
                     else if (s.Unnamed != null) tally.NoWorkset(s.Unnamed);
-                    if (s.Phased) tally.Phased++;
+                    if (s.Phased && (phaseHeld == null || phaseHeld(s.Id))) tally.Phased++;
+                    else if (s.Phased) tally.PhaseMoved++;
                 }
                 return tally;
             }
@@ -146,7 +152,8 @@ namespace Sentinel.Engine
             }
             if (block.Phase == null) lines.Add("Phase: the guideline's placement block names none — each element is in the phase Revit gave it.");
             else if (phaseName == null) lines.Add("Phase: not set — the active view has no phase (a sheet, a legend); each element is in the phase Revit gave it.");
-            else lines.Add("Phase: " + tally.Phased + " element(s) set to \"" + phaseName + "\", the active view's phase (a level or a grid has no phase).");
+            else lines.Add("Phase: " + tally.Phased + " element(s) set to \"" + phaseName + "\", the active view's phase (a level or a grid has no phase)." +
+                           (tally.PhaseMoved > 0 ? " " + tally.PhaseMoved + " more kept by Revit in another phase — a hosted element takes a phase its host allows." : ""));
             return lines;
         }
 

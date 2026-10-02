@@ -540,7 +540,7 @@ namespace Sentinel.GhostBuilder
                 report.Placed = applied.Count;
                 // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
                 // executor's recount left in the model. Its own list: a result of the build, not a warning.
-                report.Placement.AddRange(placing.Lines(applied.Select(a => a.RevitUniqueId)));
+                report.Placement.AddRange(placing.Lines(doc, applied.Select(a => a.RevitUniqueId)));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
                 report.Ledger = !bound ? localLedger
                     : $"Ledger: {filed.Count - unrecorded.Count} of {filed.Count} changeset(s) recorded on {r.Key} (source dwg: {string.Join(", ", filed.Select(f => Short(f.Id)))})" +

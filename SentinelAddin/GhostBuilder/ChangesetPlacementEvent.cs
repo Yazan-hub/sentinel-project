@@ -71,7 +71,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing. Counted
             // from result.Applied — what the executor's recount left — so an element Revit removed at commit is in no line.
             if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null)
-                result.Placement = plan.Lines(result.Applied.Select(a => a.RevitUniqueId));
+                result.Placement = plan.Lines(doc, result.Applied.Select(a => a.RevitUniqueId));
         }
         catch (Exception ex)
         {

@@ -5679,7 +5679,7 @@ I6-9 bodies. Each `FamilyName` and `TypeName` must be loaded in the copy — the
     { "kind": "wall", "validate": { "identity": { "Class": "IfcWall", "Name": "I6-9 wall" } },
       "place": { "TypeName": "Generic - 200mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [40000, 30000, 0], "end": [46000, 30000, 0] } } },
     { "kind": "door", "validate": { "identity": { "Class": "IfcDoor", "Name": "I6-9 door" } },
-      "place": { "FamilyName": "M_Single-Flush", "TypeName": "0915 x 2134mm", "LevelName": "GR-FFL", "Location": [42000, 30000, 0] } },
+      "place": { "FamilyName": "Door-Interior-Single-Flush_Panel-Wood", "TypeName": "MA1 915 x 2134mm", "LevelName": "GR-FFL", "Location": [42000, 30000, 0] } },
     { "kind": "column", "validate": { "identity": { "Class": "IfcColumn", "Name": "I6-9 column" } },
       "place": { "FamilyName": "M_Rectangular Column", "TypeName": "610 x 610mm", "LevelName": "GR-FFL", "Location": [48000, 30000, 0] } },
     { "kind": "ceiling", "validate": { "identity": { "Class": "IfcCovering", "Name": "I6-9 ceiling" } },
@@ -5692,7 +5692,7 @@ Second, one more door in that wall, applied from the `Existing`-phase plan:
 { "name": "MA1a item 6 — a door in a wall of a later phase", "source": "agent",
   "elements": [
     { "kind": "door", "validate": { "identity": { "Class": "IfcDoor", "Name": "I6-9 door, Existing view" } },
-      "place": { "FamilyName": "M_Single-Flush", "TypeName": "0915 x 2134mm", "LevelName": "GR-FFL", "Location": [44500, 30000, 0] } } ] }
+      "place": { "FamilyName": "Door-Interior-Single-Flush_Panel-Wood", "TypeName": "MA1 915 x 2134mm", "LevelName": "GR-FFL", "Location": [44500, 30000, 0] } } ] }
 ```
 
 I8-1 agent body:

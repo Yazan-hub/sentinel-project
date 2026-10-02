@@ -194,7 +194,7 @@ namespace Sentinel.GhostBuilder
                 // report row, the receipt and the dialog say what the placement lines beside them say.
                 detected.LevelsCreated = made.Count(e => e.IsValidObject && e is Level);
                 detected.GridsCreated = made.Count(e => e.IsValidObject && e is Grid);
-                detected.Placement = placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
+                detected.Placement = placing?.Lines(_doc, made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
             }
             catch
             {
