@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
@@ -54,6 +55,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         GhostStandards standards = null; // set in the background before the review window can raise a build
         var loadedTypes = GhostBuilderCommand.LoadedTypes(doc); // MA-1a item 6: the model's types, read on the API thread
         string templateLine = null;                             // the office-template check's line, for the summary
+        string stampSha = null; // MA-1a item 7: the images' sha the build was stamped with (null: the numbers are the reviewer's)
 
         var placementEvent = new MassingPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
@@ -64,6 +66,11 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         placementEvent.Completed += (report, error) => progress.Dispatcher.Invoke(() =>
         {
             progress.Close();
+            // MA-1a item 7: one massing row for a build Revit committed, sent off this thread.
+            if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0)
+                GovernedNotify.Report("Photo Massing", CommandReports.Massing(report.Placed, report.DeletedByRevit.Count, report.WallGaps,
+                    report.SkippedUnknownFamily + report.SkippedNoGeometry, report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count,
+                    stampSha, UserSession.Actor), key);
             TaskDialog.Show("Sentinel — Massing",
                 error != null ? "Build failed: " + error.Message : Summarize(report, standards, templateLine));
         });
@@ -114,8 +121,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         var (elements, mapping) = MassingBuilder.ToBuildInputs(plan);
                         // Final review (E7): the images are the stamp's source only when the build still holds a number the
                         // vision model gave — not when Ollama was down or answered badly, or the reviewer replaced them all.
-                        placementEvent.SetRequest(orchestrator, elements, mapping, MassingPlanner.HasModelValue(corrected) ? imagesSha : null,
-                                                  standards.Guideline.Placement); // MA-1a item 6
+                        stampSha = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
+                        placementEvent.SetRequest(orchestrator, elements, mapping, stampSha, standards.Guideline.Placement); // MA-1a item 6
                         externalEvent.Raise();
                     };
                     review.Show();

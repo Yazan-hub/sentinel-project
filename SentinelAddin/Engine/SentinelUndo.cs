@@ -15,7 +15,9 @@ public static class SentinelUndo
         bool keep;
         try { keep = body(); }
         catch { RollBack(g, doc); throw; }
-        if (keep) g.Assimilate(); else RollBack(g, doc);
+        // MA-1a item 7 (review amendment C9): kept only when Revit assimilated the group — a caller that reports what the
+        // action did must not report a group Revit did not keep.
+        if (keep) keep = g.Assimilate() == TransactionStatus.Committed; else RollBack(g, doc);
         return keep;
     }
 

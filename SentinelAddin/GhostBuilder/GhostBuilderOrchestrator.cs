@@ -148,8 +148,9 @@ namespace Sentinel.GhostBuilder
                 report.CreatedTypes.InsertRange(0, wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
                 if (pre != null) report.CreatedTypes.InsertRange(0, pre.LoadedNames.Select(n => $"family {n} (loaded from the Ghost family library)"));
 
-                // MA-1a item 4: every element this build made carries the full stamp — source photo, no changeset, no ledger row until
-                // item 7 — inside this transaction, so Ctrl+Z removes it with them. Its layers are the massing plan's own, not a drawing's.
+                // MA-1a item 4: every element this build made carries the full stamp — source photo, no changeset, no ledger row of
+                // its own (item 7: the command reports the build as one massing row, after the commit) — inside this transaction,
+                // so Ctrl+Z removes it with them. Its layers are the massing plan's own, not a drawing's.
                 foreach (var (id, what) in report.NewElements)
                     if (_doc.GetElement(id) is Element made)
                         Sentinel.Engine.ProvenanceStamp.Write(made, null, "photo", null, new Sentinel.Engine.ProvenanceStamp.Facts

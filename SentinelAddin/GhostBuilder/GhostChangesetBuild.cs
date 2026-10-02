@@ -545,6 +545,13 @@ namespace Sentinel.GhostBuilder
                                              : $" — the result of {string.Join(", ", unrecorded)} was NOT recorded (see the message before this one); do not apply it again in Review AI Proposals.");
                 if (idsRejected > 0)
                     report.Warnings.Insert(0, $"IDS: {idsRejected} element(s) did not pass the project's IDS — built as reviewed in Ghost's review (founder decision F2); each verdict is on its changeset.");
+                // MA-1a item 7: one ghost_build row for the build that was kept — the counts of the summary — sent off this
+                // thread; the pane's log says what the ledger answered. Only when an element is still in the model (review
+                // amendment C19): a build whose every element Revit removed at commit is not an action to report.
+                if (report.Placed > 0)
+                    GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
+                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily,
+                        report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
                 return report;
             }
             catch (Exception ex) when (!done)

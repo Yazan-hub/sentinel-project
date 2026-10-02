@@ -288,11 +288,18 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
         }
         var doc = _doc!;
         // XC-2: the whole build is one Undo entry; a throw rolls every step back.
+        bool kept = false; // MA-1a item 7 (review amendment C9): Revit kept the build's Undo group — only then is it reported
         try
         {
             BuildReport built = new BuildReport();
-            Sentinel.Engine.SentinelUndo.Run(doc, "Apply standard", () => { built = StandardsBuilder.Build(app, doc, pack); return true; });
+            kept = Sentinel.Engine.SentinelUndo.Run(doc, "Apply standard", () => { built = StandardsBuilder.Build(app, doc, pack); return true; });
             report = built;
+            if (!kept)
+            {
+                // Revit did not keep the group: nothing of this build is in the model, and the dialog says so.
+                report.Failed.AddRange(report.Created.Select(c => c + ": Revit did not keep the build's Undo group"));
+                report.Created.Clear();
+            }
         }
         catch (Exception ex)
         {
@@ -300,6 +307,13 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
             report.Failed.Add("Build error: " + ex.Message + " — nothing was changed (undone).");
         }
         Built?.Invoke(report); // ShowReport is a Dispatcher.Invoke: the model report is on screen when this returns
+        // MA-1a item 7: one apply_standard row for a build Revit kept that created something in the model, sent off this
+        // thread. The model's creations only (review amendment C9): "Ruleset: installing …" is the bridge install's line —
+        // nothing in the model — and that install writes its own artefact row.
+        var modelCreated = report.Created.Where(c => !c.StartsWith("Ruleset:", StringComparison.Ordinal)).ToList();
+        if (kept && modelCreated.Count > 0)
+            GovernedNotify.Report("Apply Standard", CommandReports.ApplyStandard(modelCreated, report.Skipped, report.Failed, UserSession.Actor),
+                                  Sentinel.Engine.ProjectContext.For(doc).Key);
         // The ruleset GET/PUT never runs on Revit's thread (the bridge can take seconds, or not answer).
         if (report.RulesetJob is { } job) Task.Run(() => RulesetInstalled?.Invoke(job()));
     }

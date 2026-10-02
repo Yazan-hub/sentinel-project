@@ -27,6 +27,8 @@ namespace Sentinel.GhostBuilder
             public List<DetectedLevel> Levels = new();
             public List<DetectedGrid> Grids = new();
             public int LevelsCreated, GridsCreated;
+            /// <summary>MA-1a item 7: Revit committed Build's transaction — only then do the two counts hold.</summary>
+            public bool Committed;
             /// <summary>MA-1a item 6: the placement block's lines for what Build created, counted after its commit from the
             /// levels and grids still in the model; null when Build was given no plan.</summary>
             public List<string> Placement;
@@ -164,7 +166,8 @@ namespace Sentinel.GhostBuilder
             try
             {
                 // MA-1a item 4: each level and grid it creates carries the full stamp — source dwg, no changeset, no ledger row
-                // until item 7 — inside this transaction, so Ctrl+Z removes it with them.
+                // of its own (item 7: the command reports the run as one datum row, after the commit) — inside this
+                // transaction, so Ctrl+Z removes it with them.
                 // Final review: "read origin to origin" is Sentinel's own import of the picked file (DetectFromFiles; the command
                 // sets its sha). Imports already in the model (Detect) were placed by someone else — nothing is claimed for them.
                 string how = detected.SourceSha256 != null ? ", read origin to origin" : "";
@@ -188,7 +191,7 @@ namespace Sentinel.GhostBuilder
                     }
                 // MA-1a item 6: each new level and grid on the workset the guideline names — inside this transaction.
                 PlacementApply.Apply(placing, made);
-                t.Commit();
+                detected.Committed = t.Commit() == TransactionStatus.Committed;
                 // Counted after the commit, from the levels and grids still in the model (review amendment C6).
                 detected.Placement = placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
             }

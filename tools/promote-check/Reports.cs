@@ -89,4 +89,60 @@ static partial class Check
         var wideRow = Json(CommandReports.Doctor(wide.Take("demo"), "a")).GetProperty("new_value");
         Ok(wideRow.GetProperty("element_ids").GetArrayLength() == 50 && wideRow.GetProperty("element_ids_total").GetInt32() == 70, "70 elements → the first 50 ids beside the true total");
     }
+
+    // ── 17. MA-1a item 7: each of the eight commands reports once, off the API thread (a source scan) ──────────────
+    static void ReportWiringChecks()
+    {
+        Console.WriteLine("\nMA-1a item 7 — one report call in each command, never on the API thread (source scan)");
+        string notify = Src("Coordination", "GovernedNotify.cs");
+        int at = notify.IndexOf("public static void Report(string what, object payload, string projectKey, System.Windows.Threading.Dispatcher? ui = null)", StringComparison.Ordinal);
+        string body = at < 0 ? "" : notify.Substring(at, notify.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
+        Ok(at > 0 && body.Contains("Task.Run(() => Event(\"/audit\", payload, key))") && body.Contains(".BeginInvoke("),
+           "GovernedNotify.Report posts on a pool thread and logs to the pane through BeginInvoke");
+        Ok(at > 0 && !body.Contains("GetAwaiter") && !body.Contains(".Wait(") && !body.Contains(".Result;") && !body.Contains("TaskDialog"),
+           "…and never waits for the bridge or shows a dialog: no command is blocked or delayed by the ledger");
+        Ok(body.Contains("LedgerResult.NotBound()"), "an unbound model sends nothing and says so in the pane log");
+        foreach (var (file, call) in new[]
+        {
+            (new[] { "Commands.Datum.cs" }, "GovernedNotify.Report(\"Datum from Drawings\", CommandReports.Datum("),
+            (new[] { "GhostBuilder", "GhostChangesetBuild.cs" }, "GovernedNotify.Report(\"Ghost Builder\", CommandReports.GhostBuild("),
+            (new[] { "Commands.Massing.cs" }, "GovernedNotify.Report(\"Photo Massing\", CommandReports.Massing("),
+            (new[] { "Commands.Annotate.cs" }, "GovernedNotify.Report(\"Annotate\", CommandReports.Annotate("),
+            (new[] { "Commands.Standards.cs" }, "GovernedNotify.Report(\"Apply Standard\", CommandReports.ApplyStandard("),
+            (new[] { "Workflow", "AutoFixExecution.cs" }, "GovernedNotify.Report(\"Auto-fix \" + ruleId, Sentinel.Coordination.CommandReports.AutoFix("),
+            (new[] { "Commands.BcfIssues.cs" }, "GovernedNotify.Report(\"Fix-in-place\", CommandReports.FixInPlace("),
+            (new[] { "Updaters", "FailureInterceptor.cs" }, "GovernedNotify.Report(\"Doctor\", Sentinel.Coordination.CommandReports.Doctor("),
+        })
+        {
+            string src = Src(file);
+            int first = src.IndexOf(call, StringComparison.Ordinal);
+            Ok(first > 0 && src.IndexOf(call, first + 1, StringComparison.Ordinal) < 0, file[file.Length - 1] + ": one report call");
+        }
+        Ok(Src("GhostBuilder", "DatumBuilder.cs").Contains("detected.Committed = t.Commit() == TransactionStatus.Committed;")
+           && Src("Commands.Datum.cs").Contains("if (!result.Committed)"),
+           "Datum reports only a transaction Revit committed, and says so when it did not");
+        Ok(Src("Commands.Annotate.cs").Contains("if (t.Commit() != TransactionStatus.Committed)"), "Annotate reports only a transaction Revit committed, and says so when it did not");
+        string doctor = Src("Updaters", "FailureInterceptor.cs");
+        Ok(doctor.Contains("Reported.Add(key, p.Text, p.Tx, p.Ids)") && doctor.Contains("Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds))")
+           && doctor.Contains("Reported.Take(key)"),
+           "the Doctor gathers a minute's resolutions per project and reports them as one row");
+
+        // Review amendments C9, C19, C22, C23.
+        Ok(body.Contains("\"HTTP 413\"") && body.Contains("\"HTTP 429\"") && body.Contains("LedgerResult.NotRecorded("),
+           "a report the route refused before writing (413, 429) reads \"not recorded\" in the pane, never \"may have landed\"");
+        string ghostBuild = Src("GhostBuilder", "GhostChangesetBuild.cs");
+        int gate = ghostBuild.IndexOf("if (report.Placed > 0)", StringComparison.Ordinal);
+        Ok(gate > 0 && ghostBuild.IndexOf("GovernedNotify.Report(\"Ghost Builder\"", StringComparison.Ordinal) > gate,
+           "Ghost Builder reports only a build that left an element in the model");
+        string applyStandard = Src("Commands.Standards.cs");
+        Ok(Src("Engine", "SentinelUndo.cs").Contains("keep = g.Assimilate() == TransactionStatus.Committed")
+           && applyStandard.Contains("kept = Sentinel.Engine.SentinelUndo.Run(") && applyStandard.Contains("if (kept && modelCreated.Count > 0)")
+           && applyStandard.Contains("!c.StartsWith(\"Ruleset:\", StringComparison.Ordinal)"),
+           "Apply Standard reports only a build Revit kept, and only its model creations — never the ruleset install's line");
+        string standardsBuilder = Src("Standards", "StandardsBuilder.cs");
+        Ok(standardsBuilder.Contains("private static void Committed(Transaction t, BuildReport r, int from)") && !standardsBuilder.Contains("t.Commit();"),
+           "each Apply Standard step counts as created only what Revit committed");
+        Ok(doctor.Contains("Project = ProjectContext.For(doc).Key") && doctor.Contains("p.Project == key"),
+           "a Doctor resolution is reported only under the project of the model it happened in");
+    }
 }

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 
@@ -128,6 +129,15 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             TaskDialog.Show("Sentinel — Datum", ex.Message);
             return Result.Cancelled;
         }
+        if (!result.Committed)
+        {
+            TaskDialog.Show("Sentinel — Datum", "Nothing was created — Revit did not commit the transaction (an element it needs may be owned by another user). The model is as it was.");
+            return Result.Failed;
+        }
+        // MA-1a item 7: one datum row for the run, sent off this thread; the pane's log says what the ledger answered.
+        if (result.LevelsCreated + result.GridsCreated > 0)
+            GovernedNotify.Report("Datum from Drawings", CommandReports.Datum(result.LevelsCreated, result.GridsCreated,
+                result.Warnings.Distinct().Count(), result.SourceSha256, UserSession.Actor), key);
         TaskDialog.Show("Sentinel — Datum",
             $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
             "\n\n" + string.Join("\n", result.Placement) +

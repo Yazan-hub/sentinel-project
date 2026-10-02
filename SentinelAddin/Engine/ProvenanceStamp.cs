@@ -8,7 +8,7 @@
 // "copied, not placed by Sentinel".
 // MA-1a item 4 (v2): the full stamp — layer, rule, source_sha256, approver, ledger_row, placed_at — written by every placer:
 // the changeset executor (agents, Promote, Ghost Builder), Datum from Drawings and Photo Massing (no changeset: changeset_id
-// null, no ledger row until item 7). layer and source_sha256 keep an earlier write's value when the latest writer has none
+// null, no ledger row of their own: item 7 reports each run as one row after its commit). layer and source_sha256 keep an earlier write's value when the latest writer has none
 // (a Promote retype keeps the Ghost wall's drawing); rule, approver, ledger_row and placed_at are the latest writer's.
 // Describe is what Model from Drawings ▸ 5 · Provenance shows.
 // Review amendments (binding). C1: the Facts come from the in-process placer only, never from a changeset the bridge
@@ -149,7 +149,7 @@ namespace Sentinel.Engine
                     reason ? null : "Rule: " + Or("rule", "not recorded"),
                     "Approver: " + approver + (approver.StartsWith("unsigned", StringComparison.Ordinal) ? " (not signed in — Standards ▸ Sign in names you)" : ""),
                     "Ledger row: " + (row != null ? "#" + row + " — the proposal row its changeset was filed with"
-                                      : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "none — not on a project ledger (an unbound model's local changeset, Datum or Photo Massing)"),
+                                      : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "none — not on a project ledger row of its own (an unbound model's local changeset, Datum or Photo Massing; since MA-1a item 7 a bound run is reported as one datum or massing row — the pane's log said whether the ledger recorded it)"),
                     "Placed at: " + (at != null ? at + " (UTC, this PC's clock)" : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "not recorded"),
                     "Changeset: " + (S("changeset_id") ?? "none") + (n > 1 ? $" (the latest of {n} that touched it)" : ""),
                     reason ? $"Reason given by the proposer ({source}): \"{Or("rule", "not recorded")}\"" : null,

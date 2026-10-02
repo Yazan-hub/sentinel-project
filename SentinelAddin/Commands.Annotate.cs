@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 
@@ -94,7 +95,14 @@ public sealed class AnnotateViewsCommand : IExternalCommand
 
             created++;
         }
-        t.Commit();
+        if (t.Commit() != TransactionStatus.Committed)
+        {
+            TaskDialog.Show("Sentinel — Annotate", "Nothing was created — Revit did not commit the transaction (a view it needs may be owned by another user). The model is as it was.");
+            return Result.Failed;
+        }
+        // MA-1a item 7: one annotate row for the run, sent off this thread; the pane's log says what the ledger answered.
+        if (created > 0)
+            GovernedNotify.Report("Annotate", CommandReports.Annotate(created, skippedExisting, warnings.Count, levels.Count, guidelineLabel, UserSession.Actor), key);
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"Guideline: {guidelineLabel}"); // what planned these views
