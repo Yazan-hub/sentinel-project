@@ -2,6 +2,7 @@
 rem Starts the Sentinel bridge on this PC in its own window - unless one already answers on port 4100 - and then
 rem refreshes the Tailscale Funnel so the published app can reach it again.
 rem The published app and Revit reach the bridge through the Funnel address; closing that window stops the bridge.
+rem It never stops a running bridge: to restart one (new code), close the "Sentinel bridge" window first, then run this file.
 rem To have it start at every sign-in: put a shortcut to this file in the Startup folder (Win+R, shell:startup).
 rem Why the refresh: after a bridge restart Tailscale's public relay has twice kept refusing the secure connection
 rem ("Can't reach the bridge" in the app) until the Funnel was switched off and on (2026-09-28, 2026-10-02). The refresh
@@ -10,7 +11,8 @@ setlocal
 set HEALTH=%TEMP%\sentinel-bridge-health.txt
 call :health
 if "%CODE%"=="200" (
-  echo The Sentinel bridge is already running on port 4100 - nothing started.
+  echo The Sentinel bridge is already running on port 4100 - nothing started. It still runs the code it was started with.
+  echo To load new code: close the "Sentinel bridge" window first, then run this file again.
   goto funnel
 )
 cd /d "%~dp0..\WebApp"
