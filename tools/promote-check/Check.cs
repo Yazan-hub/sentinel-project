@@ -33,6 +33,7 @@ static partial class Check
         Matrix(m, m2);
         PlacementChecks();
         FilingChecks();
+        DoorBlockChecks();
         LevelToLevelChecks();
         StampV2Checks();
         BlockChecks();
