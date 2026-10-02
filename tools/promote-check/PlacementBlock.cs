@@ -148,4 +148,63 @@ static partial class Check
            && PlacementPolicy.TemplateLine(false, 0, 0, "none — not installed for demo or its office") == "Office template: not checked — type_catalog: none — not installed for demo or its office.",
            "the count is said as counted; with nothing to compare it says not checked, never a pass");
     }
+
+    static string Src(params string[] parts) => File.ReadAllText(Repo(new[] { "SentinelAddin" }.Concat(parts).ToArray()));
+
+    // ── 15. MA-1a item 6: every placer calls the one writer (a source scan: the callers are Revit-bound) ───────────
+    static void PlacementWiringChecks()
+    {
+        Console.WriteLine("\nMA-1a item 6 — one writer of workset and phase, called by every placer (source scan)");
+        string apply = Src("GhostBuilder", "PlacementApply.cs"), executor = Src("GhostBuilder", "ChangesetExecutor.cs");
+        Ok(apply.Contains("DesignOption.GetActiveDesignOptionId(doc)") && apply.Contains("BuiltInParameter.ELEM_PARTITION_PARAM") && apply.Contains("CreatedPhaseId = plan.PhaseId"),
+           "PlacementApply reads the active design option and writes the workset and the phase");
+        Ok(!apply.Contains("Workset.Create(") && !apply.Contains("SetActiveWorksetId"),
+           "it never creates a workset and never switches the person's active workset");
+        var others = Directory.EnumerateFiles(Repo("SentinelAddin"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+            .Where(f => Path.GetFileName(f) != "PlacementApply.cs").Select(File.ReadAllText).ToList();
+        Ok(others.Count > 100 && !others.Any(s => s.Contains("ELEM_PARTITION_PARAM") || s.Contains("CreatedPhaseId =")),
+           "no other file of the add-in writes an element's workset or phase");
+        int refusal = executor.IndexOf("PlacementApply.DesignOptionRefusal(doc,", StringComparison.Ordinal);
+        int started = executor.IndexOf("using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id));", StringComparison.Ordinal);
+        int placed = executor.IndexOf("PlacementApply.Apply(Placement,", StringComparison.Ordinal);
+        int stamped = executor.IndexOf("at = \"the provenance stamp\";", StringComparison.Ordinal);
+        Ok(refusal > 0 && started > refusal, "the executor refuses an active design option before its transaction starts");
+        Ok(placed > started && stamped > placed, "the executor places what it created inside its transaction, before the stamp and the commit");
+        Ok(executor.Contains("NotRun = true, Error = inOption"), "a design-option refusal leaves the changeset proposed (NotRun), never declined");
+        Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("PlacementApply.Resolve(doc, placement, app.ActiveUIDocument?.ActiveView,")
+           && Src("Commands.ReviewChangesets.cs").Contains("handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement);"),
+           "Review AI Proposals and Promote: the project's placement block and the active view reach the executor");
+        string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs");
+        int ghostRefusal = ghost.IndexOf("PlacementApply.DesignOptionRefusal(doc,", StringComparison.Ordinal);
+        int ghostResolve = ghost.IndexOf("PlacementApply.Resolve(doc, r.Guideline?.Placement, app.ActiveUIDocument?.ActiveView,", StringComparison.Ordinal);
+        int ghostFiles = ghost.IndexOf("ChangesetClient.Propose(cfg, r.Key,", StringComparison.Ordinal);
+        Ok(ghostRefusal > 0 && ghostResolve > ghostRefusal && ghostFiles > ghostResolve && ghost.Contains("Provenance = facts, Placement = placing }"),
+           "Ghost Builder refuses a design option and a missing workset before it files anything, and hands its plan to the executor");
+        Ok(Src("Commands.Datum.cs").Contains("PlacementApply.DesignOptionRefusal(doc,") && Src("GhostBuilder", "DatumBuilder.cs").Contains("PlacementApply.Apply(placing, made);"),
+           "Datum from Drawings refuses a design option and places its levels and grids");
+        Ok(Src("Commands.Massing.cs").Contains("PlacementApply.DesignOptionRefusal(orch.Doc,") && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("PlacementApply.Apply(placing,"),
+           "Photo Massing refuses a design option and places its elements");
+
+        // Review amendments C5, C6, C7, C10, C17.
+        Ok(apply.Contains("class PlacementRefused : InvalidOperationException") && executor.Contains("catch (PlacementRefused ex)")
+           && executor.Contains("NotRun = true, Error = ex.Message") && ghost.Contains("if (res.NotRun) return Abandon("),
+           "a workset write Revit refuses leaves the changeset proposed (NotRun), never declined; Ghost Builder abandons and withdraws what it filed");
+        Ok(apply.Contains("!view.Document.Equals(doc)") && Src("Commands.Massing.cs").Contains("DocPin.Check(app, orch.Doc, \"build the massing\")"),
+           "a view of another model gives no phase, and Photo Massing builds only in the model it was started on");
+        Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("plan.Lines(result.Applied.Select(a => a.RevitUniqueId))")
+           && ghost.Contains("placing.Lines(applied.Select(a => a.RevitUniqueId))")
+           && Src("GhostBuilder", "DatumBuilder.cs").Contains("placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId))")
+           && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("placing.Lines(report.NewElements.Where("),
+           "every placer counts its workset and phase lines after the commit, from the elements still in the model");
+        foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs" })
+            Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
+        string ghostCmd = Src("Commands.GhostBuilder.cs"), massingCmd = Src("Commands.Massing.cs");
+        int ghostOption = ghostCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Ghost Builder\")", StringComparison.Ordinal);
+        Ok(ghostOption > 0 && ghostCmd.IndexOf("new DwgPickWindow(", StringComparison.Ordinal) > ghostOption,
+           "Ghost Builder refuses a design option before a drawing is picked or imported");
+        int massingOption = massingCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Photo Massing\")", StringComparison.Ordinal);
+        Ok(massingOption > 0 && massingCmd.IndexOf("string folder = settings.GhostSourceFolder;", StringComparison.Ordinal) > massingOption,
+           "Photo Massing refuses a design option before an image is read");
+    }
 }

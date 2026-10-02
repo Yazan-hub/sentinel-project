@@ -27,6 +27,9 @@ namespace Sentinel.GhostBuilder
             public List<DetectedLevel> Levels = new();
             public List<DetectedGrid> Grids = new();
             public int LevelsCreated, GridsCreated;
+            /// <summary>MA-1a item 6: the placement block's lines for what Build created, counted after its commit from the
+            /// levels and grids still in the model; null when Build was given no plan.</summary>
+            public List<string> Placement;
             public List<string> Warnings = new();
             /// <summary>MA-1a item 4: the layers the levels and the grids were read from, and the drawing's sha256 when one picked
             /// file was read (the command sets it; null when the datum came from imports already in the model).</summary>
@@ -152,8 +155,10 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Create the detected Levels + Grids in one transaction. Skips levels/grids that already
         /// exist (within tolerance) so re-running is safe. Caller runs this on the API thread.</summary>
-        public DatumResult Build(DatumResult detected)
+        /// <param name="placing">MA-1a item 6: where the new levels and grids go (PlacementApply.Resolve); null = nothing is set.</param>
+        public DatumResult Build(DatumResult detected, PlacementPlan placing = null)
         {
+            var made = new List<Element>(); // what this run created, for the placement block
             using var t = new Transaction(_doc, "Sentinel — Datum from Drawings");
             t.Start();
             try
@@ -171,15 +176,21 @@ namespace Sentinel.GhostBuilder
                     if (CreateLevel(lv, detected.Warnings) is Level level)
                     {
                         detected.LevelsCreated++;
+                        made.Add(level);
                         ProvenanceStamp.Write(level, null, "dwg", null, levelFacts);
                     }
                 foreach (var g in detected.Grids)
                     if (CreateGrid(g, detected.Warnings) is Grid grid)
                     {
                         detected.GridsCreated++;
+                        made.Add(grid);
                         ProvenanceStamp.Write(grid, null, "dwg", null, gridFacts);
                     }
+                // MA-1a item 6: each new level and grid on the workset the guideline names — inside this transaction.
+                PlacementApply.Apply(placing, made);
                 t.Commit();
+                // Counted after the commit, from the levels and grids still in the model (review amendment C6).
+                detected.Placement = placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
             }
             catch
             {

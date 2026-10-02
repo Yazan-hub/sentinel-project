@@ -67,6 +67,14 @@ public sealed class GhostBuilderCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // MA-1a item 6 (review amendment C10): never into a design option — said before a drawing is picked, imported or
+        // read. The build asks again (GhostChangesetBuild), for an option entered while the review is open.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Ghost Builder") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Ghost Builder", inOption);
+            return Result.Cancelled;
+        }
+
         // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
         ImportInstance? cadLink = null;
         string? sourceSha = null; // MA-1a item 4: the drawing's sha256 — only when this run imports it (a reused import may be older, GHB-3)
@@ -467,6 +475,12 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 lines.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
                 foreach (var t in r.CreatedTypes) lines.AppendLine($"  + {t}");
             }
+        }
+        // MA-1a item 6: what the placement block did — a result of the build, not a warning.
+        if (r.Placement.Count > 0)
+        {
+            lines.AppendLine();
+            foreach (var p in r.Placement) lines.AppendLine(p);
         }
         if (r.Warnings.Count > 0)
         {

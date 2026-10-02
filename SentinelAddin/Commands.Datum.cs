@@ -1,6 +1,7 @@
 #nullable disable
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -24,6 +25,12 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
     {
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
+        // MA-1a item 6: never into a design option — said before a drawing is picked.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Datum from Drawings") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Datum", inOption);
+            return Result.Cancelled;
+        }
 
         var builder = new DatumBuilder(doc);
 
@@ -90,9 +97,40 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
         };
         if (td.Show() != TaskDialogResult.Yes) return Result.Cancelled;
 
-        var result = builder.Build(detected);
+        // MA-1a item 6: the project's guideline, for its placement block (Annotate's pattern: fetched off this thread and
+        // waited for, 4 s at most; an unbound model has none). A workset the block names for Levels or Grids that the
+        // model lacks is refused before the transaction.
+        string key = ProjectContext.For(doc).Key;
+        var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
+        // Review amendment C7: a guideline that could not be read is not "no block" — refused before anything is created.
+        if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                                          !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+        {
+            TaskDialog.Show("Sentinel — Datum", unread);
+            return Result.Cancelled;
+        }
+        var block = standards.Guideline.Placement;
+        // Asked by what the drawing holds, not by what will be new (E4): a level that already exists is still asked for.
+        var kinds = new[] { detected.Levels.Count > 0 ? "level" : null, detected.Grids.Count > 0 ? "grid" : null }.Where(k => k != null);
+        var placing = PlacementApply.Resolve(doc, block, uidoc.ActiveView, kinds, out var noWorkset);
+        if (placing == null)
+        {
+            TaskDialog.Show("Sentinel — Datum", noWorkset);
+            return Result.Cancelled;
+        }
+
+        DatumBuilder.DatumResult result;
+        try { result = builder.Build(detected, placing); }
+        catch (PlacementRefused ex)
+        {
+            // Review amendment C5: Revit refused a workset write; Build rolled its transaction back. Said in Sentinel's
+            // own dialog, not as an external-command exception.
+            TaskDialog.Show("Sentinel — Datum", ex.Message);
+            return Result.Cancelled;
+        }
         TaskDialog.Show("Sentinel — Datum",
             $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
+            "\n\n" + string.Join("\n", result.Placement) +
             (result.Warnings.Count > 0 ? "\n\nNotes:\n • " + string.Join("\n • ", result.Warnings.Distinct()) : "") +
             "\n\nRename them to your office's own labels in the Project Browser if needed, then model — " +
             "elements will host to these levels.");

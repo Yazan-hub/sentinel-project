@@ -25,6 +25,8 @@ namespace Sentinel.GhostBuilder
     public sealed class GhostBuilderOrchestrator
     {
         private readonly Document _doc;
+        /// <summary>The model this orchestrator builds in (MA-1a item 6: Photo Massing's placement event reads it).</summary>
+        public Document Doc => _doc;
         private readonly GhostCadExtractor _extractor;
         private readonly ILayerMapper _mapper;
         private readonly double _minConfidence;
@@ -86,8 +88,10 @@ namespace Sentinel.GhostBuilder
         /// </summary>
         /// <param name="imagesSha256">MA-1a item 4: one sha256 over the images the vision model read, for each element's stamp —
         /// null when the build holds no number of the model's (MassingPlanner.HasModelValue): the stamp then names no source file.</param>
+        /// <param name="placing">MA-1a item 6: where the new elements go (PlacementApply.Resolve); null = nothing is set.</param>
         public GhostPlacementEngine.PlacementReport PlacePrepared(
-            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null, string imagesSha256 = null)
+            System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, Level level = null, string imagesSha256 = null,
+            PlacementPlan placing = null)
         {
             if (mapping?.Mappings == null || mapping.Mappings.Count == 0)
                 return new GhostPlacementEngine.PlacementReport { Warnings = { "Nothing to build." } };
@@ -154,6 +158,9 @@ namespace Sentinel.GhostBuilder
                             SourceSha256 = imagesSha256,
                         });
                 foreach (var (id, _) in report.NewElements) handler.Ours.Add(id.IdValue());
+                // MA-1a item 6: each element this build made on the workset its category names and in the view's phase —
+                // inside this transaction.
+                PlacementApply.Apply(placing, report.NewElements.Select(n => _doc.GetElement(n.Id)));
                 TransactionStatus status = t.Commit();
                 // Failure processing can roll the build back WITHOUT throwing (ChangesetExecutor checks the same): then
                 // nothing this transaction made exists — no element, type or family — and the report says only that.
@@ -175,6 +182,9 @@ namespace Sentinel.GhostBuilder
                         (handler.Why.TryGetValue(id.IdValue(), out string why) ? why : "removed by Revit at commit"));
                 }
                 foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) report.RevitWarnings[kv.Key] = kv.Value;
+                // MA-1a item 6: said once the build is committed, counted from this build's elements still in the model.
+                if (placing != null)
+                    report.Placement.AddRange(placing.Lines(report.NewElements.Where(n => _doc.GetElement(n.Id) != null).Select(n => _doc.GetElement(n.Id).UniqueId)));
             }
             catch
             {

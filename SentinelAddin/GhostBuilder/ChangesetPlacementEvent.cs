@@ -23,13 +23,15 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
     private ChangesetDto _cs;
     private HashSet<string> _ticked;
     private Document _doc;   // the model the review window was opened on (XC-1)
+    private GuidelinePlacement _placement; // MA-1a item 6: the project's placement block, fetched by the caller; null = none
 
-    public void SetRequest(ChangesetDto cs, HashSet<string> ticked, Document doc) { _cs = cs; _ticked = ticked; _doc = doc; }
+    public void SetRequest(ChangesetDto cs, HashSet<string> ticked, Document doc, GuidelinePlacement placement = null)
+    { _cs = cs; _ticked = ticked; _doc = doc; _placement = placement; }
 
     public void Execute(UIApplication app)
     {
-        var cs = _cs; var ticked = _ticked; var doc = _doc;
-        _cs = null; _ticked = null; _doc = null;
+        var cs = _cs; var ticked = _ticked; var doc = _doc; var placement = _placement;
+        _cs = null; _ticked = null; _doc = null; _placement = null;
         if (cs == null || ticked == null || doc == null)
         {
             // A Raise without a staged request must still complete — a silent return would hang
@@ -45,13 +47,31 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
         ChangesetExecutor.ExecutionResult result;
         try
         {
+            // MA-1a item 6: what the ticked creates need from the model — the worksets the block names (a missing one is
+            // refused here, before any transaction: the changeset stays proposed) and the active view's phase.
+            var kinds = (cs.Elements ?? new List<ChangesetElementDto>())
+                .Where(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")).Select(e => e.Kind).ToList();
+            PlacementPlan plan = null;
+            if (kinds.Count > 0)
+            {
+                plan = PlacementApply.Resolve(doc, placement, app.ActiveUIDocument?.ActiveView, kinds, out var noWorkset);
+                if (plan == null)
+                {
+                    Raise(new ChangesetExecutor.ExecutionResult { Error = noWorkset, NotRun = true });
+                    return;
+                }
+            }
             var before = BlockCheck.Before(doc, out var note);
             if (before == null)
             {
-                result = new ChangesetExecutor().Execute(doc, cs, ticked);
+                result = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
                 result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
             }
-            else result = RunChecked(doc, cs, ticked, before);
+            else result = RunChecked(doc, cs, ticked, before, plan);
+            // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing. Counted
+            // from result.Applied — what the executor's recount left — so an element Revit removed at commit is in no line.
+            if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null)
+                result.Placement = plan.Lines(result.Applied.Select(a => a.RevitUniqueId));
         }
         catch (Exception ex)
         {
@@ -79,7 +99,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
     private static ChangesetExecutor.ExecutionResult NotPlaced(Exception ex) =>
         new ChangesetExecutor.ExecutionResult { NotRun = true, Error = $"The changeset was not placed — {ex.GetType().Name}: {ex.Message}" };
 
-    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, ChangesetDto cs, HashSet<string> ticked, ScanReport before)
+    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, ChangesetDto cs, HashSet<string> ticked, ScanReport before, PlacementPlan plan)
     {
         using var group = new TransactionGroup(doc, UndoWatcher.TxName(cs.Name, cs.Id));
         try
@@ -87,7 +107,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             group.Start();
             // F-S2-1: a group forces modal failure handling on its inner transactions unless told not to.
             group.IsFailureHandlingForcedModal = false;
-            var result = new ChangesetExecutor().Execute(doc, cs, ticked);
+            var result = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
             if (result.Error != null || result.NotFinished != null)
             {
                 // ponytail: a Pending commit (NotFinished) is disposed with the group, as Ghost's build does; the executor's

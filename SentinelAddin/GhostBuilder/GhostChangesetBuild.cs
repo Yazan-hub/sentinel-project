@@ -74,6 +74,8 @@ namespace Sentinel.GhostBuilder
             var report = new GhostPlacementEngine.PlacementReport();
             var doc = r.Doc;
             if (DocPin.Check(app, doc, "build from the drawing") is { } refusal) { report.NotBuilt = refusal; return report; }
+            // MA-1a item 6: never into a design option — said before anything is read, typed or filed.
+            if (PlacementApply.DesignOptionRefusal(doc, "build") is { } inOption) { report.NotBuilt = inOption; return report; }
             var rows = (r.Mapping?.Mappings ?? new List<LayerMapping>())
                 .Where(m => m != null && !m.Ignore && !string.IsNullOrWhiteSpace(m.CadLayer)).ToList();
             if (rows.Count == 0) { report.NotBuilt = "Nothing was built — no layer was ticked."; return report; }
@@ -399,6 +401,11 @@ namespace Sentinel.GhostBuilder
                 if (plan.Count == 0)
                     return Abandon("Nothing was built — no ticked row gave an element Sentinel can place (each reason is listed below); the types step was rolled back too.");
 
+                // MA-1a item 6: the guideline's placement block against this model, before anything is filed — a workset the
+                // plan needs and the model lacks abandons the build (nothing filed, the types step rolled back).
+                var placing = PlacementApply.Resolve(doc, r.Guideline?.Placement, app.ActiveUIDocument?.ActiveView, plan.Select(p => p.Dto.Kind), out string noWorkset);
+                if (placing == null) return Abandon(noWorkset + " The types step was rolled back too.");
+
                 // ── 3. File: changesets of at most 200, hosts first (unbound: local changesets, no ledger) ───────────────────
                 var chunks = GhostFiling.Chunks(plan.Select(p => p.Dto).ToList());
                 var byDto = plan.ToDictionary(p => p.Dto); // reference identity: the bridge answers element by element, in order
@@ -435,7 +442,7 @@ namespace Sentinel.GhostBuilder
                 var results = new List<ChangesetExecutor.ExecutionResult>();
                 foreach (var cs in filed)
                 {
-                    var res = new ChangesetExecutor { WallsBefore = wallsBefore, Provenance = facts }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
+                    var res = new ChangesetExecutor { WallsBefore = wallsBefore, Provenance = facts, Placement = placing }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
                     // ponytail: Pending inside the group — nothing is reported, and the group is disposed unfinished; the
                     // executor's all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
                     if (res.NotFinished != null)
@@ -444,6 +451,9 @@ namespace Sentinel.GhostBuilder
                         report.Ledger = Unreported();
                         return report;
                     }
+                    // MA-1a item 6 (review amendment C5): Revit refused a placement write — nothing is declined. The whole
+                    // build is rolled back and what was filed is withdrawn, as for a refusal before filing.
+                    if (res.NotRun) return Abandon(res.Error + " The build was rolled back, the types step too.");
                     if (res.Error != null) return Decline(cs, res.Error);
                     results.Add(res);
                 }
@@ -525,6 +535,9 @@ namespace Sentinel.GhostBuilder
                     UndoWatcher.Remember(UndoWatcher.TxName(cs.Name, cs.Id), r.Key, cs.Id, guids); // and its own, whichever Revit reports
                 }
                 report.Placed = applied.Count;
+                // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
+                // executor's recount left in the model. Its own list: a result of the build, not a warning.
+                report.Placement.AddRange(placing.Lines(applied.Select(a => a.RevitUniqueId)));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
                 report.Ledger = !bound ? localLedger
                     : $"Ledger: {filed.Count - unrecorded.Count} of {filed.Count} changeset(s) recorded on {r.Key} (source dwg: {string.Join(", ", filed.Select(f => Short(f.Id)))})" +

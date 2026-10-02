@@ -37,6 +37,7 @@ static partial class Check
         StampV2Checks();
         BlockChecks();
         PlacementBlockChecks();
+        PlacementWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

@@ -313,6 +313,9 @@ namespace Sentinel.GhostBuilder
             public int SkippedUnknownFamily;
             public int SkippedNoGeometry;
             public readonly List<string> Warnings = new List<string>();
+            /// <summary>MA-1a item 6: what the placement block did to this build's elements — worksets, phase — or why it did
+            /// nothing. Its own list: a result of the build, printed apart from the warnings.</summary>
+            public readonly List<string> Placement = new List<string>();
             /// <summary>Types and families this build added to the model: families loaded, wall and floor types the mapping names, guideline-gap sizes.</summary>
             public readonly List<string> CreatedTypes = new List<string>();
             /// <summary>Walls typed by the guideline, by the layer mapping (guideline none, or no measured thickness), by the

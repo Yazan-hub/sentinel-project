@@ -29,6 +29,13 @@ public sealed class MassingFromImagesCommand : IExternalCommand
     {
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
+        // MA-1a item 6 (review amendment C10): never into a design option — said before an image is read. The placement
+        // event asks again, for an option entered while the review is open.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Photo Massing") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Massing", inOption);
+            return Result.Cancelled;
+        }
 
         var settings = SettingsManager.Resolve(doc);
         string folder = settings.GhostSourceFolder;
@@ -89,7 +96,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         var (elements, mapping) = MassingBuilder.ToBuildInputs(plan);
                         // Final review (E7): the images are the stamp's source only when the build still holds a number the
                         // vision model gave — not when Ollama was down or answered badly, or the reviewer replaced them all.
-                        placementEvent.SetRequest(orchestrator, elements, mapping, MassingPlanner.HasModelValue(corrected) ? imagesSha : null);
+                        placementEvent.SetRequest(orchestrator, elements, mapping, MassingPlanner.HasModelValue(corrected) ? imagesSha : null,
+                                                  standards.Guideline.Placement); // MA-1a item 6
                         externalEvent.Raise();
                     };
                     review.Show();
@@ -126,6 +134,12 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             sb.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
             foreach (var t in r.CreatedTypes) sb.AppendLine($"  + {t}");
         }
+        // MA-1a item 6: what the placement block did — a result of the build, not a note.
+        if (r.Placement.Count > 0)
+        {
+            sb.AppendLine();
+            foreach (var p in r.Placement) sb.AppendLine(p);
+        }
         if (r.Warnings.Count > 0)
         {
             sb.AppendLine().AppendLine("Notes:");
@@ -144,23 +158,38 @@ public sealed class MassingPlacementEvent : IExternalEventHandler
     private System.Collections.Generic.List<GhostElement> _elements;
     private MappingResult _mapping;
     private string _imagesSha; // MA-1a item 4: the images read, for the stamp
+    private GuidelinePlacement _placement; // MA-1a item 6: the guideline's placement block; null = none
 
     public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
     public void SetRequest(GhostBuilderOrchestrator orchestrator,
-                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, string imagesSha)
+                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, string imagesSha,
+                           GuidelinePlacement placement = null)
     {
-        _orchestrator = orchestrator; _elements = elements; _mapping = mapping; _imagesSha = imagesSha;
+        _orchestrator = orchestrator; _elements = elements; _mapping = mapping; _imagesSha = imagesSha; _placement = placement;
     }
 
     public void Execute(UIApplication app)
     {
-        var orch = _orchestrator; var els = _elements; var map = _mapping; var sha = _imagesSha;
-        _orchestrator = null; _elements = null; _mapping = null; _imagesSha = null;
+        var orch = _orchestrator; var els = _elements; var map = _mapping; var sha = _imagesSha; var placement = _placement;
+        _orchestrator = null; _elements = null; _mapping = null; _imagesSha = null; _placement = null;
         try
         {
             if (orch == null) throw new InvalidOperationException("No massing request staged.");
-            Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha), null);
+            // XC-1 (review amendment C17): the review window is modeless — build only while the model the command was
+            // started on is the active one, so the active view (and its phase) is that model's.
+            if (DocPin.Check(app, orch.Doc, "build the massing") is { } pinned) throw new InvalidOperationException(pinned);
+            // MA-1a item 6: never into a design option, and never onto a workset the model does not have — both said
+            // before the transaction.
+            if (PlacementApply.DesignOptionRefusal(orch.Doc, "build the massing") is { } inOption) throw new InvalidOperationException(inOption);
+            // Only the kinds of the layers this plan staged are asked for (review amendment C8): a massing with no
+            // openings needs no Doors or Windows workset.
+            var kinds = map?.Mappings == null || els == null ? new System.Collections.Generic.List<string>()
+                : map.Mappings.Where(m => els.Any(e => e.CadLayer == m.CadLayer)).Select(m => PlacementPolicy.KindOf(m.Category))
+                     .Where(k => k != null).Distinct().ToList();
+            var placing = PlacementApply.Resolve(orch.Doc, placement, app.ActiveUIDocument?.ActiveView, kinds, out var noWorkset);
+            if (placing == null) throw new InvalidOperationException(noWorkset);
+            Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha, placing: placing), null);
         }
         catch (Exception ex) { Completed?.Invoke(null, ex); }
     }

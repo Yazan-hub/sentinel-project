@@ -57,6 +57,9 @@ public static class Compat
         ["Site"] = BuiltInCategory.OST_Site,
         ["Stairs"] = BuiltInCategory.OST_Stairs,
         ["Railings"] = BuiltInCategory.OST_StairsRailing,
+        // MA-1a item 6: a guideline's placement block names a workset for these two.
+        ["Levels"] = BuiltInCategory.OST_Levels,
+        ["Grids"] = BuiltInCategory.OST_Grids,
     };
 
     /// English ruleset key -> locale-invariant BuiltInCategory (INVALID if unknown).
