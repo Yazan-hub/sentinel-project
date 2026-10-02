@@ -17,7 +17,23 @@ static class Check
     // A roi body as the bridge validator accepts it (Task 1): 90 EUR/h; 20 min a gate run, 6 a rename, 15 a heal.
     const string Body = "{\"currency\":\"EUR\",\"hourly_rate\":90,\"minutes\":{\"delivery_gate\":20,\"naming\":6,\"family_heal\":15},\"basis\":\"office estimate\"}";
     const string Partial = "{\"currency\":\"GBP\",\"hourly_rate\":60,\"minutes\":{\"naming\":10}}";
-    const string NotCounted = "Not counted: auto-fix, doctor resolutions, CDE intercepts, MEP voids, BCF export, clash views, fix-in-place — they write no ledger row";
+    const string NotCounted = "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row";
+    // MA-1a item 7 (P1-9): the fixes that now write a ledger row are counted, on their own line, not priced.
+    const string NoFixes = "Fixes on the ledger, not priced: 0 auto-fix(es) · 0 fix-in-place value(s) written · 0 Doctor resolution(s)";
+    static readonly JsonElement[] AutoFixRows = Rows("[" +
+        "{\"id\":840,\"entity_type\":\"auto_fix\",\"action\":\"Auto-fix VP-01: 1 Views renamed\",\"new_value\":{\"rule\":\"VP-01\",\"old_name\":\"Level 1\",\"new_name\":\"FP_L01\"}}," +
+        "{\"id\":839,\"entity_type\":\"auto_fix\",\"action\":\"Auto-fix SH-01: 1 Sheets renamed\",\"new_value\":{\"rule\":\"SH-01\"}}" +
+        "]");
+    static readonly JsonElement[] FixInPlaceRows = Rows("[" +
+        "{\"id\":850,\"entity_type\":\"fix_in_place\",\"action\":\"Fix-in-place FireRating: 3 value(s) written, 1 not written\",\"new_value\":{\"applied\":3,\"not_written\":1}}," +
+        "{\"id\":849,\"entity_type\":\"fix_in_place\",\"action\":\"Fix-in-place LoadBearing: 4 value(s) written, 0 not written\",\"new_value\":{\"applied\":4,\"not_written\":0}}," +
+        "{\"id\":848,\"entity_type\":\"fix_in_place\",\"action\":\"odd row\",\"new_value\":{\"applied\":\"2\"}}," +
+        "{\"id\":847,\"entity_type\":\"fix_in_place\",\"action\":\"forged row\",\"new_value\":{\"applied\":2000000000}}" +
+        "]");
+    static readonly JsonElement[] DoctorRows = Rows("[" +
+        "{\"id\":860,\"entity_type\":\"doctor\",\"action\":\"Doctor: 5 warning(s) resolved\",\"new_value\":{\"resolved\":5}}," +
+        "{\"id\":859,\"entity_type\":\"doctor\",\"action\":\"odd row\",\"new_value\":null}" +
+        "]");
 
     static ResolvedArtefact Roi(string body, string origin) => new ResolvedArtefact
     {
@@ -74,6 +90,14 @@ static class Check
            "passed must be a JSON boolean: \"true\" and 1 are not runs");
         Ok(RoiCounts.From(NoRows, Rows("[{\"new_value\":{\"rows\":3}}]"), Rows("[{\"new_value\":{\"healed_total\":-3}},{\"new_value\":{\"healed_total\":2.5}},{\"new_value\":{\"healed_total\":\"2\"}}]"), false) is { Renames: 0, Heals: 0 },
            "rows must be an array and healed_total a whole number ≥ 0: anything else adds nothing");
+
+        // MA-1a item 7 (P1-9): the fixes that write a ledger row are counted from it.
+        var f = RoiCounts.From(GateRows, NamingRows, HealRows, false).WithFixes(AutoFixRows, FixInPlaceRows, DoctorRows, false);
+        Ok(f.AutoFixes == 2, "auto_fix: one row is one committed click");
+        Ok(f.FixInPlaceValues == 7, "fix_in_place: applied summed; a row whose applied is not a whole number from 1 to 100,000 adds nothing — a forged 2,000,000,000 cannot wrap the line");
+        Ok(f.DoctorResolutions == 5, "doctor: resolved summed; a row without new_value adds nothing");
+        Ok(f.RowsRead == 20 && f.GateRuns == 3 && f.Renames == 5 && f.Heals == 7 && !f.Truncated, "the fix rows count as read (12 + 8); the first three counts are untouched");
+        Ok(RoiCounts.From(NoRows, NoRows, NoRows, false).WithFixes(NoRows, NoRows, DoctorRows, true).Truncated, "a truncated fix kind is carried to the header");
     }
 
     // ── 2. the money: only by roi@n, per kind and in total, naming the artefact ─────────────────────────
@@ -114,14 +138,19 @@ static class Check
     {
         var c = RoiCounts.From(GateRows, NamingRows, HealRows, false);
         var withMoney = RoiLines.Lines(Key, c, RoiMoney.From(c, Roi(Body, "bridge")), Roi(Body, "bridge"));
-        Ok(withMoney.Length == 6, "exactly six lines");
+        Ok(withMoney.Length == 7, "exactly seven lines");
         Is(string.Join("\n", withMoney),
            "ROI · aster-tower · counted from the ledger (12 rows read)\n" +
            "Delivery gate runs: 3 · 20 min each · 90.00 EUR\n" +
            "Naming renames: 5 · 6 min each · 45.00 EUR\n" +
            "Family heals: 7 · 15 min each · 157.50 EUR\n" +
-           "Money: 292.50 EUR at 90 EUR/h · roi@1 · office · 3f07a1b2c3d4…\n" + NotCounted,
-           "the six lines with roi@1 from the bridge");
+           "Money: 292.50 EUR at 90 EUR/h · roi@1 · office · 3f07a1b2c3d4…\n" + NoFixes + "\n" + NotCounted,
+           "the seven lines with roi@1 from the bridge");
+        Is(RoiLines.Lines(Key, RoiCounts.From(GateRows, NamingRows, HealRows, false).WithFixes(AutoFixRows, FixInPlaceRows, DoctorRows, false), null, None)[5],
+           "Fixes on the ledger, not priced: 2 auto-fix(es) · 7 fix-in-place value(s) written · 5 Doctor resolution(s)",
+           "auto-fix, fix-in-place and Doctor rows are counted on their own line, never priced");
+        Ok(!NotCounted.Contains("auto-fix") && !NotCounted.Contains("doctor") && !NotCounted.Contains("fix-in-place") && RoiLines.NotCounted == NotCounted,
+           "the not-counted line lists none of them (P1-9)");
 
         var noRoi = RoiLines.Lines(Key, c, RoiMoney.From(c, None), None);
         Is(string.Join("\n", noRoi),
@@ -129,7 +158,7 @@ static class Check
            "Delivery gate runs: 3\n" +
            "Naming renames: 5\n" +
            "Family heals: 7\n" +
-           "Money: not shown — roi: none — not installed for aster-tower or its office\n" + NotCounted,
+           "Money: not shown — roi: none — not installed for aster-tower or its office\n" + NoFixes + "\n" + NotCounted,
            "without roi@n: the counts, no money, the none reason");
         Ok(!noRoi.Any(l => l.Contains(" min each") || l.Contains(" EUR") || l.Contains("/h")), "without roi@n no line carries minutes, money or a rate");
 

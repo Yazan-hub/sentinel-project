@@ -63,8 +63,14 @@ public sealed class RoiDashboard : Window
         var gate = GovernedQuery.RoiRows(key, "delivery_gate", out var failure);
         var naming = gate is null ? null : GovernedQuery.RoiRows(key, "naming", out failure);
         var heal = naming is null ? null : GovernedQuery.RoiRows(key, "family_heal", out failure);
-        if (gate is null || naming is null || heal is null) return RoiLines.Unavailable(key, failure ?? "the bridge did not answer");
-        var counts = RoiCounts.From(gate.Rows, naming.Rows, heal.Rows, gate.Truncated || naming.Truncated || heal.Truncated);
+        // MA-1a item 7 (P1-9): the fixes that write a ledger row — read the same way, counted, not priced.
+        var autoFix = heal is null ? null : GovernedQuery.RoiRows(key, "auto_fix", out failure);
+        var inPlace = autoFix is null ? null : GovernedQuery.RoiRows(key, "fix_in_place", out failure);
+        var doctor = inPlace is null ? null : GovernedQuery.RoiRows(key, "doctor", out failure);
+        if (gate is null || naming is null || heal is null || autoFix is null || inPlace is null || doctor is null)
+            return RoiLines.Unavailable(key, failure ?? "the bridge did not answer");
+        var counts = RoiCounts.From(gate.Rows, naming.Rows, heal.Rows, gate.Truncated || naming.Truncated || heal.Truncated)
+            .WithFixes(autoFix.Rows, inPlace.Rows, doctor.Rows, autoFix.Truncated || inPlace.Truncated || doctor.Truncated);
         var roi = ArtefactClient.Resolve(key, "roi");
         return RoiLines.Lines(key, counts, RoiMoney.From(counts, roi), roi);
     }

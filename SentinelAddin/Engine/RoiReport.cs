@@ -19,6 +19,9 @@ public sealed class RoiCounts
     public int Renames;
     /// <summary>The sum of family_heal rows' new_value.healed_total.</summary>
     public int Heals;
+    /// <summary>MA-1a item 7 (P1-9): auto_fix rows (one per committed click), the sum of fix_in_place rows' new_value.applied,
+    /// and the sum of doctor rows' new_value.resolved. Counted, never priced (roi@n has no minutes for them).</summary>
+    public int AutoFixes, FixInPlaceValues, DoctorResolutions;
     /// <summary>Every row read, counted or not.</summary>
     public int RowsRead;
     /// <summary>True when the bridge holds more rows of a kind than were read (the newest were).</summary>
@@ -48,6 +51,22 @@ public sealed class RoiCounts
         }
         return c;
     }
+
+    /// <summary>MA-1a item 7 (P1-9): add the fixes that write a ledger row — the same rule: only what the rows hold.</summary>
+    public RoiCounts WithFixes(IEnumerable<JsonElement> autoFixRows, IEnumerable<JsonElement> fixInPlaceRows,
+                               IEnumerable<JsonElement> doctorRows, bool truncated)
+    {
+        Truncated |= truncated;
+        foreach (var r in autoFixRows) { RowsRead++; AutoFixes++; }
+        foreach (var r in fixInPlaceRows) { RowsRead++; FixInPlaceValues += Whole(Value(r, "applied")); }
+        foreach (var r in doctorRows) { RowsRead++; DoctorResolutions += Whole(Value(r, "resolved")); }
+        return this;
+    }
+
+    // Review amendment C24: a row's count is a person's own report — a whole number from 1 to MaxPerRow, or nothing. No real
+    // Apply or Doctor minute reaches the cap, and a forged row cannot wrap the sum.
+    private const int MaxPerRow = 100000;
+    private static int Whole(JsonElement v) => v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) && n > 0 && n <= MaxPerRow ? n : 0;
 
     // new_value.<name> of one audit row; Undefined when the row has no such field.
     private static JsonElement Value(JsonElement row, string name) =>
@@ -108,10 +127,11 @@ public sealed class RoiMoney
 public static class RoiLines
 {
     public const string NotCounted =
-        "Not counted: auto-fix, doctor resolutions, CDE intercepts, MEP voids, BCF export, clash views, fix-in-place — they write no ledger row";
+        "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row";
 
-    /// <summary>Exactly six lines: the header (rows read, and whether the ledger holds more), the three counts (each
-    /// priced when there is money and the roi sets minutes for it), the money line and <see cref="NotCounted"/>.</summary>
+    /// <summary>Exactly seven lines: the header (rows read, and whether the ledger holds more), the three counts (each
+    /// priced when there is money and the roi sets minutes for it), the money line, the fixes that write a ledger row
+    /// since MA-1a item 7 (counted, not priced) and <see cref="NotCounted"/>.</summary>
     public static string[] Lines(string key, RoiCounts c, RoiMoney? m, ResolvedArtefact roi) => new[]
     {
         "ROI · " + key + " · counted from the ledger (" + c.RowsRead + " rows read" + (c.Truncated ? ", the newest only — the ledger holds more" : "") + ")",
@@ -123,6 +143,8 @@ public static class RoiLines
                 ? "Money: not shown — roi: " + roi.Label
                 : "Money: not shown — " + roi.Label + " did not parse: the body is not {currency, hourly_rate, minutes}")
             : "Money: " + F2(m.Total) + " " + m.Currency + " at " + Num(m.HourlyRate) + " " + m.Currency + "/h · " + m.Label,
+        "Fixes on the ledger, not priced: " + c.AutoFixes + " auto-fix(es) · " + c.FixInPlaceValues + " fix-in-place value(s) written · " +
+            c.DoctorResolutions + " Doctor resolution(s)",
         NotCounted,
     };
 
