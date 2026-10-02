@@ -54,6 +54,9 @@ namespace Sentinel.GhostBuilder
             public string SourceSha256;
             /// <summary>MA-1a item 4: the guideline and layers standards as the review header names them (artefact labels).</summary>
             public string GuidelineLabel, LayersLabel;
+            /// <summary>MA-1a item 8: what the command's reader did — its time, its model calls, what it was given — for the
+            /// run's build:run receipt; null = no receipt.</summary>
+            public BuildReceipt.Facts Reader;
         }
 
         private const double FtToMm = 304.8;
@@ -552,6 +555,15 @@ namespace Sentinel.GhostBuilder
                     GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
                         report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily,
                         report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                // MA-1a item 8: the reader's build:run receipt, for the same kept build — its gaps are the walls and types
+                // this build left as a named gap. Under the report's own condition (review amendment C19): a build that
+                // left no element in the model posts neither.
+                if (r.Reader != null && report.Placed > 0)
+                {
+                    r.Reader.Parameters["level"] = level.Name;
+                    GovernedNotify.Report("Ghost Builder receipt", BuildReceipt.Run("ghost-builder", BuildReceipt.AddinSha256, r.Reader,
+                        report.WallGaps + report.TypeGaps, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                }
                 return report;
             }
             catch (Exception ex) when (!done)

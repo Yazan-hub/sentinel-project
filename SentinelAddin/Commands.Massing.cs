@@ -56,6 +56,10 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         var loadedTypes = GhostBuilderCommand.LoadedTypes(doc); // MA-1a item 6: the model's types, read on the API thread
         string templateLine = null;                             // the office-template check's line, for the summary
         string stampSha = null; // MA-1a item 7: the images' sha the build was stamped with (null: the numbers are the reviewer's)
+        // MA-1a item 8: the vision reader's time and usage, and the facts of the run that was built, for its receipt.
+        var readerClock = new System.Diagnostics.Stopwatch();
+        ModelUsage visionUsage = null;
+        BuildReceipt.Facts receipt = null;
 
         var placementEvent = new MassingPlacementEvent();
         var externalEvent = ExternalEvent.Create(placementEvent);
@@ -71,6 +75,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 GovernedNotify.Report("Photo Massing", CommandReports.Massing(report.Placed, report.DeletedByRevit.Count, report.WallGaps,
                     report.SkippedUnknownFamily + report.SkippedNoGeometry, report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count,
                     stampSha, UserSession.Actor), key);
+            if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0 && receipt != null)
+                GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, report.WallGaps, new string[0], UserSession.Actor), key);
             TaskDialog.Show("Sentinel — Massing",
                 error != null ? "Build failed: " + error.Message : Summarize(report, standards, templateLine));
         });
@@ -83,7 +89,10 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 var fetch = Task.Run(() => GhostStandards.Load(key, layers: false)); // guideline@n + type_catalog@n
                 progress.SetStatus($"Reading the project images with the local vision model…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
+                readerClock.Start();
                 MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
+                readerClock.Stop();
+                visionUsage = reader.Usage;
                 // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read, for every element's stamp.
                 string imagesSha = ProvenanceStamp.FilesSha256(MassingVisionReader.Images(folder).Take(MassingVisionReader.MaxImages));
                 if (progress.Token.IsCancellationRequested) return;
@@ -122,6 +131,11 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         // Final review (E7): the images are the stamp's source only when the build still holds a number the
                         // vision model gave — not when Ollama was down or answered badly, or the reviewer replaced them all.
                         stampSha = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
+                        receipt = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds, Candidates = elements.Count };
+                        receipt.Models.Add(visionUsage);
+                        receipt.Parameters["images_read"] = Math.Min(MassingVisionReader.CountImages(folder), MassingVisionReader.MaxImages);
+                        receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
+                        receipt.Parameters["type_catalogue"] = standards.CatalogSource.Label;
                         placementEvent.SetRequest(orchestrator, elements, mapping, stampSha, standards.Guideline.Placement); // MA-1a item 6
                         externalEvent.Raise();
                     };

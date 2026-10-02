@@ -39,7 +39,7 @@ public sealed class ChangesetReviewWindow : Window
         head.Children.Add(new TextBlock { Text = _cs.Name, FontSize = 15, FontWeight = FontWeights.Bold });
         head.Children.Add(new TextBlock
         {
-            Text = $"Proposed by {_cs.Source} · adjudication: {_cs.Adjudication?.Verdict ?? "?"} (spec: {_cs.Adjudication?.IdsSource ?? "?"})",
+            Text = $"Proposed by {ChangesetTrust.SourceLabel(_cs)} · adjudication: {_cs.Adjudication?.Verdict ?? "?"} (spec: {_cs.Adjudication?.IdsSource ?? "?"})",
             Foreground = Brushes.Gray, Margin = new Thickness(0, 2, 0, 0),
         });
         var unattributed = _cs.Adjudication?.Unattributed?.Count ?? 0;
@@ -92,7 +92,7 @@ public sealed class ChangesetReviewWindow : Window
         var all = new Button { Content = "Tick suggested", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var none = new Button { Content = "Untick all", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var go = new Button { Content = "Apply ticked in Revit", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
-        all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = PreTick(_cs, r.El); };
+        all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El); };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
         // Re-entrancy guard (GhostReviewWindow convention): if a DecideRequested subscriber throws,
         // Close() is skipped — the button must not allow a second fire with the same snapshot.
@@ -110,7 +110,7 @@ public sealed class ChangesetReviewWindow : Window
             var box = new CheckBox
             {
                 VerticalAlignment = VerticalAlignment.Center,
-                IsChecked = PreTick(_cs, el), // the referee's verdict, or a Promote single-answer op
+                IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8: the bridge's pre-tick — never a create
             };
             _rows.Add((box, el));
             DockPanel.SetDock(box, Dock.Left);
@@ -129,6 +129,7 @@ public sealed class ChangesetReviewWindow : Window
                 "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
                 _ => CreateLabel(el, name),
             };
+            if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
             if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
             row.Children.Add(label);
             list.Children.Add(row);
@@ -155,13 +156,8 @@ public sealed class ChangesetReviewWindow : Window
 
     private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
-    /// <summary>What is ticked when the window opens (and by "Tick suggested"): a create the IDS accepted, and a Promote
-    /// attach or retype — a retype only with the type the plan saw (type_before); a door swap too (DR-1, confirmed by the
-    /// founder 2026-10-01: sized by the target's type name; its own Width is the leaf). An IDS verdict certifies nothing for a
-    /// retype or attach (no property sets). MA-1 moves this decision to the bridge (§6.3); a person still clicks Apply.</summary>
-    private static bool PreTick(ChangesetDto cs, ChangesetElementDto el) => el.Op is null or "create"
-        ? el.Verdict?.Status == "accepted"
-        : cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null));
+    // What is ticked when the window opens (and by "Tick suggested") is the bridge's decision since MA-1a item 8:
+    // ChangesetTrust.PreTick (Coordination/ChangesetClient.cs). A create is never pre-ticked; a person still clicks Apply.
 
     private static UIElement MakeBadge(ElementVerdictDto v)
     {

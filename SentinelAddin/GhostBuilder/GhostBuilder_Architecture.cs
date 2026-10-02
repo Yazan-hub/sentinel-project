@@ -128,6 +128,7 @@ namespace Sentinel.GhostBuilder
         {
             _schema = schemaJson; // null/empty is fine — MapLayersAsync falls back to DefaultSchema
             _model = string.IsNullOrWhiteSpace(model) ? "qwen2.5:7b-instruct" : model;
+            Usage = new ModelUsage(_model);
             _ollamaUrl = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
             _evidence = evidence ?? string.Empty; // P2: document context the model uses to disambiguate layers
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
@@ -334,15 +335,20 @@ namespace Sentinel.GhostBuilder
                 format   // JSON schema object -> Ollama constrains output to this exact shape
             });
 
+            Usage.Asked(); // MA-1a item 8: every round trip is counted, answered or not
             using var body = new StringContent(payload, Encoding.UTF8, "application/json");
             using HttpResponseMessage resp = await _http.PostAsync(_ollamaUrl, body, ct).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
 
             // Ollama wraps the model's text in { "response": "<json string>", ... }.
             using JsonDocument doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+            Usage.Got(doc.RootElement);
             return doc.RootElement.GetProperty("response").GetString()
                    ?? throw new InvalidOperationException("Empty LLM response.");
         }
+
+        /// <summary>MA-1a item 8: this model's calls, answers and token counts in this run, for the build:run receipt.</summary>
+        public ModelUsage Usage { get; }
 
         // The model often omits a family/type name (the schema only requires cadLayer/category/confidence),
         // returning an EMPTY string that defeats the `BdsFamilyType ?? BdsFamily` fallback in the provisioner

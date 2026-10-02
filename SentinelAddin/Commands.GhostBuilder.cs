@@ -7,6 +7,7 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 using Sentinel.UI;
@@ -245,11 +246,26 @@ public sealed class GhostBuilderCommand : IExternalCommand
         var loadedTypes = LoadedTypes(doc); // GHB-5: what each row's type drop-down offers, read here on the API thread
         review.LoadTypes(loadedTypes);
         string? templateLine = null; // MA-1a item 6: the office-template check's line, set in PHASE 2 for the summary
+        // MA-1a item 8: the reader's own time and the sketch reader's usage, for the build:run receipt.
+        var readerClock = new System.Diagnostics.Stopwatch();
+        ModelUsage? visionUsage = null;
 
         review.BuildRequested += (approved, levelId) =>
         {
             building = true;
             mapper?.Remember(review.Choices); // GHB-5: the reviewer's picks and ignores, for this project's next run
+            // MA-1a item 8: what this run's reader did, for its build:run receipt — names, labels and counts only.
+            var reader = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds, Candidates = inputs.Elements.Count };
+            reader.Models.Add(llm.Usage);
+            reader.Models.Add(visionUsage);
+            if (evidence.Sources.Any(s => s.EndsWith(".pdf", System.StringComparison.OrdinalIgnoreCase))) reader.Tools.Add(BuildReceipt.PdfPig);
+            reader.Parameters["drawing"] = drawing;
+            reader.Parameters["layers_read"] = inputs.Layers.Count;
+            reader.Parameters["layers_ticked"] = approved.Mappings?.Count ?? 0;
+            reader.Parameters["evidence_docs"] = evidence.Sources.Count;
+            reader.Parameters["layers_standard"] = standards!.LayersSource.Label;
+            reader.Parameters["guideline"] = standards!.GuidelineSource.Label;
+            reader.Parameters["type_catalogue"] = standards!.CatalogSource.Label;
             // MA-1a step 2: Build is the one human gate — the ticked rows are filed as changesets (source dwg) and placed by
             // ChangesetExecutor; an unbound model runs the same executor on a local changeset, with no ledger.
             placementEvent.SetRequest(new GhostChangesetBuild.Request
@@ -257,6 +273,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 Doc = doc, Elements = inputs.Elements, Mapping = approved, LevelId = levelId,
                 Guideline = standards!.Guideline, LibraryDir = libraryDir, Key = key, Drawing = drawing,
                 ImportZFt = importZFt, SourceSha256 = sourceSha, GuidelineLabel = standards!.GuidelineSource.Label, LayersLabel = standards!.LayersSource.Label,
+                Reader = reader,
             });
             externalEvent.Raise();
         };
@@ -309,6 +326,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             try
             {
+                readerClock.Start(); // MA-1a item 8: stopped when the review opens
                 // layers@n, guideline@n and type_catalog@n for this document's project (or its office), fetched in
                 // parallel (the catalogue within 20 s). One not installed is none, named — never a shipped file.
                 progress.SetStatus("Reading the project's layers, guideline and type catalogue…");
@@ -352,6 +370,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
                     string hints = await vision.ReadFolderAsync(settings.GhostSourceFolder, ct: progress.Token).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(hints)) llm.AppendEvidence(hints);
+                    visionUsage = vision.Usage;
                 }
 
                 progress.SetStatus(evidence.IsEmpty
@@ -377,6 +396,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     .GroupBy(e => e.CadLayer ?? "", System.StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.Count(), System.StringComparer.OrdinalIgnoreCase);
 
+                readerClock.Stop();
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();

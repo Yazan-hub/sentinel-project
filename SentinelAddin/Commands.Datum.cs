@@ -51,6 +51,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        var readerClock = new System.Diagnostics.Stopwatch(); // MA-1a item 8: the read's own time, for the receipt
         DatumBuilder.DatumResult detected;
         if (haveFolder)
         {
@@ -75,10 +76,17 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             if (pick.ShowDialog() != true || pick.SelectedPath == null)
                 return Result.Cancelled;
 
+            readerClock.Start();
             detected = builder.DetectFromFiles(new[] { pick.SelectedPath });
+            readerClock.Stop();
             detected.SourceSha256 = ProvenanceStamp.FileSha256(pick.SelectedPath); // MA-1a item 4: the file the datum was read from
         }
-        else detected = builder.Detect();
+        else
+        {
+            readerClock.Start();
+            detected = builder.Detect();
+            readerClock.Stop();
+        }
 
         if (detected.Levels.Count == 0 && detected.Grids.Count == 0)
         {
@@ -138,6 +146,15 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
         if (result.LevelsCreated + result.GridsCreated > 0)
             GovernedNotify.Report("Datum from Drawings", CommandReports.Datum(result.LevelsCreated, result.GridsCreated,
                 result.Warnings.Distinct().Count(), result.SourceSha256, UserSession.Actor), key);
+        if (result.LevelsCreated + result.GridsCreated > 0)
+        {
+            // MA-1a item 8: the reader's build:run receipt — deterministic, so no model and no tokens.
+            var receipt = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds, Candidates = detected.Levels.Count + detected.Grids.Count };
+            receipt.Parameters["level_layers"] = result.LevelLayers.OrderBy(l => l).ToArray();
+            receipt.Parameters["grid_layers"] = result.GridLayers.OrderBy(l => l).ToArray();
+            receipt.Parameters["source_sha256"] = result.SourceSha256;
+            GovernedNotify.Report("Datum receipt", BuildReceipt.Run("datum", BuildReceipt.AddinSha256, receipt, 0, new string[0], UserSession.Actor), key);
+        }
         TaskDialog.Show("Sentinel — Datum",
             $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
             "\n\n" + string.Join("\n", result.Placement) +

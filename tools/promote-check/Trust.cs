@@ -109,4 +109,37 @@ static partial class Check
         Ok(BuildReceipt.AddinSha256 != null && System.Text.RegularExpressions.Regex.IsMatch(BuildReceipt.AddinSha256, "^[0-9a-f]{64}$"),
            "the add-in's own sha256 is read from the loaded assembly (here: this check's)");
     }
+
+    // ── 19. MA-1a item 8: the review obeys the bridge, the readers count, each run posts its receipt (a source scan) ──
+    static void TrustWiringChecks()
+    {
+        Console.WriteLine("\nMA-1a item 8 — the review window, the model counters and the receipt posts (source scan)");
+        string window = Src("UI", "ChangesetReviewWindow.cs");
+        Ok(window.Contains("IsChecked = ChangesetTrust.PreTick(_cs, el)") && window.Contains("r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El)")
+           && !window.Contains("private static bool PreTick("),
+           "Review AI Proposals pre-ticks by ChangesetTrust — the window keeps no rule of its own");
+        Ok(window.Contains("ChangesetTrust.SourceLabel(_cs)") && window.Contains("ChangesetTrust.Accuracy(el)"),
+           "…and shows the source as a claim and each element's accuracy");
+        foreach (var file in new[] { "GhostBuilder_Architecture.cs", "LocalVisionReader.cs", "MassingVisionReader.cs" })
+        {
+            string src = Src("GhostBuilder", file);
+            int asked = src.IndexOf("Usage.Asked();", StringComparison.Ordinal), post = src.IndexOf("_http.PostAsync(", StringComparison.Ordinal);
+            Ok(asked > 0 && post > asked && src.Contains("Usage.Got(doc.RootElement);") && src.Contains("public ModelUsage Usage { get; }"),
+               file + ": counts each Ollama round trip — asked before the request, answered with the reply");
+        }
+        foreach (var (file, post) in new[]
+        {
+            (new[] { "GhostBuilder", "GhostChangesetBuild.cs" }, "GovernedNotify.Report(\"Ghost Builder receipt\", BuildReceipt.Run(\"ghost-builder\", BuildReceipt.AddinSha256,"),
+            (new[] { "Commands.Massing.cs" }, "GovernedNotify.Report(\"Photo Massing receipt\", BuildReceipt.Run(\"photo-massing\", BuildReceipt.AddinSha256,"),
+            (new[] { "Commands.Datum.cs" }, "GovernedNotify.Report(\"Datum receipt\", BuildReceipt.Run(\"datum\", BuildReceipt.AddinSha256,"),
+            (new[] { "Commands.PromoteWalls.cs" }, "GovernedNotify.Report(\"Promote receipt\", BuildReceipt.Run(\"promote\", BuildReceipt.AddinSha256,"),
+        })
+        {
+            string src = Src(file);
+            int first = src.IndexOf(post, StringComparison.Ordinal);
+            Ok(first > 0 && src.IndexOf(post, first + 1, StringComparison.Ordinal) < 0, file[file.Length - 1] + ": one receipt post");
+        }
+        Ok(Src("Commands.GhostBuilder.cs").Contains("reader.Models.Add(llm.Usage);") && Src("Commands.GhostBuilder.cs").Contains("readerClock.Stop();"),
+           "Ghost Builder's receipt holds its mapper's usage and its reader's own time");
+    }
 }
