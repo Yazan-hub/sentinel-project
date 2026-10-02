@@ -20,6 +20,7 @@ namespace Sentinel.Coordination
         public string Origin = "none"; // bridge | cache | none
         public string? Reason;
         public bool NotInstalled;       // none because the bridge said 404 not_installed (nothing on the project or its office)
+        public bool NoProject;          // none because the bridge said 404 no_project: it answered, and there is nothing to read yet
         public DateTime? FetchedAt;     // UTC; set for bridge and cache
         public string Label = "";
     }
@@ -120,7 +121,9 @@ namespace Sentinel.Coordination
             if (status == 404 && reason == "no_project")
             {
                 ArtefactCache.Clear(key, kind);
-                return None(kind, $"no project {key} on the bridge");
+                var noProject = None(kind, $"no project {key} on the bridge");
+                noProject.NoProject = true;
+                return noProject;
             }
             if (status == 404 && reason == "unknown_kind") return None(kind, $"the bridge does not know the kind '{kind}'");
             if (status == 401) return Fallback(kind, cached, SignedOutLine, null);

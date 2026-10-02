@@ -297,8 +297,10 @@ public sealed class StandardsBuildEvent : IExternalEventHandler
             if (!kept)
             {
                 // Revit did not keep the group: nothing of this build is in the model, and the dialog says so.
-                report.Failed.AddRange(report.Created.Select(c => c + ": Revit did not keep the build's Undo group"));
-                report.Created.Clear();
+                // The ruleset install's line stays: it is the bridge's, not the model's, and its job still runs below.
+                var undone = report.Created.Where(c => !c.StartsWith("Ruleset:", StringComparison.Ordinal)).ToList();
+                report.Failed.AddRange(undone.Select(c => c + ": Revit did not keep the build's Undo group"));
+                report.Created.RemoveAll(undone.Contains);
             }
         }
         catch (Exception ex)

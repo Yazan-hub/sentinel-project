@@ -73,13 +73,19 @@ namespace Sentinel.Engine
 
         /// <summary>Review amendment C7: null, or the refusal when the project's guideline could not be read — whether it
         /// has a placement block is then unknown, and a guess would put every element on the wrong workset. A guideline
-        /// read from the bridge or from its cached copy is read. "None installed" (the bridge said so) and a model that is
-        /// not bound are no block, not a refusal. <paramref name="why"/> is the reader's own reason ("bridge unreachable
+        /// read from the bridge or from its cached copy is read. "None installed" (the bridge said so — for the project and
+        /// its office, or because it has no such project yet: the caller passes either as <paramref name="notInstalled"/>)
+        /// and a model that is not bound are no block, not a refusal. <paramref name="why"/> is the reader's own reason ("bridge unreachable
         /// (…)", "guideline@3 · … did not parse: …").</summary>
         public static string UnreadRefusal(string origin, bool notInstalled, bool bound, string why) =>
             origin != "none" || notInstalled || !bound ? null
             : "Nothing was placed — the project's guideline could not be read (" + why + "), so its placement block is unknown. " +
               "Try again once it can be read — Sentinel never places on a guess.";
+
+        /// <summary>Review amendment C29: Revit refused a workset or phase write on a created element by throwing.
+        /// <paramref name="element"/> is its category and UniqueId, <paramref name="why"/> Revit's own words.</summary>
+        public static string WriteRefusal(string element, string why) =>
+            "Nothing was placed — Revit would not set the workset or the phase of " + element + " (" + why + "). The model is as it was.";
 
         /// <summary>What a placement run did: elements per workset, elements whose category the block names no workset
         /// for, and elements whose phase was set. Built by <see cref="Written.Surviving"/> after the commit, so it counts

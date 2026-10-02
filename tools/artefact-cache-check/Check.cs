@@ -160,6 +160,7 @@ static class Check
         ArtefactCache.Write("ghost", "ids", new CachedArtefact { Kind = "ids", Ref = "ids@1", Source = "project", Sha256 = Sha, BodyJson = "{}", FetchedAt = now });
         var noProj = ArtefactClient.Interpret("ghost", "ids", 404, "{\"message\":\"unknown project\",\"reason\":\"no_project\"}", ArtefactCache.Read("ghost", "ids"), now);
         Ok(noProj.Label == "none — no project ghost on the bridge" && ArtefactCache.Read("ghost", "ids") is null, "404 no_project → none, copy cleared");
+        Ok(noProj.NoProject && !noProj.NotInstalled && !gone.NoProject, "404 no_project → flagged NoProject (the bridge answered: nothing to read), apart from NotInstalled");
         Ok(ArtefactClient.Interpret("k", "banana", 404, "{\"reason\":\"unknown_kind\"}", null, now).Label == "none — the bridge does not know the kind 'banana'", "404 unknown_kind → none");
         Ok(ArtefactClient.Interpret("k", "ruleset", 404, "<html>", null, now) is { Label: "none — the bridge answered HTTP 404", NotInstalled: false }, "a 404 without a reason is not read as 'not installed'");
 

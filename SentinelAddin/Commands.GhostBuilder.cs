@@ -335,7 +335,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 standards = resolved;
                 // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block" — nothing is
                 // built on a guess about the office's worksets.
-                if (PlacementPolicy.UnreadRefusal(resolved.GuidelineSource.Origin, resolved.GuidelineSource.NotInstalled,
+                if (PlacementPolicy.UnreadRefusal(resolved.GuidelineSource.Origin, resolved.GuidelineSource.NotInstalled || resolved.GuidelineSource.NoProject,
                                                   !string.IsNullOrWhiteSpace(key), resolved.GuidelineSource.Reason) is { } unread)
                 {
                     FailOnUi(progress, Release, unread);

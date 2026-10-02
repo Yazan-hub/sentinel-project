@@ -100,7 +100,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 standards = await fetch.ConfigureAwait(false);
                 if (progress.Token.IsCancellationRequested) return;
                 // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block".
-                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
                                                   !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
                 {
                     progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", unread); });

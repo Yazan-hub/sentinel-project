@@ -178,21 +178,22 @@ namespace Sentinel.GhostBuilder
                 foreach (var lv in detected.Levels)
                     if (CreateLevel(lv, detected.Warnings) is Level level)
                     {
-                        detected.LevelsCreated++;
                         made.Add(level);
                         ProvenanceStamp.Write(level, null, "dwg", null, levelFacts);
                     }
                 foreach (var g in detected.Grids)
                     if (CreateGrid(g, detected.Warnings) is Grid grid)
                     {
-                        detected.GridsCreated++;
                         made.Add(grid);
                         ProvenanceStamp.Write(grid, null, "dwg", null, gridFacts);
                     }
                 // MA-1a item 6: each new level and grid on the workset the guideline names — inside this transaction.
                 PlacementApply.Apply(placing, made);
                 detected.Committed = t.Commit() == TransactionStatus.Committed;
-                // Counted after the commit, from the levels and grids still in the model (review amendment C6).
+                // Counted after the commit, from the levels and grids still in the model (review amendments C6, C31): the
+                // report row, the receipt and the dialog say what the placement lines beside them say.
+                detected.LevelsCreated = made.Count(e => e.IsValidObject && e is Level);
+                detected.GridsCreated = made.Count(e => e.IsValidObject && e is Grid);
                 detected.Placement = placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
             }
             catch

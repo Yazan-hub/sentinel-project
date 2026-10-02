@@ -125,6 +125,10 @@ static partial class Check
            "no guideline installed, or a model that is not bound, is no block — not a refusal");
         Ok(PlacementPolicy.UnreadRefusal("bridge", false, true, null) == null && PlacementPolicy.UnreadRefusal("cache", false, true, "bridge unreachable — cached 14:02") == null,
            "a guideline read from the bridge, or from its cached copy, is read: its block — or its lack of one — is known");
+        // Review of items 6-8: any write Revit refuses by throwing is a placement refusal, in one sentence.
+        Ok(PlacementPolicy.WriteRefusal("Doors 1f2e-0004", "ArgumentException: the phase is not valid for this element") ==
+           "Nothing was placed — Revit would not set the workset or the phase of Doors 1f2e-0004 (ArgumentException: the phase is not valid for this element). The model is as it was.",
+           "a workset or phase write Revit refuses by throwing is said with the element and Revit's own reason");
 
         // The office-template check: the catalogue's types in the guideline's categories (Walls, Doors — not Furniture).
         var docTypes = new Dictionary<string, IReadOnlyList<(string Family, string Type)>>(StringComparer.OrdinalIgnoreCase)
@@ -199,6 +203,21 @@ static partial class Check
            "every placer counts its workset and phase lines after the commit, from the elements still in the model");
         foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs" })
             Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
+        // Review of items 6-8 (C29–C32).
+        Ok(apply.Contains("catch (Exception ex) when (!(ex is PlacementRefused))") && apply.Contains("throw new PlacementRefused(PlacementPolicy.WriteRefusal("),
+           "a workset or phase write that throws is a PlacementRefused too: the changeset stays proposed, never declined");
+        foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs", "Commands.GhostBuilder.cs", "Commands.Massing.cs" })
+            Ok(Src(file).Contains("GuidelineSource.NotInstalled || ") && Src(file).Contains("GuidelineSource.NoProject,"),
+               file + ": a project the bridge does not have yet has no guideline — it places as before, it is not refused");
+        string datumBuilder = Src("GhostBuilder", "DatumBuilder.cs");
+        int datumCommit = datumBuilder.IndexOf("detected.Committed = t.Commit() == TransactionStatus.Committed;", StringComparison.Ordinal);
+        Ok(datumCommit > 0 && datumBuilder.IndexOf("detected.LevelsCreated = made.Count(e => e.IsValidObject && e is Level);", StringComparison.Ordinal) > datumCommit
+           && datumBuilder.IndexOf("detected.GridsCreated = made.Count(e => e.IsValidObject && e is Grid);", StringComparison.Ordinal) > datumCommit
+           && !datumBuilder.Contains("LevelsCreated++") && !datumBuilder.Contains("GridsCreated++"),
+           "Datum counts its levels and grids after the commit, from what is still in the model");
+        Ok(Src("Commands.ReviewChangesets.cs").Contains("The proposals are still pending — run Review AI Proposals again.\"")
+           && !Src("Commands.ReviewChangesets.cs").Contains("again on that model"),
+           "a refusal in Review AI Proposals does not send the person to another model; the wrong-model refusal names the model itself");
         string ghostCmd = Src("Commands.GhostBuilder.cs"), massingCmd = Src("Commands.Massing.cs");
         int ghostOption = ghostCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Ghost Builder\")", StringComparison.Ordinal);
         Ok(ghostOption > 0 && ghostCmd.IndexOf("new DwgPickWindow(", StringComparison.Ordinal) > ghostOption,

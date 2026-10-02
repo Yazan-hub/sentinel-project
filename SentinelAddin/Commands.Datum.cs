@@ -112,7 +112,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
         string key = ProjectContext.For(doc).Key;
         var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
         // Review amendment C7: a guideline that could not be read is not "no block" — refused before anything is created.
-        if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+        if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
                                           !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
         {
             TaskDialog.Show("Sentinel — Datum", unread);

@@ -12,8 +12,8 @@ using Sentinel.Engine;
 
 namespace Sentinel.GhostBuilder
 {
-    /// <summary>Review amendment C5: Revit refused a placement write on a created element (a workset owned by another
-    /// user, a read-only parameter). It is this session's model state, not a verdict on the changeset: the placer rolls its
+    /// <summary>Review amendments C5, C29: Revit refused a placement write on a created element (a workset owned by another
+    /// user, a read-only parameter, a phase it will not take) — by answering false or by throwing. It is this session's model state, not a verdict on the changeset: the placer rolls its
     /// transaction back, and the executor answers NotRun, so the changeset stays proposed — as for the other refusals of
     /// item 6.</summary>
     public sealed class PlacementRefused : InvalidOperationException
@@ -84,8 +84,8 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Put each created element on the workset its category names and in the plan's phase. Inside the placer's
         /// open transaction. An element whose category the block names no workset for stays on the active workset (recorded);
-        /// an element with no phase (a level, a grid) keeps none. A workset Revit will not set throws PlacementRefused: the
-        /// placer rolls the whole batch back. What was written is recorded per element (plan.Written); the lines are counted
+        /// an element with no phase (a level, a grid) keeps none. A workset or a phase Revit will not set — it answers false,
+        /// or it throws (review amendment C29) — throws PlacementRefused: the placer rolls the whole batch back. What was written is recorded per element (plan.Written); the lines are counted
         /// from it after the commit.</summary>
         public static void Apply(PlacementPlan plan, IEnumerable<Element> created)
         {
@@ -93,26 +93,38 @@ namespace Sentinel.GhostBuilder
             foreach (var e in created)
             {
                 if (e == null) continue;
-                string workset = null, unnamed = null;
-                if (plan.WorksetIds != null)
+                try { ApplyOne(plan, e); }
+                catch (Exception ex) when (!(ex is PlacementRefused))
                 {
-                    // Locale-safe: the element's BuiltInCategory against the ten English category names a block may use
-                    // (Compat), then the block's own key for that category, whatever its case or padding.
-                    string category = GuidelineMatcher.PlacementCategories.FirstOrDefault(c => e.Category != null && e.Category.MatchesCategoryKey(c));
-                    string name = PlacementPolicy.WorksetFor(plan.Block, category);
-                    if (string.IsNullOrEmpty(name)) unnamed = e.Category?.Name ?? "no category";
-                    else
-                    {
-                        var p = e.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
-                        if (!plan.WorksetIds.TryGetValue(name, out int id) || p == null || p.IsReadOnly || !p.Set(id))
-                            throw new PlacementRefused($"Nothing was placed — Revit would not put {e.Category?.Name} {e.UniqueId} on workset \"{name}\" (the workset may be owned by another user, or not editable here).");
-                        workset = name;
-                    }
+                    // Whatever Revit throws on these writes is this session's model state, like a write it answers false to:
+                    // never a verdict on the changeset (the executor's general catch would report it as declined).
+                    string who = e.IsValidObject ? e.Category?.Name + " " + e.UniqueId : "an element Revit no longer holds";
+                    throw new PlacementRefused(PlacementPolicy.WriteRefusal(who, ex.GetType().Name + ": " + ex.Message));
                 }
-                bool phased = plan.PhaseId != null && e.HasPhases() && e.ArePhasesModifiable();
-                if (phased) e.CreatedPhaseId = plan.PhaseId;
-                plan.Written.Add(e.UniqueId, workset, unnamed, phased);
             }
+        }
+
+        private static void ApplyOne(PlacementPlan plan, Element e)
+        {
+            string workset = null, unnamed = null;
+            if (plan.WorksetIds != null)
+            {
+                // Locale-safe: the element's BuiltInCategory against the ten English category names a block may use
+                // (Compat), then the block's own key for that category, whatever its case or padding.
+                string category = GuidelineMatcher.PlacementCategories.FirstOrDefault(c => e.Category != null && e.Category.MatchesCategoryKey(c));
+                string name = PlacementPolicy.WorksetFor(plan.Block, category);
+                if (string.IsNullOrEmpty(name)) unnamed = e.Category?.Name ?? "no category";
+                else
+                {
+                    var p = e.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                    if (!plan.WorksetIds.TryGetValue(name, out int id) || p == null || p.IsReadOnly || !p.Set(id))
+                        throw new PlacementRefused($"Nothing was placed — Revit would not put {e.Category?.Name} {e.UniqueId} on workset \"{name}\" (the workset may be owned by another user, or not editable here).");
+                    workset = name;
+                }
+            }
+            bool phased = plan.PhaseId != null && e.HasPhases() && e.ArePhasesModifiable();
+            if (phased) e.CreatedPhaseId = plan.PhaseId;
+            plan.Written.Add(e.UniqueId, workset, unnamed, phased);
         }
     }
 }

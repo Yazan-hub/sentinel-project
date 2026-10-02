@@ -121,7 +121,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 handler.Completed -= onDone;
                 if (result.NotRun)
                 {
-                    TaskDialog.Show("Sentinel — AI proposals", result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again on that model.");
+                    TaskDialog.Show("Sentinel — AI proposals", result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again.");
                     return;
                 }
                 if (result.NotFinished != null)
@@ -163,7 +163,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             if (fresh.Elements.Any(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")))
             {
                 var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
-                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
                                                   !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
                 {
                     TaskDialog.Show("Sentinel — AI proposals", unread + "\n\nThe proposals are still pending — run Review AI Proposals again once the guideline can be read.");

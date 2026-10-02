@@ -139,6 +139,8 @@ static partial class Check
            && applyStandard.Contains("kept = Sentinel.Engine.SentinelUndo.Run(") && applyStandard.Contains("if (kept && modelCreated.Count > 0)")
            && applyStandard.Contains("!c.StartsWith(\"Ruleset:\", StringComparison.Ordinal)"),
            "Apply Standard reports only a build Revit kept, and only its model creations — never the ruleset install's line");
+        Ok(applyStandard.Contains("var undone = report.Created.Where(c => !c.StartsWith(\"Ruleset:\", StringComparison.Ordinal)).ToList();"),
+           "a build Revit did not keep lists its model lines as failed — not the ruleset install's line, which still runs on the bridge");
         string standardsBuilder = Src("Standards", "StandardsBuilder.cs");
         Ok(standardsBuilder.Contains("private static void Committed(Transaction t, BuildReport r, int from)") && !standardsBuilder.Contains("t.Commit();"),
            "each Apply Standard step counts as created only what Revit committed");
