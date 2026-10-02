@@ -28,6 +28,11 @@ const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <=
 // Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
 const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
+// MA-1a item 4: an element's provenance as its placer knows it (checkProvenance).
+const PROVENANCE_FIELDS = ["layer", "rule", "source_sha256"];
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+// Review amendment C1: no control character (a newline, a tab) in a provenance text — each is one line wherever it is shown.
+const CONTROL_CHAR = /[\u0000-\u001f]/;
 // How far (mm, in plan) an arc's mid point sits off the chord start→end; < 1 mm is no arc.
 const arcSag = (s, e, m) => {
   const dx = e[0] - s[0], dy = e[1] - s[1], chord = Math.hypot(dx, dy);
@@ -179,6 +184,7 @@ export function validateChangeset(body) {
     if (el.reason != null && !text(el.reason, 500)) throw err(400, `${at}: reason must be text of at most 500 characters`);
     if (validate.psets !== undefined && !Array.isArray(validate.psets)) throw err(400, `${at}: validate.psets must be an array`);
     if (validate.quantities !== undefined && !Array.isArray(validate.quantities)) throw err(400, `${at}: validate.quantities must be an array`);
+    const provenance = checkProvenance(el.provenance, op, at);
     const proposal_guid = randomUUID();
     const identity = { ...validate.identity };
     if (!identity.GlobalId) identity.GlobalId = proposal_guid;
@@ -188,6 +194,7 @@ export function validateChangeset(body) {
       op, target, reason: el.reason ?? null,
       validate: { identity, psets: validate.psets || [], quantities: validate.quantities || [] },
       place: { ...el.place },
+      ...(provenance ? { provenance } : {}), // MA-1a item 4: only when sent, so every other changeset reads as before
     };
   });
 
@@ -195,6 +202,25 @@ export function validateChangeset(body) {
     name, source: typeof body.source === "string" && body.source.trim() ? body.source.trim() : "agent",
     elements, exceptions: checkExceptions(body.exceptions),
   };
+}
+
+/** MA-1a item 4: where an element came from, as its placer knows it — the CAD layer, the rule that typed it and the source
+ *  file's sha256 — kept as filed, as a record. Optional, on a create only, and each field optional; any other key, a
+ *  malformed value or a control character (a newline in a rule) is a 400, never dropped silently. A record only (review
+ *  amendment C1): the add-in's stamp takes these facts from its own in-process placer, never from what the bridge returns. */
+function checkProvenance(p, op, at) {
+  if (p == null) return null;
+  if (op !== "create") throw err(400, `${at}: ${op} takes no provenance — only a create carries one`);
+  if (typeof p !== "object" || Array.isArray(p)) throw err(400, `${at}: provenance must be an object`);
+  const extra = Object.keys(p).filter((k) => !PROVENANCE_FIELDS.includes(k));
+  if (extra.length) throw err(400, `${at}: provenance takes only ${PROVENANCE_FIELDS.join(", ")} (got ${extra.join(", ")})`);
+  if (p.layer != null && !text(p.layer, 256)) throw err(400, `${at}: provenance.layer must be text of at most 256 characters`);
+  if (p.rule != null && !text(p.rule, 500)) throw err(400, `${at}: provenance.rule must be text of at most 500 characters`);
+  if (p.source_sha256 != null && !(typeof p.source_sha256 === "string" && SHA256_HEX.test(p.source_sha256)))
+    throw err(400, `${at}: provenance.source_sha256 must be 64 lowercase hex characters (a sha256)`);
+  for (const f of ["layer", "rule"]) // the sha's 64 hex characters hold none already
+    if (p[f] != null && CONTROL_CHAR.test(p[f])) throw err(400, `${at}: provenance.${f} must be one line — no control characters (a newline, a tab)`);
+  return { layer: p.layer ?? null, rule: p.rule ?? null, source_sha256: p.source_sha256 ?? null };
 }
 
 /** The elements a planner sent to a person instead of proposing a change: optional, at most 1000 rows of

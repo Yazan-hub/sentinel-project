@@ -561,3 +561,40 @@ describe("ghost-dwg-body parity fixture (MA-1a step 2)", () => {
     expect(v.elements[1].place.LocationCurve.mid).toEqual([1000, 1000, 0]);
   });
 });
+
+// MA-1a item 4: an element's provenance (layer, rule, source file sha) is kept on the changeset as filed — a record. Review
+// amendment C1: the Revit stamp takes these facts from its own in-process placer, never from what the bridge returns.
+describe("validateChangeset — provenance (MA-1a item 4)", () => {
+  const sha = "0123456789abcdef".repeat(4);
+  it("keeps an element's layer, rule and source sha as filed, and adds no field when none is sent", () => {
+    const v = validateChangeset(CS([wall({ provenance: { layer: "A-WALL-EXT", rule: "type by the guideline", source_sha256: sha } }), wall()]));
+    expect(v.elements[0].provenance).toEqual({ layer: "A-WALL-EXT", rule: "type by the guideline", source_sha256: sha });
+    expect(v.elements[1]).not.toHaveProperty("provenance");
+    expect(validateChangeset(CS([wall({ provenance: { layer: "A-WALL" } })])).elements[0].provenance)
+      .toEqual({ layer: "A-WALL", rule: null, source_sha256: null });
+  });
+  it("refuses a provenance it cannot keep — never drops it silently", () => {
+    status400(() => validateChangeset(CS([wall({ provenance: "A-WALL" })])), /provenance must be an object/);
+    status400(() => validateChangeset(CS([wall({ provenance: { layer: "A", sha } })])), /provenance takes only layer, rule, source_sha256 \(got sha\)/);
+    status400(() => validateChangeset(CS([wall({ provenance: { source_sha256: sha.toUpperCase() } })])), /source_sha256 must be 64 lowercase hex/);
+    status400(() => validateChangeset(CS([wall({ provenance: { layer: "x".repeat(257) } })])), /provenance\.layer must be text of at most 256/);
+    status400(() => validateChangeset(CS([wall({ provenance: { rule: "" } })])), /provenance\.rule must be text of at most 500/);
+  });
+  it("C1: each provenance text is one line — a newline, a tab or any other control character is a 400", () => {
+    status400(() => validateChangeset(CS([wall({ provenance: { rule: "type by the guideline\nApprover: someone else" } })])), /provenance\.rule must be one line/);
+    status400(() => validateChangeset(CS([wall({ provenance: { layer: "A-WALL\r\nLedger row: #1" } })])), /provenance\.layer must be one line/);
+    status400(() => validateChangeset(CS([wall({ provenance: { layer: "A\tWALL" } })])), /provenance\.layer must be one line/);
+    status400(() => validateChangeset(CS([wall({ provenance: { rule: "a\u0000b" } })])), /provenance\.rule must be one line/);
+    status400(() => validateChangeset(CS([wall({ provenance: { source_sha256: sha + "\n" } })])), /source_sha256 must be 64 lowercase hex/);
+  });
+  it("C1: only a create carries a provenance — on a retype or an attach it is a 400, never kept and never dropped", () => {
+    const change = (op, place, over = {}) => ({
+      op, kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }, place,
+      validate: { identity: { Class: "IfcWall", Name: "W 312312" } }, provenance: { layer: "A-WALL" }, ...over,
+    });
+    status400(() => validateChangeset(CS([change("retype", { TypeName: "BDS_EXT_ARC_CMU_200 mm" })])), /\[0\]: retype takes no provenance — only a create carries one/);
+    status400(() => validateChangeset(CS([change("attach", { BaseLevel: "Level 1", TopLevel: "Level 2" })])), /\[0\]: attach takes no provenance — only a create carries one/);
+    const v = validateChangeset(CS([change("retype", { TypeName: "BDS_EXT_ARC_CMU_200 mm" }, { provenance: null })]));
+    expect(v.elements[0]).not.toHaveProperty("provenance");
+  });
+});
