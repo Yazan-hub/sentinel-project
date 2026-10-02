@@ -17,16 +17,16 @@ Also the audit's XC-5 (`docs/strategy/2026-09-30-revit-addin-audit.md:1048`) and
 
 **Architecture:**
 
-*Item 6.* The block is a field of the guideline, validated in the same words by the bridge (`artefact-store.mjs`) and by the add-in's loader (`GuidelineMatcher.CheckGuideline`); one shared fixture proves the parity. Every lookup and every sentence is pure (`PlacementPolicy`). One Revit-bound writer (`PlacementApply`) reads the active design option, the model's worksets and the active view's phase, and writes two things on each created element: `ELEM_PARTITION_PARAM` and `CreatedPhaseId`. It is called inside each placer's own transaction, after its creates and before its stamp — the changeset executor (Ghost Builder, Review AI Proposals, Promote), `DatumBuilder.Build` and Photo Massing's `PlacePrepared` — so one Ctrl+Z takes the workset and the phase back with the element. The two refusals (a design option being edited, a workset the model lacks) come before any transaction and before anything is filed. The office-template check is a count (`GuidelineMatcher.OfficeTypesIn`) of the catalogue's types in the guideline's categories against the model's types, which Ghost Builder already reads for its drop-downs.
+*Item 6.* The block is a field of the guideline, validated in the same words by the bridge (`artefact-store.mjs`) and by the add-in's loader (`GuidelineMatcher.CheckGuideline`); one shared fixture proves the parity. Every lookup and every sentence is pure (`PlacementPolicy`). One Revit-bound writer (`PlacementApply`) reads the active design option, the model's worksets and the active view's phase, and writes two things on each created element: `ELEM_PARTITION_PARAM` and `CreatedPhaseId`. It is called inside each placer's own transaction, after its creates and before its stamp — the changeset executor (Ghost Builder, Review AI Proposals, Promote), `DatumBuilder.Build` and Photo Massing's `PlacePrepared` — so one Ctrl+Z takes the workset and the phase back with the element. The refusals (a design option being edited, a workset the model lacks, a guideline that could not be read) come before any transaction and before anything is filed. The summary's workset and phase counts are taken after the commit, from the elements still in the model. The office-template check is a count (`GuidelineMatcher.OfficeTypesIn`) of the catalogue's types in the guideline's categories against the model's types, which Ghost Builder already reads for its drop-downs.
 
 *Item 7.* The bridge's Revit report route (`POST /cde/:key/audit`) allows eight more row types, under the limits it already has. The add-in's rows are pure builders (`CommandReports`). One poster, `GovernedNotify.Report`, sends a row on a pool thread and logs the ledger's answer in the pane; it never waits. Each command calls it once, after Revit committed. The Doctor's resolutions are gathered per project for one minute (`DoctorBuffer`) and reported as one row.
 
-*Item 8.* `validateChangeset` (the bridge's pure half) sets `pretick` and `accuracy` on every element and `claimed` on the changeset, and returns the list of posted fields it did not keep; the store keeps that list on the changeset, so the 201 reply carries it. The add-in's review reads the bridge's `pretick` (`ChangesetTrust`), and never pre-ticks a create whatever a bridge answers. A receipt is one more report row (`entity_type` `build`): the bridge words its action `build:run` and marks it `claimed` for every caller. The three Ollama callers count their round trips and Ollama's own token counts (`ModelUsage`); the receipt (`BuildReceipt`) is pure.
+*Item 8.* `validateChangeset` (the bridge's pure half) sets `pretick` and `accuracy` on every element and `claimed` on the changeset, and returns the list of posted fields it did not keep; the store keeps that list on the changeset, so the 201 reply carries it. The bridge pre-ticks a Promote retype or attach only when a signed-in member filed it, never for the machine credential. The add-in's review reads the bridge's `pretick` (`ChangesetTrust`), and never pre-ticks a create whatever a bridge answers. A receipt is one more report row (`entity_type` `build`): the bridge words its action `build:run` and marks it `claimed` for every caller. The three Ollama callers count their round trips and Ollama's own token counts (`ModelUsage`); the receipt (`BuildReceipt`) is pure.
 
 **Tech stack:** the Revit add-in in C# (`SentinelAddin/`: net48 for Revit 2021–2024, net8 for 2025–2026, net10 for 2027; System.Text.Json); the Node bridge (`WebApp/bridge/*.mjs`, vitest beside the code); the web's TypeScript core (`WebApp/src/sentinel-core`, a type only); offline C# console checks (`tools/*-check`, net8, `SENTINEL_CHECK`); the Supabase ledger (`audit_log`, no migration).
 
 **Global constraints:**
-- Branch `feature/ma1a-items6-8` from master `f5b474f` (it holds this plan); merge `--no-ff` only after every task's checks pass; push only under the standing push rule, after a secret scan of the range.
+- Branch `feature/ma1a-items6-8` from master `f5b474f` (it holds this plan); merge `--no-ff` only after every task's checks pass **and the live drill MA1a-I68 is recorded** (review amendment C11); push only under the standing push rule, after a secret scan of the range.
 - **What must stay true** (a task that would break one of these stops and says so):
   - Placement is all-or-nothing and the commit check stays: a changeset lands whole or not at all, and nothing is reported that Revit did not commit.
   - A stamp's facts come only from the in-process placer, never from what the bridge returned (review amendment C1 of the items 3–5 plan).
@@ -38,11 +38,11 @@ Also the audit's XC-5 (`docs/strategy/2026-09-30-revit-addin-audit.md:1048`) and
   - No network call of items 7 and 8 runs on Revit's API thread, and none is waited for.
 - After every add-in task, both builds: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false` and the same with `-p:RevitVersion=2026`.
 - net48 rules: no `string.Contains(char)`, no `^1` index, no `record`; a new file names its own `using`s (implicit usings are off for net48); use the Edit tool for C# strings that contain escapes.
-- No new dependencies and no new check project: extend `tools/promote-check`, `tools/roi-check` and the bridge's vitest files. `guideline-check`, `ghost-standards-check`, `ghost-p2-check` and `session-check` compile files this plan changes; all must stay green.
+- No new dependencies and no new check project: extend `tools/promote-check`, `tools/roi-check` and the bridge's vitest files. These check projects compile files this plan changes, and all must stay green: `annotate-check`, `guideline-check`, `ghost-standards-check` and `wallpair-check` (`GuidelineMatcher.cs`); `ghost-p2-check` and `ghost-standards-check` (`GhostBuilder_Architecture.cs`); `ghost-p2-check` (`DoctorPolicy.cs`); `session-check` (`ChangesetClient.cs`).
 - Checks: `dotnet run --project tools/<name>` from the repo root; vitest from `WebApp` with `npx vitest run bridge/…`.
 - Each task writes its check first and sees it fail, then the code, then sees it pass. Revit-bound wiring is checked by a source scan (the `heal-check` pattern) and proven in the drill.
 - No Revit, no deploy and no bridge restart during the tasks; the live drill is a separate session (last section). Never run `tools/bridge-start.cmd`, `tools/public-bridge-on.cmd`, `tools/public-bridge-off.cmd` or a `tailscale` command; never call a write route of the founder's bridge on port 4100.
-- The community Revit MCP never writes; only the read-only `analyze_model_statistics`, and only in the drill.
+- The community Revit MCP never writes. Only in the drill, and only its read-only calls: `analyze_model_statistics`, `get_current_view_info`, `get_current_view_elements` and `get_selected_elements` (an element's id for Manage ▸ Select by ID, as MA1a-I35 read grid ids). Never a create, delete, operate, colour, tag or `send_code_to_revit` call.
 - After each code task run `graphify update .` (per `C:/Users/yazan/CLAUDE.md`); if `graphify` is not on PATH, say so and move on.
 - Never print or commit secrets (`config/.env`, `WebApp/.npmrc`, tokens); never commit a `.rvt`.
 - Commits end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
@@ -58,6 +58,14 @@ Also the audit's XC-5 (`docs/strategy/2026-09-30-revit-addin-audit.md:1048`) and
 
 The dry run found two things the plan now carries: `ghost-standards-check` also compiles `GhostBuilder_Architecture.cs` (Task 11 adds `ModelUsage.cs` to it), and a pane line logged from a pool thread needs the pane's own dispatcher (Task 7's `Report` takes one). Comments in the plan's prose, the commit messages and the drill were not part of it. Nothing in the repo was changed by it.
 
+**After the review (2026-10-02):** the review amendments below changed code blocks in Tasks 1–4 and 7–12. The amended plan was then dry-run once: a script applied every Create, Append and replace step of Tasks 1–12, in order, to a fresh `git archive` export of this branch in a scratch folder. All 182 steps applied, each replace matching its text exactly once. On that tree:
+- `promote-check` `384/384`; `roi-check` `50/50`; `ghost-standards-check` `147/147`; `guideline-check` `17/17`; `ghost-p2-check` `103/103`; `session-check` `47/47`; `wallpair-check` `9/9`; `heal-check` `9/9`; `event-check` `44/44`; `massing-check` `14/14`; `annotate-check` `ALL PASS`.
+- The five bridge test files this plan changes: `381 passed` (`artefact-store` 186, `write-roles` 62, `changesets-logic` 73, `changesets-store` 28, `mcp-server` 32).
+- Both builds `0 Error(s)`, with master's warning counts (Revit 2024: 5, Revit 2026: 3).
+- The drill's guideline, catalogues and changeset bodies pass the amended validators, and the drill's inline scripts compile.
+
+Not run after the amendments: the "see it fail" steps; the totals between tasks (`284` after Task 2, `301` after Task 3, `306` after Task 4, `331` after Task 6, `350` after Task 7, `374` after Task 10 — computed by hand from the checks each task adds; the last, `384`, was seen); the full `bridge/` suite (`1675 passed | 1 skipped` is master's 1630 plus the 45 new tests seen passing); `datum-check`; the Revit 2027 build; and every line of the drill section, which only Revit can run. Report the real totals. A total between tasks that differs is a count to explain in the task's report; a `FAIL` line is a failure. Nothing in the repo was changed by the dry run.
+
 ---
 
 ## Founder decisions (each has a recommended default, used unless the founder says otherwise)
@@ -69,9 +77,9 @@ The plan builds option **A** of each. None needs an answer before the work start
 | F1 | Which commands put a new element on the office's workset and phase | **A:** every command that creates elements: an agent's changeset, Ghost Builder, Promote, Datum and Photo Massing. **B:** only those that place through the one executor (not Datum, not Photo Massing) | **A.** The design says "each placed element". Datum makes levels and grids, the elements an office most often keeps on their own workset. Ceiling: Datum and Review AI Proposals now read the project's guideline before they place, a wait of 4 s at most when the bridge does not answer (Annotate waits the same way) |
 | F2 | The guideline names a workset this model does not have | **A:** nothing is placed, and the dialog names the workset: "Create it (Standards ▸ Apply Standard, or Collaborate ▸ Worksets), then try again". **B:** place on the active workset and say so. **C:** Sentinel creates the workset | **A.** It is the rule a named level already follows: a named thing that is missing is refused, never replaced. Apply Standard is the tool that creates worksets. Only the worksets this batch needs are asked for |
 | F3 | A design option is being edited when the person builds or applies | **A:** nothing is placed, and the dialog names the option: "Switch to Main Model, then … again". **B:** ask "Place in option X / Go back", Go back first | **A.** The design says "never into a design option unless the person picks one". A cannot place into an option by mistake. Ceiling: under A a person cannot place into an option with Sentinel at all; B lifts that and is in Next. Drill row I6-5 records it |
-| F4 | The model is not workshared, or the active view has no phase (a schedule, a sheet) | **A:** build anyway; that part is skipped and the summary says so ("Worksets: not set — this model is not workshared …"). **B:** refuse to build | **A.** A blank project from a template is never workshared; with B the design's own drill ("blank project from the office template") could not build |
-| F5 | When the office-template check stops a build | **A:** only when the model holds **none** of the office's types in the guideline's categories; otherwise it says "Office template: N of M office type(s) present". **B:** never stop, only say the count. **C:** stop under a share (say, fewer than half) | **A.** A real project loses types to Purge Unused, and a type the model lacks is already refused element by element. Zero is the one count that can only mean "not made from the template". The founder can set a share (C) after the drill shows the real counts |
-| F6 | Which phase a new element gets | **A:** the phase of the view the person is in when they build or apply (`phase: "view"`). **B:** a phase the guideline names | **A.** The design says "in the view's phase". Ceiling: a build started from a schedule or a sheet sets no phase, and says so |
+| F4 | The model is not workshared, or the active view has no phase (a sheet, a legend) | **A:** build anyway; that part is skipped and the summary says so ("Worksets: not set — this model is not workshared …"). **B:** refuse to build | **A.** A blank project from a template is never workshared; with B the design's own drill ("blank project from the office template") could not build |
+| F5 | When the office-template check stops a build | **A:** only when the model holds **none** of the office's types in the guideline's categories; otherwise it says "Office template: N of M office type(s) present". **B:** never stop, only say the count. **C:** stop under a share (say, fewer than half) | **A.** A real project loses types to Purge Unused, and a type the model lacks is already refused element by element. Zero is the one count that can only mean "not made from the template". The founder can set a share (C) once real counts are read: the drill records the first one on `ma0-bds` (row I8-3: the B35 model, made from the BDS template, against its `type_catalog@1`); a blank BDS-template project and aster-tower are still owed (UNSURE 8) |
+| F6 | Which phase a new element gets | **A:** the phase of the view the person is in when they build or apply (`phase: "view"`). **B:** a phase the guideline names | **A.** The design says "in the view's phase". Ceiling: a build started from a sheet or a legend sets no phase, and says so. Whether a schedule answers a phase is settled in the drill (UNSURE 3) |
 | F7 | The BDS pilot's guideline | **A:** left as it is (version 3, no placement block). The drill uses its own small guideline on a scratch project. **B:** add a placement block to it with the WS-01 workset names, as version 4 | **A.** The workset each category belongs on is the office's decision (BDS's BIM lead), not Sentinel's to guess. B is one file once they are confirmed |
 | F8 | The ROI dashboard and the three fixes that now reach the ledger (auto-fix, fix-in-place, Doctor) | **A:** counted on their own line, not priced; the "Not counted" line no longer lists them. **B:** also priced | **A.** B needs the office's minutes per fix and a new `roi@n`: a number only the office can give |
 | F9 | How a receipt names the version of the add-in that read the evidence | **A:** the sha256 of the add-in's own file: it names the exact build, and nobody has to remember to raise a number. **B:** give the add-in a version number and report that | **A.** The add-in has no version number today. Ceiling: a sha is not readable by eye; B can be added beside it |
@@ -79,27 +87,62 @@ The plan builds option **A** of each. None needs an answer before the work start
 | F11 | An agent's element that passes the project's IDS | **A:** it opens **unticked** in Review AI Proposals; the person ticks it. **B:** it opens ticked, as today | **A.** It is the design's rule: "agent ghosts and drawing-only ghosts are never pre-ticked". This changes today's behaviour, and the drill row I8-1 shows it |
 | F12 | How often the Doctor writes a row | **A:** one row per project per minute in which it resolved something. **B:** one row at each save or sync. **C:** one row per transaction | **A.** C would spend the 20-a-minute budget in a busy minute of drafting. B would report, at a later save, fixes made in a model that was closed without saving. Ceiling: a minute still open when Revit closes is lost — a missing row, never a wrong one |
 | F13 | The licence of a local model's weights in a receipt | **A:** the receipt names the model and says its licence was **not read**. **B:** Sentinel asks Ollama for the model's licence text and its digest, and reports them | **A.** A hard-coded licence for a model tag would be a guess: a tag can point at different weights. B is a small step in Next; until then the design's licence rule (`:932`) is met for tools and stated as unmet for weights |
+| F14 | Who earns the pre-tick of a Promote retype or attach (review amendment C2) | **A:** only a changeset a **signed-in member** filed. Filed with the machine credential — a signed-out PC, the MCP server, any script that holds the token — it opens unticked, whatever its `source` says. **B:** as before: by the source `promote`, whoever posts | **A.** "The bridge sets the trust fields, never the caller" (design `:165`): under B any holder of the token pre-ticks its own rows by writing `source: "promote"`. Ceiling: on a signed-out PC Promote's rows open unticked and "Tick suggested" ticks none — the person ticks by hand, or signs in (H4) |
+| F15 | The project's guideline could not be read when a command is about to place (bridge unreachable and no cached copy, a body that does not parse, a signed-out session with no cached copy) (review amendment C7) | **A:** nothing is placed: "the project's guideline could not be read (…), so its placement block is unknown". **B:** place on the active workset and say `Placement: not checked — <why>` | **A.** It is F2's rule: the office may have named worksets, and a guess would put every element on the wrong one. Ceiling: in a bound model with no cached guideline, Datum, Ghost Builder, Photo Massing and Review AI Proposals do not place while the bridge is unreachable. With a cached copy they place by it; a model that is not bound, or a project with no guideline installed, places as before |
+
+## Review amendments (2026-10-02, BINDING — they override any task text they contradict)
+
+Three independent reviews — code reality, trust and honesty, and whether the plan and its drill can be run as written — raised the points below. Each was checked against the code or the design line it cites. Where it held, the plan was changed where the problem is: the tasks, checks, commands and drill rows in this document already carry the change, and this list says what changed and why. Where two findings pulled apart, the one that keeps the invariants of Global constraints was taken, and the amendment says so. Report the real check totals (see "After the review" above).
+
+- **C1 (Task 9 Step 5; drill I8-2 — critical): the MCP tool sends a source it controls.** A `source` given as contract 2's object (`{ reader: "promote" }`) passed the string-only guard and was stored as `promote`, so an agent's retype and attach rows came back pre-ticked. The handler now forwards the label only when it is text and not `dwg` or `promote`, else `agent`; the tests and the drill row cover the object and the list forms.
+- **C2 (Task 9 Steps 3–4; F14; E11; drill I8-3, I8-6 — important): the machine credential earns no pre-tick.** `pretickOf` read only the caller's own `source` text, so any holder of the token set a trust field by writing `promote`. `proposeChangeset` now reads the caller's role, and a Promote retype or attach is pre-ticked only for a signed-in member's post. The cost is said in F14 and Risks: on a signed-out PC Promote's rows open unticked.
+- **C3 (Task 9 Step 3 — important): nested fields are rebuilt and listed.** `place` was stored whole, so a posted `place.pretick` or `place.measured` stayed on the record, unlisted. A place is rebuilt from the `PlaceDto` names; every other key of `place`, `target` and `validate`, and a trust field inside `validate.identity`, is listed under `ignored` and not stored.
+- **C4 (Tasks 9 and 10 — important): contract 2's `cid` and `evidence` are kept, and one shared fixture pins the stored shape.** The design asks for them (`:735`, `:1054`); the plan dropped them without asking the founder. They are kept as the caller's claim, checked for size and control characters; `measured` stays ignored until MA-4. `fixtures/changeset-ops/contract2-trust.json` is read by vitest and by `promote-check`, in place of the hand-written literal. The design's "`contract-parity.test.mjs`" names the delivery-gate file; the changeset parity lives in `fixtures/changeset-ops/`, as the earlier fixtures do.
+- **C5 (Task 3 — important, with one minor): a workset write Revit refuses leaves the changeset proposed.** The throw landed in the executor's general catch, which Review AI Proposals reports to the ledger as declined — a proposal nobody declined, lost to this session's model state. `PlacementApply` throws `PlacementRefused`; the executor rolls back and answers `NotRun`; Ghost Builder abandons the build and withdraws what it filed; Datum says it in its own dialog, not as an external-command exception.
+- **C6 (Tasks 2–3 — important; raised by two reviews): the workset and phase lines are counted after the commit.** The tally was filled inside the transaction, before the recount removed what Revit deleted at commit, so a line could say more than was placed. `PlacementApply` records what it wrote per element (`PlacementPolicy.Written`), and each placer builds its lines from the elements still in the model.
+- **C7 (Tasks 2–4; F15; drill I7-7b — important): a guideline that could not be read is refused.** `GhostStandards.Load` never throws, so an unreachable bridge with no cached copy read as "no placement block", and the elements went to the active workset with a false reason. The four commands now refuse (`PlacementPolicy.UnreadRefusal`). Of the two ways the finding offered, refusing was taken: it is F2's rule — a named thing that cannot be found is refused, never replaced. F15 gives the founder the other.
+- **C8 (Tasks 1–3; E1, E4 — important, with one minor): a block's category keys are checked, and the pre-check asks only for what a batch can use.** A misspelt key installed, and then left that category on the active workset with a false reason. Both validators refuse a key that is not one of the ten categories Sentinel places, or a category named twice. A column asks for `Columns` only (the executor takes `OST_Columns`); Photo Massing asks for the kinds of the layers it staged; Datum's over-ask is accepted and said in E4. One finding listed `Structural Columns` among the valid keys: it is left out, because no placer creates one, and a key nothing honours would read as honoured.
+- **C9 (Task 7 Step 8 — important): Apply Standard reports only what Revit committed and kept.** `StandardsBuilder` added to `Created` before each commit and checked no status; `SentinelUndo.Run` ignored its group's status; "Ruleset: installing" counted as a creation. A step now keeps its lines only on a committed transaction, `Run` answers whether the group was kept, and the report is built from the model's creations only.
+- **C10 (Task 3; E5; drill I6-5 — important): Ghost Builder and Photo Massing refuse a design option before they read anything.** Ghost refused only at Build — after its own kept DWG import, a transaction, and minutes of reading. Both commands now ask at the top; the build-time check stays, for an option entered while the review is open.
+- **C11 (Global constraints; Task 12; the Merge section — important): the merge follows the drill.** Task 12 merged before the drill that proves item 6's Revit half, though UNSURE 4 can send F3 back to the founder. Task 12 ends at the drill data; the merge and the deployment note are a section of their own after the drill, as MA1a-I35 was done.
+- **C12 (drill set-up; I6-8, I7-1, I7-7a, I8-4 — important): the Datum rows can create something.** The B35 model already holds the five grids of `sample-grids.dxf`, so those rows created nothing and their pass lines never appeared. Each Datum row first deletes grids in its scratch copy; `ma1a-i68-unbound.rvt` is made in the set-up; the expected count is written.
+- **C13 (drill set-up; I6-2, I8-2 — important): every drill call names the test bridge itself.** `config/.env` wins over the shell's `BCF_BASE` in `artefact-import.mjs` and `mcp-server.mjs`, so the installs and the MCP post could have gone to the founder's 4100 bridge, and the plan's check could not tell. One helper (`b4101`) sends each call to `http://127.0.0.1:4101`; the test bridge's start command and I8-2's command are written out; a probe prints which names `config/.env` sets, never a value.
+- **C14 (drill set-up; I7-1, I7-7c — important): the design's "signed-in actor, within the report budget" line is run, or owed.** Signed out, the report route applies no role check, no cap and no budget, so the default path proved none of them. Signing in is the founder's one step, with the membership call written; when the founder is away those clauses are recorded as owed, never as passed.
+- **C15 (drill I7-3, I7-4, I7-5, I7-9 — important): no report call passes as "not run".** I7-3 follows B31-4's path, with a second Build that must write no row. I7-4 runs on `ma0-bds` with FN-01, as B32-3 did. I7-5 and I7-9 are named owed before the first row, and the record ends with the owed list.
+- **C16 (Task 12 Step 1; drill I6-9, I8-3; UNSURE 2, 3, 8; F5 — important): three open facts get a row.** The drill guideline sends doors, columns and ceilings to a workset, and I6-9 places one of each; its second post puts a door in a wall of a later phase; I8-3 records the first real office-template count. A floor, a window, a roof, the blank-template project and aster-tower stay owed, and F5 says so.
+- **C17 (Task 3 — minor; raised by two reviews): Photo Massing never takes another model's view.** `PlacementApply.Resolve` reads a view of another document as no view, and the Massing event checks `DocPin` before it builds. Both fixes were taken: the first protects every caller, the second says why in the person's words.
+- **C18 (Task 3 — minor): the placement lines are not printed under "Warnings:".** `PlacementReport.Placement` and `DatumResult.Placement` carry them, and the summaries print them as lines of their own.
+- **C19 (Task 7 Step 5; Task 11 Step 5; E7 — minor): Ghost Builder posts its report and its receipt only for a build that left an element in the model.** A kept build whose every element Revit removed at commit would have posted "placed 0".
+- **C20 (Task 3 Step 5; Risks; Next — minor): the executor's comment says what `Unsafe` does.** It does not refuse a wall's retype in a design option. The comment says so, and the gap is in Risks and Next; it is not fixed here, because it predates the plan and changes MA-0's wall checks.
+- **C21 (Task 7 Step 12 — minor): the Provenance reader does not claim a ledger row.** It says a bound run is reported since item 7, and that the pane's log said whether the ledger recorded it.
+- **C22 (Task 7 Step 3; E16; Risks — minor): a 413 or a 429 on a report reads "not recorded".** The report route refuses both before it writes; `GovernedNotify.Report` words them so, for this poster only. A throttled row is lost, not retried, and Risks says so.
+- **C23 (Task 7 Step 11 — minor): a Doctor resolution carries its project.** `Pending` is one list for every open model; a row now counts only resolutions seen in the model whose transaction committed.
+- **C24 (Task 8 — minor, taken in part): one ROI row adds at most 100,000.** A forged row can no longer wrap the line. The finding's other half — a `reported_by_client` mark on every report row — is not taken: the reason is in this review's return, and in Risks "The report rows are a person's own report".
+- **C25 (Task 2; F4, F6; UNSURE 3; drill I6-8 — minor): a schedule is not listed as a view with no phase.** The sentence names a sheet and a legend; the drill records what a schedule answers.
+- **C26 (Global constraints; Tasks 1, 2 and 12 — minor): the check projects that compile `GuidelineMatcher.cs` are named right.** They are `annotate-check`, `guideline-check`, `ghost-standards-check` and `wallpair-check` — not `ghost-p2-check` — and `annotate-check` is in the baselines and the final checks.
+- **C27 (Task 5 Step 2; the Deployment note; Risks — minor): what an old bridge answers is stated per caller.** A contributor gets 403, a lead or owner 400, and a signed-out PC's row is written, unmarked.
+- **C28 (drill; Task 10 — minor): small steps show instead of describe.** The ROI dashboard is opened on both projects (I7-8). The closing list restores the bridge settings from a backup and compares hashes, signs out, stops the test bridge, names the deployed build and lists what was left on the shared ledger. No drill row writes to `demo`. The off-axis wall is made by a typed rotation. I7-1 reads the row I6-2 wrote. The community MCP's read-only calls are named. Task 10 Step 3 says "two replacements".
 
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
 | # | Decision | Why / ceiling |
 |---|---|---|
-| E1 | The block is `placement: { worksets: { <category>: <name> }, phase: "view" }`. An unknown key inside it is refused by both validators. No design-option field | The design-option rule is fixed, so a field could only weaken it. The category keys are the guideline's own (`elements[].category`), plus `Levels` and `Grids` |
-| E2 | The workset is written with `ELEM_PARTITION_PARAM` on each created element, inside the placer's transaction. The active workset is never switched and no workset is created | It is undone with the element, and the person's active workset is not touched. A workset that cannot be set throws inside the transaction: the batch rolls back with the reason (the executor's rule for any parameter it cannot set) |
+| E1 | The block is `placement: { worksets: { <category>: <name> }, phase: "view" }`. An unknown key inside it is refused by both validators. No design-option field | The design-option rule is fixed, so a field could only weaken it. A category key must be one Sentinel places — `Walls`, `Floors`, `Roofs`, `Ceilings`, `Doors`, `Windows`, `Columns`, `Furniture`, `Levels`, `Grids` (case and padding ignored, one key per category); any other key is refused at install by both validators, so a misspelt key never installs (C8) |
+| E2 | The workset is written with `ELEM_PARTITION_PARAM` on each created element, inside the placer's transaction. The active workset is never switched and no workset is created | It is undone with the element, and the person's active workset is not touched. A workset that cannot be set throws `PlacementRefused` inside the transaction: the batch rolls back with the reason, and a changeset stays proposed (`NotRun`) — it is this session's model state, not a verdict on the changeset (C5) |
 | E3 | The element's category is matched to the block's key through `Compat.MatchesCategoryKey` (by `BuiltInCategory`), which gains `Levels` and `Grids` | Category names are localized in Revit; the block's keys are English |
-| E4 | The pre-check asks for the worksets of the batch's **kinds** (`PlacementPolicy.CategoriesOf`); a column asks for both `Structural Columns` and `Columns` when the block names them | The category of a point family is known only once it is placed, and a refusal must come before the transaction |
-| E5 | The executor refuses an active design option itself (`NotRun`: the changeset stays proposed). Ghost Builder, Datum and Massing ask the same question before they file or start | One sentence, one reader (`PlacementApply.DesignOptionRefusal`); Ghost must not file a changeset for a build that will not run |
-| E6 | Review AI Proposals and Datum fetch `guideline@n` off the UI thread and wait (4 s at most), as Annotate does | Placement needs the block before it places. The report calls of item 7 are different: they are never waited for |
-| E7 | A report is posted only when the model changed: a run that created nothing writes no row | "One row per action" and "never invented". A refused or rolled-back run is not an action on the model |
+| E4 | The pre-check asks for the worksets of the batch's **kinds** (`PlacementPolicy.CategoriesOf`); a column asks for `Columns` (the executor takes a column's type from `OST_Columns` only). Photo Massing asks for the kinds of the layers it staged. Datum asks for `Levels` and `Grids` by what the drawing holds, not by what will be new | A refusal must come before the transaction. Ceiling: a Datum run whose levels all exist already can still be refused for the Levels workset; accepted — the refusal names the workset (C8) |
+| E5 | The executor refuses an active design option itself (`NotRun`: the changeset stays proposed). Ghost Builder, Datum and Massing ask the same question before they file or start | One sentence, one reader (`PlacementApply.DesignOptionRefusal`); Ghost must not file a changeset for a build that will not run. Ghost Builder and Photo Massing also ask at the top of the command, before a drawing is imported or an image is read (C10) |
+| E6 | Review AI Proposals and Datum fetch `guideline@n` off the UI thread and wait (4 s at most), as Annotate does | Placement needs the block before it places. The report calls of item 7 are different: they are never waited for. A guideline that could not be read is refused, never read as "no block" (C7, F15) |
+| E7 | A report is posted only when the model changed: a run that created nothing writes no row | "One row per action" and "never invented". A refused or rolled-back run is not an action on the model. Ghost Builder too: a kept build whose every element Revit removed at commit posts no report and no receipt (C19) |
 | E8 | A Datum or Massing element's stamp still names no ledger row; the reader says its run is reported after placing | The row exists only after the commit; writing it back would be a second transaction and a second Undo entry (E5 of the items 3–5 plan) |
 | E9 | Ghost Builder writes two rows per kept build beside its changesets' rows: `ghost_build` (the build's counts) and `build` (the reader's receipt) | The design's table lists both (`:827`, `:835`). They answer different questions: what was placed, and what read the drawing |
 | E10 | The stored `source` stays a string. Contract 2's `{reader, job_id}` gives its reader; the `job_id` is listed as ignored | Deployed add-ins read `source` into a string; an object there would break reading the project's whole proposed list |
-| E11 | Every changeset is `claimed: true`. `pretick` for a retype or attach still follows the source `promote` | The bridge cannot tell the add-in from another caller with the same credential. The MCP tool never files as `promote` or `dwg`; a caller that posts directly with a token still can. Closing that needs a plan the bridge can check (MA-2) — see Risks |
-| E12 | A posted field the bridge does not read (`cid`, `evidence`, `lod`, …) is listed under `ignored` with "not a field this bridge keeps" | Before, it was dropped without a word. The list is capped at 200 entries, with a count of the rest |
+| E11 | Every changeset is `claimed: true`. `pretick` for a retype or attach needs the source `promote` **and a signed-in member as the caller**; a post with the machine credential is never pre-ticked (C2, F14) | The bridge cannot tell the add-in from another holder of the machine credential, so that credential earns no pre-tick. The MCP tool never files as `promote` or `dwg`, whatever shape its `source` argument has (C1). A signed-in contributor who posts `source: "promote"` directly still earns it: a verified person, named on the ledger. Closing that needs a plan the bridge can check (MA-2) — see Risks |
+| E12 | A posted field the bridge does not read (`lod`, `won`, `conflicts`, …) is listed under `ignored` with "not a field this bridge keeps" — at the top of the body, on an element, and inside its `place`, `target`, `validate` and `validate.identity` (C3). `cid` and `evidence` are kept, as the caller's claim (C4) | Before, it was dropped without a word, and a `place` was stored whole. The list is capped at 200 entries, with a count of the rest |
 | E13 | The add-in never pre-ticks a create, even if a bridge answers `pretick: true` | The rule then holds against a bridge that was not restarted, which has happened |
 | E14 | The receipt reports `tokens` only when Ollama's reply carried `prompt_eval_count` or `eval_count`; otherwise `null` with a note. A deterministic run reports `model_calls: 0` | Only what the run can state. Whether Ollama sends the counts with a JSON-schema `format` is settled in the drill (UNSURE 10) |
 | E15 | `GovernedNotify.Report` logs through the pane's dispatcher with `BeginInvoke`; the Doctor's flush, on a pool thread, hands over the dispatcher it captured on the API thread | A pool thread has no pane dispatcher of its own; an `Invoke` from a worker can wait on a thread that waits on it (`App.OnSynchronized`'s rule) |
-| E16 | `LedgerResult` is not changed: a 413 or a 429 on a report still reads "not confirmed … (the entry may have landed)" in the pane | Moving them to "not recorded" needs every bridge route's 413 and 429 checked first. In Next |
+| E16 | `LedgerResult` is not changed. `GovernedNotify.Report` itself words a 413 or a 429 as "not recorded" (C22) | The report route refuses both before it writes (`recordRevitReport`). Every other route's 413 and 429 still read "not confirmed" until each is checked (Next). A throttled report is lost, not retried (Risks) |
 
 ---
 
@@ -119,15 +162,19 @@ The plan builds option **A** of each. None needs an answer before the work start
 | `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` | 3, 7, 11 | Ghost: the two refusals before filing; its report; its receipt |
 | `SentinelAddin/Commands.Datum.cs`, `SentinelAddin/GhostBuilder/DatumBuilder.cs` | 3, 7, 11 | Datum: placement, the commit check, its report, its receipt |
 | `SentinelAddin/Commands.Massing.cs`, `SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs` | 3, 4, 7, 11 | Massing: placement, the template check, its report, its receipt |
-| `SentinelAddin/Commands.GhostBuilder.cs` | 4, 11 | Ghost: the template check; the reader's time and usage |
+| `SentinelAddin/Commands.GhostBuilder.cs` | 3, 4, 11 | Ghost: the design-option refusal before the drawing is picked, the placement lines in the summary; the unread-guideline refusal and the template check; the reader's time and usage |
+| `SentinelAddin/GhostBuilder/GhostBuilder_ExtractionAndPlacement.cs` | 3 | `PlacementReport.Placement`: the placement lines, apart from the warnings |
 | `SentinelAddin/Commands.PromoteWalls.cs` | 4, 11 | Promote: the template check; its receipt |
 | `WebApp/bridge/cde-store.mjs`, `WebApp/bridge/bcf-service.mjs` | 5 | The report types, the receipt rule, the route's comment |
 | `SentinelAddin/Coordination/CommandReports.cs` (new) | 6 | Pure: the eight report rows, `DoctorTally`, `DoctorBuffer` |
 | `SentinelAddin/Coordination/GovernedNotify.cs` | 7 | `Report`: the one poster |
 | `SentinelAddin/Commands.Annotate.cs`, `SentinelAddin/Commands.Standards.cs`, `SentinelAddin/Workflow/AutoFixExecution.cs`, `SentinelAddin/Commands.BcfIssues.cs`, `SentinelAddin/Updaters/FailureInterceptor.cs` | 7 | One report call each |
+| `SentinelAddin/Standards/StandardsBuilder.cs`, `SentinelAddin/Engine/SentinelUndo.cs` | 7 | Apply Standard counts as created only what Revit committed and kept |
+| `SentinelAddin/Updaters/DoctorPolicy.cs` | 7 | `Seen.Project`: the project a resolution belongs to |
 | `SentinelAddin/Engine/ProvenanceStamp.cs` | 7 | The reader's words for an element with no ledger row of its own |
 | `SentinelAddin/Engine/RoiReport.cs`, `SentinelAddin/UI/RoiDashboard.cs` | 8 | The three fix counts, the seventh line |
 | `WebApp/bridge/changesets-logic.mjs`, `WebApp/bridge/changesets-store.mjs`, `WebApp/bridge/mcp-server.mjs` | 9 | The trust rules, the stored `ignored`, the MCP tool |
+| `WebApp/bridge/fixtures/changeset-ops/contract2-trust.json` (new) | 9, 10 | One contract-2 post and what the bridge stores for it, read by vitest and by `promote-check` |
 | `SentinelAddin/Coordination/ChangesetClient.cs` | 10 | The trust fields as read; `ChangesetTrust` |
 | `SentinelAddin/GhostBuilder/ModelUsage.cs` (new) | 10 | Pure: one model's calls, answers and tokens |
 | `SentinelAddin/Coordination/BuildReceipt.cs` (new) | 10 | Pure: the receipt |
@@ -141,7 +188,7 @@ The plan builds option **A** of each. None needs an answer before the work start
 
 ---
 
-## Tasks (in order: item 6 — bridge, pure half, Revit half, template check; item 7 — bridge, pure half, the eight commands, ROI; item 8 — bridge, pure half, review and receipts; then the drill data and the merge)
+## Tasks (in order: item 6 — bridge, pure half, Revit half, template check; item 7 — bridge, pure half, the eight commands, ROI; item 8 — bridge, pure half, review and receipts; then the drill data. The merge follows the live drill)
 
 ### Task 1 — Bridge and web: the guideline's `placement` block (item 6)
 
@@ -151,11 +198,11 @@ The plan builds option **A** of each. None needs an answer before the work start
 - Modify `WebApp/bridge/artefact-store.mjs` (the `guideline` branch of `validateArtefact`, after the `viewNaming` line)
 - Modify `WebApp/src/sentinel-core/guideline.ts` (the `Guideline` interface)
 
-**Interfaces:** `guideline@n` may carry `placement: { worksets?: { <category>: <workset name> }, phase?: "view" }`. `validateArtefact("guideline", body)` accepts a body with no `placement`, with `placement: null` or with a well-formed block, and refuses anything else with `guideline: placement… <why>`. There is no design-option field: the rule "never into a design option" is fixed in the add-in (F3). The bridge and the web place nothing, so the TS side is a type only.
+**Interfaces:** `guideline@n` may carry `placement: { worksets?: { <category>: <workset name> }, phase?: "view" }`. `validateArtefact("guideline", body)` accepts a body with no `placement`, with `placement: null` or with a well-formed block, and refuses anything else with `guideline: placement… <why>`. A key of `worksets` must be a category Sentinel places (case and padding ignored), named once: a misspelt key is refused at install, not found out at a build (review amendment C8). There is no design-option field: the rule "never into a design option" is fixed in the add-in (F3). The bridge and the web place nothing, so the TS side is a type only.
 
 - [ ] **Step 0: Branch and baselines.** The branch `feature/ma1a-items6-8` already exists (it holds this plan): `git checkout feature/ma1a-items6-8`. Then record each check's master total, so later totals can be compared:
   - `dotnet run --project tools/promote-check`: expect `231/231 checks pass`;
-  - `guideline-check` `17/17`, `ghost-standards-check` `146/146`, `ghost-p2-check` `103/103`, `session-check` `47/47`, `event-check` `44/44`, `heal-check` `9/9`, `roi-check` `43/43`, `massing-check` `14/14`, `wallpair-check` `9/9`, `datum-check` `DATUM OK`;
+  - `guideline-check` `17/17`, `ghost-standards-check` `146/146`, `ghost-p2-check` `103/103`, `session-check` `47/47`, `event-check` `44/44`, `heal-check` `9/9`, `roi-check` `43/43`, `massing-check` `14/14`, `wallpair-check` `9/9`, `annotate-check` `ALL PASS`, `datum-check` `DATUM OK`;
   - from `WebApp`, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1630 passed | 1 skipped (1631)`;
   - both builds: `0 Error(s)`, with Revit 2024 at `5 Warning(s)` and Revit 2026 at `3 Warning(s)`.
 - [ ] **Step 1: The parity cases.** One file, read by the bridge's test here and by `tools/promote-check` in Task 2. Each case is a `placement` value and the refusal it must earn (`null` = accepted). The bridge's message is `guideline: ` + the refusal; the add-in's is the refusal alone.
@@ -173,6 +220,9 @@ Create `WebApp/bridge/fixtures/guideline-placement/cases.json`:
   { "name": "a list instead of a block", "placement": [], "error": "placement must be an object" },
   { "name": "a field the block does not have", "placement": { "designOption": "Main Model" }, "error": "placement.designOption is not a placement field (worksets, phase)" },
   { "name": "worksets as a list", "placement": { "worksets": ["ARC_Walls"] }, "error": "placement.worksets must be an object of category: workset name" },
+  { "name": "a category in another case, padded", "placement": { "worksets": { " walls ": "ARC_Walls" } }, "error": null },
+  { "name": "a misspelt category", "placement": { "worksets": { "Wals": "ARC_Walls" } }, "error": "placement.worksets.Wals is not a category Sentinel places (Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Levels, Grids)" },
+  { "name": "one category under two keys", "placement": { "worksets": { "Walls": "ARC_Walls", "walls": "ARC_Other" } }, "error": "placement.worksets.walls names the category Walls a second time" },
   { "name": "a workset name that is a number", "placement": { "worksets": { "Walls": 3 } }, "error": "placement.worksets.Walls must be a non-empty workset name" },
   { "name": "a blank workset name", "placement": { "worksets": { "Walls": "  " } }, "error": "placement.worksets.Walls must be a non-empty workset name" },
   { "name": "a named phase", "placement": { "phase": "New Construction" }, "error": "placement.phase must be \"view\" (the phase of the view the person builds in)" },
@@ -205,7 +255,7 @@ describe("validateArtefact — a guideline's placement block (MA-1a item 6)", ()
 });
 ```
 
-- [ ] **Step 3: Run it, and see it fail.** From `WebApp`: `npx vitest run bridge/artefact-store.test.mjs`. Expect `8 failed`: the eight refused cases, each `expected true to match object { status: 400, … }` — today the validator lets any `placement` through unread. The five accepted cases and the two other tests pass.
+- [ ] **Step 3: Run it, and see it fail.** From `WebApp`: `npx vitest run bridge/artefact-store.test.mjs`. Expect `10 failed`: the ten refused cases, each `expected true to match object { status: 400, … }` — today the validator lets any `placement` through unread. The six accepted cases and the two other tests pass.
 - [ ] **Step 4: The check.**
 
 In `WebApp/bridge/artefact-store.mjs`, replace
@@ -229,8 +279,18 @@ with
       if (extra !== undefined) throw bad(kind, `placement.${extra}`, "is not a placement field (worksets, phase)");
       if (p.worksets != null) {
         if (!isObj(p.worksets)) throw bad(kind, "placement.worksets", "must be an object of category: workset name");
-        for (const [category, name] of Object.entries(p.worksets))
+        // Review amendment C8: a key is a category Sentinel places (GuidelineMatcher.PlacementCategories, the same list),
+        // named once — case and padding ignored. A misspelt key would install and then leave every element of that
+        // category on the active workset.
+        const categories = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids"];
+        const named = new Set();
+        for (const [category, name] of Object.entries(p.worksets)) {
+          const canon = categories.find((c) => c.toLowerCase() === category.trim().toLowerCase());
+          if (!canon) throw bad(kind, `placement.worksets.${category}`, `is not a category Sentinel places (${categories.join(", ")})`);
+          if (named.has(canon)) throw bad(kind, `placement.worksets.${category}`, `names the category ${canon} a second time`);
+          named.add(canon);
           if (!filled(name)) throw bad(kind, `placement.worksets.${category}`, "must be a non-empty workset name");
+        }
       }
       if (p.phase != null && p.phase !== "view") throw bad(kind, "placement.phase", 'must be "view" (the phase of the view the person builds in)');
     }
@@ -249,8 +309,8 @@ export interface Guideline {
 with
 
 ```ts
-/** MA-1a item 6: where a placed element goes. `worksets` maps a category (as `elements[].category`, plus "Levels" and
- *  "Grids") to a workset name; `phase: "view"` puts each element in the phase of the view the person builds in. Read by
+/** MA-1a item 6: where a placed element goes. `worksets` maps a category Sentinel places (Walls, Floors, Roofs, Ceilings,
+ *  Doors, Windows, Columns, Furniture, Levels, Grids) to a workset name; `phase: "view"` puts each element in the phase of the view the person builds in. Read by
  *  the Revit add-in only (GuidelineMatcher.Placement); validated by the bridge (artefact-store.mjs). There is no
  *  design-option field: Sentinel never places into a design option. */
 export interface GuidelinePlacement {
@@ -281,7 +341,7 @@ with
 export interface Resolution {
 ```
 
-- [ ] **Step 6: Run.** From `WebApp`: `npx vitest run bridge/artefact-store.test.mjs`, expect `Tests  183 passed (183)` (master 168). `guideline.ts` gains two types and no logic, so `bridge/sentinel-core.mjs` (its bundle) is not rebuilt.
+- [ ] **Step 6: Run.** From `WebApp`: `npx vitest run bridge/artefact-store.test.mjs`, expect `Tests  186 passed (186)` (master 168). `guideline.ts` gains two types and no logic, so `bridge/sentinel-core.mjs` (its bundle) is not rebuilt.
 - [ ] **Step 7: Commit.**
 
 ```bash
@@ -308,16 +368,18 @@ EOF
 
 **Interfaces:**
 - `GuidelinePlacement { Dictionary<string,string> Worksets; string Phase; }` and `GuidelineMatcher.Placement` (null = the guideline has no block, or no guideline is installed).
+- `GuidelineMatcher.PlacementCategories` — the ten categories a block may name a workset for (review amendment C8).
 - `GuidelineMatcher.OfficeTypesIn(documentTypes) → (int Present, int Total)`: of the catalogue's types in the categories the guideline has rules for, how many the open model holds. `documentTypes` is what `GhostBuilderCommand.LoadedTypes` returns.
 - `PlacementPolicy` (pure, `Sentinel.Engine`):
-  - `CategoriesOf(kind) → string[]` — the guideline categories a changeset kind can land in;
+  - `CategoriesOf(kind) → string[]` — the guideline category a changeset kind lands in; `Kinds`; `KindOf(category) → string`;
   - `WorksetFor(block, category) → string` — the workset the block names, or null;
   - `MissingWorksets(block, kinds, modelWorksets) → List<string>`;
-  - `DesignOptionRefusal(option, what)`, `MissingWorksetRefusal(names)`;
+  - `DesignOptionRefusal(option, what)`, `MissingWorksetRefusal(names)`, `UnreadRefusal(origin, notInstalled, bound, why)` (C7);
+  - `Written` (`Add(uniqueId, workset, unnamedCategory, phased)`, `Surviving(uniqueIds) → Tally`): what was written per element, counted only for the elements still in the model after the commit (C6);
   - `Tally` (`On(workset)`, `NoWorkset(category)`, `Phased`) and `Lines(block, workshared, tally, phaseName) → List<string>`;
   - `TemplateRefuses(present, total)`, `TemplateRefusal(total, catalogLabel)`, `TemplateLine(hasCatalog, present, total, catalogLabel)`.
 
-`GuidelinePlacement` lives in `GuidelineMatcher.cs`, so the other check projects that compile that file (`guideline-check`, `ghost-standards-check`, `ghost-p2-check`) need no new `<Compile>` line.
+`GuidelinePlacement` and `PlacementCategories` live in `GuidelineMatcher.cs`, so the other check projects that compile that file (`annotate-check`, `guideline-check`, `ghost-standards-check`, `wallpair-check`) need no new `<Compile>` line.
 
 - [ ] **Step 1: The failing check.**
 
@@ -379,10 +441,15 @@ static partial class Check
         Ok(PlacementPolicy.WorksetFor(block, "Furniture") == null && PlacementPolicy.WorksetFor(null, "Walls") == null,
            "a category the block does not name, or no block, gives no workset");
         Ok(PlacementPolicy.CategoriesOf("wall").SequenceEqual(new[] { "Walls" }) && PlacementPolicy.CategoriesOf("level").SequenceEqual(new[] { "Levels" })
-           && PlacementPolicy.CategoriesOf("column").SequenceEqual(new[] { "Structural Columns", "Columns" }) && PlacementPolicy.CategoriesOf("stair").Length == 0,
-           "each changeset kind names its guideline categories — a column either of two, an unknown kind none");
+           && PlacementPolicy.CategoriesOf("column").SequenceEqual(new[] { "Columns" }) && PlacementPolicy.CategoriesOf("stair").Length == 0,
+           "each changeset kind names its guideline category — a column the architectural Columns the executor places, an unknown kind none");
         foreach (var kind in new[] { "wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture" })
             Ok(PlacementPolicy.CategoriesOf(kind).Length > 0, "the bridge's vocabulary is covered: " + kind);
+        Ok(PlacementPolicy.Kinds.SelectMany(PlacementPolicy.CategoriesOf).OrderBy(c => c, StringComparer.Ordinal)
+               .SequenceEqual(GuidelineMatcher.PlacementCategories.OrderBy(c => c, StringComparer.Ordinal)),
+           "the categories a block may name are exactly the ones a kind lands in");
+        Ok(PlacementPolicy.KindOf("Walls") == "wall" && PlacementPolicy.KindOf(" doors ") == "door" && PlacementPolicy.KindOf("Stairs") == null,
+           "a category names its kind back, whatever its case or padding; one Sentinel does not place names none");
 
         var have = new[] { "Workset1", "arc_walls" };
         Ok(PlacementPolicy.MissingWorksets(block, new[] { "wall", "door", "furniture", "door" }, have).SequenceEqual(new[] { "ARC_Doors" }),
@@ -416,7 +483,7 @@ static partial class Check
         Ok(PlacementPolicy.Lines(block, false, new PlacementPolicy.Tally(), null).SequenceEqual(new[]
            {
                "Worksets: not set — this model is not workshared, so it has no worksets (the guideline names 3).",
-               "Phase: not set — the active view has no phase (a schedule, a sheet, a legend); each element is in the phase Revit gave it.",
+               "Phase: not set — the active view has no phase (a sheet, a legend); each element is in the phase Revit gave it.",
            }), "a model that is not workshared, in a view with no phase: both said, nothing claimed");
         var worksetsOnly = WithPlacement("{\"worksets\":{\"Walls\":\"ARC_Walls\"}}", out _).Placement;
         Ok(PlacementPolicy.Lines(worksetsOnly, true, new PlacementPolicy.Tally(), "New Construction")[1] ==
@@ -425,6 +492,27 @@ static partial class Check
         Ok(PlacementPolicy.Lines(WithPlacement("{\"phase\":\"view\"}", out _).Placement, true, new PlacementPolicy.Tally(), "Existing")[0] ==
            "Worksets: the guideline's placement block names none — each element is on the active workset.",
            "a block with no worksets leaves the workset alone, and says so");
+
+        // Review amendment C6: the lines are counted from the elements still in the model after the commit.
+        var written = new PlacementPolicy.Written();
+        written.Add("u1", "ARC_Walls", null, true); written.Add("u2", "ARC_Walls", null, true); written.Add("u3", "ARC_Walls", null, true);
+        written.Add("u4", null, "Furniture", false);
+        Ok(PlacementPolicy.Lines(block, true, written.Surviving(new[] { "u1", "u3", "u4" }), "New Construction").SequenceEqual(new[]
+           {
+               "Worksets: 2 on ARC_Walls · 1 left on the active workset (the guideline names no workset for Furniture).",
+               "Phase: 2 element(s) set to \"New Construction\", the active view's phase (a level or a grid has no phase).",
+           }), "three walls set, one removed by Revit at commit: the lines say two — counted from what is still in the model");
+
+        // Review amendment C7: a guideline that could not be read is not "no block".
+        Ok(PlacementPolicy.UnreadRefusal("none", false, true, "bridge unreachable (timed out after 4 s)") ==
+           "Nothing was placed — the project's guideline could not be read (bridge unreachable (timed out after 4 s)), so its placement block is unknown. " +
+           "Try again once it can be read — Sentinel never places on a guess.",
+           "a guideline that could not be read is refused with the reader's own reason");
+        Ok(PlacementPolicy.UnreadRefusal("none", true, true, "not installed for demo or its office") == null
+           && PlacementPolicy.UnreadRefusal("none", false, false, "not bound — Sentinel ▸ Project Setup") == null,
+           "no guideline installed, or a model that is not bound, is no block — not a refusal");
+        Ok(PlacementPolicy.UnreadRefusal("bridge", false, true, null) == null && PlacementPolicy.UnreadRefusal("cache", false, true, "bridge unreachable — cached 14:02") == null,
+           "a guideline read from the bridge, or from its cached copy, is read: its block — or its lack of one — is known");
 
         // The office-template check: the catalogue's types in the guideline's categories (Walls, Doors — not Furniture).
         var docTypes = new Dictionary<string, IReadOnlyList<(string Family, string Type)>>(StringComparer.OrdinalIgnoreCase)
@@ -547,8 +635,16 @@ with
                 if (Present(pl, "worksets", out var ws))
                 {
                     if (ws.ValueKind != JsonValueKind.Object) throw Bad("placement.worksets", "must be an object of category: workset name");
+                    // Review amendment C8: a key is a category Sentinel places, named once (case and padding ignored).
+                    var named = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var w in ws.EnumerateObject())
-                        if (!Filled(ws, w.Name)) throw Bad("placement.worksets." + w.Name, "must be a non-empty workset name");
+                    {
+                        string canon = GuidelineMatcher.PlacementCategories.FirstOrDefault(c => string.Equals(c, w.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (canon == null) throw Bad("placement.worksets." + w.Name, "is not a category Sentinel places (" + string.Join(", ", GuidelineMatcher.PlacementCategories) + ")");
+                        if (!named.Add(canon)) throw Bad("placement.worksets." + w.Name, "names the category " + canon + " a second time");
+                        if (w.Value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(w.Value.GetString()))
+                            throw Bad("placement.worksets." + w.Name, "must be a non-empty workset name");
+                    }
                 }
                 if (Present(pl, "phase", out var ph) && !(ph.ValueKind == JsonValueKind.String && ph.GetString() == "view"))
                     throw Bad("placement.phase", "must be \"view\" (the phase of the view the person builds in)");
@@ -568,6 +664,12 @@ with
 ```csharp
         /// <summary>Has the guideline an element block for the category?</summary>
         public bool HasRulesFor(string category) => _doc.Elements.Any(e => Norm(e.Category) == Norm(category));
+
+        /// <summary>MA-1a item 6 (review amendment C8): the categories a placement block may name a workset for — the ones
+        /// Sentinel places (every changeset kind lands in one: PlacementPolicy.CategoriesOf; tools/promote-check holds the
+        /// two lists equal). The bridge's check carries the same list (artefact-store.mjs); the shared cases prove it.</summary>
+        internal static readonly string[] PlacementCategories =
+            { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids" };
 
         /// <summary>MA-1a item 6, the office-template check: of the catalogue's types in the categories the guideline has
         /// rules for, how many the open model holds. <paramref name="documentTypes"/> is the model's types by category as
@@ -598,7 +700,8 @@ Create `SentinelAddin/Engine/PlacementPolicy.cs`:
 // MA-1a item 6: where a placed element goes, decided over plain values — no Revit API, so tools/promote-check proves it
 // offline. guideline@n's placement block names a workset per category and the phase; Sentinel never places into a design
 // option. Every refusal and every summary line of item 6 is worded here; PlacementApply (the Revit half) reads the model,
-// writes the two parameters and counts into a Tally. The office-template check's words are here too: its count is
+// writes the two parameters and records what it wrote per element (Written); the lines are counted after the commit,
+// from the elements still in the model. The office-template check's words are here too: its count is
 // GuidelineMatcher.OfficeTypesIn.
 using System;
 using System.Collections.Generic;
@@ -609,8 +712,8 @@ namespace Sentinel.Engine
 {
     public static class PlacementPolicy
     {
-        /// <summary>The guideline categories a changeset kind can land in (a column is a Structural Column or a Column: Revit
-        /// decides by its family). An unknown kind names none.</summary>
+        /// <summary>The guideline category a changeset kind lands in (a column is an architectural Column: the executor
+        /// takes its type from OST_Columns only). An unknown kind names none.</summary>
         public static string[] CategoriesOf(string kind)
         {
             switch (kind)
@@ -621,13 +724,20 @@ namespace Sentinel.Engine
                 case "ceiling": return new[] { "Ceilings" };
                 case "door": return new[] { "Doors" };
                 case "window": return new[] { "Windows" };
-                case "column": return new[] { "Structural Columns", "Columns" };
+                case "column": return new[] { "Columns" };
                 case "furniture": return new[] { "Furniture" };
                 case "level": return new[] { "Levels" };
                 case "grid": return new[] { "Grids" };
                 default: return new string[0];
             }
         }
+
+        /// <summary>The changeset kinds Sentinel places — the bridge's vocabulary (changesets-logic.mjs VOCABULARY).</summary>
+        public static readonly string[] Kinds = { "wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "level", "grid" };
+
+        /// <summary>The kind that lands in a category (case and padding ignored); null for one Sentinel does not place.</summary>
+        public static string KindOf(string category) =>
+            Kinds.FirstOrDefault(k => CategoriesOf(k).Any(c => string.Equals(c, (category ?? "").Trim(), StringComparison.OrdinalIgnoreCase)));
 
         /// <summary>The workset the block names for a category (case and padding ignored); null when it names none.</summary>
         public static string WorksetFor(GuidelinePlacement block, string category)
@@ -659,8 +769,19 @@ namespace Sentinel.Engine
             " this model does not have: " + string.Join(", ", names.Select(n => "\"" + n + "\"")) + ". Create " + (names.Count == 1 ? "it" : "them") +
             " (Standards ▸ Apply Standard, or Collaborate ▸ Worksets), then try again — Sentinel never creates a workset while placing, and never picks another.";
 
-        /// <summary>What a placement run did, counted as it goes: elements per workset, elements whose category the block
-        /// names no workset for, and elements whose phase was set.</summary>
+        /// <summary>Review amendment C7: null, or the refusal when the project's guideline could not be read — whether it
+        /// has a placement block is then unknown, and a guess would put every element on the wrong workset. A guideline
+        /// read from the bridge or from its cached copy is read. "None installed" (the bridge said so) and a model that is
+        /// not bound are no block, not a refusal. <paramref name="why"/> is the reader's own reason ("bridge unreachable
+        /// (…)", "guideline@3 · … did not parse: …").</summary>
+        public static string UnreadRefusal(string origin, bool notInstalled, bool bound, string why) =>
+            origin != "none" || notInstalled || !bound ? null
+            : "Nothing was placed — the project's guideline could not be read (" + why + "), so its placement block is unknown. " +
+              "Try again once it can be read — Sentinel never places on a guess.";
+
+        /// <summary>What a placement run did: elements per workset, elements whose category the block names no workset
+        /// for, and elements whose phase was set. Built by <see cref="Written.Surviving"/> after the commit, so it counts
+        /// only what is still in the model.</summary>
         public sealed class Tally
         {
             public readonly Dictionary<string, int> OnWorkset = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -668,6 +789,31 @@ namespace Sentinel.Engine
             public int Phased;
             public void On(string workset) => OnWorkset[workset] = (OnWorkset.TryGetValue(workset, out int n) ? n : 0) + 1;
             public void NoWorkset(string category) => Unnamed[category] = (Unnamed.TryGetValue(category, out int n) ? n : 0) + 1;
+        }
+
+        /// <summary>Review amendment C6: what PlacementApply wrote, per element, inside the placer's transaction. The
+        /// summary is counted from it after the commit, for the elements still in the model — an element Revit removed at
+        /// commit is in no count (the GHB-5 rule).</summary>
+        public sealed class Written
+        {
+            private readonly List<(string Id, string Workset, string Unnamed, bool Phased)> _set = new List<(string, string, string, bool)>();
+
+            /// <summary>One created element: the workset it was put on (null: none), or the category the block names no
+            /// workset for (null: the workset part did not run), and whether its phase was set.</summary>
+            public void Add(string uniqueId, string workset, string unnamedCategory, bool phased) => _set.Add((uniqueId, workset, unnamedCategory, phased));
+
+            public Tally Surviving(IEnumerable<string> uniqueIds)
+            {
+                var alive = new HashSet<string>(uniqueIds ?? new string[0], StringComparer.Ordinal);
+                var tally = new Tally();
+                foreach (var s in _set.Where(s => alive.Contains(s.Id)))
+                {
+                    if (s.Workset != null) tally.On(s.Workset);
+                    else if (s.Unnamed != null) tally.NoWorkset(s.Unnamed);
+                    if (s.Phased) tally.Phased++;
+                }
+                return tally;
+            }
         }
 
         public const string NoBlock =
@@ -691,7 +837,7 @@ namespace Sentinel.Engine
                 lines.Add("Worksets: " + (parts.Count == 0 ? "no element was created" : string.Join(" · ", parts)) + ".");
             }
             if (block.Phase == null) lines.Add("Phase: the guideline's placement block names none — each element is in the phase Revit gave it.");
-            else if (phaseName == null) lines.Add("Phase: not set — the active view has no phase (a schedule, a sheet, a legend); each element is in the phase Revit gave it.");
+            else if (phaseName == null) lines.Add("Phase: not set — the active view has no phase (a sheet, a legend); each element is in the phase Revit gave it.");
             else lines.Add("Phase: " + tally.Phased + " element(s) set to \"" + phaseName + "\", the active view's phase (a level or a grid has no phase).");
             return lines;
         }
@@ -714,8 +860,8 @@ namespace Sentinel.Engine
 ```
 
 - [ ] **Step 5: Run.**
-  - `dotnet run --project tools/promote-check`: expect `275/275 checks pass` (master `231`; 44 new: 13 parity cases, 31 on the block, its words and the template count).
-  - `guideline-check` `17/17`, `ghost-standards-check` `146/146`, `ghost-p2-check` `103/103`: unchanged — they compile `GuidelineMatcher.cs`.
+  - `dotnet run --project tools/promote-check`: expect `284/284 checks pass` (master `231`; 53 new: 16 parity cases, 37 on the block, its words and the template count).
+  - `guideline-check` `17/17`, `ghost-standards-check` `146/146`, `wallpair-check` `9/9`, `annotate-check` `ALL PASS`: unchanged — they compile `GuidelineMatcher.cs`.
   - Both builds: `0 Error(s)`.
 - [ ] **Step 6: Commit.**
 
@@ -726,7 +872,8 @@ feat(engine): the add-in reads a guideline's placement block as the bridge valid
 
 GuidelineMatcher.Placement and the same refusals as the bridge, proven on the shared cases. PlacementPolicy (pure):
 the workset a category names, the worksets a batch needs and the model lacks, the design-option refusal, the summary
-lines, and the office-template check's count and sentence. promote-check 275/275.
+lines counted from the elements still in the model, the unread-guideline refusal, and the office-template check's
+count and sentence. A block's category keys are checked against the categories Sentinel places. promote-check 284/284.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -742,15 +889,17 @@ EOF
 - Modify `SentinelAddin/Compat.cs` (two category keys)
 - Modify `SentinelAddin/GhostBuilder/ChangesetExecutor.cs` (the result, one input, the refusal, the call before the stamp)
 - Modify `SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs` and `SentinelAddin/Commands.ReviewChangesets.cs` (Review AI Proposals and Promote)
-- Modify `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` (Ghost Builder)
+- Modify `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, `SentinelAddin/Commands.GhostBuilder.cs` and `SentinelAddin/GhostBuilder/GhostBuilder_ExtractionAndPlacement.cs` (Ghost Builder: the build, the refusal before the drawing is picked, the report's `Placement` list)
 - Modify `SentinelAddin/Commands.Datum.cs` and `SentinelAddin/GhostBuilder/DatumBuilder.cs` (Datum)
 - Modify `SentinelAddin/Commands.Massing.cs` and `SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs` (Photo Massing)
 
 **Interfaces:**
 - `PlacementApply.DesignOptionRefusal(Document doc, string what) → string` — null, or the refusal naming the design option being edited.
-- `PlacementApply.Resolve(Document doc, GuidelinePlacement block, View view, IEnumerable<string> kinds, out string refusal) → PlacementPlan` — on the API thread, before any transaction. Null with `refusal` set when the batch needs a workset the model does not have. With no block it still returns a plan, whose `Lines()` say so.
-- `PlacementApply.Apply(PlacementPlan plan, IEnumerable<Element> created)` — inside the placer's open transaction, after its creates and before its stamp. A workset it cannot set throws `InvalidOperationException`: the placer's all-or-nothing rule rolls the batch back.
-- `PlacementPlan.Lines() → List<string>` — the summary lines (Task 2's `PlacementPolicy.Lines`).
+- `PlacementApply.Resolve(Document doc, GuidelinePlacement block, View view, IEnumerable<string> kinds, out string refusal) → PlacementPlan` — on the API thread, before any transaction. Null with `refusal` set when the batch needs a workset the model does not have. With no block it still returns a plan, whose lines say so. A view that belongs to another document is read as no view (C17).
+- `PlacementApply.Apply(PlacementPlan plan, IEnumerable<Element> created)` — inside the placer's open transaction, after its creates and before its stamp. A workset it cannot set throws `PlacementRefused` (an `InvalidOperationException`): the placer's all-or-nothing rule rolls the batch back, and the executor answers `NotRun` — the changeset stays proposed, as for the other refusals of item 6 (review amendment C5).
+- `PlacementPlan.Lines(survivingUniqueIds) → List<string>` — the summary lines (Task 2's `PlacementPolicy.Lines`), counted after the commit from the elements still in the model (C6).
+- `PlacementPolicy.UnreadRefusal(…)` (Task 2) is asked by Review AI Proposals and Datum here, and by Ghost Builder and Photo Massing in Task 4, before `Resolve`: a guideline that could not be read is refused (C7).
+- `GhostPlacementEngine.PlacementReport.Placement` and `DatumBuilder.DatumResult.Placement` — the placement lines of a build, apart from its warnings (C18).
 - `ChangesetExecutor.Placement` (input, set by the in-process caller as `WallsBefore` and `Provenance` are) and `ExecutionResult.Placement` (the lines, set by `ChangesetPlacementEvent`).
 - `ChangesetPlacementEvent.SetRequest(cs, ticked, doc, placement)`; `DatumBuilder.Build(detected, placing)`; `GhostBuilderOrchestrator.PlacePrepared(…, placing:)` and `GhostBuilderOrchestrator.Doc`; `MassingPlacementEvent.SetRequest(…, placement)`.
 
@@ -763,7 +912,10 @@ What each case does:
 | A workset the batch needs is not in the model | Refused before any transaction and before anything is filed; the changeset stays proposed | `Nothing was placed — the guideline's placement block names a workset this model does not have: "ARC_Doors". Create it (…), then try again — …` |
 | The block names no workset for a created element's category | The element stays on the active workset | `… · 2 left on the active workset (the guideline names no workset for Furniture).` |
 | The active view has no phase | The phase is left alone | `Phase: not set — the active view has no phase (…)` |
-| A design option is being edited | Refused before any transaction, with or without a guideline; a changeset stays proposed | `Nothing was placed — design option "Option 2" is being edited, and Sentinel never places into a design option. Switch to Main Model (…), then … again.` |
+| A design option is being edited | Refused before any transaction, with or without a guideline; a changeset stays proposed. Ghost Builder and Photo Massing refuse at the top of the command too, before a drawing is imported or an image is read | `Nothing was placed — design option "Option 2" is being edited, and Sentinel never places into a design option. Switch to Main Model (…), then … again.` |
+| The project's guideline could not be read (bridge unreachable and no cached copy; a body that did not parse) | Refused before any transaction and before anything is filed; a changeset stays proposed. Never read as "no block" | `Nothing was placed — the project's guideline could not be read (…), so its placement block is unknown. Try again once it can be read — Sentinel never places on a guess.` |
+| Revit refuses the workset write on an element (a workset owned by another user, a read-only parameter) | The transaction is rolled back whole; a changeset stays proposed (`NotRun`), never declined; Ghost Builder abandons the build and withdraws what it filed | `Nothing was placed — Revit would not put Walls <id> on workset "ARC_Walls" (…).` |
+| Revit removed an element at commit | The lines count only what is still in the model | `Worksets: 2 on ARC_Walls …` beside `1 element(s) removed by Revit at commit` |
 
 Retype and attach change no workset and no phase: only an element a changeset creates is placed.
 
@@ -819,6 +971,27 @@ with
            "Datum from Drawings refuses a design option and places its levels and grids");
         Ok(Src("Commands.Massing.cs").Contains("PlacementApply.DesignOptionRefusal(orch.Doc,") && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("PlacementApply.Apply(placing,"),
            "Photo Massing refuses a design option and places its elements");
+
+        // Review amendments C5, C6, C7, C10, C17.
+        Ok(apply.Contains("class PlacementRefused : InvalidOperationException") && executor.Contains("catch (PlacementRefused ex)")
+           && executor.Contains("NotRun = true, Error = ex.Message") && ghost.Contains("if (res.NotRun) return Abandon("),
+           "a workset write Revit refuses leaves the changeset proposed (NotRun), never declined; Ghost Builder abandons and withdraws what it filed");
+        Ok(apply.Contains("!view.Document.Equals(doc)") && Src("Commands.Massing.cs").Contains("DocPin.Check(app, orch.Doc, \"build the massing\")"),
+           "a view of another model gives no phase, and Photo Massing builds only in the model it was started on");
+        Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("plan.Lines(result.Applied.Select(a => a.RevitUniqueId))")
+           && ghost.Contains("placing.Lines(applied.Select(a => a.RevitUniqueId))")
+           && Src("GhostBuilder", "DatumBuilder.cs").Contains("placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId))")
+           && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("placing.Lines(report.NewElements.Where("),
+           "every placer counts its workset and phase lines after the commit, from the elements still in the model");
+        foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs" })
+            Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
+        string ghostCmd = Src("Commands.GhostBuilder.cs"), massingCmd = Src("Commands.Massing.cs");
+        int ghostOption = ghostCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Ghost Builder\")", StringComparison.Ordinal);
+        Ok(ghostOption > 0 && ghostCmd.IndexOf("new DwgPickWindow(", StringComparison.Ordinal) > ghostOption,
+           "Ghost Builder refuses a design option before a drawing is picked or imported");
+        int massingOption = massingCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Photo Massing\")", StringComparison.Ordinal);
+        Ok(massingOption > 0 && massingCmd.IndexOf("string folder = settings.GhostSourceFolder;", StringComparison.Ordinal) > massingOption,
+           "Photo Massing refuses a design option before an image is read");
     }
 }
 ```
@@ -836,7 +1009,7 @@ with
         PlacementWiringChecks();
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`. Expect an unhandled `FileNotFoundException` naming `SentinelAddin\GhostBuilder\PlacementApply.cs`, after `275` passes: the writer does not exist.
+- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`. Expect an unhandled `FileNotFoundException` naming `SentinelAddin\GhostBuilder\PlacementApply.cs`, after `284` passes: the writer does not exist.
 - [ ] **Step 3: The one writer.**
 
 Create `SentinelAddin/GhostBuilder/PlacementApply.cs`:
@@ -856,8 +1029,17 @@ using Sentinel.Engine;
 
 namespace Sentinel.GhostBuilder
 {
+    /// <summary>Review amendment C5: Revit refused a placement write on a created element (a workset owned by another
+    /// user, a read-only parameter). It is this session's model state, not a verdict on the changeset: the placer rolls its
+    /// transaction back, and the executor answers NotRun, so the changeset stays proposed — as for the other refusals of
+    /// item 6.</summary>
+    public sealed class PlacementRefused : InvalidOperationException
+    {
+        public PlacementRefused(string message) : base(message) { }
+    }
+
     /// <summary>One placement run: the guideline's block (null = none), the model's user worksets, the active view's phase,
-    /// and the count of what was set.</summary>
+    /// and what was written on each element.</summary>
     public sealed class PlacementPlan
     {
         public GuidelinePlacement Block;
@@ -868,9 +1050,13 @@ namespace Sentinel.GhostBuilder
         /// <summary>The active view's phase; null = the phase is left alone.</summary>
         public ElementId PhaseId;
         public string PhaseName;
-        public readonly PlacementPolicy.Tally Tally = new PlacementPolicy.Tally();
+        /// <summary>What Apply wrote, per element (review amendment C6).</summary>
+        public readonly PlacementPolicy.Written Written = new PlacementPolicy.Written();
 
-        public List<string> Lines() => PlacementPolicy.Lines(Block, Workshared, Tally, PhaseName);
+        /// <summary>The summary lines, counted from the elements still in the model: call it after the commit and the
+        /// placer's own recount, with the UniqueIds of what survived. An element Revit removed at commit is in no count.</summary>
+        public List<string> Lines(IEnumerable<string> survivingUniqueIds) =>
+            PlacementPolicy.Lines(Block, Workshared, Written.Surviving(survivingUniqueIds), PhaseName);
     }
 
     public static class PlacementApply
@@ -887,10 +1073,13 @@ namespace Sentinel.GhostBuilder
         /// <summary>Read what the block needs from the model, before any transaction: the user worksets (a workshared model
         /// only) and the active view's phase. Null with <paramref name="refusal"/> when a batch of these
         /// <paramref name="kinds"/> needs a workset the model does not have — a named thing that is missing is refused,
-        /// never replaced. With no block the plan sets nothing and its Lines say so.</summary>
+        /// never replaced. With no block the plan sets nothing and its Lines say so. A view of another document gives no
+        /// phase (review amendment C17): two models from one template share phase ids, and this model's elements are never
+        /// phased by another model's view.</summary>
         public static PlacementPlan Resolve(Document doc, GuidelinePlacement block, View view, IEnumerable<string> kinds, out string refusal)
         {
             refusal = null;
+            if (view != null && !view.Document.Equals(doc)) view = null;
             var plan = new PlacementPlan { Block = block, Workshared = doc.IsWorkshared };
             if (block == null) return plan;
             if (doc.IsWorkshared && block.Worksets != null && block.Worksets.Count > 0)
@@ -911,34 +1100,35 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>Put each created element on the workset its category names and in the plan's phase. Inside the placer's
-        /// open transaction. An element whose category the block names no workset for stays on the active workset (counted);
-        /// an element with no phase (a level, a grid) keeps none. A workset that cannot be set throws: the placer rolls the
-        /// whole batch back, as for any other parameter it cannot set.</summary>
+        /// open transaction. An element whose category the block names no workset for stays on the active workset (recorded);
+        /// an element with no phase (a level, a grid) keeps none. A workset Revit will not set throws PlacementRefused: the
+        /// placer rolls the whole batch back. What was written is recorded per element (plan.Written); the lines are counted
+        /// from it after the commit.</summary>
         public static void Apply(PlacementPlan plan, IEnumerable<Element> created)
         {
             if (plan?.Block == null) return;
             foreach (var e in created)
             {
                 if (e == null) continue;
+                string workset = null, unnamed = null;
                 if (plan.WorksetIds != null)
                 {
-                    // Locale-safe: the block's English category key against the element's BuiltInCategory (Compat).
-                    string key = plan.Block.Worksets.Keys.FirstOrDefault(k => e.Category != null && e.Category.MatchesCategoryKey((k ?? "").Trim()));
-                    if (key == null) plan.Tally.NoWorkset(e.Category?.Name ?? "no category");
+                    // Locale-safe: the element's BuiltInCategory against the ten English category names a block may use
+                    // (Compat), then the block's own key for that category, whatever its case or padding.
+                    string category = GuidelineMatcher.PlacementCategories.FirstOrDefault(c => e.Category != null && e.Category.MatchesCategoryKey(c));
+                    string name = PlacementPolicy.WorksetFor(plan.Block, category);
+                    if (string.IsNullOrEmpty(name)) unnamed = e.Category?.Name ?? "no category";
                     else
                     {
-                        string name = (plan.Block.Worksets[key] ?? "").Trim();
                         var p = e.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
                         if (!plan.WorksetIds.TryGetValue(name, out int id) || p == null || p.IsReadOnly || !p.Set(id))
-                            throw new InvalidOperationException($"could not put {e.Category?.Name} {e.UniqueId} on workset \"{name}\" — nothing was placed");
-                        plan.Tally.On(name);
+                            throw new PlacementRefused($"Nothing was placed — Revit would not put {e.Category?.Name} {e.UniqueId} on workset \"{name}\" (the workset may be owned by another user, or not editable here).");
+                        workset = name;
                     }
                 }
-                if (plan.PhaseId != null && e.HasPhases() && e.ArePhasesModifiable())
-                {
-                    e.CreatedPhaseId = plan.PhaseId;
-                    plan.Tally.Phased++;
-                }
+                bool phased = plan.PhaseId != null && e.HasPhases() && e.ArePhasesModifiable();
+                if (phased) e.CreatedPhaseId = plan.PhaseId;
+                plan.Written.Add(e.UniqueId, workset, unnamed, phased);
             }
         }
     }
@@ -962,7 +1152,7 @@ with
         ["Grids"] = BuiltInCategory.OST_Grids,
 ```
 
-- [ ] **Step 5: The executor.** In `SentinelAddin/GhostBuilder/ChangesetExecutor.cs`, make four replacements. First, the result's lines:
+- [ ] **Step 5: The executor.** In `SentinelAddin/GhostBuilder/ChangesetExecutor.cs`, make five replacements. First, the result's lines:
 
 First, replace
 
@@ -1011,8 +1201,9 @@ with
 ```csharp
         if (!toPlace.Any()) return result;
         // MA-1a item 6: never into a design option — refused before the transaction, for every source; the changeset stays
-        // proposed (NotRun). A retype or an attach creates nothing, so it is not refused here (a retype of an element that
-        // is in an option is refused by Unsafe).
+        // proposed (NotRun). A retype or an attach creates nothing, so it is not refused here. A retype of a floor, roof,
+        // ceiling, door or window that is in an option is refused by Unsafe; a wall's is not (Unsafe keeps MA-0's checks
+        // for walls — Promote's planner holds a wall in an option, an agent's changeset is not held: see Risks).
         if (toPlace.Any(IsCreate) && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption)
             return new ExecutionResult { NotRun = true, Error = inOption };
 
@@ -1035,6 +1226,32 @@ with
             PlacementApply.Apply(Placement, result.Applied.Where(a => IsCreate(toPlace.First(e => e.ProposalGuid == a.ProposalGuid)))
                                                   .Select(a => doc.GetElement(a.RevitUniqueId)));
             // The stamp: once per element, with every guid of this changeset that touched it, merged onto the element's
+```
+
+Fifth (review amendment C5), replace
+
+```csharp
+        catch (Exception ex)
+        {
+            if (t.HasStarted() && !t.HasEnded()) t.RollBack();
+            // Our own refusals already name the element; anything else (a Revit API or .NET exception) is named here, with
+```
+
+with
+
+```csharp
+        catch (PlacementRefused ex)
+        {
+            // MA-1a item 6 (review amendment C5): Revit refused a workset write — this session's model state, not a verdict
+            // on the changeset. Rolled back whole; the changeset stays proposed (NotRun), like the other refusals of item 6.
+            // An Error without NotRun would be reported to the ledger as declined, and could not be applied again.
+            if (t.HasStarted() && !t.HasEnded()) t.RollBack();
+            return new ExecutionResult { NotRun = true, Error = ex.Message };
+        }
+        catch (Exception ex)
+        {
+            if (t.HasStarted() && !t.HasEnded()) t.RollBack();
+            // Our own refusals already name the element; anything else (a Revit API or .NET exception) is named here, with
 ```
 
 - [ ] **Step 6: Review AI Proposals and Promote.** In `SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs`, make three replacements. First, the request carries the block:
@@ -1104,8 +1321,10 @@ with
                 result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
             }
             else result = RunChecked(doc, cs, ticked, before, plan);
-            // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing.
-            if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null) result.Placement = plan.Lines();
+            // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing. Counted
+            // from result.Applied — what the executor's recount left — so an element Revit removed at commit is in no line.
+            if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null)
+                result.Placement = plan.Lines(result.Applied.Select(a => a.RevitUniqueId));
         }
 ```
 
@@ -1165,13 +1384,23 @@ Second, replace
 with
 
 ```csharp
-            handler.Completed += onDone;
             // MA-1a item 6: the project's guideline, for its placement block — only when a ticked element is a create.
-            // Fetched off this thread and waited for (4 s at most), as Annotate does; none installed, or none readable,
-            // is no block, and the result says so.
-            GuidelinePlacement placement = fresh.Elements.Any(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create"))
-                ? Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult().Guideline.Placement
-                : null;
+            // Fetched off this thread and waited for (4 s at most), as Annotate does. None installed is no block, and the
+            // result says so. A guideline that could not be read is not "no block" (review amendment C7): nothing runs,
+            // and the changeset stays proposed.
+            GuidelinePlacement placement = null;
+            if (fresh.Elements.Any(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")))
+            {
+                var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                                                  !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+                {
+                    TaskDialog.Show("Sentinel — AI proposals", unread + "\n\nThe proposals are still pending — run Review AI Proposals again once the guideline can be read.");
+                    return;
+                }
+                placement = standards.Guideline.Placement;
+            }
+            handler.Completed += onDone;
             handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement);
             evt.Raise();
 ```
@@ -1189,7 +1418,7 @@ with
                     (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "")); // MA-1a item 6
 ```
 
-- [ ] **Step 7: Ghost Builder.** In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, make four replacements. Both refusals come before anything is filed, so no changeset is left on the ledger for a build that did not run. First, the design option:
+- [ ] **Step 7: Ghost Builder.** In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, make five replacements. Both refusals come before anything is filed, so no changeset is left on the ledger for a build that did not run. First, the design option (the command asks the same question before the drawing is picked — the last part of this step; this one covers an option entered while the review is open):
 
 First, replace
 
@@ -1234,7 +1463,22 @@ with
                     var res = new ChangesetExecutor { WallsBefore = wallsBefore, Provenance = facts, Placement = placing }.Execute(doc, cs, new HashSet<string>(cs.Elements.Select(e => e.ProposalGuid)));
 ```
 
-Fourth, replace
+Fourth (review amendment C5), replace
+
+```csharp
+                    if (res.Error != null) return Decline(cs, res.Error);
+```
+
+with
+
+```csharp
+                    // MA-1a item 6 (review amendment C5): Revit refused a placement write — nothing is declined. The whole
+                    // build is rolled back and what was filed is withdrawn, as for a refusal before filing.
+                    if (res.NotRun) return Abandon(res.Error + " The build was rolled back, the types step too.");
+                    if (res.Error != null) return Decline(cs, res.Error);
+```
+
+Fifth, replace
 
 ```csharp
                 report.Placed = applied.Count;
@@ -1245,8 +1489,69 @@ with
 
 ```csharp
                 report.Placed = applied.Count;
-                report.Warnings.AddRange(placing.Lines()); // MA-1a item 6: the worksets and the phase, or why nothing was set
+                // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
+                // executor's recount left in the model. Its own list: a result of the build, not a warning.
+                report.Placement.AddRange(placing.Lines(applied.Select(a => a.RevitUniqueId)));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
+```
+
+The report's own list (review amendment C18). In `SentinelAddin/GhostBuilder/GhostBuilder_ExtractionAndPlacement.cs`, replace
+
+```csharp
+            public readonly List<string> Warnings = new List<string>();
+            /// <summary>Types and families this build added to the model: families loaded, wall and floor types the mapping names, guideline-gap sizes.</summary>
+```
+
+with
+
+```csharp
+            public readonly List<string> Warnings = new List<string>();
+            /// <summary>MA-1a item 6: what the placement block did to this build's elements — worksets, phase — or why it did
+            /// nothing. Its own list: a result of the build, printed apart from the warnings.</summary>
+            public readonly List<string> Placement = new List<string>();
+            /// <summary>Types and families this build added to the model: families loaded, wall and floor types the mapping names, guideline-gap sizes.</summary>
+```
+
+Then in `SentinelAddin/Commands.GhostBuilder.cs`, make two replacements. First, the design option is asked before a drawing is picked (review amendment C10): the import below is a transaction of its own, and would land in the option being edited. Replace
+
+```csharp
+        // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
+```
+
+with
+
+```csharp
+        // MA-1a item 6 (review amendment C10): never into a design option — said before a drawing is picked, imported or
+        // read. The build asks again (GhostChangesetBuild), for an option entered while the review is open.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Ghost Builder") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Ghost Builder", inOption);
+            return Result.Cancelled;
+        }
+
+        // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
+```
+
+Second, the summary prints the placement lines as a result, before the warnings. Replace
+
+```csharp
+        if (r.Warnings.Count > 0)
+        {
+            // Collapse identical warnings (a dirty layer can skip tens of thousands of elements for
+```
+
+with
+
+```csharp
+        // MA-1a item 6: what the placement block did — a result of the build, not a warning.
+        if (r.Placement.Count > 0)
+        {
+            lines.AppendLine();
+            foreach (var p in r.Placement) lines.AppendLine(p);
+        }
+        if (r.Warnings.Count > 0)
+        {
+            // Collapse identical warnings (a dirty layer can skip tens of thousands of elements for
 ```
 
 - [ ] **Step 8: Datum from Drawings.** Datum creates levels and grids in its own transaction (founder decision F7 of the items 3–5 plan). In `SentinelAddin/Commands.Datum.cs`, make three replacements. First, the using and the design option:
@@ -1305,7 +1610,16 @@ with
         // waited for, 4 s at most; an unbound model has none). A workset the block names for Levels or Grids that the
         // model lacks is refused before the transaction.
         string key = ProjectContext.For(doc).Key;
-        var block = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult().Guideline.Placement;
+        var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
+        // Review amendment C7: a guideline that could not be read is not "no block" — refused before anything is created.
+        if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                                          !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+        {
+            TaskDialog.Show("Sentinel — Datum", unread);
+            return Result.Cancelled;
+        }
+        var block = standards.Guideline.Placement;
+        // Asked by what the drawing holds, not by what will be new (E4): a level that already exists is still asked for.
         var kinds = new[] { detected.Levels.Count > 0 ? "level" : null, detected.Grids.Count > 0 ? "grid" : null }.Where(k => k != null);
         var placing = PlacementApply.Resolve(doc, block, uidoc.ActiveView, kinds, out var noWorkset);
         if (placing == null)
@@ -1314,15 +1628,36 @@ with
             return Result.Cancelled;
         }
 
-        var result = builder.Build(detected, placing);
+        DatumBuilder.DatumResult result;
+        try { result = builder.Build(detected, placing); }
+        catch (PlacementRefused ex)
+        {
+            // Review amendment C5: Revit refused a workset write; Build rolled its transaction back. Said in Sentinel's
+            // own dialog, not as an external-command exception.
+            TaskDialog.Show("Sentinel — Datum", ex.Message);
+            return Result.Cancelled;
+        }
         TaskDialog.Show("Sentinel — Datum",
             $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
-            "\n\n" + string.Join("\n", placing.Lines()) +
+            "\n\n" + string.Join("\n", result.Placement) +
 ```
 
-Then in `SentinelAddin/GhostBuilder/DatumBuilder.cs`, make two replacements:
+Then in `SentinelAddin/GhostBuilder/DatumBuilder.cs`, make three replacements. First, the result carries the placement lines: replace
 
-In `SentinelAddin/GhostBuilder/DatumBuilder.cs`, replace
+```csharp
+            public int LevelsCreated, GridsCreated;
+```
+
+with
+
+```csharp
+            public int LevelsCreated, GridsCreated;
+            /// <summary>MA-1a item 6: the placement block's lines for what Build created, counted after its commit from the
+            /// levels and grids still in the model; null when Build was given no plan.</summary>
+            public List<string> Placement;
+```
+
+Second, in `SentinelAddin/GhostBuilder/DatumBuilder.cs`, replace
 
 ```csharp
         public DatumResult Build(DatumResult detected)
@@ -1370,6 +1705,8 @@ with
                 // MA-1a item 6: each new level and grid on the workset the guideline names — inside this transaction.
                 PlacementApply.Apply(placing, made);
                 t.Commit();
+                // Counted after the commit, from the levels and grids still in the model (review amendment C6).
+                detected.Placement = placing?.Lines(made.Where(e => e.IsValidObject).Select(e => e.UniqueId));
 ```
 
 - [ ] **Step 9: Photo Massing.** Massing places through `PlacePrepared`, off the executor until MA-6 (step-2 F5). In `SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs`, make four replacements:
@@ -1421,7 +1758,9 @@ with
 
 ```csharp
                 foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) report.RevitWarnings[kv.Key] = kv.Value;
-                if (placing != null) report.Warnings.AddRange(placing.Lines()); // MA-1a item 6: said once the build is committed
+                // MA-1a item 6: said once the build is committed, counted from this build's elements still in the model.
+                if (placing != null)
+                    report.Placement.AddRange(placing.Lines(report.NewElements.Where(n => _doc.GetElement(n.Id) != null).Select(n => _doc.GetElement(n.Id).UniqueId)));
             }
             catch
 ```
@@ -1440,7 +1779,7 @@ with
         public Document Doc => _doc;
 ```
 
-Then in `SentinelAddin/Commands.Massing.cs`, make three replacements. The block rides with the request; the placement event refuses a design option and a missing workset before the transaction (an exception here becomes the dialog's `Build failed: …`, as every other refusal of this event does).
+Then in `SentinelAddin/Commands.Massing.cs`, make five replacements. The block rides with the request; the placement event refuses a model that is no longer the active one, a design option and a missing workset before the transaction (an exception here becomes the dialog's `Build failed: …`, as every other refusal of this event does). The command also refuses a design option before an image is read (review amendment C10), and its summary prints the placement lines apart from its notes (C18).
 
 First, replace
 
@@ -1475,9 +1814,6 @@ with
     private string _imagesSha; // MA-1a item 4: the images read, for the stamp
     private GuidelinePlacement _placement; // MA-1a item 6: the guideline's placement block; null = none
 
-    // MA-1a item 6: what a massing plan can create (MassingBuilder.ToBuildInputs' categories), for the missing-workset check.
-    private static readonly string[] Kinds = { "wall", "floor", "door", "window" };
-
     public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
 
     public void SetRequest(GhostBuilderOrchestrator orchestrator,
@@ -1508,30 +1844,87 @@ with
         try
         {
             if (orch == null) throw new InvalidOperationException("No massing request staged.");
+            // XC-1 (review amendment C17): the review window is modeless — build only while the model the command was
+            // started on is the active one, so the active view (and its phase) is that model's.
+            if (DocPin.Check(app, orch.Doc, "build the massing") is { } pinned) throw new InvalidOperationException(pinned);
             // MA-1a item 6: never into a design option, and never onto a workset the model does not have — both said
             // before the transaction.
             if (PlacementApply.DesignOptionRefusal(orch.Doc, "build the massing") is { } inOption) throw new InvalidOperationException(inOption);
-            var placing = PlacementApply.Resolve(orch.Doc, placement, app.ActiveUIDocument?.ActiveView, Kinds, out var noWorkset);
+            // Only the kinds of the layers this plan staged are asked for (review amendment C8): a massing with no
+            // openings needs no Doors or Windows workset.
+            var kinds = map?.Mappings == null || els == null ? new System.Collections.Generic.List<string>()
+                : map.Mappings.Where(m => els.Any(e => e.CadLayer == m.CadLayer)).Select(m => PlacementPolicy.KindOf(m.Category))
+                     .Where(k => k != null).Distinct().ToList();
+            var placing = PlacementApply.Resolve(orch.Doc, placement, app.ActiveUIDocument?.ActiveView, kinds, out var noWorkset);
             if (placing == null) throw new InvalidOperationException(noWorkset);
             Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha, placing: placing), null);
         }
 ```
 
+Fourth (review amendment C10), replace
+
+```csharp
+        if (uidoc?.Document is not { } doc) return Result.Cancelled;
+
+        var settings = SettingsManager.Resolve(doc);
+        string folder = settings.GhostSourceFolder;
+```
+
+with
+
+```csharp
+        if (uidoc?.Document is not { } doc) return Result.Cancelled;
+        // MA-1a item 6 (review amendment C10): never into a design option — said before an image is read. The placement
+        // event asks again, for an option entered while the review is open.
+        if (PlacementApply.DesignOptionRefusal(doc, "run Photo Massing") is { } inOption)
+        {
+            TaskDialog.Show("Sentinel — Massing", inOption);
+            return Result.Cancelled;
+        }
+
+        var settings = SettingsManager.Resolve(doc);
+        string folder = settings.GhostSourceFolder;
+```
+
+Fifth (review amendment C18), replace
+
+```csharp
+        if (r.Warnings.Count > 0)
+        {
+            sb.AppendLine().AppendLine("Notes:");
+```
+
+with
+
+```csharp
+        // MA-1a item 6: what the placement block did — a result of the build, not a note.
+        if (r.Placement.Count > 0)
+        {
+            sb.AppendLine();
+            foreach (var p in r.Placement) sb.AppendLine(p);
+        }
+        if (r.Warnings.Count > 0)
+        {
+            sb.AppendLine().AppendLine("Notes:");
+```
+
 - [ ] **Step 10: Run.**
   - Both builds: `0 Error(s)`, warnings as on master.
-  - `dotnet run --project tools/promote-check`: expect `285/285 checks pass` (10 new, the wiring).
+  - `dotnet run --project tools/promote-check`: expect `301/301 checks pass` (17 new, the wiring).
   - `ghost-p2-check` `103/103` and `session-check` `47/47`: unchanged.
 - [ ] **Step 11: Commit.**
 
 ```bash
-git add SentinelAddin/GhostBuilder/PlacementApply.cs SentinelAddin/Compat.cs SentinelAddin/GhostBuilder/ChangesetExecutor.cs SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/Commands.Datum.cs SentinelAddin/GhostBuilder/DatumBuilder.cs SentinelAddin/Commands.Massing.cs SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs tools/promote-check/PlacementBlock.cs tools/promote-check/Check.cs
+git add SentinelAddin/GhostBuilder/PlacementApply.cs SentinelAddin/Compat.cs SentinelAddin/GhostBuilder/ChangesetExecutor.cs SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/GhostBuilder/GhostBuilder_ExtractionAndPlacement.cs SentinelAddin/Commands.GhostBuilder.cs SentinelAddin/Commands.Datum.cs SentinelAddin/GhostBuilder/DatumBuilder.cs SentinelAddin/Commands.Massing.cs SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs tools/promote-check/PlacementBlock.cs tools/promote-check/Check.cs
 git commit -F - <<'EOF'
 feat(executor): every element Sentinel creates goes to the workset its category names and the view's phase, and never into a design option (MA-1a item 6)
 
 One writer (PlacementApply), called inside each placer's transaction before its stamp: the changeset executor (Ghost
-Builder, Review AI Proposals, Promote), Datum and Photo Massing. A design option being edited and a workset the model
-lacks are refused before any transaction and before anything is filed. No block, a model that is not workshared and
-a view with no phase are said in the summary. promote-check 285/285.
+Builder, Review AI Proposals, Promote), Datum and Photo Massing. A design option being edited, a workset the model
+lacks and a guideline that could not be read are refused before any transaction and before anything is filed; a
+workset write Revit refuses rolls the batch back and leaves the changeset proposed. No block, a model that is not
+workshared and a view with no phase are said in the summary, whose counts are taken after the commit from the
+elements still in the model. promote-check 301/301.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -1542,7 +1935,7 @@ EOF
 ### Task 4 — The office-template check in Ghost Builder, Photo Massing and Promote (item 6)
 
 **Files:**
-- Modify `tools/promote-check/PlacementBlock.cs` (three wiring checks)
+- Modify `tools/promote-check/PlacementBlock.cs` (five wiring checks)
 - Modify `SentinelAddin/Commands.GhostBuilder.cs` (`LoadedTypes` becomes `internal`; the check after the standards load; the summary line)
 - Modify `SentinelAddin/Commands.Massing.cs` (the same)
 - Modify `SentinelAddin/Commands.PromoteWalls.cs` (the same, before planning)
@@ -1559,7 +1952,7 @@ Review AI Proposals loads no catalogue and already refuses a named type the mode
 In `tools/promote-check/PlacementBlock.cs`, replace
 
 ```csharp
-           "Photo Massing refuses a design option and places its elements");
+           "Photo Massing refuses a design option before an image is read");
     }
 }
 ```
@@ -1567,7 +1960,7 @@ In `tools/promote-check/PlacementBlock.cs`, replace
 with
 
 ```csharp
-           "Photo Massing refuses a design option and places its elements");
+           "Photo Massing refuses a design option before an image is read");
 
         // The office-template check: the three commands that load the catalogue count, refuse at none, and say the count.
         foreach (var (file, count) in new[]
@@ -1582,11 +1975,14 @@ with
                && src.Contains("PlacementPolicy.TemplateRefusal(officeAll,") && src.Contains("PlacementPolicy.TemplateLine("),
                file + ": counts the office types in the model, refuses when there are none, and says the count");
         }
+        // Review amendment C7: the two commands that load the full standards refuse a guideline that could not be read.
+        foreach (var file in new[] { "Commands.GhostBuilder.cs", "Commands.Massing.cs" })
+            Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
     }
 }
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect `285/288 checks pass` with three `FAIL` lines, one per command.
+- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect `301/306 checks pass` with five `FAIL` lines.
 - [ ] **Step 3: Ghost Builder.** In `SentinelAddin/Commands.GhostBuilder.cs`, make five replacements. First, the model's types are read once, for the review's drop-downs and for the check:
 
 First, replace
@@ -1626,6 +2022,14 @@ with
 
 ```csharp
                 standards = resolved;
+                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block" — nothing is
+                // built on a guess about the office's worksets.
+                if (PlacementPolicy.UnreadRefusal(resolved.GuidelineSource.Origin, resolved.GuidelineSource.NotInstalled,
+                                                  !string.IsNullOrWhiteSpace(key), resolved.GuidelineSource.Reason) is { } unread)
+                {
+                    FailOnUi(progress, Release, unread);
+                    return;
+                }
                 // MA-1a item 6, the office-template check: Build from Evidence runs only in a model whose types match the
                 // installed catalogue. Refused when the model holds none of the office types (founder decision F5);
                 // otherwise the count is said in the summary. The DWG import made above stays in the model, as it does
@@ -1717,6 +2121,13 @@ with
 ```csharp
                 standards = await fetch.ConfigureAwait(false);
                 if (progress.Token.IsCancellationRequested) return;
+                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block".
+                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled,
+                                                  !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+                {
+                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", unread); });
+                    return;
+                }
                 // MA-1a item 6, the office-template check: refused when the model holds none of the office types.
                 var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(loadedTypes);
                 if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
@@ -1788,7 +2199,7 @@ with
         header += "\n" + PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
 ```
 
-- [ ] **Step 6: Run.** Both builds `0 Error(s)`; `dotnet run --project tools/promote-check`: expect `288/288 checks pass`.
+- [ ] **Step 6: Run.** Both builds `0 Error(s)`; `dotnet run --project tools/promote-check`: expect `306/306 checks pass`.
 - [ ] **Step 7: Commit.**
 
 ```bash
@@ -1798,7 +2209,7 @@ feat(ghost): the office-template check — Ghost Builder, Photo Massing and Prom
 
 "this model was not made from the office template": refused when the open model holds none of the catalogue's types
 in the guideline's categories; otherwise "Office template: N of M office type(s) present". With no catalogue it says
-not checked. promote-check 288/288.
+not checked. Both commands refuse a guideline that could not be read. promote-check 306/306.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -1875,7 +2286,7 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
 });
 ```
 
-- [ ] **Step 2: Run them, and see them fail.** From `WebApp`: `npx vitest run bridge/write-roles.test.mjs`. Expect `12 failed`: the eight types and the budget test answer 400 `a signed-in caller writes notes only …`; the receipt test, the refusal test and the first assertion of the viewer test fail the same way.
+- [ ] **Step 2: Run them, and see them fail.** From `WebApp`: `npx vitest run bridge/write-roles.test.mjs`. Expect `12 failed`. On master `recordNote` checks the role before the type (`cde-store.mjs:1075`), so who posts decides the answer: the eight contributor reports answer 403 `a note on the ledger is a lead's (you are contributor) — nothing was saved`; the owner's budget test answers 400 `a signed-in caller writes notes only …`; the receipt test, the refusal test and the first assertion of the viewer test fail on those two answers too (and the machine credential's `build` row is stored as posted, unworded and unmarked).
 - [ ] **Step 3: The types and the receipt rule.** In `WebApp/bridge/cde-store.mjs`, make two replacements. First, the list:
 
 First, replace
@@ -2268,7 +2679,7 @@ namespace Sentinel.Coordination
 }
 ```
 
-- [ ] **Step 4: Run.** `dotnet run --project tools/promote-check`: expect `313/313 checks pass` (25 new). Both builds `0 Error(s)`.
+- [ ] **Step 4: Run.** `dotnet run --project tools/promote-check`: expect `331/331 checks pass` (25 new). Both builds `0 Error(s)`.
 - [ ] **Step 5: Commit.**
 
 ```bash
@@ -2278,7 +2689,7 @@ feat(engine): one report row per run of a modelling command, and the Doctor's on
 
 CommandReports (pure): the audit bodies for Datum, Ghost Builder, Photo Massing, Annotate, Apply Standard, auto-fix,
 fix-in-place and the Doctor — counts and actor, lists capped at 50 beside their totals. DoctorBuffer gathers the
-Doctor's resolutions per project for 60 s, so a busy minute is one row. promote-check 313/313.
+Doctor's resolutions per project for 60 s, so a busy minute is one row. promote-check 331/331.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -2295,30 +2706,32 @@ EOF
 - Modify `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` (Ghost Builder)
 - Modify `SentinelAddin/Commands.Massing.cs` and `SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs` (Photo Massing; a comment in the second)
 - Modify `SentinelAddin/Commands.Annotate.cs` (Annotate; the commit is now checked)
-- Modify `SentinelAddin/Commands.Standards.cs` (Apply Standard's model half)
+- Modify `SentinelAddin/Commands.Standards.cs`, `SentinelAddin/Standards/StandardsBuilder.cs` and `SentinelAddin/Engine/SentinelUndo.cs` (Apply Standard's model half; a step counts as created only what Revit committed and kept — review amendment C9)
 - Modify `SentinelAddin/Workflow/AutoFixExecution.cs` (auto-fix)
 - Modify `SentinelAddin/Commands.BcfIssues.cs` (fix-in-place Apply)
-- Modify `SentinelAddin/Updaters/FailureInterceptor.cs` (the Doctor)
+- Modify `SentinelAddin/Updaters/FailureInterceptor.cs` and `SentinelAddin/Updaters/DoctorPolicy.cs` (the Doctor; a resolution carries its project — C23)
 - Modify `SentinelAddin/Engine/ProvenanceStamp.cs` (the reader's words for a Datum or Massing element, and a comment)
 
-**Interfaces:** `GovernedNotify.Report(string what, object payload, string projectKey, Dispatcher ui = null)` — returns at once. `ui` is the pane's dispatcher, given only by a caller that is not on Revit's API thread (the Doctor's flush). The POST runs on a pool thread (`Event`, 6 s cap); when it answers, one line goes to the pane's Doctor log through `BeginInvoke`: `<what> — Recorded: ledger #N · receipt …`, `<what> — Not recorded — <why>`, `<what> — Not confirmed — <why>`. An unbound model sends nothing and logs `<what> — Not recorded on the web: This model is not bound …`. It never throws, never waits and never shows a dialog, so no command is blocked or delayed by the ledger.
+**Interfaces:** `GovernedNotify.Report(string what, object payload, string projectKey, Dispatcher ui = null)` — returns at once. `ui` is the pane's dispatcher, given only by a caller that is not on Revit's API thread (the Doctor's flush). The POST runs on a pool thread (`Event`, 6 s cap); when it answers, one line goes to the pane's Doctor log through `BeginInvoke`: `<what> — Recorded: ledger #N · receipt …`, `<what> — Not recorded — <why>`, `<what> — Not confirmed — <why>`. A 413 or a 429 reads `Not recorded — HTTP 429: …`: the report route refuses both before it writes (review amendment C22). An unbound model sends nothing and logs `<what> — Not recorded on the web: This model is not bound …`. It never throws, never waits and never shows a dialog, so no command is blocked or delayed by the ledger.
 
 When each command reports (never for something that did not happen):
 
 | Command | Reports when | Row |
 |---|---|---|
 | Datum from Drawings | its transaction committed and it created at least one level or grid | `datum` |
-| Ghost Builder | the build was kept (its Undo group assimilated) | `ghost_build`, beside its changesets' own rows |
+| Ghost Builder | the build was kept (its Undo group assimilated) and at least one element is still in the model | `ghost_build`, beside its changesets' own rows |
 | Photo Massing | the build committed and placed at least one element | `massing` |
 | Annotate | its transaction committed and it created at least one view | `annotate` |
-| Apply Standard | the build was kept and created at least one thing | `apply_standard` (the ruleset install keeps its own artefact row) |
+| Apply Standard | Revit kept the build's Undo group, and at least one model thing was created in a step Revit committed. The line "Ruleset: installing …" is not a creation and is not counted | `apply_standard` (the ruleset install keeps its own artefact row) |
 | ⚡ Fix (auto-fix) | Revit committed the rename; one row per click | `auto_fix` |
 | Fix-in-place Apply | at least one value was written; one row per Apply | `fix_in_place` |
 | Doctor | Revit's own fix resolved a warning in a committed transaction; one row per project per minute (`DoctorBuffer`) | `doctor` |
 
 A run that changed nothing, was rolled back or was refused writes no row. An Undo after the report is not tracked: the row says what was done (only changesets have `changeset_reverted`).
 
-Two honesty fixes ride along, because a report must not claim a commit it did not see: Datum and Annotate checked no commit status and said "Created N" either way. Both now say `Nothing was created — Revit did not commit the transaction` and report nothing.
+Three honesty fixes ride along, because a report must not claim a commit it did not see:
+- Datum and Annotate checked no commit status and said "Created N" either way. Both now say `Nothing was created — Revit did not commit the transaction` and report nothing.
+- Apply Standard added to its "created" list before each step's commit, checked no commit status, ignored the status of its Undo group, and counted the line "Ruleset: installing …" as a creation (review amendment C9). Now a step's lines count as created only when Revit committed the step; `SentinelUndo.Run` answers false when Revit did not keep the group; and the report is built from the model's creations only.
 
 - [ ] **Step 1: The failing check.**
 
@@ -2372,6 +2785,24 @@ with
         Ok(doctor.Contains("Reported.Add(key, p.Text, p.Tx, p.Ids)") && doctor.Contains("Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds))")
            && doctor.Contains("Reported.Take(key)"),
            "the Doctor gathers a minute's resolutions per project and reports them as one row");
+
+        // Review amendments C9, C19, C22, C23.
+        Ok(body.Contains("\"HTTP 413\"") && body.Contains("\"HTTP 429\"") && body.Contains("LedgerResult.NotRecorded("),
+           "a report the route refused before writing (413, 429) reads \"not recorded\" in the pane, never \"may have landed\"");
+        string ghostBuild = Src("GhostBuilder", "GhostChangesetBuild.cs");
+        int gate = ghostBuild.IndexOf("if (report.Placed > 0)", StringComparison.Ordinal);
+        Ok(gate > 0 && ghostBuild.IndexOf("GovernedNotify.Report(\"Ghost Builder\"", StringComparison.Ordinal) > gate,
+           "Ghost Builder reports only a build that left an element in the model");
+        string applyStandard = Src("Commands.Standards.cs");
+        Ok(Src("Engine", "SentinelUndo.cs").Contains("keep = g.Assimilate() == TransactionStatus.Committed")
+           && applyStandard.Contains("kept = Sentinel.Engine.SentinelUndo.Run(") && applyStandard.Contains("if (kept && modelCreated.Count > 0)")
+           && applyStandard.Contains("!c.StartsWith(\"Ruleset:\", StringComparison.Ordinal)"),
+           "Apply Standard reports only a build Revit kept, and only its model creations — never the ruleset install's line");
+        string standardsBuilder = Src("Standards", "StandardsBuilder.cs");
+        Ok(standardsBuilder.Contains("private static void Committed(Transaction t, BuildReport r, int from)") && !standardsBuilder.Contains("t.Commit();"),
+           "each Apply Standard step counts as created only what Revit committed");
+        Ok(doctor.Contains("Project = ProjectContext.For(doc).Key") && doctor.Contains("p.Project == key"),
+           "a Doctor resolution is reported only under the project of the model it happened in");
     }
 }
 ```
@@ -2389,7 +2820,7 @@ with
         ReportWiringChecks();
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect `313/327 checks pass` with 14 `FAIL` lines — no command reports yet.
+- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect `331/350 checks pass` with 19 `FAIL` lines — no command reports yet.
 - [ ] **Step 3: The one poster.**
 
 In `SentinelAddin/Coordination/GovernedNotify.cs`, replace
@@ -2415,9 +2846,15 @@ with
             // The pane's thread: the caller's own when it is Revit's API thread (every command), else the one it hands over
             // (the Doctor's flush runs on a pool thread, where there is no pane dispatcher to find).
             ui = ui ?? System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            // Review amendment C22: the report route answers 413 and 429 before it writes (cde-store.mjs recordRevitReport),
+            // so for this poster they are "not recorded". LedgerResult's own wording — "the entry may have landed" — stays
+            // for the routes nobody has checked. A refused report is lost, not retried.
+            LedgerResult Refused(LedgerResult r) =>
+                r.State == LedgerState.NotConfirmed && (r.Reason.StartsWith("HTTP 413", StringComparison.Ordinal) || r.Reason.StartsWith("HTTP 429", StringComparison.Ordinal))
+                    ? LedgerResult.NotRecorded(r.Reason.Replace(" (the entry may have landed)", "")) : r;
             void Say(LedgerResult ledger) => ui.BeginInvoke(new Action(() =>
             {
-                try { Sentinel.App.PanelVm?.LogDoctor(what + " — " + LedgerLine.Sentence(ledger)); } catch { /* the pane is gone */ }
+                try { Sentinel.App.PanelVm?.LogDoctor(what + " — " + LedgerLine.Sentence(Refused(ledger))); } catch { /* the pane is gone */ }
             }));
             string key = KeyOf(projectKey);
             if (key.Length == 0) { Say(LedgerResult.NotBound()); return; }
@@ -2493,17 +2930,16 @@ using Sentinel.Engine;
 using Sentinel.GhostBuilder;
 ```
 
-Then replace
+Then replace (the dialog that says what was created)
 
 ```csharp
-        var result = builder.Build(detected, placing);
         TaskDialog.Show("Sentinel — Datum",
+            $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
 ```
 
 with
 
 ```csharp
-        var result = builder.Build(detected, placing);
         if (!result.Committed)
         {
             TaskDialog.Show("Sentinel — Datum", "Nothing was created — Revit did not commit the transaction (an element it needs may be owned by another user). The model is as it was.");
@@ -2514,6 +2950,7 @@ with
             GovernedNotify.Report("Datum from Drawings", CommandReports.Datum(result.LevelsCreated, result.GridsCreated,
                 result.Warnings.Distinct().Count(), result.SourceSha256, UserSession.Actor), key);
         TaskDialog.Show("Sentinel — Datum",
+            $"Created {result.LevelsCreated} level(s) and {result.GridsCreated} grid(s), each stamped with where it came from (Model from Drawings ▸ 5 · Provenance reads it)." +
 ```
 
 - [ ] **Step 5: Ghost Builder.** The build's own row, beside its changesets' rows; an unbound build sends nothing and the pane log says so. In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, replace
@@ -2532,10 +2969,12 @@ with
                 if (idsRejected > 0)
                     report.Warnings.Insert(0, $"IDS: {idsRejected} element(s) did not pass the project's IDS — built as reviewed in Ghost's review (founder decision F2); each verdict is on its changeset.");
                 // MA-1a item 7: one ghost_build row for the build that was kept — the counts of the summary — sent off this
-                // thread; the pane's log says what the ledger answered.
-                GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
-                    report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily,
-                    report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                // thread; the pane's log says what the ledger answered. Only when an element is still in the model (review
+                // amendment C19): a build whose every element Revit removed at commit is not an action to report.
+                if (report.Placed > 0)
+                    GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
+                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily,
+                        report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
                 return report;
 ```
 
@@ -2665,9 +3104,156 @@ with
         var sb = new System.Text.StringBuilder();
 ```
 
-- [ ] **Step 8: Apply Standard.** The model half; the ruleset install keeps its own artefact row. In `SentinelAddin/Commands.Standards.cs`, replace
+- [ ] **Step 8: Apply Standard.** The model half; the ruleset install keeps its own artefact row. First the three honesty fixes of review amendment C9, then the report.
 
+In `SentinelAddin/Engine/SentinelUndo.cs`, replace (`Run` answers whether Revit kept the group)
 
+```csharp
+        if (keep) g.Assimilate(); else RollBack(g, doc);
+        return keep;
+```
+
+with
+
+```csharp
+        // MA-1a item 7 (review amendment C9): kept only when Revit assimilated the group — a caller that reports what the
+        // action did must not report a group Revit did not keep.
+        if (keep) keep = g.Assimilate() == TransactionStatus.Committed; else RollBack(g, doc);
+        return keep;
+```
+
+In `SentinelAddin/Standards/StandardsBuilder.cs`, make six replacements: each of the four steps counts as created only what Revit committed. First (worksets), replace
+
+```csharp
+        using var t = new Transaction(doc, "Sentinel: Build worksets");
+        t.Start();
+```
+
+with
+
+```csharp
+        using var t = new Transaction(doc, "Sentinel: Build worksets");
+        t.Start();
+        int from = r.Created.Count; // MA-1a item 7 (C9): this step's "created" lines hold only if Revit commits it
+```
+
+Second, replace
+
+```csharp
+            catch (Exception ex) { r.Failed.Add($"Workset '{w.Name}': {ex.Message}"); }
+        }
+        t.Commit();
+    }
+```
+
+with
+
+```csharp
+            catch (Exception ex) { r.Failed.Add($"Workset '{w.Name}': {ex.Message}"); }
+        }
+        Committed(t, r, from);
+    }
+
+    /// MA-1a item 7 (review amendment C9): commit a step, and keep its "created" lines only when Revit committed it. When
+    /// it did not, the lines the step added since <paramref name="from"/> move to Failed, each saying so — a report
+    /// never claims a creation Revit did not commit.
+    private static void Committed(Transaction t, BuildReport r, int from)
+    {
+        if (t.Commit() == TransactionStatus.Committed) return;
+        foreach (var line in r.Created.Skip(from).ToList()) r.Failed.Add(line + ": Revit did not commit this step");
+        r.Created.RemoveRange(from, r.Created.Count - from);
+    }
+```
+
+Third (shared parameters), replace
+
+```csharp
+            using var t = new Transaction(doc, "Sentinel: Bind shared parameters");
+            t.Start();
+```
+
+with
+
+```csharp
+            using var t = new Transaction(doc, "Sentinel: Bind shared parameters");
+            t.Start();
+            int from = r.Created.Count;
+```
+
+Fourth, replace
+
+```csharp
+                catch (Exception ex) { r.Failed.Add($"Param '{p.Name}': {ex.Message}"); }
+            }
+            t.Commit();
+```
+
+with
+
+```csharp
+                catch (Exception ex) { r.Failed.Add($"Param '{p.Name}': {ex.Message}"); }
+            }
+            Committed(t, r, from);
+```
+
+Fifth (view templates: the line is added after the commit, so a commit Revit refuses goes to the step's own `catch`), replace
+
+```csharp
+            t.Commit();
+            r.Created.Add($"View templates: copied {copied.Count} from '{source.Title}'");
+```
+
+with
+
+```csharp
+            if (t.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not commit the copy");
+            r.Created.Add($"View templates: copied {copied.Count} from '{source.Title}'");
+```
+
+Sixth (browser organization), replace
+
+```csharp
+            t.Commit();
+            r.Created.Add($"Browser organization: copied {copied.Count} scheme(s) — activate via Project Browser ▸ right-click ▸ Browser Organization.");
+```
+
+with
+
+```csharp
+            if (t.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not commit the copy");
+            r.Created.Add($"Browser organization: copied {copied.Count} scheme(s) — activate via Project Browser ▸ right-click ▸ Browser Organization.");
+```
+
+Then in `SentinelAddin/Commands.Standards.cs`, make two replacements. First, the build knows whether Revit kept it: replace
+
+```csharp
+        // XC-2: the whole build is one Undo entry; a throw rolls every step back.
+        try
+        {
+            BuildReport built = new BuildReport();
+            Sentinel.Engine.SentinelUndo.Run(doc, "Apply standard", () => { built = StandardsBuilder.Build(app, doc, pack); return true; });
+            report = built;
+```
+
+with
+
+```csharp
+        // XC-2: the whole build is one Undo entry; a throw rolls every step back.
+        bool kept = false; // MA-1a item 7 (review amendment C9): Revit kept the build's Undo group — only then is it reported
+        try
+        {
+            BuildReport built = new BuildReport();
+            kept = Sentinel.Engine.SentinelUndo.Run(doc, "Apply standard", () => { built = StandardsBuilder.Build(app, doc, pack); return true; });
+            report = built;
+            if (!kept)
+            {
+                // Revit did not keep the group: nothing of this build is in the model, and the dialog says so.
+                report.Failed.AddRange(report.Created.Select(c => c + ": Revit did not keep the build's Undo group"));
+                report.Created.Clear();
+            }
+```
+
+Second, replace
 
 ```csharp
         Built?.Invoke(report); // ShowReport is a Dispatcher.Invoke: the model report is on screen when this returns
@@ -2677,9 +3263,12 @@ with
 
 ```csharp
         Built?.Invoke(report); // ShowReport is a Dispatcher.Invoke: the model report is on screen when this returns
-        // MA-1a item 7: one apply_standard row for a build that was kept and created something, sent off this thread.
-        if (report.Created.Count > 0)
-            GovernedNotify.Report("Apply Standard", CommandReports.ApplyStandard(report.Created, report.Skipped, report.Failed, UserSession.Actor),
+        // MA-1a item 7: one apply_standard row for a build Revit kept that created something in the model, sent off this
+        // thread. The model's creations only (review amendment C9): "Ruleset: installing …" is the bridge install's line —
+        // nothing in the model — and that install writes its own artefact row.
+        var modelCreated = report.Created.Where(c => !c.StartsWith("Ruleset:", StringComparison.Ordinal)).ToList();
+        if (kept && modelCreated.Count > 0)
+            GovernedNotify.Report("Apply Standard", CommandReports.ApplyStandard(modelCreated, report.Skipped, report.Failed, UserSession.Actor),
                                   Sentinel.Engine.ProjectContext.For(doc).Key);
 ```
 
@@ -2725,9 +3314,36 @@ with
                             GovernedNotify.Report("Fix-in-place", CommandReports.FixInPlace(req.Requirement, topic.Guid, done, outcomes.Count - done, UserSession.Actor), projectKey);
 ```
 
-- [ ] **Step 11: The Doctor.** Only what Revit's own fix resolved in a committed transaction is reported — never a "Seen" line. The Doctor resolves only in a bound, opted-in document, so there is always a key. In `SentinelAddin/Updaters/FailureInterceptor.cs`, make two replacements:
+- [ ] **Step 11: The Doctor.** Only what Revit's own fix resolved in a committed transaction is reported — never a "Seen" line. The Doctor resolves only in a bound, opted-in document, so there is always a key. In `SentinelAddin/Updaters/DoctorPolicy.cs`, a resolution carries the project of the model it happened in (review amendment C23: `Pending` is one list for every open model, and a line of a rolled-back transaction can outlive it — a row must never report model A's resolution under model B's project). Replace
+
+```csharp
+            public string Tx, Key, Text;
+```
+
+with
+
+```csharp
+            public string Tx, Key, Text;
+            /// <summary>MA-1a item 7: the project key of the model the failure was seen in ("" when not bound).</summary>
+            public string Project;
+```
+
+In `SentinelAddin/Updaters/FailureInterceptor.cs`, make three replacements:
 
 First, replace
+
+```csharp
+                Tx = tx, Text = failure.GetDescriptionText(), Ids = ids,
+```
+
+with
+
+```csharp
+                Tx = tx, Text = failure.GetDescriptionText(), Ids = ids,
+                Project = ProjectContext.For(doc).Key, // MA-1a item 7: a resolution is reported under its own model's project only
+```
+
+Second, replace
 
 ```csharp
     private static readonly List<DoctorPolicy.Seen> Pending = new List<DoctorPolicy.Seen>();
@@ -2744,9 +3360,11 @@ with
     // API thread (DocumentChanged). The key and the actor are read here; the flush runs a minute later on a pool thread.
     private static void ReportResolved(Document doc, ICollection<string> committed)
     {
-        var resolved = Pending.Where(p => p.Resolved && committed.Contains(p.Tx)).GroupBy(p => p.Tx + "|" + p.Key).Select(g => g.First()).ToList();
-        if (resolved.Count == 0) return;
         string key = ProjectContext.For(doc).Key;
+        // Only this model's own resolutions: Pending holds every open model's, and a transaction of the same name can
+        // commit in another one.
+        var resolved = Pending.Where(p => p.Resolved && p.Project == key && committed.Contains(p.Tx)).GroupBy(p => p.Tx + "|" + p.Key).Select(g => g.First()).ToList();
+        if (resolved.Count == 0) return;
         string actor = Sentinel.Coordination.UserSession.Actor;
         var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher; // the pane's thread
         bool opens = false;
@@ -2760,7 +3378,7 @@ with
     }
 ```
 
-Second, replace
+Third, replace
 
 ```csharp
             foreach (var (line, resolved) in DoctorPolicy.Lines(Pending, committed)) App.PanelVm?.LogDoctor(line, resolved);
@@ -2773,7 +3391,7 @@ with
             ReportResolved(e.GetDocument(), committed);
 ```
 
-- [ ] **Step 12: The reader's words.** A Datum or Massing element's stamp still names no ledger row (a row exists only after the commit, and a second transaction to write it back would be a second Undo entry — E5 of the items 3–5 plan). The reader now says where its run is. In `SentinelAddin/Engine/ProvenanceStamp.cs`, make two replacements:
+- [ ] **Step 12: The reader's words.** A Datum or Massing element's stamp still names no ledger row (a row exists only after the commit, and a second transaction to write it back would be a second Undo entry — E5 of the items 3–5 plan). The reader says where a run is reported, without claiming a row exists: an element placed before item 7, in a model that is not bound, or whose report the ledger refused has none (review amendment C21). The words keep their opening, "none — not on a project ledger", which `StampV2Checks` pins. In `SentinelAddin/Engine/ProvenanceStamp.cs`, make two replacements:
 
 First, replace
 
@@ -2784,7 +3402,7 @@ First, replace
 with
 
 ```csharp
-"none — not on a project ledger row of its own (an unbound model's local changeset; Datum and Photo Massing report their run after placing, as a datum or massing row)"
+"none — not on a project ledger row of its own (an unbound model's local changeset, Datum or Photo Massing; since MA-1a item 7 a bound run is reported as one datum or massing row — the pane's log said whether the ledger recorded it)"
 ```
 
 Second, replace
@@ -2801,18 +3419,20 @@ with
 
 - [ ] **Step 13: Run.**
   - Both builds: `0 Error(s)`, warnings as on master.
-  - `dotnet run --project tools/promote-check`: expect `327/327 checks pass` (14 new).
-  - `ghost-p2-check` `103/103` (it compiles `DoctorPolicy.cs`, unchanged), `heal-check` `9/9`, `event-check` `44/44`.
+  - `dotnet run --project tools/promote-check`: expect `350/350 checks pass` (19 new).
+  - `ghost-p2-check` `103/103` (it compiles `DoctorPolicy.cs`, which gains one field), `heal-check` `9/9`, `event-check` `44/44`.
 - [ ] **Step 14: Commit.**
 
 ```bash
-git add SentinelAddin/Coordination/GovernedNotify.cs SentinelAddin/GhostBuilder/DatumBuilder.cs SentinelAddin/Commands.Datum.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/Commands.Massing.cs SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs SentinelAddin/Commands.Annotate.cs SentinelAddin/Commands.Standards.cs SentinelAddin/Workflow/AutoFixExecution.cs SentinelAddin/Commands.BcfIssues.cs SentinelAddin/Updaters/FailureInterceptor.cs SentinelAddin/Engine/ProvenanceStamp.cs tools/promote-check/Reports.cs tools/promote-check/Check.cs
+git add SentinelAddin/Coordination/GovernedNotify.cs SentinelAddin/GhostBuilder/DatumBuilder.cs SentinelAddin/Commands.Datum.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/Commands.Massing.cs SentinelAddin/GhostBuilder/GhostBuilderOrchestrator.cs SentinelAddin/Commands.Annotate.cs SentinelAddin/Commands.Standards.cs SentinelAddin/Standards/StandardsBuilder.cs SentinelAddin/Engine/SentinelUndo.cs SentinelAddin/Workflow/AutoFixExecution.cs SentinelAddin/Commands.BcfIssues.cs SentinelAddin/Updaters/FailureInterceptor.cs SentinelAddin/Updaters/DoctorPolicy.cs SentinelAddin/Engine/ProvenanceStamp.cs tools/promote-check/Reports.cs tools/promote-check/Check.cs
 git commit -F - <<'EOF'
 feat(ledger): Datum, Ghost Builder, Photo Massing, Annotate, Apply Standard, auto-fix, fix-in-place and the Doctor each report one ledger row per run (MA-1a item 7)
 
 One call each to GovernedNotify.Report: sent off the API thread and never waited for; the pane's log says what the
 ledger answered, or that the model is not bound. Only what Revit committed is reported — Datum and Annotate now check
-their commit and say so when it failed. The Doctor reports a minute's resolutions as one row. promote-check 327/327.
+their commit and say so when it failed; Apply Standard counts as created only what Revit committed and kept, and never
+its ruleset install's line. The Doctor reports a minute's resolutions as one row, under its own model's project.
+promote-check 350/350.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -2828,7 +3448,7 @@ EOF
 - Modify `SentinelAddin/UI/RoiDashboard.cs` (`Read`)
 
 **Interfaces:**
-- `RoiCounts.AutoFixes` (the `auto_fix` rows: one per committed click), `.FixInPlaceValues` (the sum of `fix_in_place` rows' `new_value.applied`), `.DoctorResolutions` (the sum of `doctor` rows' `new_value.resolved`).
+- `RoiCounts.AutoFixes` (the `auto_fix` rows: one per committed click), `.FixInPlaceValues` (the sum of `fix_in_place` rows' `new_value.applied`), `.DoctorResolutions` (the sum of `doctor` rows' `new_value.resolved`). A row's count is a whole number from 1 to 100,000; anything else adds nothing — the rows are a person's own report (any contributor can post one), and a forged 2,000,000,000 must not wrap the line (review amendment C24).
 - `RoiCounts.WithFixes(autoFixRows, fixInPlaceRows, doctorRows, truncated) → RoiCounts` — adds the three counts to a `RoiCounts.From(…)`.
 - `RoiLines.Lines` returns seven lines: the money line stays at index 4; index 5 is the new `Fixes on the ledger, not priced: …`; index 6 is `NotCounted`, which no longer lists auto-fix, doctor resolutions or fix-in-place.
 
@@ -2855,7 +3475,8 @@ with
     static readonly JsonElement[] FixInPlaceRows = Rows("[" +
         "{\"id\":850,\"entity_type\":\"fix_in_place\",\"action\":\"Fix-in-place FireRating: 3 value(s) written, 1 not written\",\"new_value\":{\"applied\":3,\"not_written\":1}}," +
         "{\"id\":849,\"entity_type\":\"fix_in_place\",\"action\":\"Fix-in-place LoadBearing: 4 value(s) written, 0 not written\",\"new_value\":{\"applied\":4,\"not_written\":0}}," +
-        "{\"id\":848,\"entity_type\":\"fix_in_place\",\"action\":\"odd row\",\"new_value\":{\"applied\":\"2\"}}" +
+        "{\"id\":848,\"entity_type\":\"fix_in_place\",\"action\":\"odd row\",\"new_value\":{\"applied\":\"2\"}}," +
+        "{\"id\":847,\"entity_type\":\"fix_in_place\",\"action\":\"forged row\",\"new_value\":{\"applied\":2000000000}}" +
         "]");
     static readonly JsonElement[] DoctorRows = Rows("[" +
         "{\"id\":860,\"entity_type\":\"doctor\",\"action\":\"Doctor: 5 warning(s) resolved\",\"new_value\":{\"resolved\":5}}," +
@@ -2878,9 +3499,9 @@ with
         // MA-1a item 7 (P1-9): the fixes that write a ledger row are counted from it.
         var f = RoiCounts.From(GateRows, NamingRows, HealRows, false).WithFixes(AutoFixRows, FixInPlaceRows, DoctorRows, false);
         Ok(f.AutoFixes == 2, "auto_fix: one row is one committed click");
-        Ok(f.FixInPlaceValues == 7, "fix_in_place: applied summed; a row whose applied is not a whole number adds nothing");
+        Ok(f.FixInPlaceValues == 7, "fix_in_place: applied summed; a row whose applied is not a whole number from 1 to 100,000 adds nothing — a forged 2,000,000,000 cannot wrap the line");
         Ok(f.DoctorResolutions == 5, "doctor: resolved summed; a row without new_value adds nothing");
-        Ok(f.RowsRead == 19 && f.GateRuns == 3 && f.Renames == 5 && f.Heals == 7 && !f.Truncated, "the fix rows count as read (12 + 7); the first three counts are untouched");
+        Ok(f.RowsRead == 20 && f.GateRuns == 3 && f.Renames == 5 && f.Heals == 7 && !f.Truncated, "the fix rows count as read (12 + 8); the first three counts are untouched");
         Ok(RoiCounts.From(NoRows, NoRows, NoRows, false).WithFixes(NoRows, NoRows, DoctorRows, true).Truncated, "a truncated fix kind is carried to the header");
     }
 ```
@@ -2968,7 +3589,10 @@ with
         return this;
     }
 
-    private static int Whole(JsonElement v) => v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) && n > 0 ? n : 0;
+    // Review amendment C24: a row's count is a person's own report — a whole number from 1 to MaxPerRow, or nothing. No real
+    // Apply or Doctor minute reaches the cap, and a forged row cannot wrap the sum.
+    private const int MaxPerRow = 100000;
+    private static int Whole(JsonElement v) => v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) && n > 0 && n <= MaxPerRow ? n : 0;
 
     // new_value.<name> of one audit row; Undefined when the row has no such field.
 ```
@@ -3050,6 +3674,7 @@ EOF
 ### Task 9 — Bridge: contract 2's trust rules on `POST /changesets/:key` and on the MCP tool (item 8)
 
 **Files:**
+- Create `WebApp/bridge/fixtures/changeset-ops/contract2-trust.json` (one contract-2 post and what the bridge stores for it; Task 10's C# check reads the same file)
 - Modify `WebApp/bridge/changesets-logic.test.mjs`, `WebApp/bridge/changesets-store.test.mjs`, `WebApp/bridge/mcp-server.test.mjs` (append)
 - Modify `WebApp/bridge/changesets-logic.mjs` (constants, `validateChangeset`, a new `sourceOf`)
 - Modify `WebApp/bridge/changesets-store.mjs` (`proposeChangeset`)
@@ -3057,19 +3682,68 @@ EOF
 
 **Interfaces:**
 - `TRUST_FIELDS = ["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"]` and `ADDIN_SOURCES = ["dwg", "promote"]`, exported from `changesets-logic.mjs`.
-- `validateChangeset(body)` returns, beside what it returns today:
+- `validateChangeset(body, { member })` returns, beside what it returns today (`member`: a signed-in member filed it — the store passes it; false when left out):
   - on every element `pretick` (a boolean the bridge decides) and `accuracy: { status: "not_measured" }`;
   - `claimed: true` — the source is the caller's claim: no bridge-run job backs a changeset until MA-4;
-  - `ignored: [{ field, why }]` — every posted field the bridge did not keep, in the order met: a trust field (`why: "ignored: set by the bridge"`), a `measured` block or a `source.job_id` (no survey job backs it), and any other field the bridge does not read (`"ignored: not a field this bridge keeps"`). At most 200 entries, then one entry counting the rest;
+  - `ignored: [{ field, why }]` — every posted field the bridge did not keep, in the order met: a trust field (`why: "ignored: set by the bridge"`), a `measured` block or a `source.job_id` (no survey job backs it), and any other field the bridge does not read (`"ignored: not a field this bridge keeps"`). The same holds one level down (review amendment C3): a `place` is rebuilt from the names the add-in reads (`PlaceDto`), and every other key of `place`, `target`, `validate` — and a trust field or `measured` inside `validate.identity` — is listed as `elements[i].place.pretick` and so on, and not stored. At most 200 entries, then one entry counting the rest;
+  - on an element, `cid` (one line, at most 256 characters) and `evidence` (at most 50 one-line texts) as sent: contract 2's reader id and evidence ids, kept as the caller's claim (review amendment C4; design `:735`);
   - `contract` only when the body sent one (1 or 2; anything else is a 400).
 - `source` may be contract 2's object `{ reader, job_id }`: the stored `source` stays a string (the reader's name), because deployed add-ins read it into a string.
-- The pre-tick rule, on the bridge: a `create` is never pre-ticked, whatever its source (an agent ghost and a drawing-only ghost are never pre-ticked); a `retype` or an `attach` is pre-ticked only as a single-answer Promote operation — source `promote`, and a retype only with `target.type_before`.
+- The pre-tick rule, on the bridge: a `create` is never pre-ticked, whatever its source (an agent ghost and a drawing-only ghost are never pre-ticked); a `retype` or an `attach` is pre-ticked only as a single-answer Promote operation — source `promote`, a retype only with `target.type_before` — **and only when a signed-in member filed it** (review amendment C2, founder decision F14). `proposeChangeset` reads the caller's role (`myRole`): the machine credential (`service` — a signed-out PC, the MCP server, any script holding the token) is never pre-ticked, whatever its `source` says.
 - `proposeChangeset` stores `claimed`, `ignored` (and `contract` when sent) on the changeset, so the 201 reply lists the ignored fields, and adds `claimed` and the ignored count to the `changeset_proposed` row.
-- The MCP tool `sentinel_propose_changeset` says the rule in its description, forwards the `agent` block its schema already advertises, and never files as one of the add-in's sources: a `source` of `dwg` or `promote` is sent as `agent`.
+- The MCP tool `sentinel_propose_changeset` says the rule in its description, forwards the `agent` block its schema already advertises, and never files as one of the add-in's sources: it sends a `source` it controls — the label when it is text and not `dwg` or `promote`, else `agent`. A `source` that is not text (contract 2's `{ reader }` object, a list) is never forwarded (review amendment C1).
 
-Out of scope, and said in Next: `typing`, `confidence`, `lod`, `won`, `conflicts`, `cid`, `evidence`, survey jobs and D19's bridge-side BLOCK mark. A posted one of them is listed under `ignored`, never invented.
+Out of scope, and said in Next: `typing`, `confidence`, `lod`, `won`, `conflicts`, survey jobs and D19's bridge-side BLOCK mark. A posted one of them is listed under `ignored`, never invented. `measured` stays ignored until a survey job backs it (MA-4).
 
-- [ ] **Step 1: The failing tests.** Three appends. First, the validator's:
+The design says contract 2's field changes are "listed in `contract-parity.test.mjs` next to the C# `ChangesetDto`" (`:674`). That file pins the delivery-gate contract only; the changeset contract's parity lives in `fixtures/changeset-ops/`, each file read by vitest and by `tools/promote-check`. This task adds one more there, so the stored shape of a contract-2 changeset is pinned on both sides by one file (review amendment C4).
+
+- [ ] **Step 1: The failing tests.** One fixture and three appends. First, the shared fixture (review amendment C4): `posted` is what a contract-2 reader sends; `stored` is what the bridge keeps of it — every field the add-in's `ChangesetDto` reads, without the ids and the IDS verdict the bridge adds at filing.
+
+Create `WebApp/bridge/fixtures/changeset-ops/contract2-trust.json`:
+
+```json
+{
+  "posted": {
+    "name": "Contract 2 — a surveyed wall and a retype",
+    "contract": 2,
+    "source": { "reader": "sentinel-survey 0.1", "job_id": "job-0042" },
+    "elements": [
+      { "kind": "wall", "cid": "scan-88", "evidence": ["ev-1", "ev-2"],
+        "pretick": true, "accuracy": { "status": "within_tolerance" }, "measured": { "thickness_mm": 203 },
+        "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } },
+        "place": { "TypeName": "Generic - 200mm", "LevelName": "L1", "LocationCurve": { "start": [0, 0, 0], "end": [4000, 0, 0] }, "pretick": true } },
+      { "kind": "wall", "op": "retype",
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "T1" },
+        "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } },
+        "place": { "TypeName": "T2" } }
+    ]
+  },
+  "stored": {
+    "name": "Contract 2 — a surveyed wall and a retype",
+    "source": "sentinel-survey 0.1",
+    "claimed": true,
+    "contract": 2,
+    "ignored": [
+      { "field": "source.job_id", "why": "ignored: no survey job the bridge ran is named by it — the source is marked claimed" },
+      { "field": "elements[0].pretick", "why": "ignored: set by the bridge" },
+      { "field": "elements[0].accuracy", "why": "ignored: set by the bridge" },
+      { "field": "elements[0].measured", "why": "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+      { "field": "elements[0].place.pretick", "why": "ignored: set by the bridge" }
+    ],
+    "elements": [
+      { "kind": "wall", "op": "create", "cid": "scan-88", "evidence": ["ev-1", "ev-2"],
+        "pretick": false, "accuracy": { "status": "not_measured" },
+        "place": { "TypeName": "Generic - 200mm", "LevelName": "L1", "LocationCurve": { "start": [0, 0, 0], "end": [4000, 0, 0] } } },
+      { "kind": "wall", "op": "retype",
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "T1" },
+        "pretick": false, "accuracy": { "status": "not_measured" },
+        "place": { "TypeName": "T2" } }
+    ]
+  }
+}
+```
+
+Second, the validator's.
 
 Append to `WebApp/bridge/changesets-logic.test.mjs`:
 
@@ -3107,16 +3781,20 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
     for (const f of ["confidence", "typing", "claimed"]) expect(v.elements[0]).not.toHaveProperty(f);
   });
 
-  it("a create is never pre-ticked, whatever its source; a Promote attach or a retype with the type the plan saw is", () => {
+  it("a create is never pre-ticked, whatever its source; a Promote attach or a retype with the type the plan saw is — when a signed-in member filed it", () => {
+    // Review amendment C2: the store passes { member: true } for a signed-in member; the machine credential earns no pre-tick.
+    const MEMBER = { member: true };
     for (const source of ["agent", "dwg", "promote", "sentinel-survey 0.1"])
-      expect(validateChangeset(CS([wall()], { source })).elements[0].pretick).toBe(false);
+      expect(validateChangeset(CS([wall()], { source }), MEMBER).elements[0].pretick).toBe(false);
     const ops = [
       change("attach", { BaseLevel: "L1", TopLevel: "L2" }),
       change("retype", { TypeName: "T2" }, { unique_id: UID, type_before: "T1" }),
     ];
-    expect(validateChangeset(CS(ops, { source: "promote" })).elements.map((e) => e.pretick)).toEqual([true, true]);
-    expect(validateChangeset(CS(ops, { source: "agent" })).elements.map((e) => e.pretick)).toEqual([false, false]);
-    expect(validateChangeset(CS([change("retype", { TypeName: "T2" })], { source: "promote" })).elements[0].pretick).toBe(false);
+    expect(validateChangeset(CS(ops, { source: "promote" }), MEMBER).elements.map((e) => e.pretick)).toEqual([true, true]);
+    expect(validateChangeset(CS(ops, { source: "promote" })).elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS(ops, { source: { reader: " promote " } })).elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS(ops, { source: "agent" }), MEMBER).elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS([change("retype", { TypeName: "T2" })], { source: "promote" }), MEMBER).elements[0].pretick).toBe(false);
   });
 
   it("contract 2's source object: the reader is the stored source, a job_id is ignored and listed — no survey job exists", () => {
@@ -3131,11 +3809,11 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
   });
 
   it("a field the bridge does not keep is listed, never dropped silently; a plain changeset has nothing ignored", () => {
-    const v = validateChangeset(CS([wall({ cid: "scan-88", evidence: ["ev-1"] })], { lod: 300 }));
+    const v = validateChangeset(CS([wall({ lod: 300, won: true })], { conflicts: [] }));
     expect(v.ignored).toEqual([
-      { field: "lod", why: "ignored: not a field this bridge keeps" },
-      { field: "elements[0].cid", why: "ignored: not a field this bridge keeps" },
-      { field: "elements[0].evidence", why: "ignored: not a field this bridge keeps" },
+      { field: "conflicts", why: "ignored: not a field this bridge keeps" },
+      { field: "elements[0].lod", why: "ignored: not a field this bridge keeps" },
+      { field: "elements[0].won", why: "ignored: not a field this bridge keeps" },
     ]);
     const plain = validateChangeset(CS([wall(), level()], { actor: "a", agent: { kind: "agent" }, exceptions: [] }));
     expect(plain.ignored).toEqual([]);
@@ -3149,6 +3827,50 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
     const many = validateChangeset(CS(Array.from({ length: 120 }, () => wall({ pretick: true, confidence: 1 }))));
     expect(many.ignored).toHaveLength(201);
     expect(many.ignored[200]).toEqual({ field: "…", why: "40 more field(s) ignored the same way" });
+  });
+
+  it("contract 2's reader id and evidence ids are kept as sent — the caller's claim (review amendment C4)", () => {
+    const v = validateChangeset(CS([wall({ cid: " scan-88 ", evidence: ["ev-1", " ev-2 "] }), wall()]));
+    expect(v.elements[0]).toMatchObject({ cid: "scan-88", evidence: ["ev-1", "ev-2"] });
+    expect(v.elements[1]).not.toHaveProperty("cid");
+    expect(v.elements[1]).not.toHaveProperty("evidence");
+    expect(v.ignored).toEqual([]);
+    status400(() => validateChangeset(CS([wall({ cid: "x".repeat(257) })])), /cid must be one line of text of at most 256 characters/);
+    status400(() => validateChangeset(CS([wall({ cid: "a\nb" })])), /cid must be one line of text/);
+    status400(() => validateChangeset(CS([wall({ evidence: "ev-1" })])), /evidence must be a list of at most 50/);
+    status400(() => validateChangeset(CS([wall({ evidence: Array.from({ length: 51 }, (_, i) => `ev-${i}`) })])), /evidence must be a list of at most 50/);
+  });
+
+  it("a trust field nested in place, target, validate or validate.identity is not stored, and is listed (review amendment C3)", () => {
+    const NOT_MEASURED = "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured";
+    const base = wall();
+    const v = validateChangeset(CS([{
+      ...base,
+      place: { ...base.place, pretick: true, accuracy: { status: "within_tolerance" }, measured: { thickness_mm: 203 }, Colour: "red" },
+      validate: { ...base.validate, measured: { thickness_mm: 203 }, identity: { ...base.validate.identity, pretick: true } },
+    }]));
+    expect(v.elements[0].place).toEqual(base.place);
+    expect(v.elements[0].validate).not.toHaveProperty("measured");
+    expect(v.elements[0].validate.identity).not.toHaveProperty("pretick");
+    expect(v.elements[0].validate.identity).toMatchObject(base.validate.identity);
+    expect(v.ignored).toEqual([
+      { field: "elements[0].place.pretick", why: SET },
+      { field: "elements[0].place.accuracy", why: SET },
+      { field: "elements[0].place.measured", why: NOT_MEASURED },
+      { field: "elements[0].place.Colour", why: "ignored: not a field this bridge keeps" },
+      { field: "elements[0].validate.measured", why: NOT_MEASURED },
+      { field: "elements[0].validate.identity.pretick", why: SET },
+    ]);
+    const t = validateChangeset(CS([change("retype", { TypeName: "T2" }, { unique_id: UID, type_before: "T1", pretick: true })], { source: "promote" }), { member: true });
+    expect(t.elements[0].target).toEqual({ unique_id: UID, type_before: "T1" });
+    expect(t.ignored).toEqual([{ field: "elements[0].target.pretick", why: SET }]);
+  });
+
+  it("the shared fixture: a contract-2 post is stored as the add-in reads it (tools/promote-check reads the same file)", () => {
+    const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/contract2-trust.json", import.meta.url), "utf8"));
+    const v = validateChangeset(fx.posted);
+    expect(v).toMatchObject(fx.stored);
+    expect(v.elements[0].place).not.toHaveProperty("pretick");
   });
 
   it("the add-in's sources are named, so the MCP tool can refuse to file as one", () => {
@@ -3170,7 +3892,7 @@ with
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES,
 ```
 
-Second, append to `WebApp/bridge/changesets-store.test.mjs`:
+Third, append to `WebApp/bridge/changesets-store.test.mjs`:
 
 ```js
 // MA-1a item 8: the stored changeset — and so the 201 reply — carries the bridge's trust decisions and what it ignored.
@@ -3196,10 +3918,20 @@ describe("proposeChangeset — contract 2's trust rules (MA-1a item 8)", () => {
     expect(cs).not.toHaveProperty("contract");
     expect(cs.elements.map((e) => e.pretick)).toEqual([false, false]);
   });
+
+  it("a Promote attach is pre-ticked for a signed-in member's post — never for the machine credential (review amendment C2)", async () => {
+    const body = { name: "Promote", source: "promote", elements: [{ op: "attach", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+      place: { BaseLevel: "L1", TopLevel: "L2" }, validate: { identity: { Class: "IfcWall", Name: "W 1" } } }] };
+    const member = await proposeChangeset("demo", body, "lead@office.example", baseDeps({ myRole: async () => "contributor" }));
+    expect(member.elements[0].pretick).toBe(true);
+    const machine = await proposeChangeset("demo", body, "agent", baseDeps({ myRole: async () => "service" }));
+    expect(machine.elements[0].pretick).toBe(false);
+    expect(machine.claimed).toBe(true);
+  });
 });
 ```
 
-Third, append to `WebApp/bridge/mcp-server.test.mjs`:
+Fourth, append to `WebApp/bridge/mcp-server.test.mjs`:
 
 ```js
 // MA-1a item 8: the propose tool states the trust rule, forwards the claimed agent block, and never files as the add-in.
@@ -3222,13 +3954,17 @@ describe("sentinel_propose_changeset — contract 2's trust rules (MA-1a item 8)
     expect(await sent({ source: "my-agent", agent: { kind: "agent", model: "m" } })).toEqual({ name: "N", source: "my-agent", elements: [{ kind: "level" }], agent: { kind: "agent", model: "m" } });
     expect((await sent({ source: "promote" })).source).toBe("agent");
     expect((await sent({ source: " DWG " })).source).toBe("agent");
-    expect(await sent({})).toEqual({ name: "N", elements: [{ kind: "level" }] });
+    // Review amendment C1: a source that is not text is never forwarded — the bridge reads contract 2's { reader } object,
+    // and { reader: "promote" } would otherwise be stored as the source "promote".
+    for (const source of [{ reader: "promote" }, { reader: " DWG " }, ["promote"], 7, null])
+      expect((await sent({ source })).source).toBe("agent");
+    expect(await sent({})).toEqual({ name: "N", source: "agent", elements: [{ kind: "level" }] });
   });
 });
 ```
 
-- [ ] **Step 2: Run them, and see them fail.** From `WebApp`: `npx vitest run bridge/changesets-logic.test.mjs bridge/changesets-store.test.mjs bridge/mcp-server.test.mjs`. Expect `11 failed`: the seven validator tests (`v.ignored` is undefined, `pretick` is undefined, `contract: 3` does not throw), the two store tests and the two MCP tests.
-- [ ] **Step 3: The rules.** In `WebApp/bridge/changesets-logic.mjs`, make five replacements. First, the names:
+- [ ] **Step 2: Run them, and see them fail.** From `WebApp`: `npx vitest run bridge/changesets-logic.test.mjs bridge/changesets-store.test.mjs bridge/mcp-server.test.mjs`. Expect `15 failed`: the ten validator tests (`v.ignored` is undefined, `pretick` is undefined, `contract: 3` does not throw, `cid` is not kept), the three store tests and the two MCP tests.
+- [ ] **Step 3: The rules.** In `WebApp/bridge/changesets-logic.mjs`, make eight replacements. First, the names:
 
 First, replace
 
@@ -3249,7 +3985,14 @@ export const TRUST_FIELDS = ["pretick", "accuracy", "confidence", "typing", "cla
  *  files as one of these. */
 export const ADDIN_SOURCES = ["dwg", "promote"];
 const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent", "contract"]; // what a posted body is read for
-const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance"];   // what an element is rebuilt from
+const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence"]; // what an element is rebuilt from
+// Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
+// name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
+const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
+  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Boundary", "BaseOffset", "Offset", "Mark", "Structural"];
+const TARGET_KEPT = ["unique_id", "type_before"];
+const VALIDATE_KEPT = ["identity", "psets", "quantities"];
+const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
 const SET_BY_BRIDGE = "ignored: set by the bridge";
 const NOT_KEPT = "ignored: not a field this bridge keeps";
 const NOT_MEASURED = "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured";
@@ -3283,8 +4026,11 @@ function sourceOf(s, note) {
 
 /** MA-1a item 8, the pre-tick rule as the bridge can judge it today: a create is never pre-ticked (an agent ghost and a
  *  drawing-only ghost never are, and no evidence-backed ghost exists before MA-4); a retype or an attach is pre-ticked
- *  only as a single-answer Promote operation — a retype only with the type the plan saw. */
-const pretickOf = (op, source, target) => op !== "create" && source === "promote" && (op === "attach" || target?.type_before != null);
+ *  only as a single-answer Promote operation — a retype only with the type the plan saw — and only when a signed-in
+ *  member filed it (review amendment C2): the source is the caller's own text, so the machine credential, which the
+ *  bridge cannot tell from any other holder of the token, earns no pre-tick by writing "promote". */
+const pretickOf = (op, source, target, member) =>
+  member === true && op !== "create" && source === "promote" && (op === "attach" || target?.type_before != null);
 
 /** Validate + normalise a proposed changeset. Assigns proposal_guids (a posted one is ignored); a missing
 ```
@@ -3305,6 +4051,15 @@ with
   // with the reason — a trust field, an unbacked measurement, or a field this bridge does not read — never dropped silently.
   const ignored = [];
   const note = (field, why) => ignored.push({ field, why });
+  // Review amendment C3: the same one level down. `kept` = the names a block is rebuilt from; null = the block is kept
+  // whole but for a trust field or a measurement (validate.identity: the IFC attributes adjudication reads).
+  const nested = (block, kept, where) => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return;
+    for (const k of Object.keys(block)) {
+      if (kept ? kept.includes(k) : !TRUST_FIELDS.includes(k) && k !== "measured") continue;
+      note(`${where}.${k}`, TRUST_FIELDS.includes(k) ? SET_BY_BRIDGE : k === "measured" ? NOT_MEASURED : NOT_KEPT);
+    }
+  };
   for (const k of Object.keys(body)) {
     if (TRUST_FIELDS.includes(k)) note(k, SET_BY_BRIDGE);
     else if (!BODY_FIELDS.includes(k)) note(k, NOT_KEPT);
@@ -3321,6 +4076,10 @@ with
       else if (k === "measured") note(`${at}.${k}`, NOT_MEASURED);
       else if (!ELEMENT_FIELDS.includes(k)) note(`${at}.${k}`, NOT_KEPT);
     }
+    nested(el.place, PLACE_KEPT, `${at}.place`);
+    nested(el.target, TARGET_KEPT, `${at}.target`);
+    nested(el.validate, VALIDATE_KEPT, `${at}.validate`);
+    nested(el.validate?.identity, null, `${at}.validate.identity`);
 ```
 
 Fourth, replace
@@ -3341,10 +4100,14 @@ Fourth, replace
 with
 
 ```js
-      place: { ...el.place },
+      // Review amendment C3: rebuilt from the names the add-in reads — a posted place.pretick or place.measured is not stored.
+      place: Object.fromEntries(Object.entries(el.place && typeof el.place === "object" ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k))),
       ...(provenance ? { provenance } : {}), // MA-1a item 4: only when sent, so every other changeset reads as before
+      // Review amendment C4: contract 2's reader id and evidence ids, as sent — the caller's claim, like the source.
+      ...(el.cid != null ? { cid: el.cid.trim() } : {}),
+      ...(el.evidence != null ? { evidence: el.evidence.map((x) => x.trim()) } : {}),
       // MA-1a item 8: the bridge's own trust decisions. No survey job exists yet, so nothing is measured.
-      pretick: pretickOf(op, source, target),
+      pretick: pretickOf(op, source, target, member),
       accuracy: { status: "not_measured" },
     };
   });
@@ -3377,9 +4140,78 @@ with
  *  and the list of what was ignored. */
 ```
 
-- [ ] **Step 4: Store it, so the reply lists it.** In `WebApp/bridge/changesets-store.mjs`, make two replacements:
+Sixth (review amendment C2), the caller's standing reaches the rule: replace
+
+```js
+export function validateChangeset(body) {
+```
+
+with
+
+```js
+export function validateChangeset(body, { member = false } = {}) {
+```
+
+Seventh (review amendment C3), a trust field is never an IFC attribute: replace
+
+```js
+    const identity = { ...validate.identity };
+```
+
+with
+
+```js
+    // The IFC attributes adjudication reads, kept whole — but never a trust field or a measurement (listed by `nested`).
+    const identity = Object.fromEntries(Object.entries(validate.identity).filter(([k]) => !TRUST_FIELDS.includes(k) && k !== "measured"));
+```
+
+Eighth (review amendment C4), the reader's id and evidence ids are checked before they are kept: replace
+
+```js
+    const provenance = checkProvenance(el.provenance, op, at);
+```
+
+with
+
+```js
+    if (el.cid != null && (!text(el.cid, 256) || CONTROL_CHAR.test(el.cid)))
+      throw err(400, `${at}: cid must be one line of text of at most 256 characters`);
+    if (el.evidence != null && (!Array.isArray(el.evidence) || el.evidence.length > MAX_EVIDENCE || el.evidence.some((x) => !text(x, 256) || CONTROL_CHAR.test(x))))
+      throw err(400, `${at}: evidence must be a list of at most ${MAX_EVIDENCE} one-line texts of at most 256 characters each`);
+    const provenance = checkProvenance(el.provenance, op, at);
+```
+
+- [ ] **Step 4: Store it, so the reply lists it.** In `WebApp/bridge/changesets-store.mjs`, make four replacements. The first two give the rule the caller's role (review amendment C2):
 
 First, replace
+
+```js
+  requireMinRole: deps.requireMinRole || members.requireMinRole,
+```
+
+with
+
+```js
+  requireMinRole: deps.requireMinRole || members.requireMinRole,
+  myRole: deps.myRole || members.myRole,
+```
+
+Second, replace
+
+```js
+  const v = validateChangeset(body);                      // 400/413 before any store call
+```
+
+with
+
+```js
+  // MA-1a item 8 (review amendment C2): a Promote retype or attach is pre-ticked only when a signed-in member filed it.
+  // The machine credential ("service": a signed-out PC, the MCP server, any script that holds the token) earns none.
+  const role = await d.myRole(key);
+  const v = validateChangeset(body, { member: role != null && role !== "service" }); // 400/413 before any changeset is stored
+```
+
+Third, replace
 
 ```js
     exceptions: v.exceptions, // the walls a planner sent to a person — shown to the reviewer, never placed
@@ -3398,7 +4230,7 @@ with
   };
 ```
 
-Second, replace
+Fourth, replace
 
 ```js
     { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source });
@@ -3460,23 +4292,29 @@ with
 
 ```js
     // MA-1a item 8: an agent never files as the Revit add-in (ADDIN_SOURCES), and its claimed provenance block — which
-    // the schema has always advertised — goes with the changeset to the ledger.
-    const source = typeof args.source === "string" && ADDIN_SOURCES.includes(args.source.trim().toLowerCase()) ? "agent" : args.source;
+    // the schema has always advertised — goes with the changeset to the ledger. Review amendment C1: the tool sends a
+    // source it controls — the label when it is text and not one of the add-in's, else "agent". A source that is not
+    // text is never forwarded: the bridge reads contract 2's { reader } object, and callTool does not check its
+    // arguments against the input schema, so { reader: "promote" } would otherwise be stored as "promote".
+    const label = typeof args.source === "string" ? args.source.trim() : "";
+    const source = !label || ADDIN_SOURCES.includes(label.toLowerCase()) ? "agent" : label;
     const r = await f(`${BASE}/changesets/${enc(project)}`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify({ name: nm, source, elements: args.elements, agent: args.agent }) });
 ```
 
-- [ ] **Step 6: Run.** From `WebApp`: `npx vitest run bridge/changesets-logic.test.mjs bridge/changesets-store.test.mjs bridge/mcp-server.test.mjs`, expect no failure and 11 more tests than master. Then the full suite, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1668 passed | 1 skipped (1669)` (master `1630`; 15 + 12 + 11 new).
+- [ ] **Step 6: Run.** From `WebApp`: `npx vitest run bridge/changesets-logic.test.mjs bridge/changesets-store.test.mjs bridge/mcp-server.test.mjs`, expect no failure and 15 more tests than master. Then the full suite, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1675 passed | 1 skipped (1676)` (master `1630`; 18 + 12 + 15 new).
 - [ ] **Step 7: Commit.**
 
 ```bash
-git add WebApp/bridge/changesets-logic.mjs WebApp/bridge/changesets-store.mjs WebApp/bridge/mcp-server.mjs WebApp/bridge/changesets-logic.test.mjs WebApp/bridge/changesets-store.test.mjs WebApp/bridge/mcp-server.test.mjs
+git add WebApp/bridge/changesets-logic.mjs WebApp/bridge/changesets-store.mjs WebApp/bridge/mcp-server.mjs WebApp/bridge/changesets-logic.test.mjs WebApp/bridge/changesets-store.test.mjs WebApp/bridge/mcp-server.test.mjs WebApp/bridge/fixtures/changeset-ops/contract2-trust.json
 git commit -F - <<'EOF'
 feat(bridge): the bridge, not the caller, sets a changeset's trust fields — a posted pretick or accuracy is ignored and listed back (MA-1a item 8)
 
 Contract 2's trust rules on POST /changesets/:key and the MCP tool: pretick, accuracy, confidence, typing, claimed and
 proposal_guid in a posted body are "ignored: set by the bridge"; a measured block counts only for a survey job the
 bridge ran (none yet), so accuracy.status is not_measured and the source is marked claimed. A create is never
-pre-ticked. The MCP tool never files as dwg or promote.
+pre-ticked; a Promote retype or attach only when a signed-in member filed it. A place is rebuilt from the names the
+add-in reads, and a nested trust field is listed too. The reader's cid and evidence ids are kept as claims. The MCP
+tool never files as dwg or promote, whatever shape its source argument has.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -3489,12 +4327,13 @@ EOF
 **Files:**
 - Create `tools/promote-check/Trust.cs`
 - Modify `tools/promote-check/promote-check.csproj` and `tools/promote-check/Check.cs` (`Main`)
-- Modify `SentinelAddin/Coordination/ChangesetClient.cs` (three DTO fields, `AccuracyDto`, `ChangesetTrust`)
+- Modify `SentinelAddin/Coordination/ChangesetClient.cs` (five DTO fields, `AccuracyDto`, `ChangesetTrust`)
 - Create `SentinelAddin/GhostBuilder/ModelUsage.cs`
 - Create `SentinelAddin/Coordination/BuildReceipt.cs`
 
 **Interfaces:**
 - `ChangesetElementDto.Pretick` (`bool?`, null from a bridge before item 8), `ChangesetElementDto.Accuracy` (`AccuracyDto { Status }`), `ChangesetDto.Claimed` (`bool?`).
+- `ChangesetElementDto.Cid` and `.Evidence` — contract 2's reader id and evidence ids, as the bridge kept them (review amendment C4). Read only: nothing in MA-1a acts on them.
 - `ChangesetTrust.PreTick(cs, el) → bool` — a create is never pre-ticked; a retype or attach takes the bridge's `pretick`, and from an older bridge the rule the window had (source `promote`, a retype only with `type_before`).
 - `ChangesetTrust.Accuracy(el) → string` (`"not measured"`, or null from an older bridge) and `ChangesetTrust.SourceLabel(cs) → string` (the source, marked as a claim when the bridge says so).
 - `ModelUsage(model)` — one local model's calls in one run: `Asked()`, `Got(JsonElement answer)`, `Calls`, `Answered`, `PromptTokens`, `OutputTokens` (null until an answer carried a count). Thread-safe.
@@ -3534,15 +4373,18 @@ static partial class Check
     {
         Console.WriteLine("\nMA-1a item 8 — the bridge's trust fields, a model's usage and the build:run receipt");
 
-        // A changeset as the bridge stores it since item 8 (changesets-store.mjs), and one from a bridge before it.
-        const string stored =
-            "{\"id\":\"c1\",\"name\":\"Agent walls\",\"source\":\"agent\",\"status\":\"proposed\",\"claimed\":true," +
-            "\"ignored\":[{\"field\":\"elements[0].pretick\",\"why\":\"ignored: set by the bridge\"}],\"contract\":2,\"elements\":[" +
-            "{\"proposal_guid\":\"g1\",\"kind\":\"wall\",\"op\":\"create\",\"pretick\":false,\"accuracy\":{\"status\":\"not_measured\"},\"verdict\":{\"status\":\"accepted\"}}," +
-            "{\"proposal_guid\":\"g2\",\"kind\":\"wall\",\"op\":\"retype\",\"target\":{\"unique_id\":\"u\",\"type_before\":\"T1\"},\"pretick\":false,\"accuracy\":{\"status\":\"not_measured\"}}]}";
+        // A changeset as the bridge stores it since item 8 — the `stored` half of the shared fixture, which vitest proves
+        // validateChangeset makes from its `posted` half (review amendment C4) — and one from a bridge before it.
+        string stored;
+        using (var fx = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "contract2-trust.json"))))
+            stored = fx.RootElement.GetProperty("stored").GetRawText();
         var cs = JsonSerializer.Deserialize<ChangesetDto>(stored);
+        cs.Elements[0].Verdict = new ElementVerdictDto { Status = "accepted" }; // the store attaches the referee's verdict at filing
         Ok(cs.Claimed == true && cs.Elements[0].Pretick == false && cs.Elements[0].Accuracy.Status == "not_measured",
            "the bridge's claimed, pretick and accuracy are read; its ignored list and contract do not break the read");
+        Ok(cs.Elements[0].Cid == "scan-88" && cs.Elements[0].Evidence.SequenceEqual(new[] { "ev-1", "ev-2" })
+           && cs.Elements[1].Cid == null && cs.Elements[1].Evidence == null,
+           "contract 2's reader id and evidence ids are read as the bridge kept them; an element without them reads null");
         var older = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c0\",\"source\":\"promote\",\"elements\":[{\"proposal_guid\":\"g\",\"kind\":\"wall\",\"op\":\"attach\"}]}");
         Ok(older.Claimed == null && older.Elements[0].Pretick == null && older.Elements[0].Accuracy == null, "a changeset from a bridge before item 8 reads with none of them");
 
@@ -3565,10 +4407,11 @@ static partial class Check
            "from a bridge before item 8 the window's own rule holds: a Promote attach, a Promote retype with the type the plan saw");
         Ok(ChangesetTrust.Accuracy(cs.Elements[0]) == "not measured" && ChangesetTrust.Accuracy(older.Elements[0]) == null,
            "accuracy reads \"not measured\"; from an older bridge it reads nothing — never a pass");
-        Ok(ChangesetTrust.SourceLabel(cs) == "agent (claimed — the bridge records who a changeset says it is from, and cannot verify it)"
+        Ok(ChangesetTrust.SourceLabel(cs) == "sentinel-survey 0.1 (claimed — the bridge records who a changeset says it is from, and cannot verify it)"
            && ChangesetTrust.SourceLabel(older) == "promote", "the source is shown as a claim when the bridge marks it one");
         string filed = JsonSerializer.Serialize(new ChangesetElementDto { Kind = "wall", Op = "create" }, ChangesetClient.WriteJson);
-        Ok(!filed.Contains("pretick") && !filed.Contains("accuracy"), "an element the add-in files carries no trust field (nulls are left out), so nothing of its own is listed as ignored");
+        Ok(!filed.Contains("pretick") && !filed.Contains("accuracy") && !filed.Contains("cid") && !filed.Contains("evidence"),
+           "an element the add-in files carries no trust field, reader id or evidence (nulls are left out), so nothing of its own is listed as ignored");
 
         // A model's usage: counted per round trip; tokens only when the answer carried them.
         JsonElement Answer(string json) => JsonDocument.Parse(json).RootElement.Clone();
@@ -3661,7 +4504,7 @@ with
 ```
 
 - [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect the build failure `error CS2001: Source file '…\SentinelAddin\GhostBuilder\ModelUsage.cs' could not be found` (and the same for `BuildReceipt.cs`).
-- [ ] **Step 3: The trust fields as read.** In `SentinelAddin/Coordination/ChangesetClient.cs`, make three replacements:
+- [ ] **Step 3: The trust fields as read.** In `SentinelAddin/Coordination/ChangesetClient.cs`, make two replacements:
 
 First, replace
 
@@ -3679,6 +4522,10 @@ with
     [JsonPropertyName("pretick")] public bool? Pretick { get; set; }
     /// <summary>MA-1a item 8: the bridge's accuracy status — "not_measured" until a survey job backs a measurement (MA-4).</summary>
     [JsonPropertyName("accuracy")] public AccuracyDto Accuracy { get; set; }
+    /// <summary>MA-1a item 8 (review amendment C4): contract 2's reader id and evidence ids — the caller's claim, kept by
+    /// the bridge as sent. Read only: nothing in MA-1a acts on them. Null on an element the add-in files.</summary>
+    [JsonPropertyName("cid")] public string Cid { get; set; }
+    [JsonPropertyName("evidence")] public List<string> Evidence { get; set; }
 }
 
 public sealed class AccuracyDto
@@ -3872,7 +4719,7 @@ namespace Sentinel.Coordination
 }
 ```
 
-- [ ] **Step 6: Run.** `dotnet run --project tools/promote-check`: expect `350/350 checks pass` (23 new). `session-check` `47/47` (it compiles `ChangesetClient.cs`). Both builds `0 Error(s)`.
+- [ ] **Step 6: Run.** `dotnet run --project tools/promote-check`: expect `374/374 checks pass` (24 new). `session-check` `47/47` (it compiles `ChangesetClient.cs`). Both builds `0 Error(s)`.
 - [ ] **Step 7: Commit.**
 
 ```bash
@@ -3883,7 +4730,7 @@ feat(engine): the add-in reads the bridge's trust fields, counts a local model's
 ChangesetTrust: a create is never pre-ticked; a retype or attach takes the bridge's pretick. ModelUsage: calls,
 answers and Ollama's own token counts, null when an answer carried none. BuildReceipt: reader, the add-in's sha256,
 tool licences, weights with their licence unknown and said so, parameters, minutes, model calls, tokens, candidates,
-gaps. promote-check 350/350.
+gaps. The stored shape of a contract-2 changeset is read from the fixture the bridge's test proves. promote-check 374/374.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -3910,7 +4757,7 @@ EOF
 
 | Run | Reader | Posted when | `candidates` | `gaps` |
 |---|---|---|---|---|
-| Ghost Builder | `ghost-builder` | the build was kept | the drawing's elements read | wall gaps + type gaps |
+| Ghost Builder | `ghost-builder` | the build was kept and at least one element is still in the model | the drawing's elements read | wall gaps + type gaps |
 | Photo Massing | `photo-massing` | the build committed and placed something | the massing plan's elements | wall gaps |
 | Datum from Drawings | `datum` | its transaction committed and created something | levels + grids read | 0 (Datum types nothing) |
 | Promote | `promote` | at least one changeset was filed | the elements the planner judged | the elements sent to a person |
@@ -3981,7 +4828,7 @@ with
         TrustWiringChecks();
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect `350/360 checks pass` with 10 `FAIL` lines.
+- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check`: expect `374/384 checks pass` with 10 `FAIL` lines.
 - [ ] **Step 3: The review window.** In `SentinelAddin/UI/ChangesetReviewWindow.cs`, make five replacements. First, the source as a claim:
 
 First, replace
@@ -4368,17 +5215,18 @@ with
 Second, replace
 
 ```csharp
-                    report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                        report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
                 return report;
 ```
 
 with
 
 ```csharp
-                    report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
+                        report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
                 // MA-1a item 8: the reader's build:run receipt, for the same kept build — its gaps are the walls and types
-                // this build left as a named gap.
-                if (r.Reader != null)
+                // this build left as a named gap. Under the report's own condition (review amendment C19): a build that
+                // left no element in the model posts neither.
+                if (r.Reader != null && report.Placed > 0)
                 {
                     r.Reader.Parameters["level"] = level.Name;
                     GovernedNotify.Report("Ghost Builder receipt", BuildReceipt.Run("ghost-builder", BuildReceipt.AddinSha256, r.Reader,
@@ -4596,7 +5444,7 @@ with
 
 - [ ] **Step 9: Run.**
   - Both builds: `0 Error(s)`, warnings as on master.
-  - `dotnet run --project tools/promote-check`: expect `360/360 checks pass` (10 new).
+  - `dotnet run --project tools/promote-check`: expect `384/384 checks pass` (10 new).
   - `ghost-p2-check` `103/103` and `ghost-standards-check` `146/146` (each with `ModelUsage.cs` in its project), `session-check` `47/47`, `massing-check` `14/14`.
 - [ ] **Step 10: Commit.**
 
@@ -4607,7 +5455,7 @@ feat(ghost): an agent's element opens unticked and "not measured" in Review AI P
 
 The review pre-ticks by the bridge's decision (never a create) and shows the source as a claim. Ghost Builder, Photo
 Massing, Datum and Promote each post one receipt for a run whose result was kept or filed: reader, the add-in's
-sha256, tool licences, minutes, model calls, tokens when Ollama gave them, candidates, gaps. promote-check 360/360.
+sha256, tool licences, minutes, model calls, tokens when Ollama gave them, candidates, gaps. promote-check 384/384.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -4615,7 +5463,7 @@ EOF
 
 ---
 
-### Task 12 — Drill data, graph, final checks, merge
+### Task 12 — Drill data, graph, final checks (the merge follows the live drill)
 
 **Files:**
 - Create `demo/ghost-sample/ma1a-i68-guideline.json` — the drill's guideline, with a placement block
@@ -4623,7 +5471,7 @@ EOF
 
 Ghost's evidence reads only `.pdf`, `.txt`, `.md` and `.csv` (`GhostEvidence.cs:30`), so these files do not change what a build from `demo/ghost-sample` reads. The pilot's own files in `demo/bds-pilot` are not touched (founder decision F7).
 
-- [ ] **Step 1: The drill's guideline.** It types nothing (no rules), so the drill's rows are typed by hand in the review, as MA1a-S2 and MA1a-I35 did. Its one view standard gives Annotate a floor plan per level to create (drill row I7-2). Its placement block names a workset the drill creates (`MA1_Walls`, `MA1_Datum`), one it never creates (`MA1_Missing`, for floors), and none for furniture.
+- [ ] **Step 1: The drill's guideline.** It types nothing (no rules), so the drill's rows are typed by hand in the review, as MA1a-S2 and MA1a-I35 did. Its one view standard gives Annotate a floor plan per level to create (drill row I7-2). Its placement block names a workset the drill creates (`MA1_Walls`, `MA1_Datum`), one it never creates (`MA1_Missing`, for floors), and none for furniture. Doors, columns and ceilings go to `MA1_Walls` too, so that row I6-9 can settle whether each of those kinds takes a workset write straight after its creation (UNSURE 2; review amendment C16).
 
 Create `demo/ghost-sample/ma1a-i68-guideline.json`:
 
@@ -4643,6 +5491,9 @@ Create `demo/ghost-sample/ma1a-i68-guideline.json`:
   "placement": {
     "worksets": {
       "Walls": "MA1_Walls",
+      "Doors": "MA1_Walls",
+      "Columns": "MA1_Walls",
+      "Ceilings": "MA1_Walls",
       "Levels": "MA1_Datum",
       "Grids": "MA1_Datum",
       "Floors": "MA1_Missing"
@@ -4688,12 +5539,12 @@ node -e 'import("./bridge/artefact-store.mjs").then(m => { const j = f => JSON.p
 and expect `valid guideline and catalogues`. Do not install them now: the drill installs them on its scratch project.
 - [ ] **Step 4: Graph.** Run `graphify update .`. If it is not on PATH, record that in the merge message.
 - [ ] **Step 5: Final checks.**
-  - `promote-check` `360/360`, `roi-check` `50/50`.
+  - `promote-check` `384/384`, `roi-check` `50/50`.
   - `ghost-standards-check` `147/147` (master `146`: it parses every guideline file under `demo/`, so it now proves the drill's guideline installs).
-  - `guideline-check` `17/17`, `ghost-p2-check` `103/103`, `session-check` `47/47`, `event-check` `44/44`, `heal-check` `9/9`, `massing-check` `14/14`, `wallpair-check` `9/9` and `datum-check` `DATUM OK`: as on master.
-  - From `WebApp`, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1668 passed | 1 skipped (1669)`.
+  - `guideline-check` `17/17`, `ghost-p2-check` `103/103`, `session-check` `47/47`, `event-check` `44/44`, `heal-check` `9/9`, `massing-check` `14/14`, `wallpair-check` `9/9`, `annotate-check` `ALL PASS` and `datum-check` `DATUM OK`: as on master.
+  - From `WebApp`, `npx vitest run bridge/`: expect `Test Files  83 passed (83)` and `Tests  1675 passed | 1 skipped (1676)`.
   - Both builds: `0 Error(s)`, with Revit 2024 at `5 Warning(s)` and Revit 2026 at `3 Warning(s)`.
-- [ ] **Step 6: Commit and merge.**
+- [ ] **Step 6: Commit.** The merge is not part of this task: it follows the live drill (review amendment C11 — the section "Merge" after the drill).
 
 ```bash
 git add demo/ghost-sample/ma1a-i68-guideline.json demo/ghost-sample/ma1a-i68-catalog-absent.json demo/ghost-sample/ma1a-i68-catalog.json
@@ -4702,67 +5553,97 @@ docs(drill): MA-1a items 6-8 drill data — a guideline with a placement block, 
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
-git checkout master
-git merge --no-ff feature/ma1a-items6-8 -F - <<'EOF'
-Merge feature/ma1a-items6-8: MA-1a items 6-8 — the guideline's placement block (workset per category, the view's phase, never a design option) applied by every placer, and the office-template check; one ledger row per run of Datum, Ghost Builder, Photo Massing, Annotate, Apply Standard, auto-fix, fix-in-place and the Doctor, counted by the ROI dashboard; build:run receipts for each reader and planner run, and contract 2's trust rules (the bridge sets pretick, accuracy and claimed; a posted one is "ignored: set by the bridge")
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
-EOF
 ```
-
-**Deployment note:** the bridge first, then the add-in. Restart the main bridge on this branch's code before the new add-in is used against it: a bridge on master answers every new report type and every receipt with 400 `a signed-in caller writes notes only …` (the pane log says `Not recorded — HTTP 400 …`; no command is blocked), and stores changesets with no `pretick`. The new add-in is safe against an old bridge for the review: a create is never pre-ticked whichever bridge answers. Restarting the founder's bridge (`tools/bridge-start.cmd`) is the founder's step; a running bridge is not restarted by that script unless told to (its own hint says how).
 
 ---
 
-## Live drill MA1a-I68 (Revit 2024, scratch copies only)
+## Live drill MA1a-I68 (Revit 2024, scratch copies only — on the branch, before the merge)
+
+**Who does what.** The drill runner drives Revit. Two steps are the founder's, because they need a password: signing in (set-up) and signing out (closing list). If the founder is away, the drill runs signed out, and every row that needs a signed-in person is recorded as **owed** — never as passed.
+
+**Owed before the first row** (named up front, so "not run" is never read as a pass — review amendment C15):
+- **I7-9 Photo Massing**: no folder of building photos is on this PC. Massing's report, receipt, placement lines and office-template check stay owed until a drill with photos. Its design-option refusal is drilled (I6-5).
+- **I7-5 fix-in-place**: no scratch project of this drill holds an open IDS issue with a value Sentinel can write. Owed unless the runner has one (the row says what to do then).
+- **The design's set-up line "Blank project from the office template"** (`:1059`): the drill uses copies of the B35 model. A blank BDS-template project is owed; it also gives UNSURE 8 its second count.
+- **A two-user row** for a workset owned by another user (UNSURE 5), and **one row on Revit 2026 or 2027** (D14, UNSURE 15).
+- **A floor, a window and a roof on a named workset** (UNSURE 2): I6-9 places a wall, a door, a column and a ceiling; the drill's guideline sends floors to a workset the model lacks (for I6-4) and names none for windows and roofs.
+- **Signed in or signed out**: whichever of the two the session did not run is owed for I7-1's actor, I7-7(c)'s limit and I8-3's pre-tick.
+
+The drill record ends with the list of owed rows, and each goes into the "owed" memory.
 
 **Set-up (once):**
-- **Build and bridge.**
-  - Close Revit. Run `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024`, which deploys, and record `git rev-parse --short HEAD` and the deployed DLL's sha256 (`certutil -hashfile "<the deployed Sentinel.dll>" SHA256`, lower case): row I8-4 compares a receipt with it. Opening and closing Revit for the drill is authorized; never discard the founder's unsaved work.
-  - Restart the **test bridge on 127.0.0.1:4101** on this branch, as MA1a-I35 did. The founder's 4100 bridge is not touched, and no write route of it is called.
-  - Switch the add-in `serviceUrl` to 4101 for the session, and restore it after.
-- **Scratch copies** (in `%USERPROFILE%\Documents\Sentinel drills`, from `%USERPROFILE%\Documents\sentinel-scratch\ma1\ma1-src_detached.rvt`, the B35 model):
+- **Build.** Close Revit. Run `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024`, which deploys the branch's build into Revit 2024 (the closing list says what stays deployed). Record `git rev-parse --short HEAD` and the deployed DLL's sha256 (`certutil -hashfile "<the deployed Sentinel.dll>" SHA256`, lower case): row I8-4 compares a receipt with it. Opening and closing Revit for the drill is authorized; never discard the founder's unsaved work.
+- **The add-in's bridge settings.** Before the first switch, copy `%AppData%\Sentinel\bcf-config.json` to `bcf-config.json.i68bak` beside it. The file holds the file token: never print it and never open it in a viewer.
+- **The test bridge on 127.0.0.1:4101.** From `WebApp`:
+  - Probe which settings `config/.env` holds (it prints names only, never a value; `config/.env` wins over the shell in `bcf-service.mjs`, `artefact-import.mjs` and `mcp-server.mjs` — `load-env.mjs:9`):
+
+    ```bash
+    node -e 'import("./bridge/load-env.mjs").then(m => { const e = m.loadEnv(); for (const k of ["BCF_PORT", "BCF_EVENT_POLL_MS", "BCF_BASE"]) console.log(k, k in e ? "is set in config/.env — the shell cannot override it" : "is not in config/.env — the shell value is used") })'
+    ```
+
+  - If `BCF_PORT` is set in `config/.env`: stop. The test bridge cannot be moved to 4101 from the shell, and the drill does not edit `config/.env`; ask the founder.
+  - Start it in the background, as MA1a-I35 ran it (event poll off): `BCF_PORT=4101 BCF_EVENT_POLL_MS=0 node bridge/bcf-service.mjs`. Its banner names port 4101, and `curl -s http://127.0.0.1:4101/health` answers. The founder's 4100 bridge is not touched, and no write route of it is called.
+  - **Every bridge call of this drill names `http://127.0.0.1:4101` itself** (review amendment C13). `BCF_BASE` is never relied on: if `config/.env` sets it, `artefact-import.mjs` and the MCP server would write to the founder's 4100 bridge whatever the shell says. Define this helper once in the drill's shell (it reads the token through `load-env.mjs` and prints the reply only; a path is given without its leading slash, so Git Bash does not rewrite it):
+
+    ```bash
+    b4101() { node -e 'import("./bridge/load-env.mjs").then(async m => { const [method, path, body] = process.argv.slice(1); const r = await fetch("http://127.0.0.1:4101/" + path, { method, headers: { "Content-Type": "application/json", Authorization: "Bearer " + (m.loadEnv().BCF_TOKEN || process.env.BCF_TOKEN || "") }, ...(body ? { body: body.startsWith("@") ? require("fs").readFileSync(body.slice(1), "utf8") : body } : {}) }); console.log(r.status, await r.text()) })' "$@"; }
+    ```
+
+    Used as `b4101 GET "cde/ma1a-i68/audit?limit=1"`, `b4101 POST changesets/ma1a-i68 @<a body saved to a file in the session's scratch folder>`, `b4101 PUT "cde/ma1a-i68/artefacts/guideline?actor=drill" @../demo/ghost-sample/ma1a-i68-guideline.json`.
+  - Point the add-in at the test bridge: set `serviceUrl` in `%AppData%\Sentinel\bcf-config.json` to `http://127.0.0.1:4101` with a script that prints nothing of the file — `node -e 'const fs = require("fs"), f = process.env.APPDATA + "/Sentinel/bcf-config.json", c = JSON.parse(fs.readFileSync(f, "utf8")); c.serviceUrl = process.argv[1]; fs.writeFileSync(f, JSON.stringify(c, null, 2)); console.log("serviceUrl set")' http://127.0.0.1:4101`. Row I7-7(b) uses the same line with another address.
+- **Scratch copies** (in `%USERPROFILE%\Documents\Sentinel drills`, each a copy on disk of `%USERPROFILE%\Documents\sentinel-scratch\ma1\ma1-src_detached.rvt`, the B35 model):
   - `ma1a-i68-central.rvt` — open it, enable worksharing (Collaborate ▸ Collaborate ▸ Within your network) and save: the copy becomes the central in place (MA1a-I35: the file dialog refuses a typed name). Create two worksets, `MA1_Walls` and `MA1_Datum` (Collaborate ▸ Worksets ▸ New). Do **not** create `MA1_Missing`. Leave `Workset1` active.
   - `ma1a-i68-plain.rvt` — not workshared.
+  - `ma1a-i68-unbound.rvt` — not workshared, and not bound: open it, Sentinel ▸ Project Setup, clear the Web project box, save the setting. Record that the pane reads "not bound" (review amendment C12).
+  - **The B35 model already holds the five grids of `sample-grids.dxf`** (MA1a-I35 row I4-3: Datum "created nothing … kept"). Each Datum row below first deletes grids in its scratch copy, so Datum has something to create (C12).
   - Never open aster-tower, Demo, a pilot file or any founder file.
-- **The scratch web project** `ma1a-i68`, created as B33 created `ma0-bds`. Nothing is installed on `demo` or on any office. From `WebApp`, against the test bridge (`artefact-import.mjs` reads `BCF_BASE`; if `config/.env` sets it, the file wins over the shell — confirm with a `GET http://127.0.0.1:4101/cde/ma1a-i68/artefacts/guideline` that the install is visible there):
-  - `BCF_BASE=http://127.0.0.1:4101 node bridge/artefact-import.mjs ../demo/ghost-sample/ma1a-i68-guideline.json --project ma1a-i68 --kind guideline --actor drill`
-  - `BCF_BASE=http://127.0.0.1:4101 node bridge/artefact-import.mjs ../demo/ghost-sample/ma1a-i68-catalog-absent.json --project ma1a-i68 --kind type_catalog --actor drill` — this is `type_catalog@1`; row I6-2 installs `@2`.
+- **The scratch web projects.** Nothing is installed on `demo` or on any office, and no row of this drill is written to `demo`.
+  - `b4101 POST cde/projects '{"key":"ma1a-i68"}'` (as B33 created `ma0-bds`), then:
+    - `b4101 PUT "cde/ma1a-i68/artefacts/guideline?actor=drill" @../demo/ghost-sample/ma1a-i68-guideline.json`
+    - `b4101 PUT "cde/ma1a-i68/artefacts/type_catalog?actor=drill" @../demo/ghost-sample/ma1a-i68-catalog-absent.json` — this is `type_catalog@1`; row I6-2 installs `@2`.
+    - `b4101 GET cde/ma1a-i68/artefacts/guideline` shows `guideline@1` with its `placement` block.
+  - `b4101 POST cde/projects '{"key":"ma1a-i68-bare"}'` — a project with no guideline, for row I6-7. Nothing is installed on it.
+  - `ma0-bds` (B33's scratch project: the BDS ruleset with FN-01, the DD rule file, `type_catalog@1`) is used by rows I7-4 and I8-3. Its rows are listed in the record.
 - **Bindings and sign-in.**
   - Bind `ma1a-i68-central.rvt` to `ma1a-i68` (Project Setup). `ma1a-i68-plain.rvt` is bound in its own rows.
   - Ghost source folder = `demo/ghost-sample`; Ollama running as in MA1a-S2.
-  - Sign in as a contributor of `ma1a-i68` (Standards ▸ Sign in). If no test account is at hand, stay signed out and record it: the actor then reads `unsigned — <Windows user>`, and row I7-1's "signed-in actor" is recorded as **not run for a signed-in person**.
+  - **Sign-in (the founder's step — review amendment C14).** The founder signs in (Standards ▸ Sign in). Before that, make the account a contributor of the two projects the drill writes to as a person: `b4101 POST cde/ma1a-i68/members '{"email":"<the account e-mail>","role":"contributor"}'` and the same for `ma0-bds`; record both replies (the memberships stay; say so in the record). Signed in, the design's drill line "with the signed-in actor, within the report budget" (`:1067`) is run: the role check, the 256 KB cap and the 20-a-minute budget are in force only for a signed-in person (`cde-store.mjs:1072`).
+  - If the founder is away: stay signed out. The actor then reads `unsigned — <Windows user>`; I7-1's actor clause, I7-7(c)'s limit and I8-3's ticked rows are **owed**, and the record says so.
 - **Record before the first row:**
   - the model's phases (Manage ▸ Phases) and the Phase of the `GR-FFL` floor plan (Properties ▸ Phasing ▸ Phase) — expected `New Construction`;
   - the active workset — expected `Workset1`;
   - a loaded `OneLevelBased` furniture type (MA1a-S2's desk), loading one if the model has none;
-  - element counts per category, from `analyze_model_statistics` (read-only) or a schedule.
-- **Before each row, record** the last row id of `GET /cde/ma1a-i68/audit?limit=1`, read with the service token. Never print the token. Keep the pane's Doctor log open: every report row answers there.
+  - element counts per category, from `analyze_model_statistics` (read-only) or a schedule;
+  - whether the session is signed in.
+- **Before each row, record** the last row id of `b4101 GET "cde/ma1a-i68/audit?limit=1"`. Keep the pane's Doctor log open: every report row answers there.
+- **An element's id** (for Manage ▸ Select by ID): the last eight hex digits of its UniqueId in a changeset's result, read as a number, or the community MCP's read-only `get_selected_elements` / `get_current_view_elements`.
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
 | I6-1 The office-template check refuses | On `ma1a-i68-central.rvt` (with `type_catalog@1`), run Ghost Builder ▸ `sample-plan-step2.dxf`. Then run Promote | Ghost: `Nothing was built — this model was not made from the office template: it holds none of the 2 office type(s) that type_catalog@1 · project · … lists in the guideline's categories. Start the project from the office template, then run this again — Sentinel never loads an unknown family.` No review window opens; no changeset is filed (the audit's last id is unchanged). Promote: the same sentence. The DWG import Ghost made stays in the model | both dialogs; the audit id; whether the import is listed under Manage Links |
-| I6-2 Workset and phase, and the template count | Install `type_catalog@2`: `BCF_BASE=http://127.0.0.1:4101 node bridge/artefact-import.mjs ../demo/ghost-sample/ma1a-i68-catalog.json --project ma1a-i68 --kind type_catalog --actor drill`. In the `GR-FFL` plan, run Ghost Builder ▸ `sample-plan-step2.dxf` again. Tick and type A-WALL-EXT and A-WALL-INT (`Generic - 200mm`) and A-FURN (the desk) by hand; build level GR-FFL; Build | The summary shows:<br>• `Office template: 1 of 3 office type(s) present (type_catalog@2 · project · …).`;<br>• `Worksets: N on MA1_Walls · 2 left on the active workset (the guideline names no workset for Furniture).`, N = the walls placed;<br>• `Phase: K element(s) set to "New Construction", the active view's phase (a level or a grid has no phase).`<br>Pick a new wall: Properties ▸ Workset = `MA1_Walls`, Phase Created = `New Construction`. Pick a desk: Workset = `Workset1`. The active workset is still `Workset1` | the three lines; one wall's and one desk's workset and phase; the Revit warning counts beside MA1a-I35's (UNSURE 7) |
-| I6-3 The view's phase, and one Undo | Ctrl+Z the Ghost build. Duplicate the `GR-FFL` plan and set the copy's Phase to `Existing`; stay in it. Post the wall body below to `http://127.0.0.1:4101/changesets/ma1a-i68` (as the B33 and B35 seeds were filed). Review AI Proposals ▸ tick the wall ▸ Apply. Then Ctrl+Z | `Applied 1 element(s) …`, then `Worksets: 1 on MA1_Walls.` and `Phase: 1 element(s) set to "Existing", the active view's phase …`. The wall: Workset `MA1_Walls`, Phase Created `Existing`. One Undo entry; Ctrl+Z removes the wall and posts one `changeset_reverted` row | the dialog; the wall's two properties; the audit rows (UNSURE 6) |
-| I6-4 A workset the model lacks | Post the floor body below. Review AI Proposals ▸ tick ▸ Apply | `Nothing was placed — the guideline's placement block names a workset this model does not have: "MA1_Missing". Create it (Standards ▸ Apply Standard, or Collaborate ▸ Worksets), then try again — Sentinel never creates a workset while placing, and never picks another.` then `The proposals are still pending …`. No floor exists; `GET /changesets/ma1a-i68/<id>` still says `proposed`; no `MA1_Missing` workset was created | the dialog; the changeset's status; the workset list |
-| I6-5 A design option is being edited (F3) | Manage ▸ Design Options: add an option set, and edit `Option 1` (Edit Selected). Post the wall body again and Apply it in Review AI Proposals. Then, still in the option: run Ghost Builder (Build in the review), and run Datum from Drawings. Then finish editing the option (Main Model) and Apply the wall | Review: `Nothing was placed — design option "Option 1" is being edited, and Sentinel never places into a design option. Switch to Main Model (Manage ▸ Design Options), then apply it again.` and `The proposals are still pending …`. Ghost: the same sentence ending `then build again.` as the summary; nothing filed (the audit's last id is unchanged). Datum: the same sentence ending `then run Datum from Drawings again.`, before any drawing is picked. Back in Main Model the wall applies, on `MA1_Walls`. No element is in `Option 1` (select all in the option: 0) | the three dialogs; the audit ids; the option's element count (UNSURE 4) |
-| I6-6 A model that is not workshared (F4) | Open `ma1a-i68-plain.rvt`, bind it to `ma1a-i68`, post the wall body again, and Apply it from a plan whose Phase is `New Construction` | `Applied 1 element(s) …`, then `Worksets: not set — this model is not workshared, so it has no worksets (the guideline names 4).` and `Phase: 1 element(s) set to "New Construction", …` | the dialog; the wall's phase |
-| I6-7 No placement block: today's behaviour, said | Bind `ma1a-i68-plain.rvt` to `demo` (its guideline has no placement block; record `GET /cde/demo/artefacts/guideline` → no `placement`). Post the wall body to `…/changesets/demo` and Apply it | `Applied 1 element(s) …`, then `Placement: no placement block (the project's guideline has none, or no guideline is installed) — each element is on the active workset and in the phase Revit gave it, as before.` Record the wall's Phase Created: it is what Revit gives an element made through the API (UNSURE 1) | the dialog; the wall's phase |
-| I6-8 Datum's levels and grids | Back on `ma1a-i68-central.rvt` (Main Model), run Datum from Drawings ▸ `sample-grids.dxf` ▸ Yes | The dialog adds `Worksets: N on MA1_Datum.` and a `Phase:` line (`0 element(s) set to …`, or `not set — the active view has no phase …` when run from a schedule). Pick a new grid: Workset `MA1_Datum`. If every grid is kept (already in the model), nothing is created and nothing is reported: record it and delete the grids first | the dialog; a grid's workset |
-| I7-1 `GET /audit` lists one row per action, with the signed-in actor | After I6-2 (re-do the build with Ctrl+Y, or build again) and I6-8: `GET /cde/ma1a-i68/audit?entity_type=ghost_build`, then `?entity_type=datum` | One `ghost_build` row per kept build: action `Ghost Builder placed N element(s) from sample-plan-step2 on GR-FFL`; `new_value.placed`, `wall_gaps`, `skipped`, `revit_warnings`, `types_added` equal the summary's; `changesets` are the build's ids. One `datum` row: `Datum from Drawings created 0 level(s) and G grid(s)`. Each row's `actor` is the signed-in e-mail. The pane's Doctor log holds `Ghost Builder — Recorded: ledger #N · receipt …` and `Datum from Drawings — Recorded: …`. The refused runs of I6-1, I6-4 and I6-5 left no report row | the rows; the pane's lines; the actor (UNSURE 11) |
-| I7-2 Annotate | Run Annotate on `ma1a-i68-central.rvt` | `Created: 5 view(s) across 5 level(s).` (one `WIP_MA1_<level>` plan per level). `GET …/audit?entity_type=annotate`: one row, `Annotate created 5 view(s) across 5 level(s)`, `guideline` = the label the dialog shows. Run it again: `Created: 0`, `Skipped (already exist): 5`, and **no** second row | the dialog; the row; the unchanged count on the second run |
-| I7-3 Apply Standard | Apply Standard with a pack that creates at least one thing in the central (a one-workset pack is enough; B5 harvested one). If no pack is at hand: `not run`, said | `GET …/audit?entity_type=apply_standard`: one row, `Apply Standard: C created, S skipped, F failed`, with the names (at most 50 each) and the totals | the row, or "not run" |
-| I7-4 ⚡ Fix (auto-fix) | On `ma1a-i68-plain.rvt` bound to `demo` (its ruleset has naming rules): Scan Now, and click ⚡ Fix on one row of a view or sheet name, accepting the proposed name. If the pane offers no fixable row: `not run`, said | The view is renamed; `GET /cde/demo/audit?entity_type=auto_fix`: one new row, `Auto-fix <rule>: 1 <category> renamed`, with `old_name`, `new_name` and the element id; the pane log holds `Auto-fix <rule> — Recorded: …`. A click on a REQUEST rule (a proposal, no rename) writes no `auto_fix` row | the row; the pane's line |
-| I7-5 Fix-in-place | Only where a scratch model has an open IDS issue to fix (the fix-loop drill's set-up): BCF Issues ▸ the issue ▸ Fix in place ▸ tick one value ▸ Apply. Otherwise `not run`, said | `GET …/audit?entity_type=fix_in_place`: one row, `Fix-in-place <requirement>: 1 value(s) written, 0 not written`, with the issue's guid. The re-check's own referee row is there too, as before | the row, or "not run" |
-| I7-6 The Doctor drill | On `ma1a-i68-central.rvt`: (a) with the Doctor's axis fix **off** (Project Setup, the default), draw a wall from a point to one 5000 mm along X and 3 mm off in Y. (b) Turn the axis fix **on** (Project Setup), then draw three such walls within one minute. Wait 70 s. (c) Run a Ghost build that raises a warning | (a) Revit's "slightly off axis" warning stays (Manage ▸ Review Warnings lists it); the pane logs `Seen: … — left in the model`; no `doctor` row follows. (b) The pane logs `Sentinel resolved 1 in "…" with Revit's own fix …` three times; after the minute, **one** line `Doctor — Recorded: ledger #N …`; `GET …/audit?entity_type=doctor`: **one** row, `Doctor: 3 warning(s) resolved with Revit's own fix in 1 kind(s) of transaction`, `resolved` 3, `window_seconds` 60, three element ids. The three walls are on axis. (c) The Doctor logs nothing for Sentinel's own build transaction (its warnings are counted in Ghost's summary) | the pane's lines; the row; the Review Warnings list (UNSURE 13) |
-| I7-7 Not bound, not reachable, and the budget | (a) Detach a copy from its project (an unbound `ma1a-i68-unbound.rvt`) and run Datum ▸ `sample-grids.dxf`. (b) On the central, point `serviceUrl` at a port nothing listens on (`http://127.0.0.1:4199`), delete one of I6-8's grids and run Datum ▸ `sample-grids.dxf` again; restore `serviceUrl`. (c) `GET /cde/ma1a-i68/audit?since=<the drill's start>&limit=1000`: count the report rows per minute | (a) Datum's dialog opens as fast as before; the pane logs `Datum from Drawings — Not recorded on the web: This model is not bound …` (and the same for its receipt). (b) Datum's dialog opens without a felt wait (a refused connection answers at once; a silent bridge costs the guideline read up to 4 s, E6 — record the wait); the pane then logs `Datum from Drawings — Not recorded — the bridge did not answer`, and the same for its receipt; the grid exists, and its placement lines are those of the cached guideline, or the no-block line when none is cached — record which. (c) No minute holds more than 20 report rows of one user; no row answered 429 in the pane | the pane's lines; the feel of (a) and (b); the busiest minute's count (UNSURE 12, 16) |
-| I7-8 The ROI dashboard counts the fixes | Open the ROI dashboard on a model bound to the project that holds the `auto_fix`, `fix_in_place` and `doctor` rows of this drill | Seven lines. The sixth: `Fixes on the ledger, not priced: A auto-fix(es) · F fix-in-place value(s) written · D Doctor resolution(s)`, each equal to the rows read in I7-4 to I7-6. The last: `Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row` | the window's lines |
-| I7-9 Photo Massing | Only with a folder of building photos (none on this PC so far): build a massing | `GET …/audit?entity_type=massing`: one row, `Photo Massing placed N element(s)`; a `build` row with `reader` `photo-massing`. Without photos: `not run`, said | the rows, or "not run" |
-| I8-1 An agent post with `pretick: true` and `within_tolerance` | Post the agent body below to `http://127.0.0.1:4101/changesets/ma1a-i68`. Read the 201 reply. Then Review AI Proposals | The reply: `elements[0].pretick` is `false`; `elements[0].accuracy` is `{"status":"not_measured"}`; `claimed` is `true`; `ignored` lists `elements[0].pretick` and `elements[0].accuracy` with `ignored: set by the bridge`, and `elements[0].measured` with `ignored: no survey job the bridge ran backs it — accuracy.status is not_measured`. In the review: the header reads `Proposed by agent (claimed — the bridge records who a changeset says it is from, and cannot verify it) · adjudication: …`; the wall's row is **unticked** and ends `· not measured`; "Tick suggested" leaves it unticked. Ticked by hand, it applies | the reply; a screenshot of the review; the result |
-| I8-2 The MCP tool never files as the add-in | With the MCP server pointed at the test bridge (`BCF_BASE=http://127.0.0.1:4101`), call `sentinel_propose_changeset` with `source: "promote"` and one wall | The stored changeset's `source` is `agent`; `claimed` true; the wall's `pretick` false. The `changeset_proposed` row carries `claimed: true` and `ignored: 0` | the reply; the audit row |
-| I8-3 Promote's own operations still open ticked | Only on a project that holds the DD rule file (`ma0-bds`, B35's set-up): run Promote, file, and look at the review. Otherwise `not run`, said | The attach rows and the retype rows with a `type_before` open ticked (the bridge's `pretick: true`); the header marks the source as claimed. A `build` row with `reader` `promote` names the filed changesets, with `model_calls` 0 | the review; the receipt, or "not run" |
-| I8-4 The receipts | After I6-2 and I6-8: `GET /cde/ma1a-i68/audit?entity_type=build` | One row per kept Ghost build: action `build:run`; `new_value.reader` `ghost-builder`; `claimed` `true`; `addin_sha256` = the deployed DLL's sha recorded at set-up; `minutes` and `seconds` above 0; `candidates` = the drawing's elements; `gaps` = the summary's wall and type gaps; `changesets` = the build's ids; `tools` hold the Revit API (and Ollama when `model_calls` > 0); each `weights` entry has `licence: null` with its note; `tokens` is either `{prompt, output}` or `null` with `tokens_note` — record which (UNSURE 10). One row for Datum: `reader` `datum`, `model_calls` 0, `tokens` null, `tokens_note` `no model was called: this run is deterministic`. No prompt, no file content and no path in either | both rows; which token case held |
-| I8-5 A receipt cannot be forged or unmarked | With the service token: post `{"entity_type":"naming","action":"build:run","new_value":{}}` and then `{"entity_type":"build","action":"x","new_value":{"reader":"fake","claimed":false}}` to `http://127.0.0.1:4101/cde/ma1a-i68/audit` | The first: 400 `build: rows are receipts (entity_type "build") — nothing was saved`. The second: 201, stored with action `build:run` and `claimed: true` — a receipt is always the caller's claim | both replies |
+| I6-2 Workset and phase, and the template count | Install `type_catalog@2`: `b4101 PUT "cde/ma1a-i68/artefacts/type_catalog?actor=drill" @../demo/ghost-sample/ma1a-i68-catalog.json`. In the `GR-FFL` plan, run Ghost Builder ▸ `sample-plan-step2.dxf` again. Tick and type A-WALL-EXT and A-WALL-INT (`Generic - 200mm`) and A-FURN (the desk) by hand; build level GR-FFL; Build | The summary shows, as lines of their own (not under "Warnings:"):<br>• `Office template: 1 of 3 office type(s) present (type_catalog@2 · project · …).`;<br>• `Worksets: N on MA1_Walls · 2 left on the active workset (the guideline names no workset for Furniture).`, N = the walls still in the model;<br>• `Phase: K element(s) set to "New Construction", the active view's phase (a level or a grid has no phase).`<br>If Revit removed an element at commit, N and K do not count it. Pick a new wall: Properties ▸ Workset = `MA1_Walls`, Phase Created = `New Construction`. Pick a desk: Workset = `Workset1`. The active workset is still `Workset1` | the three lines; one wall's and one desk's workset and phase; the Revit warning counts beside MA1a-I35's (UNSURE 7) |
+| I6-3 The view's phase, and one Undo | Ctrl+Z the Ghost build. Duplicate the `GR-FFL` plan and set the copy's Phase to `Existing`; stay in it. Post the wall body below (`b4101 POST changesets/ma1a-i68 @<file>`). Review AI Proposals ▸ tick the wall ▸ Apply. Then Ctrl+Z | `Applied 1 element(s) …`, then `Worksets: 1 on MA1_Walls.` and `Phase: 1 element(s) set to "Existing", the active view's phase …`. The wall: Workset `MA1_Walls`, Phase Created `Existing`. One Undo entry; Ctrl+Z removes the wall and posts one `changeset_reverted` row | the dialog; the wall's two properties; the audit rows (UNSURE 6) |
+| I6-4 A workset the model lacks | Post the floor body below. Review AI Proposals ▸ tick ▸ Apply | `Nothing was placed — the guideline's placement block names a workset this model does not have: "MA1_Missing". Create it (Standards ▸ Apply Standard, or Collaborate ▸ Worksets), then try again — Sentinel never creates a workset while placing, and never picks another.` then `The proposals are still pending …`. No floor exists; `b4101 GET changesets/ma1a-i68/<id>` still says `proposed`; no `MA1_Missing` workset was created | the dialog; the changeset's status; the workset list |
+| I6-5 A design option is being edited (F3) | Record the count of CAD imports (Manage ▸ Manage Links ▸ CAD Formats). Manage ▸ Design Options: add an option set, and edit `Option 1` (Edit Selected). Then, in the option: (a) post the wall body again (y + 2000) and Apply it in Review AI Proposals; (b) run Ghost Builder; (c) run Datum from Drawings; (d) run Photo Massing. Then finish editing the option (Main Model) and Apply the wall of (a) | (a) `Nothing was placed — design option "Option 1" is being edited, and Sentinel never places into a design option. Switch to Main Model (Manage ▸ Design Options), then apply it again.` and `The proposals are still pending …`. (b) The same sentence ending `then run Ghost Builder again.` — **before the drawing picker opens**; the count of CAD imports is unchanged and nothing is filed (the audit's last id is unchanged). (c) The sentence ending `then run Datum from Drawings again.`, before any drawing is picked. (d) The sentence ending `then run Photo Massing again.`, before any image is read. Back in Main Model the wall applies, on `MA1_Walls`. No element is in `Option 1` (select all in the option: 0) | the four dialogs; the CAD import count before and after; the audit ids; the option's element count (UNSURE 4, 17) |
+| I6-6 A model that is not workshared (F4) | Open `ma1a-i68-plain.rvt`, bind it to `ma1a-i68`, post the wall body again (y + 4000), and Apply it from a plan whose Phase is `New Construction` | `Applied 1 element(s) …`, then `Worksets: not set — this model is not workshared, so it has no worksets (the guideline names 7).` and `Phase: 1 element(s) set to "New Construction", …` | the dialog; the wall's phase |
+| I6-7 No placement block: today's behaviour, said | Bind `ma1a-i68-plain.rvt` to `ma1a-i68-bare` (record `b4101 GET cde/ma1a-i68-bare/artefacts/guideline` → 404 `not_installed`). Post the wall body (y + 6000) to `changesets/ma1a-i68-bare` and Apply it | `Applied 1 element(s) …`, then `Placement: no placement block (the project's guideline has none, or no guideline is installed) — each element is on the active workset and in the phase Revit gave it, as before.` Record the wall's Phase Created: it is what Revit gives an element made through the API (UNSURE 1) | the dialog; the wall's phase |
+| I6-8 Datum's levels and grids | Back on `ma1a-i68-central.rvt` (Main Model), in the `GR-FFL` plan: select one grid ▸ right-click ▸ Select All Instances ▸ In Entire Project ▸ Delete (accept Revit's warning about dimensions). Run Datum from Drawings ▸ `sample-grids.dxf` ▸ Yes. Then open any schedule and run Datum ▸ `sample-grids.dxf` once more | First run: `Created 0 level(s) and 5 grid(s) …` (G = 5, the drawing's grids; record the count shown), then `Worksets: 5 on MA1_Datum.` and `Phase: 0 element(s) set to "New Construction", the active view's phase (a level or a grid has no phase).` Pick a new grid: Workset `MA1_Datum`. Second run, from the schedule: every grid is kept, `Created 0 level(s) and 0 grid(s)`, `Worksets: no element was created.`, and the Phase line shows whether a schedule answers a phase — `Phase: 0 element(s) set to "…"` or `Phase: not set — the active view has no phase (a sheet, a legend) …`; record which (UNSURE 3). No second `datum` row | both dialogs; a grid's workset; which Phase line the schedule gave |
+| I6-9 A door, a column and a ceiling take the workset and the phase (UNSURE 2, 3) | In the `GR-FFL` plan (Phase `New Construction`): post the I6-9 body below (a wall, a door in it, a column, a ceiling) and Apply all four. Then switch to the `Existing`-phase plan of I6-3, post the second I6-9 body (one more door in that wall) and Apply it | First: `Applied 4 element(s) …`, `Worksets: 4 on MA1_Walls.`, `Phase: 4 element(s) set to "New Construction", …`; each element's Properties show Workset `MA1_Walls` and Phase Created `New Construction`. If Revit refuses the workset write on a kind, the dialog is `Nothing was placed — Revit would not put <category> <id> on workset "MA1_Walls" (…)` and `The proposals are still pending …` — the changeset is still `proposed` (never declined): record the kind as finding F-I68-n. Second: record Revit's answer for a door given an earlier phase than its wall — placed with Phase Created `Existing`, or `Transaction failed and was rolled back: …` with Revit's reason (then the changeset is declined, as for any Revit failure) | each element's workset and phase; the second dialog word for word |
+| I7-1 `GET /audit` lists one row per action, with the signed-in actor | After I6-2 and I6-8 (nothing is built again: an Undo does not remove a report row): `b4101 GET "cde/ma1a-i68/audit?entity_type=ghost_build"`, then `…entity_type=datum` | One `ghost_build` row, for I6-2's build: action `Ghost Builder placed N element(s) from sample-plan-step2 on GR-FFL`; `new_value.placed`, `wall_gaps`, `skipped`, `revit_warnings`, `types_added` equal the summary's; `changesets` are the build's ids. One `datum` row: `Datum from Drawings created 0 level(s) and 5 grid(s)`. Signed in: each row's `actor` is the signed-in e-mail. Signed out: `unsigned — <Windows user>`, and the actor clause is **owed**. The pane's Doctor log holds `Ghost Builder — Recorded: ledger #N · receipt …` and `Datum from Drawings — Recorded: …`. The refused runs of I6-1, I6-4 and I6-5 left no report row | the rows; the pane's lines; the actor (UNSURE 11) |
+| I7-2 Annotate | Run Annotate on `ma1a-i68-central.rvt` | `Created: 5 view(s) across 5 level(s).` (one `WIP_MA1_<level>` plan per level). `…audit?entity_type=annotate`: one row, `Annotate created 5 view(s) across 5 level(s)`, `guideline` = the label the dialog shows. Run it again: `Created: 0`, `Skipped (already exist): 5`, and **no** second row | the dialog; the row; the unchanged count on the second run |
+| I7-3 Apply Standard | **Run it last of the central's rows** (its build installs a ruleset on `ma1a-i68`, which later rows must not meet). On `ma1a-i68-central.rvt`: Standards ▸ Build Office System ▸ tick the worksets ▸ Build (B31-4's path). Then Build again at once | First: the dialog's `C created, S skipped, F failed`; `…audit?entity_type=apply_standard`: one row, `Apply Standard: C′ created, S skipped, F failed`, where C′ counts the model's creations only — no `Ruleset: installing …` entry among `created` — with the names (at most 50 each) and the totals. Second Build: every workset exists, so nothing is created in the model; the dialog may still show `Ruleset: installing …`; **no** second `apply_standard` row | both dialogs; the row; the unchanged row count |
+| I7-4 ⚡ Fix (auto-fix) | Bind `ma1a-i68-plain.rvt` to `ma0-bds` (the BDS ruleset; B32-3 fixed a family name there by FN-01). Record `b4101 GET "cde/ma0-bds/audit?entity_type=auto_fix"` (the count before). Scan Now, and on a family-name row (FN-01) click ⚡ Fix ▸ Execute. If the pane offers no ⚡ Fix row: **owed**, said | The family is renamed; one new `auto_fix` row on `ma0-bds`: `Auto-fix FN-01: 1 <category> renamed`, with `old_name`, `new_name` and the element id; the pane log holds `Auto-fix FN-01 — Recorded: …`. A click on a REQUEST rule (a proposal, no rename) writes no `auto_fix` row | the row; the pane's line; the count before and after |
+| I7-5 Fix-in-place | **Owed unless** a scratch project holds an open IDS issue with a value Sentinel can write. If one does: BCF Issues ▸ the issue ▸ Fix in place ▸ tick one value ▸ Apply | `…audit?entity_type=fix_in_place`: one row, `Fix-in-place <requirement>: 1 value(s) written, 0 not written`, with the issue's guid. The re-check's own referee row is there too, as before | the row, or "owed" |
+| I7-6 The Doctor drill | On `ma1a-i68-central.rvt`. An off-axis wall is made by rotation, not by the mouse: draw a wall 5000 mm long along X, then Modify ▸ Rotate about its start point with a typed angle of `0.034°` (3 mm over 5 m). (a) With the Doctor's axis fix **off** (Project Setup, the default), make one such wall. (b) Turn the axis fix **on** (Project Setup), then make three such walls within one minute. Wait 70 s. (c) Run a Ghost build that raises a warning | (a) Revit's "slightly off axis" warning stays (Manage ▸ Review Warnings lists it); the pane logs `Seen: … — left in the model`; no `doctor` row follows. (b) The pane logs `Sentinel resolved 1 in "…" with Revit's own fix …` three times; after the minute, **one** line `Doctor — Recorded: ledger #N …`; `…audit?entity_type=doctor`: **one** row, `Doctor: 3 warning(s) resolved with Revit's own fix in 1 kind(s) of transaction`, `resolved` 3, `window_seconds` 60, three element ids. The three walls are on axis. (c) The Doctor logs nothing for Sentinel's own build transaction (its warnings are counted in Ghost's summary) | the pane's lines; the row; the Review Warnings list; the angle that raised the warning (UNSURE 13) |
+| I7-7 Not bound, not reachable, and the budget | (a) Open `ma1a-i68-unbound.rvt`, delete its grids as in I6-8, and run Datum ▸ `sample-grids.dxf`. (b) On the central, set `serviceUrl` to `http://127.0.0.1:4199` (nothing listens there), delete one of I6-8's grids and run Datum ▸ `sample-grids.dxf` again; set `serviceUrl` back to `http://127.0.0.1:4101`. (c) `b4101 GET "cde/ma1a-i68/audit?since=<the drill's start>&limit=1000"`: count the report rows per minute | (a) `Created 0 level(s) and 5 grid(s)`, then the no-block line (a model that is not bound has no guideline); the dialog opens as fast as before; the pane logs `Datum from Drawings — Not recorded on the web: This model is not bound …`, and the same for `Datum receipt`. (b) The dialog opens without a felt wait (a refused connection answers at once; record the wait). The guideline was read earlier in this session, so its cached copy places the grid: `Worksets: 1 on MA1_Datum.`; the pane then logs `Datum from Drawings — Not recorded — the bridge did not answer`, and the same for its receipt. If no cached copy exists, the dialog is `Nothing was placed — the project's guideline could not be read (bridge unreachable …), so its placement block is unknown. …` and no grid is created (F15) — record which of the two happened; the no-block line here is a failure. (c) No minute holds more than 20 report rows of one user, and no pane line reads `Not recorded — HTTP 429`. The limit is in force only for a signed-in person: signed out, (c) is **owed** | the pane's lines; the feel of (a) and (b); the busiest minute's count (UNSURE 12, 16) |
+| I7-8 The ROI dashboard counts the fixes | Open the ROI dashboard twice: on `ma1a-i68-central.rvt` (`ma1a-i68`), and on `ma1a-i68-plain.rvt` bound to `ma0-bds` | Each: seven lines; the last `Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row`. The sixth on `ma1a-i68`: `Fixes on the ledger, not priced: 0 auto-fix(es) · F fix-in-place value(s) written · 3 Doctor resolution(s)` (F = 0 unless I7-5 ran there). The sixth on `ma0-bds`: `… A auto-fix(es) · …`, A = the count of `auto_fix` rows read after I7-4 | both windows' lines |
+| I7-9 Photo Massing | **Owed** (no photos on this PC). With a folder of building photos: build a massing | `…audit?entity_type=massing`: one row, `Photo Massing placed N element(s)`; a `build` row with `reader` `photo-massing`; the summary's placement and office-template lines | "owed", or the rows |
+| I8-1 An agent post with `pretick: true` and `within_tolerance` | Post the I8-1 body below (`b4101 POST changesets/ma1a-i68 @<file>`). Read the 201 reply. Then Review AI Proposals | The reply: `elements[0].pretick` is `false`; `elements[0].accuracy` is `{"status":"not_measured"}`; `claimed` is `true`; `ignored` lists `elements[0].pretick` and `elements[0].accuracy` with `ignored: set by the bridge`, `elements[0].measured` with `ignored: no survey job the bridge ran backs it — accuracy.status is not_measured`, and `elements[0].place.pretick` with `ignored: set by the bridge`; the stored `place` has no `pretick`. In the review: the header reads `Proposed by agent (claimed — the bridge records who a changeset says it is from, and cannot verify it) · adjudication: …`; the wall's row is **unticked** and ends `· not measured`; "Tick suggested" leaves it unticked. Ticked by hand, it applies | the reply; a screenshot of the review; the result |
+| I8-2 The MCP tool never files as the add-in | From `WebApp`, run the I8-2 command below: it calls `sentinel_propose_changeset` twice — with `source: "promote"`, and with `source: { "reader": "promote" }` — through a `fetch` that sends every request to `http://127.0.0.1:4101` | Both stored changesets: `source` `agent`; `claimed` true; the wall's `pretick` false. Each `changeset_proposed` row carries `claimed: true` and `ignored: 0`. Decline both in Review AI Proposals afterwards | the two printed lines; the audit rows |
+| I8-3 Promote's own operations, and the first real template count | Bind `ma1a-i68-plain.rvt` to `ma0-bds` (as in I7-4). Run Promote, file, and look at the review | The header holds `Office template: N of M office type(s) present (type_catalog@1 · …)`: record N and M — the first real count for founder decision F5 (UNSURE 8). Signed in: the attach rows, and the retype rows with a `type_before`, open **ticked** (the bridge's `pretick: true`). Signed out: they open **unticked** (F14: the machine credential earns no pre-tick), and "Tick suggested" ticks none. Record which case ran; the other is **owed**. The header marks the source as claimed. A `build` row with `reader` `promote` names the filed changesets, with `model_calls` 0 | the review; N and M; the receipt |
+| I8-4 The receipts | After I6-2 and I6-8: `b4101 GET "cde/ma1a-i68/audit?entity_type=build"` | One row for I6-2's Ghost build: action `build:run`; `new_value.reader` `ghost-builder`; `claimed` `true`; `addin_sha256` = the deployed DLL's sha recorded at set-up; `minutes` and `seconds` above 0; `candidates` = the drawing's elements; `gaps` = the summary's wall and type gaps; `changesets` = the build's ids; `tools` hold the Revit API (and Ollama when `model_calls` > 0); each `weights` entry has `licence: null` with its note; `tokens` is either `{prompt, output}` or `null` with `tokens_note` — record which (UNSURE 10). One row for I6-8's Datum run: `reader` `datum`, `model_calls` 0, `tokens` null, `tokens_note` `no model was called: this run is deterministic`. No prompt, no file content and no path in either | both rows; which token case held |
+| I8-5 A receipt cannot be forged or unmarked | `b4101 POST cde/ma1a-i68/audit '{"entity_type":"naming","action":"build:run","new_value":{}}'`, then `b4101 POST cde/ma1a-i68/audit '{"entity_type":"build","action":"x","new_value":{"reader":"fake","claimed":false}}'` | The first: 400 `build: rows are receipts (entity_type "build") — nothing was saved`. The second: 201, stored with action `build:run` and `claimed: true` — a receipt is always the caller's claim | both replies |
+| I8-6 The machine credential earns no pre-tick by writing `promote` (C2) | Read the UniqueId of I6-9's wall from its changeset's result (`b4101 GET changesets/ma1a-i68/<id>`). Post the I8-6 body below with that id (`b4101` sends the machine credential). Open Review AI Proposals, look, and decline it | The reply: `source` `promote`, `claimed` `true`, `elements[0].pretick` **false**. In the review the attach row opens **unticked** | the reply; the review |
 
 I6-3 wall body (`Generic - 200mm` is a basic wall type in the copy, per B33). Move the line 2000 mm in Y for each later post, so the walls do not overlap:
 
@@ -4782,6 +5663,30 @@ I6-4 floor body (`TypeName` must be a floor type in the copy; record the one use
       "place": { "TypeName": "Generic 150mm", "LevelName": "GR-FFL", "LocationLoop": [[40000, 10000, 0], [44000, 10000, 0], [44000, 14000, 0], [40000, 14000, 0]] } } ] }
 ```
 
+I6-9 bodies. Each `FamilyName` and `TypeName` must be loaded in the copy — the door's and the ceiling's are in the B35 model (its seed used them); load `M_Rectangular Column` from the Revit library if the model has no column family — and the ones used are recorded. First, the four kinds:
+
+```json
+{ "name": "MA1a item 6 — a wall, a door, a column, a ceiling", "source": "agent",
+  "elements": [
+    { "kind": "wall", "validate": { "identity": { "Class": "IfcWall", "Name": "I6-9 wall" } },
+      "place": { "TypeName": "Generic - 200mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [40000, 30000, 0], "end": [46000, 30000, 0] } } },
+    { "kind": "door", "validate": { "identity": { "Class": "IfcDoor", "Name": "I6-9 door" } },
+      "place": { "FamilyName": "M_Single-Flush", "TypeName": "0915 x 2134mm", "LevelName": "GR-FFL", "Location": [42000, 30000, 0] } },
+    { "kind": "column", "validate": { "identity": { "Class": "IfcColumn", "Name": "I6-9 column" } },
+      "place": { "FamilyName": "M_Rectangular Column", "TypeName": "610 x 610mm", "LevelName": "GR-FFL", "Location": [48000, 30000, 0] } },
+    { "kind": "ceiling", "validate": { "identity": { "Class": "IfcCovering", "Name": "I6-9 ceiling" } },
+      "place": { "TypeName": "Generic", "LevelName": "GR-FFL", "Boundary": [[40000, 32000], [44000, 32000], [44000, 36000], [40000, 36000]], "Offset": 2700 } } ] }
+```
+
+Second, one more door in that wall, applied from the `Existing`-phase plan:
+
+```json
+{ "name": "MA1a item 6 — a door in a wall of a later phase", "source": "agent",
+  "elements": [
+    { "kind": "door", "validate": { "identity": { "Class": "IfcDoor", "Name": "I6-9 door, Existing view" } },
+      "place": { "FamilyName": "M_Single-Flush", "TypeName": "0915 x 2134mm", "LevelName": "GR-FFL", "Location": [44500, 30000, 0] } } ] }
+```
+
 I8-1 agent body:
 
 ```json
@@ -4789,49 +5694,100 @@ I8-1 agent body:
   "elements": [
     { "kind": "wall", "pretick": true, "accuracy": { "status": "within_tolerance" }, "measured": { "thickness_mm": 203 },
       "validate": { "identity": { "Class": "IfcWall", "Name": "I8 wall" } },
-      "place": { "TypeName": "Generic - 200mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [40000, 20000, 0], "end": [44000, 20000, 0] } } } ] }
+      "place": { "TypeName": "Generic - 200mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [40000, 20000, 0], "end": [44000, 20000, 0] }, "pretick": true } } ] }
 ```
 
-One row on a newer Revit (design D14): if Revit 2026 or 2027 is used for a row, repeat I6-2 there on a fresh copy and record it; otherwise record that the 2026 row is still owed.
+I8-2 command (from `WebApp`; `callTool` takes its `fetch`, and this one sends every request to the test bridge whatever `BCF_BASE` says):
 
-Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session MA1a-I68, with gaps named F-I68-n. Then:
+```bash
+node -e 'import("./bridge/mcp-server.mjs").then(async m => { const to4101 = (u, o) => fetch(String(u).replace(/^https?:\/\/[^/]+/, "http://127.0.0.1:4101"), o); for (const source of ["promote", { reader: "promote" }]) { const r = await m.callTool("sentinel_propose_changeset", { project: "ma1a-i68", name: "I8-2 " + JSON.stringify(source), source, elements: [{ kind: "wall", validate: { identity: { Class: "IfcWall", Name: "I8-2 wall" } }, place: { TypeName: "Generic - 200mm", LevelName: "GR-FFL", LocationCurve: { start: [40000, 24000, 0], end: [44000, 24000, 0] } } }] }, { fetch: to4101 }); console.log(JSON.stringify(source), "->", r.source, "claimed", r.claimed, "pretick", r.elements.map(e => e.pretick)); } })'
+```
+
+I8-6 body (`unique_id` = the UniqueId of I6-9's wall; the two levels are the copy's own):
+
+```json
+{ "name": "MA1a item 8 — a direct post that says promote", "source": "promote",
+  "elements": [
+    { "kind": "wall", "op": "attach", "target": { "unique_id": "<the UniqueId of I6-9's wall>" },
+      "validate": { "identity": { "Class": "IfcWall", "Name": "I8-6 attach" } },
+      "place": { "BaseLevel": "GR-FFL", "TopLevel": "01-FFL" } } ] }
+```
+
+One row on a newer Revit (design D14): if Revit 2026 or 2027 is used for a row, repeat I6-2 there on a fresh copy and record it; otherwise the 2026 row is owed (it is in the list above).
+
+Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session MA1a-I68, with gaps named F-I68-n, each fixed on the branch, and the list of **owed** rows at its end. Then (review amendment C28):
 - close Revit without saving the scratch copies;
-- restore `serviceUrl`, the Ghost source folder and the Doctor's axis fix (off);
-- leave `ma1a-i68` as a scratch project, and say so in the record (an installed artefact version cannot be taken back).
+- the founder signs out (Standards ▸ Sign out), if the session was signed in;
+- stop the test bridge on 4101;
+- restore the add-in's bridge settings by copying `bcf-config.json.i68bak` back over `bcf-config.json`, compare the two files' sha256 (`certutil -hashfile`, the hashes only) and delete the backup;
+- the Ghost source folder and the Doctor's axis fix are document settings of the scratch copies, which were not saved; say so;
+- say which add-in build is deployed in Revit 2024: the branch's, when the merge follows at once; master's again (`git checkout master`, the same `dotnet build`) when the drill failed or the merge waits;
+- list what the drill left on the shared ledger: the scratch projects `ma1a-i68` and `ma1a-i68-bare` (an installed artefact version cannot be taken back), the memberships added for the sign-in, and the rows written to `ma0-bds` (I7-4's `auto_fix`, I8-3's changesets and receipt).
+
+## Merge (after the drill — review amendment C11)
+
+MA1a-I35 was drilled on its branch and merged afterwards; this plan does the same. The Revit half of item 6 is proven only by the drill, and a drill answer can change the design (UNSURE 2, 3 and 4). Merge when all of these hold:
+- every drill row passed, or is named **owed** in the record;
+- each F-I68-n fix is committed on the branch, and Task 12 Step 5's checks were run again after the last fix;
+- UNSURE 4 held (the design-option refusal works). If it did not, founder decision F3 goes back to the founder, and nothing is merged until it is answered.
+
+```bash
+git checkout master
+git merge --no-ff feature/ma1a-items6-8 -F - <<'EOF'
+Merge feature/ma1a-items6-8: MA-1a items 6-8 — the guideline's placement block (workset per category, the view's phase, never a design option) applied by every placer, and the office-template check; one ledger row per run of Datum, Ghost Builder, Photo Massing, Annotate, Apply Standard, auto-fix, fix-in-place and the Doctor, counted by the ROI dashboard; build:run receipts for each reader and planner run, and contract 2's trust rules (the bridge sets pretick, accuracy and claimed; a posted one is "ignored: set by the bridge")
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+EOF
+```
+
+Push only under the standing push rule, after a secret scan of the range.
+
+**Deployment note:** the bridge first, then the add-in. Restart the main bridge on the merged code before the new add-in is used against it. What a bridge still on the old code answers depends on who posts (on master `recordNote` checks the role before the type, `cde-store.mjs:1075`):
+- a signed-in contributor's report or receipt: 403 `a note on the ledger is a lead's (you are contributor) — nothing was saved` (the pane says `Not recorded — HTTP 403 …`);
+- a signed-in lead's or owner's: 400 `a signed-in caller writes notes only …`;
+- a signed-out PC, with the file token: the row is **written**, as posted — a receipt without the bridge's `build:run` wording check and without its `claimed` mark.
+
+No command is blocked in any of the three. An old bridge also stores changesets with no `pretick`: the new add-in is safe against it for the review — a create is never pre-ticked whichever bridge answers. Restarting the founder's bridge (`tools/bridge-start.cmd`) is the founder's step; a running bridge is not restarted by that script unless told to (its own hint says how).
 
 ## UNSURE facts this drill settles
 
 1. What does Revit give an element created through the API when nothing is set: the active workset, and which phase — the active view's or the model's last? (I6-7, and the desks of I6-2.) It decides what "as before" means in the no-block line; the line makes no claim either way.
-2. Is `ELEM_PARTITION_PARAM` writable on each kind straight after its creation, in the same transaction, on Revit 2024: a wall (I6-2), a level and a grid (I6-8), a floor, a hosted door or window, a column? A refusal reads `could not put <category> <id> on workset "…" — nothing was placed` and rolls the batch back. The drill covers walls, grids and furniture (no workset named); the other kinds are recorded when a row places one.
-3. Can `CreatedPhaseId` be set in the same transaction as the create, and do `HasPhases()` and `ArePhasesModifiable()` answer false for a level and a grid? (I6-2, I6-3, I6-8.) Not drilled: a door placed in a wall of a later phase than the view's — Revit is expected to raise an error, which rolls the changeset back with the reason; record it if seen.
-4. Does `DesignOption.GetActiveDesignOptionId` report the option while it is being edited, when the executor runs from an ExternalEvent? (I6-5.) If it answers "none", the row fails and names it: the refusal cannot be built on this call, and founder decision F3 goes back to the founder.
-5. What happens when the named workset is owned by another user or is closed? Not drilled (one user). Expected: Revit refuses the parameter write or raises a failure, and the batch rolls back with the reason. Record it when a two-user drill runs.
+2. Is `ELEM_PARTITION_PARAM` writable on each kind straight after its creation, in the same transaction, on Revit 2024: a wall (I6-2), a level and a grid (I6-8), a hosted door, a column, a ceiling (I6-9)? A refusal reads `Nothing was placed — Revit would not put <category> <id> on workset "…" (…)`, rolls the batch back and leaves the changeset proposed. It matters: in a workshared office model an unwritable kind would refuse every batch that holds one. Not drilled, and owed: a floor (the drill's guideline sends floors to a workset the model lacks, for I6-4), a window and a roof.
+3. Can `CreatedPhaseId` be set in the same transaction as the create, and do `HasPhases()` and `ArePhasesModifiable()` answer false for a level and a grid? (I6-2, I6-3, I6-8.) Does a schedule answer `VIEW_PHASE` — its Phasing group has a Phase — so that a run started from one sets that phase? (I6-8's second run records which Phase line appears; the "no phase" sentence names only a sheet and a legend.) And a door placed in a wall of a later phase than the view's: Revit is expected to raise an error, which rolls the changeset back with the reason (I6-9's second post records Revit's answer).
+4. Does `DesignOption.GetActiveDesignOptionId` report the option while it is being edited, when the executor runs from an ExternalEvent? (I6-5.) If it answers "none", the row fails and names it: the refusal cannot be built on this call, founder decision F3 goes back to the founder, and nothing is merged until it is answered (the Merge section).
+5. What happens when the named workset is owned by another user or is closed? Not drilled (one user). Expected: Revit refuses the parameter write — `PlacementRefused`: the batch rolls back and the changeset stays **proposed**, so it can be applied again once the workset is free (review amendment C5) — or raises a failure at commit, which rolls back and declines as any Revit failure does. Owed: record it when a two-user drill runs.
 6. Does one Ctrl+Z still remove the element with its workset and phase writes, and does the undo watcher still post `changeset_reverted`? (I6-3.)
 7. Do the two writes raise new Revit warnings (walls joined across worksets or phases)? (I6-2: the warning counts beside MA1a-I35's S2 and I3 rows.)
-8. How many of the office's types does a real office project hold — a blank project from the BDS template, and aster-tower — against the BDS catalogue's 1,434? Not settled here (the drill uses its own three-type catalogue, and no pilot file is opened). It is the number founder decision F5 needs before a share (option C) can be chosen.
+8. How many of the office's types does a real office project hold — a blank project from the BDS template, and aster-tower — against the BDS catalogue's 1,434? The drill reads the first real count: Promote's header on the B35 model bound to `ma0-bds`, against its `type_catalog@1` (I8-3). A blank BDS-template project and aster-tower are owed (no pilot file is opened here). It is the number founder decision F5 needs before a share (option C) can be chosen.
 9. Does Ghost Builder place a hand-picked type when the guideline has an element block with no rules? (I6-2.) If its walls come out as gaps instead, add one rule to the drill's guideline in a scratch copy, install it as `guideline@2`, and record it.
 10. Does Ollama's non-streaming `/api/generate` reply carry `prompt_eval_count` and `eval_count` when a JSON-schema `format` is set, for the text model and for llava? (I8-4.) Either answer is designed for: counts, or `null` with the note.
 11. Does a pane line logged from a pool-thread continuation through `BeginInvoke` appear in the Doctor log while Revit is idle and while a dialog is open? (I7-1; the Doctor's flush in I7-6.)
-12. Does a real session stay inside 20 reports a minute per user — a Ghost build (two rows), fast ⚡ Fix clicks, a Doctor flush? (I7-7c.) A 429 writes nothing and reads `Not confirmed — HTTP 429: too many revit reports …` in the pane (E16).
+12. Does a real session stay inside 20 reports a minute per user — a Ghost build (two rows), fast ⚡ Fix clicks, a Doctor flush? (I7-7c.) A 429 writes nothing and reads `Not recorded — HTTP 429: too many revit reports …` in the pane (E16); the row is lost, not retried. The limit is in force only for a signed-in person: signed out, this is owed.
 13. Does Revit raise "Line is slightly off axis" for a wall 3 mm off over 5 m, and offer its resolution to a failures preprocessor? (I7-6.) If not, record the offset that does.
 14. Does the add-in pick up `type_catalog@2` after `@1` in the same Revit session (the cache's `If-None-Match`)? (I6-2.) If it still reads `@1`, restart Revit and record it.
 15. Do Revit 2026 and 2027 behave the same for the workset and phase writes? Only a run settles it (D14's row).
 16. How do Datum and Review AI Proposals feel when the bridge does not answer — the guideline read waits up to 4 s before the block is known? (I7-7b.) If it is felt, the fix is a cached read first (Next).
+17. Does `DesignOption.GetActiveDesignOptionId` answer the option being edited at the top of an external command too (Ghost Builder, Datum, Photo Massing), as well as inside an ExternalEvent? (I6-5 b–d: the refusal comes before the drawing picker, and no CAD import is added.)
 
 ## Risks
 
 - **An agent's accepted element is no longer pre-ticked (F11).** A reviewer who relied on "Tick suggested" for an agent's creates now ticks them by hand. This is the design's rule, and the change is deliberate.
-- **The source is a claim (E11).** A caller that posts directly with a bridge token can still write `source: "promote"` and have its retype and attach rows pre-ticked. The MCP tool cannot; every changeset is marked `claimed`; a person still clicks Apply. Closing it needs a Promote plan the bridge can check (MA-2's `promote/plan` route) or a credential only the add-in holds.
-- **The machine credential skips the report limits.** A signed-out PC with the file token writes the new report types with no role check, no size cap and no budget, as it does `naming` and `family_heal` today (`recordNote`'s service path). A receipt is still worded and marked by the bridge. This predates the plan; H4 moved people to sign-in.
-- **Deploy order.** A bridge that was not restarted answers every new report and receipt with a 400 (the pane says `Not recorded — HTTP 400 …`; nothing is blocked) and stores changesets without `pretick`. The add-in still never pre-ticks a create (E13).
+- **The source is a claim (E11).** The machine credential earns no pre-tick, whatever source it writes (C2), and the MCP tool never files as `promote` or `dwg` in any shape (C1). A signed-in contributor who posts directly with `source: "promote"` still has retype and attach rows pre-ticked: a verified person, named on the ledger, and a person still clicks Apply. Every changeset is marked `claimed`. Closing it needs a Promote plan the bridge can check (MA-2's `promote/plan` route).
+- **Promote on a signed-out PC opens unticked (F14).** The price of the line above: the bridge cannot tell a signed-out add-in from any other holder of the file token. "Tick suggested" then ticks none; the person ticks by hand, or signs in.
+- **No placing while the guideline cannot be read (F15).** In a bound model with no cached guideline, Datum, Ghost Builder, Photo Massing and Review AI Proposals refuse while the bridge is unreachable. With a cached copy they place by it.
+- **A wall in a design option can still be retyped or attached by an agent's changeset.** `ChangesetExecutor.Unsafe` tests the design option for floors, roofs, ceilings, doors and windows, not for walls (MA-0's checks). Promote's planner holds such a wall; an agent's changeset is not held. It predates this plan, and item 6 covers created elements only. In Next.
+- **The report rows are a person's own report.** A signed-in contributor can post a `datum` or `auto_fix` row with counts nobody witnessed: the work happened in Revit, so no bridge route can write the row from the act (`cde-store.mjs:1046`). The row carries the verified actor; the ROI line takes at most 100,000 from one row (C24).
+- **Datum may ask for a workset it will not use (E4).** A run whose levels all exist already is still refused when the block's Levels workset is missing.
+- **The machine credential skips the report limits.** A signed-out PC with the file token writes the new report types with no role check, no size cap and no budget, as it does `naming` and `family_heal` today (`recordNote`'s service path). A receipt is still worded and marked by the bridge. This predates the plan; H4 moved people to sign-in. A drill that runs signed out therefore does not exercise the limits: those rows are owed (I7-1, I7-7c).
+- **Deploy order.** A bridge that was not restarted refuses a signed-in contributor's new report or receipt with a 403 and a lead's with a 400 (the pane says `Not recorded — HTTP 403 …` or `… 400 …`; nothing is blocked); from a signed-out PC it writes the row as posted, a receipt without the `claimed` mark. It stores changesets without `pretick`. The add-in still never pre-ticks a create (E13).
 - **No placing into a design option (F3).** Under A, a person working in an option must switch to Main Model. Nothing else in Sentinel places into options either.
 - **The office-template check stops only at zero (F5).** A model made from another template that happens to hold one office type passes with "1 of N". The count is on screen; the per-element type check still refuses each missing type.
 - **A refused Ghost build leaves its DWG import.** The template check runs after the standards load, and the import is made before that (as for every other refusal of that command).
 - **A phase conflict rolls a changeset back.** A door given an earlier phase than its host wall is expected to fail in Revit; the changeset is then declined with Revit's reason (UNSURE 3). Before, it would have been placed in Revit's default phase.
-- **A wait before placing (E6).** Datum and Review AI Proposals read the guideline first; a bridge that does not answer costs up to 4 s there (UNSURE 16). The reports and receipts never wait.
+- **A wait before placing (E6).** Datum and Review AI Proposals read the guideline first; a bridge that does not answer costs up to 4 s there (UNSURE 16), and then the cached copy places — or, with none, the run is refused (F15). The reports and receipts never wait.
 - **The Doctor's window (F12).** A minute still open when Revit closes is lost. Two open models bound to the same project share one window and one row. A resolution that the person then undoes stays in the row: the row says what the Doctor did.
 - **An Undo after a report is not tracked.** Only changesets have `changeset_reverted`. A `datum`, `annotate`, `auto_fix` or `fix_in_place` row says what was done, not what remains.
-- **A throttled report reads "not confirmed".** `LedgerResult` words a 413 and a 429 as "the entry may have landed", although the report route refuses both before writing (E16).
+- **A throttled report is lost.** A 413 or a 429 on a report reads `Not recorded — HTTP 429 …` in the pane (E16) and is not retried: a busy minute of ⚡ Fix clicks past the budget leaves rows unwritten, and the ROI line then undercounts by them. Retrying is in Next.
 - **The ROI dashboard reads three more kinds.** Up to 15 more GETs on a large ledger; they are read one after the other (the dashboard's own `ponytail` note says when to parallelize).
 - **Weights' licences are not read (F13).** The design's licence rule is met for tools and stated as unmet for weights in every receipt.
 - **A receipt exists only for a kept run (F10).** A reader run the person cancels at the review leaves no row.
@@ -4841,7 +5797,7 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session 
 ## Next (out of scope here)
 
 - MA-1b: GHB-1 (DWG door blocks hosted, rotated and snapped), MAS-4, and drill MA1b.
-- Contract 2's other fields and operations: `typing`, `confidence`, `lod`, `won`, `conflicts`, `cid`, `evidence`, `set_parameter`, `rehost`, `create_room` (MA-2 and later). Until then a posted one is listed under `ignored`.
+- Contract 2's other fields and operations: `typing`, `confidence`, `lod`, `won`, `conflicts`, `set_parameter`, `rehost`, `create_room` (MA-2 and later). Until then a posted one is listed under `ignored`. `cid` and `evidence` are kept from now; showing and using them is the web desk's (MA-3).
 - Survey jobs (MA-4): `measured` backed by `source.job_id`, a status other than `not_measured`, and a receipt the bridge can verify (`claimed: false`).
 - D19's bridge-side marks: warn before review, and never pre-tick a BLOCK breaker unless its `set_parameter` rows are in the batch. The bridge has no model facts to judge a BLOCK rule yet, and every create is already unticked.
 - A source the bridge can verify (MA-2's `promote/plan`, or an add-in credential), so `claimed` can be false for Sentinel's own readers.
@@ -4849,7 +5805,9 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session 
 - Placing into a design option by the person's own pick (F3 B); a phase named by the guideline (F6 B); a share for the office-template check (F5 C).
 - The pilot's placement block: `demo/bds-pilot/bds-guideline.json` version 4 with the WS-01 workset names, once the office confirms them (F7 B).
 - Pricing the three fix counts: `ROI_KINDS`, `RoiMoney` and a new `roi@n` (F8 B).
-- `LedgerResult`: a 413 and a 429 as "not recorded" once every route's refusals are checked (E16).
+- `LedgerResult`: a 413 and a 429 as "not recorded" on the other routes, once each route's refusals are checked (E16); and a retry for a throttled report.
+- The design-option and group tests of `ChangesetExecutor.Unsafe` for walls too, so an agent's changeset cannot retype or attach a wall in an option.
+- Datum's workset pre-check by what will be new, not by what the drawing holds (E4).
 - The rest of XC-5: change requests, clash views, BCF export, IFC Pre-Flight, Sanitize, MEP voids, project binding.
 - The BLOCK check for Datum (F8 of the items 3–5 plan, listed there "with item 7": it is its own step, not a report) and for Photo Massing (with MA-6).
 - MA-6: Photo Massing onto the executor.
