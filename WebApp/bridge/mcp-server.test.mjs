@@ -238,3 +238,31 @@ describe("agent provenance + receipt tools", () => {
     expect(t.description).toMatch(/Read-only/);
   });
 });
+
+// MA-1a item 8: the propose tool states the trust rule, forwards the claimed agent block, and never files as the add-in.
+describe("sentinel_propose_changeset — contract 2's trust rules (MA-1a item 8)", () => {
+  it("the description says what the bridge sets and what an agent's ghost is", () => {
+    const t = TOOLS.find((x) => x.name === "sentinel_propose_changeset");
+    expect(t.description).toMatch(/pretick, accuracy, confidence, typing, claimed and proposal_guid/);
+    expect(t.description).toMatch(/ignored: set by the bridge/);
+    expect(t.description).toMatch(/never pre-ticked/);
+    expect(t.description).toMatch(/not_measured/);
+    expect(t.inputSchema.properties.source.description).toMatch(/dwg and promote are the Revit add-in's/);
+  });
+
+  it("forwards the claimed agent block, and files as agent when the label is one of the add-in's sources", async () => {
+    const sent = async (args) => {
+      const fetch = vi.fn(async () => okJson({ id: "c1", status: "proposed" }));
+      await callTool("sentinel_propose_changeset", { project: "demo", name: "N", elements: [{ kind: "level" }], ...args }, { fetch });
+      return JSON.parse(fetch.mock.calls[0][1].body);
+    };
+    expect(await sent({ source: "my-agent", agent: { kind: "agent", model: "m" } })).toEqual({ name: "N", source: "my-agent", elements: [{ kind: "level" }], agent: { kind: "agent", model: "m" } });
+    expect((await sent({ source: "promote" })).source).toBe("agent");
+    expect((await sent({ source: " DWG " })).source).toBe("agent");
+    // Review amendment C1: a source that is not text is never forwarded — the bridge reads contract 2's { reader } object,
+    // and { reader: "promote" } would otherwise be stored as the source "promote".
+    for (const source of [{ reader: "promote" }, { reader: " DWG " }, ["promote"], 7, null])
+      expect((await sent({ source })).source).toBe("agent");
+    expect(await sent({})).toEqual({ name: "N", source: "agent", elements: [{ kind: "level" }] });
+  });
+});

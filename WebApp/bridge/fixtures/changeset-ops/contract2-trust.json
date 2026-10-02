@@ -1,0 +1,39 @@
+{
+  "posted": {
+    "name": "Contract 2 — a surveyed wall and a retype",
+    "contract": 2,
+    "source": { "reader": "sentinel-survey 0.1", "job_id": "job-0042" },
+    "elements": [
+      { "kind": "wall", "cid": "scan-88", "evidence": ["ev-1", "ev-2"],
+        "pretick": true, "accuracy": { "status": "within_tolerance" }, "measured": { "thickness_mm": 203 },
+        "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } },
+        "place": { "TypeName": "Generic - 200mm", "LevelName": "L1", "LocationCurve": { "start": [0, 0, 0], "end": [4000, 0, 0] }, "pretick": true } },
+      { "kind": "wall", "op": "retype",
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "T1" },
+        "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } },
+        "place": { "TypeName": "T2" } }
+    ]
+  },
+  "stored": {
+    "name": "Contract 2 — a surveyed wall and a retype",
+    "source": "sentinel-survey 0.1",
+    "claimed": true,
+    "contract": 2,
+    "ignored": [
+      { "field": "source.job_id", "why": "ignored: no survey job the bridge ran is named by it — the source is marked claimed" },
+      { "field": "elements[0].pretick", "why": "ignored: set by the bridge" },
+      { "field": "elements[0].accuracy", "why": "ignored: set by the bridge" },
+      { "field": "elements[0].measured", "why": "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured" },
+      { "field": "elements[0].place.pretick", "why": "ignored: set by the bridge" }
+    ],
+    "elements": [
+      { "kind": "wall", "op": "create", "cid": "scan-88", "evidence": ["ev-1", "ev-2"],
+        "pretick": false, "accuracy": { "status": "not_measured" },
+        "place": { "TypeName": "Generic - 200mm", "LevelName": "L1", "LocationCurve": { "start": [0, 0, 0], "end": [4000, 0, 0] } } },
+      { "kind": "wall", "op": "retype",
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "T1" },
+        "pretick": false, "accuracy": { "status": "not_measured" },
+        "place": { "TypeName": "T2" } }
+    ]
+  }
+}
