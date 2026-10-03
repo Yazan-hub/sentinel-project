@@ -1421,6 +1421,11 @@ The rows run in the order above: V-1R and U-1 follow V-1 on the same copy; V-2 a
 
 Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as `## Session MA2e — storey plans and datums, live (<date> ~hh:mm → hh:mm local, branch feature/ma2e-storey-plans <sha>, Claude driving Revit 2024)`: the Setup paragraph (deploy on the founder's OK with the DLL sha before and after, settings pointed at 127.0.0.1:4101, the scratch office and projects with the artefact shas, the sign-in state, the scratch copies, none saved), the "Record before the first row" line, the table `| Row | Result | Evidence |` with **pass**/fail and the dialogs' text quoted, plus ledger `#n`; then D-amendments, F-MA2e-n findings each fixed on the branch ("fix(drill MA2e): …" with its check) and their shas, and the **owed** rows at its end.
 
+**Drill amendments (run 2026-10-04, session MA2e):**
+- **D1** — Building Story and pins are read from Annotate's own preview (its story groups and Pin group), not by mouse.
+- **D2** — the pane's grid virtualizes: a full Scan Now check reads every row through UI Automation's ScrollPattern in steps smaller than one screen.
+- **D3** — switch the community MCP on again after each Revit start (Add-Ins ▸ Revit MCP Switch).
+
 **Closing list:**
 - close Revit without saving any scratch copy;
 - return the sign-in to the state found before the drill;

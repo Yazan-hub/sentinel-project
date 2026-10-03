@@ -1520,3 +1520,45 @@ test bridge stopped; the add-in's bridge settings restored (sha256 `366a193f4680
 test ledger (scratch keys, on purpose): `ma2d-office` #1598–#1606, `ma2d` #1599–#1692 (nine `lod_state`, five `type_gap` runs, the
 crowds, the storeys applied, undone, declined, withdrawn), `ma2d-ma0` #1600–#1674, `ma2d-26` #1601–#1609 (created, membership). Left on
 this PC: the scratch copies and the drill's files in `Documents\Sentinel drills\ma2d\` (evidence; never committed).
+
+## Session MA2e — storey plans and datums, live (2026-10-04 ~01:09 → 01:40 local, branch feature/ma2e-storey-plans 6f2a4f9, Claude driving Revit 2024)
+
+Setup: the branch build 6f2a4f9 deployed to Revit 2024 at 01:09 on the founder's explicit ask ("deploy the ma2e branch to 2024"; DLL
+`39b975d2fa0…`; before it, master 5e249da's `0c7e2aa2826…`). The add-in's bridge settings backed up and pointed at the test bridge
+127.0.0.1:4101. Scratch office `ma2e-office` (`guideline@1` = `bds-guideline.json`, `fc26449bdbe3…`; `ruleset@1` `0261a98155f0…`);
+projects `ma2e`; `ma2e-ast` with its own `guideline@1` (`guideline-ast.json`: `tokens` on GA Plan and RCP, `3c3649caf1be…`) and
+`ruleset@1` (`ruleset-AST.json`, `fa4f893dbf37…`); `ma2e-colon` with its own `guideline@1` (GA Plan's prefix `F:P`, `9623564da693…`).
+Every PUT answered 201 (the bridge stores `tokens`). **Signed in**; the account lead on all four. Scratch copies `ma2e-a/b/c.rvt` of the
+B35 seed, opened from Revit's Open dialog, bound with Project Setup (current-project scope, UI Automation), never saved; Scan Now run
+after each binding (F4).
+
+**Record before the first row** (`ma2e-a.rvt`): Scan Now 86.7 %, 420 elements; VN-01 rows 6 (Levels, Grids, 01_SSL, GR_SSL,
+Starting_View, Drafting 1); Change Requests `0 pending`; Undo list `Sentinel: Save project settings` only. Building Story and pins read
+from the preview, not by mouse (D1): all 5 levels are Building Story and unpinned; the seed's 14 grids are already pinned (UNSURE 2).
+
+| Row | Result | Evidence |
+|---|---|---|
+| V-1 | Preview `Sentinel — Annotate: views and pins`: `Guideline: guideline@1 · office · fc26449bdbe3…`, `View names are checked against VN-01 (ruleset ruleset@1 · office · 0261a98155f0…) — Scan Now's own rule.`, the B31 line `Revit may empty its Undo list after views are named (B31) — if Edit ▸ Undo does not list "Sentinel: Annotate views", the annotate ledger row is the record: it names the views and datums to delete or unpin by hand.`, `10 of 30 creatable view(s) and 5 of 5 datum(s) to pin are ticked.` Per level (GR_SSL, GR-FFL, 01_SSL, 01-FFL, MA0 Roof) `WIP_FP_<L>` and `WIP_RCP_<L>` ticked (`MA0 Roof` → `WIP_FP_MA0-ROOF`), PP/BUA/QA/END unticked, `Presentation Plan (no colour)` greyed `same name as 'Presentation Plan' on <L>`; Pin group `5 unpinned level(s) and grid(s)` all ticked. Create → `Created: 10 view(s). Pinned: 5 level(s) and 0 grid(s).`, `Pinned now: 5/5 story level(s), 0/0 other level(s), 14/14 grid(s) (read from the model after the commit); links are not checked (MH-LNK-01 is not in code).`, `Not created, as the preview said: 0 already in the model, 5 refused with a reason.`, `Not routed in the Project Browser: 10 view(s) — no writable BDS_View Status / View_Group / BDS_Discipline / View Group parameter.`, the B31 line; no Failed block, no "did not keep" line. Undo list top `Sentinel: Annotate views` (UNSURE 1: kept in a model that is not workshared). Ledger #1706 `Annotate created 10 view(s) and pinned 5 datum(s) across 5 level(s)`: `views_created` 10, `pinned_levels` 5, `pinned_grids` 0, `views` the 10 names, `pinned_ids` 5, `pinned_now` the dialog's line, `undo_group_kept` true, `ruleset` `ruleset@1 · office · 0261a98155f0…`, `story_levels` 5, actor the account. Scan Now after: 87.3 %, 440 elements, the same 6 VN-01 rows — none names a created view (ANV-1, closes F44); Change Requests `0 pending` (UNSURE 4) — **pass** | preview and result (UI Automation), Undo list, row, Scan Now |
+| V-1R | Annotate again: `0 of 20 creatable view(s) and 0 of 0 datum(s) to pin are ticked.`; V-1's 10 rows greyed `already in the model (a view or a view template holds this name)`; `Pin — 0 unpinned level(s) and grid(s)`; Cancel → Undo list unchanged — **pass** | preview |
+| U-1 | One Undo (the list's top entry) → the list ends at `Sentinel: Save project settings`; Annotate: `10 of 30 creatable view(s) and 5 of 5 datum(s) to pin are ticked.`, none "already in the model", `Pin — 5 unpinned level(s)` — one Undo took every view and pin of V-1 back; Cancel — **pass** | Undo list, preview |
+| V-2 | `ma2e-b.rvt` → `ma2e-ast` (Scan Now 53.1 %). First preview: `View names are checked against VN-01 (ruleset ruleset@1 · project · fa4f893dbf37…)`; `0 of 0 creatable view(s)`; every GA Plan and RCP row `LEVEL '<level>' does not pass L\d{2}\|LRF\|XX (VN-01) — the level's name is used as it is: rename the level, or give the entry another LEVEL`; every fixed name `'WIP_PP_GR_SSL' does not pass VN-01: View 'WIP_PP_GR_SSL' does not match [DISCIPLINE]_[LEVEL]_[TYPE]_[DESCRIPTION].` (35 refusals); Cancel. Level `GR-FFL` (id 30) renamed `L00` (Select by ID, Properties ▸ Name, Apply; no "rename views?" prompt — no view held its name). Second: `2 of 2 creatable view(s)`, `ARC_L00_PLAN_GA` and `ARC_L00_RCP_Ceiling` ticked; Create → `Created: 2 view(s). Pinned: 5 level(s) and 0 grid(s).` Scan Now (all 387 rows read): 70 VN-01 rows, none names either view; both appear only under VP-01 (a parameter rule, warn: no view-status/discipline parameter — the result's "Not routed" line); Change Requests `0 pending` — **pass** | previews, result, Scan Now |
+| V-3 | `ma2e-c.rvt` → `ma2e-colon`: `5 of 25 creatable view(s)`; each GA Plan row greyed `'WIP_F:P_<L>' holds ':', which Revit does not allow in a view name` (5); each `WIP_RCP_<L>` ticked; Create → `Created: 5 view(s). Pinned: 5 level(s) and 0 grid(s).`, `… 0 already in the model, 10 refused with a reason.`; no Failed block (ANV-2) — **pass** | preview, result |
+
+**Drill amendments:**
+- **D1** — each level's Building Story and pin, and each grid's pin, are read from Annotate's own preview (the story groups and the Pin
+  group), not by mouse; the seed has no level that is not a Building Story, so that branch was not exercised (UNSURE 2: all five are).
+- **D2** — the pane's grid virtualizes: a read sees only the rows on screen. A full Scan Now check reads every row through UI
+  Automation's ScrollPattern in steps smaller than one screen (V-2: 387 rows).
+- **D3** — the community MCP must be switched on again after each Revit start (Add-Ins ▸ Revit MCP Switch).
+
+**Found in the drill:** nothing.
+
+**Owed** (not passed): Revit 2025/2026/2027; the signed-out actor; a view that throws inside its SubTransaction (UNSURE 6); F7 (an owned
+or out-of-date datum) and pinning in a workshared copy (UNSURE 7); a level that is not a Building Story; a real MH-LNK-01 rule and
+links; `token_aliases` as a LEVEL source.
+
+**Closing list:** Revit closed without saving any copy; sign-in left as found (signed in); the test bridge stopped; the add-in's bridge
+settings restored (sha256 `366a193f4680…` = the backup's), the backup deleted; `%AppData%\Sentinel\cache\ma2e`, `ma2e-ast`, `ma2e-colon`
+deleted. The branch build stays on Revit 2024 until the merge's deploy. Left on the test ledger (scratch keys, on purpose): `ma2e-office`
+#1693–#1702, `ma2e` #1694–#1706, `ma2e-ast` #1695–#1707, `ma2e-colon` #1696–#1708 (artefacts, memberships, three `annotate` rows). Left
+on this PC: the scratch copies and the drill's files in `Documents\Sentinel drills\ma2e\` (evidence; never committed).
