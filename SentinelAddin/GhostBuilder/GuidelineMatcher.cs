@@ -101,6 +101,9 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("viewType")]      public string ViewType { get; set; }
         [JsonPropertyName("namePrefix")]    public string NamePrefix { get; set; }
         [JsonPropertyName("tag")]           public List<string> Tag { get; set; }
+        /// <summary>MA-2e (ANV-1, founder decision F1 A): the View rule's tokens this entry fills ("DISC": "ARC", "LEVEL":
+        /// "{level}", …); "{level}" is the level's name, verbatim. Absent → the fixed WIP_&lt;namePrefix&gt;_&lt;LEVEL&gt; name.</summary>
+        [JsonPropertyName("tokens")]        public Dictionary<string, string> Tokens { get; set; }
     }
 
     public sealed class GuidelineViewNaming

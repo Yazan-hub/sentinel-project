@@ -2,13 +2,19 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>disable</Nullable>
+    <!-- MA-2e: RuleModels.cs carries nullable annotations (string?): read them, warn on nothing -->
+    <Nullable>annotations</Nullable>
     <AssemblyName>annotate-check</AssemblyName>
     <RootNamespace>Sentinel.Checks</RootNamespace>
+    <!-- MA-2e: RuleModels.cs uses System.Linq without naming it (the add-in's global usings) -->
+    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\ViewPlanner.cs" />
+    <!-- MA-2e: the View rule and its one token compiler (ANV-1) -->
+    <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\RuleRegex.cs" />
   </ItemGroup>
 </Project>

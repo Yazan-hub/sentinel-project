@@ -47,8 +47,10 @@ public sealed class AnnotateViewsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // MA-2e Task 1, interim (Task 2 rewrites this command): every level, the rows the plan does not refuse.
         var plans = ViewPlanner.Plan(guideline.Views, guideline.ViewNaming,
-            levels.Select(l => l.Name).ToList());
+            levels.Select(l => (l.Name, true)).ToList(), App.Engine?.RulesetFor(doc), null)
+            .Where(p => p.Refusal == null).ToList();
         if (plans.Count == 0)
         {
             TaskDialog.Show("Sentinel — Annotate", $"Guideline: {guidelineLabel}\nIts views section has no plannable (FloorPlan/CeilingPlan) entries — nothing to create.");
