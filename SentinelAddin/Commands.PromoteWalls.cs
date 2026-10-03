@@ -106,10 +106,15 @@ public sealed class PromoteWallsCommand : IExternalCommand
         plannerClock.Stop();
         var actor = UserSession.Actor;
         // MA-2b, design §3.4 step 2: the LOD state now — one lod_state row per run, the read-only one too (the gate reads it).
-        var lod = LodStateOf(doc, plans, pc, "now");
+        // A read that throws (one element's parameter read) is said and posts no row — never the end of Promote (review).
+        LodStateReport lod = null;
+        string lodErr = null;
+        try { lod = LodStateOf(doc, plans, pc, "now"); }
+        catch (Exception ex) { lodErr = ex.Message; }
         if (lod != null) GovernedNotify.Report("LOD state now", CommandReports.LodState(lod, null, actor), key);
         var lodLines = lod == null ? new List<string>() : lod.LevelLines();
-        var lodText = lod == null ? $"LOD state: not measured — no lod_matrix@n to measure against ({pc.MxLabel})"
+        var lodText = lodErr != null ? "LOD state: not read — " + lodErr
+            : lod == null ? $"LOD state: not measured — no lod_matrix@n to measure against ({pc.MxLabel})"
             : "LOD state now (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line + "\n" + string.Join("\n", lodLines.Take(12)) + (lodLines.Count > 12 ? $"\n… and {lodLines.Count - 12} more" : "");
         var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: classes.Count == 1 && classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
