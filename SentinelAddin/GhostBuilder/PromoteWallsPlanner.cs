@@ -82,6 +82,9 @@ namespace Sentinel.GhostBuilder
         public Dictionary<string, ClassCount> Others = new Dictionary<string, ClassCount>(StringComparer.Ordinal);
         public List<PromoteGhost> Ghosts = new List<PromoteGhost>();
         public List<PromoteHeld> Held = new List<PromoteHeld>();
+        /// <summary>MA-2b: every counted element's DD verdict (the "DD now" denominator, element by element) — what the LOD state
+        /// reader (LodState.Read) counts, so the two never drift.</summary>
+        public List<LodFact> Lod = new List<LodFact>();
     }
 
     public static class PromoteWallsPlanner
@@ -163,14 +166,16 @@ namespace Sentinel.GhostBuilder
                 {
                     var w = ws[k];
                     void Hold(string reason) => p.Held.Add(new PromoteHeld { UniqueId = w.UniqueId, Label = w.Label, Reason = reason });
+                    // MA-2b: a whole-wall hold is BLOCKED in the LOD state — Promote cannot act on it, whatever the matrix says.
+                    void Block(string reason) { Hold(reason); p.Lod.Add(new LodFact { UniqueId = w.UniqueId, Category = "Walls", Blocked = true }); }
 
                     // Whole-wall holds: nothing is proposed for these walls.
-                    if (!w.IsBasic) { Hold("not a basic wall — Promote v0 types basic walls only"); continue; }
-                    if (w.InGroup) { Hold("in a group — Sentinel does not edit group members"); continue; }
-                    if (w.InOption) { Hold("in a design option — Sentinel does not edit design options"); continue; }
+                    if (!w.IsBasic) { Block("not a basic wall — Promote v0 types basic walls only"); continue; }
+                    if (w.InGroup) { Block("in a group — Sentinel does not edit group members"); continue; }
+                    if (w.InOption) { Block("in a design option — Sentinel does not edit design options"); continue; }
                     if (baseLevel == null || !baseLevel.IsStory)
                     {
-                        Hold($"base level {w.BaseLevel} is not a Building Story — Promote plans storey by storey");
+                        Block($"base level {w.BaseLevel} is not a Building Story — Promote plans storey by storey");
                         continue;
                     }
 
@@ -179,7 +184,7 @@ namespace Sentinel.GhostBuilder
                     // structure goes to a person whole.
                     bool typeOk = m.RuleProduces("Walls", w.TypeName);
                     if (!typeOk && office != null && (w.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase)) { p.OfficeTyped++; continue; }
-                    if (!typeOk && w.Structural) { Hold("structural wall — Promote v0 does not retype or re-top structure; a person decides"); continue; }
+                    if (!typeOk && w.Structural) { Block("structural wall — Promote v0 does not retype or re-top structure; a person decides"); continue; }
 
                     // Type: settled, or the DD rule's exact answer already loaded in this model, or a person.
                     if (typeOk) { }
@@ -269,6 +274,7 @@ namespace Sentinel.GhostBuilder
                         });
 
                     if (typeOk && topOk) p.DdNow++;
+                    p.Lod.Add(new LodFact { UniqueId = w.UniqueId, Category = "Walls", RulesOk = typeOk && topOk });
                 }
                 p.Walls = ws.Count - p.OfficeTyped;
                 p.Ghosts.InsertRange(0, retypes); // retypes first, then attaches: the executor runs them in that order too

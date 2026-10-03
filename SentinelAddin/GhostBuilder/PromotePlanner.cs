@@ -244,7 +244,10 @@ namespace Sentinel.GhostBuilder
                 c.Total++;
                 if (ProvenanceStamp.SourceOf(e.Stamp) == "promote") c.Stamped++;
                 byName.TryGetValue(storey, out var level);
-                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, out var g);
+                int ddWas = c.DdNow, officeWas = c.OfficeTyped;
+                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, out var g, out var blocked);
+                // MA-2b: the element's DD verdict for the LOD state — the same counters "DD now" reads; an office-typed one is not counted.
+                if (c.OfficeTyped == officeWas) p.Lod.Add(new LodFact { UniqueId = e.UniqueId, Category = cls.Category, RulesOk = c.DdNow > ddWas, Blocked = blocked });
                 if (reason != null) p.Held.Add(new PromoteHeld { UniqueId = e.UniqueId, Label = e.Label, Reason = reason });
                 else if (g != null) p.Ghosts.Add(g); // after the walls' ghosts; Bodies puts every retype before the attaches
             }
@@ -269,14 +272,18 @@ namespace Sentinel.GhostBuilder
         // One element through the plan's checks, in order: the reason a person decides, or null — with a ghost, or with none
         // (settled, counted in DD now; office-typed, taken out of the denominator).
         private static string Plan1(ElementFact e, string cat, string word, LevelFact level, ISet<string> oneType, string office,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, ClassCount c, out PromoteGhost g)
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, ClassCount c, out PromoteGhost g,
+            out bool blocked)
         {
             g = null;
             bool family = e.Kind == "door" || e.Kind == "window";
+            // MA-2b: these holds are BLOCKED in the LOD state — Promote cannot act on them.
+            blocked = true;
             if (e.NotEditable != null) return $"{e.NotEditable} — Sentinel does not retype it; a person decides";
             if (e.InGroup) return "in a group — Sentinel does not edit group members";
             if (e.InOption) return "in a design option — Sentinel does not edit design options";
             if (level == null || !level.IsStory) return $"level {e.Level} is not a Building Story — Promote plans storey by storey";
+            blocked = false;
 
             // Settled, by family and type for doors and windows (window type names repeat across families) — never re-measured.
             if (family ? m.RuleProduces(cat, e.TypeName, e.Family) : m.RuleProduces(cat, e.TypeName))
@@ -289,7 +296,7 @@ namespace Sentinel.GhostBuilder
                 c.OfficeTyped++; c.Total--;
                 return null;
             }
-            if (e.Kind == "floor" && e.Structural) return "structural floor — Promote v1 does not retype structure; a person decides";
+            if (e.Kind == "floor" && e.Structural) { blocked = true; return "structural floor — Promote v1 does not retype structure; a person decides"; }
             return family ? Swap(e, cat, oneType, office, docTypes, m, out g) : Retype(e, cat, word, docTypes, m, out g);
         }
 
