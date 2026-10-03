@@ -70,12 +70,12 @@ export async function readGateInputs(key, deps = {}) {
 export async function readLodState(key, deps = {}) {
   const listAudit = deps.listAudit || (await import("./cde-store.mjs")).listAudit;
   const resolveArtefact = deps.resolveArtefact || (await import("./artefact-store.mjs")).resolveArtefact;
-  const { lodRowStale } = await import("./journey-store.mjs");
-  const [audit, mx] = await Promise.all([listAudit(key, { entity_type: "lod_state", limit: 1 }), resolveArtefact(key, "lod_matrix")]);
-  const row = audit.rows?.[0];
+  const { lodRowStale, newestLodRow } = await import("./journey-store.mjs");
+  const [audit, mx] = await Promise.all([newestLodRow(key, listAudit), resolveArtefact(key, "lod_matrix")]);
+  const row = audit.rows[0];
   if (!row) return { share: null, source: "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)" };
   const v = row.new_value ?? {};
-  const stale = lodRowStale(row, mx);
+  const stale = lodRowStale(row, mx, audit.reverted);
   if (stale) return { share: null, source: `LOD state: not measured — ${stale}` };
   // The row was measured against the matrix in force, so that matrix's stage map says where DD lands — never the row's own
   // project_stage, which the client wrote (review).

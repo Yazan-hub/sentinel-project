@@ -86,6 +86,18 @@ describe("getJourney", () => {
     expect((await getJourney("aster-villa", memDeps({ listAudit: vi.fn(async () => ({ rows: [old], total: 1, limit: 1, offset: 0 })) }))).lod_state).toEqual({
       line: "LOD state: not measured — lod_state ledger #4242 was measured against lod_matrix@1 · office · bbbbbbbbbbbb…; lod_matrix@1 · office · 23bb57937fb0… is in force — run Promote (DD) again",
       share: null, at: row.at, ledger: { id: 4242, hash: row.hash } });
+    // Review (MA-2b): an "after" row whose changeset was then undone in Revit is not the LOD state now; a redo makes it so again.
+    const CS = "0b0b0b0b-0000-4000-8000-000000000001";
+    const after = { ...row, action: "lod:state after · …", new_value: { ...row.new_value, when: "after", changesets: [CS] } };
+    const undone = (op, id = 4250) => memDeps({ listAudit: vi.fn(async (_k, f) => f.entity_type === "lod_state" ? { rows: [after], total: 1, limit: 1, offset: 0 }
+      : { rows: [{ id, entity_type: "changeset", entity_id: CS, action: "changeset_reverted", new_value: { op, guids: ["g"], count: 1 } }], total: 1, limit: 1, offset: 0 }) });
+    const u = undone("undo");
+    expect((await getJourney("aster-villa", u)).lod_state).toEqual({
+      line: `LOD state: not measured — lod_state ledger #4242 was measured after changeset ${CS}, undone at ledger #4250 — run Promote (DD) again`,
+      share: null, at: row.at, ledger: { id: 4242, hash: row.hash } });
+    expect(u.listAudit).toHaveBeenCalledWith("aster-villa", { entity_type: "changeset", entity_id: CS, action_prefix: "changeset_reverted", limit: 1 });
+    expect((await getJourney("aster-villa", undone("redo"))).lod_state.share).toBe(14);
+    expect((await getJourney("aster-villa", undone("undo", 4200))).lod_state.share).toBe(14); // an undo before the row was measured
     const down = await getJourney("aster-villa", memDeps({ listAudit: async () => { throw new Error("ledger down"); } }));
     expect(down.lod_state.line).toBe("LOD state: unavailable — ledger down");
     expect(down.done).toBe(6); // the ledger read costs no step

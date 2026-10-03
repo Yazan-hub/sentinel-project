@@ -115,6 +115,13 @@ describe("readLodState — the design gate's LOD state from the newest lod_state
   ])("%s is not measured, in words", async (_what, rows, mx, source) => {
     expect(await readLodState("p", reading(rows, mx))).toEqual({ share: null, source });
   });
+  it("an \"after\" row whose changeset was undone in Revit afterwards is not measured — the gate never reads a state Sentinel recorded as undone (review)", async () => {
+    const CS = "0b0b0b0b-0000-4000-8000-000000000001";
+    const d = { resolveArtefact: vi.fn(async () => MX), listAudit: vi.fn(async (_k, f) => f.entity_type === "lod_state" ? { rows: [row({ when: "after", changesets: [CS] })] }
+      : { rows: [{ id: 4250, entity_id: CS, action: "changeset_reverted", new_value: { op: "undo" } }] }) };
+    expect(await readLodState("p", d)).toEqual({ share: null,
+      source: `LOD state: not measured — lod_state ledger #4242 was measured after changeset ${CS}, undone at ledger #4250 — run Promote (DD) again` });
+  });
 });
 
 describe("readCobie — hand-over measured on the live models' manifests, never a readiness nobody measured", () => {

@@ -28,11 +28,26 @@ async function wire(deps = {}) {
 /** MA-2b: why the newest lod_state row cannot stand for the LOD state now — it was measured against another lod_matrix than the
  *  one in force (`mx`, resolveArtefact's answer), or none is installed now — or null when it can. The journey line and the design
  *  gate's LOD check (stage-gate.mjs readLodState) read the row only through this. */
-export function lodRowStale(row, mx) {
+export function lodRowStale(row, mx, reverted = null) {
   const v = row.new_value ?? {};
+  // Review: an "after" row describes the model with its changeset applied; an Undo of that changeset recorded after the row
+  // (UndoWatcher's changeset_reverted, the newest of them — a Redo puts the state back) means the model is no longer in it.
+  if (reverted && reverted.id > row.id && reverted.new_value?.op === "undo")
+    return `lod_state ledger #${row.id} was measured after changeset ${reverted.entity_id}, undone at ledger #${reverted.id} — run Promote (DD) again`;
   if (mx?.sha256 && v.matrix_sha256 === mx.sha256) return null;
   return `lod_state ledger #${row.id} was measured against ${v.matrix ?? "a lod_matrix it does not name"}; ` +
     `${mx?.sha256 ? `${refLabel(mx)} is in force` : "no lod_matrix is installed now"} — run Promote (DD) again`;
+}
+
+/** MA-2b: the newest lod_state row ({rows: [row] or []}, listAudit's shape) and, for an "after" row, the newest changeset_reverted
+ *  row of the changesets it measured (`reverted`, or null) — what lodRowStale needs. Both readers read the row through this. */
+export async function newestLodRow(key, listAudit) {
+  const { rows = [] } = await listAudit(key, { entity_type: "lod_state", limit: 1 });
+  const cs = rows[0]?.new_value?.when === "after" ? rows[0].new_value.changesets ?? [] : [];
+  const reverted = cs.length
+    ? (await listAudit(key, { entity_type: "changeset", entity_id: cs.join(","), action_prefix: "changeset_reverted", limit: 1 })).rows?.[0] ?? null
+    : null;
+  return { rows: rows.slice(0, 1), reverted };
 }
 
 /** MA-2b: the LOD state line — the newest lod_state row's (Promote's count in Revit, marked claimed by the bridge), so the web
@@ -45,7 +60,7 @@ export function lodStateOf(fact, mxFact) {
   const v = row.new_value ?? {};
   const ledger = { id: row.id, hash: row.hash ?? null };
   if (!mxFact.ok) return { line: `LOD state: unavailable — the lod_matrix in force was not read: ${mxFact.error}`, share: null, at: row.at, ledger };
-  const stale = lodRowStale(row, mxFact.value);
+  const stale = lodRowStale(row, mxFact.value, fact.value.reverted);
   if (stale) return { line: `LOD state: not measured — ${stale}`, share: null, at: row.at, ledger };
   return {
     line: `LOD state: ${v.line ?? row.action} — Revit's count (claimed), ${row.actor}, ${String(row.at).slice(0, 16).replace("T", " ")} · ledger #${row.id}`,
@@ -73,7 +88,7 @@ export async function getJourney(key, deps = {}) {
       : {
           scan: run(() => d.getScan(key)), verdicts: run(() => d.listVersionVerdictRows(key)), files: run(() => d.listFiles(key)),
           federation: run(() => d.getFederation(key)), transmittals: run(() => d.listTransmittals(key)),
-          lod: run(() => d.listAudit(key, { entity_type: "lod_state", limit: 1 })), // MA-2b: the LOD state line, from the ledger
+          lod: run(() => newestLodRow(key, d.listAudit)),                           // MA-2b: the LOD state line, from the ledger
           lodMx: run(() => d.resolveArtefact(key, "lod_matrix")),                    // … while the matrix it measured against is in force
         }),
   };
