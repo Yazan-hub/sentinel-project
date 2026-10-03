@@ -1,0 +1,55 @@
+{
+  "what": "MA-2a, full contract 2: the design's example body (docs/strategy/2026-09-30-model-automation-design.md:681-705) with its facts, posted without place.TypeName and typed by the bridge from demo/bds-pilot/bds-dd-layerfree-guideline.json and bds-type-catalog.json (the labels are changesets-typing.test.mjs's STANDARDS). The design's 203 mm wall is a gap under the exact rule (its own line :728), so the wall here is 200 mm; `measured` is still ignored (item 8), so the facts travel as `facts`. vitest proves posted → stored; tools/promote-check reads `stored` into the add-in's DTOs.",
+  "posted": {
+    "name": "Aster L02 walls from scan",
+    "contract": 2,
+    "source": { "reader": "sentinel-survey 0.1", "job_id": "job-0042" },
+    "elements": [
+      {
+        "op": "create", "kind": "wall", "cid": "scan-L02-wall-88",
+        "place": { "LocationCurve": { "start": [0, 0, 0], "end": [8420, 0, 0] }, "BaseLevel": "L02", "TopLevel": "L03" },
+        "facts": { "thickness_mm": 200, "params": { "Location": "Exterior" } },
+        "evidence": ["ev-0001#slice-L02", "ev-0003#p1-r12", "ev-0007#crop-3"],
+        "reason": "scan wall L02 #88",
+        "validate": { "identity": { "Class": "IfcWall" } }
+      },
+      {
+        "op": "retype", "kind": "wall",
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+        "facts": { "thickness_mm": 100, "params": { "Location": "Interior", "Function": "Interior" } },
+        "reason": "lod_matrix DD row IfcWall/internal needs an office type",
+        "validate": { "identity": { "Class": "IfcWall" } }
+      }
+    ]
+  },
+  "stored": {
+    "name": "Aster L02 walls from scan",
+    "source": "sentinel-survey 0.1",
+    "claimed": true,
+    "contract": 2,
+    "ignored": [
+      { "field": "source.job_id", "why": "ignored: no survey job the bridge ran is named by it — the source is marked claimed" }
+    ],
+    "elements": [
+      {
+        "kind": "wall", "op": "create", "cid": "scan-L02-wall-88",
+        "place": { "LocationCurve": { "start": [0, 0, 0], "end": [8420, 0, 0] }, "BaseLevel": "L02", "TopLevel": "L03", "TypeName": "BDS_EXT_ARC_CMU_200 mm" },
+        "facts": { "thickness_mm": 200, "params": { "Location": "Exterior" } },
+        "typing": {
+          "typed_by": "bridge", "type": "BDS_EXT_ARC_CMU_200 mm", "family": "Basic Wall", "matched": ["param:Location"],
+          "input": { "category": "Walls", "params": { "Location": "Exterior" }, "thicknessMm": 200 },
+          "guideline": "guideline@1 · office · 0123456789ab…", "catalog": "type_catalog@1 · office · fedcba987654…"
+        },
+        "pretick": false, "accuracy": { "status": "not_measured" }
+      },
+      {
+        "kind": "wall", "op": "retype",
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": null },
+        "place": { "TypeName": "BDS_INT_ARC_CMU_100 mm" },
+        "facts": { "thickness_mm": 100, "params": { "Location": "Interior", "Function": "Interior" } },
+        "typing": { "typed_by": "bridge", "type": "BDS_INT_ARC_CMU_100 mm", "family": "Basic Wall", "matched": ["param:Location"] },
+        "pretick": false, "accuracy": { "status": "not_measured" }
+      }
+    ]
+  }
+}

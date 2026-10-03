@@ -4,6 +4,8 @@ import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES,
   validateChangeset, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
+import * as core from "./sentinel-core.mjs";
+import { makeTyper } from "./changesets-typing.mjs";
 
 const wall = (over = {}) => ({
   kind: "wall",
@@ -652,7 +654,9 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
     expect(v.claimed).toBe(true);
     expect(v.elements[0]).toMatchObject({ pretick: false, accuracy: { status: "not_measured" } });
     expect(v.elements[0].proposal_guid).not.toBe("mine");
-    for (const f of ["confidence", "typing", "claimed"]) expect(v.elements[0]).not.toHaveProperty(f);
+    for (const f of ["confidence", "claimed"]) expect(v.elements[0]).not.toHaveProperty(f);
+    // MA-2a: typing is the bridge's own record of who typed the element — the posted one above was ignored.
+    expect(v.elements[0].typing).toEqual({ typed_by: "caller" });
   });
 
   it("a create is never pre-ticked, whatever its source; a Promote attach or a retype with the type the plan saw is — when a signed-in member filed it", () => {
@@ -792,5 +796,91 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
   it("the add-in's sources are named, so the MCP tool can refuse to file as one", () => {
     expect(ADDIN_SOURCES).toEqual(["dwg", "promote"]);
     expect(TRUST_FIELDS).toEqual(["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"]);
+  });
+});
+
+describe("validateChangeset — bridge typing (MA-2a, full contract 2)", () => {
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+  // A typer as changesets-store builds one (changesets-typing makeTyper): here a stand-in that types by thickness alone.
+  const typer = (kind, facts, at) => {
+    if (!facts?.thickness_mm) throw Object.assign(new Error(`${at}: a ${kind} without place.TypeName is typed by the bridge — no thickness was sent`), { status: 400 });
+    return { TypeName: `T${facts.thickness_mm}`, FamilyName: "Basic Wall", typing: { typed_by: "bridge", type: `T${facts.thickness_mm}`, family: "Basic Wall" } };
+  };
+  const untyped = (over = {}) => { const w = wall(over); delete w.place.TypeName; return w; };
+  const FACTS = { thickness_mm: 200, params: { Function: "Exterior", Location: "Exterior" } };
+  const retype = (place, facts, uid = UID) => ({ op: "retype", kind: "wall", target: { unique_id: uid, type_before: "T1" }, ...(facts ? { facts } : {}), place, validate: { identity: { Class: "IfcWall", Name: "W 1" } } });
+
+  it("without a typer a create or retype without place.TypeName is the 400 it was", () => {
+    status400(() => validateChangeset(CS([untyped({ facts: FACTS })])), /a wall needs place\.TypeName — Sentinel never takes the model's first type/);
+    status400(() => validateChangeset(CS([retype({}, FACTS)])), /retype needs place\.TypeName/);
+  });
+
+  it("with a typer, a create without TypeName is typed: place.TypeName filled, typing says the bridge did it, the facts kept, no pre-tick, nothing ignored", () => {
+    const v = validateChangeset(CS([untyped({ facts: FACTS })]), { type: typer });
+    expect(v.elements[0].place.TypeName).toBe("T200");
+    expect(v.elements[0].place).not.toHaveProperty("FamilyName"); // a wall takes no FamilyName
+    expect(v.elements[0].typing).toEqual({ typed_by: "bridge", type: "T200", family: "Basic Wall" });
+    expect(v.elements[0].facts).toEqual(FACTS);
+    expect(v.elements[0].pretick).toBe(false);
+    expect(v.ignored).toEqual([]);
+  });
+
+  it("an element that names its TypeName is the caller's: the typer is not asked, typing says so, facts ride along as a record", () => {
+    const asked = [];
+    const v = validateChangeset(CS([wall({ facts: FACTS })]), { type: (...a) => { asked.push(a); return typer(...a); } });
+    expect(asked).toEqual([]);
+    expect(v.elements[0]).toMatchObject({ place: { TypeName: "Generic - 200mm" }, typing: { typed_by: "caller" }, facts: FACTS });
+    expect(validateChangeset(CS([wall()]), { type: typer }).elements[0]).not.toHaveProperty("facts");
+  });
+
+  it("the typer's refusal is the reply, with the element's index", () => {
+    status400(() => validateChangeset(CS([wall(), untyped({ facts: { params: { Location: "Exterior" } } })]), { type: typer }),
+      /^elements\[1\]: a wall without place\.TypeName is typed by the bridge — no thickness was sent$/);
+  });
+
+  it("a door typed by the bridge takes the rule's FamilyName too (a type name alone is not one type); one that names its family keeps it", () => {
+    const door = (place) => ({ kind: "door", facts: { thickness_mm: 1 }, place: { LevelName: "L1", Location: [1, 2, 0], ...place }, validate: { identity: { Class: "IfcDoor", Name: "D" } } });
+    const v = validateChangeset(CS([door({}), door({ FamilyName: "Mine" })]), { type: typer });
+    expect(v.elements[0].place).toMatchObject({ TypeName: "T1", FamilyName: "Basic Wall" });
+    expect(v.elements[1].place).toMatchObject({ TypeName: "T1", FamilyName: "Mine" });
+    status400(() => validateChangeset(CS([{ ...door({}), place: { Location: [1, 2, 0] } }]), { type: typer }), /a door needs place\.LevelName/); // the other checks still run
+  });
+
+  it("a retype without TypeName is typed from its facts, and is never pre-ticked for that — even a signed-in Promote's", () => {
+    const v = validateChangeset(CS([retype({}, FACTS), retype({ TypeName: "T2" }, null, UID.replace(/f8$/, "f9"))], { source: "promote" }), { member: true, type: typer });
+    expect(v.elements[0]).toMatchObject({ place: { TypeName: "T200" }, typing: { typed_by: "bridge" }, pretick: false });
+    expect(v.elements[1]).toMatchObject({ place: { TypeName: "T2" }, typing: { typed_by: "caller" }, pretick: true });
+  });
+
+  it("facts: the shape is checked, an attach takes none, and a stray key is a 400 — never dropped silently", () => {
+    status400(() => validateChangeset(CS([wall({ facts: { thickness_mm: 200, measured: true } })])), /facts takes only thickness_mm and params \(got measured\)/);
+    status400(() => validateChangeset(CS([wall({ facts: { thickness_mm: "200" } })])), /facts\.thickness_mm must be a number of mm above 0 and at most 10000/);
+    status400(() => validateChangeset(CS([wall({ facts: { params: { Location: 7 } } })])), /facts\.params\.Location must be one line of text of at most 256 characters/);
+    status400(() => validateChangeset(CS([{ op: "attach", kind: "wall", target: { unique_id: UID }, facts: FACTS, place: { BaseLevel: "L1", TopLevel: "L2" }, validate: { identity: { Class: "IfcWall" } } }])),
+      /attach takes no facts — nothing is typed/);
+    expect(validateChangeset(CS([wall({ facts: {} })])).elements[0].facts).toEqual({});
+  });
+
+  it("a posted typing is ignored and listed (set by the bridge), whichever way the element was typed", () => {
+    const v = validateChangeset(CS([untyped({ facts: FACTS, typing: { typed_by: "me" } }), wall({ typing: { typed_by: "me" } })]), { type: typer });
+    expect(v.ignored).toEqual([{ field: "elements[0].typing", why: "ignored: set by the bridge" }, { field: "elements[1].typing", why: "ignored: set by the bridge" }]);
+    expect(v.elements.map((e) => e.typing.typed_by)).toEqual(["bridge", "caller"]);
+  });
+
+  it("the shared fixture: the design's contract-2 body, typed by the real resolver, is stored as the add-in reads it (tools/promote-check reads the same file)", () => {
+    const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/contract2-typed-body.json", import.meta.url), "utf8"));
+    const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
+    const standards = {
+      guideline: { body: read("../../demo/bds-pilot/bds-dd-layerfree-guideline.json"), label: "guideline@1 · office · 0123456789ab…", sha256: "ab".repeat(32) },
+      catalog: { body: read("../../demo/bds-pilot/bds-type-catalog.json"), label: "type_catalog@1 · office · fedcba987654…", sha256: "cd".repeat(32) },
+    };
+    const v = validateChangeset(fx.posted, { type: makeTyper(standards, core) });
+    expect(v).toMatchObject(fx.stored);
+    expect(v.elements[0].typing.rule).toMatch(/^DD \(MA-2a\): an outside wall/);
+    expect(v.elements[1].typing.rule).toMatch(/^DD \(MA-2a\): an inside wall/);
+    for (const e of v.elements) expect(e.typing).toMatchObject({ guideline_sha256: "ab".repeat(32), catalog_sha256: "cd".repeat(32) });
+    // The body as the design wrote it — a `measured` block and no facts — is still refused, in words: 203 mm is a gap under the exact rule.
+    const design = { ...fx.posted, elements: [{ ...fx.posted.elements[0], facts: undefined, measured: { thickness_mm: 203, height_mm: 3050 } }] };
+    status400(() => validateChangeset(design, { type: makeTyper(standards, core) }), /no rule of guideline@1 · office · 0123456789ab… matches a wall with no facts/);
   });
 });

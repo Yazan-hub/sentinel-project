@@ -316,6 +316,8 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     expect(validateArtefact("layers", readRepoJson("demo/bds-pilot/bds-layers.json"))).toBe(true);
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-guideline.json"))).toBe(true);
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-dd-elements-guideline.json"))).toBe(true);
+    expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-dd-layerfree-guideline.json"))).toBe(true); // MA-2a: layer-free rules install
+    expect(validateArtefact("type_catalog", { ...catalog, types: [{ ...catalog.types[0], bic: "OST_Walls" }, { ...catalog.types[1], bic: null }] })).toBe(true); // BOS-5: a row's bic, or none
     expect(validateArtefact("lod_matrix", readRepoJson("demo/bds-pilot/bds-lod-matrix-dd.json"))).toBe(true);
     expect(validateArtefact("type_catalog", readRepoJson("demo/bds-pilot/bds-type-catalog.json"))).toBe(true);
     expect(validateArtefact("type_catalog", readRepoJson("demo/aster/aster-type-catalog.json"))).toBe(true);
@@ -391,6 +393,9 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ use: { family: "Basic Wall" } }] })],
     ["elements[0].rules[0].use.family", withItem(guideline, "elements", 0, { rules: [{ when: {}, use: { type: "X" } }] })],
     ["elements[0].default.family", withItem(guideline, "elements", 0, { default: { family: "" } })],
+    // MA-2a: a rule with no condition would match every element the bridge types — refused at install (guideline.ts validateGuideline says the same).
+    ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: {}, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: { params: {} }, use: { family: "Basic Wall" } }] })],
     ["views", { ...guideline, views: {} }],
     ["viewNaming", { ...guideline, viewNaming: [] }],
   ])("guideline: a bad %s is a 400 naming that path", (path, body) => {
@@ -404,6 +409,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     ["types[0].family", withItem(catalog, "types", 0, { family: false })],
     ["types[0].system", withItem(catalog, "types", 0, { system: "yes" })],
     ["types[0].width_mm", withItem(catalog, "types", 0, { width_mm: "200" })],
+    ["types[0].bic", withItem(catalog, "types", 0, { bic: 5 })],
     ["template", { ...catalog, template: "Office template" }],
     ["template.title", { ...catalog, template: { path: "C:/x.rte" } }],
     ["template.extracted_at", { ...catalog, template: { title: "T", extracted_at: 20260925 } }],

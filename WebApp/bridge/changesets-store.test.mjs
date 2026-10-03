@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted } from "./changesets-store.mjs";
+import { readFileSync } from "node:fs";
+import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping } from "./changesets-store.mjs";
 
 const wall = () => ({
   kind: "wall",
@@ -7,6 +8,13 @@ const wall = () => ({
   place: { TypeName: "Generic - 200mm", LevelName: "Level 1", LocationCurve: { start: [0, 0, 0], end: [5000, 0, 0] } },
 });
 const BODY = { name: "Core walls", source: "test-agent", elements: [wall(), wall()] };
+// MA-2a: a wall posted without place.TypeName, with the facts the bridge types it from.
+const untypedWall = (facts = { thickness_mm: 200, params: { Location: "Exterior" } }) => {
+  const w = wall(); delete w.place.TypeName; return { ...w, facts };
+};
+const readRepo = (rel) => JSON.parse(readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8"));
+const installed = (kind, body) => ({ body, source: "office", ref: `${kind}@1`, sha256: "ab".repeat(32), pointer_sha_mismatch: false });
+const NONE = { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false };
 
 const baseDeps = (over = {}) => {
   const saved = new Map();
@@ -70,6 +78,64 @@ describe("proposeChangeset", () => {
     const deps = baseDeps();
     deps.adjudicateProposal = vi.fn(async () => { throw Object.assign(new Error("bad IDS"), { status: 400 }); });
     await expect(proposeChangeset("demo", BODY, "a", deps)).rejects.toBeTruthy();
+    expect(deps.docInsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("proposeChangeset — bridge typing (MA-2a, full contract 2)", () => {
+  const standards = {
+    guideline: readRepo("demo/bds-pilot/bds-dd-layerfree-guideline.json"),
+    type_catalog: readRepo("demo/bds-pilot/bds-type-catalog.json"),
+  };
+  const resolving = (have) => vi.fn(async (key, kind) => (have[kind] ? installed(kind, have[kind]) : NONE));
+
+  it("needsTyping: only a body with a typed kind that names no TypeName asks for the standards", () => {
+    expect(needsTyping(BODY)).toBe(false);
+    expect(needsTyping({ elements: [untypedWall()] })).toBe(true);
+    expect(needsTyping({ elements: [{ kind: "level", place: { BaseElevation: 0 } }] })).toBe(false);
+    expect(needsTyping({ elements: [{ op: "attach", kind: "wall", place: {} }] })).toBe(false);
+    expect(needsTyping({ elements: [{ op: "retype", kind: "wall", place: {} }] })).toBe(true);
+    expect(needsTyping({ elements: "nope" })).toBe(false);
+  });
+
+  it("a wall without place.TypeName is typed from the project's guideline and catalogue (resolved project → office) and stored typed, with who typed it", async () => {
+    const deps = baseDeps({ resolveArtefact: resolving(standards) });
+    const cs = await proposeChangeset("ma2a", { name: "typed", source: "agent", contract: 2, elements: [untypedWall(), wall()] }, "agent", deps);
+    expect(deps.resolveArtefact.mock.calls.map((c) => c.slice(0, 2))).toEqual([["ma2a", "guideline"], ["ma2a", "type_catalog"]]);
+    expect(cs.elements[0].place.TypeName).toBe("BDS_EXT_ARC_CMU_200 mm");
+    expect(cs.elements[0].typing).toMatchObject({ typed_by: "bridge", type: "BDS_EXT_ARC_CMU_200 mm", family: "Basic Wall", matched: ["param:Location"],
+      guideline: "guideline@1 · office · " + "ab".repeat(6) + "…", guideline_sha256: "ab".repeat(32), catalog: "type_catalog@1 · office · " + "ab".repeat(6) + "…" });
+    expect(cs.elements[1].typing).toEqual({ typed_by: "caller" });
+    expect(cs.elements[0].pretick).toBe(false);
+    expect(deps.saved.get(cs.id).elements[0].place.TypeName).toBe("BDS_EXT_ARC_CMU_200 mm"); // stored as typed
+    expect(deps.audit.mock.calls[0][6]).toMatchObject({ typed: 1 });
+  });
+
+  it("a body whose every element names its TypeName never reads the standards", async () => {
+    const deps = baseDeps({ resolveArtefact: resolving(standards) });
+    await proposeChangeset("ma2a", BODY, "agent", deps);
+    expect(deps.resolveArtefact).not.toHaveBeenCalled();
+  });
+
+  it("with no guideline installed the post is a 400 that says so (not checkable), and nothing is stored", async () => {
+    const deps = baseDeps({ resolveArtefact: resolving({ type_catalog: standards.type_catalog }) });
+    await expect(proposeChangeset("ma2a", { name: "t", elements: [untypedWall()] }, "agent", deps))
+      .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/no guideline is installed for this project or its office \(none — not installed for ma2a or its office\): not checkable/) });
+    expect(deps.docInsert).not.toHaveBeenCalled();
+  });
+
+  it("a guideline the install validator no longer accepts is none, with its reason", async () => {
+    const deps = baseDeps({ resolveArtefact: resolving({ guideline: { standard: "x", elements: [] }, type_catalog: standards.type_catalog }) });
+    await expect(proposeChangeset("ma2a", { name: "t", elements: [untypedWall()] }, "agent", deps))
+      .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/\(none — guideline@1 · office · abababababab… did not parse: guideline: elements must be a non-empty array\): not checkable/) });
+  });
+
+  it("a wall no rule types is a 400 naming the facts it sent; a gap names the catalogue's sizes", async () => {
+    const deps = baseDeps({ resolveArtefact: resolving(standards) });
+    await expect(proposeChangeset("ma2a", { name: "t", elements: [untypedWall({ thickness_mm: 200, params: { Material: "Stone" } })] }, "agent", deps))
+      .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/no rule of guideline@1 · office · abababababab… matches a wall with Material Stone, 200 mm/) });
+    await expect(proposeChangeset("ma2a", { name: "t", elements: [untypedWall({ thickness_mm: 125, params: { Location: "Interior" } })] }, "agent", deps))
+      .rejects.toMatchObject({ status: 400, message: expect.stringMatching(/"BDS_INT_ARC_CMU_125 mm" .* is not in type_catalog@1 · office · abababababab… — the catalogue has BDS_INT_ARC_CMU_100 mm, BDS_INT_ARC_CMU_150 mm, BDS_INT_ARC_CMU_200 mm, BDS_INT_ARC_CMU_300 mm/) });
     expect(deps.docInsert).not.toHaveBeenCalled();
   });
 });
