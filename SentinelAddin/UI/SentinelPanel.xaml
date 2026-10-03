@@ -11,9 +11,20 @@
                         Margin="6,0,0,0" Click="OnJourneyRefreshClick"
                         ToolTip="Refresh the journey from the web (read-only)"/>
                 <!-- Capped and scrolling: wrapped in a narrow dock the journey runs ~480 DIP tall and would leave the rule grid
-                     no rows (review of the narrow-dock fix); the ↻ button stays outside, always in view. -->
-                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                     no rows (review of the narrow-dock fix). The code-behind sets the cap from the pane's height on every resize
+                     (PaneLayout.JourneyCap: what the score, the Doctor and a few rule rows do not need); 180 is the cap before
+                     the first size. The ↻ button stays outside, always in view. -->
+                <ScrollViewer x:Name="Journey" MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
+                        <StackPanel.Resources>
+                            <!-- loading and "not bound" blank the other lines: an empty line takes no room -->
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger>
+                                    <Trigger Property="Text" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Resources>
                         <TextBlock Text="{Binding JourneyKey}" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"/>
                         <TextBlock Text="{Binding StandardsLine}" FontSize="11" TextWrapping="Wrap"/>
                         <TextBlock Text="{Binding NextLine}" FontSize="11" TextWrapping="Wrap"/>
@@ -54,8 +65,10 @@
                   MouseDoubleClick="OnRowDoubleClick" Margin="0,8,0,0"
                   SelectionMode="Single" x:Name="Grid">
             <DataGrid.Columns>
-                <!-- ⚡ first: the columns are wider than a docked pane, so a last column scrolls out of reach (drill F3) -->
-                <DataGridTemplateColumn Header="" Width="58">
+                <!-- ⚡ first: the columns are wider than a docked pane, so a last column scrolls out of reach (drill F3). Every fixed
+                     column has MinWidth = Width: a live DataGrid pays the Message column's MinWidth out of the fixed columns
+                     (down to 20 DIP - ⚡ Fix became an unlabelled square) unless they hold theirs; the grid scrolls sideways instead. -->
+                <DataGridTemplateColumn Header="" Width="58" MinWidth="58">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Button Content="⚡ Fix" FontSize="11" Padding="6,1" Margin="2"
@@ -66,13 +79,17 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Rule" Binding="{Binding RuleId}" Width="55"/>
-                <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="70"/>
-                <DataGridTextColumn Header="Element" Binding="{Binding ElementName}" Width="130"/>
+                <DataGridTextColumn Header="Rule" Binding="{Binding RuleId}" Width="55" MinWidth="55"/>
+                <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="70" MinWidth="70"/>
+                <DataGridTextColumn Header="Element" Binding="{Binding ElementName}" Width="130" MinWidth="130"/>
                 <!-- MinWidth: the fixed columns already take 418 DIP, so a star column alone shrank to 20 DIP and no message could be
                      read at any dock width; it keeps 160 and the grid scrolls sideways to it -->
-                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" MinWidth="160"/>
-                <DataGridTextColumn Header="Ref" Binding="{Binding DocRef}" Width="105"/>
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" MinWidth="160">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding Message}"/></Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="Ref" Binding="{Binding DocRef}" Width="105" MinWidth="105"/>
             </DataGrid.Columns>
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow">

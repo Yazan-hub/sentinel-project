@@ -15,6 +15,8 @@ public partial class SentinelPanel : UserControl, IDockablePaneProvider
         _vm = vm;
         DataContext = vm;
         InitializeComponent();
+        // Revit resizes the pane with its dock: the journey gets what the score, the Doctor and the rule rows do not need
+        SizeChanged += (_, e) => Journey.MaxHeight = PaneLayout.JourneyCap(e.NewSize.Height);
     }
 
     public void SetupDockablePane(DockablePaneProviderData data)
