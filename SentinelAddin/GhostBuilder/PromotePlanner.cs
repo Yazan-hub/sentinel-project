@@ -182,7 +182,8 @@ namespace Sentinel.GhostBuilder
         // first stray key named is the one the TS reader names.
         private static IEnumerable<JsonProperty> JsOrder(JsonElement o)
         {
-            var all = o.EnumerateObject().ToList();
+            // A name given twice keeps its last value in its first place, as JSON.parse does (TryGetProperty also reads the last).
+            var all = o.EnumerateObject().GroupBy(p => p.Name, StringComparer.Ordinal).Select(g => g.Last()).ToList();
             bool Index(string k) => uint.TryParse(k, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n < uint.MaxValue && n.ToString(CultureInfo.InvariantCulture) == k;
             return all.Where(p => Index(p.Name)).OrderBy(p => uint.Parse(p.Name, CultureInfo.InvariantCulture)).Concat(all.Where(p => !Index(p.Name)));
         }

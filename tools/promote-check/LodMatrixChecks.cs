@@ -39,6 +39,11 @@ static partial class Check
            "a snap is kept apart from the DD rules: the Walls row still reads as Promote v1's, so Walls run (GN-4 untouched)");
         Ok(LodMatrix.Stages.SequenceEqual(new[] { "tender", "design", "coord", "constr", "hand", "oper" }) && LodMatrix.MatrixStages.SequenceEqual(new[] { "concept", "SD", "DD", "CD" }),
            "one stage list (D18): the project stages and the matrix stages, in order");
+        // Review: a raw body with a key named twice (no bridge-served body has one) reads as JSON.parse reads it — the last value.
+        var dup = LodMatrix.FromBody("{\"standard_key\":\"X\",\"semver\":\"1.0.0\",\"rows\":[{\"category\":\"Walls\",\"DD\":{\"type\":\"guideline_rule\"," +
+                                     "\"type_snap_mm\":99,\"type_snap_mm\":0,\"properties\":[\"A.B\"],\"properties\":[\"C.D\"]}}]}", out var dupErr);
+        Ok(dupErr == null && dup.SnapMm["Walls"] == 0 && dup.Properties["Walls"].SequenceEqual(new[] { "C.D" }),
+           "a key named twice reads as parseLodMatrix reads it (JSON.parse: the last value wins) — snap 0, properties [C.D]");
     }
 
     static GuidelineMatcher DdElementsMatcher() =>
