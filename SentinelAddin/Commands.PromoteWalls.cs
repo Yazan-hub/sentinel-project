@@ -156,7 +156,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var asks = mx == null ? new List<string>() : LodMatrix.Order.Where(classes.Contains)
             .Where(cat => mx.Properties.TryGetValue(cat, out var ps) && ps.Count > 0).Select(cat => $"{cat}: {string.Join(", ", mx.Properties[cat])}").ToList();
         var held = plans.SelectMany(p => p.Held.Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
-        // A retype target whose Function in this model disagrees with the rule: once per type, for the office to fix.
+        // A retype target whose Function in this model disagrees with the wall's side as the rule decided it: once per type, for the office to fix.
         var notes = plans.SelectMany(p => p.Ghosts).Select(g => g.Note).Where(n => n != null).Distinct().ToList();
         var dlg = new TaskDialog(Title)
         {

@@ -71,6 +71,29 @@ static partial class Check
            "…the shell wall it is drawn inside is unknown the same way (its own sample point is beyond the partition), the other three outline walls read Exterior");
         var abut = new List<WallLocation.Segment>(thick) { [4] = Seg(350, 1000, 350, 7000, 100) };
         Ok(Loc(abut, 4) == "Interior", "…while a partition abutting the shell's face reads Interior as before");
+        // Drill MA2a (F-MA2a-1): the B35 model's own 6 mm waterproofing wall (the office template's BDS_INT_ARC_CEM-WATERPROOF_6 mm,
+        // based on GR-FFL and rising past 01-FFL) runs 134 mm off the 01-FFL outline wall's centreline — 34 mm off its face, inside the
+        // 100 mm clearance. It was read as an overlap and the outline wall went to a person; a parallel wall whose body starts at or past
+        // this wall's face is a lining, and the sample point moves past it.
+        var lined = Concept(); lined.Add(Seg(16520, -134, 24520, -134, 6));
+        Ok(Loc(lined, 1) == "Exterior" && Enumerable.Range(0, 8).All(k => Loc(lined, k) == "Exterior"),
+           "an outline wall with a 6 mm lining 34 mm off its face reads Exterior past it — a lining is not an overlap (F-MA2a-1)");
+        var finish = Concept(); finish.Add(Seg(16520, -110, 24520, -110, 20)); finish.Add(Seg(16520, -126, 24520, -126, 6)); // a 20 mm finish and a 6 mm membrane
+        Ok(Loc(finish, 1) == "Exterior", "…a 20 mm finish and a 6 mm membrane stacked against the face are read past, both");
+        // The review of F-MA2a-1: a lining is a thin wall of KNOWN width. A wall whose width reads 0 (stacked, curtain, a single drawn line)
+        // or one as thick as this wall (a second leaf, a furring partition) stays an overlap — C23's refusal, never a confident reading.
+        Ok(Loc(abut, 3) == null && Why(abut, 3) == Why(thick, 4), "…a 600 mm shell whose inner face a 100 mm partition abuts stays unknown: a 100 mm wall is no lining");
+        var leaves = Concept(); leaves[1] = Seg(12000, 0, 24000, 0, 100); leaves.Add(Seg(12000, 150, 24000, 150, 100));
+        Ok(Loc(leaves, 1) == null && Loc(leaves, 20) == null, "…two equal 100 mm leaves 50 mm apart are no linings of each other: both unknown, a person decides");
+        var thickLining = Concept(); thickLining.Add(Seg(16520, -134, 24520, -134, 60));
+        Ok(Loc(thickLining, 1) == null, "…nor is a 60 mm wall (thicker than LiningMaxMm) standing where the membrane stood");
+        var stacked = new List<WallLocation.Segment> { Seg(0, 0, 12000, 0), Seg(12000, 0, 12000, 8000), Seg(12000, 8000, 0, 8000), Seg(0, 8000, 0, 0, 0), Seg(100, 1000, 100, 7000, 100) };
+        Ok(Loc(stacked, 4) == null && Why(stacked, 4) == Why(thick, 4), "…a partition drawn inside a stacked shell (its width reads 0) stays unknown: a wall of unknown width is no lining");
+        var deep = new List<WallLocation.Segment>(thick) { [4] = Seg(200, 1000, 200, 7000, 100) };
+        Ok(Loc(deep, 4) == null && Why(deep, 4) == "its body overlaps a parallel wall's body (a wall drawn inside another) — a person decides",
+           "…and a partition wholly inside a 600 mm shell's body, too far from its centreline to cross it, is unknown in words (it read Interior)");
+        var skew = Concept(); skew.Add(Seg(16520, -234, 24520, 0, 6)); // 1.7° off the outline: not parallel, so not a lining
+        Ok(Loc(skew, 1) == null && Why(skew, 1) == Why(thick, 4), "…a thin wall crossing the sample segment at more than 1° is still an overlap, in words");
         Ok(WallLocation.Summary(8, 12, 1) == "outer boundary: 8 outside · 12 inside · 1 unknown", "the summary line");
     }
 
@@ -96,6 +119,17 @@ static partial class Check
         Ok(Enumerable.Range(1, 8).All(n => G(plan, $"W{n}")?.TypeName == "BDS_EXT_ARC_CMU_200 mm") && G(plan, "W1").Reason == "DD walls v0: Location Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm",
            "the eight outline walls → BDS_EXT_ARC_CMU_200 mm, the reason naming what the rule used: Location Exterior, not the Function that told nothing");
         Ok(Enumerable.Range(9, 12).All(n => G(plan, $"W{n}")?.TypeName == "BDS_INT_ARC_CMU_200 mm"), "the twelve inside walls → BDS_INT_ARC_CMU_200 mm");
+        // Drill MA2a (F-MA2a-2): the template note compared the target's Function with the concept type's — "Exterior", the default
+        // that told nothing on this storey — and printed "BDS_INT_ARC_CMU_200 mm is Function Interior in this model" under "the
+        // office's template should fix these" for a right type. It compares with the side the rule decided on.
+        Ok(plan.Ghosts.Where(g => g.Op == "retype").All(g => g.Note == null && !g.Reason.Contains("— note:")),
+           "a one-type storey typed by location carries no template note where each target's Function agrees with the location read (F-MA2a-2)");
+        var wrongFn = new Dictionary<string, string>(docTypes, StringComparer.OrdinalIgnoreCase) { ["BDS_INT_ARC_CMU_200 mm"] = "Exterior" };
+        var wf = PromoteWallsPlanner.Plan(oneType, Levels, wrongFn, m3).Single();
+        Ok(G(wf, "W9")?.Note == "BDS_INT_ARC_CMU_200 mm is Function Exterior in this model" && G(wf, "W1")?.Note == null,
+           "…while a target whose Function disagrees with the location the rule used is still noted (the template's to fix)");
+        Ok(PromoteWallsPlanner.Named(new[] { "param: location " }, "Location") && !PromoteWallsPlanner.Named(new[] { "layer" }, "Location"),
+           "…a rule's parameter is found as the matcher finds it: case and whitespace ignored");
         Ok(plan.Held.Single().Label == "W21" && plan.Held.Single().Reason ==
            "every wall on Level 1 is \"Generic - 200mm\" — inside cannot be told from outside: its Function tells nothing, and its location is unknown (both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it); a person decides",
            "the wall outside the outline is held with the location's reason, never typed by the Function that told nothing");
@@ -133,7 +167,7 @@ static partial class Check
         // at confidence 1. Now the wall is held unless the winning rule itself names Function.
         var civil = new List<WallFact>
         {
-            W("RET", "Generic - 200mm", "Retaining", 200, top: "Level 2", set: w => w.Line = layout[8]),   // a partition's line: reads Interior
+            W("RET", "Generic - 200mm", "Retaining", 200, top: "Level 2", set: w => w.Line = layout[10]),  // a partition's line (not I1's: two walls on one line overlap): reads Interior
             W("FND", "Generic - 200mm", "Foundation", 200, top: "Level 2", set: w => w.Line = layout[1]),  // an outline line: reads Exterior
             W("SOF", "Generic - 200mm", "Soffit", 200, top: "Level 2"),                                   // no line: location unknown
         };
@@ -149,6 +183,17 @@ static partial class Check
         var sp = PromoteWallsPlanner.Plan(civStorey, Levels, docTypes, soffit).Single();
         Ok(G(sp, "SOF")?.Reason == "DD walls v0: Function Soffit, 200 mm → BDS_EXT_ARC_CMU_200 mm — note: BDS_EXT_ARC_CMU_200 mm is Function Exterior in this model" && sp.Held.Any(h => h.Label == "RET") && sp.Held.Any(h => h.Label == "FND"),
            "…where a rule names the Function it decides (the Soffit wall retypes); where the Location rule listed first wins, the wall is still held");
+        // The review of F-MA2a-2: a rule naming a civil Function AND Location decides on the Function too — a Foundation wall typed onto
+        // a type the template calls Foundation gets no note; an outline wall typed by Location onto that type does.
+        var civRules = "{\"standard\":\"civil-Function note check\",\"office\":\"BDS\",\"elements\":[{\"category\":\"Walls\",\"rules\":[" +
+            "{\"when\":{\"params\":{\"Function\":\"Foundation\",\"Location\":\"Exterior\"}},\"use\":{\"family\":\"Basic Wall\",\"typePattern\":\"BDS_EXT_ARC_CMU_{thickness} mm\"},\"why\":\"a foundation wall on the outline\"}," +
+            "{\"when\":{\"params\":{\"Location\":\"Exterior\"}},\"use\":{\"family\":\"Basic Wall\",\"typePattern\":\"BDS_EXT_ARC_CMU_{thickness} mm\"},\"why\":\"an outside wall\"}," +
+            "{\"when\":{\"params\":{\"Location\":\"Interior\"}},\"use\":{\"family\":\"Basic Wall\",\"typePattern\":\"BDS_INT_ARC_CMU_{thickness} mm\"},\"why\":\"an inside wall\"}]}]}";
+        var mFnd = GuidelineMatcher.FromBodies(civRules, File.ReadAllText(Repo("demo", "bds-pilot", "bds-type-catalog.json")), out _, out _);
+        var fndTypes = new Dictionary<string, string>(docTypes, StringComparer.OrdinalIgnoreCase) { ["BDS_EXT_ARC_CMU_200 mm"] = "Foundation" };
+        var fp = PromoteWallsPlanner.Plan(civStorey, Levels, fndTypes, mFnd).Single();
+        Ok(G(fp, "FND")?.TypeName == "BDS_EXT_ARC_CMU_200 mm" && G(fp, "FND").Note == null && G(fp, "E1")?.Note == "BDS_EXT_ARC_CMU_200 mm is Function Foundation in this model",
+           "a rule naming the wall's Function and its Location decides on the Function too: no note for a Foundation wall typed onto a Foundation type; the outline wall typed by Location onto it is noted (F-MA2a-2)");
 
         // Review C2: on a mixed storey a type's Function that disagrees with the reading is held, never outvoted by the file's order.
         // The O layout's courtyard walls carry Function Exterior (a courtyard wall is one) and read Interior; its east outline wall

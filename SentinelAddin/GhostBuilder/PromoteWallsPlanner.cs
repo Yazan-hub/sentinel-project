@@ -56,7 +56,8 @@ namespace Sentinel.GhostBuilder
         public string Op, UniqueId, Label, TypeBefore, TypeName, BaseLevel, TopLevel, Reason;
         /// <summary>A key of PromoteWallsPlanner.Classes; null = wall. FamilyName: a door or window retype's target family.</summary>
         public string Kind, FamilyName;
-        /// <summary>A retype whose target has another Function in this model: "&lt;target&gt; is Function &lt;X&gt; in this
+        /// <summary>A retype whose target's Function in this model disagrees with the wall's side as the rule decided it (the
+        /// Location it matched; else, on a mixed storey, the wall's Function): "&lt;target&gt; is Function &lt;X&gt; in this
         /// model" (also the Reason's tail) — the office's template to fix. Null otherwise; never posted.</summary>
         public string Note;
     }
@@ -213,7 +214,7 @@ namespace Sentinel.GhostBuilder
                             // Coreshaft wall is decided only by a rule that names its Function — a Location rule listed first would
                             // retype a retaining wall to an internal CMU at confidence 1 with nothing said. A person decides.
                             bool civilFn = ps.ContainsKey("Function") && !fnSaysSide;
-                            if (res.Source == "rule" && civilFn && !(res.Matched?.Contains("param:Function") ?? false))
+                            if (res.Source == "rule" && civilFn && !Named(res.Matched, "Function"))
                                 Hold($"Function {w.Function} — the rule that matched does not name Function: it does not decide a {w.Function} wall; a person decides");
                             else if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
                             {
@@ -223,7 +224,15 @@ namespace Sentinel.GhostBuilder
                                 else
                                 {
                                     // The rule is the office's: proposed even when the template gave the target another Function.
-                                    var note = string.IsNullOrEmpty(fn) || string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase)
+                                    // Drill MA2a (F-MA2a-2): compared with the wall's side as the rule decided it — the Location it
+                                    // matched; else, on a mixed storey, the wall's Function (a modelling decision); on a one-type storey
+                                    // with nothing (its Function told nothing). A rule that also names the wall's Function agrees with it
+                                    // (a Retaining wall typed onto a Retaining type is right: C21).
+                                    bool byLoc = Named(res.Matched, "Location"), byFn = Named(res.Matched, "Function");
+                                    string side = byLoc ? loc : p.OneType ? null : w.Function;
+                                    bool agrees = string.Equals(fn, side, StringComparison.OrdinalIgnoreCase)
+                                                  || (byFn && string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase));
+                                    var note = string.IsNullOrEmpty(fn) || string.IsNullOrEmpty(side) || agrees
                                         ? null : $"{res.Type} is Function {fn} in this model";
                                     retypes.Add(new PromoteGhost
                                     {
@@ -349,11 +358,18 @@ namespace Sentinel.GhostBuilder
         /// winning rule's Matched ("param:Location"); every param passed when none matched (a hold names what was offered).</summary>
         internal static string What(IReadOnlyDictionary<string, string> ps, IReadOnlyList<string> matched)
         {
-            bool Used(string key) => matched != null && matched.Any(h => h.StartsWith("param:", StringComparison.Ordinal)
-                                                                        && string.Equals(h.Substring(6).Replace(" ", ""), key.Replace(" ", ""), StringComparison.OrdinalIgnoreCase));
-            var used = ps.Where(kv => Used(kv.Key)).ToList();
+            var used = ps.Where(kv => Named(matched, kv.Key)).ToList();
             var said = (used.Count > 0 ? used : ps.ToList()).Select(kv => kv.Key + " " + kv.Value);
             return ps.Count == 0 ? "no facts" : string.Join(", ", said);
+        }
+
+        /// <summary>Did the winning rule match on parameter <paramref name="key"/>? Names compare as the matcher compares them: case
+        /// and every whitespace ignored (a rule file's "location " is the fact's "Location").</summary>
+        internal static bool Named(IReadOnlyList<string> matched, string key)
+        {
+            string Sq(string v) => new string((v ?? "").Where(ch => !char.IsWhiteSpace(ch)).ToArray());
+            return matched != null && matched.Any(h => h != null && h.StartsWith("param:", StringComparison.Ordinal)
+                                                       && string.Equals(Sq(h.Substring(6)), Sq(key), StringComparison.OrdinalIgnoreCase));
         }
     }
 }
