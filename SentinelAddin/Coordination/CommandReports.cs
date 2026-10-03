@@ -54,9 +54,23 @@ namespace Sentinel.Coordination
                 types_added = typesAdded, images_sha256 = imagesSha256, source = "revit",
             });
 
-        public static object Annotate(int created, int skippedExisting, int warnings, int levels, string guideline, string actor) =>
-            Row("annotate", actor, $"Annotate created {created} view(s) across {levels} level(s)",
-                new { views_created = created, skipped_existing = skippedExisting, warnings, levels, guideline, source = "revit" });
+        /// <summary>Review C4: the views and datums an Annotate row names — the record B31 may leave (one view and one RCP for each
+        /// of 100 storeys), beside their true totals.</summary>
+        public const int MaxRecord = 200;
+
+        /// <summary>MA-2e: one Annotate run, as read back from the model after its group (review C2, C4) — the views it holds, named
+        /// (a view that failed was rolled back alone), on how many levels; the datums pinned, by id, and the read-back line; whether
+        /// Revit kept the Undo group (B31: when not, this row is the record); the rows the plan refused (already in the model, or
+        /// with a reason), the views no Project Browser parameter routed, and the guideline and the ruleset that planned and named them.</summary>
+        public static object Annotate(IReadOnlyList<string> views, int levels, int skippedExisting, int refused, int failed, int unrouted,
+                                      int pinnedLevels, int pinnedGrids, int warnings, int storyLevels, IReadOnlyList<long> pinnedIds,
+                                      string pinnedNow, bool undoGroupKept, string guideline, string ruleset, string actor) =>
+            Row("annotate", actor, $"Annotate created {views.Count} view(s) and pinned {pinnedLevels + pinnedGrids} datum(s) across {levels} level(s)", new
+            {
+                views_created = views.Count, views = views.Take(MaxRecord).ToArray(), skipped_existing = skippedExisting, refused, failed, unrouted,
+                pinned_levels = pinnedLevels, pinned_grids = pinnedGrids, pinned_ids = pinnedIds.Take(MaxRecord).ToArray(), pinned_now = pinnedNow,
+                undo_group_kept = undoGroupKept, warnings, story_levels = storyLevels, guideline, ruleset, source = "revit",
+            });
 
         /// <summary>Apply Standard's model half (its ruleset install writes its own artefact row).</summary>
         public static object ApplyStandard(IReadOnlyList<string> created, IReadOnlyList<string> skipped, IReadOnlyList<string> failed, string actor) =>

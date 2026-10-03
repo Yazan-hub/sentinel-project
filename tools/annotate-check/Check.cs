@@ -166,6 +166,34 @@ Check("S3 (review C6): the MH-LNK-01 substitute reads every level and grid from 
 Check("S1 (review C3): the B31 words, in every model",
     ViewPlanner.UndoWords() == "Revit may empty its Undo list after views are named (B31) — if Edit ▸ Undo does not list \"Sentinel: Annotate views\", the annotate ledger row is the record: it names the views and datums to delete or unpin by hand.");
 
+// ── MA-2e: Annotate's wiring, by source scan (Revit-bound; proven in drill MA2e) ──
+string Src(params string[] p) => File.ReadAllText(Path.Combine(new[] { root, "SentinelAddin" }.Concat(p).ToArray()));
+int CountOf(string s, string what) { int n = 0; for (int i = s.IndexOf(what); i >= 0; i = s.IndexOf(what, i + what.Length)) n++; return n; }
+var ann = Src("Commands.Annotate.cs");
+int run = ann.IndexOf("SentinelUndo.Run(doc, \"Annotate views\"");
+int shown = ann.IndexOf("pick.ShowDialog() != true");
+int pinLoop = ann.IndexOf("foreach (var pin in pick.Pins)");
+Check("XC-2/S1: Annotate writes inside one SentinelUndo group, and its one Transaction is inside it",
+    run > 0 && CountOf(ann, "new Transaction(") == 1 && ann.IndexOf("new Transaction(") > run);
+Check("ANV-2: each view in its own SubTransaction, rolled back alone on a throw, Revit asked for the name",
+    ann.Contains("using var st = new SubTransaction(doc);") && ann.Contains("if (st.HasStarted() && !st.HasEnded()) st.RollBack();") && ann.Contains("NamingUtils.IsValidName(p.Name)"));
+Check("F6: the model's default plan and ceiling plan view types, never the first one found",
+    ann.Contains("GetDefaultElementTypeId(ElementTypeGroup.ViewTypeFloorPlan)") && ann.Contains("GetDefaultElementTypeId(ElementTypeGroup.ViewTypeCeilingPlan)") && !ann.Contains("OfClass(typeof(ViewFamilyType))"));
+Check("DAT-3: only ticked pins are pinned; Building Story is read through the one projection, never set (DAT-2)",
+    CountOf(ann, ".Pinned = true") == 1 && pinLoop > run && pinLoop < ann.IndexOf(".Pinned = true") && ann.Contains("ChangesetExecutor.Stories(doc)") && !ann.Contains("LEVEL_IS_BUILDING_STORY"));
+int loaded = ann.IndexOf("!engine.Has(doc)");
+Check("F4 (review C1): the ruleset is Scan Now's cached one — no network call — and 'not loaded yet' refuses before the plan, never read as none",
+    ann.Contains("engine.RulesetFor(doc)") && !ann.Contains("RulesetStore.Load(") && !ann.Contains("RulesetStore.None()")
+    && loaded > 0 && loaded < ann.IndexOf("ViewPlanner.Plan("));
+Check("a person decides: the preview opens before anything is written, and Cancel writes nothing", shown > 0 && shown < run);
+Check("the result counts the views it could not route, reads the pins back and says B31 in words, in the preview and the result (review C3: every model)",
+    ann.Contains("ViewGenerator.SetFirstMatch(view, routeParams, p.BrowserStatus)") && ann.Contains("if (!routed) unrouted++;")
+    && ann.Contains("ViewPlanner.PinnedLine(") && CountOf(ann, "ViewPlanner.UndoWords()") == 2);
+int nothingAt = ann.IndexOf("ViewPlanner.NothingToPlan(");
+Check("review C10: with no guideline (or no views section) Annotate refuses before any preview opens (the 4b-2 guard, AST-1 retired)",
+    nothingAt > 0 && nothingAt < ann.IndexOf("new AnnotatePreviewWindow("));
+Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.cs").Contains("Next: 3 · Annotate Views"));
+
 Console.WriteLine($"{total - failed}/{total} checks pass");
 Console.WriteLine(failed == 0 ? "ALL PASS" : $"{failed} FAILED");
 return failed == 0 ? 0 : 1;

@@ -160,7 +160,8 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             "\n\n" + string.Join("\n", result.Placement) +
             (result.Warnings.Count > 0 ? "\n\nNotes:\n • " + string.Join("\n • ", result.Warnings.Distinct()) : "") +
             "\n\nRename them to your office's own labels in the Project Browser if needed, then model — " +
-            "elements will host to these levels.");
+            "elements will host to these levels." +
+            "\n\nNext: 3 · Annotate Views pins the story levels and grids and makes a floor plan and an RCP for each story level (it shows the rows first).");
         return Result.Succeeded;
     }
 
