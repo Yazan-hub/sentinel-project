@@ -151,6 +151,10 @@ Not run: the drill, and the commit commands.
 - **C14 — W-1 checks port 4000 first** (critic 2 #8). `netstat -ano | findstr :4000`, read only. If the founder's `thatopen serve` holds it, or the platform sign-in is not there, W-1 is **owed** with that reason and is not attempted. W-1 is listed as likely owed up front.
 - **C15 — the closing hash check** (critic 2 #9). It records both DLL hashes and the commit each was built from. The deployed one before the drill may be MA2b's branch build (7f8fc2c), because MA2b's redeploy was blocked. A difference is said in words and is not a failure; afterwards the founder's Revit runs master 6a87d9f's build.
 
+**Code review of the branch (2026-10-03, three reviews), applied:**
+
+- **C16 — a storey of type edits only never carries its held rows** (C8 can put a type edit on a storey with no other ghost; an older bridge or a refused source then refuses its body, and WithoutWrites has nothing left to file). `PromoteWallsPlanner.Bodies` carries such a storey's `Held` and `ToPerson` rows, named with their storey, on the first body that retypes or attaches, and files its type edits with no exceptions. When no body retypes or attaches, the first body carries them, as before. Section 34 pins both.
+
 **Minor, rejected:**
 
 - *A default fallback becomes a type gap* (critic 2 #7) — rejected: it never reaches the gap. `Retype` returns "no DD rule for …" for any non-rule source (`if (res.Source != "rule")`, before `res.Confidence != 1`). `Swap` handles a non-rule source in its own branch before that test, too. A rule-sourced `Confidence` is only 1 or 0 (`WithCatalogCheck`), as critic 1 checked. No code changes, no check is added.

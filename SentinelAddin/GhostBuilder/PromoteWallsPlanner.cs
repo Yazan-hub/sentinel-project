@@ -320,14 +320,22 @@ namespace Sentinel.GhostBuilder
         /// with their storey — every held wall reaches the ledger and the review window. Empty when no storey has a ghost.</summary>
         public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor, int max = 200, string title = "Promote walls (DD)")
         {
-            // MA-2c: a storey's DD properties sent to a person ride with its held elements.
-            var carried = plans.Where(p => p.Ghosts.Count == 0)
+            // MA-2c: a storey's DD properties sent to a person ride with its held elements. Review C16: a storey whose ghosts are all
+            // type edits (C8) is carried like one with no ghost when a body retypes or attaches — a refused type edit is not filed again
+            // (WithoutWrites: nothing else in its body), so its held rows must not depend on it.
+            bool typeOnly(StoreyPlan p) => p.Ghosts.Count > 0 && p.Ghosts.All(g => g.Op == "set_parameter");
+            var host = plans.FirstOrDefault(p => p.Ghosts.Count > 0 && !typeOnly(p));
+            bool carriedHere(StoreyPlan p) => p.Ghosts.Count == 0 || (host != null && typeOnly(p));
+            var carried = plans.Where(carriedHere)
                 .SelectMany(p => p.Held.Concat(p.ToPerson).Select(h => new PromoteHeld { UniqueId = h.UniqueId, Label = $"{p.Storey} · {h.Label}", Reason = h.Reason }))
                 .ToList();
             var bodies = new List<object>();
+            bool carriedFiled = false;
             foreach (var p in plans.Where(p => p.Ghosts.Count > 0))
             {
-                var held = p.Held.Concat(p.ToPerson).Concat(bodies.Count == 0 ? carried : new List<PromoteHeld>()).ToList();
+                bool takes = !carriedFiled && (host == null || p == host);
+                carriedFiled |= takes;
+                var held = (carriedHere(p) ? new List<PromoteHeld>() : p.Held.Concat(p.ToPerson)).Concat(takes ? carried : new List<PromoteHeld>()).ToList();
                 var chunks = ByWall(p.Ghosts, max);
                 for (int i = 0; i < chunks.Count; i++)
                     bodies.Add(new

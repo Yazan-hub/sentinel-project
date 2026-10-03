@@ -179,5 +179,29 @@ static partial class Check
            && (string)an["exceptions"][3]["name"] == "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm · Pset_DoorCommon.FireRating"
            && PropertyPlanner.WithoutWrites(new { elements = new[] { new { op = "set_parameter" } } }, "x", out var none2) == null && none2 == 1,
            "a body refused for a set_parameter is filed again without its type edits, each an exception that says why; one of type edits only is not (C4)");
+
+        // Review C16: a storey whose only ghosts are type edits (C8 put them there: its types are settled, no storey retypes onto
+        // them) files them with no exceptions — its held rows ride on the first body with a retype or attach, as a storey with no
+        // ghost does — so a refused type edit (WithoutWrites: null, nothing else to file) never costs them the ledger.
+        StoreyPlan SP(string storey, string op, params string[] held)
+        {
+            var sp = new StoreyPlan { Storey = storey };
+            if (op != null) sp.Ghosts.Add(new PromoteGhost { Op = op, Kind = op == "set_parameter" ? "wall" : null, UniqueId = U(op == "set_parameter" ? 0xb01 : 0xb02),
+                Label = op == "set_parameter" ? "type BDS_EXT_ARC_CMU_200 mm" : "W 1", TypeName = "BDS_EXT_ARC_CMU_200 mm", TypeBefore = "Generic - 200mm",
+                Parameter = "Pset_WallCommon.FireRating", RevitParameter = "Fire Rating", From = "", To = "60 min", SourceKind = "catalogue", Reason = "r" });
+            foreach (var h in held) sp.Held.Add(new PromoteHeld { UniqueId = U(0xc00 + held.Length), Label = h, Reason = "why " + h });
+            sp.ToPerson.Add(new PromoteHeld { UniqueId = U(0xd00), Label = "type X · " + storey, Reason = "no source" });
+            return sp;
+        }
+        var typeOnly = Json(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("GR-FFL", "set_parameter", "W 7"), SP("L1", "retype"), SP("L2", null, "W 9") }, "yazan"));
+        var ex1 = typeOnly.Count == 2 ? typeOnly[1]["exceptions"]?.AsArray().Select(e => (string)e["name"]).ToList() : null;
+        Ok(typeOnly.Count == 2 && typeOnly[0]["exceptions"] == null
+           && PropertyPlanner.WithoutWrites(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("GR-FFL", "set_parameter", "W 7"), SP("L1", "retype") }, "yazan")[0], "x", out _) == null
+           && ex1 != null && ex1.SequenceEqual(new[] { "type X · L1", "GR-FFL · W 7", "GR-FFL · type X · GR-FFL", "L2 · W 9", "L2 · type X · L2" }),
+           "a storey of type edits only files them with no exceptions; its held rows ride on the first body with a retype or attach, named with their storey (C16)");
+        var alone = Json(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("GR-FFL", "set_parameter", "W 7"), SP("L2", null, "W 9") }, "yazan"));
+        Ok(alone.Count == 1 && alone[0]["exceptions"].AsArray().Select(e => (string)e["name"])
+               .SequenceEqual(new[] { "W 7", "type X · GR-FFL", "L2 · W 9", "L2 · type X · L2" }),
+           "with no body that retypes or attaches, the type-edit body carries every held row, as before (C16)");
     }
 }
