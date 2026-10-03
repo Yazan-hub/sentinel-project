@@ -132,7 +132,8 @@ export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", ro
 export const VALUE_SHAPE = {
   FireRating: /^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:RE|R)[ -]?(?:15|20|30|45|60|90|120|180|240|360)|(?:REI|REW)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)|EI(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240)|[ -]?(?:15|20|30|45|60|90|120|180|240)-M)|(?:EI[12]?|EW|E)[ -]?(?:15|20|30|45|60|90|120|180|240)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|W ?(?:30|60|90)(?:-(?:A|AB|B))?|G ?(?:30|60|90|120)|(?:15|20|30|45|60|90|120|180|240|360)[ -]?(?:mins?|minutes?)|(?:[1-4]|6|1\.5|(?:1[ -])?1\/2|1\/3|3\/4)[ -]?(?:h|hrs?|hours?)|(?!-\/-\/-)(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)|30\/(?:0|30)|60\/(?:0|30|60)|90\/(?:0|30|60|90)|120\/(?:0|30|60|90|120)|180\/(?:0|30|60|90|120|180)|240\/(?:0|30|60|90|120|180|240))(?![\s\S])/i,
   AcousticRating: /^(?:Rw ?[1-9][0-9](?: ?dB)?|STC[ -]?[1-9][0-9])(?![\s\S])/i,
-  ThermalTransmittance: /^(?=[0-9.,]*[1-9])[0-9](?:[.,][0-9]{1,3})?(?![\s\S])/,
+  // a decimal comma takes 1-2 digits: "1,400" is a thousands separator in English and 1.4 under EN ISO 6946 — not one value
+  ThermalTransmittance: /^(?=[0-9.,]*[1-9])[0-9](?:\.[0-9]{1,3}|,[0-9]{1,2})?(?![\s\S])/,
 };
 /** Review C23: the noun each IFC entity is named by in a whole-class sentence — "All doors shall be FD30." states a value of
  *  every IFCDOOR, "All windows shall be FD30." states none. The add-in's Clauses.ClassNoun is the same table. */
@@ -207,8 +208,10 @@ function clauseReadings(ids, entity, key) {
   const classes = [entity, ...(ENTITY_SUBTYPES[entity] ?? [])];
   // C23 (gate): how ids.ts propValue finds the row — no set (null, "", left out) searches every group, and set and name compare
   // ignoring case. "exact" = this key as written (the only one cited); "may" = the gate may read this key under it (another case,
-  // not ASCII, not text) — weighed, never cited; null = another property.
-  const reads = (x, want) => (typeof x !== "string" || /[^ -~]/.test(x) ? "may" : x === want ? "exact" : x.toLowerCase() === want.toLowerCase() ? "may" : null);
+  // not ASCII, not text), or the document names it in another spelling ("Fire Rating", "Pset DoorCommon") — weighed, never cited;
+  // null = another property.
+  const norm = (x) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const reads = (x, want) => (typeof x !== "string" || /[^ -~]/.test(x) ? "may" : x === want ? "exact" : norm(x) === norm(want) ? "may" : null);
   const out = [];
   for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
     if (!s || typeof s !== "object") continue;

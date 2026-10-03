@@ -134,7 +134,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
-    expect(VS.value_cases.length).toBe(245);
+    expect(VS.value_cases.length).toBe(249);
     for (const c of VS.value_cases) {
       const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
       const entity = c.entity ?? "IFCDOOR", key = c.key ?? "Pset_DoorCommon.FireRating";
@@ -148,7 +148,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a sentence is cited only when its document said nothing but whole-class one-value sentences: every shared document (review C23 context)", () => {
-    expect(VS.document_cases.length).toBe(39);
+    expect(VS.document_cases.length).toBe(46);
     for (const c of VS.document_cases) {
       const ids = compileIds(c.text);
       expect(ids.specifications, c.text).toEqual(c.specifications); // the add-in reads these (promote-check): they are compileIds' own
@@ -157,6 +157,11 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     let said = "";
     try { cite("wall", WALL, "Pset_WallCommon.ThermalTransmittance", "0.3", { kind: "clause" }, "e"); } catch (e) { said = e.message; }
     expect(said.endsWith(`WALL — ThermalTransmittance ("The thermal transmittance of walls shall be 0.3."): ${NOT_ALONE}`), said).toBe(true);
+  });
+
+  it("the docs panel compiles the title and every heading with the bodies — a heading narrows the sentences under it (review C23 context)", () => {
+    const src = readFileSync(new URL("../src/setups/docs-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain('const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\\n\\n");');
   });
 
   it("a catalogue value is trimmed of ASCII blanks only, as the add-in trims it: every shared case (review C23)", () => {
@@ -171,7 +176,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
 
   it("a clause is the whole class's only when its pattern matches every IFC class the entity is exported as, and a clause that says more of the key sends the value to a person: every shared ids case (review C23)", () => {
     expect(ENTITY_SUBTYPES).toEqual(VS.entity_subtypes); // the add-in's Clauses.Subtypes is the same table
-    expect(VS.ids_cases.length).toBe(47);
+    expect(VS.ids_cases.length).toBe(50);
     for (const c of VS.ids_cases) {
       const ids = { specifications: c.specifications };
       expect(clauseValues(ids, c.entity, c.key).map((h) => h.value), c.name).toEqual(c.values);

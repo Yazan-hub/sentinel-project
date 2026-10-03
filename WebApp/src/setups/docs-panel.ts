@@ -1174,7 +1174,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     if (compileBtn) compileBtn.onclick = async () => {
       compileBtn.disabled = true; compileBtn.textContent = "Compiling…"; integrityOut.replaceChildren();
       try {
-        const text = doc.sections.map((s) => s.body || "").filter(Boolean).join("\n\n");
+        // MA-2c C23 (context): the title and every heading go in with the bodies — a heading ("Doors to protected stairs") narrows
+        // the sentences under it, and compileIds marks a clause source_alone only when the document said nothing else.
+        const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\n\n");
         const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>; note: string } =
           await api(`/compile-ids`, { method: "POST", body: JSON.stringify({ text, title: `${doc.title} — compiled IDS` }) });
         const box = document.createElement("div");

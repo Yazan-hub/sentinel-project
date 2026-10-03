@@ -104,7 +104,7 @@ export function matrixToIds(matrix, { stage = "DD", label = null } = {}) {
   return { title: `${matrix.standard_key} ${matrix.semver} · ${stage}${label ? ` (${label})` : ""}`, enforce: "warn", specifications, unmatched };
 }
 
-const REQUIREMENT = /\b(shall|must|is required to|are required to|mandatory)\b/i;
+const REQUIREMENT = /\b(shall|must|is required to|are required to|(?:is|are) to be|mandatory)\b/i;
 const CARDINALITY_PROHIBITED = /\b(shall not|must not|is prohibited|are prohibited|no .{0,30} shall)\b/i;
 
 /** Split prose into candidate requirement sentences, keeping list bullets intact. */
@@ -138,7 +138,8 @@ function findPset(sentence) {
 
 /** A CamelCase or quoted property name stated verbatim — always preferred over the vocabulary guess. */
 function findExplicitProperty(sentence) {
-  const quoted = sentence.match(/["“']([A-Za-z][A-Za-z0-9 _]{2,40})["”']/);
+  // a quoted word in the value's place ("shall be 'FD30'") is the value, not a property name
+  const quoted = sentence.match(/(?<!\bbe:?\s+)["“']([A-Za-z][A-Za-z0-9 _]{2,40})["”']/);
   if (quoted) return quoted[1].replace(/\s+/g, "");
   const camel = sentence.match(/\b([A-Z][a-z]+(?:[A-Z][a-z0-9]+)+)\b/);
   return camel ? camel[1] : null;
@@ -147,8 +148,10 @@ function findExplicitProperty(sentence) {
 /** A required value: "shall be REI60", "shall be at least 60 minutes". */
 function findValue(sentence) {
   // Review C23: a value may open with "-" (an FRL: -/60/60), hold a decimal point (1.5 hr: a stop ends it only before a blank or
-  // the end) and EN 13501-2's subscript EI₁/EI₂.
-  const be = sentence.match(/\bshall be\s+(?:at least\s+|no less than\s+)?["“']?([A-Za-z0-9-][A-Za-z0-9₁₂ .\-/]{0,24}?)["”']?\s*(?:\.(?=\s|$)|,|;|$)/i);
+  // the end) and EN 13501-2's subscript EI₁/EI₂. A value dropped here leaves a presence-only clause that the one-source weighing
+  // cannot see (a catalogue value then written past "must be FD60"): "must be", "is to be", "shall be:", "shall have a fire rating
+  // of", any run of blanks, a closing "!", and a decimal comma (0,18 — a comma ends the value only when no digit follows).
+  const be = sentence.match(/\b(?:(?:shall|must|is\s+to|are\s+to)\s+be:?|(?:shall|must)\s+have\s+an?\s+[a-z][a-z -]{1,40}?\s+of)\s+(?:at least\s+|no less than\s+)?["“']?([A-Za-z0-9-][A-Za-z0-9₁₂ .,\-/]{0,24}?)["”']?\s*(?:[.!](?=\s|$)|,(?!\d)|;|$)/i);
   if (!be) return null;
   const v = be[1].trim();
   // "recorded", "provided", "completed" describe the act of filling the field, not a value for it.

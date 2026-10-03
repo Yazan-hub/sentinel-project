@@ -51,7 +51,8 @@ namespace Sentinel.GhostBuilder
         {
             ["FireRating"] = new Regex(@"^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:RE|R)[ -]?(?:15|20|30|45|60|90|120|180|240|360)|(?:REI|REW)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)|EI(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240)|[ -]?(?:15|20|30|45|60|90|120|180|240)-M)|(?:EI[12]?|EW|E)[ -]?(?:15|20|30|45|60|90|120|180|240)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|W ?(?:30|60|90)(?:-(?:A|AB|B))?|G ?(?:30|60|90|120)|(?:15|20|30|45|60|90|120|180|240|360)[ -]?(?:mins?|minutes?)|(?:[1-4]|6|1\.5|(?:1[ -])?1/2|1/3|3/4)[ -]?(?:h|hrs?|hours?)|(?!-/-/-)(?:30|60|90|120|180|240|-)/(?:30|60|90|120|180|240|-)/(?:30|60|90|120|180|240|-)|30/(?:0|30)|60/(?:0|30|60)|90/(?:0|30|60|90)|120/(?:0|30|60|90|120)|180/(?:0|30|60|90|120|180)|240/(?:0|30|60|90|120|180|240))(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
             ["AcousticRating"] = new Regex(@"^(?:Rw ?[1-9][0-9](?: ?dB)?|STC[ -]?[1-9][0-9])(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
-            ["ThermalTransmittance"] = new Regex(@"^(?=[0-9.,]*[1-9])[0-9](?:[.,][0-9]{1,3})?(?![\s\S])", RegexOptions.CultureInvariant),
+            // a decimal comma takes 1-2 digits: "1,400" is a thousands separator in English and 1.4 under EN ISO 6946 (the bridge's)
+            ["ThermalTransmittance"] = new Regex(@"^(?=[0-9.,]*[1-9])[0-9](?:\.[0-9]{1,3}|,[0-9]{1,2})?(?![\s\S])", RegexOptions.CultureInvariant),
         };
         /// <summary>Review C23 (context): a clause with a sentence is cited only when compileIds marked it source_alone — its document
         /// said nothing but whole-class one-value sentences; a heading, a place, a condition or an exception around a stored sentence
@@ -246,10 +247,12 @@ namespace Sentinel.GhostBuilder
         public int Unreadable(string key) => _rows.Count(r => r.Unreadable && r.Pset + "." + r.Prop == key);
 
         /// <summary>Review C23 (gate): how ids.ts propValue finds the row — set and name compare ignoring case. "exact" = the key as
-        /// written (the only one cited); "may" = the gate may read the key under it (another case, not ASCII) — weighed, never cited;
-        /// null = another property. The bridge's reads.</summary>
+        /// written (the only one cited); "may" = the gate may read the key under it (another case, not ASCII), or the document names
+        /// it in another spelling ("Fire Rating", "Pset DoorCommon") — weighed, never cited; null = another property. The bridge's reads.</summary>
         private static string Reads(string x, string want) =>
-            !Ascii(x) ? "may" : x == want ? "exact" : string.Equals(x, want, StringComparison.OrdinalIgnoreCase) ? "may" : null;
+            !Ascii(x) ? "may" : x == want ? "exact" : Norm(x) == Norm(want) ? "may" : null;
+
+        private static string Norm(string s) => new string(s.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
         private static bool Readable(string pattern)
         {
