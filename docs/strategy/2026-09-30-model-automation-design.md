@@ -276,7 +276,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 | `layers@n` | CAD layers to categories | BUILT |
 | `ruleset@n` | Scan Now rules. A BLOCK rule stops the sync | BUILT (BLOCK at sync: package 2, merged 7271431). Ghost batches are checked against it before commit (TARGET, MA-1) |
 | `ids@n` and the contract | Required properties, checked before review | BUILT |
-| `lod_matrix@n` | Stage targets for each element class, mapped to the project stages | v0 BUILT (Promote v1): DD only, rows by Revit category; stage_map, type_snap_mm, lod numbers: TARGET |
+| `lod_matrix@n` | Stage targets for each element class, mapped to the project stages | BUILT: v0 (Promote v1: DD only, rows by Revit category); MA-2b: `stage_map` (D18's default when absent), `type_snap_mm` per row (0 = exact, D16), one TS reader (`sentinel-core/lod-matrix.ts`) and its C# twin pinned by `WebApp/bridge/fixtures/lod-matrix/cases.json`; lod numbers and stages other than DD: TARGET |
 | `capture_rules@n` | How to scan (point spacing of 1 cm or less, no shadow areas, doors open) [S3D §7.3] | TARGET |
 | Worksets, phase, design options for placed elements | Each placed element goes to the workset the guideline names for its category, in the view's phase. Never into a design option unless the person picks one | MISSING. TARGET: a `placement` block in `guideline@n` (MA-1) |
 | Start from the office template | Build from Evidence runs only in a model whose types match the installed catalogue. Otherwise it says "this model was not made from the office template" | MISSING. TARGET (MA-1). The engine never loads an unknown family |
@@ -831,7 +831,7 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | `changeset_applied` (extended) | After placement | For each ghost: guid → UniqueId, approver; surviving count; Revit warnings; BLOCK result | TARGET extension |
 | `changeset_reverted` | An Undo or Redo of a Sentinel transaction is seen | guids | TARGET (AI-3) |
 | `verify:measured` | After placement | Status, p95, coverage for each element | TARGET |
-| `lod:state` | After Promote and on sync | Counts per level × class × LOD; matrix sha | TARGET |
+| `lod:state` | After Promote and on sync | Counts per level × class × LOD; matrix sha | BUILT (MA-2b): entity_type `lod_state`, action `lod:state now · …` (every Promote run with a matrix, the read-only one too) or `lod:state after · …` (an applied Promote changeset); the bridge marks it claimed; counts per level × class (at DD, below, blocked, not measured, with reasons), the matrix label and its sha256 (`matrix_sha256`): the journey line and the gate read the newest row only while that matrix is in force. Not on sync |
 | Datum, Ghost, Massing, Annotate, Apply Standard, auto-fix, fix-in-place and Doctor reports | Each command | Counts, actor | TARGET (XC-5 subset + P1-9) |
 
 **Type gaps in the Holding Area.** Today the Holding Area follows container names. Element gaps have no container name, and one Promote run could open hundreds. So:
@@ -1077,13 +1077,13 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   `stage_map`, `type_snap_mm`, `tools/lod-check`, the outer-boundary location, the wider harvest and the LOD state reader.
 - **Size:** L (5–6 weeks). **Depends on:** MA-1; the Change Requests drill.
 - **Delivers:**
-  - The `lod_matrix` kind, with `stage_map` and `type_snap_mm`, C# and TS parsers, and a `tools/lod-check` parity check.
+  - The `lod_matrix` kind, with `stage_map` and `type_snap_mm`, C# and TS parsers, and a `tools/lod-check` parity check. LANDED in MA-2b (2026-10-03): `parseLodMatrix` (sentinel-core, bundled, the bridge's install check) and `LodMatrix.FromBody` read one shared cases file; the parity check is a section of `tools/promote-check` (the project that compiles `LodMatrix`), not a new project. `type_snap_mm` is read and validated (0 to 50 mm, never above 0 on doors and windows); nothing snaps yet — the snap is a later slice, built once the founder sets a value (D16; plan F1 B).
   - **Rules without a layer.** LANDED in MA-2a (2026-10-03): Promote, Ghost Builder and the bridge pass Function, Location (from the outer boundary: `WallLocation`) and Material as params; the DRAFT layer-free DD file is `demo/bds-pilot/bds-dd-layerfree-guideline.json`; the C#/TS parity fixture is `WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json`. A lead still writes the office guideline's own layer-free rules.
   - **A wider catalogue harvest.** LANDED in MA-2a: Function (enum name), Material, the matrix's type parameters, `bic` (BOS-5), Install catalogue on office from the review window (BOS-3).
-  - The LOD state reader, plus a line in the pane, the Next strip and the web (C4).
+  - The LOD state reader, plus a line in the pane, the Next strip and the web (C4). LANDED in MA-2b: read in Revit from Promote's own facts (`LodState`), one `lod_state` ledger row per run and per applied Promote changeset; the pane and the web strip print the newest row's line from the journey; the stage gate reads its share.
   - A Promote plan with `retype`, `attach` and `set_parameter`.
   - Type-gap groups in the Holding Area, with their close rule (size M).
-  - `matrixToIds` (S): a stage IDS checked before commit.
+  - `matrixToIds` (S): a stage IDS checked before commit. LANDED in MA-2b: `ids-compile.mjs matrixToIds`, served as `GET /cde/:key/artefacts/lod_matrix/ids` (derived, never installed as `ids@n`); Revit judges a Promote changeset's applied elements with it inside the changeset's group, before the BLOCK check — a failure is said with its rule and the person may go back; a property Revit cannot read is "not checked", never passed.
   - One Undo per storey: all changesets of a storey in one ExternalEvent inside `SentinelUndo.Run`, then the LOD state after.
   - DAT-3, ANV-1, ANV-2: plans for each story with the office templates, datums pinned. They run as their own batch, because Revit may empty the Undo list after view actions.
 - **Overlaps:** [BP] P2-7 (the same `set_parameter` operation, built once); C4, C5.
@@ -1256,7 +1256,7 @@ flowchart LR
 | P1-3 (count warnings, don't erase) | MA-1 via GHB-5 | Ghost's failure handler stops erasing warnings |
 | P1-7 recipe contract (TransactionGroup) | Already done as `SentinelUndo` (package 1) | Build and Promote use it; one ExternalEvent per storey |
 | P2-7 `set_parameter` changesets | MA-2 | One executor operation serves both. The Change Requests drill comes first |
-| P1-10 stage gate inputs | After MA-2 | `lod:state` becomes a named input of the `design` → `coord` gate. Until then that row reads "not measured". The founder decides this within P1-10 |
+| P1-10 stage gate inputs | After MA-2 | `lod:state` becomes a named input of the `design` → `coord` gate. Until then that row reads "not measured". The founder decides this within P1-10. BUILT EARLY (MA-2b): `GATE_DEFS.design` reads the share at DD from the newest `lod_state` row (bar 90 %, the founder's — plan F5); "LOD state: not measured" until a row exists, while the newest row's matrix is not the one in force, and while a class the matrix asks for was not counted |
 | P1-11 IFC pset mapping | Before MA-8 | Provenance psets must survive publish from Revit. MA-3's review IFC does not need it (the bridge writes that pset itself) |
 | P2-2 colour diff | Reused in MA-5 revisions | — |
 | P3-3 rule drafting from prose | Later: draft a `lod_matrix` from the BEP/EIR | Output is a draft; a lead installs it |

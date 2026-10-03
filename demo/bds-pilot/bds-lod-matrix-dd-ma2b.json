@@ -1,0 +1,14 @@
+{
+  "standard_key": "BDS-LOD-001",
+  "semver": "0.2.0",
+  "status": "draft",
+  "stage_map": { "concept": "design", "SD": "design", "DD": "design", "CD": "coord" },
+  "rows": [
+    { "category": "Walls", "DD": { "type": "guideline_rule", "level": "story_level", "top": "next_story_level", "type_snap_mm": 0, "properties": ["Pset_WallCommon.FireRating", "Pset_WallCommon.IsExternal"] } },
+    { "category": "Floors", "DD": { "type": "guideline_rule", "level": "story_level" } },
+    { "category": "Roofs", "DD": { "type": "guideline_rule", "level": "story_level" } },
+    { "category": "Ceilings", "DD": { "type": "guideline_rule", "level": "story_level" } },
+    { "category": "Doors", "DD": { "type": "guideline_rule", "level": "story_level", "host": "wall", "properties": ["Pset_DoorCommon.FireRating"] } },
+    { "category": "Windows", "DD": { "type": "guideline_rule", "level": "story_level", "host": "wall", "properties": ["Pset_WindowCommon.ThermalTransmittance"] } }
+  ]
+}
