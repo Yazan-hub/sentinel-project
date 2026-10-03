@@ -322,7 +322,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 | 1 | Datum right: story levels flagged and pinned, one plan per story. View actions may empty Revit's Undo list (B31), so they run in their own batch | `ViewPlan.Create`, `Element.Pinned` | DAT-3, ANV-1, ANV-2 | MA-2 |
 | 2 | Retype: generic → office type, by function, measured thickness, location and material. Rules without a layer and the Function in the catalogue harvest landed in MA-2a; location is read from the storey's own walls (`WallLocation`: one side open = outside, both enclosed = inside, else unknown — a reason to a person) | `Element.ChangeTypeId` | C5 [MKT §6.3] | MA-0 (walls), MA-2a (location, material) |
 | 3 | Wall tops and bases to levels | `WALL_HEIGHT_TYPE`, `WALL_TOP_OFFSET`, `WALL_BASE_OFFSET` | GHB-2 | MA-0 (walls), MA-2 |
-| 4 | Required properties through `set_parameter`. The value comes from the catalogue type, a cited spec clause or a person, never a guess. On the pilot data most DD properties have no source yet, so they go to a person | Existing Fix in Revit path (`FixInPlaceService`, BUILT live 42/42) | [BP] P2-7 | MA-2 |
+| 4 | Required properties through `set_parameter`. The value comes from the catalogue type, a cited spec clause or a person, never a guess. On the pilot data most DD properties have no source yet, so they go to a person. BUILT (MA-2c): a DD type the plan lands elements on whose matrix property is empty on the TYPE gets one `set_parameter` type edit when the catalogue row of exactly that type (`params`, by display name) or a whole-class clause of the installed `ids@n` (one exact value; a minimum is not one) gives it — the bridge checks both sources, refuses a filled value and writes its own record and the `validate` its referee judges; never pre-ticked (a type edit reaches every element on the type, and the review row says how many, counted in Revit). Otherwise the property goes to a person — no source, sources that disagree, no parameter Sentinel can write — and Promote counts it. A person types their own value in Revit; the web grid that files one is [BP] P2-7 | `FixInPlaceService.OnType` / `WriteOnType` (the same PsetMap table as Fix in Revit; stale guard, read-back) | [BP] P2-7 | MA-2 |
 | 5 | Wall joins | `WallUtils.AllowWallJoinAtEnd` | GHB-6 | MA-5 |
 | 6 | Openings: rehost unhosted doors and windows. Swap placeholder families (for example HyparDoor) for office families of the same size; otherwise a gap | `NewFamilyInstance` with a host | GHB-1 | MA-5 |
 | 7 | Rooms from closed wall loops, named from the programme or the drawing text | `NewRoom` | C7 | MA-5 |
@@ -826,7 +826,7 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | `attestation:signed` | For each attestation | Code a–e, text sha, actor, role | TARGET |
 | `evidence:requested` | An "ask the owner" letter is drafted | Recipient kind, request id, actor | TARGET |
 | `build:run` | For each reader or planner run | Reader and version, tool and weight licences, parameters, minutes, model calls, tokens, candidates, gaps | TARGET (C12) |
-| `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | TARGET (see below) |
+| `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | BUILT (MA-2c) as one row per Promote **run** holding all its groups: entity_type `type_gap`, action `type_gap:run · N group(s), M element(s)` (`hold:` actions are Sentinel's own rows and never come through the Revit report route), claimed; each group {category, the type wanted or the size, key params, count, labels, nearest} named by the bridge; a lead's dismissal is `hold:type_gap_dismissed <group>`. No size band (the snap is 0, D16); no evidence ids yet (MA-4) |
 | `changeset_reviewed` | Web desk decisions | For each ghost: accepted or declined, reason, reviewer, role | TARGET |
 | `changeset_reopened` | A lead re-opens a web decline | guid, reason, lead | TARGET |
 | `changeset_applied` (extended) | After placement | For each ghost: guid → UniqueId, approver; surviving count; Revit warnings; BLOCK result | TARGET extension |
@@ -836,8 +836,8 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | Datum, Ghost, Massing, Annotate, Apply Standard, auto-fix, fix-in-place and Doctor reports | Each command | Counts, actor | TARGET (XC-5 subset + P1-9) |
 
 **Type gaps in the Holding Area.** Today the Holding Area follows container names. Element gaps have no container name, and one Promote run could open hundreds. So:
-- Gaps are grouped per run by category, measured size band and key parameters (for example "Walls, external, 212–215 mm, 38 elements").
-- A group closes when a newly installed `type_catalog@n` has a match, or when a lead dismisses it with a reason.
+- Gaps are grouped per run by category, measured size band and key parameters (for example "Walls, external, 212–215 mm, 38 elements"). BUILT (MA-2c): grouped by category and the type the DD rule wants (else, with no rule to name one, the size no catalogue type is named at) — the snap is 0, so the size is exact and the type name carries it ("Walls: "BDS_EXT_ARC_CMU_125 mm" is not in the catalogue — 2 element(s) (Function Exterior)").
+- A group closes when a newly installed `type_catalog@n` has a match, or when a lead dismisses it with a reason. BUILT (MA-2c): the type catalogue in force (project → office) holding the wanted type by name in the category, or a type of the category named at the size; a run that no longer reports a group does not close it; a dismissal holds while later runs report nothing beyond what it saw, and one that reports more elements, or a label it did not list, opens it again and says so.
 - They show in their own section of the Holding Area, derived from the ledger like the rest.
 - Size: M, in MA-2.
 
@@ -877,12 +877,12 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /changesets/:key/:id/reopen` `{guid, reason}` (lead only).
 - `POST /changesets/:key/:id/reverted` `{guids}`.
 - `POST /cde/:key/verify` `{changeset, results[]}`.
-- `POST /cde/:key/holding/type-gaps/:group/dismiss` `{reason}` (lead only).
+- `POST /cde/:key/holding/type-gaps/:group/dismiss` `{reason}` (lead only). BUILT (MA-2c; the machine credential passes, as on the existing dismissal).
 
 **Existing routes, extended**
 - `POST /changesets/:key` accepts contract 2, with the trust rules of section 6.3.
 - `POST /changesets/:key/:id/result` gains `placed[]`, `warnings` and the BLOCK result.
-- `GET /cde/:key/holding` returns the type-gap groups next to the container holds.
+- `GET /cde/:key/holding` returns the type-gap groups next to the container holds. BUILT (MA-2c): `type_gaps {open, closed, catalog}`.
 - `PUT /cde/:key/artefacts/:kind` takes the new kinds.
 - The Revit report route allows the XC-5 report types.
 
@@ -1082,8 +1082,8 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - **Rules without a layer.** LANDED in MA-2a (2026-10-03): Promote, Ghost Builder and the bridge pass Function, Location (from the outer boundary: `WallLocation`) and Material as params; the DRAFT layer-free DD file is `demo/bds-pilot/bds-dd-layerfree-guideline.json`; the C#/TS parity fixture is `WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json`. A lead still writes the office guideline's own layer-free rules.
   - **A wider catalogue harvest.** LANDED in MA-2a: Function (enum name), Material, the matrix's type parameters, `bic` (BOS-5), Install catalogue on office from the review window (BOS-3).
   - The LOD state reader, plus a line in the pane, the Next strip and the web (C4). LANDED in MA-2b: read in Revit from Promote's own facts (`LodState`), one `lod_state` ledger row per run and per applied Promote changeset; the pane and the web strip print the newest row's line from the journey; the stage gate reads its share.
-  - A Promote plan with `retype`, `attach` and `set_parameter`.
-  - Type-gap groups in the Holding Area, with their close rule (size M).
+  - A Promote plan with `retype`, `attach` and `set_parameter`. LANDED in MA-2c (2026-10-03, plan `docs/superpowers/plans/2026-10-03-ma2c-set-parameter-gaps-undo-plans.md`): `PropertyPlanner` files a `set_parameter` type edit for an empty DD property when the catalogue row of exactly that type or a whole-class `ids@n` clause gives one value (the bridge checks the source: `changesets-typing.makeCiter`), else sends it to a person with the count; the executor writes it after the retypes (stale guard, read-back); each value written rides on the `changeset_applied` row. Never pre-ticked.
+  - Type-gap groups in the Holding Area, with their close rule (size M). LANDED in MA-2c: one `type_gap` row per Promote run, the Holding Area's "Type gaps (n)" section, closed by a lead's dismissal or a catalogue holding the type.
   - `matrixToIds` (S): a stage IDS checked before commit. LANDED in MA-2b: `ids-compile.mjs matrixToIds`, served as `GET /cde/:key/artefacts/lod_matrix/ids` (derived, never installed as `ids@n`); Revit judges a Promote changeset's applied elements with it inside the changeset's group, before the BLOCK check — a failure is said with its rule and the person may go back; a property Revit cannot read is "not checked", never passed.
   - One Undo per storey: all changesets of a storey in one ExternalEvent inside `SentinelUndo.Run`, then the LOD state after.
   - DAT-3, ANV-1, ANV-2: plans for each story with the office templates, datums pinned. They run as their own batch, because Revit may empty the Undo list after view actions.
