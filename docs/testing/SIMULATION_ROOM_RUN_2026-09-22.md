@@ -1443,3 +1443,5 @@ lod_matrix@1, ruleset@1, the membership), `ma2c` #1551–#1597 (ids@1, ids@2, fo
 three Promote changesets — GR-FFL applied then undone, two withdrawn), `ma2c-b` #1552–#1591 (ids@1, ids@2, two `lod_state`, two
 `type_gap` runs, GR-FFL declined stale, two withdrawn). Left on this PC: the two scratch copies and the drill's files in
 `Documents\Sentinel drills\ma2c\` (the drill's evidence; never committed).
+
+**After the drill — C26** (66ef8c7, from the report-only attack run at 1a8f782): the compiler now keeps the value of "must be", "is to be", "shall be:", "shall have a … of", a doubled blank, a closing "!", a quoted value and a decimal comma; the docs panel compiles headings and the title with the bodies; a clause naming the property or set in another spelling is weighed on both sides; a U-value's decimal comma takes 1–2 digits. No drill row's input reaches the changed code (the drill's ids@2 is one plain sentence, and no thermal value is written): checked offline on both sides (shared cases value 249, document 46, ids 50; promote-check 659/659), not run again live.
