@@ -71,6 +71,10 @@ describe("matrixToIds — what a matrix names twice, or in another class's set (
   it("a property named bare and qualified is required once", () => {
     expect(one(["FireRating", "Pset_WallCommon.FireRating"]).specifications[0].requirements.properties).toEqual([{ pset: "Pset_WallCommon", name: "FireRating", cardinality: "required" }]);
   });
+  it("a property spelled in other cases is required once, as first written — the judges match without regard to case (review)", () => {
+    expect(one(["Pset_WallCommon.FireRating", "pset_wallcommon.FireRating", "Pset_WallCommon.firerating"]).specifications[0].requirements.properties)
+      .toEqual([{ pset: "Pset_WallCommon", name: "FireRating", cardinality: "required" }]);
+  });
   it("a standard set of another class is said in unmatched, never required; a set no standard names is kept as written", () => {
     const r = one(["Pset_DoorCommon.FireRating", "BDS_Identity.Code"]);
     expect(r.unmatched).toEqual([{ category: "Walls", property: "Pset_DoorCommon.FireRating", reason: "Pset_DoorCommon is not a standard set of IFCWALL (Pset_WallCommon) — name it in its class's set" }]);

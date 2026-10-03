@@ -84,8 +84,10 @@ export function matrixToIds(matrix, { stage = "DD", label = null } = {}) {
     const properties = [], seen = new Set();
     // A property the row names twice (bare and qualified) is required once; a standard set of another class only (a wall row
     // asking Pset_DoorCommon) is the matrix's slip — said in unmatched, never a requirement no element of the class can meet.
-    const require = (pset, name) => { if (!seen.has(`${pset}.${name}`)) { seen.add(`${pset}.${name}`); properties.push({ pset, name, cardinality: "required" }); } };
-    const said = (p, reason) => { if (!seen.has(p)) { seen.add(p); unmatched.push({ category: row.category, property: p, reason }); } };
+    // Case ignored, as validateElement and the C# judge match a property (review): one property in two spellings is one.
+    const once = (key) => !seen.has(key.toLowerCase()) && seen.add(key.toLowerCase());
+    const require = (pset, name) => { if (once(`${pset}.${name}`)) properties.push({ pset, name, cardinality: "required" }); };
+    const said = (p, reason) => { if (once(p)) unmatched.push({ category: row.category, property: p, reason }); };
     for (const p of row.properties) {
       const dot = p.indexOf(".");
       if (dot > 0 && dot < p.length - 1) {
