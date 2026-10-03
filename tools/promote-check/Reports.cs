@@ -137,7 +137,10 @@ static partial class Check
         string annSrc = Src("Commands.Annotate.cs");
         int readBack = annSrc.IndexOf("var present = "), notKept = annSrc.IndexOf("if (!kept");
         Ok(annSrc.Contains("committed = t.Commit() == TransactionStatus.Committed;") && annSrc.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException")
-           && readBack > 0 && readBack < notKept && notKept < annSrc.IndexOf("GovernedNotify.Report(\"Annotate\""),
+           && readBack > 0 && readBack < notKept && notKept < annSrc.IndexOf("GovernedNotify.Report(\"Annotate\"")
+           && annSrc.Contains("var present = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))")
+           && annSrc.Contains("var pinnedNow = pick.Pins.Select(p => doc.GetElement(p.Id.ToElementId())).Where(e => e != null && e.Pinned)")
+           && annSrc.Contains("if (!kept && present.Count + pinnedNow.Count == 0)"),
            "Annotate reads the model back after its group, kept or not (a group that throws too), says 'the model is as it was' only when the read-back finds nothing, and reports what it read (MA-2e, review C2)");
         string doctor = Src("Updaters", "FailureInterceptor.cs");
         Ok(doctor.Contains("Reported.Add(key, p.Text, p.Tx, p.Ids)") && doctor.Contains("Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds))")

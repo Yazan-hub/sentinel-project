@@ -170,6 +170,7 @@ Check("S1 (review C3): the B31 words, in every model",
 string Src(params string[] p) => File.ReadAllText(Path.Combine(new[] { root, "SentinelAddin" }.Concat(p).ToArray()));
 int CountOf(string s, string what) { int n = 0; for (int i = s.IndexOf(what); i >= 0; i = s.IndexOf(what, i + what.Length)) n++; return n; }
 var ann = Src("Commands.Annotate.cs");
+var annN = ann.Replace("\r\n", "\n"); // a guard is pinned with the return that follows it (review C12)
 int run = ann.IndexOf("SentinelUndo.Run(doc, \"Annotate views\"");
 int shown = ann.IndexOf("pick.ShowDialog() != true");
 int pinLoop = ann.IndexOf("foreach (var pin in pick.Pins)");
@@ -184,14 +185,16 @@ Check("DAT-3: only ticked pins are pinned; Building Story is read through the on
 int loaded = ann.IndexOf("!engine.Has(doc)");
 Check("F4 (review C1): the ruleset is Scan Now's cached one — no network call — and 'not loaded yet' refuses before the plan, never read as none",
     ann.Contains("engine.RulesetFor(doc)") && !ann.Contains("RulesetStore.Load(") && !ann.Contains("RulesetStore.None()")
-    && loaded > 0 && loaded < ann.IndexOf("ViewPlanner.Plan("));
-Check("a person decides: the preview opens before anything is written, and Cancel writes nothing", shown > 0 && shown < run);
+    && loaded > 0 && loaded < ann.IndexOf("ViewPlanner.Plan(")
+    && annN.Contains("then Annotate again. Nothing was created.\");\n            return Result.Cancelled;"));
+Check("a person decides: the preview opens before anything is written, and Cancel writes nothing",
+    shown > 0 && shown < run && ann.Contains("if (pick.ShowDialog() != true) return Result.Cancelled;"));
 Check("the result counts the views it could not route, reads the pins back and says B31 in words, in the preview and the result (review C3: every model)",
     ann.Contains("ViewGenerator.SetFirstMatch(view, routeParams, p.BrowserStatus)") && ann.Contains("if (!routed) unrouted++;")
     && ann.Contains("ViewPlanner.PinnedLine(") && CountOf(ann, "ViewPlanner.UndoWords()") == 2);
 int nothingAt = ann.IndexOf("ViewPlanner.NothingToPlan(");
 Check("review C10: with no guideline (or no views section) Annotate refuses before any preview opens (the 4b-2 guard, AST-1 retired)",
-    nothingAt > 0 && nothingAt < ann.IndexOf("new AnnotatePreviewWindow("));
+    nothingAt > 0 && nothingAt < ann.IndexOf("new AnnotatePreviewWindow(") && annN.Contains("TaskDialog.Show(Title, nothing);\n            return Result.Cancelled;"));
 Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.cs").Contains("Next: 3 · Annotate Views"));
 
 Console.WriteLine($"{total - failed}/{total} checks pass");
