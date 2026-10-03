@@ -3910,6 +3910,10 @@ Request bodies and the drill's files are kept in `Documents\Sentinel drills\ma2c
 
 Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session MA2c, with gaps named F-MA2c-n, each fixed on the branch ("fix(drill MA2c): …" with its check), and the list of **owed** rows at its end.
 
+**Drill amendments (run 2026-10-03, session MA2c):**
+- **D1** — the set-up's hand-written `ids-fd30.json` carries no `source_alone`, so its clause is never a source (C23, fail-closed). Compile the clause instead: `compileIds` from "The fire rating of all doors shall be FD30." (it does not compile "All doors shall be FD30.": no property word), installed as the next `ids@n` on each project.
+- **D2** — Promote opens a pending Promote review before it plans again. Before a re-run that must re-plan (S-1's second Promote, G-2), withdraw the storey's pending changesets: `b4101 POST changesets/<key>/<id>/withdraw`.
+
 **Closing list:**
 - close Revit without saving the scratch copies;
 - return the sign-in to the state found before the drill (the founder signs out if the PC was signed out before);

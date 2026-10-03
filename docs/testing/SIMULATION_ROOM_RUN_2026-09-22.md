@@ -1381,3 +1381,65 @@ Revit 2024 with branch fix/pane-narrow-dock 2660146 = master 6a87d9f + the pane 
   screen at 150 %): ↻ at 2499–2535 (it was at 2685, off the screen), every journey line wraps, the journey box scrolls with its bar from
   the key down, ⚡ Fix whole with Rule and Mode beside it, the Doctor toggle in view; unbound (`ma1-bds` 404) its empty lines take no room.
 - Still owed: W-1 (the strip in the browser) and the rest of the list above.
+
+## Session MA2c — set_parameter from a cited source, the type gaps, live (2026-10-03 ~16:50 → 17:40 local, branch feature/ma2c-set-parameter-gaps 1a8f782, Claude driving Revit 2024)
+
+Setup: two copies of `Documents\sentinel-scratch\ma1\ma1-src_detached.rvt` (the PRE-Promote B35 seed) in `Documents\Sentinel drills\ma2c\`:
+`ma2c-a.rvt` bound to `ma2c`, `ma2c-b.rvt` bound to `ma2c-b` (not saved). Scratch web projects on the test bridge 127.0.0.1:4101 (branch
+code, event poll off): office `ma2c-office` with `guideline@1` (`5ac547cae77c…`), `type_catalog@1` = `catalog-fr.json` (the BDS catalogue
+with Fire Rating "60 min" on `BDS_EXT_ARC_CMU_200 mm`, `79c6efb85da5…`), `lod_matrix@1` (`cb47a6d07da3…`, MA2b's DRAFT) and the pilot's
+`ruleset@1`; projects `ma2c` and `ma2c-b` in that office, each with `ids@1`, then `ids@2` (drill amendment D1). **Signed in** (the
+founder's account, made lead of all three). The add-in: the branch build 1a8f782 deployed to Revit 2024 at 16:54 on the founder's
+explicit ask (DLL `5b6987d1…`; before it, master 154915f's `428e87c08e6d…`). The add-in's bridge settings backed up and pointed at 4101.
+The founder's 4100 bridge was not touched (read-only GETs only, after the drill, for this record).
+
+**Record before the first row:** Type Properties ▸ Fire Rating empty on the four types (MA2b's record, the same seed bytes);
+`get_available_family_types` Walls 87, Doors 41 (128).
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-1 the bridge refuses what no source gives | `"to":"120 min"` with `value_source` catalogue: 400, the catalogue gives "60 min"; `value_source` person: 400 (a person's value is not this op's yet); `"from":"30 min"`: 400 (fills an empty value only); `changesets/ma2c` `[]`; `holding` `type_gaps {open: [], closed: [], catalog: "type_catalog@1 · office · 79c6efb85da5…"}` — **pass** | replies |
+| P-1 the read-only run | First run (the plan's hand-written `ids@1`): `LOD state now … DD → design: 7 of 86 at DD (8%) · 70 below · 9 blocked · 0 not measured`; `✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → "60 min" (type_catalog@1 · office · 79c6efb85da5… · BDS_EXT_ARC_CMU_200 mm · Fire Rating) — 23 element(s) read the type`; the two DD door types **refused** the clause: "its document says more than whole-class values … — a person decides" — the hand-written ids@1 carries no `source_alone` (only `compileIds` sets it: C23, fail-closed), drill data, **D1**. Re-run on `ids@2` compiled from "The fire rating of all doors shall be FD30.": `DD properties: 3 type edit(s) from a cited source (never pre-ticked) · 5 with no source — sent to a person (25 element(s) on those types) · 6 held off the type …`; `✎ … BDS_INT_1 PNL_WOOD_1000 x 2100 mm … → "FD30" (ids@2 · … "The fire rating of all doors shall be FD30.") — 3 element(s)`, `… BDS_INT_2 PNL_WOOD_2000 x 2100 mm … — 2 element(s)`; `Type gaps (…): 5 group(s), 8 element(s)` (Walls GYPS_125 ×4, Floors CONC_250, Ceilings GYPS_56, Doors 915 x 2134, Roofs GENRC_225); No pressed — **pass** | dialog text (both runs) |
+| P-2 the type_gap row | #1563 `type_gap:run · 5 group(s), 8 element(s)`, `claimed` true, actor the account; group ids `19858cb2fb16` (Walls), `06ee290645ca`, `5cac25b88e0e`, `d0206653f1ce` (Doors), `7c7f82b71aae`; `holding.type_gaps.open` the same five, `runs: 1` — **pass** | replies |
+| A-1 the review and Apply | Review `Promote (DD) · GR-FFL`: 48 rows ticked, the 3 type edits **unticked**, each `type edit wall: BDS_EXT_ARC_CMU_200 mm · reaches 1 element(s) in the model now + 14 if this changeset's retypes onto it are applied · Pset_WallCommon.FireRating "" → "60 min" · from type_catalog@1 … · Fire Rating` (the doors "+1", "FD30" from ids@2); door retype badges "✗ rejected" (the IDS referee's verdict, S3). Ticked all; Apply; DD IDS: `12 element(s) failing … Walls · DD: missing Pset_WallCommon.FireRating — 12 element(s)`, See details W 2051439–2051450 (the partitions on GYPS_100, which has no source) — the outline walls did **not** fail (UNSURE 1 and 3 held: the type write is inside the group, N = 12 not 26). Place anyway: `Applied 51 element(s)`, `LOD state after … 21 of 86 at DD (24%) · 56 below · 9 blocked` = the prediction — **pass** | dialog, review rows |
+| A-2 the values, written and read back | `changeset_applied` #1575 `values`: CMU_200 `""` → `"60 min"`, `value_source` catalogue (`type_catalog@1 · … · Fire Rating`, sha `79c6efb85da5…`); BDS_INT_1/INT_2 PNL_WOOD `""` → `"FD30"`, clause (`ids@2 · …`, sha `6a36732dbf0d…`); `unique_id` = `revit_unique_id` each. Type Properties by mouse: CMU_200 "60 min", INT_1 "FD30", INT_2 "FD30". MCP family types after: the same 128 (87 + 41, the same ids) — **zero types created**; the stamp took the types (UNSURE 4) — **pass** | row, Type Properties, MCP |
+| U-1 one Undo | Undo list top `Sentinel AI changeset: Promote (DD) · GR-FFL [353753a1]` (one entry; the next `Sentinel: Save project settings`); one Undo → #1577 `changeset_reverted`, 51 rows, the 3 set_parameter guids among them; Type Properties CMU_200, INT_1, INT_2 Fire Rating empty again; MCP on GR-FFL: outline walls `Generic - 200mm`, partitions `MA0 Interior - 100mm` (UNSURE 8, XC-2 for a write on a type) — **pass** | Undo list, row, Type Properties, MCP |
+| S-1 the stale guard | `ma2c-b.rvt`: Promote → Yes; before Apply, CMU_200 Fire Rating "90 min" ▸ OK; tick all; Apply: `Transaction failed and was rolled back: stale: Pset_WallCommon.FireRating on type BDS_EXT_ARC_CMU_200 mm reads "90 min" now, the plan read "" — set_parameter fills an empty value only (a filled one is a person's); re-run Promote` … `Reported as declined.`; #1587 status `declined`, `applied: []`, `rejected: 51`; outline walls still `Generic - 200mm`. Promote again (after D2): no ✎ for CMU_200 — `→ a person: Pset_WallCommon.FireRating on BDS_EXT_ARC_CMU_200 mm reads "90 min", type_catalog@1 … · Fire Rating gives "60 min" — not overwritten; a person decides`; No pressed — **pass** | dialogs, row, MCP |
+| G-1 the close rules | Dismiss `d0206653f1ce` (Doors 915 x 2134): 201, #1592 `hold:type_gap_dismissed d0206653f1ce`; a second dismissal 409 `type-gap group d0206653f1ce is not open on ma2c`; `catalog-fr-125.json` (+ `BDS_INT_ARC_GYPS_125 mm`) → `type_catalog@2` (`33be0801…`); holding: Doors `closed_by` dismissed with the reason, Walls `19858cb2fb16` `closed_by` catalogue `BDS_INT_ARC_GYPS_125 mm` (`type_catalog@2`); Floors, Ceilings, Roofs open — **pass** | replies |
+| G-2 a dismissal holds | `ma2c-a.rvt` Promote → No (after D2): `type_gap:run · 4 group(s), 4 element(s)`; Doors still closed (dismissed, reason kept), `runs` one more than at G-1, not reopened; Walls stays closed by the catalogue — **pass** | reply |
+| W-1 the web Holding Area | **owed** (C14): port 4000 is held by the founder's `thatopen serve` (pid 63540, read with `netstat`), and the app needs the founder's platform sign-in. The section's words are pinned offline (`holding.ts` tests) | `netstat` |
+
+**Drill amendments:**
+- **D1 (drill data) — the plan's hand-written `ids-fd30.json` has no `source_alone`**, so the bridge and the add-in read its clause as
+  "says more than whole-class values" and send the doors to a person (C23, fail-closed: an ids@n not made by `compileIds` is never a
+  source). `compileIds` does not compile "All doors shall be FD30." (no property word); the drill compiled "The fire rating of all doors
+  shall be FD30." (the verifier's control) and installed it as `ids@2` on both projects. Recorded as F-MA2c-1 (drill data, no code change).
+- **D2 — Promote opens a pending Promote review before it plans again** (Promote v1: `FetchProposed`, the unreviewed promote first).
+  S-1's and G-2's re-runs withdrew the storey's pending `01-FFL` and `MA0 Roof` changesets first (`POST changesets/<key>/<id>/withdraw`:
+  #1588–1589 on `ma2c-b`, two more on `ma2c`). After a stale decline, "re-run Promote" therefore shows the next pending storey's review
+  first; the re-plan follows once those are reviewed. Words only; not changed.
+
+**Found in the drill:** F-MA2c-1 above (drill data). No gap in the code.
+
+**Notes:**
+- The report route logs every outcome under the action `changeset_applied`, the outcome in `new_value.status` (`declined` at S-1) —
+  as since the changesets' first build, not MA-2c's.
+- Revit's main thread ran at ~100 % CPU from its start (1131 CPU-s in 19 min) with no command open. Sentinel registers no Idling
+  handler and no timer: another add-in or Revit itself, not a finding.
+- **Driving slips:** from ~17:12 every mouse click missed Revit — the Claude desktop window was maximized and always-on-top over the
+  whole screen (`WindowFromPoint`; screenshots hide it, so Revit looked clickable); the founder minimized it. Before that, Apply was
+  pressed once through UI Automation (Invoke) after the rows were ticked the same way.
+
+**Owed** (not passed): W-1, the Holding Area in the browser; the signed-out actor on the changeset, `values` and `type_gap` rows; a
+window U-value (UNSURE 2: no BDS window type is DD on the seed); one row on Revit 2026 and 2027; one Undo per storey, DAT-3/ANV-1/ANV-2,
+the full drill MA2 and gate G2 (MA-2d); a second account's approval (MA2); a real office matrix (LM-1); master's add-in back on Revit
+2024 — the redeploy from a master worktree was refused by the session's permission check (the branch build stays until the merge's
+deploy).
+
+**Closing list:** Revit closed without saving either copy; sign-in left as found (signed in); the test bridge stopped; the add-in's
+bridge settings restored (sha256 `366a193f4680…` = the backup's), the backup deleted; `%AppData%\Sentinel\cache\ma2c` and `ma2c-b`
+deleted. Left on the test ledger (scratch keys, on purpose): `ma2c-office` #1550–#1593 (guideline@1, type_catalog@1 and @2,
+lod_matrix@1, ruleset@1, the membership), `ma2c` #1551–#1597 (ids@1, ids@2, four `lod_state`, three `type_gap` runs, the dismissal,
+three Promote changesets — GR-FFL applied then undone, two withdrawn), `ma2c-b` #1552–#1591 (ids@1, ids@2, two `lod_state`, two
+`type_gap` runs, GR-FFL declined stale, two withdrawn). Left on this PC: the two scratch copies and the drill's files in
+`Documents\Sentinel drills\ma2c\` (the drill's evidence; never committed).
