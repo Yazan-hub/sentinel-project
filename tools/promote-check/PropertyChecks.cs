@@ -51,7 +51,7 @@ static partial class Check
         var differ = vc == null ? new List<string> { "no value_cases" } : vc.Where(c => Judge(c) != (string)c["why"])
             .Select(c => $"{(string)c["value"]} / {(string)c["sentence"]}: got {Judge(c) ?? "cited"}").ToList();
         foreach (var d in differ.Take(8)) Console.WriteLine("        " + d);
-        Ok(vc?.Count == 249 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 75,
+        Ok(vc?.Count == 252 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 76,
            $"every shared value case ({(vc?.Count ?? 0) - differ.Count}/{vc?.Count ?? 0}) reads as the bridge's notAValue: one rating token or one number with a time unit, the sentence ending with it — a bound, a choice, a qualifier or a narrowing tail goes to a person (C23)");
         // Review C23 (context): a sentence is cited only when compileIds marked it source_alone — its document said nothing but
         // whole-class one-value sentences. The specifications are compileIds' own (vitest holds them to it); both sides cite alike.
@@ -91,7 +91,7 @@ static partial class Check
                    || x.SaysMore((string)c["entity"], (string)c["key"], (string)c["value"])?.Spec != (string)c["more"];
         }).Select(c => (string)c["name"]).ToList();
         foreach (var d in icDiffer.Take(8)) Console.WriteLine("        " + d);
-        Ok(ic?.Count == 50 && icDiffer.Count == 0,
+        Ok(ic?.Count == 51 && icDiffer.Count == 0,
            $"every shared ids case ({(ic?.Count ?? 0) - icDiffer.Count}/{ic?.Count ?? 0}) cites and says more as the bridge does: \"^IFCWALL$\" is no IFCWALLSTANDARDCASE's, a source_sentence not text is no sentence, a pattern, optional, prohibited, narrower or uncited clause of another value goes to a person (C23)");
         var cc = vs["catalog_cases"]?.AsArray();
         var ccDiffer = cc == null ? new List<string> { "no catalog_cases" } : cc.Where(c =>

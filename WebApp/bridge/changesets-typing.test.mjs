@@ -134,7 +134,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
-    expect(VS.value_cases.length).toBe(249);
+    expect(VS.value_cases.length).toBe(252);
     for (const c of VS.value_cases) {
       const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
       const entity = c.entity ?? "IFCDOOR", key = c.key ?? "Pset_DoorCommon.FireRating";
@@ -176,7 +176,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
 
   it("a clause is the whole class's only when its pattern matches every IFC class the entity is exported as, and a clause that says more of the key sends the value to a person: every shared ids case (review C23)", () => {
     expect(ENTITY_SUBTYPES).toEqual(VS.entity_subtypes); // the add-in's Clauses.Subtypes is the same table
-    expect(VS.ids_cases.length).toBe(50);
+    expect(VS.ids_cases.length).toBe(51);
     for (const c of VS.ids_cases) {
       const ids = { specifications: c.specifications };
       expect(clauseValues(ids, c.entity, c.key).map((h) => h.value), c.name).toEqual(c.values);

@@ -128,9 +128,10 @@ export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", ro
  *  DIN 4102-3 W 30-W 90 (-A, -AB, -B) and DIN 4102-13 G 30-G 120 too; minutes are a standard period (15 20 30 45 60 90 120 180 240
  *  360), hours 1 2 3 4 6, 1.5 or 1/3 1/2 3/4 1-1/2; an FRL's periods are 30 60 90 120 180 240; BS 476-22 integrity/insulation
  *  (30/30, 60/30, 60/0), the insulation never longer than the integrity. "R 30-C5", "E 15-M", "11/22/33", "1 min" and "6.99 h"
- *  are not one. EN 13501-2's subscript EI₁/EI₂ is read as EI1/EI2 (notAValue). */
+ *  are not one. EN 13501-2's subscript EI₁/EI₂ is read as EI1/EI2 (notAValue), and takes a blank or a hyphen before
+ *  its period: "EI190" is no EI1 90, and "EI120" is EI 120. */
 export const VALUE_SHAPE = {
-  FireRating: /^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:RE|R)[ -]?(?:15|20|30|45|60|90|120|180|240|360)|(?:REI|REW)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)|EI(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240)|[ -]?(?:15|20|30|45|60|90|120|180|240)-M)|(?:EI[12]?|EW|E)[ -]?(?:15|20|30|45|60|90|120|180|240)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|W ?(?:30|60|90)(?:-(?:A|AB|B))?|G ?(?:30|60|90|120)|(?:15|20|30|45|60|90|120|180|240|360)[ -]?(?:mins?|minutes?)|(?:[1-4]|6|1\.5|(?:1[ -])?1\/2|1\/3|3\/4)[ -]?(?:h|hrs?|hours?)|(?!-\/-\/-)(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)|30\/(?:0|30)|60\/(?:0|30|60)|90\/(?:0|30|60|90)|120\/(?:0|30|60|90|120)|180\/(?:0|30|60|90|120|180)|240\/(?:0|30|60|90|120|180|240))(?![\s\S])/i,
+  FireRating: /^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:RE|R)[ -]?(?:15|20|30|45|60|90|120|180|240|360)|(?:REI|REW)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)|EI(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240)|[ -]?(?:15|20|30|45|60|90|120|180|240)-M)|(?:EI[12][ -]|(?:EI|EW|E)[ -]?)(?:15|20|30|45|60|90|120|180|240)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|W ?(?:30|60|90)(?:-(?:A|AB|B))?|G ?(?:30|60|90|120)|(?:15|20|30|45|60|90|120|180|240|360)[ -]?(?:mins?|minutes?)|(?:[1-4]|6|1\.5|(?:1[ -])?1\/2|1\/3|3\/4)[ -]?(?:h|hrs?|hours?)|(?!-\/-\/-)(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)|30\/(?:0|30)|60\/(?:0|30|60)|90\/(?:0|30|60|90)|120\/(?:0|30|60|90|120)|180\/(?:0|30|60|90|120|180)|240\/(?:0|30|60|90|120|180|240))(?![\s\S])/i,
   AcousticRating: /^(?:Rw ?[1-9][0-9](?: ?dB)?|STC[ -]?[1-9][0-9])(?![\s\S])/i,
   // a decimal comma takes 1-2 digits: "1,400" is a thousands separator in English and 1.4 under EN ISO 6946 — not one value
   ThermalTransmittance: /^(?=[0-9.,]*[1-9])[0-9](?:\.[0-9]{1,3}|,[0-9]{1,2})?(?![\s\S])/,
@@ -226,7 +227,7 @@ function clauseReadings(ids, entity, key) {
       if (!hit) continue;
       whole = hit === classes.length && Object.keys(a).every((k) => k === "entity");
     }
-    const spec = String(s.name ?? ""), sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
+    const spec = typeof s.name === "string" ? s.name : "", sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
     for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : []) {
       if (!p || typeof p !== "object") continue;
       const inSet = p.pset ? reads(p.pset, pset) : "may", named = reads(p.name, prop);
