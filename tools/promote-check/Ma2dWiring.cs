@@ -30,7 +30,11 @@ static partial class Check
         Console.WriteLine("\nMA-2d — one Undo per storey (source scans)");
         string Src(params string[] p) => File.ReadAllText(Repo(new[] { "SentinelAddin" }.Concat(p).ToArray()));
         string review = Src("Commands.ReviewChangesets.cs"), place = Src("GhostBuilder", "ChangesetPlacementEvent.cs"), promote = Src("Commands.PromoteWalls.cs");
-        string window = Src("UI", "ChangesetReviewWindow.cs");
+        string window = Src("UI", "ChangesetReviewWindow.cs"), ctx = Src("GhostBuilder", "PromoteContext.cs");
+        // Drill MA2d F-MA2d-2: the DD IDS dialog's headline and the line on every changeset's note speak of the storey.
+        Ok(place.Contains("StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? \"This \" + what : null)")
+           && ctx.Contains("StageIds.Headline(fails.Count, matrix, what.StartsWith(\"storey \", StringComparison.Ordinal) ? \"This \" + what : null)"),
+           "a storey's DD IDS dialog and the line on its changesets' notes name the storey (drill MA2d F-MA2d-2)");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         int loop = At(place, "foreach (var cs in batch)"), judge = At(place, "PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf)");

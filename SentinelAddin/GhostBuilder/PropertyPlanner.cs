@@ -421,7 +421,8 @@ namespace Sentinel.GhostBuilder
                             Label = "type " + v.Label, TypeName = type, FamilyName = family, Parameter = key, RevitParameter = v.Param,
                             From = v.Current, To = distinct[0], SourceKind = found[0].Kind,
                             Reason = $"DD {cat.ToLowerInvariant()}: {key} \"{distinct[0]}\" from {found[0].Ref} — a type edit: every element on {v.Label} " +
-                                     $"reads it ({v.Instances} in the model now, {here} more that this changeset retypes onto it)",
+                                     // drill MA2d F-MA2d-1: `here` counts the storey's ghosts, before Bodies splits a storey into changesets
+                                     $"reads it ({v.Instances} in the model now, {here} more that this storey retypes onto it)",
                         });
                         inserted[p] = at + 1;
                     }

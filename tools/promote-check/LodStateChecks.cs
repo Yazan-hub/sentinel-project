@@ -52,6 +52,11 @@ static partial class Check
         Ok(StageIds.WentBack(1, "lod_matrix@2 · office · abababababab…") == "You went back at the DD IDS check — nothing was placed. 1 element(s) would have failed the DD IDS made from lod_matrix@2 · office · abababababab…."
            && StageIds.PlacedAnyway(fails, "lod_matrix@2") == "This changeset leaves 1 element(s) failing the DD IDS made from lod_matrix@2 — placed anyway, as the person chose: W 312312 (Walls · DD): missing Pset_WallCommon.FireRating",
            "going back and placing anyway are said in words, naming the matrix the IDS was made from");
+        const string storey = "This storey \"Promote (DD) · GR-FFL\" (2 changesets)";
+        Ok(StageIds.Headline(4, "lod_matrix@1", storey) == storey + " leaves 4 element(s) failing the DD IDS made from lod_matrix@1"
+           && StageIds.PlacedAnyway(fails, "lod_matrix@1", storey).StartsWith(storey + " leaves 1 element(s) failing", StringComparison.Ordinal)
+           && StageIds.Summary(1, fails, new string[0], new string[0], "lod_matrix@1", storey).StartsWith(storey + " leaves", StringComparison.Ordinal),
+           "a storey's DD IDS dialog, result line and ledger note speak of the storey, not of one changeset (drill MA2d F-MA2d-2)");
         var many = Enumerable.Range(0, 26).Select(i => $"W {1000 + i} (Walls · DD): missing Pset_WallCommon.FireRating")
                              .Concat(new[] { "D 7 (Doors · DD): missing Pset_DoorCommon.FireRating", "W 9 (Walls · DD): missing Pset_WallCommon.FireRating, Pset_WallCommon.IsExternal" }).ToList();
         Ok(StageIds.Tally(many).SequenceEqual(new[] { "Walls · DD: missing Pset_WallCommon.FireRating — 26 element(s)", "Doors · DD: missing Pset_DoorCommon.FireRating — 1 element(s)",

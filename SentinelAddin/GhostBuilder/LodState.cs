@@ -124,7 +124,8 @@ namespace Sentinel.GhostBuilder
         public static string Line(string label, string spec, Verdict v) =>
             v.Missing.Count == 0 ? null : $"{label} ({spec}): missing {string.Join(", ", v.Missing)}";
 
-        public static string Headline(int n, string matrix) => $"This changeset leaves {n} element(s) failing the DD IDS made from {matrix}";
+        /// <summary>Drill MA2d F-MA2d-2: `who` names a storey of several changesets ("This storey "…" (2 changesets)"); null = one changeset.</summary>
+        public static string Headline(int n, string matrix, string who = null) => $"{who ?? "This changeset"} leaves {n} element(s) failing the DD IDS made from {matrix}";
 
         /// <summary>The failures counted by specification and missing properties, every failing element in one of the lines
         /// (drill MA2b F-MA2b-2: the first eight lines alone hid the partitions): "Walls · DD: missing Pset_WallCommon.FireRating — 26 element(s)".</summary>
@@ -137,8 +138,8 @@ namespace Sentinel.GhostBuilder
             $"You went back at the DD IDS check — nothing was placed. {n} element(s) would have failed the DD IDS made from {matrix}.";
 
         /// <summary>The summary and ledger-note line when the person placed it anyway, the first five elements named.</summary>
-        public static string PlacedAnyway(IReadOnlyList<string> fails, string matrix) =>
-            Headline(fails.Count, matrix) + " — placed anyway, as the person chose: " + string.Join("; ", fails.Take(5)) +
+        public static string PlacedAnyway(IReadOnlyList<string> fails, string matrix, string who = null) =>
+            Headline(fails.Count, matrix, who) + " — placed anyway, as the person chose: " + string.Join("; ", fails.Take(5)) +
             (fails.Count > 5 ? $"; … and {fails.Count - 5} more" : "");
 
         /// <summary>What the check could not judge, said beside its answer: "DD IDS: not checked for Pset_WallCommon.LoadBearing — …".</summary>
@@ -158,9 +159,9 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>The check before commit's line (review C2 and the third review): what failed, what was not read, what was not
         /// judged — or, when none of these, how many elements were judged and passed; "nothing … is asked" when it judged none.</summary>
-        public static string Summary(int judged, IReadOnlyList<string> fails, IEnumerable<string> notRead, IEnumerable<string> notJudged, string matrix)
+        public static string Summary(int judged, IReadOnlyList<string> fails, IEnumerable<string> notRead, IEnumerable<string> notJudged, string matrix, string who = null)
         {
-            var said = new[] { fails.Count > 0 ? PlacedAnyway(fails, matrix) : null, NotChecked(notRead), NotJudged(notJudged) }.Where(x => x != null).ToList();
+            var said = new[] { fails.Count > 0 ? PlacedAnyway(fails, matrix, who) : null, NotChecked(notRead), NotJudged(notJudged) }.Where(x => x != null).ToList();
             return said.Count > 0 ? string.Join(" ", said)
                 : judged > 0 ? $"DD IDS: {judged} element(s) judged, all passed ({matrix})"
                 : $"DD IDS: nothing this changeset applied is asked anything by the DD IDS ({matrix})";

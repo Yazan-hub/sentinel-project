@@ -158,7 +158,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 }
                 // Passed only when nothing failed, nothing was unreadable and nothing was left out (review C2) — and said with how
                 // many were judged, never of none (third review).
-                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix);
+                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? "This " + what : null);
             }
             var added = before == null ? new List<Violation>() : BlockCheck.AddedSince(doc, before);
             if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, what, before.RulesetRef))

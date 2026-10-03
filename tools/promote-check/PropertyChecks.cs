@@ -165,7 +165,7 @@ static partial class Check
         var cmu = p.Ghosts.Single(g => g.Op == "set_parameter" && g.TypeName == "BDS_EXT_ARC_CMU_200 mm");
         var door = p.Ghosts.Single(g => g.Op == "set_parameter" && g.FamilyName == "BDS_INT_1 PNL");
         Ok(cmu.Kind == "wall" && cmu.UniqueId == U(0xa01) && cmu.From == "" && cmu.To == "60 min" && cmu.SourceKind == "catalogue" && cmu.RevitParameter == "Fire Rating"
-           && cmu.Reason == "DD walls: Pset_WallCommon.FireRating \"60 min\" from type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating — a type edit: every element on BDS_EXT_ARC_CMU_200 mm reads it (0 in the model now, 1 more that this changeset retypes onto it)",
+           && cmu.Reason == "DD walls: Pset_WallCommon.FireRating \"60 min\" from type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating — a type edit: every element on BDS_EXT_ARC_CMU_200 mm reads it (0 in the model now, 1 more that this storey retypes onto it)",
            "the catalogue row of exactly the target type gives the wall type's Fire Rating; the reason says it is a type edit and how many elements read it");
         Ok(door.Kind == "door" && door.To == "FD30" && door.SourceKind == "clause"
            && door.Reason.Contains("from ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · \"All doors shall be FD30.\""),
