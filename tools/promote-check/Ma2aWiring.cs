@@ -47,5 +47,14 @@ static partial class Check
            && topLevel < executor.IndexOf("PromoteWallsPlanner.WallTop(stories ??= Stories(doc), baseMm, level.Name, out var why)", StringComparison.Ordinal)
            && executor.Contains("topLevel = LevelNamed(doc, el.Place.TopLevel);"),
            "…and a wall create's top is contract 2's TopLevel when it names one, before the next-storey rule");
+        // Drill MA2a (F-MA2a-4): H-5 read "80 of 87 office type(s) present" on a model whose own harvest is the catalogue — the 7 were
+        // its curtain wall types, absent from the list of types Ghost PLACES. The template count reads every type the model holds.
+        string ghostCmd = Src("Commands.GhostBuilder.cs");
+        Ok(ghostCmd.Contains("held[\"Walls\"] = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()")
+           && !ghostCmd.Substring(ghostCmd.IndexOf("internal static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> HeldTypes(Document doc)", StringComparison.Ordinal)).Split(new[] { "return held;" }, StringSplitOptions.None)[0].Contains("WallKind.Basic")
+           && ghostCmd.Contains("resolved.Guideline.OfficeTypesIn(heldTypes)") && ghostCmd.Contains("review.LoadTypes(loadedTypes);")
+           && Src("Commands.PromoteWalls.cs").Contains("standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc))")
+           && Src("Commands.Massing.cs").Contains("var loadedTypes = GhostBuilderCommand.HeldTypes(doc);"),
+           "the office-template count reads every type the model holds (curtain and stacked walls, every floor type) in Ghost Builder, Promote and Photo Massing; Ghost's type drop-down still offers only what it places (F-MA2a-4)");
     }
 }

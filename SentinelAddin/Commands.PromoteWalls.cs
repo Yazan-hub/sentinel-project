@@ -66,7 +66,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
         // MA-1a item 6, the office-template check: Promote retypes onto office types, so a model that holds none of them
         // was not made from the office template — said before anything is planned.
-        var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(GhostBuilderCommand.LoadedTypes(doc));
+        var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc)); // F-MA2a-4: every type the model holds
         if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
         {
             TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label));

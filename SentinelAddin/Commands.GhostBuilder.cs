@@ -244,6 +244,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             review.LoadLevels(levels, GhostFiling.DefaultLevel(modelLevels.Select(l => (IdOf(l), l.Elevation * 304.8)).ToList(), importZFt * 304.8,
                                                                (uidoc.ActiveView as ViewPlan)?.GenLevel is { } viewLevel ? IdOf(viewLevel) : (long?)null));
         var loadedTypes = LoadedTypes(doc); // GHB-5: what each row's type drop-down offers, read here on the API thread
+        var heldTypes = HeldTypes(doc);     // F-MA2a-4: what the model holds, for the office-template count
         review.LoadTypes(loadedTypes);
         string? templateLine = null; // MA-1a item 6: the office-template check's line, set in PHASE 2 for the summary
         // MA-1a item 8: the reader's own time and the sketch reader's usage, for the build:run receipt.
@@ -345,7 +346,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 // installed catalogue. Refused when the model holds none of the office types (founder decision F5);
                 // otherwise the count is said in the summary. The DWG import made above stays in the model, as it does
                 // after every other refusal of this command.
-                var (officeHave, officeAll) = resolved.Guideline.OfficeTypesIn(loadedTypes);
+                var (officeHave, officeAll) = resolved.Guideline.OfficeTypesIn(heldTypes);
                 if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
                 {
                     FailOnUi(progress, Release, PlacementPolicy.TemplateRefusal(officeAll, resolved.CatalogSource.Label));
@@ -448,6 +449,19 @@ public sealed class GhostBuilderCommand : IExternalCommand
             ["Columns"] = Names(Of(BuiltInCategory.OST_Columns).OfType<FamilySymbol>()),
             ["Furniture"] = Names(Of(BuiltInCategory.OST_Furniture).OfType<FamilySymbol>()),
         };
+    }
+
+    /// <summary>The office-template count's side (drill MA2a, F-MA2a-4): every type the model HOLDS in each category — LoadedTypes,
+    /// with every wall type (basic, curtain, stacked) and every floor type, not only the ones Ghost places. A curtain wall the
+    /// catalogue lists and the model holds was counted absent ("80 of 87" on a model harvested into that very catalogue).</summary>
+    internal static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> HeldTypes(Document doc)
+    {
+        var held = LoadedTypes(doc);
+        held["Walls"] = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+            .Select(t => (Family: (string?)null, Type: t.Name)).OrderBy(x => x.Type, System.StringComparer.OrdinalIgnoreCase).ToList();
+        held["Floors"] = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+            .Select(t => (Family: (string?)null, Type: t.Name)).OrderBy(x => x.Type, System.StringComparer.OrdinalIgnoreCase).ToList();
+        return held;
     }
 
     private static void CloseOnUi(GhostBuilderProgressWindow w, System.Action release) =>

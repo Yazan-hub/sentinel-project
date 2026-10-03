@@ -53,7 +53,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         // fetched off this thread while the vision model reads the images. Massing reads no layer standard.
         string key = ProjectContext.For(doc).Key;
         GhostStandards standards = null; // set in the background before the review window can raise a build
-        var loadedTypes = GhostBuilderCommand.LoadedTypes(doc); // MA-1a item 6: the model's types, read on the API thread
+        var loadedTypes = GhostBuilderCommand.HeldTypes(doc); // MA-1a item 6: the model's types, read on the API thread (F-MA2a-4: every type it holds)
         string templateLine = null;                             // the office-template check's line, for the summary
         string stampSha = null; // MA-1a item 7: the images' sha the build was stamped with (null: the numbers are the reviewer's)
         // MA-1a item 8: the vision reader's time and usage, and the facts of the run that was built, for its receipt.
