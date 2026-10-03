@@ -3,21 +3,25 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- No MinWidth: Revit docks the pane narrower than any minimum (beside Speckle it was ~193 DIP) and clips what
          is wider - lines cut and the refresh button out of reach (drill MA2b). Every line wraps to the dock instead;
-         tools/pane-layout-check lays this XAML out at 160, 193 and 420 DIP. -->
+         tools/pane-layout-check lays this XAML out at 160, 193 and 420 DIP wide, 720 and 900 high. -->
     <DockPanel Margin="8">
         <Border DockPanel.Dock="Top" Padding="8,6" CornerRadius="4" Background="#EEF3EA" Margin="0,0,0,6">
             <DockPanel>
                 <Button DockPanel.Dock="Right" Content="↻" Width="24" Height="22" VerticalAlignment="Top"
                         Margin="6,0,0,0" Click="OnJourneyRefreshClick"
                         ToolTip="Refresh the journey from the web (read-only)"/>
-                <StackPanel>
-                    <TextBlock Text="{Binding JourneyKey}" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding StandardsLine}" FontSize="11" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding NextLine}" FontSize="11" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding LodLine}" FontSize="11" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding PublishLine}" FontSize="11" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding ScanRulesetLine}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
-                </StackPanel>
+                <!-- Capped and scrolling: wrapped in a narrow dock the journey runs ~480 DIP tall and would leave the rule grid
+                     no rows (review of the narrow-dock fix); the ↻ button stays outside, always in view. -->
+                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <TextBlock Text="{Binding JourneyKey}" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding StandardsLine}" FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding NextLine}" FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding LodLine}" FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding PublishLine}" FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding ScanRulesetLine}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
             </DockPanel>
         </Border>
         <Border DockPanel.Dock="Top" Padding="8" CornerRadius="4" Background="#F0F3F7">
@@ -65,7 +69,9 @@
                 <DataGridTextColumn Header="Rule" Binding="{Binding RuleId}" Width="55"/>
                 <DataGridTextColumn Header="Mode" Binding="{Binding Mode}" Width="70"/>
                 <DataGridTextColumn Header="Element" Binding="{Binding ElementName}" Width="130"/>
-                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+                <!-- MinWidth: the fixed columns already take 418 DIP, so a star column alone shrank to 20 DIP and no message could be
+                     read at any dock width; it keeps 160 and the grid scrolls sideways to it -->
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" MinWidth="160"/>
                 <DataGridTextColumn Header="Ref" Binding="{Binding DocRef}" Width="105"/>
             </DataGrid.Columns>
             <DataGrid.RowStyle>
