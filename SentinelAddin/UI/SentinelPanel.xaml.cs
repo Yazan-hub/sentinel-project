@@ -17,6 +17,8 @@ public partial class SentinelPanel : UserControl, IDockablePaneProvider
         InitializeComponent();
         // Revit resizes the pane with its dock: the journey gets what the score, the Doctor and the rule rows do not need
         SizeChanged += (_, e) => Journey.MaxHeight = PaneLayout.JourneyCap(e.NewSize.Height);
+        // a new journey (↻, another document) is read from its key down, not from where the last one was scrolled to
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(SentinelPanelViewModel.JourneyKey)) Journey.ScrollToHome(); };
     }
 
     public void SetupDockablePane(DockablePaneProviderData data)

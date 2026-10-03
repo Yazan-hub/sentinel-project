@@ -34,7 +34,8 @@ public sealed class PaneVm
     public string PublishLine { get; } = "Auto-publish: off — publish: none — not installed for ma2b or its office";
     public string ScanRulesetLine { get; } = "Judged by ruleset@1 · office · 0261a9b3c4d5… (BDS_Project Number_Project Name (Template))";
     public string ScoreText { get; } = "Rule pass rate 86.7%";
-    public string Status { get; } = "ma2b-a — 420 elements in 103 ms";
+    // the longest status the pane prints: a ⚡ Fix proposal on a REQUEST rule (third review)
+    public string Status { get; } = "✓ Proposed 'BDS_EXT_STR_CONC_200' for 'Basic Wall: Exterior - Brick on Mtl. Stud' — a coordinator approves it in Change Requests.";
     public string DoctorHeader { get; } = "Doctor — 0 warning(s) auto-resolved · 2 line(s)";
     public ObservableCollection<string> DoctorLog { get; } = new ObservableCollection<string> {
         "10:54:08  LOD state now — Recorded: ledger #1537 · receipt 78ed60aed99c4ecb…",
@@ -140,7 +141,8 @@ static class Program
     /// shows the end of an item taller than itself.</summary>
     static string Cut(FrameworkElement e, Visual pane, double w, double h, bool scrollIsCut = false)
     {
-        if (e is TextBlock t && t.TextTrimming != TextTrimming.None) return "trimmed with an ellipsis";
+        // trimmed is cut — unless its tooltip carries the whole text (the status line, a rule's message)
+        if (e is TextBlock t && t.TextTrimming != TextTrimming.None && (t.ToolTip as string) != t.Text) return "trimmed with an ellipsis, no tooltip with the whole line";
         var r = Box(e, pane);
         if (r.Left < -0.5 || r.Right > w + 0.5) return $"runs sideways out of the pane ({r.Left:F0}–{r.Right:F0})";
         if (!Inside(r, Seen(e, pane))) return "given less room than it needs (clipped)";
@@ -197,6 +199,8 @@ static class Program
         string pngDir = args.FirstOrDefault(a => a != "-v");
         Console.WriteLine("The Live Coordination pane in a narrow dock (drill MA2b: lines cut, ↻ off the right edge) — failures and the count");
 
+        Ok(code.Contains("if (e.PropertyName == nameof(SentinelPanelViewModel.JourneyKey)) Journey.ScrollToHome();"),
+           "a new journey is shown from its key down: the code-behind scrolls the journey box home when the key changes (third review)");
         Ok(Regex.Matches(code, Regex.Escape("SizeChanged += (_, e) => Journey.MaxHeight = PaneLayout.JourneyCap(e.NewSize.Height);")).Count == 1
            && xaml.Contains("<ScrollViewer x:Name=\"Journey\""),
            "the code-behind caps the journey box with PaneLayout.JourneyCap on every resize — the function this check lays it out with");

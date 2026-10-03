@@ -38,7 +38,9 @@
         <Border DockPanel.Dock="Top" Padding="8" CornerRadius="4" Background="#F0F3F7">
             <StackPanel>
                 <TextBlock Text="{Binding ScoreText}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
+                <!-- three lines at most (a ⚡ Fix proposal's status runs to ~130 characters and took the narrow grid's last row); the whole line on hover -->
+                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#667" TextWrapping="Wrap" MaxHeight="45"
+                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}"/>
             </StackPanel>
         </Border>
 
@@ -67,7 +69,8 @@
             <DataGrid.Columns>
                 <!-- ⚡ first: the columns are wider than a docked pane, so a last column scrolls out of reach (drill F3). Every fixed
                      column has MinWidth = Width: a live DataGrid pays the Message column's MinWidth out of the fixed columns
-                     (down to 20 DIP - ⚡ Fix became an unlabelled square) unless they hold theirs; the grid scrolls sideways instead. -->
+                     (down to 20 DIP - ⚡ Fix became an unlabelled square) unless they hold theirs; the grid scrolls sideways instead.
+                     The price: a person cannot drag a fixed column narrower than its width (a wider drag still works). -->
                 <DataGridTemplateColumn Header="" Width="58" MinWidth="58">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
