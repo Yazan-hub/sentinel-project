@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The third slice of MA-2 — "what goes to a person" — in two parts:
-- **set_parameter, built once with [BP] P2-7.** A DD type the Promote plan lands elements on (one they already stand on, or a retype's target) whose LOD-matrix property is EMPTY on the TYPE (drill MA2b: every BDS wall and door type the DD rules produce has an empty Fire Rating) gets ONE `set_parameter` type edit — only when a cited source holds exactly one value for it: the type catalogue row of exactly that type (`type_catalog@n` `params`, harvested by display name: "Fire Rating"), or a whole-class clause of the installed `ids@n` (a specification whose applicability is the class alone and whose required property pins one exact value). Otherwise the property goes to a person — no source, sources that disagree, or no parameter Sentinel can write — and Promote counts it ("DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 1 with no source — sent to a person (14 element(s) on those types)"). **Never a guess, never a new type.** The bridge, not the caller, checks the source against the installed artefact and writes its own record (`value_source {kind, ref, sha256}`); a set_parameter is never pre-ticked (a type edit reaches every element on the type, and its row says how many). The executor writes it after every retype and attach of the changeset, inside the changeset's transaction (the stale guard first — the value read now must be the plan's `from` — then a read-back as the IDS reads it), so the DD IDS checked before commit (MA-2b) sees it. Each value written rides on the `changeset_applied` ledger row (P2-7's `param:apply`, built once).
+- **set_parameter, built once with [BP] P2-7.** A DD type the Promote plan lands elements on (one they already stand on, or a retype's target) whose LOD-matrix property is EMPTY on the TYPE (drill MA2b: every BDS wall and door type the DD rules produce has an empty Fire Rating) gets ONE `set_parameter` type edit — only when a cited source holds exactly one value for it: the type catalogue row of exactly that type (`type_catalog@n` `params`, harvested by display name: "Fire Rating"), or a whole-class clause of the installed `ids@n` (a specification whose applicability is the class alone and whose required property pins one exact value). Otherwise the property goes to a person — no source, sources that disagree, or no parameter Sentinel can write — and Promote counts it ("DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 1 with no source — sent to a person (14 element(s) on those types)"). **Never a guess, never a new type.** The bridge, not the caller, checks the source against the installed artefact and writes its own record (`value_source {kind, ref, sha256}`); a set_parameter is never pre-ticked (a type edit reaches every element on the type, and its row says how many). The executor writes it after every retype and attach of the changeset, inside the changeset's transaction (the stale guard first — the value read now must be empty, as the plan's `from` says: C1 — then a read-back as the IDS reads it), so the DD IDS checked before commit (MA-2b) sees it. Each value written rides on the `changeset_applied` ledger row (P2-7's `param:apply`, built once).
 - **Type-gap groups.** A Promote run's type gaps (the held elements the office has no type for — the DD rule names a type the catalogue lacks, or no catalogue type is named at the element's size) are grouped by category and the type wanted (else the size) and posted as ONE `type_gap` row per run (claimed). The Holding Area (`GET /cde/:key/holding`) lists each group in its own section ("Type gaps (n)") until a lead dismisses it with a reason (`POST /cde/:key/holding/type-gaps/:group/dismiss`) or the type catalogue in force holds the type it wants.
 
 **Source of truth:** `docs/strategy/2026-09-30-model-automation-design.md` — MA-2 (`:1085-1086`: "A Promote plan with `retype`, `attach` and `set_parameter`" and "Type-gap groups in the Holding Area, with their close rule (size M)"), §3.3 op 4 (`:325`), §3.4 step 4 (`:336`), §3.5 (`:353`, `:356`), §6.3 operations and trust rules (`:734-753`), §6.4 the ledger table and "Type gaps in the Holding Area" (`:829`, `:837-843`), §6.8 routes (`:880`, `:885`), decisions D13, D16, D19 (`:1335-1340`); the blueprint `docs/strategy/2026-09-29-sentinel-blueprint.md` P2-7 (`:698-735`, `:1219`); drill MA2b's record (`docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md:1315-1362`). Base: master `6a87d9f`. Repo root: `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`.
@@ -14,7 +14,7 @@
 
 *The bridge checks the source.* `validateChangeset` (`changesets-logic.mjs`) gains the op `set_parameter` (the six Promote kinds): `target.unique_id` names the TYPE, `place.TypeName` (and a door's or window's `place.FamilyName`) names it, `parameter` ("Pset_X.Prop"), `revit_parameter`, `from` ("" when empty — the stale guard), `to`, and `value_source {kind: catalogue | clause}`. A `cite` callback — `changesets-typing.makeCiter`, built by the store from the project's `type_catalog@n` and `ids@n` (project → office, each re-checked by the install validator, as the typer's standards are) — checks that the cited artefact holds exactly `to` and returns the bridge's own record `{kind, ref, sha256}`; a source it cannot check, a person's value, a different value, two rows, two clause values — each a 400 in words. The caller's `value_source.ref` is listed under `ignored`. `pretickOf` never pre-ticks a set_parameter (founder decision F1). The store reads the catalogue and the ids@n only for a body that holds a set_parameter (`needsCiting`), and `reportResult` adds `values: [{proposal_guid, type, parameter, from, to, value_source}]` to the `changeset_applied` row (F4). The catalogue parameter table (`CATALOG_PARAM`: `Pset_WallCommon.FireRating` and `Pset_DoorCommon.FireRating` → "Fire Rating"), the IFC entity of each kind (`KIND_ENTITY`) and the reading of the clauses (`clauseValues`) have C# twins, held equal by one shared fixture, `WebApp/bridge/fixtures/changeset-ops/value-sources.json`, which vitest and `tools/promote-check` read.
 
-*The add-in plans the values.* `GuidelineMatcher.CatalogEntry` gains `params` (kept as JSON) and `CatalogValue(category, family, type, param)`. A new pure file `GhostBuilder/PropertyPlanner.cs` holds `TypeValue` (Revit's read of one DD type's property on the TYPE), `Clauses` (the C# `clauseValues`), `PropertyPlanner.DdTypes` (the DD types the plans land elements on — `StoreyPlan.Settled`, recorded by both planners, then the retype targets) and `PropertyPlanner.Plan`, which adds a `set_parameter` ghost to the first storey that lands an element on the type (with its retypes: F11) or a row to `StoreyPlan.ToPerson`, and returns a `PropertyReport` (the header's line and one line per row). `PromoteWallsPlanner.Bodies` files a set_parameter element (its `validate.psets` carries the value, so the referee judges it) and the properties sent to a person as the changeset's exceptions. In Revit, `FixInPlaceService.OnType` finds where a DD property lives on a type (PsetMap's candidates on the type itself — never an instance-only lookup, never the wall's Function — real, writable, stored as text) and its value as the IDS reads it; `PromoteWallsCommand.TypeValues` reads the plan's DD types with it on the API thread; `FixInPlaceService.WriteOnType` is the executor's write (stale guard, set, read-back); `ChangesetExecutor` runs it after the attach loop; the DD IDS before commit leaves the type entries out (`kindOf`); `PromoteContext.Fetch` reads the ids@n's clauses off the API thread; the review window shows "type edit wall: BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating "" → "60 min" · from type_catalog@2 · office · … · Fire Rating".
+*The add-in plans the values.* `GuidelineMatcher.CatalogEntry` gains `params` (kept as JSON) and `CatalogValue(category, family, type, param)`. A new pure file `GhostBuilder/PropertyPlanner.cs` holds `TypeValue` (Revit's read of one DD type's property on the TYPE), `Clauses` (the C# `clauseValues`), `PropertyPlanner.DdTypes` (the DD types the plans land elements on — `StoreyPlan.Settled`, recorded by both planners, then the retype targets) and `PropertyPlanner.Plan`, which adds a `set_parameter` ghost to the first storey that lands an element on the type (with its retypes: F11) or a row to `StoreyPlan.ToPerson`, and returns a `PropertyReport` (the header's line and one line per row). `PromoteWallsPlanner.Bodies` files a set_parameter element (the bridge builds its `validate.psets` from `parameter` and `to`, so the referee judges the value written: C2) and the properties sent to a person as the changeset's exceptions. In Revit, `FixInPlaceService.OnType` finds where a DD property lives on a type (PsetMap's candidates on the type itself — never an instance-only lookup, never the wall's Function — real, writable, stored as text) and its value as the IDS reads it; `PromoteWallsCommand.TypeValues` reads the plan's DD types with it on the API thread; `FixInPlaceService.WriteOnType` is the executor's write (stale guard, set, read-back); `ChangesetExecutor` runs it after the attach loop; the DD IDS before commit leaves the type entries out (`kindOf`); `PromoteContext.Fetch` reads the ids@n's clauses off the API thread; the review window shows "type edit wall: BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating "" → "60 min" · from type_catalog@2 · office · … · Fire Rating".
 
 *Type gaps.* `PromoteHeld.Gap` (a `TypeGap {Category, Want, Size, Key, Nearest}`) is set at the four `m.Gap(...)` holds of the two planners (`Plan1`, `Retype` and `Swap` gain `out TypeGap gap`). A new pure file `GhostBuilder/TypeGaps.cs` groups them (`TypeGaps.Group`, by category and Want, else Size) and words a group (`TypeGaps.Line`); `CommandReports.TypeGaps` is the row, posted by Promote on every run that has a gap (the read-only run too). The bridge adds `type_gap` to the Revit report types: `typeGapRow` checks every group, names it (`holding-logic.typeGapId`: sha256 of category and want, else size — the same gap on every run is one group), words the action `type_gap:run · N group(s), M element(s)` (a `hold:` action is Sentinel's own and never comes through the report route: S5) and marks the row claimed. `holding-logic.typeGapGroups` derives the open and closed groups (a lead's `hold:type_gap_dismissed <group>` row newer than the group's newest run, or the catalogue in force holding the type: `catalogMatch`); `readHolding` returns them as `type_gaps {open, closed, catalog}`; `dismissTypeGap` is the lead's route. The web's `holding.ts` reads and words them (`typeGapLine`, `typeGapClosedLine`, `dismissTypeGap`); `files-panel.ts` shows "Type gaps (n)" with Dismiss… for a lead.
 
@@ -24,15 +24,15 @@
 
 - Branch `feature/ma2c-set-parameter-gaps` from master `6a87d9f` (it holds this plan); merge `--no-ff` only after every task's checks pass **and the live drill MA2c is recorded**; push only under the standing push rule, after a secret scan of the range.
 - **What must stay true** (a task that would break one of these stops and says so):
-  - **Never a guess.** A value is written only as an installed artefact holds it — the catalogue row of exactly that type, or the one value the installed ids@n's whole-class clauses pin; the BRIDGE checks it and writes the record. No source, two sources that disagree, a parameter Sentinel cannot write: the property goes to a person, said in words and counted.
+  - **Never a guess.** A value is written only as an installed artefact holds it — the catalogue row of exactly that type, or the one value the installed ids@n's whole-class clauses pin (a clause that sets a minimum, "at least …", pins no value: C7); the BRIDGE checks it — both sources, whichever is cited (C1) — and writes the record. No source, two sources that disagree, a parameter Sentinel cannot write: the property goes to a person, said in words and counted.
   - **Sentinel creates no types.** set_parameter writes a type the plan names that exists in the model; a type that is not exactly one type there is not read and not written.
-  - **A type edit is never pre-ticked** (F1) and says how many elements read the type.
-  - **A filled value is never overwritten**: only an empty one (as the IDS reads it on the type) is planned, and the executor refuses the write when the type no longer reads the plan's `from` (the changeset fails whole, as a retype's `type_before` does).
+  - **A type edit is never pre-ticked** (F1) and says how many elements read the type — in the review row, the add-in's own count, never the poster's words (C3).
+  - **A filled value is never overwritten**: only an empty one (as the IDS reads it on the type) is planned; the bridge refuses a set_parameter whose `from` is not "" and the executor refuses the write when the type reads anything but empty now, whatever `from` says (C1) — the changeset fails whole, as a retype's `type_before` does. A filled value its source contradicts goes to a person, said (C11).
   - **Every Revit write inside the changeset's one transaction** (and, for a Promote changeset with a DD IDS, inside its TransactionGroup — XC-2: one Undo per Sentinel action). No new transaction, no new ExternalEvent.
   - **No network call on Revit's API thread** that was not there before: the ids@n is read inside `PromoteContext.Fetch` (always called inside `Task.Run`); `TypeValues` and `WriteOnType` are API-thread Revit reads and writes only. (Promote's existing `Propose`, `GovernedNotify.Report` and the review's `Report` keep their current threads — Risks.)
-  - **The bridge holds the trust rules**: a posted `value_source.ref` is ignored and listed; the pre-tick, the source record and a type gap's id are the bridge's.
+  - **The bridge holds the trust rules**: a posted `value_source.ref` is ignored and listed; the pre-tick, the source record, the agreement of the two sources (C1), a set_parameter's `validate` (C2) and a type gap's id are the bridge's.
   - **Type gaps are derived from the ledger**, never stored as a list; a read that fails says "not read — …", never an empty list; a bridge before MA-2c lists none and the web says so.
-  - **Bridge and add-in ship together**: an older add-in declines a changeset carrying a set_parameter ("the add-in is older than the bridge's vocabulary", `ChangesetExecutor.cs` unsupported-op guard), an older bridge refuses the op (400) and the `type_gap` report (400). The Merge section gives the order.
+  - **Bridge and add-in ship together**: an older add-in declines a changeset carrying a set_parameter ("the add-in is older than the bridge's vocabulary", `ChangesetExecutor.cs` unsupported-op guard), an older bridge refuses the op (400 — Promote then files the storey again without its type edits, each sent to a person in words: C4) and the `type_gap` report (400). The Merge section gives the order.
   - No new dependency, no migration, no new check project; `bridge/sentinel-core.mjs` is not rebuilt (nothing under `src/sentinel-core` changes).
 - After every add-in task, both builds: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false` and the same with `-p:RevitVersion=2026`. **Every build of the add-in in the tasks carries `-p:DeployToRevit=false`.**
 - net48 rules: no `string.Contains(char)`, no `^1` index, no `record`; a new file names its own `using`s (`System`, `System.Collections.Generic` and `System.Linq` are global in the add-in's csproj for net48 too). C# 9 patterns (`is not`, `or`) are in use already.
@@ -45,7 +45,7 @@
 - Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Line numbers are master `6a87d9f`'s and shift as tasks land: match the quoted text, not the number. The repository checks out with CRLF (`core.autocrlf true`): use the Edit tool, which matches the text and keeps the file's line endings; never `sed -i`; `grep -a` on docs.
 
-**Dry run (planner, 2026-10-03):** every code step below was applied in order, task by task, to a fresh `git archive` export of master `6a87d9f` in a scratch folder under the session's scratchpad — never in the repository — by a script that reads this document's `Create` and replace blocks as an implementer reads them (each replace matched its text exactly once, in the file's own line endings). Before each task's code its Step 1 was applied and its "see it fail" run made; after the code, its "see it pass" run. The totals in the steps are that run's, and the plan's code blocks are the exact text that was applied: after Task 7 the 37 files the plan touches equal (line endings aside) the isolated worktree where the code was first written and run.
+**Dry run (planner, 2026-10-03)** — it ran BEFORE the review amendments. The amended plan was dry-run again the same way (Review amendments), and the steps carry that run's totals, marked **(C-count)**. Every code step below was applied in order, task by task, to a fresh `git archive` export of master `6a87d9f` in a scratch folder under the session's scratchpad — never in the repository — by a script that reads this document's `Create` and replace blocks as an implementer reads them (each replace matched its text exactly once, in the file's own line endings). Before each task's code its Step 1 was applied and its "see it fail" run made; after the code, its "see it pass" run. The totals in the steps are that run's, and the plan's code blocks are the exact text that was applied: after Task 7 the 37 files the plan touches equal (line endings aside) the isolated worktree where the code was first written and run.
 - Master's own totals, measured first: `promote-check` `605/605`; `npm test` (`vitest run`, every file) `Test Files  141 passed (141)`, `Tests  2234 passed | 1 skipped (2235)`; the bridge suite `Test Files  89 passed (89)`, `Tests  1779 passed | 1 skipped (1780)`; `npx tsc --noEmit -p .` `18` errors, 0 in the files this plan touches; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`, Revit 2026 `0 Error(s)`, `3 Warning(s)`.
 - Task 1: `Test Files  3 failed (3)`, `Tests  4 failed | 34 passed (38)` — the logic and typing files fail to load (`makeCiter` is not a function), and the store file's four new tests fail (the op is refused, `needsCiting` is not a function); then `Test Files  3 passed (3)`, `Tests  141 passed (141)`.
 - Task 2: `promote-check` it fails to compile — `1 Error(s)`: `CSC : error CS2001: Source file '…\SentinelAddin\GhostBuilder\PropertyPlanner.cs' could not be found`; then `promote-check` `622/622`; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`, Revit 2026 `0 Error(s)`, `3 Warning(s)`.
@@ -65,39 +65,113 @@ The plan builds the default of each. None needs an answer before the work starts
 
 | # | Choice | Options | Default |
 |---|---|---|---|
-| F1 | Fire Rating is a TYPE parameter: writing it changes every element on the type, settled ones and the template's legend instances included | **A:** write the type — only when the source is the catalogue row of exactly that type or a whole-class clause (F2) — shown as a type edit that says how many elements read it ("0 in the model now, 14 more that this changeset retypes onto it"), never pre-ticked; else to a person. **B:** never write; every DD property goes to a person. **C:** duplicate the type and write the copy | **A.** The value is the office's own record for that type (or its EIR's rule for the whole class), the person sees the reach and ticks it. **C is refused**: "Sentinel creates no types". Ceiling: a type edit cannot be scoped to some elements; a mixed type needs a person |
-| F2 | What counts as a "cited clause" | **A:** an installed `ids@n` specification whose applicability is its entity alone (no predefinedType, no other facet) and whose required property carries one exact `value` (not a pattern); two values for one class is no source ("they disagree"). Cited as `ids@n · <spec name> · "<source sentence>"`. **B:** no clause source until a clause→value artefact exists | **A.** It is the one installed artefact that pins a value today (`compileIds` writes `value` from "shall be REI60"). Ceiling: real fire ratings vary by wall type or compartment, so a whole-class clause is rare — a per-type clause artefact is under Next |
+| F1 | Fire Rating is a TYPE parameter: writing it changes every element on the type, settled ones and the template's legend instances included | **A:** write the type — only when the source is the catalogue row of exactly that type or a whole-class clause (F2) — shown as a type edit that says how many elements read it ("0 in the model now, 14 more that this changeset retypes onto it"; the review row's "reaches N element(s) in the model now" is the add-in's own count, C3), never pre-ticked; else to a person. **B:** never write; every DD property goes to a person. **C:** duplicate the type and write the copy | **A.** The value is the office's own record for that type (or its EIR's rule for the whole class), the person sees the reach and ticks it. **C is refused**: "Sentinel creates no types". Ceiling: a type edit cannot be scoped to some elements; a mixed type needs a person |
+| F2 | What counts as a "cited clause" | **A:** an installed `ids@n` specification whose applicability is its entity alone (no predefinedType, no other facet) and whose required property carries one exact `value` (not a pattern); two values for one class is no source ("they disagree"); a floor is not a value — a clause whose sentence says "at least", "no less than", "not less than", "minimum", "or more" or "or better" pins nothing (C7). Cited as `ids@n · <spec name> · "<source sentence>"`. **B:** no clause source until a clause→value artefact exists | **A.** It is the one installed artefact that pins a value today (`compileIds` writes `value` from "shall be REI60"). Ceiling: real fire ratings vary by wall type or compartment, so a whole-class clause is rare — a per-type clause artefact is under Next |
 | F3 | How a person supplies a value in MA-2c | **A:** in Revit (Type Properties). Promote names each property with no source, counts it, and files it as a "sent to a person" row of the changeset; the bridge refuses `value_source` "person". **B:** a person's value filed as a changeset row from the web grid ([BP] P2-7) | **A.** The web grid is P2-7's, which reuses this op. Ceiling: the person's value is not on the ledger as a write until P2-7 |
 | F4 | The ledger row of a written value ([BP] P2-7 asked for one `param:apply` row) | **A:** the existing `changeset_applied` row carries `values: [{proposal_guid, type, parameter, from, to, value_source}]` for each set_parameter applied. **B:** a separate `param:apply` row | **A.** "Changesets write no ledger row" is closed already; one row per apply, built once (S2) |
 | F5 | Is a DD property a governed parameter (Change Requests)? | **A:** not in MA-2c. **B:** route FireRating through Change Requests | **A.** The Change Requests reject was flaky in B32 (SIM `:931`); a governed list is P2-7's |
 | F6 | The type-gap group key (the design's "category, measured size band, key params") | **A:** category + the type the DD rule wants, else (no rule names one) the size no catalogue type is named at — exact, since the snap is 0 (D16, MA-2b F1 B). **B:** a size band | **A.** With exact matching a band groups nothing; the wanted type name carries the size. Ceiling: when the snap is turned on, the band returns with it |
-| F7 | What closes a group | **A:** a lead's dismissal, or the type catalogue in force holding the type it wants (else a type of its category named at its size); a later run that does not report it does NOT close it, and one that reports it after a dismissal opens it again. **B:** a later run's silence closes it too | **A.** The design names only the two rules. Ceiling: a gap fixed by hand stays listed until dismissed |
+| F7 | What closes a group | **A:** a lead's dismissal, or the type catalogue in force holding the type it wants (else a type of its category named at its size); a later run that does not report it does NOT close it. A dismissal holds while later runs report nothing beyond what it saw; a run that reports more elements, or a label the dismissal did not list, opens it again and says "reopened — k element(s) since the dismissal of <date>" (C5). **B:** a later run's silence closes it too | **A.** The design names only the two rules. Ceiling: a gap fixed by hand stays listed until dismissed; a dismissed group whose elements move past the first 20 labels can reopen |
 | F8 | Who may dismiss a group | **A:** a lead or owner; the machine credential passes — the rule of the existing Holding Area dismissal (`dismissHold`, spec HOLD `:135`); the row records the actor. **B:** a signed-in lead only | **A.** One rule for both dismissals; B would also make the drill's dismissal need the founder's password. Ceiling: anyone holding the token can dismiss (as today for held files) |
 | F9 | Who writes the type gaps | **A:** one Revit report per Promote run carrying every group (claimed), the bridge names each. **B:** one row per group | **A.** One run, one row, inside the 20-reports-a-minute budget (with `lod_state` now and the receipt) |
 | F10 | D13 — a new size of an office type | **A:** the catalogue is edited first; a new catalogue closes the gap. No "approve new size" in MA-2c. **B:** a lead approves a new size from the Holding Area | **A.** Sentinel creates no types; the catalogue is the office's list |
-| F11 | Where a type's set_parameter rides | **A:** on the changeset of the first storey that lands an element on the type, with its retypes, so the DD IDS checked before commit sees the value (D19's "in the same batch"). **B:** one separate "DD properties" changeset | **A.** A separate changeset would fail its retypes' IDS check first. Ceiling: a storey of more than 200 ghosts files several changesets; a type row lands in one of them (Risks) — MA-2d runs a storey's changesets together |
+| F11 | Where a type's set_parameter rides | **A:** on the changeset of the first storey whose retypes land on the type, with them, so the DD IDS checked before commit sees the value (D19's "in the same batch"); only when no storey retypes onto it, on the first storey that has elements already on it; first in that storey's ghosts, so in its first chunk (C8). **B:** one separate "DD properties" changeset | **A.** A separate changeset would fail its retypes' IDS check first. Ceiling: a storey of more than 200 ghosts files several changesets; the type row rides in the first, and the retypes onto the type in a later one pass the IDS check only once the first is applied (Risks) — MA-2d runs a storey's changesets together |
 | F12 | The scope of MA-2c | **A:** set_parameter + type-gap groups; one Undo per storey, DAT-3/ANV-1/ANV-2, drill MA2 and G2 are MA-2d. **B:** all of MA-2 in one slice | **A**, the design scout's split. MA-2d's views may split into MA-2e if it grows |
 
 ## Review amendments (BINDING — they override any task text they contradict)
 
-None yet. The plan's reviews number theirs C1…; the drill's fixes are D1… (commits "fix(drill MA2c): …", each with its check).
+Two critics reviewed the plan (2026-10-03): 0 critical, 8 important (one found by both: C1), 9 minor. Every important finding is an amendment below; 8 minor ones are amendments too, 1 is rejected (end of the list). Each is ALSO written into the task text where it is local — the code blocks, the checks, the drill rows — so the text below is the rule and the tasks are its form. The drill's fixes are D1… (commits "fix(drill MA2c): …", each with its check).
+
+**Dry run of the amended plan (amender, 2026-10-03).** The planner's dry run came before these amendments, so the amended plan was dry-run again with the planner's own driver. Every code step was applied in order, task by task, to a fresh `git archive` export of master `6a87d9f` in the session's scratchpad (never the repository). Every replace matched its text exactly once, and 38 files were touched: the planner's 37 plus `Commands.ReviewChangesets.cs`. Each task's "see it fail" and "see it pass" run was made. The totals marked **(C-count)** in the steps are that run's measurements:
+- Task 1: `Tests  143 passed (143)`.
+- Task 2: `promote-check` `625/625`.
+- Task 3: `625/632` (7 FAIL), then `632/632`.
+- Task 4: `640/640`.
+- Task 5: `Tests  10 failed | 89 passed (99)`, then `Tests  99 passed (99)`.
+- Task 6: unchanged.
+- The final tree:
+  - all 25 check projects pass (`promote-check 640/640 checks pass`, the others as on master);
+  - `npm test` `Test Files  141 passed (141)`, `Tests  2263 passed | 1 skipped (2264)`;
+  - the bridge suite `Test Files  89 passed (89)`, `Tests  1804 passed | 1 skipped (1805)`;
+  - `tsc` `18` errors, 0 in the touched files;
+  - the builds have master's counts: Revit 2024 `0 Error(s)`, `5 Warning(s)`; 2026 `0 Error(s)`, `3 Warning(s)`; 2022 `0 Error(s)`, `3 Warning(s)`; 2027 `0 Error(s)`, `5 Warning(s)`.
+
+Not run: the drill, and the commit commands.
+
+**Important:**
+
+- **C1 — set_parameter fills an EMPTY value only, and the bridge reads both sources** (critic 1 #1 and critic 2 #4: two of "What must stay true" were kept by the add-in's planner only; an MCP or agent post could overwrite a filled value, cite the catalogue against a disagreeing clause, or write another class's property set).
+  - `checkWrite` refuses `from.trim() !== ""`: 400 `set_parameter fills an empty value only — a filled one is a person's (P2-7 edits it)`. The dead "to is its from" check goes, because a non-empty `to` can no longer equal `from`.
+  - `checkWrite` refuses a key whose Pset is not the kind's own (`KIND_PSET`, new in `changesets-typing.mjs`: wall `Pset_WallCommon`, floor `Pset_SlabCommon`, roof `Pset_RoofCommon`, ceiling `Pset_CoveringCommon`, door `Pset_DoorCommon`, window `Pset_WindowCommon`): 400 `a wall set_parameter writes Pset_WallCommon, not Pset_DoorCommon.FireRating`. The add-in's planner reads each class's own matrix row; a matrix row that names another class's set is filed, refused and sent to a person by C4, in words. No C# twin table.
+  - `makeCiter` reads both sources for every set_parameter: the catalogue row's `CATALOG_PARAM` value and `clauseValues` for `KIND_ENTITY[kind]`. If the other source holds a different value, it answers 400 `the sources disagree on <key> for <label>: "<catalogue value>" (<catalogue ref>) and "<clause value>" (<clause ref>) — a person decides`. This is PropertyPlanner's `disagree`, at the bridge.
+  - `WriteOnType` refuses a type that reads anything but empty now, whatever `from` says. The check comes before the write, with the stale guard's words: `stale: <key> on type <name> reads "<now>" now, the plan read "<from>" — set_parameter fills an empty value only (a filled one is a person's); re-run Promote`.
+  - vitest: `from` "30 min", a wall writing `Pset_DoorCommon.FireRating`, and both disagreement directions (the fixture's `BDS_INT_2 PNL_WOOD_2000 x 2100 mm`: catalogue FD60, clause FD30).
+  - Drill R-1 gains the `from` refusal. S-1 expects the new words.
+- **C2 — the bridge builds a set_parameter's `validate` itself** (critic 1 #2: the referee could judge a value other than the one written, or no value at all under another class).
+  - `identity.Class` is the posted one when it names the kind's class (case aside), else `KIND_ENTITY[kind]`, and the posted one is listed under `ignored` (`set by the bridge from kind`).
+  - `psets` is `[{name: <Pset>, rows: [{name: <Prop>, value: to}]}]` and `quantities` is `[]`. A posted `validate.psets` or `validate.quantities` is listed under `ignored` (`set by the bridge from parameter and to`).
+  - The add-in no longer sends `psets` (`SetParameter` in `PromoteWallsPlanner.cs`), and the shared fixture body drops them.
+  - vitest posts a mismatching pset and a proxy class, and asserts that the stored `validate` carries `to` and `IFCWALL`.
+  - S1's "the value rides in `validate.psets`" now reads: the bridge writes it there from `parameter` and `to`.
+- **C3 — a type edit's reach is the add-in's own count** (critic 1 #3: the count was only in the tooltip, as the poster's words).
+  - `ReviewChangesetsCommand.Open` (API thread) counts, for each set_parameter, the elements whose `GetTypeId()` is the target type, and passes them to `ChangesetReviewWindow(cs, reach)`. The row reads `type edit wall: BDS_EXT_ARC_CMU_200 mm  ·  reaches N element(s) in the model now  ·  Pset_WallCommon.FireRating "" → "60 min"  ·  from …`. The critic asked for the count at the end of the row; it sits before the parameter so the row's ellipsis never trims it. It is never read from the reason.
+  - `PropertyReport.Lines()` writes `✎ … → "60 min" (<ref>) — N element(s) read the type`, where N is the row's own `Elements`.
+  - Section 35's window scan pins the label and the count.
+- **C4 — a refused set_parameter never costs the storey its retypes and attaches** (critic 1 #4: `validateChangeset` is all-or-nothing, and the planner and the bridge can disagree — a re-install while the dialog is open, an ids@n the bridge re-validates to "did not parse", a regex JS and .NET read differently, an older bridge).
+  - When `ChangesetClient.Propose` answers `Bridge 400` with `set_parameter` in its words, Promote files the same body again without its set_parameter rows (`PropertyPlanner.WithoutWrites`). Each removed row becomes an exception: name `type <label> · <key>`, reason `not filed: the bridge refused its source — <the bridge's words>; a person fills it in Revit (Type Properties)`.
+  - The result dialog says `<n> type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)`. Only the second refusal counts toward `failed`. A body of type edits only is not filed again, and its first refusal counts.
+  - Promote-check pins `WithoutWrites`; section 35 pins the wiring.
+- **C5 — a lead's dismissal holds until a run reports more** (critic 2 #1: every Promote run re-reports a seed gap, so a dismissal lasted until the next press).
+  - The dismissal row records the group's `labels` beside its `elements`. `typeGapGroups` keeps a dismissed group closed while every later run reports no more elements and no label the dismissal did not list.
+  - A run that reports more opens the group with `reopened: {since, more}`, and the web card says `reopened — <k> element(s) since the dismissal of <date>`.
+  - holding-logic tests: the same group re-reported → still closed; one more element and label → open.
+  - F7 A says this. New drill row **G-2**, after G-1.
+- **C6 — drill row U-1: one Undo removes the type edit with the retypes** (critic 2 #2: XC-2 for a write on a TYPE was unproven live).
+  - The row runs after A-2.
+  - Merge: if the type edit survives the Undo, nothing is merged.
+- **C7 — a floor is not a value (S8)** (critic 2 #3: `compileIds` writes `value` from "shall be at least 60 minutes", and Promote would have written the minimum).
+  - A clause whose `source_sentence` matches `/\b(at least|no less than|not less than|minimum|or more|or better)\b/i` pins nothing. `clauseValues` and `Clauses.For` skip it.
+  - The planner's no-source row says `<ids label> · <spec> sets a minimum ("<sentence>"), not a value` (`Clauses.Floors`).
+  - The shared fixture gains a 7th case, on IFCCOVERING ("All ceilings shall be at least REI30.") rather than the critic's wall example: a wall floor clause in the shared ids would change the wall cases' words and push the fixture's 300-character exception reasons into clipping. The planner's words are checked with a wall floor clause of their own (section 34).
+  - F2 A says this.
+
+**Minor, applied:**
+
+- **C8 — where the type edit rides** (critic 1 #5). `PropertyPlanner.Plan` puts a type's rows on the first storey whose retypes land on the type. Only when none does, they go on the first storey that has elements already on it (`Settled`). The set_parameter is inserted at the start of that storey's ghosts, in the order the types are met, so it is in the storey's first chunk.
+  - **Correction to the finding:** the body's element order does NOT become `set_parameter, set_parameter, retype, retype`. `ByWall` orders retypes first within a chunk, and the executor runs set_parameter after the attach loop whatever the order, so the fixture stays `retype, retype, set_parameter, set_parameter`. What changes is the chunk: section 34 pins that with `max: 3`, the first body holds both type edits.
+  - A-1 records which storey's changeset carries each door type edit.
+- **C9 — the ledger record names the type exactly** (critic 1 #6). Each `changeset_applied.values` entry also carries `kind`, `unique_id` (the stored `target.unique_id`) and `revit_unique_id` (the applied entry's). The store test asserts them.
+- **C10 — the type-gap card says the counts are claimed** (critic 1 #7). `typeGapGroups` carries `source` and `claimed` from the newest run's row. The card reads `reported by <actor> · <source ?? "unknown"> (claimed — counted in Revit, not by the bridge)`.
+- **C11 — nothing skipped without a word** (critic 2 #6).
+  - A filled value that a source contradicts is a row with Outcome `differs`: `<key> on <type> reads "<cur>", <ref> gives "<v>" — not overwritten; a person decides`. It is counted in `Other` and sent to a person.
+  - A DD property not held on the type (`Current` null, or no read) is counted in `PropertyReport.NotOnType`, and the header ends `· <k> held off the type (instance, IsExternal from Function, or not read) — not planned`. On the pilot, each DD wall type's `IsExternal` lands there, because it is read from the Function and never written.
+  - S-1's second header expects the `differs` line.
+- **C12 — P-1 records the LOD state before** (critic 2 #5). The pass column carries the seed's line (MA2b L-1). The record adds the line and the DD door types' names.
+- **C13 — P-1's `<w>`** (critic 2 #10). It is 1 plus the number of DD door types: at least 2 (the two swap targets), plus the DD-now doors' types if they differ. Expected 3–5. A-1's `Applied <48 + w'>` follows, where `w'` is the type edits that ride on GR-FFL (C8).
+- **C14 — W-1 checks port 4000 first** (critic 2 #8). `netstat -ano | findstr :4000`, read only. If the founder's `thatopen serve` holds it, or the platform sign-in is not there, W-1 is **owed** with that reason and is not attempted. W-1 is listed as likely owed up front.
+- **C15 — the closing hash check** (critic 2 #9). It records both DLL hashes and the commit each was built from. The deployed one before the drill may be MA2b's branch build (7f8fc2c), because MA2b's redeploy was blocked. A difference is said in words and is not a failure; afterwards the founder's Revit runs master 6a87d9f's build.
+
+**Minor, rejected:**
+
+- *A default fallback becomes a type gap* (critic 2 #7) — rejected: it never reaches the gap. `Retype` returns "no DD rule for …" for any non-rule source (`if (res.Source != "rule")`, before `res.Confidence != 1`). `Swap` handles a non-rule source in its own branch before that test, too. A rule-sourced `Confidence` is only 1 or 0 (`WithCatalogCheck`), as critic 1 checked. No code changes, no check is added.
 
 ## Amendments to the spec's words (BINDING — they override any task text they contradict; numbered S1…, so the review amendments keep C1…)
 
-- **S1 (P2-7's item shape, [BP] `:709-718`).** The blueprint's item `{kind: "set_parameter", guid, parameter, revit_parameter, from, to, reason, judged}` is a changeset element here: `op: "set_parameter"`, `kind` the element kind (wall … window), `target.unique_id` the TYPE's UniqueId, `place.TypeName` (and `FamilyName`) naming it, `parameter`, `revit_parameter`, `from`, `to`, `reason`, plus `value_source` (the bridge's record of the cited source). `judged` is the element's `verdict` (`attachVerdicts`): the value rides in `validate.psets`, so the referee judges it before staging.
+- **S1 (P2-7's item shape, [BP] `:709-718`).** The blueprint's item `{kind: "set_parameter", guid, parameter, revit_parameter, from, to, reason, judged}` is a changeset element here: `op: "set_parameter"`, `kind` the element kind (wall … window), `target.unique_id` the TYPE's UniqueId, `place.TypeName` (and `FamilyName`) naming it, `parameter`, `revit_parameter`, `from`, `to`, `reason`, plus `value_source` (the bridge's record of the cited source). `judged` is the element's `verdict` (`attachVerdicts`): the bridge writes the value into `validate.psets` from `parameter` and `to` (and the class from `kind`: C2), so the referee judges the value written before staging.
 - **S2 (`param:apply` → `changeset_applied.values`, F4).** "Each apply writes one `param:apply` row" ([BP] `:706`) is one `changeset_applied` row per apply, with each written value on it.
 - **S3 (a failing value is shown, not refused, [BP] `:703`).** "A value that would fail IDS is refused on the web and never reaches Revit": a Promote set_parameter's value comes from a source the bridge checked, and the referee's verdict shows on its row; refusing a failing value at the web grid is P2-7's.
 - **S4 (the stale guard at Apply, [BP] `:704`).** "If the current Revit value differs, the row shows as stale and cannot be ticked": in MA-2c the executor refuses the write at Apply ("stale: … reads "90 min" now, the plan read "" — re-run Promote") and the changeset fails whole and is reported declined, as a retype's `type_before` does. Marking a stale row in the review window before Apply needs a Revit read per row: under Next (P2-7).
 - **S5 (the type-gap row, design `:829`).** The design's `hold:type_gap` row is `entity_type type_gap`, action `type_gap:run · N group(s), M element(s)`, ONE row per run holding every group (F9): a `hold:` action is Sentinel's own (`cde-store.mjs RESERVED_ACTIONS`) and never comes through the Revit report route. A lead's dismissal is `hold:type_gap_dismissed <group>`, written by the bridge's own route. No size band (F6); no evidence ids (MA-4).
 - **S6 ("or a person", design `:325`).** A person supplies a value in Revit (F3); Promote names and counts what goes to them. The design's "existing Fix in Revit path" is reused as its table and its checks (`PsetMap`, `IsReal`, the read-back), not as `FixInPlaceService.Apply`, which runs its own transaction and request-store audit: the set_parameter write runs inside the changeset's transaction (`WriteOnType`).
 - **S7 (type parameters only).** set_parameter writes the TYPE's own text parameter. The DD properties on the pilot are type parameters (Fire Rating); an instance parameter, a yes/no or a unit-bearing number (a window's U-value, "Heat Transfer Coefficient (U)") is "no writer" — a person sets it. Instance targets and numbers are P2-7's (Next).
+- **S8 ("a cited spec clause", design `:325`; review amendment C7).** A clause that sets a minimum ("shall be at least REI60", "no less than", "minimum", "or more", "or better") is not a cited value: neither the bridge nor the planner writes it, and the person is told the clause sets a minimum.
 
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
 | # | Decision | Why / ceiling |
 |---|---|---|
 | E1 | The caller sends `value_source {kind}` only; the bridge resolves the artefact itself and writes `{kind, ref, sha256}` | The source is a trust field: a client's ref would be a claim. The add-in's dialog shows its own words, the stored changeset the bridge's |
-| E2 | `CATALOG_PARAM`, `KIND_ENTITY` and the clause reading live twice (`changesets-typing.mjs`, `PropertyPlanner.cs`) and are held equal by `fixtures/changeset-ops/value-sources.json` (6 clause cases) | The add-in plans the value (it must count "no source" before it files) and the bridge checks it; one fixture keeps the two readings one |
+| E2 | `CATALOG_PARAM`, `KIND_ENTITY` and the clause reading live twice (`changesets-typing.mjs`, `PropertyPlanner.cs`) and are held equal by `fixtures/changeset-ops/value-sources.json` (7 clause cases: C7) | The add-in plans the value (it must count "no source" before it files) and the bridge checks it; one fixture keeps the two readings one |
 | E3 | `TypeValue.Current` is the value as the IDS reads it on the type (`GovernedElementExtractor.ReadEntry` on the type), "" when empty; the writer is the first PsetMap candidate the type itself holds (lookup that may fall to the type, or built-in), real (`IsReal`), writable, stored as String | Read and write agree with the referee; a phantom, read-only, yes/no or unit-bearing parameter is "no writer", never mis-set |
 | E4 | The executor's set_parameter loop runs after the attach loop, inside the changeset's transaction; any failure fails the changeset whole | All-or-nothing, as every other op; the value lands on the type the retype just set (drill MA2b I-1) |
 | E5 | The DD IDS check before commit leaves a set_parameter's applied entry out (`kindOf` without them) | The entry is a TYPE; the IDS judges the elements, which read the type's new value |
@@ -114,17 +188,17 @@ None yet. The plan's reviews number theirs C1…; the drill's fixes are D1… (c
 | File | Task | What it holds |
 |---|---|---|
 | `WebApp/bridge/changesets-logic.mjs`, `changesets-logic.test.mjs` | 1 | The op, `checkWrite`, the pre-tick rule |
-| `WebApp/bridge/changesets-typing.mjs`, `changesets-typing.test.mjs` | 1 | `CATALOG_PARAM`, `KIND_ENTITY`, `clauseValues`, `makeCiter` |
+| `WebApp/bridge/changesets-typing.mjs`, `changesets-typing.test.mjs` | 1 | `CATALOG_PARAM`, `KIND_ENTITY`, `KIND_PSET` (C1), `clauseValues`, `makeCiter` |
 | `WebApp/bridge/changesets-store.mjs`, `changesets-store.test.mjs` | 1 | `needsCiting`, `standardOf`, `citerFor`; `changeset_applied.values` |
 | `WebApp/bridge/mcp-server.mjs` | 1 | The MCP tool's words for the op |
 | `WebApp/bridge/fixtures/changeset-ops/value-sources.json` (new), `set-parameter-body.json` (new) | 1, 2 | The shared value sources; the add-in's body |
 | `SentinelAddin/GhostBuilder/GuidelineMatcher.cs` | 2 | `CatalogEntry.Params`, `CatalogValue` |
 | `SentinelAddin/GhostBuilder/PromoteWallsPlanner.cs`, `PromotePlanner.cs` | 2, 4 | `PromoteGhost`'s write fields, `StoreyPlan.Settled` / `ToPerson`, the body; `PromoteHeld.Gap`, `TypeGap`, the gap holds |
-| `SentinelAddin/GhostBuilder/PropertyPlanner.cs` (new) | 2 | `TypeValue`, `Clauses`, `PropertyRow`, `PropertyReport`, `PropertyPlanner` |
+| `SentinelAddin/GhostBuilder/PropertyPlanner.cs` (new) | 2 | `TypeValue`, `Clauses`, `PropertyRow`, `PropertyReport`, `PropertyPlanner` (with `WithoutWrites`, C4) |
 | `SentinelAddin/Coordination/ChangesetClient.cs` | 2 | The DTO's write fields, `ValueSourceDto`; `PreTick` |
 | `tools/promote-check/PropertyChecks.cs` (new), `Ma2cWiring.cs` (new), `TypeGapChecks.cs` (new), `Check.cs`, `promote-check.csproj` | 2, 3, 4 | Sections 33–36 |
 | `SentinelAddin/Coordination/FixInPlaceService.cs` | 3 | `OnType`, `WriteOnType` |
-| `SentinelAddin/GhostBuilder/ChangesetExecutor.cs`, `ChangesetPlacementEvent.cs`, `PromoteContext.cs`, `Commands.PromoteWalls.cs`, `UI/ChangesetReviewWindow.cs` | 3, 4 | The write, the IDS check's kinds, the clauses' read, the type reads and the dialog, the row's words; the type-gap post |
+| `SentinelAddin/GhostBuilder/ChangesetExecutor.cs`, `ChangesetPlacementEvent.cs`, `PromoteContext.cs`, `Commands.PromoteWalls.cs`, `Commands.ReviewChangesets.cs`, `UI/ChangesetReviewWindow.cs` | 3, 4 | The write, the IDS check's kinds, the clauses' read, the type reads and the dialog, the filing again without type edits (C4), the type edit's reach (C3) and the row's words; the type-gap post |
 | `SentinelAddin/GhostBuilder/TypeGaps.cs` (new), `Coordination/CommandReports.cs` | 4 | `TypeGapGroup`, `TypeGaps`; the `type_gap` row |
 | `WebApp/bridge/holding-logic.mjs`, `cde-store.mjs`, `bcf-service.mjs`; `holding-logic.test.mjs`, `cde-store-holding.test.mjs`, `write-roles.test.mjs` | 5 | `typeGapId`, `catalogMatch`, `typeGapGroups`; `typeGapRow`, `readHolding`, `dismissTypeGap`; the route |
 | `WebApp/src/setups/holding.ts`, `holding.test.ts`, `files-panel.ts` | 6 | The web's read, words and dismissal; the section |
@@ -145,7 +219,7 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
 - Test `WebApp/bridge/changesets-logic.test.mjs`, `changesets-typing.test.mjs`, `changesets-store.test.mjs`
 
 **Interfaces:**
-- Produces: `OPS` gains `"set_parameter"`, `OP_KINDS.set_parameter` = the six Promote kinds; `validateChangeset(body, { member, type, cite })` — `cite(kind, place, key, to, valueSource, at) → {kind, ref, sha256}` or a 400; an element's `parameter`, `revit_parameter`, `from`, `to`, `value_source`. `changesets-typing.mjs` exports `CATALOG_PARAM`, `KIND_ENTITY`, `clauseValues(ids, entity, key) → [{value, spec, sentence}]`, `makeCiter({catalog, ids}, core)`. `changesets-store.mjs` exports `needsCiting(body)`; `changeset_applied`'s new_value gains `values` when a set_parameter was applied.
+- Produces: `OPS` gains `"set_parameter"`, `OP_KINDS.set_parameter` = the six Promote kinds; `validateChangeset(body, { member, type, cite })` — `cite(kind, place, key, to, valueSource, at) → {kind, ref, sha256}` or a 400; an element's `parameter`, `revit_parameter`, `from`, `to`, `value_source`. `changesets-typing.mjs` exports `CATALOG_PARAM`, `KIND_ENTITY`, `KIND_PSET` (C1), `clauseValues(ids, entity, key) → [{value, spec, sentence}]` (a floor clause skipped: C7), `makeCiter({catalog, ids}, core)` (both sources read: C1). A set_parameter's stored `validate` is the bridge's (C2). `changesets-store.mjs` exports `needsCiting(body)`; `changeset_applied`'s new_value gains `values` when a set_parameter was applied.
 - Consumes: the bundle's `sameCategory` (`bridge/sentinel-core.mjs`), `KIND_CATEGORY` (`changesets-typing.mjs`).
 
 - [ ] **Step 1: The fixtures and the checks.**
@@ -179,7 +253,10 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
       { "name": "Roofs are recorded", "applicability": { "entity": "^IFC(ROOF|SLAB)$" },
         "requirements": { "attributes": [], "properties": [{ "pset": "Pset_RoofCommon", "name": "FireRating", "value": "REI30", "cardinality": "required" }, { "pset": "Pset_RoofCommon", "name": "FireRating", "value": "REI60", "cardinality": "required" }] } },
       { "name": "Slabs are REI90", "applicability": { "entity": "^IFC(ROOF|SLAB)$" },
-        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_SlabCommon", "name": "FireRating", "value": "REI90", "cardinality": "optional" }] } }
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_SlabCommon", "name": "FireRating", "value": "REI90", "cardinality": "optional" }] } },
+      { "name": "Ceilings at least REI30", "applicability": { "entity": "IFCCOVERING" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_CoveringCommon", "name": "FireRating", "value": "REI30", "cardinality": "required" }] },
+        "source_sentence": "All ceilings shall be at least REI30." }
     ]
   },
   "clauses": [
@@ -188,12 +265,13 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
     { "name": "a pattern is not a value", "entity": "IFCWINDOW", "key": "Pset_WindowCommon.ThermalTransmittance", "values": [] },
     { "name": "two values for one key are both read (the caller says they disagree)", "entity": "IFCROOF", "key": "Pset_RoofCommon.FireRating", "values": ["REI30", "REI60"], "spec": "Roofs are recorded", "sentence": null },
     { "name": "an optional property pins nothing", "entity": "IFCSLAB", "key": "Pset_SlabCommon.FireRating", "values": [] },
-    { "name": "another class's clause is not this one's", "entity": "IFCCOVERING", "key": "Pset_DoorCommon.FireRating", "values": [] }
+    { "name": "another class's clause is not this one's", "entity": "IFCCOVERING", "key": "Pset_DoorCommon.FireRating", "values": [] },
+    { "name": "a floor (at least …) is not a value (review amendment C7)", "entity": "IFCCOVERING", "key": "Pset_CoveringCommon.FireRating", "values": [] }
   ]
 }
 ```
 
-`Create` `WebApp/bridge/fixtures/changeset-ops/set-parameter-body.json` (the body Task 2's planner writes for its case — a Level 1 storey with a wall retyped to `BDS_EXT_ARC_CMU_200 mm`, a door swapped to `BDS_INT_1 PNL_WOOD_1000 x 2100 mm`, a settled `BDS_INT_ARC_GYPS_100 mm` wall and a settled `BDS_INT_2 PNL_WOOD_2000 x 2100 mm` door):
+`Create` `WebApp/bridge/fixtures/changeset-ops/set-parameter-body.json` (the body Task 2's planner writes for its case — a Level 1 storey with a wall retyped to `BDS_EXT_ARC_CMU_200 mm`, a door swapped to `BDS_INT_1 PNL_WOOD_1000 x 2100 mm`, a settled `BDS_INT_ARC_GYPS_100 mm` wall and a settled `BDS_INT_2 PNL_WOOD_2000 x 2100 mm` door; a set_parameter carries no `validate.psets` — the bridge builds them from `parameter` and `to`, C2; retypes first, as `ByWall` orders a chunk, C8):
 
 ```json
 {
@@ -259,18 +337,7 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
         "identity": {
           "Class": "IfcWall",
           "Name": "type BDS_EXT_ARC_CMU_200 mm"
-        },
-        "psets": [
-          {
-            "name": "Pset_WallCommon",
-            "rows": [
-              {
-                "name": "FireRating",
-                "value": "60 min"
-              }
-            ]
-          }
-        ]
+        }
       }
     },
     {
@@ -295,18 +362,7 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
         "identity": {
           "Class": "IfcDoor",
           "Name": "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm"
-        },
-        "psets": [
-          {
-            "name": "Pset_DoorCommon",
-            "rows": [
-              {
-                "name": "FireRating",
-                "value": "FD30"
-              }
-            ]
-          }
-        ]
+        }
       }
     }
   ],
@@ -415,6 +471,16 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     refused(() => makeCiter({ ...SRC, ids: NONE("ids") }, core)("door", DOOR, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "e"),
       /is a clause, and no ids@n is installed for this project or its office \(none — not installed for ma2a or its office\): not checkable$/);
   });
+
+  it("both sources are read whichever is cited: a catalogue and a clause that disagree are a 400 either way — the planner's 'disagree', at the bridge (review amendment C1)", () => {
+    const D2 = { FamilyName: "BDS_INT_2 PNL", TypeName: "BDS_INT_2 PNL_WOOD_2000 x 2100 mm" };
+    const both = '"FD60" \\(type_catalog@2 · office · fedcba987654… · BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm · Fire Rating\\) and "FD30" \\(ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · "All doors shall be FD30\\."\\) — a person decides$';
+    refused(() => cite("door", D2, "Pset_DoorCommon.FireRating", "FD60", { kind: "catalogue" }, "e"),
+      new RegExp("^e: set_parameter's value_source: the sources disagree on Pset_DoorCommon\\.FireRating for BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm: " + both));
+    refused(() => cite("door", D2, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "e"), new RegExp("the sources disagree on Pset_DoorCommon\\.FireRating for .*: " + both));
+    // A wall's catalogue cite is not met by the shared ids' floor or narrowed clauses: they pin nothing (C7, F2).
+    expect(cite("wall", WALL, "Pset_WallCommon.FireRating", "60 min", { kind: "catalogue" }, "e").kind).toBe("catalogue");
+  });
 });
 ```
 
@@ -503,7 +569,8 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
 
   it("a posted value_source.ref is not kept (the bridge writes the record) and is listed; a door's clause source cites its sentence", () => {
     const v = validateChangeset(CS([write({ value_source: { kind: "catalogue", ref: "trust me" } }),
-      write({ kind: "door", place: { FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" }, parameter: "Pset_DoorCommon.FireRating", to: "FD30", value_source: { kind: "clause" } })]), { cite });
+      write({ kind: "door", place: { FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" }, parameter: "Pset_DoorCommon.FireRating", to: "FD30", value_source: { kind: "clause" },
+        validate: { identity: { Class: "IfcDoor", Name: "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm" } } })]), { cite });
     expect(v.ignored).toEqual([{ field: "elements[0].value_source.ref", why: "ignored: not a field this bridge keeps" }]);
     expect(v.elements[1].value_source.ref).toBe('ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · "All doors shall be FD30."');
   });
@@ -512,10 +579,12 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
     status400(() => validateChangeset(CS([write({ place: {} })]), { cite }), /^elements\[0\]: set_parameter needs place\.TypeName — the type whose parameter it writes$/);
     status400(() => validateChangeset(CS([write({ kind: "door", place: { TypeName: "T" } })]), { cite }), /a door set_parameter needs place\.FamilyName/);
     status400(() => validateChangeset(CS([write({ parameter: "FireRating" })]), { cite }), /set_parameter needs parameter, a "Pset_Name\.Property" key/);
+    status400(() => validateChangeset(CS([write({ parameter: "Pset_DoorCommon.FireRating" })]), { cite }), /^elements\[0\]: a wall set_parameter writes Pset_WallCommon, not Pset_DoorCommon\.FireRating$/); // C1
     status400(() => validateChangeset(CS([write({ from: undefined })]), { cite }), /set_parameter needs from — the value the plan read, "" when empty \(the stale guard compares it\)/);
     status400(() => validateChangeset(CS([write({ to: " " })]), { cite }), /set_parameter needs to — one line of at most 500 characters/);
     status400(() => validateChangeset(CS([write({ to: "60\nmin" })]), { cite }), /set_parameter needs to/);
-    status400(() => validateChangeset(CS([write({ from: "60 min" })]), { cite }), /set_parameter's to is its from — nothing to write/);
+    // C1: a filled value is a person's, whatever the source says — the bridge refuses it, not only the add-in's planner.
+    status400(() => validateChangeset(CS([write({ from: "30 min" })]), { cite }), /^elements\[0\]: set_parameter fills an empty value only — a filled one is a person's \(P2-7 edits it\)$/);
     status400(() => validateChangeset(CS([write({ value_source: { kind: "person" } })]), { cite }),
       /set_parameter needs value_source \{kind: catalogue \| clause\} — a value is written from a cited source, never a guess; a person types their own in Revit/);
     status400(() => validateChangeset(CS([write()])), /the bridge read no standards to check this value_source — nothing is written unchecked/);
@@ -523,6 +592,18 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
     status400(() => validateChangeset(CS([write({ target: { unique_id: TYPE_UID, type_before: "X" } })]), { cite }), /set_parameter takes no target\.type_before — its stale guard is from/);
     status400(() => validateChangeset(CS([write({ facts: { thickness_mm: 200 } })]), { cite }), /set_parameter takes no facts — nothing is typed/);
     status400(() => validateChangeset(CS([write({ place: { TypeName: "BDS_EXT_ARC_CMU_200 mm", Mark: "W1" } })]), { cite }), /set_parameter takes no place\.Mark — only a create sets it/);
+  });
+
+  it("the referee judges the value written: the bridge builds a set_parameter's validate from its kind, parameter and to; a posted pset, quantity or other class is listed, never judged (review amendment C2)", () => {
+    const v = validateChangeset(CS([write({ validate: { identity: { Class: "IfcBuildingElementProxy", Name: "type X" },
+      psets: [{ name: "Pset_WallCommon", rows: [{ name: "FireRating", value: "REI120" }] }], quantities: [] } })]), { cite });
+    expect(v.elements[0].validate).toMatchObject({ identity: { Class: "IFCWALL", Name: "type X" },
+      psets: [{ name: "Pset_WallCommon", rows: [{ name: "FireRating", value: "60 min" }] }], quantities: [] });
+    expect(v.ignored).toEqual([
+      { field: "elements[0].validate.psets", why: "ignored: set by the bridge from parameter and to" },
+      { field: "elements[0].validate.quantities", why: "ignored: set by the bridge from parameter and to" },
+      { field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" }]);
+    expect(validateChangeset(CS([write()]), { cite }).elements[0].validate.identity.Class).toBe("IfcWall"); // the kind's class, as the add-in posts it, is kept
   });
 
   it("one set_parameter per type and parameter; another op carrying a set_parameter's fields is refused, never dropped", () => {
@@ -542,10 +623,13 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
       if (sent.op === "set_parameter") {
         expect(el).toMatchObject({ parameter: sent.parameter, revit_parameter: sent.revit_parameter, from: sent.from, to: sent.to, pretick: false });
         expect(el.value_source.kind).toBe(sent.value_source.kind);
-        expect(el.validate.psets).toEqual(sent.validate.psets);
+        const [pset, prop] = sent.parameter.split("."); // C2: the bridge's own validate, from parameter and to
+        expect(el.validate.psets).toEqual([{ name: pset, rows: [{ name: prop, value: sent.to }] }]);
       }
     });
+    // C8: retypes first within a chunk (ByWall), the type edits after — the executor runs them after the attach loop either way.
     expect(body.elements.map((e) => e.op)).toEqual(["retype", "retype", "set_parameter", "set_parameter"]);
+    expect(v.ignored).toEqual([]); // the add-in sends nothing the bridge sets itself
     expect(v.exceptions).toEqual(body.exceptions);
   });
 });
@@ -613,15 +697,18 @@ describe("proposeChangeset — set_parameter's source, checked by the bridge (MA
     expect(deps.adjudicateProposal).not.toHaveBeenCalled();
   });
 
-  it("the changeset_applied row carries each value written — its type, parameter, from, to and source; a set_parameter left unticked is not on it", async () => {
+  it("the changeset_applied row carries each value written — its kind, type, UniqueIds, parameter, from, to and source; a set_parameter left unticked is not on it", async () => {
     const deps = baseDeps({ resolveArtefact: resolving({ type_catalog: VS.catalog, ids: VS.ids }) });
     const door = write({ kind: "door", target: { unique_id: "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a03" }, place: { FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" },
       parameter: "Pset_DoorCommon.FireRating", to: "FD30", value_source: { kind: "clause" } });
     const cs = await proposeChangeset("ma2c", { name: "t", source: "promote", elements: [write(), door] }, "agent", deps);
     const [w, d] = cs.elements;
-    await reportResult("ma2c", cs.id, { applied: [{ proposal_guid: w.proposal_guid, revit_element_id: 401 }], rejected: [d.proposal_guid] }, "revit", deps);
+    const TYPE_UID = "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a01";
+    await reportResult("ma2c", cs.id, { applied: [{ proposal_guid: w.proposal_guid, revit_element_id: 401, revit_unique_id: TYPE_UID }], rejected: [d.proposal_guid] }, "revit", deps);
     const row = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied");
-    expect(row[6].values).toEqual([{ proposal_guid: w.proposal_guid, type: "BDS_EXT_ARC_CMU_200 mm", parameter: "Pset_WallCommon.FireRating", from: "", to: "60 min", value_source: w.value_source }]);
+    // C9: the type named exactly — its kind, the UniqueId the plan named and the one Revit reported (one name can be a wall's and a ceiling's).
+    expect(row[6].values).toEqual([{ proposal_guid: w.proposal_guid, kind: "wall", type: "BDS_EXT_ARC_CMU_200 mm", unique_id: TYPE_UID, revit_unique_id: TYPE_UID,
+      parameter: "Pset_WallCommon.FireRating", from: "", to: "60 min", value_source: w.value_source }]);
     const plain = await proposeChangeset("demo", BODY, "agent", deps);
     await reportResult("demo", plain.id, { applied: plain.elements.map((e, i) => ({ proposal_guid: e.proposal_guid, revit_element_id: 10 + i })), rejected: [] }, "revit", deps);
     expect(deps.audit.mock.calls.filter((c) => c[3] === "changeset_applied").at(-1)[6]).not.toHaveProperty("values");
@@ -670,17 +757,24 @@ export const CATALOG_PARAM = { "Pset_WallCommon.FireRating": "Fire Rating", "Pse
 /** The IFC entity each Promote kind is adjudicated as (PromoteWallsPlanner.Classes' Ifc, as an IDS writes it): what a clause's
  *  applicability must match. */
 export const KIND_ENTITY = { wall: "IFCWALL", floor: "IFCSLAB", roof: "IFCROOF", ceiling: "IFCCOVERING", door: "IFCDOOR", window: "IFCWINDOW" };
+/** Review amendment C1: the property set a set_parameter of each kind writes — the class's own common set. The catalogue's "Fire
+ *  Rating" of a wall is no door's: a key of another class's set is refused (checkWrite). */
+export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", roof: "Pset_RoofCommon", ceiling: "Pset_CoveringCommon", door: "Pset_DoorCommon", window: "Pset_WindowCommon" };
+/** Review amendment C7 (S8): a clause whose sentence says one of these pins a floor, not a value ("shall be at least 60 minutes":
+ *  compileIds writes value "60 minutes" from it) — never written. The add-in's Clauses.FloorWords is the same pattern. */
+export const FLOOR_WORDS = /\b(at least|no less than|not less than|minimum|or more|or better)\b/i;
 
 /** The values an installed ids@n pins for `key` ("Pset_X.Prop") on EVERY element of `entity`: a cited clause is a specification
  *  whose applicability is its entity alone (another facet narrows it to some elements) and whose required property carries one
- *  exact value (a pattern is not a value). [{value, spec, sentence}] in the IDS's order; two values are both returned — the
- *  caller says they disagree. */
+ *  exact value (a pattern is not a value; a floor is not one either: C7). [{value, spec, sentence}] in the IDS's order; two values
+ *  are both returned — the caller says they disagree. */
 export function clauseValues(ids, entity, key) {
   const [pset, prop] = String(key).split(".");
   const out = [];
   for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
     const a = s?.applicability;
     if (!a || typeof a !== "object" || typeof a.entity !== "string" || Object.keys(a).some((k) => k !== "entity")) continue;
+    if (typeof s.source_sentence === "string" && FLOOR_WORDS.test(s.source_sentence)) continue; // C7: a minimum, not a value
     let re;
     try { re = new RegExp(a.entity, "i"); } catch { continue; }
     if (!re.test(entity)) continue;
@@ -693,35 +787,55 @@ export function clauseValues(ids, entity, key) {
 
 /** The check validateChangeset runs on a set_parameter's value_source. `standards` = {catalog, ids}, each {body (null = none
  *  installed, or one that did not parse), label, sha256} as the typer's; `core` = the bundle (sameCategory). Returns (kind, place,
- *  key, to, valueSource, at) → the bridge's own record {kind, ref, sha256}, or throws a 400 that says what does not hold. */
+ *  key, to, valueSource, at) → the bridge's own record {kind, ref, sha256}, or throws a 400 that says what does not hold.
+ *  Review amendment C1: BOTH sources are read whichever is cited — a catalogue row and a clause that hold different values are a
+ *  400 "the sources disagree", as the add-in's PropertyPlanner sends them to a person: the bridge holds the rule, not the caller. */
 export function makeCiter({ catalog: c, ids: s }, core) {
   const norm = (v) => String(v ?? "").trim().toLowerCase();
+  const refOf = (h) => `${s.label} · ${h.spec}` + (h.sentence ? ` · "${h.sentence}"` : "");
   return (kind, place, key, to, vs, at) => {
     const lead = `${at}: set_parameter's value_source`;
     const want = to.trim();
     const label = place.FamilyName ? `${place.FamilyName} : ${place.TypeName}` : place.TypeName;
+    // What each source holds for this type and key, read before either is judged.
+    const name = CATALOG_PARAM[key];
+    const cat = KIND_CATEGORY[kind];
+    const rows = c.body && name ? c.body.types.filter((r) => core.sameCategory(r, cat) && norm(r.type) === norm(place.TypeName)
+      && (!place.FamilyName || norm(r.family) === norm(place.FamilyName))) : [];
+    const fromCatalog = rows.length === 1 && typeof rows[0].params?.[name] === "string" ? rows[0].params[name].trim() : "";
+    const catalogRef = `${c.label} · ${label} · ${name}`;
+    const hits = s.body ? clauseValues(s.body, KIND_ENTITY[kind], key) : [];
+    const disagree = (a, h) => err(400, `${lead}: the sources disagree on ${key} for ${label}: "${a}" (${catalogRef}) and "${h.value}" (${refOf(h)}) — a person decides`);
     if (vs.kind === "catalogue") {
       if (!c.body) throw err(400, `${lead} is the catalogue, and no type catalogue is installed for this project or its office (${c.label}): not checkable`);
-      const name = CATALOG_PARAM[key];
       if (!name) throw err(400, `${lead} is the catalogue, and the catalogue harvests no parameter for ${key} — a person fills it`);
-      const cat = KIND_CATEGORY[kind];
-      const rows = c.body.types.filter((r) => core.sameCategory(r, cat) && norm(r.type) === norm(place.TypeName)
-        && (!place.FamilyName || norm(r.family) === norm(place.FamilyName)));
       if (rows.length !== 1) throw err(400, `${lead}: ${c.label} has ${rows.length ? `${rows.length} rows` : "no row"} for ${cat} ${label} — one row is one source`);
-      const got = typeof rows[0].params?.[name] === "string" ? rows[0].params[name].trim() : "";
-      if (got !== want) throw err(400, `${lead}: ${c.label} gives ${label} ${name} "${got}", not "${want}" — a value is written only as its source holds it`);
-      return { kind: "catalogue", ref: `${c.label} · ${label} · ${name}`, sha256: c.sha256 ?? null };
+      if (fromCatalog !== want) throw err(400, `${lead}: ${c.label} gives ${label} ${name} "${fromCatalog}", not "${want}" — a value is written only as its source holds it`);
+      const other = hits.find((h) => h.value !== want);
+      if (other) throw disagree(want, other);
+      return { kind: "catalogue", ref: catalogRef, sha256: c.sha256 ?? null };
     }
     if (!s.body) throw err(400, `${lead} is a clause, and no ids@n is installed for this project or its office (${s.label}): not checkable`);
-    const hits = clauseValues(s.body, KIND_ENTITY[kind], key);
     const values = [...new Set(hits.map((h) => h.value))];
     if (values.length === 0) throw err(400, `${lead}: no clause of ${s.label} pins one value of ${key} for every ${KIND_ENTITY[kind]}`);
     if (values.length > 1) throw err(400, `${lead}: the clauses of ${s.label} pin ${values.map((v) => `"${v}"`).join(" and ")} for ${key} — they disagree; a person decides`);
     if (values[0] !== want) throw err(400, `${lead}: ${s.label} pins "${values[0]}" for ${key}, not "${want}" — a value is written only as its source holds it`);
-    const h = hits[0];
-    return { kind: "clause", ref: `${s.label} · ${h.spec}` + (h.sentence ? ` · "${h.sentence}"` : ""), sha256: s.sha256 ?? null };
+    if (fromCatalog && fromCatalog !== want) throw disagree(fromCatalog, hits[0]);
+    return { kind: "clause", ref: refOf(hits[0]), sha256: s.sha256 ?? null };
   };
 }
+```
+
+In `WebApp/bridge/changesets-logic.mjs`, replace
+
+```js
+import { checkFacts } from "./changesets-typing.mjs";
+```
+
+with
+
+```js
+import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 ```
 
 In `WebApp/bridge/changesets-logic.mjs`, replace
@@ -788,12 +902,16 @@ function checkWrite(el, place, at, cite) {
   if ((el.kind === "door" || el.kind === "window") && !text(place.FamilyName, 256))
     throw err(400, `${at}: a ${el.kind} set_parameter needs place.FamilyName — a type name alone is not one type`);
   if (typeof el.parameter !== "string" || !PSET_KEY.test(el.parameter)) throw err(400, `${at}: set_parameter needs parameter, a "Pset_Name.Property" key`);
+  // Review amendment C1: the kind's own property set only — a wall's catalogue "Fire Rating" is no door's.
+  if (!el.parameter.startsWith(`${KIND_PSET[el.kind]}.`)) throw err(400, `${at}: a ${el.kind} set_parameter writes ${KIND_PSET[el.kind]}, not ${el.parameter}`);
   if (el.revit_parameter != null && (!text(el.revit_parameter, 256) || CONTROL_CHAR.test(el.revit_parameter)))
     throw err(400, `${at}: revit_parameter must be one line of at most 256 characters`);
   if (typeof el.from !== "string" || el.from.length > 500 || CONTROL_CHAR.test(el.from))
     throw err(400, `${at}: set_parameter needs from — the value the plan read, "" when empty (the stale guard compares it)`);
+  // Review amendment C1: a set_parameter fills an EMPTY value only, whatever its source holds — the bridge's rule, not the planner's
+  // alone (an agent's post through the MCP tool meets it too). The executor refuses a type that reads filled now, too.
+  if (el.from.trim() !== "") throw err(400, `${at}: set_parameter fills an empty value only — a filled one is a person's (P2-7 edits it)`);
   if (!text(el.to, 500) || CONTROL_CHAR.test(el.to)) throw err(400, `${at}: set_parameter needs to — one line of at most 500 characters`);
-  if (el.to.trim() === el.from.trim()) throw err(400, `${at}: set_parameter's to is its from — nothing to write`);
   const vs = el.value_source;
   if (!vs || typeof vs !== "object" || Array.isArray(vs) || !VALUE_SOURCES.includes(vs.kind))
     throw err(400, `${at}: set_parameter needs value_source {kind: ${VALUE_SOURCES.join(" | ")}} — a value is written from a cited source, never a guess; a person types their own in Revit`);
@@ -893,6 +1011,11 @@ with
 In `WebApp/bridge/changesets-logic.mjs`, replace
 
 ```js
+    if (!identity.GlobalId) identity.GlobalId = proposal_guid;
+    return {
+      proposal_guid,
+      kind: el.kind,
+      op, target, reason: el.reason ?? null,
       validate: { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       place,
 ```
@@ -900,7 +1023,20 @@ In `WebApp/bridge/changesets-logic.mjs`, replace
 with
 
 ```js
-      validate: { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
+    if (!identity.GlobalId) identity.GlobalId = proposal_guid;
+    // Review amendment C2 (MA-2c): a set_parameter's validate is the bridge's — the class from its kind, one pset row from parameter
+    // and to — so the referee judges the value Revit will write; a posted psets, quantities or other class is listed, never judged.
+    if (written) {
+      for (const f of ["psets", "quantities"]) if (validate[f] !== undefined) note(`${at}.validate.${f}`, "ignored: set by the bridge from parameter and to");
+      if (String(identity.Class).toUpperCase() !== KIND_ENTITY[el.kind]) { note(`${at}.validate.identity.Class`, "ignored: set by the bridge from kind"); identity.Class = KIND_ENTITY[el.kind]; }
+    }
+    const [pset, prop] = written ? written.parameter.split(".") : [];
+    return {
+      proposal_guid,
+      kind: el.kind,
+      op, target, reason: el.reason ?? null,
+      validate: written ? { identity, psets: [{ name: pset, rows: [{ name: prop, value: written.to }] }], quantities: [] }
+        : { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       place,
       ...(written ?? {}), // MA-2c: a set_parameter's parameter, from, to and the bridge's value_source
 ```
@@ -1004,9 +1140,12 @@ with
 ```js
   // MA-2c ([BP] P2-7's param:apply, built once): each value written — its type, parameter, from, to and the bridge's record of its
   // source — rides on the changeset_applied row.
-  const done = new Set(appliedArr.map((a) => a.proposal_guid));
+  // Review amendment C9: each entry names the type exactly — its kind, the UniqueId the plan named and the one Revit reported (one
+  // name can be both a wall type and a ceiling type: BDS_INT_ARC_GYPS_50 mm).
+  const done = new Map(updated.result.applied.map((a) => [a.proposal_guid, a]));
   const values = cs.elements.filter((e) => e.op === "set_parameter" && done.has(e.proposal_guid)).map((e) => ({
-    proposal_guid: e.proposal_guid, type: e.place?.FamilyName ? `${e.place.FamilyName} : ${e.place.TypeName}` : e.place?.TypeName ?? null,
+    proposal_guid: e.proposal_guid, kind: e.kind, type: e.place?.FamilyName ? `${e.place.FamilyName} : ${e.place.TypeName}` : e.place?.TypeName ?? null,
+    unique_id: e.target?.unique_id ?? null, revit_unique_id: done.get(e.proposal_guid).revit_unique_id ?? null,
     parameter: e.parameter, from: e.from, to: e.to, value_source: e.value_source ?? null,
   }));
   await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
@@ -1023,12 +1162,12 @@ attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two differe
 with
 
 ```js
-attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two different level names); one of each per element. set_parameter writes one value on an existing TYPE named by target:{unique_id} with place.TypeName (and a door's or window's place.FamilyName): parameter \"Pset_Name.Property\", revit_parameter?, from (the value read on the type, \"\" when empty — Revit refuses the write when the type no longer reads it), to, and value_source {kind: catalogue | clause}; the bridge checks the value against the installed type catalogue's row of exactly that type, or the one value the installed ids@n's whole-class clauses pin, and refuses anything else (a person types their own value in Revit); one per type and parameter, never pre-ticked.
+attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two different level names); one of each per element. set_parameter writes one value on an existing TYPE named by target:{unique_id} with place.TypeName (and a door's or window's place.FamilyName): parameter \"Pset_Name.Property\" (the kind's own common set), revit_parameter?, from (the value read on the type: \"\" — set_parameter fills an empty value only, and Revit refuses the write when the type reads anything else), to, and value_source {kind: catalogue | clause}; the bridge checks the value against the installed type catalogue's row of exactly that type, or the one value the installed ids@n's whole-class clauses pin (a clause that sets a minimum pins none), refuses it when the other source disagrees, and refuses anything else (a person types their own value in Revit); it builds the element's validate itself from kind, parameter and to; one per type and parameter, never pre-ticked.
 ```
 
 (The MCP tool's description is one string: the text to find sits inside it, so the replacement stays inside it.)
 
-- [ ] **Step 4: Run them, and see them pass.** The same command — `Test Files  3 passed (3)`, `Tests  141 passed (141)`.
+- [ ] **Step 4: Run them, and see them pass.** The same command — `Test Files  3 passed (3)`, `Tests  143 passed (143)` **(C-count)**: the planner's 141, plus C1's disagreement test and C2's validate test.
 
 - [ ] **Step 5: Commit.**
 
@@ -1053,7 +1192,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `fixtures/changeset-ops/value-sources.json` and `set-parameter-body.json` (Task 1).
-- Produces: `GuidelineMatcher.CatalogValue(string category, string family, string type, string param) → string` (null = none); `TypeValue {Category, Family, Type, UniqueId, Key, Current, Param, NoWriter, Instances, Label}`; `Clauses.None(label)`, `Clauses.FromIds(json, label, out error)`, `Clauses.For(entity, key) → List<(Value, Spec, Sentence)>`, `Clauses.Label`, `Clauses.Installed`; `PropertyPlanner.CatalogParam`, `PropertyPlanner.Entity(category)`, `PropertyPlanner.DdTypes(plans, mx) → List<(Category, Family, Type)>`, `PropertyPlanner.Plan(plans, mx, values, m, clauses) → PropertyReport` (`Rows`, `Written`, `NoSource`, `NoSourceElements`, `Other`, `Line`, `Lines()`); `PromoteGhost.Parameter / RevitParameter / From / To / SourceKind`; `StoreyPlan.Settled`, `StoreyPlan.ToPerson`; `ChangesetElementDto.Parameter / RevitParameter / From / To / ValueSource`.
+- Produces: `GuidelineMatcher.CatalogValue(string category, string family, string type, string param) → string` (null = none); `TypeValue {Category, Family, Type, UniqueId, Key, Current, Param, NoWriter, Instances, Label}`; `Clauses.None(label)`, `Clauses.FromIds(json, label, out error)`, `Clauses.For(entity, key) → List<(Value, Spec, Sentence)>`, `Clauses.Floors(entity, key)` (C7), `Clauses.FloorWords`, `Clauses.Label`, `Clauses.Installed`; `PropertyPlanner.CatalogParam`, `PropertyPlanner.Entity(category)`, `PropertyPlanner.DdTypes(plans, mx) → List<(Category, Family, Type)>`, `PropertyPlanner.Plan(plans, mx, values, m, clauses) → PropertyReport` (`Rows`, `Written`, `NoSource`, `NoSourceElements`, `Other`, `NotOnType` (C11), `Line`, `Lines()`); `PropertyPlanner.WithoutWrites(object body, string why, out int removed) → object` (C4); `PromoteGhost.Parameter / RevitParameter / From / To / SourceKind`; `StoreyPlan.Settled`, `StoreyPlan.ToPerson`; `ChangesetElementDto.Parameter / RevitParameter / From / To / ValueSource`.
 
 - [ ] **Step 1: The checks (sections 33 and 34).**
 
@@ -1095,8 +1234,9 @@ static partial class Check
             if (ok) same++;
             else Console.WriteLine($"        {(string)c["name"]}: got [{string.Join(", ", got.Select(x => x.Value))}]");
         }
-        Ok(err == null && cl.Installed && cases.Count == 6 && same == cases.Count,
-           $"every shared clause case ({same}/{cases.Count}) reads as the bridge's clauseValues: a whole-class clause's one exact value, nothing else");
+        Ok(err == null && cl.Installed && cases.Count == 7 && same == cases.Count
+           && cl.Floors("IFCCOVERING", "Pset_CoveringCommon.FireRating").Select(x => x.Spec).SequenceEqual(new[] { "Ceilings at least REI30" }),
+           $"every shared clause case ({same}/{cases.Count}) reads as the bridge's clauseValues: a whole-class clause's one exact value, nothing else — a floor (\"at least …\") is kept apart, never a value (C7)");
         var bad = Clauses.FromIds("{", "ids@1 · project · 0a1b2c3d4e5f…", out var be);
         Ok(be != null && bad.For("IFCDOOR", "Pset_DoorCommon.FireRating").Count == 0 && bad.Label.StartsWith("ids@1 · project · 0a1b2c3d4e5f… did not parse: "),
            "an ids@n body that does not parse cites nothing, and says so");
@@ -1168,20 +1308,38 @@ static partial class Check
            && p.ToPerson[0].Reason == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and no clause of ids@1 · project · 0a1b2c3d4e5f… pins one; a person fills it in Revit (Type Properties) — 1 element(s) on it"
            && p.ToPerson[1].Reason.StartsWith("the sources disagree on Pset_DoorCommon.FireRating for BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm: \"FD60\" (type_catalog@1"),
            "each property sent to a person names the type, the property and why");
-        Ok(rep.Line == "DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 1 with no source — sent to a person (1 element(s) on those types) · 1 sent to a person for another reason"
-           && rep.Lines()[2] == "✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → \"60 min\" (type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating)",
-           "Promote's header line counts what is written and what has no source (drill MA2 records it)");
+        // C11: the matrix's Pset_WallCommon.IsExternal is held off the type on each DD wall type (no TypeValue: Revit reads it from the
+        // Function) — counted, never silent. C3: each ✎ line says how many elements read the type (the planner's own count).
+        Ok(rep.Line == "DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 1 with no source — sent to a person (1 element(s) on those types) · 1 sent to a person for another reason · 2 held off the type (instance, IsExternal from Function, or not read) — not planned"
+           && rep.NotOnType == 2
+           && rep.Lines()[2] == "✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → \"60 min\" (type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating) — 1 element(s) read the type",
+           "Promote's header line counts what is written, what has no source and what is not on the type (drill MA2 records it); each type edit says its reach");
 
-        // Nothing written over a filled value, nothing for a property the type does not hold, nothing a writer cannot write.
+        // Nothing written over a filled value — one its source contradicts goes to a person (C11) —, a property the type does not hold
+        // is counted, not touched, and nothing a writer cannot write.
         var filled = PropertyPlanner.Plan(V1(m, others, walls), mx, values.Select(v => v.Type == "BDS_EXT_ARC_CMU_200 mm" ? TV("Walls", null, v.Type, 0xa01, 0, "120 min") : v).ToList(), m, clauses);
         var notHeld = PropertyPlanner.Plan(V1(m, others, walls), mx, values.Where(v => v.Type != "BDS_EXT_ARC_CMU_200 mm").ToList(), m, clauses);
         var noWriter = V1(m, others, walls);
         var nw = PropertyPlanner.Plan(noWriter, mx, values.Select(v => v.Type == "BDS_EXT_ARC_CMU_200 mm" ? TV("Walls", null, v.Type, 0xa01, 0, "", "Fire Rating is read-only on the type") : v).ToList(), m, clauses);
-        Ok(filled.Rows.All(r => r.Label != "BDS_EXT_ARC_CMU_200 mm") && notHeld.Rows.All(r => r.Label != "BDS_EXT_ARC_CMU_200 mm")
+        var differs = filled.Rows.SingleOrDefault(r => r.Label == "BDS_EXT_ARC_CMU_200 mm");
+        Ok(differs?.Outcome == "differs" && filled.Written == 1
+           && differs.Why == "Pset_WallCommon.FireRating on BDS_EXT_ARC_CMU_200 mm reads \"120 min\", type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating gives \"60 min\" — not overwritten; a person decides"
+           && filled.Line.Contains(" · 2 sent to a person for another reason")
+           && notHeld.Rows.All(r => r.Label != "BDS_EXT_ARC_CMU_200 mm") && notHeld.NotOnType == 3
            && nw.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "no writer"
            && noWriter.Single().Ghosts.All(g => g.TypeName != "BDS_EXT_ARC_CMU_200 mm" || g.Op == "retype")
            && noWriter.Single().ToPerson.Any(h => h.Reason.EndsWith("but Fire Rating is read-only on the type — a person sets it in Revit")),
-           "a filled value is left as it is; a property the type does not hold is not touched; one Revit cannot write goes to a person with the value and why");
+           "a filled value is never overwritten — one its source contradicts goes to a person, said; a property the type does not hold is counted, not touched; one Revit cannot write goes to a person with the value and why (C11)");
+
+        // C7 (S8): a clause that sets a minimum is not a value — a wall floor clause of its own (the shared ids keep the wall cases' words).
+        var floorIds = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls at least REI60\",\"applicability\":{\"entity\":\"IFCWALL\"}," +
+            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_WallCommon\",\"name\":\"FireRating\",\"value\":\"REI60\",\"cardinality\":\"required\"}]}," +
+            "\"source_sentence\":\"All walls shall be at least REI60.\"}]}", "ids@2 · project · 1a2b3c4d5e6f…", out _);
+        var fl = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, floorIds);
+        Ok(floorIds.For("IFCWALL", "Pset_WallCommon.FireRating").Count == 0
+           && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 sets a minimum (\"All walls shall be at least REI60.\"), not a value; a person fills it in Revit (Type Properties) — 1 element(s) on it"
+           && fl.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "write",
+           "a clause that sets a minimum (\"at least …\") is never written, and the person is told so; the catalogue still gives its own type's value (C7)");
         var none = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, Clauses.None("none — not installed for ma2c or its office"));
         Ok(none.Rows.Single(r => r.Label == "BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm").Why.Contains("and no ids@n is installed to cite (none — not installed for ma2c or its office)"),
            "with no ids@n installed, a property with no catalogue value says there is no clause to cite");
@@ -1201,6 +1359,27 @@ static partial class Check
            "a set_parameter reads into ChangesetElementDto (Parameter, From, To, ValueSource); the properties sent to a person into the exceptions");
         if (sp != null) sp.Pretick = true;
         Ok(sp != null && !ChangesetTrust.PreTick(cs, sp), "a set_parameter is never pre-ticked, whatever a bridge answers (founder decision F1)");
+
+        // C8: a type edit rides first in its storey's ghosts, so a storey of several chunks files it in the first.
+        var chunkPlans = V1(m, others, walls);
+        PropertyPlanner.Plan(chunkPlans, mx, values, m, clauses);
+        var chunks = Json(PromoteWallsPlanner.Bodies(chunkPlans, "yazan", max: 3, title: "Promote (DD)"));
+        Ok(chunks.Count == 2 && chunks[0]["elements"].AsArray().Count(e => (string)e["op"] == "set_parameter") == 2
+           && chunks[1]["elements"].AsArray().All(e => (string)e["op"] == "retype"),
+           "a storey filed in several changesets carries its type edits in the first (C8)");
+
+        // C4: a body the bridge refused for a set_parameter's source is filed again without its type edits — each an exception that
+        // says why; a body of type edits only is not filed again.
+        var again = PropertyPlanner.WithoutWrites(PromoteWallsPlanner.Bodies(plans, "yazan", title: "Promote (DD)")[0],
+            "Bridge 400: elements[2]: set_parameter's value_source: the sources disagree", out var dropped);
+        var an = again == null ? null : JsonSerializer.SerializeToNode(again, ChangesetClient.WriteJson);
+        Ok(dropped == 2 && an != null && an["elements"].AsArray().Count == 2 && an["elements"].AsArray().All(e => (string)e["op"] == "retype")
+           && an["exceptions"].AsArray().Count == 4
+           && (string)an["exceptions"][2]["unique_id"] == U(0xa01) && (string)an["exceptions"][2]["name"] == "type BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating"
+           && (string)an["exceptions"][2]["reason"] == "not filed: the bridge refused its source — Bridge 400: elements[2]: set_parameter's value_source: the sources disagree; a person fills it in Revit (Type Properties)"
+           && (string)an["exceptions"][3]["name"] == "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm · Pset_DoorCommon.FireRating"
+           && PropertyPlanner.WithoutWrites(new { elements = new[] { new { op = "set_parameter" } } }, "x", out var none2) == null && none2 == 1,
+           "a body refused for a set_parameter is filed again without its type edits, each an exception that says why; one of type edits only is not (C4)");
     }
 }
 ```
@@ -1257,6 +1436,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Sentinel.GhostBuilder
@@ -1280,7 +1460,11 @@ namespace Sentinel.GhostBuilder
     /// value). The bridge's clauseValues reads them the same way.</summary>
     public sealed class Clauses
     {
-        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence; }
+        /// <summary>Review amendment C7 (S8): a clause whose sentence says one of these pins a floor, not a value ("shall be at least 60
+        /// minutes" — compileIds writes value "60 minutes" from it): never written. The bridge's FLOOR_WORDS is the same pattern.</summary>
+        public static readonly Regex FloorWords = new Regex(@"\b(at least|no less than|not less than|minimum|or more|or better)\b", RegexOptions.IgnoreCase);
+
+        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence; public bool Floor; }
         private readonly List<Row> _rows = new List<Row>();
         /// <summary>The ids@n's label ("ids@1 · project · 0a1b2c3d4e5f…"), or why there is none.</summary>
         public string Label;
@@ -1311,7 +1495,9 @@ namespace Sentinel.GhostBuilder
                             if (p.TryGetProperty("pattern", out var pt) && pt.ValueKind != JsonValueKind.Null) continue;
                             var value = Str(p, "value")?.Trim();
                             if (string.IsNullOrEmpty(value) || Str(p, "pset") == null || Str(p, "name") == null) continue;
-                            c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Value = value, Spec = Str(s, "name") ?? "", Sentence = Str(s, "source_sentence") });
+                            var sentence = Str(s, "source_sentence");
+                            c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Value = value, Spec = Str(s, "name") ?? "", Sentence = sentence,
+                                                  Floor = sentence != null && FloorWords.IsMatch(sentence) });
                         }
                     }
                 }
@@ -1321,13 +1507,19 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>The values the clauses pin for <paramref name="key"/> ("Pset_X.Prop") on every <paramref name="entity"/>
-        /// ("IFCDOOR"), in the IDS's order; two values are both returned — the caller says they disagree.</summary>
-        public List<(string Value, string Spec, string Sentence)> For(string entity, string key)
+        /// ("IFCDOOR"), in the IDS's order; two values are both returned — the caller says they disagree. A floor is not one (C7).</summary>
+        public List<(string Value, string Spec, string Sentence)> For(string entity, string key) => Hits(entity, key, false);
+
+        /// <summary>Review amendment C7: the clauses that set a MINIMUM for the key on every entity — never a value; the planner names
+        /// them to the person.</summary>
+        public List<(string Value, string Spec, string Sentence)> Floors(string entity, string key) => Hits(entity, key, true);
+
+        private List<(string Value, string Spec, string Sentence)> Hits(string entity, string key, bool floor)
         {
             int dot = (key ?? "").IndexOf('.');
             string pset = dot < 0 ? key : key.Substring(0, dot), prop = dot < 0 ? "" : key.Substring(dot + 1);
             var hits = new List<(string Value, string Spec, string Sentence)>();
-            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop))
+            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop && x.Floor == floor))
             {
                 bool match;
                 try { match = Regex.IsMatch(entity ?? "", r.Entity, RegexOptions.IgnoreCase); }
@@ -1341,7 +1533,8 @@ namespace Sentinel.GhostBuilder
     }
 
     /// <summary>One DD type × property PropertyPlanner judged: "write" (a set_parameter ghost, Value from Ref), or sent to a person —
-    /// "no source", "disagree", "no writer" — with Why. Elements = on the type in the model now plus those the plans retype onto it.</summary>
+    /// "no source", "disagree", "no writer", "differs" (filled, and a source says otherwise: C11) — with Why. Elements = on the type
+    /// in the model now plus those the plans retype onto it.</summary>
     public sealed class PropertyRow
     {
         public string Category, Label, Key, UniqueId, Outcome, Value, Ref, Why;
@@ -1356,16 +1549,21 @@ namespace Sentinel.GhostBuilder
         /// <summary>The elements on the types whose property has no source (drill MA2 records it).</summary>
         public int NoSourceElements => Rows.Where(r => r.Outcome == "no source").Sum(r => r.Elements);
         public int Other => Rows.Count(r => r.Outcome != "write" && r.Outcome != "no source");
+        /// <summary>Review amendment C11: the DD type × property pairs not held on the type (an instance parameter, a wall's IsExternal
+        /// read from its Function, a type not read) — not planned, and counted so nothing is skipped without a word.</summary>
+        public int NotOnType;
 
         /// <summary>Promote's header line: "DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 1 with no source —
-        /// sent to a person (1 element(s) on those types) · 1 sent to a person for another reason".</summary>
+        /// sent to a person (1 element(s) on those types) · 1 sent to a person for another reason · 2 held off the type (…) — not planned".</summary>
         public string Line =>
             $"DD properties: {Written} type edit(s) from a cited source (never pre-ticked) · {NoSource} with no source — sent to a person ({NoSourceElements} element(s) on those types)" +
-            (Other > 0 ? $" · {Other} sent to a person for another reason" : "");
+            (Other > 0 ? $" · {Other} sent to a person for another reason" : "") +
+            (NotOnType > 0 ? $" · {NotOnType} held off the type (instance, IsExternal from Function, or not read) — not planned" : "");
 
-        /// <summary>One line per row: "✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → "60 min" (type_catalog@1 · …)", or "→ a person: …".</summary>
+        /// <summary>One line per row: "✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → "60 min" (type_catalog@1 · …) — 1
+        /// element(s) read the type" (review amendment C3: the reach, the planner's own count), or "→ a person: …".</summary>
         public List<string> Lines() => Rows.Select(r => r.Outcome == "write"
-            ? $"✎ {r.Category} · {r.Label} · {r.Key} → \"{r.Value}\" ({r.Ref})"
+            ? $"✎ {r.Category} · {r.Label} · {r.Key} → \"{r.Value}\" ({r.Ref}) — {r.Elements} element(s) read the type"
             : "→ a person: " + r.Why).ToList();
     }
 
@@ -1398,74 +1596,121 @@ namespace Sentinel.GhostBuilder
         private static bool Onto(PromoteGhost g, string category, string family, string type) =>
             g.Op == "retype" && PromoteWallsPlanner.Classes[g.Kind ?? "wall"].Category == category && Same(g.FamilyName, family) && Same(g.TypeName, type);
 
-        /// <summary>Each DD type × matrix property that is empty on the type: a set_parameter ghost on the first storey that lands an
-        /// element on the type (with its retypes, so the DD IDS checked before commit sees the value), or a row sent to a person on
-        /// that storey (StoreyPlan.ToPerson). A property the type does not hold (<see cref="TypeValue.Current"/> null: the IDS reads
-        /// it elsewhere, or not at all) or holds filled is left as it is. <paramref name="values"/> are Revit's reads of the types.</summary>
+        /// <summary>Each DD type × matrix property that is empty on the type: a set_parameter ghost, or a row sent to a person
+        /// (StoreyPlan.ToPerson). Review amendment C8: both ride on the first storey whose retypes land on the type (so the DD IDS
+        /// checked before commit sees the value with them), else on the first storey with elements already on it; the ghost goes
+        /// first in that storey's ghosts, so a storey of several chunks files it in the first. Review amendment C11: a property the
+        /// type does not hold (<see cref="TypeValue.Current"/> null: the IDS reads it elsewhere, or it was not read) is counted in
+        /// <see cref="PropertyReport.NotOnType"/>; a filled one is left as it is, and goes to a person ("differs") when a source says
+        /// otherwise. <paramref name="values"/> are Revit's reads of the types.</summary>
         public static PropertyReport Plan(IReadOnlyList<StoreyPlan> plans, LodMatrix mx, IReadOnlyList<TypeValue> values, GuidelineMatcher m, Clauses clauses)
         {
             var report = new PropertyReport();
-            var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var p in plans)
-                foreach (var (cat, family, type) in Landed(p).ToList())
+            var inserted = new Dictionary<StoreyPlan, int>(); // the set_parameters already placed at the start of each storey's ghosts
+            foreach (var (cat, family, type) in DdTypes(plans, mx))
+            {
+                var p = plans.FirstOrDefault(x => x.Ghosts.Any(g => Onto(g, cat, family, type)))
+                        ?? plans.First(x => x.Settled.Any(s => s.Category == cat && Same(s.Family, family) && Same(s.Type, type)));
+                foreach (var key in mx.Properties[cat])
                 {
-                    if (!mx.Properties.TryGetValue(cat, out var keys)) continue;
-                    foreach (var key in keys)
+                    var v = values.FirstOrDefault(x => x.Category == cat && x.Key == key && Same(x.Family, family) && Same(x.Type, type));
+                    if (v?.Current == null) { report.NotOnType++; continue; } // C11: not held on the type — counted, never silent
+                    var row = new PropertyRow
                     {
-                        if (!done.Add(cat + "|" + family + "|" + type + "|" + key)) continue;
-                        var v = values.FirstOrDefault(x => x.Category == cat && x.Key == key && Same(x.Family, family) && Same(x.Type, type));
-                        if (v?.Current == null || v.Current.Length > 0) continue; // not held on the type, or filled
-                        var row = new PropertyRow
-                        {
-                            Category = cat, Label = v.Label, Key = key, UniqueId = v.UniqueId,
-                            Elements = v.Instances + plans.Sum(x => x.Ghosts.Count(g => Onto(g, cat, family, type))),
-                        };
-                        var found = new List<(string Value, string Kind, string Ref)>();
-                        if (CatalogParam.TryGetValue(key, out var param) && m.CatalogValue(cat, family, type, param) is string cv)
-                            found.Add((cv, "catalogue", $"{m.CatalogLabel} · {v.Label} · {param}"));
-                        foreach (var c in clauses.For(Entity(cat), key))
-                            found.Add((c.Value, "clause", $"{clauses.Label} · {c.Spec}" + (c.Sentence != null ? $" · \"{c.Sentence}\"" : "")));
-                        var distinct = found.Select(f => f.Value).Distinct(StringComparer.Ordinal).ToList();
-                        if (distinct.Count == 0)
-                        {
-                            row.Outcome = "no source";
-                            row.Why = $"no source for {key} on {v.Label} — " +
-                                      (param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
-                                      (clauses.Installed ? $"no clause of {clauses.Label} pins one" : $"no ids@n is installed to cite ({clauses.Label})") +
-                                      $"; a person fills it in Revit (Type Properties) — {row.Elements} element(s) on it";
-                        }
-                        else if (distinct.Count > 1)
-                        {
-                            row.Outcome = "disagree";
-                            row.Why = $"the sources disagree on {key} for {v.Label}: " + string.Join("; ", found.Select(f => $"\"{f.Value}\" ({f.Ref})")) + " — a person decides";
-                        }
-                        else if (v.NoWriter != null)
-                        {
-                            row.Outcome = "no writer";
-                            row.Value = distinct[0];
-                            row.Ref = found[0].Ref;
-                            row.Why = $"{key} on {v.Label}: \"{distinct[0]}\" ({found[0].Ref}), but {v.NoWriter} — a person sets it in Revit";
-                        }
-                        else
-                        {
-                            row.Outcome = "write";
-                            row.Value = distinct[0];
-                            row.Ref = found[0].Ref;
-                            int here = p.Ghosts.Count(g => Onto(g, cat, family, type));
-                            p.Ghosts.Add(new PromoteGhost
-                            {
-                                Op = "set_parameter", Kind = PromoteWallsPlanner.Classes.First(kv => kv.Value.Category == cat).Key, UniqueId = v.UniqueId,
-                                Label = "type " + v.Label, TypeName = type, FamilyName = family, Parameter = key, RevitParameter = v.Param,
-                                From = v.Current, To = distinct[0], SourceKind = found[0].Kind,
-                                Reason = $"DD {cat.ToLowerInvariant()}: {key} \"{distinct[0]}\" from {found[0].Ref} — a type edit: every element on {v.Label} " +
-                                         $"reads it ({v.Instances} in the model now, {here} more that this changeset retypes onto it)",
-                            });
-                        }
-                        if (row.Outcome != "write") p.ToPerson.Add(new PromoteHeld { UniqueId = v.UniqueId, Label = $"type {v.Label} · {key}", Reason = row.Why });
-                        report.Rows.Add(row);
+                        Category = cat, Label = v.Label, Key = key, UniqueId = v.UniqueId,
+                        Elements = v.Instances + plans.Sum(x => x.Ghosts.Count(g => Onto(g, cat, family, type))),
+                    };
+                    var found = new List<(string Value, string Kind, string Ref)>();
+                    string param = CatalogParam.TryGetValue(key, out var cp) ? cp : null;
+                    if (param != null && m.CatalogValue(cat, family, type, param) is string cv)
+                        found.Add((cv, "catalogue", $"{m.CatalogLabel} · {v.Label} · {param}"));
+                    foreach (var c in clauses.For(Entity(cat), key))
+                        found.Add((c.Value, "clause", $"{clauses.Label} · {c.Spec}" + (c.Sentence != null ? $" · \"{c.Sentence}\"" : "")));
+                    var distinct = found.Select(f => f.Value).Distinct(StringComparer.Ordinal).ToList();
+                    if (v.Current.Length > 0)
+                    {
+                        // C11: a filled value is never overwritten; one a source contradicts goes to a person, said.
+                        var o = found.FirstOrDefault(f => !string.Equals(f.Value, v.Current, StringComparison.Ordinal));
+                        if (o.Value == null) continue; // filled as its source holds it, or no source to compare: left as it is
+                        row.Outcome = "differs";
+                        row.Why = $"{key} on {v.Label} reads \"{v.Current}\", {o.Ref} gives \"{o.Value}\" — not overwritten; a person decides";
                     }
+                    else if (distinct.Count == 0)
+                    {
+                        var floor = clauses.Floors(Entity(cat), key); // C7: a minimum is named, never written
+                        row.Outcome = "no source";
+                        row.Why = $"no source for {key} on {v.Label} — " +
+                                  (param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
+                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} sets a minimum (\"{floor[0].Sentence}\"), not a value"
+                                   : clauses.Installed ? $"no clause of {clauses.Label} pins one" : $"no ids@n is installed to cite ({clauses.Label})") +
+                                  $"; a person fills it in Revit (Type Properties) — {row.Elements} element(s) on it";
+                    }
+                    else if (distinct.Count > 1)
+                    {
+                        row.Outcome = "disagree";
+                        row.Why = $"the sources disagree on {key} for {v.Label}: " + string.Join("; ", found.Select(f => $"\"{f.Value}\" ({f.Ref})")) + " — a person decides";
+                    }
+                    else if (v.NoWriter != null)
+                    {
+                        row.Outcome = "no writer";
+                        row.Value = distinct[0];
+                        row.Ref = found[0].Ref;
+                        row.Why = $"{key} on {v.Label}: \"{distinct[0]}\" ({found[0].Ref}), but {v.NoWriter} — a person sets it in Revit";
+                    }
+                    else
+                    {
+                        row.Outcome = "write";
+                        row.Value = distinct[0];
+                        row.Ref = found[0].Ref;
+                        int here = p.Ghosts.Count(g => Onto(g, cat, family, type));
+                        int at = inserted.TryGetValue(p, out var k) ? k : 0; // C8: first in the storey's ghosts, in the order the types are met
+                        p.Ghosts.Insert(at, new PromoteGhost
+                        {
+                            Op = "set_parameter", Kind = PromoteWallsPlanner.Classes.First(kv => kv.Value.Category == cat).Key, UniqueId = v.UniqueId,
+                            Label = "type " + v.Label, TypeName = type, FamilyName = family, Parameter = key, RevitParameter = v.Param,
+                            From = v.Current, To = distinct[0], SourceKind = found[0].Kind,
+                            Reason = $"DD {cat.ToLowerInvariant()}: {key} \"{distinct[0]}\" from {found[0].Ref} — a type edit: every element on {v.Label} " +
+                                     $"reads it ({v.Instances} in the model now, {here} more that this changeset retypes onto it)",
+                        });
+                        inserted[p] = at + 1;
+                    }
+                    if (row.Outcome != "write") p.ToPerson.Add(new PromoteHeld { UniqueId = v.UniqueId, Label = $"type {v.Label} · {key}", Reason = row.Why });
+                    report.Rows.Add(row);
                 }
+            }
             return report;
+        }
+
+        /// <summary>Review amendment C4: a Promote body the bridge refused for a set_parameter (its source not confirmed at post time,
+        /// or a bridge older than the op), filed again WITHOUT its set_parameter rows — the storey's retypes and attaches are not lost
+        /// with them — each type edit becoming an exception that says why (one line; the bridge keeps a name ≤ 256 and a reason
+        /// ≤ 300). Null when the body holds no set_parameter, or nothing else (then nothing is filed again).</summary>
+        public static object WithoutWrites(object body, string why, out int removed)
+        {
+            var o = JsonSerializer.SerializeToNode(body, global::Sentinel.Coordination.ChangesetClient.WriteJson).AsObject(); // nulls left out, as Propose posts it
+            var all = o["elements"].AsArray();
+            var writes = all.Where(e => (string)e?["op"] == "set_parameter").ToList();
+            removed = writes.Count;
+            if (removed == 0 || removed == all.Count) return null;
+            if (!(o["exceptions"] is JsonArray ex)) o["exceptions"] = ex = new JsonArray();
+            foreach (var w in writes)
+            {
+                all.Remove(w);
+                string fam = (string)w["place"]?["FamilyName"], type = (string)w["place"]?["TypeName"];
+                ex.Add(new JsonObject
+                {
+                    ["unique_id"] = (string)w["target"]?["unique_id"],
+                    ["name"] = OneLine($"type {(fam != null ? fam + " : " : "")}{type} · {(string)w["parameter"]}", 256),
+                    ["reason"] = OneLine($"not filed: the bridge refused its source — {why}; a person fills it in Revit (Type Properties)", 300),
+                });
+            }
+            return o;
+        }
+
+        private static string OneLine(string s, int max)
+        {
+            var t = new string((s ?? "").Select(ch => char.IsControl(ch) ? ' ' : ch).ToArray());
+            return t.Length <= max ? t : t.Substring(0, max - 1) + "…";
         }
     }
 }
@@ -1630,8 +1875,8 @@ with
         };
 
         // MA-2c: a type edit — the type it writes, the property, the value read and the value to write, and its source's kind (the
-        // bridge checks it against the installed artefact and writes its own record). Its validate carries the value, so the
-        // bridge's referee judges it before staging ([BP] P2-7 step 3).
+        // bridge checks it against the installed artefact and writes its own record). Review amendment C2: no psets — the bridge
+        // builds the validate its referee judges from kind, parameter and to ([BP] P2-7 step 3), so the value judged is the value written.
         private static object SetParameter(PromoteGhost g) => new
         {
             op = g.Op,
@@ -1644,11 +1889,7 @@ with
             to = g.To,
             value_source = new { kind = g.SourceKind },
             reason = Clip(g.Reason, 500),
-            validate = new
-            {
-                identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label },
-                psets = new[] { new { name = g.Parameter.Split('.')[0], rows = new[] { new { name = g.Parameter.Split('.')[1], value = g.To } } } },
-            },
+            validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
         };
 ```
 
@@ -1715,7 +1956,7 @@ with
         if (el.Op is null or "create" or "set_parameter") return false;
 ```
 
-- [ ] **Step 4: Run it, and see it pass.** `promote-check` `622/622`; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`, Revit 2026 `0 Error(s)`, `3 Warning(s)`
+- [ ] **Step 4: Run it, and see it pass.** `promote-check` `625/625` **(C-count)**: the planner's 622, plus C7's floor check, C8's chunk check and C4's `WithoutWrites` check. Builds Revit 2024 `0 Error(s)`, `5 Warning(s)`; Revit 2026 `0 Error(s)`, `3 Warning(s)`.
 
 - [ ] **Step 5: Commit.**
 
@@ -1735,13 +1976,14 @@ EOF
 - Modify `SentinelAddin/GhostBuilder/ChangesetExecutor.cs` — the set_parameter loop, `ParamTarget`
 - Modify `SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs` — the DD IDS check's kinds leave the type entries out
 - Modify `SentinelAddin/GhostBuilder/PromoteContext.cs` — `Clauses`, read in `Fetch`
-- Modify `SentinelAddin/Commands.PromoteWalls.cs` — `TypeValues`, `PropertyPlanner.Plan` after the preflight, the dialog's lines
-- Modify `SentinelAddin/UI/ChangesetReviewWindow.cs` — the row's words
+- Modify `SentinelAddin/Commands.PromoteWalls.cs` — `TypeValues`, `PropertyPlanner.Plan` after the preflight, the dialog's lines; a refused body filed again without its type edits (C4)
+- Modify `SentinelAddin/Commands.ReviewChangesets.cs` — each type edit's reach, counted on the API thread (C3)
+- Modify `SentinelAddin/UI/ChangesetReviewWindow.cs` — the row's words, with the reach (C3)
 - Create `tools/promote-check/Ma2cWiring.cs`; modify `tools/promote-check/Check.cs`
 
 **Interfaces:**
-- Consumes: Task 2's `PropertyPlanner`, `TypeValue`, `Clauses`, `PropertyReport`, `StoreyPlan.ToPerson`, `ChangesetElementDto`'s write fields.
-- Produces: `FixInPlaceService.OnType(ElementType t, Document doc, PsetEntry entry) → (Parameter? P, string? Current, string? NoWriter)`; `FixInPlaceService.WriteOnType(Document doc, ElementType t, string key, string from, string to, string? org)` (throws on anything but a clean write); `PromoteWallsCommand.TypeValues(Document, IReadOnlyList<(string Category, string Family, string Type)>, LodMatrix) → List<TypeValue>`; `PromoteContext.Clauses`.
+- Consumes: Task 2's `PropertyPlanner` (with `WithoutWrites`), `TypeValue`, `Clauses`, `PropertyReport`, `StoreyPlan.ToPerson`, `ChangesetElementDto`'s write fields.
+- Produces: `FixInPlaceService.OnType(ElementType t, Document doc, PsetEntry entry) → (Parameter? P, string? Current, string? NoWriter)`; `FixInPlaceService.WriteOnType(Document doc, ElementType t, string key, string from, string to, string? org)` (throws on anything but a clean write into an EMPTY value: C1); `PromoteWallsCommand.TypeValues(Document, IReadOnlyList<(string Category, string Family, string Type)>, LodMatrix) → List<TypeValue>`; `PromoteContext.Clauses`; `ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null)` (C3).
 
 - [ ] **Step 1: The source scans (section 35).**
 
@@ -1759,6 +2001,7 @@ static partial class Check
         string Src(params string[] p) => File.ReadAllText(Repo(new[] { "SentinelAddin" }.Concat(p).ToArray()));
         string exec = Src("GhostBuilder", "ChangesetExecutor.cs"), fix = Src("Coordination", "FixInPlaceService.cs"), place = Src("GhostBuilder", "ChangesetPlacementEvent.cs");
         string promote = Src("Commands.PromoteWalls.cs"), ctx = Src("GhostBuilder", "PromoteContext.cs"), window = Src("UI", "ChangesetReviewWindow.cs");
+        string review = Src("Commands.ReviewChangesets.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
 
         int attach = At(exec, "foreach (var el in toPlace.Where(e => e.Op == \"attach\"))"), write = At(exec, "foreach (var el in toPlace.Where(e => e.Op == \"set_parameter\"))");
@@ -1769,7 +2012,7 @@ static partial class Check
         Ok(stale > 0 && set > stale && At(fix, "reads back \\\"{back}\\\", not \\\"{to}\\\" — not written") > set
            && fix.Contains("entry.Candidates.Where(c => !c.InstanceOnly && (c.Kind == ParamKind.Lookup || c.Kind == ParamKind.BuiltIn))")
            && fix.Contains("p.StorageType != StorageType.String ?"),
-           "the write is the stale guard (the value read now is the plan's from), then the set, then a read-back as the IDS reads it — on the type's own text parameter only");
+           "the write is the stale guard (the value read now is empty, whatever the plan's from says: C1), then the set, then a read-back as the IDS reads it — on the type's own text parameter only");
         Ok(place.Contains(".Where(e => e.Op != \"set_parameter\").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? \"wall\")"),
            "the DD IDS before commit judges the elements, never a set_parameter's type");
         Ok(ctx.Contains("var clauseTask = Task.Run(() => ArtefactClient.Resolve(key, \"ids\"));")
@@ -1780,8 +2023,13 @@ static partial class Check
            && promote.Contains("FixInPlaceService.OnType(hits[0], doc, entry)") && promote.Contains("lodText + propText +")
            && promote.Contains("p.Held.Concat(p.ToPerson).Select(h =>"),
            "Promote reads the DD types' properties after its preflight and before it files, says what it writes and what goes to a person, and lists each");
-        Ok(window.Contains("\"set_parameter\" => $\"type edit {el.Kind}:"),
-           "the review window shows a set_parameter as a type edit: the parameter, from, to and the source");
+        Ok(window.Contains("\"set_parameter\" => $\"type edit {el.Kind}:") && window.Contains("$\"reaches {reachN} element(s) in the model now\"")
+           && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
+           && review.Contains("new ChangesetReviewWindow(cs, reach)"),
+           "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");
+        Ok(promote.Contains("err.StartsWith(\"Bridge 400:\") && err.Contains(\"set_parameter\") && PropertyPlanner.WithoutWrites(body, err, out var dropped) is object again")
+           && promote.Contains("type edit(s) not filed — see Sent to a person"),
+           "a body the bridge refuses for a set_parameter is filed again without its type edits, and the result says how many (C4)");
     }
 }
 ```
@@ -1801,7 +2049,7 @@ with
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check` — `622/628` (6 FAIL): the six scans of section 35 fail — nothing is wired yet.
+- [ ] **Step 2: Run it, and see it fail.** `dotnet run --project tools/promote-check` — `625/632` (7 FAIL) **(C-count)**: the seven scans of section 35 fail (the dry run's six and C4's) — nothing is wired yet.
 
 - [ ] **Step 3: The wiring.**
 
@@ -1834,16 +2082,17 @@ with
     }
 
     /// <summary>MA-2c: one set_parameter on a TYPE, inside the caller's transaction (the changeset's): the property's parameter on the
-    /// type (<see cref="OnType"/>), the stale guard first — the value the IDS reads now must be the plan's <paramref name="from"/> —
-    /// then the write, read back as the IDS reads it. Anything else throws, and the changeset fails whole (the executor's rule).</summary>
+    /// type (<see cref="OnType"/>), the stale guard first — the value the IDS reads now must be EMPTY, whatever <paramref name="from"/>
+    /// says (review amendment C1: a set_parameter fills an empty value only; a filled one is a person's) — then the write, read back
+    /// as the IDS reads it. Anything else throws, and the changeset fails whole (the executor's rule).</summary>
     internal static void WriteOnType(Document doc, ElementType t, string key, string from, string to, string? org)
     {
         var entry = PsetMap.Find(org, key) ?? throw new InvalidOperationException($"no parameter mapping for {key} — Sentinel does not know where this value lives");
         var (p, current, noWriter) = OnType(t, doc, entry);
         if (p == null) throw new InvalidOperationException($"type {t.Name} holds no parameter for {key} — re-run Promote");
         if (noWriter != null) throw new InvalidOperationException($"type {t.Name}: {noWriter}");
-        if (!string.Equals(current, from ?? "", StringComparison.Ordinal))
-            throw new InvalidOperationException($"stale: {key} on type {t.Name} reads \"{current}\" now, the plan read \"{from}\" — the model changed since the plan; re-run Promote");
+        if (!string.IsNullOrEmpty(current) || !string.IsNullOrEmpty(from))
+            throw new InvalidOperationException($"stale: {key} on type {t.Name} reads \"{current}\" now, the plan read \"{from}\" — set_parameter fills an empty value only (a filled one is a person's); re-run Promote");
         if (!p.Set(to)) throw new InvalidOperationException($"Revit refused \"{to}\" for {p.Definition.Name} on type {t.Name}");
         var back = GovernedElementExtractor.ReadEntry(t, doc, entry) ?? "";
         if (!string.Equals(back, to, StringComparison.Ordinal))
@@ -1896,7 +2145,7 @@ with
 
             // MA-2c: set_parameter after every retype and attach, so a value lands on the type the retype just set (drill MA2b I-1: a
             // retype drops the concept type's value) and the DD IDS checked before commit sees it. The TYPE's own parameter, the stale
-            // guard first (the value read now must be the plan's from), read back as the IDS reads it (FixInPlaceService).
+            // guard first (the value read now must be empty: review amendment C1), read back as the IDS reads it (FixInPlaceService).
             foreach (var el in toPlace.Where(e => e.Op == "set_parameter"))
             {
                 at = Label(el);
@@ -2018,6 +2267,52 @@ with
 In `SentinelAddin/Commands.PromoteWalls.cs`, replace
 
 ```csharp
+        foreach (var body in bodies)
+        {
+            var cs = ChangesetClient.Propose(cfg, key, body, out var err);
+            if (cs == null) failed.Add(err);
+            else { first ??= cs; filedIds.Add(cs.Id); }
+        }
+```
+
+with
+
+```csharp
+        var typeEditsNotFiled = 0;
+        foreach (var body in bodies)
+        {
+            var cs = ChangesetClient.Propose(cfg, key, body, out var err);
+            // Review amendment C4: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the op) never
+            // costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception that
+            // says why. Only a second refusal counts as not filed; a body of type edits only is not filed again.
+            if (cs == null && err != null && err.StartsWith("Bridge 400:") && err.Contains("set_parameter") && PropertyPlanner.WithoutWrites(body, err, out var dropped) is object again)
+            {
+                cs = ChangesetClient.Propose(cfg, key, again, out err);
+                if (cs != null) typeEditsNotFiled += dropped;
+            }
+            if (cs == null) failed.Add(err);
+            else { first ??= cs; filedIds.Add(cs.Id); }
+        }
+```
+
+In `SentinelAddin/Commands.PromoteWalls.cs`, replace
+
+```csharp
+        if (failed.Count > 0)
+            TaskDialog.Show(Title, $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)));
+```
+
+with
+
+```csharp
+        if (failed.Count > 0 || typeEditsNotFiled > 0)
+            TaskDialog.Show(Title, (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
+                                   (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)) : ""));
+```
+
+In `SentinelAddin/Commands.PromoteWalls.cs`, replace
+
+```csharp
     /// <summary>One wall's facts, read on the API thread. A stacked-wall member reads as not basic: Revit types it
 ```
 
@@ -2076,16 +2371,53 @@ with
 
 ```csharp
                 "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
-                // MA-2c: a TYPE edit — never pre-ticked; the reason (the tooltip) says how many elements read the type.
-                "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  {el.Parameter} \"{el.From}\" → \"{el.To}\"  ·  from {el.ValueSource?.Ref ?? el.ValueSource?.Kind ?? "an unnamed source"}",
+                // MA-2c: a TYPE edit — never pre-ticked. Review amendment C3: its reach is the add-in's own count (Open, API thread),
+                // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
+                "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +
+                                   (reach != null && el.ProposalGuid != null && reach.TryGetValue(el.ProposalGuid, out var reachN) ? $"reaches {reachN} element(s) in the model now" : "reach not counted — the type is not in this model") +
+                                   $"  ·  {el.Parameter} \"{el.From}\" → \"{el.To}\"  ·  from {el.ValueSource?.Ref ?? el.ValueSource?.Kind ?? "an unnamed source"}",
 ```
 
-- [ ] **Step 4: Run it, and see it pass.** `promote-check` `628/628`; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`, Revit 2026 `0 Error(s)`, `3 Warning(s)`
+In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace
+
+```csharp
+    public ChangesetReviewWindow(ChangesetDto changeset)
+    {
+```
+
+with
+
+```csharp
+    /// <param name="reach">Review amendment C3 (MA-2c): for each set_parameter's proposal_guid, the elements on its type in the model
+    /// now — counted by the caller on the API thread; shown on the row, never read from the reason.</param>
+    public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null)
+    {
+```
+
+In `SentinelAddin/Commands.ReviewChangesets.cs`, replace
+
+```csharp
+        var window = new ChangesetReviewWindow(cs);
+```
+
+with
+
+```csharp
+        // Review amendment C3 (MA-2c): a type edit's reach is the add-in's own count, read here on the API thread — the elements on the
+        // type in the model now — never the poster's words in its reason.
+        var reach = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var sp in (cs.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter" && e.ProposalGuid != null))
+            if (!string.IsNullOrWhiteSpace(sp.Target?.UniqueId) && doc.GetElement(sp.Target.UniqueId) is ElementType spType)
+                reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);
+        var window = new ChangesetReviewWindow(cs, reach);
+```
+
+- [ ] **Step 4: Run it, and see it pass.** `promote-check` `632/632` **(C-count)**. Builds Revit 2024 `0 Error(s)`, `5 Warning(s)`; Revit 2026 `0 Error(s)`, `3 Warning(s)`.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add SentinelAddin/Coordination/FixInPlaceService.cs SentinelAddin/GhostBuilder/ChangesetExecutor.cs SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs SentinelAddin/GhostBuilder/PromoteContext.cs SentinelAddin/Commands.PromoteWalls.cs SentinelAddin/UI/ChangesetReviewWindow.cs tools/promote-check/Ma2cWiring.cs tools/promote-check/Check.cs
+git add SentinelAddin/Coordination/FixInPlaceService.cs SentinelAddin/GhostBuilder/ChangesetExecutor.cs SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs SentinelAddin/GhostBuilder/PromoteContext.cs SentinelAddin/Commands.PromoteWalls.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/UI/ChangesetReviewWindow.cs tools/promote-check/Ma2cWiring.cs tools/promote-check/Check.cs
 git commit -F - <<'EOF'
 feat(promote): set_parameter in Revit - the DD types read on the type, the write after every retype in the changeset's transaction (stale guard, read-back), the clauses read off the API thread, the dialog's DD properties line and the review row (MA-2c)
 
@@ -2522,7 +2854,7 @@ with
                           "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText + gapText +
 ```
 
-- [ ] **Step 4: Run it, and see it pass.** `promote-check` `636/636`; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`, Revit 2026 `0 Error(s)`, `3 Warning(s)`
+- [ ] **Step 4: Run it, and see it pass.** `promote-check` `640/640` **(C-count)**; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`, Revit 2026 `0 Error(s)`, `3 Warning(s)`
 
 - [ ] **Step 5: Commit.**
 
@@ -2545,7 +2877,7 @@ EOF
 
 **Interfaces:**
 - Consumes: Task 4's row body.
-- Produces: `typeGapId(g) → 12 hex`; `catalogMatch(types, g, sameCategory) → row | null`; `typeGapGroups(reportRows, dismissRows, catalog, sameCategory) → {open, closed, catalog}`; `readHolding(key)` → `{items, cleared_recent, type_gaps}`; `dismissTypeGap(key, group, {reason, actor}) → {id, hash}`; route `POST /cde/:key/holding/type-gaps/:group/dismiss`.
+- Produces: `typeGapId(g) → 12 hex`; `catalogMatch(types, g, sameCategory) → row | null`; `typeGapGroups(reportRows, dismissRows, catalog, sameCategory) → {open, closed, catalog}` (each group with `source` and `claimed`: C10; an open one reopened after a dismissal with `reopened {since, more}`: C5); `readHolding(key)` → `{items, cleared_recent, type_gaps}`; `dismissTypeGap(key, group, {reason, actor}) → {id, hash}` (the row records the group's `labels`: C5); route `POST /cde/:key/holding/type-gaps/:group/dismiss`.
 
 - [ ] **Step 1: The checks.**
 
@@ -2581,12 +2913,15 @@ with
 });
 
 // MA-2c (design §6.4): a Promote run's type gaps, derived from its type_gap rows — open until a lead dismisses a group or the
-// catalogue in force holds the type it wants; a later run that does not report a group does not close it.
+// catalogue in force holds the type it wants; a later run that does not report a group does not close it, and one that reports
+// nothing beyond what a dismissal saw does not reopen it (review amendment C5).
 describe("typeGapGroups — the Holding Area's type gaps", () => {
   const WALL = { category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", key: "Function Exterior", elements: 2, labels: ["GR-FFL · W 2051449", "GR-FFL · W 2051450"], nearest: ["BDS_EXT_ARC_CMU_100 mm"] };
   const DOOR = { category: "Doors", want: null, size: "915 x 2134 mm", key: "HostFunction Interior, Size W915 x H2134 mm", elements: 1, labels: ["GR-FFL · D 2069758"], nearest: [] };
   const run = (id, min, groups, actor = "lead@example.test") => ({ id, at: at(min), hash: hash(id), actor, action: `type_gap:run · ${groups.length} group(s)`, new_value: { groups: groups.map((g) => ({ id: typeGapId(g), ...g })), claimed: true } });
-  const dismiss = (id, min, g, reason = "a template sample, not a design wall") => ({ id, at: at(min), hash: hash(id), actor: "lead@example.test", action: `hold:type_gap_dismissed ${typeGapId(g)}`, new_value: { group: typeGapId(g), reason } });
+  // C5: a dismissal records what it saw — the group's element count and labels (dismissTypeGap writes both).
+  const dismiss = (id, min, g, reason = "a template sample, not a design wall") => ({ id, at: at(min), hash: hash(id), actor: "lead@example.test", action: `hold:type_gap_dismissed ${typeGapId(g)}`,
+    new_value: { group: typeGapId(g), reason, elements: g.elements, labels: g.labels } });
   const NO_CATALOG = { types: null, label: "none — not installed for ma2c or its office" };
   const same = (r, cat) => r.category === cat;
 
@@ -2600,15 +2935,24 @@ describe("typeGapGroups — the Holding Area's type gaps", () => {
   it("every group a run reported is open, from its newest run — counted, with its runs; a later run without it does not close it", () => {
     const g = typeGapGroups([run(901, 1, [WALL, DOOR]), run(905, 5, [{ ...WALL, elements: 3 }])], [], NO_CATALOG, same);
     expect(g.open.map((x) => [x.category, x.elements, x.runs, x.ledger.id])).toEqual([["Walls", 3, 2, 905], ["Doors", 1, 1, 901]]);
-    expect(g.open[0]).toMatchObject({ id: typeGapId(WALL), want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", at: at(5), actor: "lead@example.test" });
+    // C10: the newest run's source and claim ride with the group (counted in Revit, not by the bridge).
+    expect(g.open[0]).toMatchObject({ id: typeGapId(WALL), want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", at: at(5), actor: "lead@example.test", source: null, claimed: true });
     expect(g).toMatchObject({ closed: [], catalog: "none — not installed for ma2c or its office" });
   });
 
-  it("a lead's dismissal closes it with the reason; a run that reports it again opens it again", () => {
+  it("a lead's dismissal closes it with the reason; later runs that report nothing beyond what it saw leave it closed (review amendment C5)", () => {
     const g = typeGapGroups([run(901, 1, [WALL, DOOR])], [dismiss(903, 3, DOOR)], NO_CATALOG, same);
     expect(g.open.map((x) => x.category)).toEqual(["Walls"]);
     expect(g.closed).toEqual([expect.objectContaining({ category: "Doors", closed_by: "dismissed", reason: "a template sample, not a design wall", closed_at: at(3), closed_by_actor: "lead@example.test", closed_ledger: { id: 903, hash: hash(903) } })]);
-    expect(typeGapGroups([run(901, 1, [DOOR]), run(907, 7, [DOOR])], [dismiss(903, 3, DOOR)], NO_CATALOG, same).open).toHaveLength(1);
+    expect(typeGapGroups([run(901, 1, [DOOR]), run(907, 7, [DOOR])], [dismiss(903, 3, DOOR)], NO_CATALOG, same))
+      .toMatchObject({ open: [], closed: [{ category: "Doors", closed_by: "dismissed", runs: 2 }] });
+  });
+
+  it("a run that reports more than the dismissal saw — another element and label — opens the group again and says so (review amendment C5)", () => {
+    const more = { ...DOOR, elements: 2, labels: [...DOOR.labels, "L01 · D 2069801"] };
+    const g = typeGapGroups([run(901, 1, [DOOR]), run(907, 7, [more])], [dismiss(903, 3, DOOR)], NO_CATALOG, same);
+    expect(g.closed).toEqual([]);
+    expect(g.open).toMatchObject([{ category: "Doors", elements: 2, runs: 2, reopened: { since: at(3), more: 1 } }]);
   });
 
   it("the catalogue in force closes a group when it holds the type it wants — or, wanting none, a type of its category named at its size", () => {
@@ -2677,7 +3021,7 @@ describe("readHolding and dismissTypeGap — type-gap groups (MA-2c)", () => {
     const r = await dismissTypeGap("aster-tower", id, { reason: " a template sample ", actor: "lead@example.test" });
     const row = db.audit_log.at(-1);
     expect(row).toMatchObject({ entity_type: "hold", action: `hold:type_gap_dismissed ${id}`, actor: "lead@example.test",
-      new_value: { group: id, reason: "a template sample", category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", elements: 2 } });
+      new_value: { group: id, reason: "a template sample", category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", elements: 2, labels: ["GR-FFL · W 2051449"] } }); // C5: what it saw
     expect(r).toEqual({ id: row.id, hash: row.hash });
     const after = (await readHolding("aster-tower")).type_gaps;
     expect(after.open).toEqual([]);
@@ -2737,7 +3081,7 @@ with
   it("a share is null when nothing was counted, or when a class with a DD row was not run — a class with no DD row asks nothing", async () => {
 ```
 
-- [ ] **Step 2: Run them, and see them fail.** From `WebApp`: `npx vitest run bridge/holding-logic.test.mjs bridge/cde-store-holding.test.mjs bridge/write-roles.test.mjs` — `Test Files  3 failed (3)`, `Tests  9 failed | 89 passed (98)`: the four new holding-logic tests (`typeGapId` is not a function), the four of `cde-store-holding` (no `type_gaps`, no `dismissTypeGap`, no route) and the `type_gap` row (400: not a Revit report type).
+- [ ] **Step 2: Run them, and see them fail.** From `WebApp`: `npx vitest run bridge/holding-logic.test.mjs bridge/cde-store-holding.test.mjs bridge/write-roles.test.mjs` — `Test Files  3 failed (3)`, `Tests  10 failed | 89 passed (99)` **(C-count)**: the five new holding-logic tests (`typeGapId` is not a function; C5 split the dismissal test in two), the four of `cde-store-holding` (no `type_gaps`, no `dismissTypeGap`, no route) and the `type_gap` row (400: not a Revit report type).
 
 - [ ] **Step 3: The row, the groups, the route.**
 
@@ -2769,7 +3113,8 @@ export const clearedRecent = (holdRows, dismissRows, versionsByName) => walk(hol
 // ── MA-2c: type-gap groups (design §6.4). A Promote run posts its gap groups as one type_gap row (cde-store typeGapRow names each
 // group); a group is open from the newest run that reported it until a lead dismisses it (a hold:type_gap_dismissed row) or the
 // type catalogue in force holds the type it wants (else a type of its category named at its size). A later run that does not
-// report a group does not close it (founder decision F7); a run that reports it after a dismissal opens it again.
+// report a group does not close it (founder decision F7). Review amendment C5: a dismissal holds while later runs report nothing
+// beyond what it saw (no more elements, no label it did not list); a run that reports more opens the group again, and says so.
 
 export const TYPE_GAP_DISMISSAL = "hold:type_gap_dismissed ";
 const norm = (s) => String(s ?? "").trim().toLowerCase();
@@ -2792,8 +3137,9 @@ export function catalogMatch(types, g, sameCategory) {
 /** The type-gap groups, derived: `reportRows` the type_gap rows, `dismissRows` the hold rows (others are ignored), `catalog` the type
  *  catalogue in force {types, label} — types null when none is installed or it was not read (the label says which; nothing is
  *  then closed by it). → {open, closed (the newest 20), catalog}: each group {id, category, want, size, key, elements, labels,
- *  nearest, at, actor, ledger, runs}; a closed one adds closed_by "dismissed" (reason, closed_at, closed_by_actor, closed_ledger) or
- *  "catalogue" (type: the row that closes it, catalog: its label). Newest first. */
+ *  nearest, at, actor, ledger, runs, source, claimed} (source and claimed: the newest run's — C10); a closed one adds closed_by
+ *  "dismissed" (reason, closed_at, closed_by_actor, closed_ledger) or "catalogue" (type: the row that closes it, catalog: its
+ *  label); one open again after a dismissal adds reopened {since: the dismissal's time, more: the elements beyond it} (C5). Newest first. */
 export function typeGapGroups(reportRows, dismissRows, catalog, sameCategory) {
   const order = (a, b) => Date.parse(a.at) - Date.parse(b.at) || (a.id ?? 0) - (b.id ?? 0);
   const seen = new Map();
@@ -2804,6 +3150,7 @@ export function typeGapGroups(reportRows, dismissRows, catalog, sameCategory) {
         id, category: g.category, want: g.want ?? null, size: g.size ?? null, key: g.key ?? null, elements: g.elements,
         labels: g.labels ?? [], nearest: g.nearest ?? [], at: r.at, actor: r.actor ?? null, ledger: { id: r.id ?? null, hash: r.hash ?? null },
         runs: (seen.get(id)?.runs ?? 0) + 1,
+        source: r.new_value?.source ?? null, claimed: r.new_value?.claimed === true, // C10: counted in Revit, not by the bridge
       });
     }
   const dismissed = new Map(); // id → its newest dismissal
@@ -2812,9 +3159,16 @@ export function typeGapGroups(reportRows, dismissRows, catalog, sameCategory) {
   const open = [], closed = [];
   for (const g of seen.values()) {
     const d = dismissed.get(g.id);
-    if (d && order(d, { at: g.at, id: g.ledger.id }) > 0) {
-      closed.push({ ...g, closed_by: "dismissed", reason: d.new_value?.reason ?? null, closed_at: d.at, closed_by_actor: d.actor ?? null, closed_ledger: { id: d.id ?? null, hash: d.hash ?? null } });
-      continue;
+    if (d) {
+      // C5: a dismissal holds while every later run reports no more elements and no label it did not list.
+      const saw = d.new_value ?? {};
+      const more = Math.max(0, g.elements - (Number(saw.elements) || 0));
+      const unseen = g.labels.filter((l) => !(Array.isArray(saw.labels) ? saw.labels : []).includes(l)).length;
+      if (order(d, { at: g.at, id: g.ledger.id }) > 0 || (more === 0 && unseen === 0)) {
+        closed.push({ ...g, closed_by: "dismissed", reason: saw.reason ?? null, closed_at: d.at, closed_by_actor: d.actor ?? null, closed_ledger: { id: d.id ?? null, hash: d.hash ?? null } });
+        continue;
+      }
+      g.reopened = { since: d.at, more: Math.max(more, unseen) };
     }
     const hit = catalog?.types ? catalogMatch(catalog.types, g, sameCategory) : null;
     if (hit) { closed.push({ ...g, closed_by: "catalogue", type: hit.type, catalog: catalog.label }); continue; }
@@ -2960,7 +3314,8 @@ async function catalogInForce(key) {
 /** MA-2c: POST /cde/:key/holding/type-gaps/:group/dismiss {reason} (design §6.8) — a lead clears a type-gap group, as dismissHold
  *  clears a held file: lead or owner, the machine credential passes (founder decision F8: the existing dismissal's rule); a reason is
  *  required (≤ 500); only an open group (409 otherwise). One hold:type_gap_dismissed row, new_value {group, reason, category, want,
- *  size, elements}; the type_gap rows stay. → {id, hash} of that row. */
+ *  size, elements, labels} — what it saw: a later run that reports no more keeps it closed (review amendment C5); the type_gap rows
+ *  stay. → {id, hash} of that row. */
 export async function dismissTypeGap(key, group, b = {}) {
   const { requireMinRole } = await import("./members-store.mjs");
   await requireMinRole(key, "lead");
@@ -2970,7 +3325,7 @@ export async function dismissTypeGap(key, group, b = {}) {
   if (!g) throw Object.assign(new Error(`type-gap group ${group} is not open on ${key}`), { status: 409 });
   const proj = await ensureProject(key);
   const row = await audit(proj.id, "hold", null, `hold:type_gap_dismissed ${group}`, b.actor || "web", null,
-    { group, reason, category: g.category, want: g.want, size: g.size, elements: g.elements });
+    { group, reason, category: g.category, want: g.want, size: g.size, elements: g.elements, labels: g.labels });
   return { id: row?.id ?? null, hash: row?.hash ?? null };
 }
 ```
@@ -2992,7 +3347,7 @@ with
         return send(res, 201, await cde.dismissTypeGap(p1, decodeURIComponent(p4), (await readBody(req)) || {}));
 ```
 
-- [ ] **Step 4: Run them, and see them pass.** The same command — `Test Files  3 passed (3)`, `Tests  98 passed (98)`; the bridge suite `Test Files  89 passed (89)`, `Tests  1801 passed | 1 skipped (1802)`
+- [ ] **Step 4: Run them, and see them pass.** The same command — `Test Files  3 passed (3)`, `Tests  99 passed (99)`; the bridge suite `Test Files  89 passed (89)`, `Tests  1804 passed | 1 skipped (1805)` **(C-count)**: the planner's, plus C1's and C2's tests from Task 1 and C5's split.
 
 - [ ] **Step 5: Commit.**
 
@@ -3014,7 +3369,7 @@ EOF
 
 **Interfaces:**
 - Consumes: Task 5's `GET /cde/:key/holding` reply (`type_gaps`) and dismissal route.
-- Produces: `readHolding(baseUrl, key) → {items, cleared_recent, type_gaps: {open, closed, catalog} | null}` (null from a bridge before MA-2c); `typeGapLine(g)` (the add-in's `TypeGaps.Line` words); `typeGapClosedLine(g)`; `dismissTypeGap(baseUrl, key, group, reason) → LedgerRef`.
+- Produces: `readHolding(baseUrl, key) → {items, cleared_recent, type_gaps: {open, closed, catalog} | null}` (null from a bridge before MA-2c); `typeGapLine(g)` (the add-in's `TypeGaps.Line` words); `typeGapClosedLine(g)`; `dismissTypeGap(baseUrl, key, group, reason) → LedgerRef`. `TypeGap` carries `source`, `claimed` (C10) and `reopened?` (C5); the card says both.
 
 - [ ] **Step 1: The checks.**
 
@@ -3047,7 +3402,7 @@ const rejected = (over: Partial<IntakeReply>): IntakeReply =>
 const GAP: TypeGap = {
   id: "3c5d7e9f0a1b", category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", key: "Function Exterior", elements: 2,
   labels: ["GR-FFL · W 2051449", "GR-FFL · W 2051450"], nearest: ["BDS_EXT_ARC_CMU_100 mm", "BDS_EXT_ARC_CMU_200 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_400 mm"],
-  at: "2026-10-03T10:00:00Z", actor: "lead@example.com", ledger: { id: 950, hash: HOLD }, runs: 1,
+  at: "2026-10-03T10:00:00Z", actor: "lead@example.com", ledger: { id: 950, hash: HOLD }, runs: 1, source: "revit", claimed: true,
 };
 ```
 
@@ -3143,6 +3498,10 @@ export interface ClearedItem { container_name: string; by: string; version_id: s
 export interface TypeGap {
   id: string; category: string; want: string | null; size: string | null; key: string | null; elements: number;
   labels: string[]; nearest: string[]; at: string; actor: string | null; ledger: LedgerRef; runs: number;
+  /** Review amendment C10: the newest run's source and claim — counted in Revit, not by the bridge. */
+  source: string | null; claimed: boolean;
+  /** Review amendment C5: open again after a dismissal — a run reported more than it saw. */
+  reopened?: { since: string; more: number };
   closed_by?: "dismissed" | "catalogue"; reason?: string | null; closed_at?: string; type?: string; catalog?: string;
 }
 export interface TypeGaps { open: TypeGap[]; closed: TypeGap[]; catalog: string | null; }
@@ -3304,7 +3663,10 @@ with
           : `<button data-gdismiss="${esc(x.id)}" style="${act}">Dismiss…</button>`;
       return `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #4a3a12;border-radius:.4rem;font-size:12px">` +
         `<div style="font-weight:600">${esc(typeGapLine(x))}</div>` +
-        `<div style="color:#9ca3af;font-size:11px">${esc(x.labels.slice(0, 5).join(", "))}${x.elements > 5 ? ` … (${x.elements})` : ""} · Promote · ${esc(x.actor || "—")} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}</div>` +
+        // C10: who reported it and that its counts are claimed; C5: a group open again after a dismissal says since when.
+        `<div style="color:#9ca3af;font-size:11px">${esc(x.labels.slice(0, 5).join(", "))}${x.elements > 5 ? ` … (${x.elements})` : ""} · reported by ${esc(x.actor || "—")} · ${esc(x.source ?? "unknown")}` +
+        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
+        `${x.reopened ? ` · reopened — ${x.reopened.more} element(s) since the dismissal of ${esc(when(x.reopened.since))}` : ""}</div>` +
         `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(x.ledger)}</div>` +
         `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem"><span style="color:#9ca3af">Install a catalogue with the type, or dismiss it with a reason.</span><span style="flex:1"></span>${dismiss}</div></div>`;
     };
@@ -3368,7 +3730,7 @@ In `docs/strategy/2026-09-30-model-automation-design.md`, replace
 with
 
 ```markdown
-| 4 | Required properties through `set_parameter`. The value comes from the catalogue type, a cited spec clause or a person, never a guess. On the pilot data most DD properties have no source yet, so they go to a person. BUILT (MA-2c): a DD type the plan lands elements on whose matrix property is empty on the TYPE gets one `set_parameter` type edit when the catalogue row of exactly that type (`params`, by display name) or a whole-class clause of the installed `ids@n` (one exact value) gives it — the bridge checks the source and writes its own record; never pre-ticked (a type edit reaches every element on the type, and the row says how many). Otherwise the property goes to a person — no source, sources that disagree, no parameter Sentinel can write — and Promote counts it. A person types their own value in Revit; the web grid that files one is [BP] P2-7 | `FixInPlaceService.OnType` / `WriteOnType` (the same PsetMap table as Fix in Revit; stale guard, read-back) | [BP] P2-7 | MA-2 |
+| 4 | Required properties through `set_parameter`. The value comes from the catalogue type, a cited spec clause or a person, never a guess. On the pilot data most DD properties have no source yet, so they go to a person. BUILT (MA-2c): a DD type the plan lands elements on whose matrix property is empty on the TYPE gets one `set_parameter` type edit when the catalogue row of exactly that type (`params`, by display name) or a whole-class clause of the installed `ids@n` (one exact value; a minimum is not one) gives it — the bridge checks both sources, refuses a filled value and writes its own record and the `validate` its referee judges; never pre-ticked (a type edit reaches every element on the type, and the review row says how many, counted in Revit). Otherwise the property goes to a person — no source, sources that disagree, no parameter Sentinel can write — and Promote counts it. A person types their own value in Revit; the web grid that files one is [BP] P2-7 | `FixInPlaceService.OnType` / `WriteOnType` (the same PsetMap table as Fix in Revit; stale guard, read-back) | [BP] P2-7 | MA-2 |
 ```
 
 In `docs/strategy/2026-09-30-model-automation-design.md`, replace
@@ -3394,7 +3756,7 @@ with
 
 ```markdown
 - Gaps are grouped per run by category, measured size band and key parameters (for example "Walls, external, 212–215 mm, 38 elements"). BUILT (MA-2c): grouped by category and the type the DD rule wants (else, with no rule to name one, the size no catalogue type is named at) — the snap is 0, so the size is exact and the type name carries it ("Walls: "BDS_EXT_ARC_CMU_125 mm" is not in the catalogue — 2 element(s) (Function Exterior)").
-- A group closes when a newly installed `type_catalog@n` has a match, or when a lead dismisses it with a reason. BUILT (MA-2c): the type catalogue in force (project → office) holding the wanted type by name in the category, or a type of the category named at the size; a run that no longer reports a group does not close it, and one that reports it after a dismissal opens it again.
+- A group closes when a newly installed `type_catalog@n` has a match, or when a lead dismisses it with a reason. BUILT (MA-2c): the type catalogue in force (project → office) holding the wanted type by name in the category, or a type of the category named at the size; a run that no longer reports a group does not close it; a dismissal holds while later runs report nothing beyond what it saw, and one that reports more elements, or a label it did not list, opens it again and says so.
 ```
 
 In `docs/strategy/2026-09-30-model-automation-design.md`, replace
@@ -3436,8 +3798,8 @@ with
 ```
 
 - [ ] **Step 2: The final checks** (from the repo root, the vitest ones from `WebApp`):
-  - every tracked check project: `for p in $(git ls-files 'tools/*-check/*.csproj' | xargs -n1 dirname | sort -u); do dotnet run --project "$p"; done` — all 25 pass (`annotate-check ALL PASS`, `fixplace-check 55/55 checks pass`, `ghost-standards-check 177/177 checks pass`, `promote-check 636/636 checks pass`, `session-check 47/47 checks pass`, the rest as on master);
-  - `npx vitest run` (every file) — `Test Files  141 passed (141)`, `Tests  2260 passed | 1 skipped (2261)`; the bridge suite `npx vitest run bridge` — `Test Files  89 passed (89)`, `Tests  1801 passed | 1 skipped (1802)`;
+  - every tracked check project: `for p in $(git ls-files 'tools/*-check/*.csproj' | xargs -n1 dirname | sort -u); do dotnet run --project "$p"; done` — all 25 pass (`annotate-check ALL PASS`, `fixplace-check 55/55 checks pass`, `ghost-standards-check 177/177 checks pass`, `promote-check 640/640 checks pass` **(C-count)**, `session-check 47/47 checks pass`, the rest as on master);
+  - `npx vitest run` (every file) — `Test Files  141 passed (141)`, `Tests  2263 passed | 1 skipped (2264)` **(C-count)**; the bridge suite `npx vitest run bridge` — `Test Files  89 passed (89)`, `Tests  1804 passed | 1 skipped (1805)` **(C-count)**;
   - `npx tsc --noEmit -p .` — `18` errors, 0 in the touched files;
   - the builds: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false` — `0 Error(s)`, `5 Warning(s)`; `-p:RevitVersion=2026` — `0 Error(s)`, `3 Warning(s)` (master's counts; 2022 and 2027 are not required builds and were checked in the dry run: `0 Error(s)`, `3 Warning(s)`, `0 Error(s)`, `5 Warning(s)`).
 
@@ -3466,9 +3828,10 @@ EOF
 - **A window U-value**: no BDS window type is a DD type on the seed (L-1 of MA2b: Windows 0 at DD), and "Heat Transfer Coefficient (U)" is a unit-bearing number (S7): the "no writer" branch is pinned offline only (UNSURE 2).
 - **One row on Revit 2026 and one on Revit 2027**: the builds compile; the type write inside the open group is proven on 2024 only.
 - **Carried from MA2b**: I-1's DD IDS dialog with F-MA2b-2's fix (every failing element named) — run again here in A-1 and recorded; W-1 of MA2b (the Next strip in the browser) stays owed unless W-1 below runs; a real office matrix (LM-1).
+- **W-1 is likely owed** (C14): MA2b's W-1 was blocked because the local-app route loads from :4000, where the founder's long-running `thatopen serve` serves the 4100 build, and because the app needs the founder's platform sign-in. W-1 runs only if port 4000 is free (or the founder stops that serve for the drill) and the platform sign-in is there.
 
 **Set-up (once):**
-- **Build.** Close Revit. Record which add-in is deployed now: the sha256 of the deployed `Sentinel.dll` under `%AppData%\Autodesk\Revit\Addins\2024` (`certutil -hashfile "<that Sentinel.dll>" SHA256`, lower case). Run `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (it deploys the branch's build into Revit 2024; the closing list puts master's back). Record `git rev-parse --short HEAD` and the new DLL's sha256.
+- **Build.** Close Revit. Record which add-in is deployed now: the sha256 of the deployed `Sentinel.dll` under `%AppData%\Autodesk\Revit\Addins\2024` (`certutil -hashfile "<that Sentinel.dll>" SHA256`, lower case), and the commit it was built from if it is known — else "unknown" (C15: MA2b's redeploy was blocked, so it may be the MA2b branch build `7f8fc2c`, not master `6a87d9f`). Run `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (it deploys the branch's build into Revit 2024; the closing list puts master's back). Record `git rev-parse --short HEAD` and the new DLL's sha256.
 - **The add-in's bridge settings.** Copy `%AppData%\Sentinel\bcf-config.json` to `bcf-config.json.ma2cbak` beside it. The file holds the file token: never print it, never open it in a viewer.
 - **The test bridge on 127.0.0.1:4101**, on the branch's code. From `WebApp`:
   - Probe which settings `config/.env` holds (names only, never a value):
@@ -3498,20 +3861,22 @@ EOF
 
 **Record before the first row**, on `ma2c-a.rvt`: by mouse, Type Properties ▸ Identity Data ▸ **Fire Rating** of `BDS_EXT_ARC_CMU_200 mm`, `BDS_INT_ARC_GYPS_100 mm`, `BDS_INT_1 PNL_WOOD_1000 x 2100 mm`, `BDS_INT_2 PNL_WOOD_2000 x 2100 mm` (MA2b: all empty), then **Cancel**; with the MCP, `get_available_family_types` for Walls and Doors (the type count before — "zero types created" is read against it).
 
-**Expected from the seed** (MA2b's record, `SIMULATION_ROOM_RUN_2026-09-22.md` session MA2b): 86 counted, 7 at DD now (8 %); on the GR-FFL changeset 14 outline walls → `BDS_EXT_ARC_CMU_200 mm`, 10 partitions → `BDS_INT_ARC_GYPS_100 mm`, 2 door swaps onto the BDS PNL_WOOD types, 20 attaches; after MA2b's apply, 9 of 86 at DD, with 18 walls (8 outline walls retyped and attached, 10 partitions) and 4 doors (2 swapped, 2 DD now) below only for a missing Fire Rating. With this drill's sources: the outline wall type gets "60 min" from the catalogue, every DD door type "FD30" from the clause, and `BDS_INT_ARC_GYPS_100 mm` has no source. So the LOD state after the GR-FFL apply should read **about 21 of 86 (24 %)** = 9 + 8 outline walls + 4 doors; the partitions stay below with `missing Pset_WallCommon.FireRating`. A difference is recorded with its reason, not by itself a failure.
+**Expected from the seed** (MA2b's record, `SIMULATION_ROOM_RUN_2026-09-22.md` session MA2b): 86 counted, 7 at DD now (8 %); on the GR-FFL changeset 14 outline walls → `BDS_EXT_ARC_CMU_200 mm`, 10 partitions → `BDS_INT_ARC_GYPS_100 mm`, 2 door swaps onto the BDS PNL_WOOD types, 20 attaches; after MA2b's apply, 9 of 86 at DD, with 18 walls (8 outline walls retyped and attached, 10 partitions) and 4 doors (2 swapped, 2 DD now) below only for a missing Fire Rating. With this drill's sources: the outline wall type gets "60 min" from the catalogue, every DD door type "FD30" from the clause, and `BDS_INT_ARC_GYPS_100 mm` has no source. So the LOD state after the GR-FFL apply should read **about 21 of 86 (24 %)** = 9 + 8 outline walls + 4 doors; the partitions stay below with `missing Pset_WallCommon.FireRating`. That assumes every DD door type's edit rides on GR-FFL. Under C8 a type's edit rides on the first storey whose retypes land on it, else on the first storey with elements on it, so a DD-now door type that only another storey's doors stand on rides there, and the count after GR-FFL is lower by its doors. A-1 records which storey carries each door type edit. A difference is recorded with its reason, not by itself a failure.
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
-| R-1 | `b4101 POST changesets/ma2c '{"name":"t","source":"agent","elements":[{"op":"set_parameter","kind":"wall","target":{"unique_id":"00000000-0000-0000-0000-000000000000-00000001"},"place":{"TypeName":"BDS_EXT_ARC_CMU_200 mm"},"parameter":"Pset_WallCommon.FireRating","from":"","to":"120 min","value_source":{"kind":"catalogue"},"validate":{"identity":{"Class":"IfcWall"}}}]}'`; the same with `"to":"60 min","value_source":{"kind":"person"}`; `b4101 GET cde/ma2c/holding` | 400 `elements[0]: set_parameter's value_source: type_catalog@1 · office · <sha12>… gives BDS_EXT_ARC_CMU_200 mm Fire Rating "60 min", not "120 min" — a value is written only as its source holds it`; 400 `… set_parameter needs value_source {kind: catalogue \| clause} — a value is written from a cited source, never a guess; a person types their own in Revit`; nothing stored (`GET changesets/ma2c` `[]`); the holding reply has `type_gaps: {open: [], closed: [], catalog: "type_catalog@1 · office · …"}` | The three replies |
-| P-1 | Open `ma2c-a.rvt`; Sentinel ▸ Promote (DD); read the dialog; expand it; press **No** (the read-only run). The pane's Doctor log | The dialog has `DD properties: <w> type edit(s) from a cited source (never pre-ticked) · 1 with no source — sent to a person (<n> element(s) on those types)` with `<w>` = 1 wall type + every DD door type (expected 2–3: the two swap targets and the DD-now doors' types), the line `— ids@1 · project · …`, then `✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → "60 min" (type_catalog@1 · office · … · BDS_EXT_ARC_CMU_200 mm · Fire Rating)`, a `✎ Doors · <family> : <type> · Pset_DoorCommon.FireRating → "FD30" (ids@1 · project · … · Doors carry FD30 · "All doors shall be FD30.")` line per DD door type, and `→ a person: no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · … gives no Fire Rating for it, and no clause of ids@1 · project · … pins one; a person fills it in Revit (Type Properties) — <n> element(s) on it`; and `Type gaps (sent to the ledger — …): <g> group(s), <e> element(s)` with one line per group (expected about five: the two 125 mm gap walls, F02 at 250 mm, R02 at 225 mm, C03, D04 at 915 x 2134 mm). Doctor: `Type gaps — Recorded: ledger #<id>` | The DD properties lines and the no-source count `<n>` (drill MA2 asks it); the gap lines; `<n>` element(s) against `get_available_family_types`/the template's instances (UNSURE 6) |
+| R-1 | `b4101 POST changesets/ma2c '{"name":"t","source":"agent","elements":[{"op":"set_parameter","kind":"wall","target":{"unique_id":"00000000-0000-0000-0000-000000000000-00000001"},"place":{"TypeName":"BDS_EXT_ARC_CMU_200 mm"},"parameter":"Pset_WallCommon.FireRating","from":"","to":"120 min","value_source":{"kind":"catalogue"},"validate":{"identity":{"Class":"IfcWall"}}}]}'`; the same with `"to":"60 min","value_source":{"kind":"person"}`; the same with `"from":"30 min","to":"60 min"` (C1); `b4101 GET cde/ma2c/holding` | 400 `elements[0]: set_parameter's value_source: type_catalog@1 · office · <sha12>… gives BDS_EXT_ARC_CMU_200 mm Fire Rating "60 min", not "120 min" — a value is written only as its source holds it`; 400 `… set_parameter needs value_source {kind: catalogue \| clause} — a value is written from a cited source, never a guess; a person types their own in Revit`; 400 `elements[0]: set_parameter fills an empty value only — a filled one is a person's (P2-7 edits it)`; nothing stored (`GET changesets/ma2c` `[]`); the holding reply has `type_gaps: {open: [], closed: [], catalog: "type_catalog@1 · office · …"}` | The four replies |
+| P-1 | Open `ma2c-a.rvt`; Sentinel ▸ Promote (DD); read the dialog; expand it; press **No** (the read-only run). The pane's Doctor log | The LOD line reads `LOD state now … DD → design: 7 of 86 at DD (8%) · 70 below · 9 blocked · 0 not measured` (MA2b L-1, the seed: C12). The dialog has `DD properties: <w> type edit(s) from a cited source (never pre-ticked) · 1 with no source — sent to a person (<n> element(s) on those types) · <k> held off the type (instance, IsExternal from Function, or not read) — not planned` with `<w>` = 1 + the number of DD door types (at least 2: the two swap targets, plus the DD-now doors' types if they differ — expected 3–5: C13) and `<k>` expected 2 (each DD wall type's IsExternal, read from its Function: C11), the line `— ids@1 · project · …`, then `✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → "60 min" (type_catalog@1 · office · … · BDS_EXT_ARC_CMU_200 mm · Fire Rating) — <m> element(s) read the type`, a `✎ Doors · <family> : <type> · Pset_DoorCommon.FireRating → "FD30" (ids@1 · project · … · Doors carry FD30 · "All doors shall be FD30.") — <m> element(s) read the type` line per DD door type (C3), and `→ a person: no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · … gives no Fire Rating for it, and no clause of ids@1 · project · … pins one; a person fills it in Revit (Type Properties) — <n> element(s) on it`; and `Type gaps (sent to the ledger — …): <g> group(s), <e> element(s)` with one line per group (expected about five: the two 125 mm gap walls, F02 at 250 mm, R02 at 225 mm, C03, D04 at 915 x 2134 mm). Doctor: `Type gaps — Recorded: ledger #<id>` | The LOD now line; the DD properties lines and the no-source count `<n>` (drill MA2 asks it); the names of the DD door types from the ✎ lines (A-2 reads those types back); the gap lines; `<n>` element(s) against `get_available_family_types`/the template's instances (UNSURE 6) |
 | P-2 | `b4101 GET "cde/ma2c/audit?entity_type=type_gap&limit=1"`; `b4101 GET cde/ma2c/holding` | One row: action `type_gap:run · <g> group(s), <e> element(s)`, `new_value.claimed` true, every group with a 12-hex `id`, its category, `want` or `size`, `key`, `elements`, `labels`, `nearest`; actor the account (signed in) or the machine label. The holding reply's `type_gaps.open` lists the same groups (`runs: 1`), `catalog` `type_catalog@1 · office · …` | The row id; the group ids |
-| A-1 | Promote (DD) → **Yes**; the review opens on `Promote (DD) · GR-FFL`. Read every row; tick every row; **Apply**; at the DD IDS dialog read the tally and See details; **Place anyway** | The set_parameter rows are **unticked** when the window opens (never pre-ticked) and read `type edit wall: BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating "" → "60 min" · from type_catalog@1 · office · … · Fire Rating` (and one `type edit door: …` per DD door type), their tooltip `… a type edit: every element on … reads it (<k> in the model now, <m> more that this changeset retypes onto it)`; "Sent to a person" lists `type BDS_INT_ARC_GYPS_100 mm · Pset_WallCommon.FireRating — no source …` beside the held elements. The DD IDS dialog says `This changeset leaves N element(s) failing …` with N = 10 partitions + the 2 attach-only gap walls = **12** (MA2b's 28 less the 14 outline walls and 2 doors the type edits now fill); its tally names `Walls · DD: missing Pset_WallCommon.FireRating — 12 element(s)`; See details names each (F-MA2b-2's fix, live). The result: `Applied <48 + w> element(s) …`, the IDS line `… placed anyway …`, `LOD state after (sent to the ledger — …): DD → design: <a> of 86 at DD (<s>%) …` with `<a>` about 21 (24 %) | The rows' words; N and the tally; the LOD after line against 21 |
-| A-2 | Close the result dialog and the review window. `b4101 GET "cde/ma2c/audit?entity_type=changeset&limit=3"`; by mouse, Type Properties of `BDS_EXT_ARC_CMU_200 mm` and of the DD door types (then Cancel); MCP `get_available_family_types` for Walls and Doors | The `changeset_applied` row's `new_value.values` lists each written type: `{type: "BDS_EXT_ARC_CMU_200 mm", parameter: "Pset_WallCommon.FireRating", from: "", to: "60 min", value_source: {kind: "catalogue", ref: "type_catalog@1 · office · … · BDS_EXT_ARC_CMU_200 mm · Fire Rating", sha256}}` and the doors' `FD30` from the clause; the types read `60 min` / `FD30` in Revit; the type counts equal the record before the first row (**zero types created**) | The row id and its values; the counts |
-| S-1 | The stale guard (S4), on `ma2c-b.rvt`: Promote (DD) → **Yes**; the review opens on its GR-FFL changeset. **Before Apply**, by mouse: Type Properties of `BDS_EXT_ARC_CMU_200 mm` ▸ Fire Rating `90 min` ▸ OK. Tick every row; **Apply** | `Transaction failed and was rolled back: stale: Pset_WallCommon.FireRating on type BDS_EXT_ARC_CMU_200 mm reads "90 min" now, the plan read "" — the model changed since the plan; re-run Promote` … `Reported as declined.`; nothing of the changeset is in the model (the outline walls still `Generic - 200mm`: MCP on the GR-FFL plan view, after closing the dialogs); `b4101 GET changesets/ma2c-b` shows it `declined`. Then Promote (DD) again → No: no `✎ … BDS_EXT_ARC_CMU_200 mm` line (a filled value is not overwritten) | The refusal's words; the status; the second header |
+| A-1 | Promote (DD) → **Yes**; the review opens on `Promote (DD) · GR-FFL`. Read every row; tick every row; **Apply**; at the DD IDS dialog read the tally and See details; **Place anyway** | The set_parameter rows are **unticked** when the window opens (never pre-ticked) and read `type edit wall: BDS_EXT_ARC_CMU_200 mm  ·  reaches <k> element(s) in the model now  ·  Pset_WallCommon.FireRating "" → "60 min"  ·  from type_catalog@1 · office · … · Fire Rating` (and one `type edit door: …` per DD door type whose edit rides on GR-FFL), `<k>` the add-in's own count (C3), their tooltip `… a type edit: every element on … reads it (<k> in the model now, <m> more that this changeset retypes onto it)`; "Sent to a person" lists `type BDS_INT_ARC_GYPS_100 mm · Pset_WallCommon.FireRating — no source …` beside the held elements. The DD IDS dialog says `This changeset leaves N element(s) failing …` with N = 10 partitions + the 2 attach-only gap walls = **12** (MA2b's 28 less the 14 outline walls and 2 doors the type edits now fill); its tally names `Walls · DD: missing Pset_WallCommon.FireRating — 12 element(s)`; See details names each (F-MA2b-2's fix, live). The result: `Applied <48 + w'> element(s) …` (`w'` = the type edits riding on GR-FFL: `w` when every one does, C8, C13), the IDS line `… placed anyway …`, `LOD state after (sent to the ledger — …): DD → design: <a> of 86 at DD (<s>%) …` with `<a>` about 21 (24 %) | The rows' words; `<k>` per type edit; which storey's changeset carries each door type edit (C8 — `b4101 GET changesets/ma2c` names each changeset's set_parameter rows); N and the tally; the LOD after line against 21 |
+| A-2 | Close the result dialog and the review window. `b4101 GET "cde/ma2c/audit?entity_type=changeset&limit=3"`; by mouse, Type Properties of `BDS_EXT_ARC_CMU_200 mm` and of the DD door types (then Cancel); MCP `get_available_family_types` for Walls and Doors | The `changeset_applied` row's `new_value.values` lists each written type: `{kind: "wall", type: "BDS_EXT_ARC_CMU_200 mm", unique_id, revit_unique_id, parameter: "Pset_WallCommon.FireRating", from: "", to: "60 min", value_source: {kind: "catalogue", ref: "type_catalog@1 · office · … · BDS_EXT_ARC_CMU_200 mm · Fire Rating", sha256}}`, with `unique_id` equal to `revit_unique_id` (C9), and the doors' `FD30` from the clause; the types read `60 min` / `FD30` in Revit; the type counts equal the record before the first row (**zero types created**) | The row id and its values; the counts |
+| U-1 | One Undo removes the type edit with the retypes (XC-2 for a write on a TYPE, C6). Close the dialogs. Read Revit's Undo list (the arrow beside Undo) before pressing: its top entry is one `Sentinel … Promote (DD) · GR-FFL`. Edit ▸ Undo once. Read the Undo list again | The outline walls read `Generic - 200mm` again (MCP `get_current_view_elements` on the GR-FFL plan view, no dialog open); Type Properties of `BDS_EXT_ARC_CMU_200 mm` ▸ Fire Rating is empty again, and so is each DD door type's that A-2 read (by mouse, then Cancel); the pane's Doctor shows `changeset_reverted row posted`; `b4101 GET "cde/ma2c/audit?entity_type=changeset&limit=2"` shows the `changeset_reverted` row, whose guids include the set_parameter rows' guids | The Undo list before and after; the row id and its guids |
+| S-1 | The stale guard (S4), on `ma2c-b.rvt`: Promote (DD) → **Yes**; the review opens on its GR-FFL changeset. **Before Apply**, by mouse: Type Properties of `BDS_EXT_ARC_CMU_200 mm` ▸ Fire Rating `90 min` ▸ OK. Tick every row; **Apply** | `Transaction failed and was rolled back: stale: Pset_WallCommon.FireRating on type BDS_EXT_ARC_CMU_200 mm reads "90 min" now, the plan read "" — set_parameter fills an empty value only (a filled one is a person's); re-run Promote` (C1) … `Reported as declined.`; nothing of the changeset is in the model (the outline walls still `Generic - 200mm`: MCP on the GR-FFL plan view, after closing the dialogs); `b4101 GET changesets/ma2c-b` shows it `declined`. Then Promote (DD) again → No: no `✎ … BDS_EXT_ARC_CMU_200 mm` line (a filled value is not overwritten), and the line `→ a person: Pset_WallCommon.FireRating on BDS_EXT_ARC_CMU_200 mm reads "90 min", type_catalog@1 · office · … · BDS_EXT_ARC_CMU_200 mm · Fire Rating gives "60 min" — not overwritten; a person decides` (C11), counted in `… sent to a person for another reason` | The refusal's words; the status; the second header |
 | G-1 | The gaps' close rules. Pick the Doors group (`no type named at 915 x 2134 mm`) and the Walls group from P-2. `b4101 POST cde/ma2c/holding/type-gaps/<doors id>/dismiss '{"reason":"D04 is a template sample; the office does not use 915 doors"}'`; then install a catalogue that holds the Walls group's wanted type: `node -e 'const fs = require("fs"), c = JSON.parse(fs.readFileSync(process.argv[1] + "/catalog-fr.json", "utf8")); c.types.push({ category: "Walls", family: "Basic Wall", type: process.argv[2], system: true, width_mm: 125, height_mm: null, params: {} }); fs.writeFileSync(process.argv[1] + "/catalog-fr-125.json", JSON.stringify(c)); console.log("catalog-fr-125.json")' "$D" "<the Walls group's want>"`; `b4101 PUT "cde/ma2c-office/artefacts/type_catalog?actor=drill" "@$D/catalog-fr-125.json"` (201, `type_catalog@2`); `b4101 GET cde/ma2c/holding` | The dismissal 201 `{id, hash}` (a `hold:type_gap_dismissed <id>` row); the holding reply's `type_gaps.closed` lists the Doors group `closed_by: "dismissed"` with the reason, and the Walls group `closed_by: "catalogue"`, `type` the wanted name, `catalog: "type_catalog@2 · office · …"`; `catalog` is `type_catalog@2 · …`; the other groups stay open. A second dismissal of the Doors group is 409 `type-gap group <id> is not open on ma2c` | The replies |
-| W-1 | The web Holding Area. From `WebApp`, in the background: `VITE_SENTINEL_SERVICE=http://127.0.0.1:4101 npm run dev`; open the URL its banner prints in Chrome (the founder's local-app route, signed in to the platform), project `ma2c`, Files | "Type gaps (n)" lists each open group in `typeGapLine`'s words with Dismiss… (a lead), the closed ones with `dismissed — <reason>` / `closed — type_catalog@2 · office · … has <type>`, and `Close rule: type_catalog@2 · …`. If the local app cannot run against the test bridge, record G-1's reply and mark the row **owed** | A screenshot, or "owed" with the reason |
+| G-2 | A dismissal holds (C5). On `ma2c-a.rvt` (the seed again after U-1), Sentinel ▸ Promote (DD) → **No**; then `b4101 GET cde/ma2c/holding` | The Doors group (`no type named at 915 x 2134 mm`) is still in `type_gaps.closed` with `closed_by: "dismissed"` and G-1's reason, its `runs` one more than at G-1, and not in `type_gaps.open`; a group the run reports with more elements than its dismissal saw would carry `reopened` — none is expected here | The reply |
+| W-1 | The web Holding Area. **First** (C14), read only: `netstat -ano \| findstr :4000`. If the founder's `thatopen serve` holds port 4000, or the platform sign-in is not there, W-1 is **owed** with that reason and is not attempted (the founder may stop that serve for the drill and restart it afterwards). Else, from `WebApp`, in the background: `VITE_SENTINEL_SERVICE=http://127.0.0.1:4101 npm run dev`; open the URL its banner prints in Chrome (the founder's local-app route, signed in to the platform), project `ma2c`, Files | "Type gaps (n)" lists each open group in `typeGapLine`'s words with Dismiss… (a lead) and `reported by <actor> · revit (claimed — counted in Revit, not by the bridge)` (C10), the closed ones with `dismissed — <reason>` / `closed — type_catalog@2 · office · … has <type>`, and `Close rule: type_catalog@2 · …`. If the local app cannot run against the test bridge, record G-1's reply and mark the row **owed** | A screenshot, or "owed" with the reason |
 
-Request bodies and the drill's files are kept in `Documents\Sentinel drills\ma2c\`. The rows run in the order above: P-1 needs the standards; A-1 follows P-1; S-1 is on the second copy; G-1 needs P-2's ids.
+Request bodies and the drill's files are kept in `Documents\Sentinel drills\ma2c\`. The rows run in the order above: P-1 needs the standards; A-1 follows P-1; U-1 follows A-2 (it undoes A-1's apply); S-1 is on the second copy; G-1 needs P-2's ids; G-2 follows G-1.
 
 Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session MA2c, with gaps named F-MA2c-n, each fixed on the branch ("fix(drill MA2c): …" with its check), and the list of **owed** rows at its end.
 
@@ -3520,7 +3885,7 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session 
 - return the sign-in to the state found before the drill (the founder signs out if the PC was signed out before);
 - stop the test bridge on 4101, and the web dev server if W-1 started one;
 - restore the add-in's bridge settings: copy `bcf-config.json.ma2cbak` back over `bcf-config.json`, compare the two files' sha256 (`certutil -hashfile`, the hashes only), delete the backup;
-- put master's add-in back, with Revit closed: `git checkout master`, `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (it deploys master's build), record the deployed DLL's sha256 (it should equal the one recorded before the set-up's build), then `git checkout feature/ma2c-set-parameter-gaps`. The founder's Revit runs master's add-in against the master bridge until the merge and its deployment — never the branch's add-in against a bridge that refuses set_parameter and `type_gap`;
+- put master's add-in back, with Revit closed: `git checkout master`, `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (it deploys master's build), record the deployed DLL's sha256 and the commit it was built from (`6a87d9f`) beside the hash and commit recorded before the set-up's build (C15). They may differ — the one found may be MA2b's branch build `7f8fc2c`, its redeploy having been blocked — and a difference is said in words, not a failure: from now on the founder's Revit runs master `6a87d9f`'s build. Then `git checkout feature/ma2c-set-parameter-gaps`. The founder's Revit runs master's add-in against the master bridge until the merge and its deployment — never the branch's add-in against a bridge that refuses set_parameter and `type_gap`;
 - list what the drill left on the shared ledger — the scratch office `ma2c-office` (`guideline@1`, `type_catalog@1` and `@2`, `lod_matrix@1`, `ruleset@1`), the projects `ma2c` and `ma2c-b` (`ids@1` each), the memberships, the changesets, the `lod_state`, `type_gap` and dismissal rows — left in place on purpose (scratch keys), as the earlier drills' were;
 - list what the drill left on this PC outside the repository: the `ma2c` and `ma2c-b` folders under `%AppData%\Sentinel\cache` (deleted: scratch keys only), the two scratch copies and the drill's files in `Documents\Sentinel drills\ma2c\` (they stay, named, as the drill's evidence; never committed).
 
@@ -3531,6 +3896,7 @@ Merge when all of these hold:
 - each F-MA2c-n fix is committed on the branch with its check, and Task 7 Step 2's checks were run again after the last fix;
 - a fix that changes what Revit does was deployed and its row run again live before the merge; a row whose fix was not run again is recorded as **owed**, not as passed;
 - UNSURE 1 and 3 held: A-1's outline walls did not fail the DD IDS, and A-2 read the values back in Revit. If the IDS check before commit failed the outline walls, the write did not land inside the group: nothing is merged.
+- U-1 passed (C6): one Undo took the type edits back with the retypes. If a type still reads its value after the Undo, the write was not inside the Sentinel action's one Undo (XC-2): nothing is merged.
 
 ```bash
 git checkout master
@@ -3543,7 +3909,7 @@ EOF
 
 Push only under the standing push rule, after a secret scan of the range.
 
-**Deployment, in this order:** (1) the bridge — the founder restarts the 4100 bridge on master (`tools/bridge-start.cmd` is the founder's step). It must know set_parameter and `type_gap` before an add-in posts one: an older bridge refuses a Promote body with a set_parameter (400 `op "set_parameter" is not supported`, so nothing of that storey is filed) and the `type_gap` report (400). (2) Then the add-in, with Revit closed: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (without `DeployToRevit=false`), and the same with `-p:RevitVersion=<v>` for each other Revit version the founder uses. (3) The web app: the Holding Area's Type gaps section ships with the next That Open publish (the founder's step); until then the web says nothing of type gaps, and the bridge's reply carries them.
+**Deployment, in this order:** (1) the bridge — the founder restarts the 4100 bridge on master (`tools/bridge-start.cmd` is the founder's step). It must know set_parameter and `type_gap` before an add-in posts one: an older bridge refuses a Promote body with a set_parameter (400 `op "set_parameter" is not supported` — under C4 Promote files the storey again without its type edits, each sent to a person in words, so the storey's retypes are not lost, but no type edit is filed) and the `type_gap` report (400). (2) Then the add-in, with Revit closed: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (without `DeployToRevit=false`), and the same with `-p:RevitVersion=<v>` for each other Revit version the founder uses. (3) The web app: the Holding Area's Type gaps section ships with the next That Open publish (the founder's step); until then the web says nothing of type gaps, and the bridge's reply carries them.
 
 ## UNSURE facts this drill settles
 
@@ -3554,6 +3920,7 @@ Push only under the standing push rule, after a secret scan of the range.
 5. Whether the review window's set_parameter label fits (it trims with an ellipsis; the tooltip holds the reason). A-1.
 6. How many elements read a BDS type in the template (the type edit's reach: legend and sample instances). Recorded at P-1 and A-1.
 7. Whether the `type_gap` row lands inside the 20-reports-a-minute budget with `lod_state` now and the receipt in a quick run. Settled by P-1's Doctor line.
+8. Whether one Undo of the applied Promote changeset takes the type edits back with the retypes (a write on a TYPE inside the changeset's transaction and TransactionGroup, XC-2), and whether `UndoWatcher`'s `changeset_reverted` row names the set_parameter rows. Settled by U-1 (C6).
 
 ## Risks (each a ceiling stated in words)
 
@@ -3561,9 +3928,10 @@ Push only under the standing push rule, after a secret scan of the range.
 - **"No source" dominates on the pilot.** The BDS catalogue carries no Fire Rating for any type the DD rules produce (drill MA2b), and no thermal value at all: without an office catalogue edit or a clause, every DD property goes to a person. That is the honest reading (design §3.5).
 - **The catalogue parameter map has two entries**, by English display name ("Fire Rating"). A catalogue harvested in another language, or a property the harvest does not read, has no catalogue source — a person fills it. Widening the harvest is BOS's (Next).
 - **A whole-class clause is rare.** Fire ratings vary by wall type and compartment; a clause narrowed by type or predefinedType is not read as a source (F2). A per-type clause artefact is under Next.
-- **A storey of more than 200 ghosts** is several changesets; a type's set_parameter rides in one of them, and the retypes onto that type in another fail the DD IDS before commit until that one is applied. MA-2d runs a storey's changesets together.
+- **A storey of more than 200 ghosts** is several changesets; a type's set_parameter rides in the first of them (C8), and the retypes onto that type in a later one fail the DD IDS before commit until the first is applied. MA-2d runs a storey's changesets together.
+- **The bridge may refuse a type edit the add-in planned** (a standard re-installed while the dialog is open, an ids@n the bridge no longer reads, a pattern JS and .NET read differently, an older bridge): Promote files the storey again without its type edits, each sent to a person in words (C4) — the value is then a person's, until Promote runs again.
 - **The stale guard fails the whole changeset at Apply** (S4) — it is reported declined, and Promote is run again; the review window does not mark a stale row beforehand.
-- **A gap fixed by hand stays listed** until a lead dismisses it (F7); the machine credential can dismiss (F8), as for held files today.
+- **A gap fixed by hand stays listed** until a lead dismisses it (F7); the machine credential can dismiss (F8), as for held files today. A dismissal holds until a run reports more than it saw (C5); the comparison reads the first 20 labels, so a group of more than 20 elements whose first 20 change reopens.
 - **The Holding Area reads the catalogue in force on every GET** (E8): one more read per refresh of the Files panel.
 - **The review window's "Sent to a person (n element(s))" counts a DD property row as one** (its UniqueId is the type's): the row itself says "type … · Pset_…", so nothing is hidden, but the count is of rows. A words fix if the drill finds it misleading (F-MA2c-n).
 - **Promote's existing network calls on the API thread** (`ChangesetClient.Propose`, `GovernedNotify.Report`'s queue, the review's `Report`) are unchanged; MA-2c adds none, and moving them off the thread is MA-2d's (its storey batch reports several changesets).
