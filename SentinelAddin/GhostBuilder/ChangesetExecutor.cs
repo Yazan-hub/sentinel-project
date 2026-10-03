@@ -294,8 +294,16 @@ public sealed class ChangesetExecutor
     /// touches a group member, a design option, a structural floor, or a door or window no wall hosts. Also the preflight.
     internal static string Unsafe(Element e, string kind, ElementType cur, ElementType nt)
     {
-        if (kind == "wall") return null;
         string what = $"{kind} {e.UniqueId}";
+        if (kind == "wall")
+        {
+            // MA-2a (review C3): a wall retype never moves a face either. Promote names a type at the wall's own width, so its retypes
+            // pass; a retype the bridge typed from a poster's facts (full contract 2) carries a CLAIMED thickness, and this is the one
+            // check that sees it. Nothing else about a wall is checked here, as before (MA-0's holds are the planner's).
+            if (cur is WallType cw && nt is WallType nw && cw.Kind == WallKind.Basic && nw.Kind == WallKind.Basic && Math.Abs(nw.Width - cw.Width) > TolFt)
+                return $"\"{nt.Name}\" is {Mm(nw.Width / MmToFeet)} mm thick, {what} is {Mm(cw.Width / MmToFeet)} mm — a retype would move a face; a person decides";
+            return null;
+        }
         if (e.GroupId != ElementId.InvalidElementId) return what + " is in a group — Sentinel does not edit group members";
         if (e.DesignOption != null) return what + " is in a design option — Sentinel does not edit design options";
         if (kind == "floor" && e.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1)

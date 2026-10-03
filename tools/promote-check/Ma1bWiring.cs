@@ -60,7 +60,7 @@ static partial class Check
            "a block on a row that is not Doors or Windows is not placed: counted, named, and in the ledger report's skipped count");
         // Review (2026-10-03): a block on a Walls row is set aside where the walls are typed — never a silent SkippedNoGeometry.
         int wallRow = planner.IndexOf("if (el.Block != null) { NoteNested($\"Walls on '{el.CadLayer}'\", el); SetAside(el); continue; }", StringComparison.Ordinal);
-        Ok(wallRow > 0 && wallRow < planner.IndexOf("typer.ResolveWallType(el, map, out string gap, out string typedBy)", StringComparison.Ordinal),
+        Ok(wallRow > 0 && wallRow < planner.IndexOf("typer.ResolveWallType(el, map, out string gap, out string typedBy", StringComparison.Ordinal), // MA-2a adds the facts argument
            "a block on a Walls row is counted and named with the other blocks, before it is typed as a wall");
         // Review (2026-10-03, amendment C5): the "read as ONE block" sentence is said on every ticked row, before the E17 set-aside.
         int nested = planner.IndexOf("NoteNested(what, el);", StringComparison.Ordinal);

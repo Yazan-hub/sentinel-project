@@ -16,6 +16,8 @@ using Autodesk.Revit.UI;
 using Sentinel.Coordination;
 using Sentinel.Engine;
 using Sentinel.GhostBuilder;
+using Sentinel.Standards; // TypeHarvest (MA-2a: the build-up's material label)
+using Sentinel.Workflow;  // NamingManagerService.LayerMaterials
 
 namespace Sentinel.Commands;
 
@@ -228,6 +230,27 @@ public sealed class PromoteWallsCommand : IExternalCommand
             InOption = w.DesignOption != null,
             Structural = w.get_Parameter(BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT)?.AsInteger() == 1,
             Stamp = ProvenanceStamp.Read(w),
+            // MA-2a: the facts the layer-free rules may see — the wall's line for the outer boundary (every wall, whatever its
+            // type: it encloses), and a basic type's build-up materials.
+            Line = WallLine(w),
+            Material = basic ? TypeHarvest.MaterialLabel(NamingManagerService.LayerMaterials(doc, wt)) : null,
+        };
+    }
+
+    /// <summary>MA-2a: the wall's location line in plan (mm) as WallLocation reads it — an arc's chord, flagged; null when the wall
+    /// has no bound curve (it is then no barrier and its own location is unknown).</summary>
+    private static WallLocation.Segment WallLine(Wall w)
+    {
+        var c = (w.Location as LocationCurve)?.Curve;
+        if (c == null || !c.IsBound) return null;
+        XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
+        var wt = w.WallType;
+        bool basic = wt?.Kind == WallKind.Basic && !w.IsStackedWallMember;
+        return new WallLocation.Segment
+        {
+            X0 = a.X * FtToMm, Y0 = a.Y * FtToMm, X1 = b.X * FtToMm, Y1 = b.Y * FtToMm,
+            WidthMm = basic ? wt.Width * FtToMm : 0,
+            Curved = !(c is Line),
         };
     }
 
