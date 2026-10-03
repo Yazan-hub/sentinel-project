@@ -48,6 +48,12 @@ static class InstallChecks
         string cmd = Src("Commands.Standards.cs");
         int wire = cmd.IndexOf("window.InstallRequested += () =>", StringComparison.Ordinal);
         int enqueue = cmd.IndexOf("App.Events.Enqueue(_ =>", wire, StringComparison.Ordinal);
+        // Review C22: signed out, GovernedNotify sends the machine's FileToken, which the bridge reads as `service` and lets past the
+        // lead check; the office catalogue could be installed by anyone holding the shared token. The command refuses before any call.
+        int signIn = cmd.IndexOf("if (!UserSession.IsSignedIn) { window.SetStatus(TypeCatalogExport.NotInstalledLine(\"sign in first", wire, StringComparison.Ordinal);
+        _ok(signIn > wire && signIn < enqueue && TypeCatalogExport.NotInstalledLine("sign in first — installing on the office is a lead's own action, not the machine's")
+            == "Catalogue NOT installed: sign in first — installing on the office is a lead's own action, not the machine's",
+            "a signed-out Revit is refused in the window before the scope read: the machine credential is never the installer of an office catalogue (review C22)");
         int task = cmd.IndexOf("Task.Run(() =>", enqueue, StringComparison.Ordinal);
         int scope = cmd.IndexOf("GovernedNotify.ProjectScope(key)", task, StringComparison.Ordinal);
         int put = cmd.IndexOf("GovernedNotify.InstallArtefact(office, \"type_catalog\", TypeCatalogExport.InstallJson(", scope, StringComparison.Ordinal);

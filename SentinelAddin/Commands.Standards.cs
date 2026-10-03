@@ -241,6 +241,9 @@ internal static class StandardsReview
         // catalogue there would shadow the office's for that project alone (TypeCatalogExport.OfficeKeyFrom).
         window.InstallRequested += () =>
         {
+            // Review C22: signed out, GovernedNotify would send the machine's token, which the bridge reads as `service` and lets past
+            // the lead check — the office catalogue installed by whoever holds the shared token, under the Windows user's name.
+            if (!UserSession.IsSignedIn) { window.SetStatus(TypeCatalogExport.NotInstalledLine("sign in first — installing on the office is a lead's own action, not the machine's")); return; }
             var pack = window.Source;
             var src = pack.SourceModel;
             if (src is null || string.IsNullOrWhiteSpace(src.Title) || pack.Provision.TypeCatalog.Count == 0)
