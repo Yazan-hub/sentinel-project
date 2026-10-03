@@ -60,6 +60,10 @@ namespace Sentinel.GhostBuilder
         /// Location it matched; else, on a mixed storey, the wall's Function): "&lt;target&gt; is Function &lt;X&gt; in this
         /// model" (also the Reason's tail) — the office's template to fix. Null otherwise; never posted.</summary>
         public string Note;
+        /// <summary>MA-2c, a "set_parameter" (PropertyPlanner): the DD property ("Pset_WallCommon.FireRating"), the Revit parameter
+        /// that holds it on the TYPE, the value the plan read there (From, "" when empty: the executor's stale guard), the value to
+        /// write (To) and its source's kind ("catalogue" | "clause"). UniqueId is the TYPE's; TypeName and FamilyName name it.</summary>
+        public string Parameter, RevitParameter, From, To, SourceKind;
     }
 
     public sealed class PromoteHeld
@@ -85,6 +89,13 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-2b: every counted element's DD verdict (the "DD now" denominator, element by element) — what the LOD state
         /// reader (LodState.Read) counts, so the two never drift.</summary>
         public List<LodFact> Lod = new List<LodFact>();
+        /// <summary>MA-2c: the DD type each counted element already stands on (settled: a wall whose type is DD, a floor, roof,
+        /// ceiling, door or window on a type a DD rule produces), one entry per element — with the retype targets, the types whose
+        /// DD properties PropertyPlanner reads. Family: a door's or window's; null for a system type.</summary>
+        public List<(string Category, string Family, string Type)> Settled = new List<(string Category, string Family, string Type)>();
+        /// <summary>MA-2c: the DD properties sent to a person (PropertyPlanner) — no source, sources that disagree, no parameter
+        /// Sentinel can write — one row per type and property, the TYPE's UniqueId. They ride on the changeset's exceptions.</summary>
+        public List<PromoteHeld> ToPerson = new List<PromoteHeld>();
     }
 
     public static class PromoteWallsPlanner
@@ -274,6 +285,7 @@ namespace Sentinel.GhostBuilder
                         });
 
                     if (typeOk && topOk) p.DdNow++;
+                    if (typeOk) p.Settled.Add(("Walls", null, w.TypeName)); // MA-2c: its DD type's properties are read
                     p.Lod.Add(new LodFact { UniqueId = w.UniqueId, Category = "Walls", RulesOk = typeOk && topOk });
                 }
                 p.Walls = ws.Count - p.OfficeTyped;
@@ -295,13 +307,14 @@ namespace Sentinel.GhostBuilder
         /// with their storey — every held wall reaches the ledger and the review window. Empty when no storey has a ghost.</summary>
         public static List<object> Bodies(IReadOnlyList<StoreyPlan> plans, string actor, int max = 200, string title = "Promote walls (DD)")
         {
+            // MA-2c: a storey's DD properties sent to a person ride with its held elements.
             var carried = plans.Where(p => p.Ghosts.Count == 0)
-                .SelectMany(p => p.Held.Select(h => new PromoteHeld { UniqueId = h.UniqueId, Label = $"{p.Storey} · {h.Label}", Reason = h.Reason }))
+                .SelectMany(p => p.Held.Concat(p.ToPerson).Select(h => new PromoteHeld { UniqueId = h.UniqueId, Label = $"{p.Storey} · {h.Label}", Reason = h.Reason }))
                 .ToList();
             var bodies = new List<object>();
             foreach (var p in plans.Where(p => p.Ghosts.Count > 0))
             {
-                var held = bodies.Count == 0 ? p.Held.Concat(carried).ToList() : p.Held;
+                var held = p.Held.Concat(p.ToPerson).Concat(bodies.Count == 0 ? carried : new List<PromoteHeld>()).ToList();
                 var chunks = ByWall(p.Ghosts, max);
                 for (int i = 0; i < chunks.Count; i++)
                     bodies.Add(new
@@ -344,12 +357,30 @@ namespace Sentinel.GhostBuilder
             return rows.Count == 0 ? null : rows;
         }
 
-        private static object Element(PromoteGhost g) => new
+        private static object Element(PromoteGhost g) => g.Op == "set_parameter" ? SetParameter(g) : new
         {
             op = g.Op,
             kind = g.Kind ?? "wall",
             target = new { unique_id = g.UniqueId, type_before = g.TypeBefore },
             place = g.Op == "retype" ? (object)new { g.TypeName, g.FamilyName } : new { g.BaseLevel, g.TopLevel },
+            reason = Clip(g.Reason, 500),
+            validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
+        };
+
+        // MA-2c: a type edit — the type it writes, the property, the value read and the value to write, and its source's kind (the
+        // bridge checks it against the installed artefact and writes its own record). Review amendment C2: no psets — the bridge
+        // builds the validate its referee judges from kind, parameter and to ([BP] P2-7 step 3), so the value judged is the value written.
+        private static object SetParameter(PromoteGhost g) => new
+        {
+            op = g.Op,
+            kind = g.Kind ?? "wall",
+            target = new { unique_id = g.UniqueId },
+            place = new { g.TypeName, g.FamilyName },
+            parameter = g.Parameter,
+            revit_parameter = g.RevitParameter,
+            from = g.From,
+            to = g.To,
+            value_source = new { kind = g.SourceKind },
             reason = Clip(g.Reason, 500),
             validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
         };

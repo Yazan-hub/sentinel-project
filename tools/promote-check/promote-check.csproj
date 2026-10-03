@@ -23,6 +23,8 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\WallLocation.cs" />
     <!-- MA-2b: the LOD state reader and the stage IDS judge, over the extractor's element shape and the pset table -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\LodState.cs" />
+    <!-- MA-2c: the DD properties Promote fills from a cited source (set_parameter), or sends to a person -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\PropertyPlanner.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\GovElement.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
     <!-- MA-1a step 2: Ghost Builder's changeset bodies, and the Doctor's skip rule they must agree with -->

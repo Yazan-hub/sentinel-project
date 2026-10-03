@@ -121,6 +121,10 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-2a (BOS-5): the row's BuiltInCategory as its enum name ("OST_Walls"), written by Build Office System since
         /// MA-2a; null on a type_catalog@1 harvested before it. A row matches a category by name OR by this (SameCategory).</summary>
         [JsonPropertyName("bic")]       public string Bic { get; set; }
+        /// <summary>MA-2c: the type's harvested parameters by display name ("Fire Rating": "1 HR") — what set_parameter may cite
+        /// (CatalogValue). Kept as JSON: the bridge does not check their shape, so a row whose params are not an object still
+        /// reads, and gives no value.</summary>
+        [JsonPropertyName("params")]    public JsonElement? Params { get; set; }
     }
 
     /// <summary>The template a catalogue was harvested from (Build Office System's export).</summary>
@@ -541,6 +545,18 @@ namespace Sentinel.GhostBuilder
         /// name only; window type names repeat across families.)</summary>
         public bool CatalogHas(string category, string family, string type) =>
             _catalog.Any(c => SameCategory(c, category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
+
+        /// <summary>MA-2c: the value set_parameter may write from the catalogue — the harvested parameter <paramref name="param"/> of
+        /// exactly one row of the category with this type name (and this family, when given), filled; null otherwise (no row, two
+        /// rows, no such parameter, empty). The bridge's makeCiter reads the same row the same way.</summary>
+        public string CatalogValue(string category, string family, string type, string param)
+        {
+            var rows = _catalog.Where(c => SameCategory(c, category) && Norm(c.Type) == Norm(type) && (family == null || Norm(c.Family) == Norm(family))).ToList();
+            if (rows.Count != 1 || !(rows[0].Params is JsonElement ps) || ps.ValueKind != JsonValueKind.Object
+                || !ps.TryGetProperty(param, out var v) || v.ValueKind != JsonValueKind.String) return null;
+            var s = v.GetString().Trim();
+            return s.Length == 0 ? null : s;
+        }
 
         /// <summary>"Family : Type" of every catalogue type of the category whose name carries exactly this W x H
         /// (TypeNameParse.TrySection) — what a door or window gap names. With <paramref name="faults"/>, a type whose harvested
