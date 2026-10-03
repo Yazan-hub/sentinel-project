@@ -1,0 +1,26 @@
+{
+  "standard": "MA-2a drill — a layer rule and layer-free rules in one guideline",
+  "office": "BDS",
+  "elements": [
+    {
+      "category": "Walls",
+      "rules": [
+        {
+          "when": { "layer": "A-WALL-EXT" },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm" },
+          "why": "drill MA2a: the layer rule, listed first — a wall drawn on A-WALL-EXT is the external CMU at its measured thickness, whatever the boundary says."
+        },
+        {
+          "when": { "params": { "Location": "Exterior" } },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm" },
+          "why": "drill MA2a: a wall no layer rule names, open on one side, is the external CMU at its measured thickness."
+        },
+        {
+          "when": { "params": { "Location": "Interior" } },
+          "use": { "family": "Basic Wall", "typePattern": "BDS_INT_ARC_CMU_{thickness} mm" },
+          "why": "drill MA2a: a wall no layer rule names, enclosed on both sides, is the internal CMU at its measured thickness."
+        }
+      ]
+    }
+  ]
+}

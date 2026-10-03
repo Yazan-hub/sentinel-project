@@ -1,0 +1,368 @@
+[
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior"
+      },
+      "thicknessMm": 100
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_CMU_100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior",
+        "Function": "Exterior"
+      },
+      "thicknessMm": 100
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_CMU_100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Function": "Exterior"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Function"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Function": "Interior"
+      },
+      "thicknessMm": 100
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_GYPS_100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Function"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior",
+        "Material": "Stone / Concrete Masonry Units"
+      },
+      "thicknessMm": 50
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_STONE_50 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location",
+      "param:Material"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior",
+        "Material": "Stone"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_STONE_200 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_EXT_ARC_STONE_50 mm"
+    ],
+    "matched": [
+      "param:Location",
+      "param:Material"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior",
+        "Material": "Gypsum Wall Board / Metal Stud"
+      },
+      "thicknessMm": 100
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_GYPS_100 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location",
+      "param:Material"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior",
+        "Material": "Default Wall"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior"
+      },
+      "thicknessMm": 125
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_CMU_125 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_INT_ARC_CMU_100 mm",
+      "BDS_INT_ARC_CMU_150 mm",
+      "BDS_INT_ARC_CMU_200 mm",
+      "BDS_INT_ARC_CMU_300 mm"
+    ],
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Material": "Stone"
+      },
+      "thicknessMm": 200
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null,
+    "matched": null
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {},
+      "thicknessMm": 200
+    },
+    "family": null,
+    "type": null,
+    "source": "none",
+    "confidence": 0,
+    "available": null,
+    "matched": null
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior"
+      }
+    },
+    "family": "Basic Wall",
+    "type": null,
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior"
+      },
+      "thicknessMm": 200
+    },
+    "catalog": [
+      {
+        "category": "Wände",
+        "bic": "OST_Walls",
+        "family": "Basic Wall",
+        "type": "BDS_EXT_ARC_CMU_200 mm",
+        "width_mm": 200
+      },
+      {
+        "category": "Wände",
+        "bic": "OST_Walls",
+        "family": "Basic Wall",
+        "type": "BDS_EXT_ARC_CMU_300 mm",
+        "width_mm": 300
+      },
+      {
+        "category": "Türen",
+        "bic": "OST_Doors",
+        "family": "BDS_INT_1 PNL",
+        "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+        "width_mm": null
+      }
+    ],
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior"
+      },
+      "thicknessMm": 200
+    },
+    "catalog": [
+      {
+        "category": "Wände",
+        "family": "Basic Wall",
+        "type": "BDS_EXT_ARC_CMU_200 mm",
+        "width_mm": 200
+      },
+      {
+        "category": "Wände",
+        "family": "Basic Wall",
+        "type": "BDS_EXT_ARC_CMU_300 mm",
+        "width_mm": 300
+      },
+      {
+        "category": "Türen",
+        "family": "BDS_INT_1 PNL",
+        "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+        "width_mm": null
+      }
+    ],
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [],
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Exterior"
+      },
+      "thicknessMm": 150
+    },
+    "catalog": [
+      {
+        "category": "Wände",
+        "bic": "OST_Walls",
+        "family": "Basic Wall",
+        "type": "BDS_EXT_ARC_CMU_200 mm",
+        "width_mm": 200
+      },
+      {
+        "category": "Wände",
+        "bic": "OST_Walls",
+        "family": "Basic Wall",
+        "type": "BDS_EXT_ARC_CMU_300 mm",
+        "width_mm": 300
+      },
+      {
+        "category": "Türen",
+        "bic": "OST_Doors",
+        "family": "BDS_INT_1 PNL",
+        "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+        "width_mm": null
+      }
+    ],
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_150 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_EXT_ARC_CMU_200 mm",
+      "BDS_EXT_ARC_CMU_300 mm"
+    ],
+    "matched": [
+      "param:Location"
+    ]
+  }
+]
