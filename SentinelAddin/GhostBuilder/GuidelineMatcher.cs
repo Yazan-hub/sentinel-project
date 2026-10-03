@@ -346,6 +346,9 @@ namespace Sentinel.GhostBuilder
         // ---- resolution --------------------------------------------------------------------------
 
         private static string Norm(string s) => (s ?? string.Empty).Trim().ToLowerInvariant();
+        /// <summary>Review C23 (exactly that type): ASCII blanks off and ASCII letters folded only — the bridge's makeCiter norm. .NET and
+        /// JS trim (U+0085, U+FEFF) and fold (the Kelvin sign, ẞ) differently, and a row of another name is not that type's.</summary>
+        private static string Exact(string s) => new string((s ?? string.Empty).Trim(' ', '\t', '\r', '\n').Select(ch => ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch).ToArray());
         // Every whitespace, as guideline.ts's `\s+` does — a poster's NBSP in a fact name typed on the bridge and not here (review C23).
         private static string Squash(string s) => new string(Norm(s).Where(ch => !char.IsWhiteSpace(ch)).ToArray());
 
@@ -551,7 +554,7 @@ namespace Sentinel.GhostBuilder
         /// rows, no such parameter, empty). The bridge's makeCiter reads the same row the same way.</summary>
         public string CatalogValue(string category, string family, string type, string param)
         {
-            var rows = _catalog.Where(c => SameCategory(c, category) && Norm(c.Type) == Norm(type) && (family == null || Norm(c.Family) == Norm(family))).ToList();
+            var rows = _catalog.Where(c => SameCategory(c, category) && Exact(c.Type) == Exact(type) && (family == null || Exact(c.Family) == Exact(family))).ToList();
             if (rows.Count != 1 || !(rows[0].Params is JsonElement ps) || ps.ValueKind != JsonValueKind.Object
                 || !ps.TryGetProperty(param, out var v) || v.ValueKind != JsonValueKind.String) return null;
             var s = v.GetString().Trim(' ', '\t', '\r', '\n'); // review C23: ASCII blanks only, as the bridge (.Trim() took U+0085, kept U+FEFF)

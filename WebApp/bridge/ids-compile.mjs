@@ -146,7 +146,9 @@ function findExplicitProperty(sentence) {
 
 /** A required value: "shall be REI60", "shall be at least 60 minutes". */
 function findValue(sentence) {
-  const be = sentence.match(/\bshall be\s+(?:at least\s+|no less than\s+)?["“']?([A-Za-z0-9][A-Za-z0-9 .\-/]{0,24}?)["”']?\s*(?:\.|,|;|$)/i);
+  // Review C23: a value may open with "-" (an FRL: -/60/60), hold a decimal point (1.5 hr: a stop ends it only before a blank or
+  // the end) and EN 13501-2's subscript EI₁/EI₂.
+  const be = sentence.match(/\bshall be\s+(?:at least\s+|no less than\s+)?["“']?([A-Za-z0-9-][A-Za-z0-9₁₂ .\-/]{0,24}?)["”']?\s*(?:\.(?=\s|$)|,|;|$)/i);
   if (!be) return null;
   const v = be[1].trim();
   // "recorded", "provided", "completed" describe the act of filling the field, not a value for it.

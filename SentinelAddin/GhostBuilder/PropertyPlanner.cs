@@ -43,10 +43,13 @@ namespace Sentinel.GhostBuilder
         /// Sa/Sm/S200 in that order; DIN 4102 T30-RS, T 90-2, F90-A; 1-999 minutes or 1-6 hours with a unit; a fraction of an hour
         /// (3/4-hour, 1-1/2-hour); or an FRL with at least one period. An AcousticRating is Rw and whole dB; a ThermalTransmittance one
         /// positive number below 10. Any other property has no shape. "Rw 45" as a fire rating, "T 200 mm", "EI 30-C0-C5", "REI 0",
-        /// "-/-/-", "90" are not one. ASCII only (checked apart: NotAValue). The bridge's VALUE_SHAPE holds the same patterns.</summary>
+        /// "-/-/-", "90" are not one. ASCII only (checked apart: NotAValue). The bridge's VALUE_SHAPE holds the same patterns.
+        /// Review C23 (codes): each EN 13501-2 code takes only its own suffixes — R and RE none; REI, REW, EI -M; E, EI, EI1, EI2, EW
+        /// C and S, periods to 240; DIN 4102 W 30-90 (-A, -AB, -B) and G 30-120; minutes a standard period, hours 1-4, 6, 1.5 or a
+        /// fraction; FRL periods 30-240; BS 476-22 integrity/insulation (60/30). "R 30-C5", "E 15-M", "11/22/33", "1 min" are not one.</summary>
         public static readonly IReadOnlyDictionary<string, Regex> ValueShape = new Dictionary<string, Regex>(StringComparer.Ordinal)
         {
-            ["FireRating"] = new Regex(@"^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:REI|REW|RE|R|EI[12]?|EW|E)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|[1-9][0-9]{0,2}[ -]?(?:mins?|minutes?)|(?:[1-6](?:\.[0-9]{1,2})?|(?:[1-6][ -])?(?:1/2|1/3|2/3|1/4|3/4))[ -]?(?:h|hrs?|hours?)|(?!-/-/-)(?:[1-9][0-9]{1,2}|-)/(?:[1-9][0-9]{1,2}|-)/(?:[1-9][0-9]{1,2}|-))(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+            ["FireRating"] = new Regex(@"^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:RE|R)[ -]?(?:15|20|30|45|60|90|120|180|240|360)|(?:REI|REW)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)|EI(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240)|[ -]?(?:15|20|30|45|60|90|120|180|240)-M)|(?:EI[12]?|EW|E)[ -]?(?:15|20|30|45|60|90|120|180|240)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|W ?(?:30|60|90)(?:-(?:A|AB|B))?|G ?(?:30|60|90|120)|(?:15|20|30|45|60|90|120|180|240|360)[ -]?(?:mins?|minutes?)|(?:[1-4]|6|1\.5|(?:1[ -])?1/2|1/3|3/4)[ -]?(?:h|hrs?|hours?)|(?!-/-/-)(?:30|60|90|120|180|240|-)/(?:30|60|90|120|180|240|-)/(?:30|60|90|120|180|240|-)|30/(?:0|30)|60/(?:0|30|60)|90/(?:0|30|60|90)|120/(?:0|30|60|90|120)|180/(?:0|30|60|90|120|180)|240/(?:0|30|60|90|120|180|240))(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
             ["AcousticRating"] = new Regex(@"^Rw ?[1-9][0-9](?: ?dB)?(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
             ["ThermalTransmittance"] = new Regex(@"^(?=[0-9.]*[1-9])[0-9](?:\.[0-9]{1,3})?(?![\s\S])", RegexOptions.CultureInvariant),
         };
@@ -65,6 +68,22 @@ namespace Sentinel.GhostBuilder
         /// "\A", "\p{L}", "[^]" mean different things in .NET and JS: such a clause applies to nothing on both sides. The bridge's
         /// ENTITY_PATTERN.</summary>
         public static readonly Regex EntityPattern = new Regex(@"^[A-Za-z0-9_|()^$]+(?![\s\S])");
+        /// <summary>Review C23 (whole class): the IFC classes an element of each entity is exported as (IfcDeliveryGate.Subtypes —
+        /// Revit's IFC2x3 writes a basic wall as IFCWALLSTANDARDCASE). A clause is the whole class's only when its pattern matches the
+        /// entity and each of these. The bridge's ENTITY_SUBTYPES.</summary>
+        public static readonly Dictionary<string, string[]> Subtypes = new Dictionary<string, string[]>
+        {
+            ["IFCWALL"] = new[] { "IFCWALLSTANDARDCASE", "IFCWALLELEMENTEDCASE" }, ["IFCSLAB"] = new[] { "IFCSLABSTANDARDCASE", "IFCSLABELEMENTEDCASE" },
+            ["IFCDOOR"] = new[] { "IFCDOORSTANDARDCASE" }, ["IFCWINDOW"] = new[] { "IFCWINDOWSTANDARDCASE" }, ["IFCROOF"] = new string[0], ["IFCCOVERING"] = new string[0],
+        };
+        /// <summary>Review C23 (one source): a clause on the key that may apply to some elements of the class and is not a whole-class
+        /// required value — the gate holds the written value to it too. The bridge's NOT_WHOLE.</summary>
+        public const string NotWhole = "it says more of this property than one value on every element of the class (a narrower applicability, an optional or prohibited property, or a pattern) — a person decides";
+        /// <summary>Review C23: a source_sentence that is there but not text — never read as "no sentence". The bridge's NOT_TEXT.</summary>
+        public const string NotText = "its source_sentence is not text — a person decides";
+
+        /// <summary>Review C23 (codes): EN 13501-2's subscript EI₁/EI₂ read as EI1/EI2 — the bridge's flat.</summary>
+        private static string Flat(string s) => Regex.Replace(s, "(EI)([₁₂])", m => m.Groups[1].Value + (char)(m.Groups[2].Value[0] - 0x2050), RegexOptions.CultureInvariant);
 
         private static string PropWords(string key)
         {
@@ -94,10 +113,11 @@ namespace Sentinel.GhostBuilder
         /// carrying exactly this value of <paramref name="key"/> (Worded). A hand-written IDS has no sentence: the value's shape alone.</summary>
         public static string NotAValue(string sentence, string value, string entity, string key)
         {
-            var v = (value ?? "").Trim(' ', '\t', '\r', '\n');
-            var parts = (key ?? "").Split('.'); // the bridge's key.split(".")[1]
-            if (!Ascii(v) || parts.Length < 2 || !ValueShape.TryGetValue(parts[1], out var shape) || !shape.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
+            var v = Flat((value ?? "").Trim(' ', '\t', '\r', '\n'));
+            var parts = (key ?? "").Split('.'); // the bridge's key.split("."): one dot (review C23)
+            if (!Ascii(v) || parts.Length != 2 || !ValueShape.TryGetValue(parts[1], out var shape) || !shape.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
             if (sentence == null) return null;
+            sentence = Flat(sentence);
             var m = Ascii(sentence) ? Worded(entity, key)?.Match(sentence) : null;
             if (m != null && m.Success) return m.Groups[2].Value == v ? null : $"it states \"{m.Groups[2].Value}\", not \"{v}\" — a person decides";
             var prop = PropWords(key);
@@ -105,7 +125,9 @@ namespace Sentinel.GhostBuilder
             return $"it is not worded \"{(prop.Length > 0 ? $"the {prop} of " : "")}all {noun} shall be {v}.\" — a person decides";
         }
 
-        private sealed class Row { public string Entity, Pset, Prop, Raw, Value, Spec, Sentence; public bool Unreadable, Alone; }
+        /// <summary>One property row of a specification on any applicability. Entity null = none (the gate applies it to every element);
+        /// Raw = the value when it is text; HasValue/HasPattern = the gate holds a present value to one.</summary>
+        private sealed class Row { public string Entity, Pset, Prop, Raw, Card, Spec, Sentence; public bool Unreadable, Alone, OnlyEntity, HasValue, HasPattern, BadSentence; }
         private readonly List<Row> _rows = new List<Row>();
         /// <summary>The ids@n's label ("ids@1 · project · 0a1b2c3d4e5f…"), or why there is none.</summary>
         public string Label;
@@ -127,20 +149,28 @@ namespace Sentinel.GhostBuilder
                     foreach (var s in specs.EnumerateArray())
                     {
                         if (s.ValueKind != JsonValueKind.Object || !s.TryGetProperty("applicability", out var a) || a.ValueKind != JsonValueKind.Object) continue;
-                        if (a.EnumerateObject().Any(p => p.Name != "entity") || Str(a, "entity") is not string entity) continue;
+                        // C23 (one source): every applicability is read — no entity (or "") applies to every element; one that is not text, to none
+                        string entity = null;
+                        if (a.TryGetProperty("entity", out var en) && en.ValueKind != JsonValueKind.Null)
+                        {
+                            if (en.ValueKind != JsonValueKind.String) continue;
+                            entity = en.GetString().Length == 0 ? null : en.GetString();
+                        }
                         if (!s.TryGetProperty("requirements", out var r) || r.ValueKind != JsonValueKind.Object
                             || !r.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Array) continue;
                         foreach (var p in props.EnumerateArray())
                         {
-                            if (p.ValueKind != JsonValueKind.Object || Str(p, "cardinality") != "required") continue;
-                            if (p.TryGetProperty("pattern", out var pt) && pt.ValueKind != JsonValueKind.Null) continue;
-                            // C23: trimmed of ASCII blanks only, as the bridge — .Trim() took a no-break space off and cited what the bridge refuses
-                            var raw = Str(p, "value");
-                            var value = raw?.Trim(' ', '\t', '\r', '\n');
-                            if (string.IsNullOrEmpty(value) || Str(p, "pset") == null || Str(p, "name") == null) continue;
-                            c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Raw = raw, Value = value, Spec = Str(s, "name") ?? "",
-                                                  Sentence = Str(s, "source_sentence"), Unreadable = !Readable(entity),
-                                                  Alone = s.TryGetProperty("source_alone", out var al) && al.ValueKind == JsonValueKind.True });
+                            if (p.ValueKind != JsonValueKind.Object || Str(p, "pset") == null || Str(p, "name") == null) continue;
+                            c._rows.Add(new Row
+                            {
+                                Entity = entity, OnlyEntity = a.EnumerateObject().All(x => x.Name == "entity"), Pset = Str(p, "pset"), Prop = Str(p, "name"),
+                                Raw = Str(p, "value"), Card = Str(p, "cardinality"), Spec = Str(s, "name") ?? "",
+                                HasValue = p.TryGetProperty("value", out var pv) && pv.ValueKind != JsonValueKind.Null,
+                                HasPattern = p.TryGetProperty("pattern", out var pt) && pt.ValueKind != JsonValueKind.Null,
+                                Sentence = Str(s, "source_sentence"), Unreadable = entity != null && !Readable(entity),
+                                BadSentence = s.TryGetProperty("source_sentence", out var ss) && ss.ValueKind != JsonValueKind.Null && ss.ValueKind != JsonValueKind.String,
+                                Alone = s.TryGetProperty("source_alone", out var al) && al.ValueKind == JsonValueKind.True,
+                            });
                         }
                     }
                 }
@@ -160,18 +190,43 @@ namespace Sentinel.GhostBuilder
 
         private List<(string Value, string Spec, string Sentence, string Why)> Hits(string entity, string key, bool skipped)
         {
-            int dot = (key ?? "").IndexOf('.');
-            string pset = dot < 0 ? key : key.Substring(0, dot), prop = dot < 0 ? "" : key.Substring(dot + 1);
             var hits = new List<(string Value, string Spec, string Sentence, string Why)>();
-            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop && !x.Unreadable))
+            var parts = (key ?? "").Split('.');
+            if (parts.Length != 2) return hits; // C23: "Pset_X.Prop" — one dot, as the bridge reads it
+            var classes = new List<string> { entity ?? "" };
+            if (entity != null && Subtypes.TryGetValue(entity, out var subs)) classes.AddRange(subs);
+            foreach (var r in _rows.Where(x => x.Pset == parts[0] && x.Prop == parts[1]))
             {
-                // a pattern outside EntityPattern applies to nothing (the bridge skips it too); the sentence is read for this entity (C23)
-                if (!Regex.IsMatch(entity ?? "", r.Entity, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) continue;
-                var why = NotAValue(r.Sentence, r.Raw, entity, key) ?? (r.Sentence != null && !r.Alone ? NotAlone : null); // C23 (context)
-                if ((why != null) == skipped) hits.Add((r.Value, r.Spec, r.Sentence, why));
+                bool whole = false; // no entity: every element — some of this class, never cited from
+                if (r.Entity != null)
+                {
+                    if (r.Unreadable) continue; // a pattern outside EntityPattern applies to nothing (the bridge skips it too)
+                    int hit = classes.Count(cl => Regex.IsMatch(cl, r.Entity, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+                    if (hit == 0) continue;
+                    whole = hit == classes.Count && r.OnlyEntity; // C23: "^IFCWALL$" is no IFCWALLSTANDARDCASE's
+                }
+                // C23: trimmed of ASCII blanks only, as the bridge — .Trim() took a no-break space off and cited what the bridge refuses
+                var value = r.Raw?.Trim(' ', '\t', '\r', '\n');
+                string why;
+                if (whole && r.Card == "required" && !r.HasPattern && !string.IsNullOrEmpty(value))
+                    why = r.BadSentence ? NotText : NotAValue(r.Sentence, r.Raw, entity, key) ?? (r.Sentence != null && !r.Alone ? NotAlone : null); // C23 (context)
+                else if (r.Card == "prohibited" || r.HasPattern || r.HasValue)
+                {
+                    why = NotWhole; // C23 (one source): the value it demands, null for a pattern or an absence
+                    if (r.Card == "prohibited" || r.HasPattern) value = null;
+                }
+                else continue; // presence only: says nothing of the value
+                if ((why != null) == skipped) hits.Add((value, r.Spec, r.Sentence, why));
             }
             return hits;
         }
+
+        /// <summary>Review C23 (one source): the first clause on <paramref name="key"/> for <paramref name="entity"/> that is not
+        /// cited and does not demand exactly <paramref name="value"/> — a value is never written past a clause of the same ids@n the
+        /// gate would hold it to (null = none). The bridge's saysMore.</summary>
+        public (string Value, string Spec, string Sentence, string Why)? SaysMore(string entity, string key, string value) =>
+            NotValues(entity, key).Where(h => !string.Equals(h.Value, value, StringComparison.Ordinal))
+                .Select(h => ((string Value, string Spec, string Sentence, string Why)?)h).FirstOrDefault();
 
         /// <summary>Review C20: the clauses on <paramref name="key"/> whose entity pattern .NET cannot read — they apply to nothing (the
         /// bridge skips them too), and the planner says so rather than "no clause pins one".</summary>
@@ -289,8 +344,8 @@ namespace Sentinel.GhostBuilder
                     };
                     var found = new List<(string Value, string Kind, string Ref)>();
                     string param = CatalogParam.TryGetValue(key, out var cp) ? cp : null;
-                    if (param != null && m.CatalogValue(cat, family, type, param) is string cv)
-                        found.Add((cv, "catalogue", $"{m.CatalogLabel} · {v.Label} · {param}"));
+                    var (cv, catWhy) = Catalogued(m, cat, family, type, key);
+                    if (cv != null) found.Add((cv, "catalogue", $"{m.CatalogLabel} · {v.Label} · {param}"));
                     foreach (var c in clauses.For(Entity(cat), key))
                         found.Add((c.Value, "clause", $"{clauses.Label} · {c.Spec}" + (c.Sentence != null ? $" · \"{c.Sentence}\"" : "")));
                     var distinct = found.Select(f => f.Value).Distinct(StringComparer.Ordinal).ToList();
@@ -302,13 +357,13 @@ namespace Sentinel.GhostBuilder
                         row.Outcome = "differs";
                         row.Why = $"{key} on {v.Label} reads \"{v.Current}\", {o.Ref} gives \"{o.Value}\" — not overwritten; a person decides";
                     }
-                    else if (distinct.Count == 0)
+                    else if (distinct.Count == 0 || (distinct.Count == 1 && catWhy != null)) // C23: a catalogue value that is not one value is no source
                     {
-                        var floor = clauses.NotValues(Entity(cat), key); // C7, C18: a bound or a narrowed class is named, never written
+                        var floor = clauses.NotValues(Entity(cat), key).Where(h => h.Why != Clauses.NotWhole).ToList(); // C7, C18: a bound or a narrowed class is named, never written (as the bridge: a whole-class clause)
                         row.Outcome = "no source";
                         row.Why = $"no source for {key} on {v.Label} — " +
-                                  (param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
-                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} (\"{floor[0].Sentence ?? floor[0].Value}\"): {floor[0].Why}" // C23: the bridge's words
+                                  (catWhy != null ? $"{m.CatalogLabel} gives {param} {catWhy}" : param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
+                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} (\"{floor[0].Sentence ?? floor[0].Value ?? "no value"}\"): {floor[0].Why}" // C23: the bridge's words
                                    : clauses.Unreadable(key) is int u && u > 0 ? $"{u} clause(s) of {clauses.Label} on {key} have an entity pattern Sentinel cannot read" // C20
                                    : clauses.Installed ? $"no clause of {clauses.Label} pins one" : $"no ids@n is installed to cite ({clauses.Label})") +
                                   $"; a person fills it in Revit (Type Properties) — {row.Elements} element(s) on it";
@@ -317,6 +372,12 @@ namespace Sentinel.GhostBuilder
                     {
                         row.Outcome = "disagree";
                         row.Why = $"the sources disagree on {key} for {v.Label}: " + string.Join("; ", found.Select(f => $"\"{f.Value}\" ({f.Ref})")) + " — a person decides";
+                    }
+                    else if (clauses.SaysMore(Entity(cat), key, distinct[0]) is { } sm)
+                    {
+                        // C23 (one source): another clause of the ids@n the gate holds these elements to does not pin this value
+                        row.Outcome = "disagree";
+                        row.Why = $"{key} on {v.Label}: \"{distinct[0]}\" ({found[0].Ref}), but {clauses.Label} · {sm.Spec} (\"{sm.Sentence ?? sm.Value ?? "no value"}\") also speaks of it, and not as \"{distinct[0]}\": {sm.Why}";
                     }
                     else if ((v.NoWriter ?? OtherSet(cat, key)) is string noWriter)
                     {
@@ -347,6 +408,15 @@ namespace Sentinel.GhostBuilder
                 }
             }
             return report;
+        }
+
+        /// <summary>Review C23: the catalogue's value for exactly this type and key (null: no row, no harvested parameter, empty) and
+        /// why it is not one value (null: it is) — the same one-value shape a clause is held to (Clauses.NotAValue), as the bridge's
+        /// makeCiter holds it: "TBC", "FD30 or FD60", "min. 60 min" fill nothing.</summary>
+        public static (string Value, string Why) Catalogued(GuidelineMatcher m, string category, string family, string type, string key)
+        {
+            var cv = CatalogParam.TryGetValue(key, out var param) ? m.CatalogValue(category, family, type, param) : null;
+            return (cv, cv == null ? null : Clauses.NotAValue(null, cv, Entity(category), key));
         }
 
         // Review C19: why Sentinel does not write a key outside the class's own common set (null = it is in it).

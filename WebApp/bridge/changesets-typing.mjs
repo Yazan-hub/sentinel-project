@@ -121,9 +121,15 @@ export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", ro
  *  writes it (3/4-hour, 1/3 hour, 1-1/2-hour, 1 1/2 hr); or an AS 1530.4 FRL with at least one period (-/60/60; -/-/- requires
  *  nothing). A bare number, a zero period, a suffix the code does not take — not one. An AcousticRating is Rw and whole dB (Rw 45,
  *  Rw 45 dB); a ThermalTransmittance one positive number below 10 (1.4). Any other property has no shape: a person fills it. ASCII
- *  only (checked apart: notAValue). The add-in's Clauses.ValueShape holds the same patterns; the shared value_cases pin both. */
+ *  only (checked apart: notAValue). The add-in's Clauses.ValueShape holds the same patterns; the shared value_cases pin both.
+ *  Review C23 (codes): each EN 13501-2 code takes only its own suffixes — R and RE none; REI, REW and EI -M (mechanical impact);
+ *  E, EI, EI1, EI2 and EW C/C0-C5 and Sa/Sm/S200 (doors and shutters), periods to 240 (360 is R's, RE's, REI's and REW's only);
+ *  DIN 4102-3 W 30-W 90 (-A, -AB, -B) and DIN 4102-13 G 30-G 120 too; minutes are a standard period (15 20 30 45 60 90 120 180 240
+ *  360), hours 1 2 3 4 6, 1.5 or 1/3 1/2 3/4 1-1/2; an FRL's periods are 30 60 90 120 180 240; BS 476-22 integrity/insulation
+ *  (30/30, 60/30, 60/0), the insulation never longer than the integrity. "R 30-C5", "E 15-M", "11/22/33", "1 min" and "6.99 h"
+ *  are not one. EN 13501-2's subscript EI₁/EI₂ is read as EI1/EI2 (notAValue). */
 export const VALUE_SHAPE = {
-  FireRating: /^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:REI|REW|RE|R|EI[12]?|EW|E)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|[1-9][0-9]{0,2}[ -]?(?:mins?|minutes?)|(?:[1-6](?:\.[0-9]{1,2})?|(?:[1-6][ -])?(?:1\/2|1\/3|2\/3|1\/4|3\/4))[ -]?(?:h|hrs?|hours?)|(?!-\/-\/-)(?:[1-9][0-9]{1,2}|-)\/(?:[1-9][0-9]{1,2}|-)\/(?:[1-9][0-9]{1,2}|-))(?![\s\S])/i,
+  FireRating: /^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:RE|R)[ -]?(?:15|20|30|45|60|90|120|180|240|360)|(?:REI|REW)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)|EI(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240)|[ -]?(?:15|20|30|45|60|90|120|180|240)-M)|(?:EI[12]?|EW|E)[ -]?(?:15|20|30|45|60|90|120|180|240)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|W ?(?:30|60|90)(?:-(?:A|AB|B))?|G ?(?:30|60|90|120)|(?:15|20|30|45|60|90|120|180|240|360)[ -]?(?:mins?|minutes?)|(?:[1-4]|6|1\.5|(?:1[ -])?1\/2|1\/3|3\/4)[ -]?(?:h|hrs?|hours?)|(?!-\/-\/-)(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)\/(?:30|60|90|120|180|240|-)|30\/(?:0|30)|60\/(?:0|30|60)|90\/(?:0|30|60|90)|120\/(?:0|30|60|90|120)|180\/(?:0|30|60|90|120|180)|240\/(?:0|30|60|90|120|180|240))(?![\s\S])/i,
   AcousticRating: /^Rw ?[1-9][0-9](?: ?dB)?(?![\s\S])/i,
   ThermalTransmittance: /^(?=[0-9.]*[1-9])[0-9](?:\.[0-9]{1,3})?(?![\s\S])/,
 };
@@ -146,14 +152,18 @@ export function wordedAs(entity, key) {
   return new RegExp("^(?:the +" + (prop ? prop.replace(/ /g, " +") : "(?!)") + " +of +)?(?:(?:all +)?(?:" + nouns.join("|") + ")|(?:every|each) +(?:"
     + nouns.map((w) => w.slice(0, -1)).join("|") + ")) +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])", "i");
 }
+/** Review C23 (codes): EN 13501-2 prints EI₁/EI₂ with a subscript, and a PDF pastes it so — read as EI1/EI2, the one non-ASCII
+ *  the shape and the wording take (the add-in's Clauses.Flat). The value is still written as its source holds it. */
+const flat = (s) => s.replace(/(EI)([₁₂])/g, (_, e, d) => e + String.fromCharCode(d.charCodeAt(0) - 0x2050));
 /** Why a clause is not a cited value, in the planner's words (null = it is one): the value is not ONE value (C23), or its sentence
  *  is not worded as every `entity` carrying exactly this value of `key` (wordedAs). A hand-written IDS has no sentence: the value's
  *  shape alone. The add-in's Clauses.NotAValue answers every value_cases row the same. */
 export function notAValue(sentence, value, entity, key) {
-  const v = String(value ?? "").replace(ASCII_TRIM, "");
-  const p = String(key ?? "").split(".")[1];
-  if (/[^ -~]/.test(v) || !Object.hasOwn(VALUE_SHAPE, p) || !VALUE_SHAPE[p].test(v)) return `"${v}" is not one value (a bound, a choice or a qualifier) — a person decides`;
+  const v = flat(String(value ?? "").replace(ASCII_TRIM, ""));
+  const parts = String(key ?? "").split("."), p = parts[1]; // review C23: "Pset_X.Prop" — one dot, as the add-in reads it
+  if (/[^ -~]/.test(v) || parts.length !== 2 || !Object.hasOwn(VALUE_SHAPE, p) || !VALUE_SHAPE[p].test(v)) return `"${v}" is not one value (a bound, a choice or a qualifier) — a person decides`;
   if (sentence == null) return null;
+  sentence = flat(sentence);
   const m = /[^ -~]/.test(sentence) ? null : wordedAs(entity, key)?.exec(sentence);
   if (m) return m[2] === v ? null : `it states "${m[2]}", not "${v}" — a person decides`;
   const prop = propWords(key);
@@ -171,26 +181,61 @@ export const ENTITY_PATTERN = /^[A-Za-z0-9_|()^$]+$/;
  *  its document said nothing but whole-class one-value sentences (compileIds). The add-in's Clauses.NotAlone is the same words. */
 export const NOT_ALONE = "its document says more than whole-class values (a heading, a place, a condition or an exception may narrow it) — a person decides";
 
-/** Every required exact-value clause on `key` ("Pset_X.Prop") whose applicability is `entity` alone, in the IDS's order:
- *  [{value, spec, sentence, why}] — why null = a cited value (notAValue). */
+/** Review C23 (whole class): the IFC classes an element of each entity is exported as — Revit's IFC2x3 writes every basic wall as
+ *  IFCWALLSTANDARDCASE (IfcDeliveryGate.Subtypes), and the gate (ids.ts applies) tests the pattern on that class. A clause is the
+ *  whole class's only when its pattern matches the entity AND each of these: "^IFCWALL$" is no IFCWALLSTANDARDCASE's. The add-in's
+ *  Clauses.Subtypes is the same table. */
+export const ENTITY_SUBTYPES = { IFCWALL: ["IFCWALLSTANDARDCASE", "IFCWALLELEMENTEDCASE"], IFCSLAB: ["IFCSLABSTANDARDCASE", "IFCSLABELEMENTEDCASE"],
+  IFCDOOR: ["IFCDOORSTANDARDCASE"], IFCWINDOW: ["IFCWINDOWSTANDARDCASE"], IFCROOF: [], IFCCOVERING: [] };
+/** Review C23 (one source): a clause on the key that may apply to some elements of the class, and is not a whole-class required
+ *  value — a narrower applicability (a predefined type, a subtype only), an optional or a prohibited property, a pattern. The gate
+ *  holds the written value to it too, so a value it does not pin is never written past it: a person decides. */
+export const NOT_WHOLE = "it says more of this property than one value on every element of the class (a narrower applicability, an optional or prohibited property, or a pattern) — a person decides";
+/** Review C23: a source_sentence that is there but not text (a list, an object) is no sentence to read — never "no sentence". */
+export const NOT_TEXT = "its source_sentence is not text — a person decides";
+
+/** Every clause on `key` ("Pset_X.Prop") that may apply to an element of `entity` and says something of its value, in the IDS's
+ *  order: [{value, spec, sentence, why}]. A whole-class required exact value is judged (notAValue, NOT_ALONE, NOT_TEXT; why null =
+ *  a cited value); any other is NOT_WHOLE, its value the one it demands (null: a pattern, or prohibited). A clause demanding only
+ *  that the property is there says nothing of its value and is not read. */
 function clauseReadings(ids, entity, key) {
-  const [pset, prop] = String(key).split(".");
+  const parts = String(key).split(".");
+  if (parts.length !== 2) return []; // review C23: one dot — the add-in reads "Pset_X.Prop.Y" the same way (nothing)
+  const [pset, prop] = parts;
+  const classes = [entity, ...(ENTITY_SUBTYPES[entity] ?? [])];
+  const trim = (v) => (typeof v === "string" ? v.replace(ASCII_TRIM, "") : null);
   const out = [];
   for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
     const a = s?.applicability;
-    if (!a || typeof a !== "object" || typeof a.entity !== "string" || Object.keys(a).some((k) => k !== "entity")) continue;
-    if (!ENTITY_PATTERN.test(a.entity)) continue; // C23: a pattern outside what JS and .NET read alike applies to nothing
-    let re;
-    try { re = new RegExp(a.entity, "i"); } catch { continue; }
-    if (!re.test(entity)) continue;
-    for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : [])
-      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.replace(ASCII_TRIM, "")) {
-        const sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
-        out.push({ value: p.value.replace(ASCII_TRIM, ""), spec: String(s.name ?? ""), sentence,
-          why: notAValue(sentence, p.value, entity, key) ?? (sentence != null && s.source_alone !== true ? NOT_ALONE : null) });
-      }
+    if (!a || typeof a !== "object") continue;
+    let whole = false; // no entity: the gate applies it to every element — some of this class, never cited from
+    if (a.entity != null && a.entity !== "") {
+      if (typeof a.entity !== "string" || !ENTITY_PATTERN.test(a.entity)) continue; // C23: a pattern outside what JS and .NET read alike applies to nothing
+      let re;
+      try { re = new RegExp(a.entity, "i"); } catch { continue; }
+      const hit = classes.filter((c) => re.test(c)).length;
+      if (!hit) continue;
+      whole = hit === classes.length && Object.keys(a).every((k) => k === "entity");
+    }
+    const spec = String(s.name ?? ""), sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
+    for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : []) {
+      if (p?.pset !== pset || p?.name !== prop) continue;
+      if (whole && p.cardinality === "required" && p.pattern == null && trim(p.value))
+        out.push({ value: trim(p.value), spec, sentence,
+          why: s.source_sentence != null && sentence == null ? NOT_TEXT
+            : notAValue(sentence, p.value, entity, key) ?? (sentence != null && s.source_alone !== true ? NOT_ALONE : null) });
+      else if (p.cardinality === "prohibited" || p.pattern != null || p.value != null)
+        out.push({ value: p.cardinality === "prohibited" || p.pattern != null ? null : trim(p.value), spec, sentence, why: NOT_WHOLE });
+    }
   }
   return out;
+}
+
+/** Review C23 (one source): the first clause on `key` for `entity` that is not cited and does not demand exactly `value` — a
+ *  value is never written past a clause of the same ids@n that the gate would hold it to (null = none). The add-in's
+ *  Clauses.SaysMore is the same. */
+export function saysMore(ids, entity, key, value) {
+  return clauseReadings(ids, entity, key).find((h) => h.why && h.value !== value) ?? null;
 }
 
 /** The values an installed ids@n pins for `key` ("Pset_X.Prop") on EVERY element of `entity`: a cited clause is a specification
@@ -207,7 +252,9 @@ export function clauseValues(ids, entity, key) {
  *  Review amendment C1: BOTH sources are read whichever is cited — a catalogue row and a clause that hold different values are a
  *  400 "the sources disagree", as the add-in's PropertyPlanner sends them to a person: the bridge holds the rule, not the caller. */
 export function makeCiter({ catalog: c, ids: s }, core) {
-  const norm = (v) => String(v ?? "").trim().toLowerCase();
+  // Review C23 (exactly that type): ASCII blanks off and ASCII letters folded only, as the add-in's GuidelineMatcher.Exact — JS and
+  // .NET trim (U+0085, U+FEFF) and fold (the Kelvin sign, ẞ) differently, and a row of another name is not that type's.
+  const norm = (v) => String(v ?? "").replace(ASCII_TRIM, "").replace(/[A-Z]/g, (ch) => ch.toLowerCase());
   const refOf = (h) => `${s.label} · ${h.spec}` + (h.sentence ? ` · "${h.sentence}"` : "");
   return (kind, place, key, to, vs, at) => {
     const lead = `${at}: set_parameter's value_source`;
@@ -220,26 +267,36 @@ export function makeCiter({ catalog: c, ids: s }, core) {
       && (!place.FamilyName || norm(r.family) === norm(place.FamilyName))) : [];
     const fromCatalog = rows.length === 1 && typeof rows[0].params?.[name] === "string" ? rows[0].params[name].replace(ASCII_TRIM, "") : "";
     const catalogRef = `${c.label} · ${label} · ${name}`;
-    const hits = s.body ? clauseValues(s.body, KIND_ENTITY[kind], key) : [];
+    const readings = s.body ? clauseReadings(s.body, KIND_ENTITY[kind], key) : [];
+    const hits = readings.filter((h) => !h.why);
+    const shown = (h) => `${h.spec} ("${h.sentence ?? h.value ?? "no value"}")`;
+    // C23 (one source): a clause of the ids@n the gate holds the type's elements to, which does not pin the value — a person decides.
+    const more = (v) => { const h = readings.find((r) => r.why && r.value !== v);
+      if (h) throw err(400, `${lead}: ${s.label} · ${shown(h)} also speaks of ${key} for ${KIND_ENTITY[kind]}, and not as "${v}": ${h.why}`); };
     const disagree = (a, h) => err(400, `${lead}: the sources disagree on ${key} for ${label}: "${a}" (${catalogRef}) and "${h.value}" (${refOf(h)}) — a person decides`);
     if (vs.kind === "catalogue") {
       if (!c.body) throw err(400, `${lead} is the catalogue, and no type catalogue is installed for this project or its office (${c.label}): not checkable`);
       if (!name) throw err(400, `${lead} is the catalogue, and the catalogue harvests no parameter for ${key} — a person fills it`);
       if (rows.length !== 1) throw err(400, `${lead}: ${c.label} has ${rows.length ? `${rows.length} rows` : "no row"} for ${cat} ${label} — one row is one source`);
       if (fromCatalog !== want) throw err(400, `${lead}: ${c.label} gives ${label} ${name} "${fromCatalog}", not "${want}" — a value is written only as its source holds it`);
+      // C23: a catalogue value is held to the same one-value shape as a clause's — "TBC", "FD30 or FD60", "min. 60 min" are not one
+      const nv = notAValue(null, want, KIND_ENTITY[kind], key);
+      if (nv) throw err(400, `${lead}: ${c.label} gives ${label} ${name} ${nv}`);
       const other = hits.find((h) => h.value !== want);
       if (other) throw disagree(want, other);
+      more(want);
       return { kind: "catalogue", ref: catalogRef, sha256: c.sha256 ?? null };
     }
     if (!s.body) throw err(400, `${lead} is a clause, and no ids@n is installed for this project or its office (${s.label}): not checkable`);
     const values = [...new Set(hits.map((h) => h.value))];
     if (values.length === 0) {
-      const r = clauseReadings(s.body, KIND_ENTITY[kind], key).find((h) => h.why); // C23: a clause that is not a value says why
-      throw err(400, `${lead}: no clause of ${s.label} pins one value of ${key} for every ${KIND_ENTITY[kind]}` + (r ? ` — ${r.spec} ("${r.sentence ?? r.value}"): ${r.why}` : ""));
+      const r = readings.find((h) => h.why && h.why !== NOT_WHOLE); // C23: a whole-class clause that is not a value says why
+      throw err(400, `${lead}: no clause of ${s.label} pins one value of ${key} for every ${KIND_ENTITY[kind]}` + (r ? ` — ${shown(r)}: ${r.why}` : ""));
     }
     if (values.length > 1) throw err(400, `${lead}: the clauses of ${s.label} pin ${values.map((v) => `"${v}"`).join(" and ")} for ${key} — they disagree; a person decides`);
     if (values[0] !== want) throw err(400, `${lead}: ${s.label} pins "${values[0]}" for ${key}, not "${want}" — a value is written only as its source holds it`);
     if (fromCatalog && fromCatalog !== want) throw disagree(fromCatalog, hits[0]);
+    more(want);
     return { kind: "clause", ref: refOf(hits[0]), sha256: s.sha256 ?? null };
   };
 }

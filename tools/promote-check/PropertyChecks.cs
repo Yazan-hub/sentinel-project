@@ -51,7 +51,7 @@ static partial class Check
         var differ = vc == null ? new List<string> { "no value_cases" } : vc.Where(c => Judge(c) != (string)c["why"])
             .Select(c => $"{(string)c["value"]} / {(string)c["sentence"]}: got {Judge(c) ?? "cited"}").ToList();
         foreach (var d in differ.Take(8)) Console.WriteLine("        " + d);
-        Ok(vc?.Count == 196 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 59,
+        Ok(vc?.Count == 239 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 69,
            $"every shared value case ({(vc?.Count ?? 0) - differ.Count}/{vc?.Count ?? 0}) reads as the bridge's notAValue: one rating token or one number with a time unit, the sentence ending with it — a bound, a choice, a qualifier or a narrowing tail goes to a person (C23)");
         // Review C23 (context): a sentence is cited only when compileIds marked it source_alone — its document said nothing but
         // whole-class one-value sentences. The specifications are compileIds' own (vitest holds them to it); both sides cite alike.
@@ -74,9 +74,35 @@ static partial class Check
                var row = vs["catalog"]["types"][0].DeepClone().AsObject();
                row["params"] = new JsonObject { ["Fire Rating"] = (string)t["raw"] };
                var cm = GuidelineMatcher.FromBodies(null, new JsonObject { ["types"] = new JsonArray(row) }.ToJsonString(), out _, out _);
-               return cm.CatalogValue("Walls", null, (string)row["type"], "Fire Rating") == (string)t["value"];
+               return cm.CatalogValue("Walls", null, (string)row["type"], "Fire Rating") == (string)t["value"]
+                      && (PropertyPlanner.Catalogued(cm, "Walls", null, (string)row["type"], "Pset_WallCommon.FireRating").Why == null) == (bool)t["cited"];
            }),
-           "a catalogue value is trimmed of ASCII blanks only, as the bridge's makeCiter trims it (U+0085, U+FEFF, U+00A0 kept on both sides: C23)");
+           "a catalogue value is trimmed of ASCII blanks only, as the bridge's makeCiter trims it (U+0085, U+FEFF, U+00A0 kept on both sides), and what is left is one value or no source (C23)");
+        // Review C23 (whole class, one source): a clause is the class's only when its pattern matches every IFC class the entity is
+        // exported as; a clause that says more of the key than the value sends it to a person. The bridge's ENTITY_SUBTYPES, clauseValues, saysMore.
+        var es = vs["entity_subtypes"]?.AsObject();
+        Ok(es != null && es.Count == Clauses.Subtypes.Count && es.All(kv => Clauses.Subtypes.TryGetValue(kv.Key, out var w) && w.SequenceEqual(kv.Value.AsArray().Select(x => (string)x))),
+           "the IFC classes each entity is exported as are the bridge's ENTITY_SUBTYPES (review C23)");
+        var ic = vs["ids_cases"]?.AsArray();
+        var icDiffer = ic == null ? new List<string> { "no ids_cases" } : ic.Where(c =>
+        {
+            var x = Clauses.FromIds(new JsonObject { ["specifications"] = c["specifications"].DeepClone() }.ToJsonString(), "ids@1", out _);
+            return !x.For((string)c["entity"], (string)c["key"]).Select(h => h.Value).SequenceEqual(c["values"].AsArray().Select(v => (string)v))
+                   || x.SaysMore((string)c["entity"], (string)c["key"], (string)c["value"])?.Spec != (string)c["more"];
+        }).Select(c => (string)c["name"]).ToList();
+        foreach (var d in icDiffer.Take(8)) Console.WriteLine("        " + d);
+        Ok(ic?.Count == 23 && icDiffer.Count == 0,
+           $"every shared ids case ({(ic?.Count ?? 0) - icDiffer.Count}/{ic?.Count ?? 0}) cites and says more as the bridge does: \"^IFCWALL$\" is no IFCWALLSTANDARDCASE's, a source_sentence not text is no sentence, a pattern, optional, prohibited, narrower or uncited clause of another value goes to a person (C23)");
+        var cc = vs["catalog_cases"]?.AsArray();
+        var ccDiffer = cc == null ? new List<string> { "no catalog_cases" } : cc.Where(c =>
+        {
+            var cm = GuidelineMatcher.FromBodies(null, new JsonObject { ["types"] = new JsonArray(c["row"].DeepClone()) }.ToJsonString(), out _, out _);
+            var (cv, why) = PropertyPlanner.Catalogued(cm, "Doors", (string)c["family"], (string)c["type"], "Pset_DoorCommon.FireRating");
+            return (cv == (string)c["value"] && why == null) != (bool)c["cited"];
+        }).Select(c => (string)c["name"]).ToList();
+        foreach (var d in ccDiffer.Take(8)) Console.WriteLine("        " + d);
+        Ok(cc?.Count == 21 && ccDiffer.Count == 0,
+           $"every shared catalogue case ({(cc?.Count ?? 0) - ccDiffer.Count}/{cc?.Count ?? 0}) cites as the bridge's makeCiter: exactly that type (ASCII blanks and letters only — NEL, BOM, the Kelvin sign are other names) and one value (\"TBC\", \"FD30 or FD60\" are none) (C23)");
         var bad = Clauses.FromIds("{", "ids@1 · project · 0a1b2c3d4e5f…", out var be);
         Ok(be != null && bad.For("IFCDOOR", "Pset_DoorCommon.FireRating").Count == 0 && bad.Label.StartsWith("ids@1 · project · 0a1b2c3d4e5f… did not parse: "),
            "an ids@n body that does not parse cites nothing, and says so");
@@ -178,8 +204,8 @@ static partial class Check
         var fl = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, floorIds);
         Ok(floorIds.For("IFCWALL", "Pset_WallCommon.FireRating").Count == 0
            && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 (\"All walls shall be at least REI60.\"): it states \"at least REI60\", not \"REI60\" — a person decides; a person fills it in Revit (Type Properties) — 1 element(s) on it"
-           && fl.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "write",
-           "a clause that sets a minimum (\"at least …\") is never written, and the person is told so; the catalogue still gives its own type's value (C7)");
+           && fl.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "disagree",
+           "a clause that sets a minimum (\"at least …\") is never written, and the person is told so; and the catalogue's own value is not written past it either: the gate holds every wall to it (C7, C23 one source)");
         // Review C19: a matrix key outside the class's own common set is never planned as a write (the bridge refuses it, and C4 would
         // drop the valid type edits of the same body with it): it goes to a person with the value and why.
         var mxOther = LodMatrix.FromBody(File.ReadAllText(Repo("demo", "bds-pilot", "bds-lod-matrix-dd-ma2b.json"))
@@ -207,6 +233,21 @@ static partial class Check
            && twice.NoSourceElements == 14
            && ur.Outcome == "no source" && ur.Why.Contains(", and 1 clause(s) of ids@4 · project · 3a4b5c6d7e8f… on Pset_WallCommon.FireRating have an entity pattern Sentinel cannot read;"),
            "the header counts what is held off the type when no row is planned, each no-source type's elements once, and names a clause it cannot read (C20)");
+        // Review C23 (one source): a cited value another clause of the ids@n does not pin (here FD60 on gate doors) goes to a person;
+        // a catalogue value that is not one value ("TBC") is no source.
+        var idsMore = vs["ids"].DeepClone().AsObject();
+        idsMore["specifications"].AsArray().Add(JsonNode.Parse("{\"name\":\"Gate doors FD60\",\"applicability\":{\"entity\":\"IFCDOOR\",\"predefinedType\":\"GATE\"},\"requirements\":{\"properties\":[{\"pset\":\"Pset_DoorCommon\",\"name\":\"FireRating\",\"value\":\"FD60\",\"cardinality\":\"required\"}]}}"));
+        var moreRep = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, Clauses.FromIds(idsMore.ToJsonString(), "ids@5 · project · 4a5b6c7d8e9f…", out _));
+        var mr = moreRep.Rows.Single(r => r.Label == "BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm");
+        var tbcCat = vs["catalog"].DeepClone().AsObject();
+        foreach (var t in tbcCat["types"].AsArray()) if ((string)t["type"] == "BDS_EXT_ARC_CMU_200 mm") t["params"]["Fire Rating"] = "TBC";
+        var tm = GuidelineMatcher.FromBodies(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-elements-guideline.json")), tbcCat.ToJsonString(), out _, out _);
+        tm.CatalogLabel = "type_catalog@1 · office · fedcba987654…";
+        var tr = PropertyPlanner.Plan(V1(tm, others, walls), mx, values, tm, clauses).Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm");
+        Ok(mr.Outcome == "disagree"
+           && mr.Why == "Pset_DoorCommon.FireRating on BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm: \"FD30\" (ids@5 · project · 4a5b6c7d8e9f… · Doors carry FD30 · \"All doors shall be FD30.\"), but ids@5 · project · 4a5b6c7d8e9f… · Gate doors FD60 (\"FD60\") also speaks of it, and not as \"FD30\": " + Clauses.NotWhole
+           && tr.Outcome == "no source" && tr.Why.StartsWith("no source for Pset_WallCommon.FireRating on BDS_EXT_ARC_CMU_200 mm — type_catalog@1 · office · fedcba987654… gives Fire Rating \"TBC\" is not one value"),
+           "a value another clause of the ids@n does not pin goes to a person, said; a catalogue placeholder (\"TBC\") is no source (C23)");
         var none = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, Clauses.None("none — not installed for ma2c or its office"));
         Ok(none.Rows.Single(r => r.Label == "BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm").Why.Contains("and no ids@n is installed to cite (none — not installed for ma2c or its office)"),
            "with no ids@n installed, a property with no catalogue value says there is no clause to cite");

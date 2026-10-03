@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue, NOT_ALONE } from "./changesets-typing.mjs";
+import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue, NOT_ALONE, ENTITY_SUBTYPES, saysMore } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
@@ -134,7 +134,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
-    expect(VS.value_cases.length).toBe(196);
+    expect(VS.value_cases.length).toBe(239);
     for (const c of VS.value_cases) {
       const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
       const entity = c.entity ?? "IFCDOOR", key = c.key ?? "Pset_DoorCommon.FireRating";
@@ -160,10 +160,36 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a catalogue value is trimmed of ASCII blanks only, as the add-in trims it: every shared case (review C23)", () => {
-    for (const { raw, value } of VS.catalog_trim) {
+    for (const { raw, value, cited } of VS.catalog_trim) {
       const types = [{ ...VS.catalog.types[0], params: { "Fire Rating": raw } }];
-      const c = makeCiter({ ...SRC, catalog: { ...SRC.catalog, body: { ...VS.catalog, types } } }, core);
-      expect(c("wall", WALL, "Pset_WallCommon.FireRating", value, { kind: "catalogue" }, "e").kind, JSON.stringify(raw)).toBe("catalogue");
+      const c = makeCiter({ ids: NONE("ids"), catalog: { ...SRC.catalog, body: { ...VS.catalog, types } } }, core); // the shared ids@n says 60 min of shear walls
+      // C23: what is left after the ASCII trim is held to the one-value shape — a BOM or a no-break space is not ASCII
+      if (cited) expect(c("wall", WALL, "Pset_WallCommon.FireRating", value, { kind: "catalogue" }, "e").kind, JSON.stringify(raw)).toBe("catalogue");
+      else refused(() => c("wall", WALL, "Pset_WallCommon.FireRating", value, { kind: "catalogue" }, "e"), /is not one value/);
+    }
+  });
+
+  it("a clause is the whole class's only when its pattern matches every IFC class the entity is exported as, and a clause that says more of the key sends the value to a person: every shared ids case (review C23)", () => {
+    expect(ENTITY_SUBTYPES).toEqual(VS.entity_subtypes); // the add-in's Clauses.Subtypes is the same table
+    expect(VS.ids_cases.length).toBe(23);
+    for (const c of VS.ids_cases) {
+      const ids = { specifications: c.specifications };
+      expect(clauseValues(ids, c.entity, c.key).map((h) => h.value), c.name).toEqual(c.values);
+      expect(saysMore(ids, c.entity, c.key, c.value)?.spec ?? null, c.name).toBe(c.more);
+    }
+    // At the bridge: a cited FD30 with another clause demanding FD60 of some doors is a 400 that names it.
+    const ids = { specifications: VS.ids_cases.find((c) => c.more === "B" && c.specifications[1].applicability.predefinedType).specifications };
+    refused(() => makeCiter({ ...SRC, ids: { ...SRC.ids, body: ids } }, core)("door", { FamilyName: "F", TypeName: "T" }, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "e"),
+      /^e: set_parameter's value_source: ids@1 · project · 0a1b2c3d4e5f… · B \("FD60"\) also speaks of Pset_DoorCommon\.FireRating for IFCDOOR, and not as "FD30": it says more of this property/);
+  });
+
+  it("a catalogue row is exactly that type's (ASCII blanks and letters only), and its value one value: every shared catalogue case (review C23)", () => {
+    expect(VS.catalog_cases.length).toBe(21);
+    for (const c of VS.catalog_cases) {
+      const cite1 = makeCiter({ catalog: { body: { types: [c.row] }, label: "type_catalog@1", sha256: null }, ids: NONE("ids") }, core);
+      const run = () => cite1("door", { FamilyName: c.family, TypeName: c.type }, "Pset_DoorCommon.FireRating", c.value, { kind: "catalogue" }, "e");
+      if (c.cited) expect(run().kind, c.name).toBe("catalogue");
+      else refused(run, /no row|is not one value/);
     }
   });
 
