@@ -1338,6 +1338,11 @@ async function handleRequest(req, res) {
       //   required (400), a name on hold (409) — one hold:dismissed row (cde-store.mjs readHolding, dismissHold).
       if (p2 === "holding" && !p3 && req.method === "GET") return send(res, 200, await cde.readHolding(p1));
       if (p2 === "holding" && p3 === "dismiss" && !p4 && req.method === "POST") return send(res, 201, await cde.dismissHold(p1, (await readBody(req)) || {}));
+      // MA-2c (design §6.8): the reply's type_gaps {open, closed, catalog} are Promote's type-gap groups. POST
+      //   /cde/:key/holding/type-gaps/:group/dismiss {reason} → 201 {id, hash}: lead only (403), a reason required (400), an open group
+      //   (409) — one hold:type_gap_dismissed row (cde-store.mjs dismissTypeGap).
+      if (p2 === "holding" && p3 === "type-gaps" && p4 && seg[5] === "dismiss" && !seg[6] && req.method === "POST")
+        return send(res, 201, await cde.dismissTypeGap(p1, decodeURIComponent(p4), (await readBody(req)) || {}));
       // The review chain (phase 6b, spec 2026-09-27 Decisions 12-14). GET /cde/:key/reviews → 200 {items}: the open chains
       //   on the project's shared versions, each with the step it waits on, the approvals so far and whether this caller
       //   may decide it (can_decide, why_not); a read that fails is a 502 "not read — …", never an empty list (cde-store.mjs

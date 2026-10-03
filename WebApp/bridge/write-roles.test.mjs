@@ -644,6 +644,28 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
       expect(await call("POST", A, who, { entity_type: "lod_state", action: "lod:state now", new_value: { ...count, ...over } })).toEqual({ status: 400, body: { message } });
     expect(writes("audit_log")).toEqual([]);
   });
+  // MA-2c: a type_gap row is one Promote run's gap groups — claimed like lod_state; the bridge names each group and words the action.
+  it("a type_gap row lands under the verified identity, each group named by the bridge, claimed; a malformed one is refused (MA-2c)", async () => {
+    const wall = { category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", key: "Function Exterior", elements: 2, labels: ["GR-FFL · W 1"], nearest: ["BDS_EXT_ARC_CMU_100 mm"] };
+    const door = { category: "Doors", size: "915 x 2134 mm", elements: 1 };
+    const r = await call("POST", A, "contributor", { entity_type: "type_gap", action: "anything", new_value: { groups: [wall, door], catalog: "type_catalog@1", claimed: false } });
+    expect(r.status).toBe(201);
+    const [row] = db.audit_log;
+    expect([row.entity_type, row.action, row.actor]).toEqual(["type_gap", "type_gap:run · 2 group(s), 3 element(s)", "contributor@example.test"]);
+    expect(row.new_value).toEqual({ catalog: "type_catalog@1", claimed: true, groups: [
+      { id: expect.stringMatching(/^[0-9a-f]{12}$/), ...wall },
+      { id: expect.stringMatching(/^[0-9a-f]{12}$/), category: "Doors", want: null, size: "915 x 2134 mm", key: null, elements: 1, labels: [], nearest: [] }] });
+    for (const [v, message] of [
+      ["2 gaps", "new_value is the run's gap groups, an object"],
+      [{ groups: [] }, "groups is a list of 1 to 200 gap groups"],
+      [{ groups: [{ category: "Walls", elements: 2 }] }, "groups[0] names the type it wants or the size it has (want or size)"],
+      [{ groups: [{ ...wall, elements: 0 }] }, "groups[0].elements is a whole number ≥ 1"],
+      [{ groups: [{ ...wall, key: "" }] }, "groups[0].key is one line of at most 500 characters"],
+      [{ groups: [{ ...wall, labels: ["a\nb"] }] }, "groups[0].labels is a list of at most 50 one-line texts"],
+    ]) expect(await call("POST", A, "machine", { entity_type: "type_gap", action: "x", new_value: v })).toEqual({ status: 400, body: { message: `a type_gap row's ${message} — nothing was saved` } });
+    expect(db.audit_log).toHaveLength(1);
+  });
+
   it("a share is null when nothing was counted, or when a class with a DD row was not run — a class with no DD row asks nothing", async () => {
     const ok = (v) => call("POST", A, "machine", { entity_type: "lod_state", action: "lod:state now", new_value: { when: "after", below: 0, blocked: 0, not_measured: 0, changesets: ["0b0b0b0b-0000-4000-8000-000000000001"], ...v } });
     expect((await ok({ share: null, total: 0, at: 0, not_run: [] })).status).toBe(201);

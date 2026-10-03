@@ -18,8 +18,9 @@ vi.mock("./members-store.mjs", async (orig) => ({
   }),
 }));
 
-import { readHolding, dismissHold } from "./cde-store.mjs";
-import { NAMING_NOTE } from "./holding-logic.mjs";
+import { readFileSync } from "node:fs";
+import { readHolding, dismissHold, dismissTypeGap } from "./cde-store.mjs";
+import { NAMING_NOTE, typeGapId } from "./holding-logic.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const C = "cccccccc-0000-4000-8000-000000000001";
@@ -119,5 +120,51 @@ describe("dismissHold — a lead clears a held item with a reason on the ledger"
     expect(r).toEqual({ id: row.id, hash: row.hash });
     expect((await readHolding("aster-tower")).items).toEqual([]);
     expect(db.audit_log.map((x) => x.action)).toEqual(["hold:naming tower final.ifc", "hold:dismissed tower final.ifc"]);
+  });
+});
+
+// MA-2c (design §6.4, §6.8): the Holding Area's type gaps — read from Promote's type_gap rows beside the hold rows, the catalogue
+// in force read for the close rule (none here: nothing is closed by it, and the reply says so); a lead dismisses a group.
+describe("readHolding and dismissTypeGap — type-gap groups (MA-2c)", () => {
+  const WALL = { category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", key: "Function Exterior", elements: 2, labels: ["GR-FFL · W 2051449"], nearest: [] };
+  const gapRun = (id, min, groups) => ({ id, at: at(min), hash: hash(id), project_id: P, entity_type: "type_gap", entity_id: null, action: "type_gap:run · 1 group(s), 2 element(s)", actor: "lead@example.test",
+    new_value: { groups: groups.map((g) => ({ id: typeGapId(g), ...g })), claimed: true } });
+
+  it("the reply carries type_gaps {open, closed, catalog} read from every type_gap row; with no catalogue installed nothing is closed by one", async () => {
+    db.audit_log.push(gapRun(901, 1, [WALL]));
+    const r = await readHolding("aster-tower");
+    expect(r.type_gaps).toEqual({ open: [expect.objectContaining({ id: typeGapId(WALL), category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", elements: 2, runs: 1, ledger: { id: 901, hash: hash(901) } })],
+      closed: [], catalog: "none — not installed for aster-tower or its office" });
+    expect(calls.some((c) => c.table === "audit_log" && /entity_type=eq\.type_gap/.test(c.query))).toBe(true);
+  });
+
+  it("a lead dismisses an open group with a reason: one hold:type_gap_dismissed row, the group closed with it; the type_gap row stays", async () => {
+    db.audit_log.push(gapRun(901, 1, [WALL]));
+    const id = typeGapId(WALL);
+    const r = await dismissTypeGap("aster-tower", id, { reason: " a template sample ", actor: "lead@example.test" });
+    const row = db.audit_log.at(-1);
+    expect(row).toMatchObject({ entity_type: "hold", action: `hold:type_gap_dismissed ${id}`, actor: "lead@example.test",
+      new_value: { group: id, reason: "a template sample", category: "Walls", want: "BDS_EXT_ARC_CMU_125 mm", size: "125 mm", elements: 2, labels: ["GR-FFL · W 2051449"] } }); // C5: what it saw
+    expect(r).toEqual({ id: row.id, hash: row.hash });
+    const after = (await readHolding("aster-tower")).type_gaps;
+    expect(after.open).toEqual([]);
+    expect(after.closed).toMatchObject([{ id, closed_by: "dismissed", reason: "a template sample" }]);
+    expect((await readHolding("aster-tower")).items).toEqual([]); // a type-gap dismissal is no held file's
+  });
+
+  it("a contributor is refused before any read; no reason is a 400; a group that is not open is a 409 and nothing is written", async () => {
+    state.role = "contributor";
+    await expect(dismissTypeGap("aster-tower", "abc", { reason: "x" })).rejects.toMatchObject({ status: 403 });
+    expect(calls).toHaveLength(0);
+    state.role = "lead";
+    await expect(dismissTypeGap("aster-tower", "abc", { reason: " " })).rejects.toMatchObject({ status: 400, message: "reason is required — a lead's dismissal says why, in at most 500 characters" });
+    await expect(dismissTypeGap("aster-tower", "0123456789ab", { reason: "x" })).rejects.toMatchObject({ status: 409, message: "type-gap group 0123456789ab is not open on aster-tower" });
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+
+  it("the route: POST /cde/:key/holding/type-gaps/:group/dismiss reaches dismissTypeGap (bcf-service.mjs)", () => {
+    const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
+    expect(src).toContain('if (p2 === "holding" && p3 === "type-gaps" && p4 && seg[5] === "dismiss" && !seg[6] && req.method === "POST")');
+    expect(src).toContain("return send(res, 201, await cde.dismissTypeGap(p1, decodeURIComponent(p4), (await readBody(req)) || {}));");
   });
 });
