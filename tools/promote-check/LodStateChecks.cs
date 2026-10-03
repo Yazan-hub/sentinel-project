@@ -110,8 +110,8 @@ static partial class Check
            && row.Reasons.Any(kv => kv.Key == "not a basic wall — Promote v0 types basic walls only")
            && row.Reasons.Any(kv => kv.Key == "not on a DD type — Promote proposes a retype") && row.Reasons.Any(kv => kv.Key == "top not at the next story — Promote proposes an attach"),
            "the reasons: a missing property, the two blocks, and what Promote proposes for the concept wall");
-        Ok(r.Line == "DD → design: 1 of 5 at DD (20%) · 2 below · 2 blocked · 0 not measured" && r.Share == 20,
-           "the line every surface prints: the stage, its project stage (D18), the counts and the share");
+        Ok(r.Line == "DD → design: 1 of 5 at DD (20%) · 2 below · 2 blocked · 0 not measured · 1 on other office types, not counted" && r.Share == 20 && r.OfficeTyped == 1,
+           "the line every surface prints: the stage, its project stage (D18), the counts and the share — and the elements on the office's other types, left out of the count, named (review)");
         Ok(r.LevelLines()[0].StartsWith("Level 1 · Walls: 1 at DD, 2 below, 2 blocked, 0 not measured (") && r.LevelLines()[0].EndsWith("; …)"),
            "per level and class: the counts and the two commonest reasons");
 
@@ -167,7 +167,8 @@ static partial class Check
         report.MatrixSha = new string('a', 64);
         var body = JsonSerializer.Serialize(CommandReports.LodState(report, new[] { "cs-1" }, "lead@office.example"));
         var j = JsonNode.Parse(body);
-        Ok((string)j["entity_type"] == "lod_state" && (string)j["action"] == "lod:state now · DD → coord: 2 of 5 at DD (40%) · 1 below · 2 blocked · 0 not measured"
+        Ok((string)j["entity_type"] == "lod_state" && (string)j["action"] == "lod:state now · DD → coord: 2 of 5 at DD (40%) · 1 below · 2 blocked · 0 not measured · 1 on other office types, not counted"
+           && (int)j["new_value"]["office_typed"] == 1
            && (int)j["new_value"]["share"] == 40 && (int)j["new_value"]["total"] == 5 && (string)j["new_value"]["project_stage"] == "coord"
            && (string)j["new_value"]["rows"][0]["category"] == "Walls" && (int)j["new_value"]["rows"][0]["blocked"] == 2 && (int)j["new_value"]["rows_total"] == 1
            && (string)j["new_value"]["changesets"][0] == "cs-1" && (string)j["new_value"]["source"] == "revit" && (string)j["new_value"]["matrix_sha256"] == new string('a', 64),

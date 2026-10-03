@@ -193,6 +193,9 @@ namespace Sentinel.GhostBuilder
         public List<LodClassRow> Rows = new List<LodClassRow>();
         /// <summary>The classes not measured at all, with the reason (Promote did not run them: LodMatrix.Classes).</summary>
         public List<string> NotRun = new List<string>();
+        /// <summary>Review: the elements on the office's other types (no DD rule produces their type; Promote leaves them as is and
+        /// out of "DD now"), left out of the count — named in the line and on the row, never silently.</summary>
+        public int OfficeTyped;
 
         public int Total => Rows.Sum(r => r.Total);
         public int At => Rows.Sum(r => r.At);
@@ -211,6 +214,7 @@ namespace Sentinel.GhostBuilder
         public string Line =>
             $"{Stage} → {ProjectStage}: {At} of {Total} at {Stage}" + (Share is int s ? $" ({s}%)" : "") +
             $" · {Below} below · {Blocked} blocked · {NotMeasured} not measured" +
+            (OfficeTyped > 0 ? $" · {OfficeTyped} on other office types, not counted" : "") +
             (NotRun.Count > 0 ? " · " + string.Join(", ", NotRun.Select(n => n.Split(':')[0])) + " not measured" : "");
 
         /// <summary>Per level and class: "Level 3 · Walls: 38 at DD, 212 below, 14 blocked, 0 not measured (in a group ×10; …)".</summary>
@@ -228,7 +232,8 @@ namespace Sentinel.GhostBuilder
         public static LodStateReport Read(IReadOnlyList<StoreyPlan> plans, LodMatrix mx, StageIds ids, string idsWhy,
                                           IReadOnlyDictionary<string, StageIds.Verdict> props, IEnumerable<string> notRun)
         {
-            var r = new LodStateReport { ProjectStage = mx.StageMap["DD"], NotRun = (notRun ?? Enumerable.Empty<string>()).ToList() };
+            var r = new LodStateReport { ProjectStage = mx.StageMap["DD"], NotRun = (notRun ?? Enumerable.Empty<string>()).ToList(),
+                                         OfficeTyped = plans.Sum(p => p.OfficeTyped + p.Others.Values.Sum(c => c.OfficeTyped)) };
             foreach (var p in plans)
                 foreach (var cat in LodMatrix.Order)
                 {

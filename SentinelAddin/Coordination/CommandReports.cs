@@ -84,7 +84,8 @@ namespace Sentinel.Coordination
             {
                 when = r.When, stage = r.Stage, project_stage = r.ProjectStage, matrix = r.Matrix, matrix_sha256 = r.MatrixSha, ids = r.Ids, guideline = r.Guideline,
                 line = r.Line, share = r.Share, total = r.Total, at = r.At, below = r.Below, blocked = r.Blocked, not_measured = r.NotMeasured,
-                rows = r.Rows.Take(MaxNames).Select(x => new
+                office_typed = r.OfficeTyped,
+                rows =r.Rows.Take(MaxNames).Select(x => new
                 {
                     level = x.Level, category = x.Category, total = x.Total, at = x.At, below = x.Below, blocked = x.Blocked, not_measured = x.NotMeasured,
                     reasons = x.Reasons.Take(MaxReasons).Select(kv => new { reason = kv.Key.Length <= 200 ? kv.Key : kv.Key.Substring(0, 199) + "…", count = kv.Value }).ToArray(),
