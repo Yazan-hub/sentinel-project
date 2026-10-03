@@ -108,6 +108,7 @@ Two independent reviews — whether the code says only what it measured (code-ho
 - **C16 (drill set-up "Record before the first row"; UNSURE 1; merge gate — important, exec-drill).** Inside/outside was never made observable wall by wall, and `GR-FFL`'s template walls were unnamed barriers. The set-up records each wall's id, type and expected reading through the read-only MCP before P-1, and names the template walls as barriers; the merge gate is judged on `01-FFL`; types are verified through the MCP filter, not Select by ID (unresponsive in MA1b, record `:1248`).
 - **C17 (drill "Owed before the first row" — important, exec-drill).** Design `:1081`'s "a lead writes layer-free rules into the office guideline" is MA-2a's own spec text and was in no task, row or owed line. It is now owed by name, with the DRAFT file as the starting point.
 - **C18 (drill table order, P-2/B-2 Record, "Owed", closing list; Task 8 Step 2 — minor, exec-drill).** The merge gate depended on an unstated row order (H-2 installs `type_catalog@2` for every row after it): one line states it. P-2 and B-2 record the wall-type count before and after Apply ("equal — no type created", design `:1093`). Design `:1098`'s aster-tower run is named as substituted by B-3 (d). The closing list says which leftovers stay and which are deleted. "All 25 check projects": there are 26 folders on this PC, but `tools/rvtinfo-check` is not tracked by git (an export has 25) — the step says both.
+- **C19 (Task 3 `artefact-store.mjs` install validator; `artefact-store.test.mjs`; S4's comments — important, review after the landing).** The install check accepted a `when.params` value that was not a non-empty string: `Location: 5` installed, threw in the bridge typer (`TypeError`, a 500 with no words) and made the add-in's `GuidelineMatcher.FromBodies` read the whole guideline as "did not parse" — one bad value turned the project's guideline into none in Revit; `null` and `""` matched every element carrying the parameter on both sides. A `when.layer`/`level`/`discipline` present but blank (`null`, `""`) was a stated condition to `guideline.ts matches()` and a wildcard to the add-in's `Matches`. The validator now refuses both (`…when.params.<k> must be a non-empty string, name and value`; `…when.<f> is present but blank — leave it out or name it`); seven rows pin them, the blank-layer refusal S4 names included. The two code comments that still said the TS validator "says the same" (the sentence C12 struck) carry C12's words.
 
 ## Amendments to the spec's words (BINDING — they override any task text they contradict; numbered S1–S5 so the review amendments above keep C1…)
 
@@ -1443,7 +1444,8 @@ with
 
 ```js
     ["elements[0].default.family", withItem(guideline, "elements", 0, { default: { family: "" } })],
-    // MA-2a: a rule with no condition would match every element the bridge types — refused at install (guideline.ts validateGuideline says the same).
+    // MA-2a: a rule with no condition would match every element the bridge types — refused at install, the strictest of the three
+    // validators (review C12): guideline.ts validateGuideline refuses only `when: {}`, the add-in's CheckGuideline neither.
     ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: {}, use: { family: "Basic Wall" } }] })],
     ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: { params: {} }, use: { family: "Basic Wall" } }] })],
 ```

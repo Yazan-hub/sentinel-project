@@ -393,9 +393,19 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ use: { family: "Basic Wall" } }] })],
     ["elements[0].rules[0].use.family", withItem(guideline, "elements", 0, { rules: [{ when: {}, use: { type: "X" } }] })],
     ["elements[0].default.family", withItem(guideline, "elements", 0, { default: { family: "" } })],
-    // MA-2a: a rule with no condition would match every element the bridge types — refused at install (guideline.ts validateGuideline says the same).
+    // MA-2a: a rule with no condition would match every element the bridge types — refused at install, the strictest of the three
+    // validators (review C12): guideline.ts validateGuideline refuses only `when: {}`, the add-in's CheckGuideline neither.
     ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: {}, use: { family: "Basic Wall" } }] })],
     ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: { params: {} }, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when", withItem(guideline, "elements", 0, { rules: [{ when: { layer: " " }, use: { family: "Basic Wall" } }] })],
+    // A when field present but blank reads as a condition on the TS side and a wildcard on the add-in's; a params value that is not
+    // a non-empty string crashed the bridge typer (a number) or matched every element carrying the parameter (null, "").
+    ["elements[0].rules[0].when.layer", withItem(guideline, "elements", 0, { rules: [{ when: { layer: null, params: { Location: "Exterior" } }, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when.level", withItem(guideline, "elements", 0, { rules: [{ when: { level: "", params: { Location: "Exterior" } }, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when.params.Location", withItem(guideline, "elements", 0, { rules: [{ when: { params: { Location: 5 } }, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when.params.Location", withItem(guideline, "elements", 0, { rules: [{ when: { params: { Location: null } }, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when.params.Location", withItem(guideline, "elements", 0, { rules: [{ when: { params: { Location: "" } }, use: { family: "Basic Wall" } }] })],
+    ["elements[0].rules[0].when.params.", withItem(guideline, "elements", 0, { rules: [{ when: { params: { "": "Exterior" } }, use: { family: "Basic Wall" } }] })],
     ["views", { ...guideline, views: {} }],
     ["viewNaming", { ...guideline, viewNaming: [] }],
   ])("guideline: a bad %s is a 400 naming that path", (path, body) => {
