@@ -178,24 +178,23 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if (dlg.Show() != TaskDialogResult.Yes) return Result.Succeeded; // read-only run
 
         ChangesetDto first = null;
-        var failed = new List<string>();
         var filedIds = new List<string>(); // MA-1a item 8: the changesets this run filed, for its receipt
-        var typeEditsNotFiled = 0;
-        foreach (var body in bodies)
+        // Review amendments C4 and C24: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the op)
+        // never costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception that
+        // says why — and the held rows of a body not filed ride on the next one filed (FileAll).
+        var run = PropertyPlanner.FileAll(bodies, (body, retry) =>
         {
-            var cs = ChangesetClient.Propose(cfg, key, body, out var err);
-            // Review amendment C4: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the op) never
-            // costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception that
-            // says why. Only a second refusal counts as not filed; a body of type edits only is not filed again.
-            if (cs == null && err != null && err.StartsWith("Bridge 400:") && err.Contains("set_parameter") && PropertyPlanner.WithoutWrites(body, err, out var dropped) is object again)
-            {
-                // Review C22: a network call this plan adds runs off the API thread (Revit still waits, as for PromoteContext.Fetch).
-                cs = Task.Run(() => ChangesetClient.Propose(cfg, key, again, out err)).GetAwaiter().GetResult();
-                if (cs != null) typeEditsNotFiled += dropped;
-            }
-            if (cs == null) failed.Add(err);
-            else { first ??= cs; filedIds.Add(cs.Id); }
-        }
+            string err = null;
+            // Review C22: a network call this plan adds runs off the API thread (Revit still waits, as for PromoteContext.Fetch).
+            var cs = retry ? Task.Run(() => ChangesetClient.Propose(cfg, key, body, out err)).GetAwaiter().GetResult()
+                           : ChangesetClient.Propose(cfg, key, body, out err);
+            if (cs == null) return err ?? "not filed";
+            first ??= cs;
+            filedIds.Add(cs.Id);
+            return null;
+        });
+        var failed = run.Failed;
+        var typeEditsNotFiled = run.TypeEditsNotFiled;
         if (filedIds.Count > 0)
         {
             // MA-1a item 8: the planner's build:run receipt for the run that filed these changesets — deterministic, so no
@@ -209,6 +208,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
         if (failed.Count > 0 || typeEditsNotFiled > 0)
             TaskDialog.Show(Title, (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
+                                   (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no changeset — they are listed only in Promote's dialog\n" : "") +
                                    (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)) : ""));
         if (first == null) return Result.Failed;
         return ReviewChangesetsCommand.Open(c, doc, cfg, key, first) ? Result.Succeeded : Result.Cancelled;

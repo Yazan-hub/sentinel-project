@@ -319,16 +319,17 @@ namespace Sentinel.GhostBuilder
         /// <summary>Review amendment C4: a Promote body the bridge refused for a set_parameter (its source not confirmed at post time,
         /// or a bridge older than the op), filed again WITHOUT its set_parameter rows — the storey's retypes and attaches are not lost
         /// with them — each type edit becoming an exception that says why (one line; the bridge keeps a name ≤ 256 and a reason
-        /// ≤ 300). Null when the body holds no set_parameter, or nothing else (then nothing is filed again).</summary>
+        /// ≤ 300). Null when the body holds no set_parameter, or nothing else and no held row. Review C24: a body of type edits only
+        /// that carries held rows (C16) comes back with NO element — nothing to post; FileAll hands its rows on to the next body.</summary>
         public static object WithoutWrites(object body, string why, out int removed)
         {
-            var o = JsonSerializer.SerializeToNode(body, global::Sentinel.Coordination.ChangesetClient.WriteJson).AsObject(); // nulls left out, as Propose posts it
+            var o = Node(body);
             var all = o["elements"].AsArray();
             var writes = all.Where(e => (string)e?["op"] == "set_parameter").ToList();
             removed = writes.Count;
-            if (removed == 0 || removed == all.Count) return null;
             if (!(o["exceptions"] is JsonArray ex)) o["exceptions"] = ex = new JsonArray();
             int held = ex.Count;
+            if (removed == 0 || (removed == all.Count && held == 0)) return null;
             // Review C17: the bridge stops at the first element it refuses ("elements[k]: …"); only that one's source was refused.
             var named = Regex.Match(why ?? "", @"elements\[(\d+)\]");
             var at = writes.ToDictionary(w => w, w => all.IndexOf(w).ToString()); // the posted indices, before any is removed
@@ -345,22 +346,74 @@ namespace Sentinel.GhostBuilder
                         : $"not filed with it: the bridge refused another type edit of this changeset ({why}); run Promote again to file it, or fill it in Revit (Type Properties)", 300),
                 });
             }
-            // Review C17: the bridge refuses more than MaxExceptions; the held rows just before the type edits fold into one "(more)" row.
-            // ponytail: assumes fewer than MaxExceptions type edits in one body (one per DD type × property).
-            int max = PromoteWallsPlanner.MaxExceptions;
-            if (ex.Count > max)
-            {
-                int keep = Math.Max(0, max - 1 - removed);
-                var folded = ex.Skip(keep).Take(held - keep).ToList();
-                int k = folded.Sum(f => (string)f["unique_id"] == "(more)" && Regex.Match((string)f["name"] ?? "", @"\d+") is Match mm && mm.Success ? int.Parse(mm.Value) : 1);
-                foreach (var f in folded) ex.Remove(f);
-                ex.Insert(keep, new JsonObject
-                {
-                    ["unique_id"] = "(more)", ["name"] = $"… and {k} more",
-                    ["reason"] = "sent to a person — more than one changeset holds; the Promote summary counts them",
-                });
-            }
+            Fold(ex, removed);
             return o;
+        }
+
+        /// <summary>Review C24: what filing Promote's bodies did — the errors of the bodies not filed, the type edits filed as rows
+        /// instead (C4), and the held rows no body took (the last bodies were not filed).</summary>
+        public sealed class FileRun
+        {
+            public List<string> Failed = new List<string>();
+            public int TypeEditsNotFiled, RowsNotFiled;
+        }
+
+        /// <summary>Review amendments C4 and C24: files Promote's bodies in order through <paramref name="post"/> (body, retry) → null
+        /// when filed, else the error. A body refused for a set_parameter is filed again without its type edits (WithoutWrites); one left
+        /// with no element (type edits only, carrying held rows: C16) is not posted — its rows, its type edits among them, ride on the
+        /// next body filed, as do the rows of any body not filed. Rows no later body takes are counted, never silently lost.</summary>
+        public static FileRun FileAll(IReadOnlyList<object> bodies, Func<object, bool, string> post)
+        {
+            var run = new FileRun();
+            JsonArray carry = null;
+            foreach (var b in bodies)
+            {
+                var body = Carry(b, carry);
+                carry = null;
+                var err = post(body, false);
+                if (err != null && err.StartsWith("Bridge 400:") && err.Contains("set_parameter") && WithoutWrites(body, err, out var dropped) is JsonObject again)
+                {
+                    if (again["elements"].AsArray().Count == 0) { run.TypeEditsNotFiled += dropped; run.Failed.Add(err); carry = (JsonArray)again["exceptions"]; continue; }
+                    var retried = post(again, true);
+                    if (retried == null) { run.TypeEditsNotFiled += dropped; continue; }
+                    err = retried;
+                }
+                if (err != null) { run.Failed.Add(err); carry = Node(body)["exceptions"] as JsonArray; }
+            }
+            run.RowsNotFiled = carry?.Count ?? 0;
+            return run;
+        }
+
+        // Review C24: a body with the rows of a body not filed before its own, folded to the bridge's cap.
+        private static object Carry(object body, JsonArray rows)
+        {
+            if (rows == null || rows.Count == 0) return body;
+            var o = Node(body);
+            var ex = new JsonArray(rows.Select(r => r.DeepClone()).ToArray());
+            if (o["exceptions"] is JsonArray own) foreach (var r in own) ex.Add(r.DeepClone());
+            o["exceptions"] = ex;
+            Fold(ex, 0);
+            return o;
+        }
+
+        private static JsonObject Node(object body) =>
+            JsonSerializer.SerializeToNode(body, global::Sentinel.Coordination.ChangesetClient.WriteJson).AsObject(); // nulls left out, as Propose posts it
+
+        // Review C17: the bridge refuses more than MaxExceptions; the rows before the last `tail` (the type edits) fold into one "(more)" row.
+        // ponytail: assumes fewer than MaxExceptions type edits in one body (one per DD type × property).
+        private static void Fold(JsonArray ex, int tail)
+        {
+            int max = PromoteWallsPlanner.MaxExceptions;
+            if (ex.Count <= max) return;
+            int keep = Math.Max(0, max - 1 - tail);
+            var folded = ex.Skip(keep).Take(ex.Count - tail - keep).ToList();
+            int k = folded.Sum(f => (string)f["unique_id"] == "(more)" && Regex.Match((string)f["name"] ?? "", @"\d+") is Match mm && mm.Success ? int.Parse(mm.Value) : 1);
+            foreach (var f in folded) ex.Remove(f);
+            ex.Insert(keep, new JsonObject
+            {
+                ["unique_id"] = "(more)", ["name"] = $"… and {k} more",
+                ["reason"] = "sent to a person — more than one changeset holds; the Promote summary counts them",
+            });
         }
 
         private static string OneLine(string s, int max)

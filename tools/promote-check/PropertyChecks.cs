@@ -258,5 +258,36 @@ static partial class Check
         Ok(alone.Count == 1 && alone[0]["exceptions"].AsArray().Select(e => (string)e["name"])
                .SequenceEqual(new[] { "W 7", "type X · GR-FFL", "L2 · W 9", "L2 · type X · L2" }),
            "with no body that retypes or attaches, the type-edit body carries every held row, as before (C16)");
+        // Review C24 (C16 residual): when that body is refused, its held rows are not lost — WithoutWrites returns it without the
+        // writes (no element left: nothing to post) and FileAll hands its rows, and the refused type edits, to the next body filed.
+        var lone = PropertyPlanner.WithoutWrites(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("GR-FFL", "set_parameter", "W 7"), SP("L2", null, "W 9") }, "yazan")[0],
+            "Bridge 400: elements[0]: set_parameter's value_source: x", out var lostN);
+        var ln = lone == null ? null : JsonSerializer.SerializeToNode(lone, ChangesetClient.WriteJson);
+        Ok(lostN == 1 && ln != null && ln["elements"].AsArray().Count == 0
+           && ln["exceptions"].AsArray().Select(e => (string)e["name"]).SequenceEqual(new[] { "W 7", "type X · GR-FFL", "L2 · W 9", "L2 · type X · L2", "type BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating" }),
+           "a refused body of type edits only that carries held rows is not dropped: without its writes it still holds every held row, and each type edit as a row (C24)");
+        // FileAll over a fake bridge that refuses the ground floor's type edit: its rows ride on the next body filed; with no next body
+        // they are counted. A body refused for another reason hands its rows on too.
+        var posted = new List<JsonNode>();
+        string Bridge(object b, bool retry)
+        {
+            var n = JsonSerializer.SerializeToNode(b, ChangesetClient.WriteJson);
+            var name = (string)n["name"];
+            if (name.EndsWith("GR-FFL") && n["elements"].AsArray().Any(e => (string)e["op"] == "set_parameter")) return "Bridge 400: elements[0]: set_parameter's value_source: x";
+            if (name.EndsWith("L3")) return "Bridge 500: down";
+            posted.Add(n);
+            return null;
+        }
+        var run = PropertyPlanner.FileAll(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("GR-FFL", "set_parameter", "W 7"), SP("L1", "set_parameter"), SP("L2", null, "W 9") }, "yazan"), Bridge);
+        var l1 = posted.Count == 1 ? posted[0]["exceptions"]?.AsArray().Select(e => (string)e["name"]).ToList() : null;
+        var tail = PropertyPlanner.FileAll(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("GR-FFL", "set_parameter", "W 7"), SP("L2", null, "W 9") }, "yazan"), Bridge);
+        posted.Clear();
+        var down = PropertyPlanner.FileAll(PromoteWallsPlanner.Bodies(new List<StoreyPlan> { SP("L3", "retype", "W 3"), SP("L4", "retype") }, "yazan"), Bridge);
+        Ok(run.Failed.Count == 1 && run.TypeEditsNotFiled == 1 && run.RowsNotFiled == 0
+           && l1 != null && l1.SequenceEqual(new[] { "W 7", "type X · GR-FFL", "L2 · W 9", "L2 · type X · L2", "type BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating", "type X · L1" })
+           && tail.Failed.Count == 1 && tail.RowsNotFiled == 5
+           && down.Failed.SequenceEqual(new[] { "Bridge 500: down" }) && posted.Count == 1
+           && posted[0]["exceptions"].AsArray().Select(e => (string)e["name"]).SequenceEqual(new[] { "W 3", "type X · L3", "type X · L4" }),
+           "FileAll: the rows of a body not filed — its refused type edits among them — ride on the next body filed, ahead of its own; with no next body they are counted (C24)");
     }
 }
