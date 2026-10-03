@@ -398,6 +398,20 @@ export async function resolveContract(key, deps) {
   return { body: a.body, ref: a.ref, source: a.source, sha256: a.sha256, label: refLabel(a), reason: null };
 }
 
+/** MA-2b (design §3.4 step 5): GET /cde/:key/artefacts/lod_matrix/ids — the DD stage IDS of `key`'s lod_matrix@n (project →
+ *  office), made by matrixToIds from the one parser's reading, with the matrix that made it: {matrix: label, sha256, stage: "DD",
+ *  project_stage (its stage_map, D18), ids, unmatched}. Derived on every read and never installed as ids@n, so it cannot outrank
+ *  or clash with the project's own IDS. 404 when no matrix is installed; 409 when the one installed no longer parses. */
+export async function lodMatrixIds(key, deps) {
+  const a = await resolveArtefact(key, "lod_matrix", deps);
+  if (a.source === "none") throw err(404, `no lod_matrix installed for ${key} or its office`);
+  let m;
+  try { m = parseLodMatrix(a.body); } catch (e) { throw err(409, `${refLabel(a)} did not parse: ${e.message}`); }
+  const { matrixToIds } = await import("./ids-compile.mjs");
+  const { unmatched, ...ids } = matrixToIds(m, { label: refLabel(a) });
+  return { matrix: refLabel(a), sha256: a.sha256, stage: "DD", project_stage: m.stage_map.DD, ids, unmatched };
+}
+
 /**
  * The IDS a judge must use for `key`: project → office (resolveArtefact) → client → none. Returns the spec
  * and its provenance; `client_ids_ignored` is true when a client sent one but an installed artefact outranked it.

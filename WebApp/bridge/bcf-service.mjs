@@ -1402,6 +1402,9 @@ async function handleRequest(req, res) {
           return send(res, 200, await closeSupersededIdsTopics(cde, p1, resolveActor(b?.actor || url.searchParams.get("actor"), "web")));
         }
         if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
+        // MA-2b: GET /cde/:key/artefacts/lod_matrix/ids — the DD stage IDS made from the matrix in force (never installed as ids@n).
+        // Before the version GET, so "ids" is never read as a version. Any member, as every artefact read.
+        if (p3 === "lod_matrix" && p4 === "ids" && req.method === "GET") return send(res, 200, await art.lodMatrixIds(p1));
         if (p3 && !p4 && req.method === "GET") {
           const r = await art.artefactReply(p1, p3, req.headers["if-none-match"]);
           return send(res, r.status, r.body, r.etag && { ETag: r.etag });

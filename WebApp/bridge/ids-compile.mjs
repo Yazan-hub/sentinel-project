@@ -61,8 +61,44 @@ export const STANDARD_PSETS = {
   IFCSTAIR: { FireRating: "Pset_StairCommon", Reference: "Pset_StairCommon", IsExternal: "Pset_StairCommon" },
   IFCRAILING: { Reference: "Pset_RailingCommon", IsExternal: "Pset_RailingCommon" },
   IFCCURTAINWALL: { IsExternal: "Pset_CurtainWallCommon", FireRating: "Pset_CurtainWallCommon", Reference: "Pset_CurtainWallCommon", ThermalTransmittance: "Pset_CurtainWallCommon" },
+  // MA-2b: a ceiling exports as IFCCOVERING — the lod_matrix's Ceilings row.
+  IFCCOVERING: { FireRating: "Pset_CoveringCommon", AcousticRating: "Pset_CoveringCommon", Reference: "Pset_CoveringCommon", ThermalTransmittance: "Pset_CoveringCommon" },
 };
 export const standardPset = (entity, property) => STANDARD_PSETS[entity]?.[property] ?? null;
+
+/** MA-2b: a lod_matrix row's Revit category → the IFC class its elements export as (GovernedElementExtractor's table). */
+export const CATEGORY_ENTITY = { Walls: "IFCWALL", Floors: "IFCSLAB", Roofs: "IFCROOF", Ceilings: "IFCCOVERING", Doors: "IFCDOOR", Windows: "IFCWINDOW" };
+
+/** MA-2b (design §3.4 step 5): the IDS of a matrix's DD stage, in the JSON shape compileIds writes — one specification per row
+ *  that asks for properties, every property required. `matrix` is sentinel-core's parseLodMatrix answer. A qualified name
+ *  ("Pset_WallCommon.FireRating") is required as written; a bare one ("FireRating") goes in its class's standard pset
+ *  (STANDARD_PSETS), and one no standard pset holds is returned in `unmatched` with the reason — never dropped (rule 3 above);
+ *  so is a qualified name in a standard set of another class only. A property named twice is required once.
+ *  Deterministic, and a proposal of what to check: nothing here installs an ids@n. → {title, enforce: "warn", specifications, unmatched}. */
+export function matrixToIds(matrix, { stage = "DD", label = null } = {}) {
+  const specifications = [], unmatched = [];
+  const standardSets = new Set(Object.values(STANDARD_PSETS).flatMap((m) => Object.values(m)));
+  for (const row of matrix.rows) {
+    const entity = CATEGORY_ENTITY[row.category];
+    const ownSets = new Set(Object.values(STANDARD_PSETS[entity] ?? {}));
+    const properties = [], seen = new Set();
+    // A property the row names twice (bare and qualified) is required once; a standard set of another class only (a wall row
+    // asking Pset_DoorCommon) is the matrix's slip — said in unmatched, never a requirement no element of the class can meet.
+    const require = (pset, name) => { if (!seen.has(`${pset}.${name}`)) { seen.add(`${pset}.${name}`); properties.push({ pset, name, cardinality: "required" }); } };
+    const said = (p, reason) => { if (!seen.has(p)) { seen.add(p); unmatched.push({ category: row.category, property: p, reason }); } };
+    for (const p of row.properties) {
+      const dot = p.indexOf(".");
+      if (dot > 0 && dot < p.length - 1) {
+        const pset = p.slice(0, dot);
+        if (standardSets.has(pset) && !ownSets.has(pset)) said(p, `${pset} is not a standard set of ${entity} (${[...ownSets].join(", ") || "none"}) — name it in its class's set`);
+        else require(pset, p.slice(dot + 1));
+      } else if (standardPset(entity, p)) require(standardPset(entity, p), p);
+      else said(p, `no standard property set holds ${p} for ${entity} — name it as Pset_X.${p}`);
+    }
+    if (properties.length) specifications.push({ name: `${row.category} · ${stage}`, applicability: { entity }, requirements: { properties, attributes: [] } });
+  }
+  return { title: `${matrix.standard_key} ${matrix.semver} · ${stage}${label ? ` (${label})` : ""}`, enforce: "warn", specifications, unmatched };
+}
 
 const REQUIREMENT = /\b(shall|must|is required to|are required to|mandatory)\b/i;
 const CARDINALITY_PROHIBITED = /\b(shall not|must not|is prohibited|are prohibited|no .{0,30} shall)\b/i;
