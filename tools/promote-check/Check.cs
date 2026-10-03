@@ -57,6 +57,7 @@ static partial class Check
         Ma2bWiringChecks();
         ValueSourceChecks();
         PropertyPlannerChecks();
+        Ma2cWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

@@ -103,6 +103,10 @@ public sealed class PromoteWallsCommand : IExternalCommand
             }
             catch (Exception ex) { return ex.Message; }
         });
+        // MA-2c (design §3.3 op 4): the DD properties of the DD types the plan lands elements on, read on their TYPE (API thread,
+        // read-only) — empty ones filled from a cited source as a set_parameter type edit, else sent to a person and counted.
+        PropertyReport props = mx == null ? null
+            : PropertyPlanner.Plan(plans, mx, TypeValues(doc, PropertyPlanner.DdTypes(plans, mx), mx), standards.Guideline, pc.Clauses);
         plannerClock.Stop();
         var actor = UserSession.Actor;
         // MA-2b, design §3.4 step 2: the LOD state now — one lod_state row per run, the read-only one too (the gate reads it).
@@ -142,7 +146,10 @@ public sealed class PromoteWallsCommand : IExternalCommand
             : $"{cat} {plans.Sum(p => p.Others.TryGetValue(cat, out var n) ? n.DdNow : 0)}/{plans.Sum(p => p.Others.TryGetValue(cat, out var n) ? n.Total : 0)}"));
         var asks = mx == null ? new List<string>() : LodMatrix.Order.Where(classes.Contains)
             .Where(cat => mx.Properties.TryGetValue(cat, out var ps) && ps.Count > 0).Select(cat => $"{cat}: {string.Join(", ", mx.Properties[cat])}").ToList();
-        var held = plans.SelectMany(p => p.Held.Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
+        var held = plans.SelectMany(p => p.Held.Concat(p.ToPerson).Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
+        var propLines = props == null || props.Rows.Count == 0 ? new List<string>() : props.Lines();
+        var propText = props == null ? "" : props.Rows.Count == 0 ? "\n\nDD properties: every one the DD types hold is filled, or the matrix asks none Sentinel reads on a type"
+            : "\n\n" + props.Line + " — " + pc.Clauses.Label + "\n" + string.Join("\n", propLines.Take(12)) + (propLines.Count > 12 ? $"\n… and {propLines.Count - 12} more" : "");
         // A retype target whose Function in this model disagrees with the wall's side as the rule decided it: once per type, for the office to fix.
         var notes = plans.SelectMany(p => p.Ghosts).Select(g => g.Note).Where(n => n != null).Distinct().ToList();
         var dlg = new TaskDialog(Title)
@@ -150,7 +157,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
                                                 : $"File {bodies.Count} changeset(s)?",
             MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
-                          "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText +
+                          "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText +
                           (asks.Count > 0 ? "\n\nDD also asks (the DD IDS: counted in the LOD state, checked again before commit" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) +
                                             (pc.Ids == null ? "\nDD IDS: not read — " + pc.IdsWhy : pc.Ids.Unmatched.Count > 0 ? "\nNot in the DD IDS: " + string.Join("; ", pc.Ids.Unmatched) : "") : "") +
                           (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
@@ -166,9 +173,18 @@ public sealed class PromoteWallsCommand : IExternalCommand
         ChangesetDto first = null;
         var failed = new List<string>();
         var filedIds = new List<string>(); // MA-1a item 8: the changesets this run filed, for its receipt
+        var typeEditsNotFiled = 0;
         foreach (var body in bodies)
         {
             var cs = ChangesetClient.Propose(cfg, key, body, out var err);
+            // Review amendment C4: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the op) never
+            // costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception that
+            // says why. Only a second refusal counts as not filed; a body of type edits only is not filed again.
+            if (cs == null && err != null && err.StartsWith("Bridge 400:") && err.Contains("set_parameter") && PropertyPlanner.WithoutWrites(body, err, out var dropped) is object again)
+            {
+                cs = ChangesetClient.Propose(cfg, key, again, out err);
+                if (cs != null) typeEditsNotFiled += dropped;
+            }
             if (cs == null) failed.Add(err);
             else { first ??= cs; filedIds.Add(cs.Id); }
         }
@@ -183,8 +199,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
             GovernedNotify.Report("Promote receipt", BuildReceipt.Run("promote", BuildReceipt.AddinSha256, receipt,
                 plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key);
         }
-        if (failed.Count > 0)
-            TaskDialog.Show(Title, $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)));
+        if (failed.Count > 0 || typeEditsNotFiled > 0)
+            TaskDialog.Show(Title, (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
+                                   (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)) : ""));
         if (first == null) return Result.Failed;
         return ReviewChangesetsCommand.Open(c, doc, cfg, key, first) ? Result.Succeeded : Result.Cancelled;
     }
@@ -251,6 +268,45 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var (walls, others, docTypes, classTypes, levels) = ReadFacts(doc, pc.Classes);
         var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline);
         return LodStateOf(doc, plans, pc, "after");
+    }
+
+    /// <summary>MA-2c: each DD type's matrix properties as Revit holds them on the TYPE — the parameter there, its value as the IDS
+    /// reads it, why Sentinel could not write it — with the elements on the type now. API thread, read-only. A type the plan names
+    /// that is not one type here (none, or two of that name) is not read, so nothing is written to it; a property the type does not
+    /// hold (an instance parameter, a wall's IsExternal from its Function) is not listed.</summary>
+    internal static List<TypeValue> TypeValues(Document doc, IReadOnlyList<(string Category, string Family, string Type)> types, LodMatrix mx)
+    {
+        var list = new List<TypeValue>();
+        if (types.Count == 0) return list;
+        string org = App.OrgFor(doc);
+        var onType = new Dictionary<long, int>();
+        foreach (var x in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+        {
+            var tid = x.GetTypeId().IdValue();
+            onType[tid] = onType.TryGetValue(tid, out var n) ? n + 1 : 1;
+        }
+        foreach (var (cat, family, type) in types)
+        {
+            var bic = cat == "Walls" ? BuiltInCategory.OST_Walls : Others.First(o => PromoteWallsPlanner.Classes[o.Kind].Category == cat).Bic;
+            var hits = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>()
+                .Where(t => string.Equals(t.Name, type, StringComparison.OrdinalIgnoreCase)
+                            && (family == null || string.Equals((t as FamilySymbol)?.FamilyName, family, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (hits.Count != 1) continue;
+            foreach (var key in mx.Properties[cat])
+            {
+                var entry = PsetMap.Find(org, key);
+                if (entry == null) continue; // no reader: the LOD state says "no Revit reader for …"
+                var (p, current, noWriter) = FixInPlaceService.OnType(hits[0], doc, entry);
+                if (p == null) continue;
+                list.Add(new TypeValue
+                {
+                    Category = cat, Family = family, Type = type, UniqueId = hits[0].UniqueId, Key = key, Current = current,
+                    Param = p.Definition.Name, NoWriter = noWriter, Instances = onType.TryGetValue(hits[0].Id.IdValue(), out var n) ? n : 0,
+                });
+            }
+        }
+        return list;
     }
 
     /// <summary>One wall's facts, read on the API thread. A stacked-wall member reads as not basic: Revit types it

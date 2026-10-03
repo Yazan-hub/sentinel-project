@@ -83,7 +83,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         var handler = new ChangesetPlacementEvent();
         var evt = ExternalEvent.Create(handler);
 
-        var window = new ChangesetReviewWindow(cs);
+        // Review amendment C3 (MA-2c): a type edit's reach is the add-in's own count, read here on the API thread — the elements on the
+        // type in the model now — never the poster's words in its reason.
+        var reach = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var sp in (cs.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter" && e.ProposalGuid != null))
+            if (!string.IsNullOrWhiteSpace(sp.Target?.UniqueId) && doc.GetElement(sp.Target.UniqueId) is ElementType spType)
+                reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);
+        var window = new ChangesetReviewWindow(cs, reach);
         DialogOwner.Attach(window, c); // house helper: owned by Revit's main window
         _reviewOpen = true;
         window.Closed += (_, _) => _reviewOpen = false;

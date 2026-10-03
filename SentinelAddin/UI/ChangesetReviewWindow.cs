@@ -26,7 +26,9 @@ public sealed class ChangesetReviewWindow : Window
     private readonly TextBox _note = new() { MinHeight = 40, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
     private readonly ChangesetDto _cs;
 
-    public ChangesetReviewWindow(ChangesetDto changeset)
+    /// <param name="reach">Review amendment C3 (MA-2c): for each set_parameter's proposal_guid, the elements on its type in the model
+    /// now — counted by the caller on the API thread; shown on the row, never read from the reason.</param>
+    public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null)
     {
         _cs = changeset;
         Title = $"Sentinel — Review AI proposal: {_cs.Name}";
@@ -127,6 +129,11 @@ public sealed class ChangesetReviewWindow : Window
             {
                 "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
                 "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
+                // MA-2c: a TYPE edit — never pre-ticked. Review amendment C3: its reach is the add-in's own count (Open, API thread),
+                // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
+                "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +
+                                   (reach != null && el.ProposalGuid != null && reach.TryGetValue(el.ProposalGuid, out var reachN) ? $"reaches {reachN} element(s) in the model now" : "reach not counted — the type is not in this model") +
+                                   $"  ·  {el.Parameter} \"{el.From}\" → \"{el.To}\"  ·  from {el.ValueSource?.Ref ?? el.ValueSource?.Kind ?? "an unnamed source"}",
                 _ => CreateLabel(el, name),
             };
             if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
