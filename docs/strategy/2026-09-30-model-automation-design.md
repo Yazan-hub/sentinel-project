@@ -302,16 +302,17 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 - **Output:** ghosts with an operation (`retype`, `attach`, `rehost`, `set_parameter`, `create`). They go through the same review, placement, verification and ledger.
 - **The rule for each element comes from the office's `lod_matrix@n`** (example in section 6.5).
 
-### 3.2 LOD state for each element (TARGET)
+### 3.2 LOD state for each element (DD: BUILT in MA-2b — at DD, below, blocked or not measured; the other stages, LOD numbers, joins and openings: TARGET)
 - **An element's LOD state** is the highest stage whose rules it passes. The rules for the other stages give the reasons.
 - **The stages map to the project stages** Sentinel already has (`tender, design, coord, constr, hand, oper`). The mapping is a field in the matrix (section 6.5). Suggested default: concept, SD and DD → `design`; CD → `coord` (D18).
 - **Example rules at DD:**
   - an office type from the catalogue;
   - a top constrained to the next story level;
-  - clean joins;
-  - hosted openings;
+  - clean joins (TARGET);
+  - hosted openings (BUILT for doors and windows: their host; for walls TARGET);
   - the required properties filled (package 2's typed reads).
-- **The pane, the Next strip and the web show a line such as** "Level 3: 212 walls at LOD 200, 38 at 300, 14 blocked (reasons)" [MKT §6.3 C4].
+  - MA-2b reads a wall at DD on its type and top, a door or window on its type and host, and the properties through the DD IDS; a joins or openings rule in the matrix is refused today (plan MA-2b, S7).
+- **The pane, the Next strip and the web show a line such as** "Level 3: 212 walls at LOD 200, 38 at 300, 14 blocked (reasons)" [MKT §6.3 C4]. BUILT (MA-2b) as the project-wide line "DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured"; the per-level lines with reasons are in Promote's header and on the `lod_state` row (plan MA-2b, S2).
 - **In the stage gate (blueprint P1-10),** LOD state becomes a named input of the `design` → `coord` gate: "share of elements at the DD row's LOD". Until it exists, that gate row reads "LOD state: not measured".
 
 ### 3.3 The operations, in order
@@ -331,10 +332,10 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 
 ### 3.4 One Promote run
 1. **Read.** The add-in reads the facts of the model. They are pinned to the document.
-2. **LOD state now.** Counts per level and class, with reasons.
+2. **LOD state now.** Counts per level and class, with reasons. BUILT (MA-2b).
 3. **Plan.** One ghost per change, each with its rule, source and reason. The plan is shown before anything runs. This is Monta's "assignment plan" pattern [MKT §2.6].
 4. **Exceptions.** Anything ambiguous goes to the exception list and the Holding Area. It is never guessed. Example: when every concept wall has the same generic type, its Function tells nothing; since MA-2a the planner reads inside or outside from the storey's own walls (the outer boundary) and types by a Location rule — and a wall whose location cannot be read (both sides open, a curved wall, too few walls) goes to a person with that reason.
-5. **Check.** An IDS for the target stage is made from the matrix and checked before commit. This is a new small function, `matrixToIds` (size S). It reuses `STANDARD_PSETS` and the IDS output shape from `ids-compile.mjs`. (`compileIds` itself reads prose, so it is not reused.)
+5. **Check.** An IDS for the target stage is made from the matrix and checked before commit. This is a new small function, `matrixToIds` (size S). It reuses `STANDARD_PSETS` and the IDS output shape from `ids-compile.mjs`. (`compileIds` itself reads prose, so it is not reused.) BUILT (MA-2b) for DD.
 6. **BLOCK check.** Ghosts that would break a BLOCK rule of `ruleset@n` are marked. The review window says "this batch will block your sync: N elements".
 7. **Review.** Pre-tick rules (the bridge computes them):
    - Only single-answer operations are pre-ticked: exactly one catalogue type, no conflict, no hosted element moved.
@@ -343,7 +344,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
    - The overlay shows the faces that will move.
 8. **Place.** All changesets of one storey run in **one ExternalEvent call, inside `SentinelUndo.Run`**. This gives one Undo entry per storey. Each changeset still holds at most 200 elements and gets its own ledger row. If any changeset of the storey fails, the whole storey rolls back. Before commit, the add-in runs the BLOCK rules on the new state, and the person may go back. Revit warnings are counted and shown, never erased ([BP] P1-3, GHB-5).
 9. **Re-read.** Type, level, host and properties are compared with the plan. A mismatch becomes a row.
-10. **LOD state after**, plus a ledger row. An Undo of the storey posts `changeset_reverted` rows (AI-3).
+10. **LOD state after**, plus a ledger row. An Undo of the storey posts `changeset_reverted` rows (AI-3). BUILT (MA-2b) for each applied Promote changeset; an Undo after it makes that row "not measured" until Promote runs again.
 
 Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64), two ledger rows, and one Undo entry.
 
@@ -778,7 +779,7 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 
 **The undo watcher (AI-3).** It listens to `DocumentChanged`. It posts `changeset_reverted` rows only when the operation is an Undo or Redo, and `GetTransactionNames()` names a Sentinel transaction. Deletions from Reload Latest or from other users' syncs are ignored.
 
-### 6.5 LOD matrix artefact (TARGET)
+### 6.5 LOD matrix artefact (TARGET example — the BUILT shape, MA-2b, is rows by Revit category `{category, DD: {type, top | host, type_snap_mm, properties}}` with `stage_map`, `status` and no LOD numbers; `stages`, `ids_compile`, the other stages, DD `joins`, `openings`, `location_line`, `tolerance_mm` and the IfcSpace row are refused today: plan MA-2b, S1 and S7)
 
 ```json
 {
