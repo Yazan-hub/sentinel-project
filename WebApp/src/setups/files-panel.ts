@@ -7,7 +7,8 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import { myRoleRead, roleWords, canEditRole, canGovernRole } from "./my-role";
 import { loadScope } from "./load-scope";
 import { ledgerLine } from "./stage-gate";
-import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem } from "./holding";
+import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismissHold, resubmitFor, STAGE_WORDS, SOURCE_WORDS, CLEARED_BY_RECORDED, type Holding, type HeldItem,
+  typeGapLine, typeGapClosedLine, dismissTypeGap, type TypeGap } from "./holding";
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
@@ -58,10 +59,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // The Holding Area (phase 6a): the refusals on hold, read on every load. `holdError` is set when that read failed —
   // the section then says "not read — …", never that nothing is held. `dismissing` = the held item whose inline
   // reason input is open (window.prompt is blocked in the platform iframe); `role` is asked on every load.
-  let holding: Holding = { items: [], cleared_recent: [] };
+  let holding: Holding = { items: [], cleared_recent: [], type_gaps: null };
   let holdError: string | null = null;
   let showHeld = false;
   let dismissing: number | null = null;
+  // MA-2c: Promote's type gaps, read with the holds (holding.type_gaps); `gapDismissing` = the group whose reason input is open.
+  let showGaps = false;
+  let gapDismissing: string | null = null;
   // Deleted items (0035): read on every load like On hold; `deletedError` makes the section say "not read — …".
   let deleted: DeletedItem[] = [];
   let deletedError: string | null = null;
@@ -177,9 +181,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         historyGap = gaps.join(" ");
       }
       // The Holding Area (spec 2026-09-27 Decision 7) is its own read: a failure there is said, never "none on hold".
-      dismissing = null;
+      dismissing = null; gapDismissing = null;
       try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
-      catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [] }; holdError = (e as Error).message; }
+      catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [], type_gaps: null }; holdError = (e as Error).message; }
       try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
       catch (e) { if (mine !== seq) return; deleted = []; deletedError = (e as Error).message; }
       await asked;
@@ -228,7 +232,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       html += `<button id="fv-arch-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showArchived ? "▾" : "▸"} Archived (${archived.length})</button>`;
       if (showArchived) html += `<div style="opacity:.55">${archived.map((f) => fileCard(f)).join("")}</div>`;
     }
-    html += heldSection() + deletedSection();
+    html += heldSection() + gapSection() + deletedSection();
     el("fv-body").innerHTML = html;
     root.querySelector("#fv-arch-toggle")?.addEventListener("click", () => { showArchived = !showArchived; render(); });
     root.querySelector("#fv-del-toggle")?.addEventListener("click", () => { showDeleted = !showDeleted; render(); });
@@ -243,6 +247,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", () => { dismissing = null; render(); }));
     root.querySelectorAll<HTMLElement>("[data-hdismissok]").forEach((n) =>
       n.addEventListener("click", () => void dismissHeld(Number(n.dataset.hdismissok))));
+    root.querySelector("#fv-gaps-toggle")?.addEventListener("click", () => { showGaps = !showGaps; render(); });
+    root.querySelectorAll<HTMLElement>("[data-gdismiss]").forEach((n) =>
+      n.addEventListener("click", () => { gapDismissing = n.dataset.gdismiss!; render(); (root.querySelector("#fv-gap-input") as HTMLInputElement | null)?.focus(); }));
+    root.querySelectorAll<HTMLElement>("[data-gcancel]").forEach((n) =>
+      n.addEventListener("click", () => { gapDismissing = null; render(); }));
+    root.querySelectorAll<HTMLElement>("[data-gdismissok]").forEach((n) =>
+      n.addEventListener("click", () => void dismissGap(n.dataset.gdismissok!)));
     root.querySelectorAll<HTMLElement>("[data-vers]").forEach((n) =>
       n.addEventListener("click", (e) => { e.stopPropagation(); const id = n.dataset.vers!; versionsOpen.has(id) ? versionsOpen.delete(id) : versionsOpen.add(id); render(); }));
     // wire per-file / per-version buttons
@@ -332,6 +343,48 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const row = await dismissHold(base, pid(), h.container_name, reason);
       await load();
       status(`✓ Dismissed ${h.container_name} from On hold · ${ledgerLine(row)}`);
+    } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
+  }
+
+  // MA-2c "Type gaps (n)" (design §6.4) — built like "On hold (n)": the groups of elements Promote held because the office has no
+  // type for them, each with what is missing, how many, its facts and the nearest types; a lead dismisses one with a reason; one the
+  // catalogue in force now holds is listed closed. A bridge before MA-2c lists none, and the section says so.
+  function gapSection(): string {
+    if (holdError) return "";
+    const g = holding.type_gaps;
+    if (!g) return '<div style="color:#71717a;font-size:11px;padding:.4rem .2rem">Type gaps: not listed — this bridge is older than MA-2c</div>';
+    if (!g.open.length && !g.closed.length) return "";
+    const toggle = `<button id="fv-gaps-toggle" style="border:none;background:transparent;color:#f59e0b;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showGaps ? "▾" : "▸"} Type gaps (${g.open.length})</button>`;
+    if (!showGaps) return toggle;
+    const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
+    const card = (x: TypeGap) => {
+      const dismiss = !canGovernRole(role) ? ""
+        : gapDismissing === x.id
+          ? `<input id="fv-gap-input" maxlength="500" placeholder="Why dismiss it? The ledger records the reason." style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #f59e0b;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+            `<button data-gdismissok="${esc(x.id)}" style="${act};color:#fbbf24">Dismiss with this reason</button><button data-gcancel="${esc(x.id)}" style="${act}">Cancel</button>`
+          : `<button data-gdismiss="${esc(x.id)}" style="${act}">Dismiss…</button>`;
+      return `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #4a3a12;border-radius:.4rem;font-size:12px">` +
+        `<div style="font-weight:600">${esc(typeGapLine(x))}</div>` +
+        // C10: who reported it and that its counts are claimed; C5: a group open again after a dismissal says since when.
+        `<div style="color:#9ca3af;font-size:11px">${esc(x.labels.slice(0, 5).join(", "))}${x.elements > 5 ? ` … (${x.elements})` : ""} · reported by ${esc(x.actor || "—")} · ${esc(x.source ?? "unknown")}` +
+        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
+        `${x.reopened ? ` · reopened — ${x.reopened.more} element(s) since the dismissal of ${esc(when(x.reopened.since))}` : ""}</div>` +
+        `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(x.ledger)}</div>` +
+        `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem"><span style="color:#9ca3af">Install a catalogue with the type, or dismiss it with a reason.</span><span style="flex:1"></span>${dismiss}</div></div>`;
+    };
+    return toggle + g.open.map(card).join("") +
+      g.closed.map((x) => `<div style="color:#71717a;font-size:11px;padding:.15rem .2rem">✓ ${esc(typeGapLine(x))} — ${esc(typeGapClosedLine(x))}</div>`).join("") +
+      `<div style="color:#71717a;font-size:10.5px;padding:.15rem .2rem">Close rule: ${esc(g.catalog ?? "no catalogue read")}</div>`;
+  }
+
+  async function dismissGap(id: string) {
+    const x = holding.type_gaps?.open.find((g) => g.id === id);
+    if (!x) return;
+    const reason = (root.querySelector("#fv-gap-input") as HTMLInputElement | null)?.value ?? "";
+    try {
+      const row = await dismissTypeGap(base, pid(), id, reason);
+      await load();
+      status(`✓ Dismissed the type gap ${typeGapLine(x)} · ${ledgerLine(row)}`);
     } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
   }
 
@@ -699,7 +752,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || renaming || armed)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed)) return;
     void load();
   });
   void load();
