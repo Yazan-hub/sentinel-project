@@ -1097,7 +1097,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - One Undo removes one storey (two changesets, two ledger rows).
   - A second account approves one batch, and the ledger names it.
   - A plan-only run on aster-tower reports "no guideline@n — not checkable". Aster has no guideline on purpose; that is the honest answer.
-- **Gate G2 (your decision).** Edit cost on two models (the MA-0 model and one more). You decide whether MA-3 and MA-4 go ahead as planned.
+- **Gate G2 (your decision).** Edit cost on two models (the MA-0 model and one more). You decide whether MA-3 and MA-4 go ahead as planned. **DECIDED 2026-10-04: continue — MA-3, then MA-4** (the founder's "go MA-3", on drill MA2d's numbers: 0 rows unticked per storey on the MA-0 seed and the crowded B35 copy, against G1's 25; SIMULATION_ROOM_RUN session MA2d).
 
 **MA-3: Review desk (Revit overlay + web proposal layer).**
 - **Size:** L (4–5 weeks). **Depends on:** MA-1 (MA-2 gives it content).
