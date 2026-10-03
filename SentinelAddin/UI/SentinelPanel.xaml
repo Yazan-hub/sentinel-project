@@ -86,7 +86,7 @@
                      read at any dock width; it keeps 160 and the grid scrolls sideways to it -->
                 <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" MinWidth="160">
                     <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock"><Setter Property="ToolTip" Value="{Binding Message}"/></Style>
+                        <Style TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}"><Setter Property="ToolTip" Value="{Binding Message}"/></Style>
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
                 <DataGridTextColumn Header="Ref" Binding="{Binding DocRef}" Width="105" MinWidth="105"/>
