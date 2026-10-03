@@ -1,0 +1,39 @@
+{
+ "what": "make-sample.py --ma1b: what each block INSERT of sample-doors.dxf must become (MA-1b, GHB-1). Millimetres; degrees anticlockwise from +X, in plan.",
+ "drawing": "sample-doors.dxf",
+ "planted_drawing": "sample-doors-planted.dxf",
+ "planted": "one more DOOR-900 insert on top of door 1: the same point, angle and scale",
+ "wall_thickness_mm": 200.0,
+ "walls": [
+  {"n": 1, "angle": 0, "start": [38000.0, 40000.0], "end": [42000.0, 40000.0], "centre": [40000.0, 40000.0]},
+  {"n": 2, "angle": 15, "start": [45068.148, 39482.362], "end": [48931.852, 40517.638], "centre": [47000.0, 40000.0]},
+  {"n": 3, "angle": 30, "start": [52267.949, 39000.0], "end": [55732.051, 41000.0], "centre": [54000.0, 40000.0]},
+  {"n": 4, "angle": 45, "start": [59585.786, 38585.786], "end": [62414.214, 41414.214], "centre": [61000.0, 40000.0]},
+  {"n": 5, "angle": 60, "start": [39000.0, 45267.949], "end": [41000.0, 48732.051], "centre": [40000.0, 47000.0]},
+  {"n": 6, "angle": 90, "start": [47000.0, 45000.0], "end": [47000.0, 49000.0], "centre": [47000.0, 47000.0]},
+  {"n": 7, "angle": 120, "start": [55000.0, 45267.949], "end": [53000.0, 48732.051], "centre": [54000.0, 47000.0]},
+  {"n": 8, "angle": 135, "start": [62414.214, 45585.786], "end": [59585.786, 48414.214], "centre": [61000.0, 47000.0]},
+  {"n": 9, "angle": 150, "start": [41732.051, 53000.0], "end": [38267.949, 55000.0], "centre": [40000.0, 54000.0]},
+  {"n": 10, "angle": 165, "start": [48931.852, 53482.362], "end": [45068.148, 54517.638], "centre": [47000.0, 54000.0]},
+  {"n": 11, "angle": 0, "start": [52000.0, 54000.0], "end": [56000.0, 54000.0], "centre": [54000.0, 54000.0]}
+ ],
+ "blocks": [
+  {"name": "DOOR-900", "layer": "A-DOOR", "drawn": [[0.0, 0.0], [0.0, 900.0], [900.0, 0.0], [869.333, 232.937], [779.423, 450.0], [636.396, 636.396], [450.0, 779.423], [232.937, 869.333], [0.0, 900.0]]},
+  {"name": "WIN-1200", "layer": "0", "drawn": [[0.0, -50.0], [1200.0, -50.0], [0.0, 50.0], [1200.0, 50.0], [0.0, -50.0], [0.0, 50.0], [1200.0, -50.0], [1200.0, 50.0]]}
+ ],
+ "doors": [
+  {"n": 1, "layer": "A-DOOR", "block": "DOOR-900", "insert": [39550.0, 40000.0], "dxf_rotation": 0, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 1, "at": [40000.0, 40000.0], "rotation": 0.0, "mirrored": false, "hinge_to_strike_deg": 0.0, "swing_side_deg": 90.0},
+  {"n": 2, "layer": "A-DOOR", "block": "DOOR-900", "insert": [46565.333, 39883.531], "dxf_rotation": 15, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 2, "at": [47000.0, 40000.0], "rotation": 15.0, "mirrored": false, "hinge_to_strike_deg": 15.0, "swing_side_deg": 105.0},
+  {"n": 3, "layer": "A-DOOR", "block": "DOOR-900", "insert": [53580.289, 39826.962], "dxf_rotation": 30, "x_scale": 1, "y_scale": 1, "off_line_mm": 60, "wall": 3, "at": [54000.0, 40000.0], "rotation": 30.0, "mirrored": false, "hinge_to_strike_deg": 30.0, "swing_side_deg": 120.0},
+  {"n": 4, "layer": "A-DOOR", "block": "DOOR-900", "insert": [61318.198, 40318.198], "dxf_rotation": 225, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 4, "at": [61000.0, 40000.0], "rotation": 225.0, "mirrored": false, "hinge_to_strike_deg": 225.0, "swing_side_deg": 315.0},
+  {"n": 5, "layer": "A-DOOR", "block": "DOOR-900", "insert": [40225.0, 47389.711], "dxf_rotation": 60, "x_scale": -1, "y_scale": 1, "off_line_mm": 0, "wall": 5, "at": [40000.0, 47000.0], "rotation": 240.0, "mirrored": true, "hinge_to_strike_deg": 240.0, "swing_side_deg": 150.0},
+  {"n": 6, "layer": "A-DOOR", "block": "DOOR-900", "insert": [47000.0, 46550.0], "dxf_rotation": 90, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 6, "at": [47000.0, 47000.0], "rotation": 90.0, "mirrored": false, "hinge_to_strike_deg": 90.0, "swing_side_deg": 180.0},
+  {"n": 7, "layer": "A-DOOR", "block": "DOOR-900", "insert": [53844.282, 47429.711], "dxf_rotation": 120, "x_scale": -1, "y_scale": 1, "off_line_mm": -80, "wall": 7, "at": [54000.0, 47000.0], "rotation": 300.0, "mirrored": true, "hinge_to_strike_deg": 300.0, "swing_side_deg": 210.0},
+  {"n": 8, "layer": "A-DOOR", "block": "DOOR-900", "insert": [60681.802, 47318.198], "dxf_rotation": 315, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 8, "at": [61000.0, 47000.0], "rotation": 315.0, "mirrored": false, "hinge_to_strike_deg": 315.0, "swing_side_deg": 45.0},
+  {"n": 9, "layer": "A-DOOR", "block": "DOOR-900", "insert": [40389.711, 53775.0], "dxf_rotation": 150, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 9, "at": [40000.0, 54000.0], "rotation": 150.0, "mirrored": false, "hinge_to_strike_deg": 150.0, "swing_side_deg": 240.0},
+  {"n": 10, "layer": "A-DOOR", "block": "DOOR-900", "insert": [47434.667, 53883.531], "dxf_rotation": 165, "x_scale": 1, "y_scale": -1, "off_line_mm": 0, "wall": 10, "at": [47000.0, 54000.0], "rotation": 165.0, "mirrored": true, "hinge_to_strike_deg": 165.0, "swing_side_deg": 75.0}
+ ],
+ "window": {"n": 1, "layer": "A-GLAZ", "block": "WIN-1200", "insert": [53400.0, 54000.0], "dxf_rotation": 0, "x_scale": 1, "y_scale": 1, "off_line_mm": 0, "wall": 11, "at": [54000.0, 54000.0], "rotation": 0.0, "mirrored": false, "hinge_to_strike_deg": 0.0, "swing_side_deg": 90.0},
+ "no_wall": {"layer": "A-DOOR", "block": "DOOR-900", "insert": [61000.0, 54000.0], "dxf_rotation": 0, "x_scale": 1, "y_scale": 1, "wall": null},
+ "broken_wall": {"layer": "A-DOOR", "block": "DOOR-900", "insert": [39550.0, 61000.0], "dxf_rotation": 0, "x_scale": 1, "y_scale": 1, "wall": null, "pieces": [{"start": [38000.0, 61000.0], "end": [39550.0, 61000.0]}, {"start": [40450.0, 61000.0], "end": [42000.0, 61000.0]}], "stops_short_mm": 450.0}
+}

@@ -77,9 +77,11 @@ namespace Sentinel.GhostBuilder
 
             // Turn one geometry object into zero or more GhostElements.
             // insertPoint is set when this object came from a block instance (door/window/furniture).
-            void Emit(GeometryObject o, XYZ insertPoint)
+            // layerOverride: the layer of the object this one was made from (a curve carried into the model's frame is a new
+            // object with no graphics style of its own).
+            void Emit(GeometryObject o, XYZ insertPoint, string layerOverride = null)
             {
-                string layer = LayerOf(o);
+                string layer = layerOverride ?? LayerOf(o);
                 if (layer == null) return;
 
                 switch (o)
@@ -148,27 +150,22 @@ namespace Sentinel.GhostBuilder
             {
                 if (obj is GeometryInstance instance)
                 {
-                    // The block's insertion point = its transform origin. Emit it once as a
-                    // point candidate, and also walk its curves in case the block IS the geometry
-                    // (e.g. a wall drawn inside a block rather than a symbolic door).
-                    XYZ origin = instance.Transform.Origin;
-                    var nested = instance.GetInstanceGeometry();
-
-                    bool hasCurve = nested.Any(n => n is Curve || n is PolyLine);
-                    foreach (GeometryObject n in nested)
-                        Emit(n, hasCurve ? null : origin);
-
-                    // Pure symbolic block (no curves) -> single point family at the origin.
-                    if (!hasCurve)
+                    // Drill MA1b (F-MA1b-1): the import's INSTANCE geometry flattens every block insert into loose curves, so a
+                    // door block's leaf and arc came out as two curve elements on the door layer beside the block itself (36 on
+                    // A-DOOR for 12 blocks). Its SYMBOL geometry keeps each insert as a nested GeometryInstance: the curves drawn
+                    // loose in the drawing are read from there, carried into the model's frame one by one, and a nested instance
+                    // is left to AddBlocks — a block is one thing, and its curves are never loose elements.
+                    Transform t = instance.Transform;
+                    GeometryElement symbol = instance.GetSymbolGeometry();
+                    if (symbol == null) continue;
+                    foreach (GeometryObject n in symbol)
                     {
-                        string layer = LayerOf(instance) ?? nested.Select(LayerOf).FirstOrDefault(l => l != null);
-                        if (layer != null)
-                            results.Add(new GhostElement
-                            {
-                                CadLayer = layer,
-                                LocationPoint = origin,
-                                BaseElevation = origin.Z
-                            });
+                        if (n is GeometryInstance) continue;
+                        string layer = LayerOf(n);
+                        if (layer == null) continue;
+                        GeometryObject moved = n is Curve c ? (GeometryObject)c.CreateTransformed(t)
+                                             : n is PolyLine pl ? pl.GetTransformed(t) : null;
+                        if (moved != null) Emit(moved, null, layer);
                     }
                 }
                 else
@@ -177,7 +174,92 @@ namespace Sentinel.GhostBuilder
                 }
             }
 
+            AddBlocks(geo, results, LayerOf); // MA-1b (GHB-1): each block insert, as one point element
             return results;
+        }
+
+        private const double FtToMm = 304.8;
+
+        /// <summary>
+        /// MA-1b (GHB-1): every block INSERT of the drawing as ONE point element on the insert's layer — the middle of what
+        /// the block draws (a door block inserted by its hinge stands at the middle of its opening), with the block's angle
+        /// and mirror (GhostElement.Block). The import is one GeometryInstance; each insert is a nested GeometryInstance of
+        /// its SYMBOL geometry, placed by its own Transform — composed here with the import's, so no frame is guessed. A block
+        /// inside a block is part of the outer one. The curves inside a block are not emitted as elements (ExtractGhostElements
+        /// reads the loose curves from the symbol geometry too, where a block is still one nested instance — drill MA1b): a
+        /// block is one thing. Points go through Transform.OfPoint, which takes any scale, a mirror included.
+        /// </summary>
+        private void AddBlocks(GeometryElement geo, List<GhostElement> results, Func<GeometryObject, string> layerOf)
+        {
+            int nested = 0; // the block inserts inside the insert being read (review amendment C5): set to 0 before each Gather
+            // What a block draws, in model millimetres (plan), and the first layer one of its own curves names.
+            string Gather(GeometryElement g, Transform t, List<(double X, double Y)> into)
+            {
+                string first = null;
+                foreach (GeometryObject o in g)
+                {
+                    if (o is GeometryInstance n)
+                    {
+                        nested++;
+                        GeometryElement inner = n.GetSymbolGeometry();
+                        string innerLayer = inner == null ? null : Gather(inner, t.Multiply(n.Transform), into);
+                        first = first ?? innerLayer;
+                        continue;
+                    }
+                    IList<XYZ> pts = o is PolyLine pl ? pl.GetCoordinates() : o is Curve c && c.IsBound ? c.Tessellate() : null;
+                    if (pts == null) continue;
+                    first = first ?? layerOf(o);
+                    foreach (XYZ p in pts)
+                    {
+                        XYZ q = t.OfPoint(p);
+                        into.Add((q.X * FtToMm, q.Y * FtToMm));
+                    }
+                }
+                return first;
+            }
+
+            foreach (GeometryObject top in geo)
+            {
+                if (!(top is GeometryInstance import)) continue;
+                GeometryElement drawing = import.GetSymbolGeometry();
+                if (drawing == null) continue;
+                foreach (GeometryObject o in drawing)
+                {
+                    if (!(o is GeometryInstance gi)) continue;
+                    GeometryElement symbol = gi.GetSymbolGeometry();
+                    if (symbol == null) continue;
+                    Transform t = import.Transform.Multiply(gi.Transform);
+                    var drawn = new List<(double X, double Y)>();
+                    nested = 0;
+                    string ownLayer = Gather(symbol, t, drawn);
+                    string layer = layerOf(gi) ?? ownLayer; // the insert's layer; with none, the layer of what it draws
+                    if (layer == null) continue;
+                    var (rotation, mirrored) = PlacementGeometry.Frame(t.BasisX.X, t.BasisX.Y, t.BasisY.X, t.BasisY.Y);
+                    var (cx, cy) = PlacementGeometry.BlockCentre(t.Origin.X * FtToMm, t.Origin.Y * FtToMm, rotation, drawn);
+                    results.Add(new GhostElement
+                    {
+                        CadLayer = layer,
+                        LocationPoint = new XYZ(cx / FtToMm, cy / FtToMm, t.Origin.Z),
+                        BaseElevation = t.Origin.Z,
+                        Block = new GhostBlock { Name = BlockName(gi), RotationDeg = rotation, Mirrored = mirrored, Nested = nested },
+                    });
+                }
+            }
+        }
+
+        // The block's name, when Revit gives the nested instance's symbol one (drill MA1b records what it gives); else null.
+        // It is said in a gap's sentence and decides nothing.
+        private string BlockName(GeometryInstance gi)
+        {
+            try
+            {
+#if REVIT2023_OR_GREATER
+                return _doc.GetElement(gi.GetSymbolGeometryId().SymbolId)?.Name;
+#else
+                return gi.Symbol?.Name;
+#endif
+            }
+            catch (Exception) { return null; }
         }
 
         /// <summary>
@@ -231,6 +313,17 @@ namespace Sentinel.GhostBuilder
     // 2. PLACEMENT
     // ---------------------------------------------------------------------
 
+    /// <summary>MA-1b (GHB-1): what a block INSERT of the drawing says beyond its point — its name when Revit gives one,
+    /// the plan angle of its X axis (degrees, 0 up to 360) and whether it is mirrored (PlacementGeometry.Frame).</summary>
+    public sealed class GhostBlock
+    {
+        public string Name { get; set; }
+        public double RotationDeg { get; set; }
+        public bool Mirrored { get; set; }
+        /// <summary>How many block inserts this block holds inside it (any depth). They are read as part of this ONE block.</summary>
+        public int Nested { get; set; }
+    }
+
     /// <summary>
     /// One CAD element resolved to geometry, ready to place. The extractor produces these
     /// alongside the layer names; MappingResult tells us WHICH family each layer becomes.
@@ -244,6 +337,7 @@ namespace Sentinel.GhostBuilder
         public double BaseElevation { get; set; }
         public double TopElevation { get; set; }         // Photo Massing's walls: height driver (a DWG wall's top is the executor's, MA-1a item 3)
         public double ThicknessMm { get; set; }          // walls: measured from the two drawn faces (0 = unpaired/unknown)
+        public GhostBlock Block { get; set; }            // MA-1b: a block insert — LocationPoint is the middle of what it draws; null otherwise
         // NOTE: LocationLoop is the seam for floor/ceiling placement. GhostCadExtractor populates it
         // for CLOSED polylines (open polylines still split into per-segment wall runs via
         // LocationCurve). ElementPlacementFactory maps LocationLoop to Floor/Ceiling.Create, and its
@@ -342,9 +436,20 @@ namespace Sentinel.GhostBuilder
             public string NotBuilt;
             /// <summary>MA-1a step 2 (DWG): which changesets carry the build on the project's ledger, or why none does.</summary>
             public string Ledger;
-            /// <summary>MA-1a step 2 (DWG): doors and windows not filed because no single straight wall lies under the point, or
-            /// the one that does was already in the model (B2: only a wall this build creates hosts one).</summary>
+            /// <summary>MA-1a step 2 (DWG), MA-1b: doors and windows not filed because no single straight wall of this build lies
+            /// within half its thickness of the point (for a block: along the block's axis), or the executor's host rule refuses
+            /// the moved point — a wall already in the model under it (B2: only a wall this build creates hosts one), a second
+            /// wall, a curved one.</summary>
             public int SkippedNoHost;
+            /// <summary>MA-1b (F8): of SkippedNoHost, the doors and windows standing where a wall's line stops short of the
+            /// opening — a wall drawn in two pieces at the opening; the pieces are not joined yet (GHB-6).</summary>
+            public int SkippedBrokenWall;
+            /// <summary>MA-1b (F4, option B — drill B1-10): a second door or window block at the same point as one already
+            /// planned (within 1 mm after both moved onto the wall's line) — a duplicate in the drawing. Not filed: Revit
+            /// answers two identical doors at one point with an error, not a warning, and rolls the whole build back.</summary>
+            public int SkippedDuplicate;
+            /// <summary>MA-1b (E17): block inserts on a row that is not Doors or Windows — not placed, named per layer in Warnings.</summary>
+            public int SkippedBlocks;
             /// <summary>MA-1a step 2 (DWG): placed elements whose provenance stamp reads source dwg after the build.</summary>
             public int Stamped;
             /// <summary>MA-1a item 5 (DWG): the person went back at the BLOCK check — nothing was built (NotBuilt says so) and the

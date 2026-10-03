@@ -33,6 +33,8 @@ static partial class Check
         Matrix(m, m2);
         PlacementChecks();
         FilingChecks();
+        DoorBlockChecks();
+        DoorSampleChecks();
         LevelToLevelChecks();
         StampV2Checks();
         BlockChecks();
@@ -42,6 +44,7 @@ static partial class Check
         ReportWiringChecks();
         TrustChecks();
         TrustWiringChecks();
+        Ma1bWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

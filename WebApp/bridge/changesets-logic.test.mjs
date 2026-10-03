@@ -386,6 +386,25 @@ describe("validateChangeset — MA-1 creates", () => {
     for (const b of [door, win]) for (const v of [true, false]) expect(ok(b({ FlipFacing: v, FlipHand: v })).place).toMatchObject({ FlipFacing: v, FlipHand: v });
   });
 
+  it("MA-1b: a door or window may carry a drawn block's Rotation (degrees, 0 up to 360) and Mirrored — never with a flip", () => {
+    for (const b of [door, win]) {
+      expect(ok(b({ Rotation: 0 })).place.Rotation).toBe(0);
+      expect(ok(b({ Rotation: 225.5, Mirrored: true })).place).toMatchObject({ Rotation: 225.5, Mirrored: true });
+      for (const r of [-1, 360, "90", NaN, null]) status400(() => ok(b({ Rotation: r })), /place\.Rotation must be a number of degrees from 0 up to \(not including\) 360/);
+      status400(() => ok(b({ Rotation: 90, Mirrored: "yes" })), /place\.Mirrored must be true or false/);
+      status400(() => ok(b({ Mirrored: true })), /place\.Mirrored needs place\.Rotation/);
+      for (const f of ["FlipFacing", "FlipHand"])
+        status400(() => ok(b({ Rotation: 90, [f]: false })), /place\.Rotation and place\.FlipFacing or place\.FlipHand say the same thing twice/);
+    }
+    status400(() => ok(roof({ Rotation: 90 })), /a roof takes no place\.Rotation/);
+    status400(() => ok(wall({ place: { ...wall().place, Mirrored: true } })), /a wall takes no place\.Mirrored/);
+    const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+    status400(() => ok({ op: "retype", kind: "door", target: { unique_id: UID }, place: { FamilyName: "F", TypeName: "T", Rotation: 90 }, validate: { identity: { Class: "IfcDoor", Name: "D" } } }),
+      /retype takes no place\.Rotation — only a create sets it/);
+    // Item 8's rule holds: both are kept place fields, so neither is listed back as ignored.
+    expect(validateChangeset(CS([door({ Rotation: 90, Mirrored: true })])).ignored).toEqual([]);
+  });
+
   it("a field on a kind that does not take it is a 400, never ignored", () => {
     status400(() => ok(roof({ FlipFacing: true })), /a roof takes no place\.FlipFacing/);
     status400(() => ok(roof({ Offset: 0 })), /a roof takes no place\.Offset/);
@@ -475,7 +494,7 @@ describe("validateChangeset — MA-1a step 2 (Ghost Builder: column, furniture, 
 
   it("a column or furniture takes no sill, flip or outline", () => {
     for (const b of [column, furniture])
-      for (const f of ["SillHeight", "FlipFacing", "FlipHand", "Boundary", "Offset"]) status400(() => ok(b({ [f]: 1 })), new RegExp(`takes no place\\.${f}`));
+      for (const f of ["SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "Offset"]) status400(() => ok(b({ [f]: 1 })), new RegExp(`takes no place\\.${f}`));
   });
 
   it("column and furniture are create-only", () => {

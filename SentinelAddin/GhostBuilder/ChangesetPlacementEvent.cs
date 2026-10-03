@@ -72,6 +72,10 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // from result.Applied — what the executor's recount left — so an element Revit removed at commit is in no line.
             if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null)
                 result.Placement = plan.Lines(doc, result.Applied.Select(a => a.RevitUniqueId));
+            // MA-1b (GHB-1): how each door or window placed with a block's direction sits against it — a result of the changeset,
+            // printed with the placement lines. Turned is filled only by a committed changeset.
+            if (result.Turned.Count > 0)
+                (result.Placement ??= new System.Collections.Generic.List<string>()).AddRange(PlacementGeometry.TurnLines(result.Turned));
         }
         catch (Exception ex)
         {

@@ -66,6 +66,18 @@ static class Check
            && MassingPlanner.StampRule("Walls on 'A-WALL-EXT'", false).Contains("the numbers the reviewer confirmed") && !MassingPlanner.StampRule("x", false).Contains("estimate"),
            "an estimate the vision model gave nothing for (Ollama down), or one the reviewer replaced, names no images: its stamp's rule says the numbers are the reviewer's");
 
+        // MAS-4: when a build's end closes the review, and what the summary says of the selection.
+        Ok(MassingPlanner.BuildKept(false, false, false, 12) && MassingPlanner.BuildKept(false, false, true, 0),
+           "MAS-4: the review closes when the build left something in the model — or when Revit has not finished it (never a second build on top)");
+        Ok(!MassingPlanner.BuildKept(true, false, false, 0) && !MassingPlanner.BuildKept(false, true, false, 0) && !MassingPlanner.BuildKept(false, false, false, 0),
+           "MAS-4: a refusal, a rollback or a build that placed nothing leaves the review open, the numbers kept");
+        Ok(MassingPlanner.SelectedLine(12, 12) == "Selected: 12 element(s) — the massing just placed; the view zooms to them."
+           && MassingPlanner.SelectedLine(11, 12) == "Selected: 11 of the 12 element(s) placed — Revit holds fewer selected than were placed; the view zooms to the massing."
+           && MassingPlanner.NotSelectedLine("no view").StartsWith("Selected: nothing — Revit would not select the new elements (no view)")
+           && MassingPlanner.ReopenStatus.Contains("Build again")
+           && MassingPlanner.NotStarted("no plan") == "The build did not start (no plan). Your numbers are kept: put it right, then Build again.",
+           "MAS-4: the summary says how many elements Revit holds selected — beside how many were placed when the two differ — or that none could be");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

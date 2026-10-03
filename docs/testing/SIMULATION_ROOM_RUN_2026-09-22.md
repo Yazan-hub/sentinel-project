@@ -1191,3 +1191,61 @@ Notes:
 - Revit driving: after a deploy the first start may sit behind another program's pop-up; Select by ID must show the dialog before
   typing (wait about 6 s); a contextual Modify tab appears only when the ribbon is not on Manage — check the tab before clicking
   ribbon coordinates.
+
+## Session MA1b — door and window blocks hosted in their walls and turned to the drawing, live (2026-10-02 ~23:00 → 2026-10-03 ~01:55 local, branch feature/ma1b-dwg-doors, builds 1c45171 → 183f3f7 → 031361e → 4b91b65, Claude driving Revit 2024)
+
+Setup: five copies of the B35 detached model in `Documents\Sentinel drills\` (`ma1b-central` — workshared in place with `MA1_Walls`
+and `MA1_Datum` —, `-planted`, `-level`, `-block`, `-outline`). Scratch web projects on the test bridge 127.0.0.1:4101: `ma1b`
+(the drill's `guideline@1` with a placement block, `type_catalog@1`) and `ma1b-block` (the same, plus ruleset `MA1B-DR-01`: BLOCK
+on a door with no Comments). **Signed in** (the founder's account, a contributor of both), so the signed-out cases are owed. The
+add-in was deployed to Revit 2024 only, three times as the fixes landed (final DLL sha256 0815d76f…92af). The founder's 4100
+bridge was restarted by the founder at 22:53 on master e6b324c (the MA-1a items 6–8 build) — it does not carry `place.Rotation`;
+nothing in this session used it. The drill drawing is `demo/ghost-sample/sample-doors.dxf` (10 door blocks at known angles on 10
+walls at known angles, 3 mirrored; one lone block, one at a wall broken at the opening, one window block) with its expected
+results as data (`sample-doors-expected.json`).
+
+| Row | Result | Evidence |
+|---|---|---|
+| B1-1 the blocks are read (UNSURE 1, 2, 3) | First run: the review counted `36` on `A-DOOR` and `2` on `A-GLAZ` — 12 blocks + 24 flattened curves: Revit's INSTANCE geometry flattens a block into loose curves → **F-MA1b-1**. After the fix (the reader walks the import's SYMBOL geometry): `A-DOOR 12 element(s)`, `A-WALL 13`, `A-GLAZ 1` — the window's insert is reported on the insert's layer (UNSURE 2: the insert's layer); the import on screen shows the mirrored blocks mirrored (UNSURE 3: yes); the nested symbol is named after the drawing and the block (`sample-doors.DOOR-900`, UNSURE 8). UNSURE 1 held: a block INSERT is a nested `GeometryInstance` with a `Transform` — **pass after the fix** | the review, twice |
+| B1-2 ten hosted doors that cut their walls | `Placed: 24`, `Walls: 13 …`, `Skipped (no single straight wall … and along it): 2`, `  of these, where a wall line stops short of the opening …: 1`, `Blocks: 11 of 11 … 0.0°`. First and second runs: doors 4, 5, 7, 8 — every door whose hand needed a flip — faced the wrong way while the line said 0.0° → **F-MA1b-2** (two causes: the flip inside the create transaction, and `FacingOrientation` reading reversed after `flipHand()` until a regeneration). Third run, after both fixes: all ten doors and the window face and hinge as the drawing says, verified from their bounding boxes (read-only MCP) against the expected data — **pass after the fixes** (UNSURE 7: every oblique door cut its wall, no Revit warning from the doors) | summaries; bounding boxes |
+| B1-3 rotation within 1°, mirrored blocks give the matching hand | The changeset's filed `place.Rotation`, `Mirrored` and `Location` match `sample-doors-expected.json` within 0.01° and 1 mm for all ten; the swing side of each door read from its bounding box against the block's axis, the hinge end checked on door 2 — the calibration signs held (UNSURE 5: the default signs are right for `Door-Interior-Single-Flush_Panel-Wood`) — **pass** | `GET changesets/ma1b/<id>`; bounding boxes |
+| B1-4 a block with no wall near, and one at a broken wall, are gaps by name | B1-2's two `Skipped` lines and the two named warnings ("no straight wall …" for the lone block; "the wall line of … stops 450 mm short of …" for the broken wall, F8); the changeset holds 10 doors + 1 window, none for the two — **pass** | B1-2's summary; the changeset |
+| B1-5 the window block | Placed in the middle of wall 11, `Rotation 0`; its **sill height is 0** — `NewFamilyInstance` does not apply the family's Default Sill Height (F10 note: a sill from the guideline or the type is Next) — **pass**, the sill recorded | bounding box |
+| B1-6 workset and phase hold for doors | `Worksets: 23 on MA1_Walls · 1 left on the active workset (the guideline names no workset for Windows).` and `Phase: 24 element(s) set to "New Construction" …` — **pass on the lines**; one door's Properties (workset, phase) were not read (Select by ID stopped responding in this session) — that detail is owed | summary |
+| B1-7 the ledger report and the receipt count the doors | `ghost_build` row: placed 24, skipped 2, wall_gaps 0, its changeset; `build:run` receipt: reader `ghost-builder`, candidates 26, gaps 0, claimed true, `ignored` empty, the signed-in e-mail as actor on both — **pass** | audit |
+| B1-8 one Undo removes the build | Ctrl+Z: all 24 gone, the import stays; one `changeset_reverted` row listing the build's 24 guids; no second row — **pass** | the model; audit |
+| B1-9 an import in the 01-FFL plan | On `ma1b-level.rvt` (a `01-FFL` plan created for it): the ten doors on Level `01-FFL` at z 3300, "Walls on 01-FFL rise to MA0 Roof"; the blocks' axes and the DXF origin held in the raised plan (UNSURE 4: yes) — **pass** | summary; bounding boxes |
+| B1-10 the planted duplicate (F4; UNSURE 6) | **Case (c)**: Revit raised an error, not a warning — `Nothing was built — … Instance(s) of MA1 915 x 2134mm not cutting anything`, naming wall #1 and door #11; nothing in the model; the changeset declined. UNSURE 6: the error. → **F4 goes to B** (taken under the founder's standing "continue with your recommendations": the planner names a second door or window block at one point as a duplicate and does not file it, commit 068e63e; **not run live again** — owed) | the dialog; the declined changeset |
+| B1-11 the BLOCK check sees the doors | A baseline Scan Now first: the model's 38 existing doors already fail `MA1B-DR-01` (the drill rule is on an empty Comments, which the template's doors also have). Build: **Sentinel — BLOCK check** `This batch will block your sync: 10 element(s) (MA1B-DR-01)`; Go back: nothing placed, the proposal withdrawn, the review back with Build enabled. Build again, place anyway: `Placed: 24`, the first warning says 10 will block a sync; Scan Now: the pane lists 48 (38 + 10) — **pass**; one new door's Mark and Comments were not read (UNSURE 12 stands on the dialog: the rule fired, so Comments were empty) | dialogs; the pane |
+| B1-12 the drawn rectangles still work (F3) | `ma1b-outline.rvt` bound to `ma1b`, `sample-plan-step2.dxf`, level `MA0 Roof`, `A-WALL-EXT`/`A-WALL-INT` → `Generic - 200mm`, `A-DOOR` → `MA1 915 x 2134mm`, `A-FURN` → `M_Desk : 1525 x 762mm`: `Placed: 10` (6 walls, 2 doors, 2 desks), no `Skipped` line, no `Blocks:` line, "Walls on MA0 Roof: no Building Story above — unconnected, 3000 mm high". Both doors on `MA0 Roof` (ids 2069798 in the wall along x, 2069799 in the wall along y; z 6300–8504). `Revit warnings … 1 — identical instances` is the two desks, as in S2-5. Ledger #1455 `changeset_applied` (10 ids), #1456 `ghost_build` placed 10 skipped 0, #1457 `build:run` candidates 12 gaps 0 — **pass** (Pick New Host was not opened — Select by ID; the executor files a door only with its host) | summary; MCP; audit |
+| B1-13 an agent's door with a Rotation | On the open central: a door along its wall with `Rotation` — changeset 76ab3850 applied, `Worksets: 2 on MA1_Walls`, `Blocks: 1 of 1`; the same with `FlipHand` too: `400` "say the same thing twice"; `Rotation` 90° to its wall: refused before create — "place.Rotation 90° is 90° off the line of its wall (wall 2069813) … Reported as declined", nothing in the model — **pass** | replies; summary; audit |
+| M4-1 Photo Massing builds once (MAS-4) | **Owed** (no photos on this PC; offline-proven only) | — |
+
+**Found in the drill:**
+- **F-MA1b-1 (fixed 183f3f7, run again live) — a block's curves were counted as loose elements.** The reader now takes the drawing's
+  loose curves from the import's symbol geometry (each moved by the instance's transform), where blocks stay nested.
+- **F-MA1b-2 (fixed 031361e + 4b91b65, run again live) — doors whose hand needed a flip faced the wrong way.** A block's door is
+  turned after the commit in its own transaction, both flip answers read before either flip; `Turned` is measured after that.
+- **F4 → B (068e63e, not run live).** Revit's answer to two identical doors at one point is an error that rolls the whole build back.
+- **Drill data:** a typed `Rotation` with `FlipHand` is a 400 by design; the template's doors all fail the drill's Comments rule, so the
+  pane's count after B1-11 is 48, not 10.
+
+**Owed** (not passed): M4-1; B1-10 with the duplicate named (the planted drawing against 068e63e); the old-bridge message live
+(`GhostFiling.LostRotation` against a bridge without `Rotation` — 4100 is one until the merge is deployed there); the signed-out
+cases; one door's workset and phase, Mark and Comments read from Properties; a binary DWG and another office's block library (F9);
+a second door family (E9's signs); a door near a wall's end or corner (UNSURE 7's second half); a block more than 5° off its wall and
+two walls equally near; Columns and Furniture blocks (E17); a family with no hand flip (F5); the harder inserts (a downward extrusion,
+a one-unit block scaled to size); a drawing whose every wall is broken at its openings (F8); Revit 2026 and 2027 (UNSURE 11).
+
+Notes:
+- Left on the test ledger: scratch projects `ma1b` (rows #1407–#1457: guideline@1, type_catalog@1, the changesets of B1-2, B1-8's
+  revert, B1-9, B1-10 declined, B1-12, B1-13's three) and `ma1b-block` (rows #1408–#1452: its ruleset and the B1-11 changesets); the founder's account
+  is a contributor of both. No proposal is left pending.
+- Left on this PC: the five scratch copies and `ma1b-central_backup` in `Documents\Sentinel drills\`; `ma1b` and `ma1b-block` under
+  `%AppData%\Sentinel\cache` (the remembered layer picks); the request bodies under the session scratchpad. All five models were
+  closed without saving; the central's borrowed elements were relinquished.
+- Settings restored: `bcf-config.json` from `bcf-config.json.ma1bbak` (same sha256); the test bridge stopped.
+- Revit driving: Select by ID stopped answering in this session — doors were verified through the read-only MCP filter
+  (`ai_element_filter`, by family-symbol id; its bounding-box and wall-type filters are unreliable); the Revit MCP Switch toggles the
+  server, so a timeout is checked before it is clicked; a type combo in Ghost's review takes typed text to jump to the type, then one
+  click on the highlighted row; Ghost's level box lists the model's levels by name.

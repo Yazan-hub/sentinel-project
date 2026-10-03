@@ -63,11 +63,13 @@ namespace Sentinel.GhostBuilder
         public Inputs ExtractInputs(ImportInstance cadLink)
         {
             if (cadLink == null) throw new ArgumentNullException(nameof(cadLink));
-            return new Inputs
-            {
-                Layers   = _extractor.ExtractCadLayers(cadLink).ToList(),
-                Elements = _extractor.ExtractGhostElements(cadLink).ToList(),
-            };
+            var elements = _extractor.ExtractGhostElements(cadLink).ToList();
+            // MA-1b: a layer that holds only block inserts has no curve of its own to name it (ExtractCadLayers reads curves) —
+            // it is still a row of the review, counted one per insert.
+            var layers = _extractor.ExtractCadLayers(cadLink)
+                .Concat(elements.Where(e => e.Block != null).Select(e => e.CadLayer))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return new Inputs { Layers = layers, Elements = elements };
         }
 
         /// <summary>PHASE 2 — LLM mapping. Pure network; safe on a background thread. Cancellable.</summary>

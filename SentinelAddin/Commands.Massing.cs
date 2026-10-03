@@ -67,6 +67,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         var progress = new GhostBuilderProgressWindow();
         new System.Windows.Interop.WindowInteropHelper(progress) { Owner = c.Application.MainWindowHandle };
 
+        MassingReviewWindow review = null; // MAS-4: set when the review opens; closed below once a build is kept
         placementEvent.Completed += (report, error) => progress.Dispatcher.Invoke(() =>
         {
             progress.Close();
@@ -77,8 +78,19 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                     stampSha, UserSession.Actor), key);
             if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0 && receipt != null)
                 GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, report.WallGaps, new string[0], UserSession.Actor), key);
+            // MAS-4: a kept build closes the review (Build was disabled by the click, so no second massing lands on top) and
+            // what it placed is selected and zoomed to, before the summary; a build that kept nothing — refused before the
+            // transaction, rolled back, or nothing placed — leaves the review open with the reviewer's numbers.
+            bool kept = MassingPlanner.BuildKept(error != null, report?.RolledBack != null, report?.NotFinished != null, report?.Placed ?? 0);
+            string selected = kept && report.NotFinished == null ? SelectPlaced(uidoc, report) : null;
+            if (review != null && review.IsVisible)
+            {
+                if (kept) review.Close();
+                else review.Reopen(MassingPlanner.ReopenStatus);
+            }
             TaskDialog.Show("Sentinel — Massing",
-                error != null ? "Build failed: " + error.Message : Summarize(report, standards, templateLine));
+                error != null ? "Build failed: " + error.Message
+                              : Summarize(report, standards, templateLine) + (selected == null ? "" : Environment.NewLine + selected));
         });
 
         // Vision estimate and the standards GET on background threads; the review window (API thread) drives the build.
@@ -122,7 +134,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();
-                    var review = new MassingReviewWindow(estimate);
+                    review = new MassingReviewWindow(estimate); // MAS-4: the Completed handler closes or reopens it
                     new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
                     review.BuildRequested += corrected =>
                     {
@@ -137,7 +149,10 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
                         receipt.Parameters["type_catalogue"] = standards.CatalogSource.Label;
                         placementEvent.SetRequest(orchestrator, elements, mapping, stampSha, standards.Guideline.Placement); // MA-1a item 6
-                        externalEvent.Raise();
+                        // MAS-4 (review amendment C12): a request Revit does not accept never reaches Completed — Build must not
+                        // stay disabled for good.
+                        if (externalEvent.Raise() != ExternalEventRequest.Accepted)
+                            review.Reopen(MassingPlanner.NotStarted("Revit did not accept the build request"));
                     };
                     review.Show();
                 });
@@ -151,6 +166,22 @@ public sealed class MassingFromImagesCommand : IExternalCommand
 
         progress.Show();
         return Result.Succeeded;
+    }
+
+    // MAS-4: select and zoom to what the build placed — NewElements still in the model, the same elements "Placed" counts.
+    // The line prints what Revit holds selected afterwards, read back (review amendment C11). Runs inside the placement event, after its transaction ended (a selection is no
+    // model change). DocPin.Check let the build run only in this command's own model, so uidoc is the active one. A refusal
+    // by Revit (no view can show them) is one line of the summary; the build stands.
+    private static string SelectPlaced(UIDocument uidoc, GhostPlacementEngine.PlacementReport report)
+    {
+        var ids = report.NewElements.Select(n => n.Id).Where(id => uidoc.Document.GetElement(id) != null).ToList();
+        try
+        {
+            uidoc.Selection.SetElementIds(ids);
+            uidoc.ShowElements(ids);
+            return MassingPlanner.SelectedLine(uidoc.Selection.GetElementIds().Count, ids.Count);
+        }
+        catch (Exception ex) { return MassingPlanner.NotSelectedLine(ex.Message); }
     }
 
     private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s, string template = null)

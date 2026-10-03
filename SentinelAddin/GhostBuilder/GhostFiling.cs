@@ -133,10 +133,24 @@ namespace Sentinel.GhostBuilder
             });
 
         /// <summary>A door, window, column or furniture at (x, y) on its level (z = the level's elevation): a door or window is
-        /// hosted by the one wall under the point, a column or furniture stands unhosted.</summary>
+        /// hosted by the one wall under the point, a column or furniture stands unhosted. MA-1b (GHB-1): a door or window read
+        /// from a drawn block carries the block's direction (<paramref name="rotationDeg"/>, PlacementGeometry.Frame's) and,
+        /// only when it is, that it is mirrored; a drawn outline's carries neither.</summary>
         public static ChangesetElementDto Point(string kind, string layer, int n, string family, string typeName, string level,
-                                                double x, double y, double levelMm) =>
-            Create(kind, layer, n, null, new PlaceDto { FamilyName = family, TypeName = typeName, LevelName = level, Location = new[] { x, y, levelMm } });
+                                                double x, double y, double levelMm, double? rotationDeg = null, bool mirrored = false) =>
+            Create(kind, layer, n, null, new PlaceDto
+            {
+                FamilyName = family, TypeName = typeName, LevelName = level, Location = new[] { x, y, levelMm },
+                Rotation = rotationDeg, Mirrored = rotationDeg != null && mirrored ? true : (bool?)null,
+            });
+
+        /// <summary>MA-1b (GHB-1): whether the bridge's answer lost a block's direction — an element sent with place.Rotation
+        /// that came back without it, with another angle, or with another Mirrored. A bridge still on the code before MA-1b
+        /// drops both fields ("ignored: not a field this bridge keeps"), and the executor, which places what the bridge
+        /// returned, would place every such door unturned. Ghost's planner refuses the build instead.</summary>
+        public static bool LostRotation(IReadOnlyList<ChangesetElementDto> sent, IReadOnlyList<ChangesetElementDto> kept) =>
+            Enumerable.Range(0, Math.Min(sent.Count, kept.Count)).Any(i => sent[i].Place?.Rotation is double r
+                && !(kept[i].Place?.Rotation is double k && Math.Abs(k - r) < 1e-6 && (kept[i].Place.Mirrored == true) == (sent[i].Place.Mirrored == true)));
 
         /// <summary>B2 (founder decision F9 A): why a DWG door or window at (x, y) mm on <paramref name="level"/> is not filed, or
         /// null. The executor's host rule (PlacementGeometry.Host: the one straight wall under the point) over the model's walls

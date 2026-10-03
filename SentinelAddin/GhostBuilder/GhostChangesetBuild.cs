@@ -10,7 +10,8 @@
 //   3. "Ghost Builder - parameters": the values the project's documents gave each layer (P2; A7: a type only if this
 //      build added it).
 // Before filing, the plan turns into named gaps whatever the executor would refuse by rule (a missing or ambiguous type, a
-// placeholder name, a door with no single straight wall of this build under it, a family of the wrong kind or host, a run
+// placeholder name, a door or window with no single straight wall of this build within half its thickness (MA-1b, GHB-1: a
+// block is read with its angle, moved onto its wall's line and filed with place.Rotation), a family of the wrong kind or host, a run
 // too short to be a wall, a wall with no Building Story above it and no storey below — MA-1a item 3), so one bad row is not
 // a whole-build decline. The type rules are the executor's own (B7). Whatever
 // Revit itself refuses still rolls the whole group back: nothing is left — no element, no type, no family. Every
@@ -186,6 +187,20 @@ namespace Sentinel.GhostBuilder
                     try { check(); resolvable.Add(key); return null; }
                     catch (InvalidOperationException ex) { return ex.Message; }
                 }
+                // MA-1b (E17, review amendment C2): block inserts on a row that is not Doors or Windows, per layer — not placed.
+                // Declared before the walls are typed: a block on a Walls row is set aside there too (review 2026-10-03), never
+                // a silent SkippedNoGeometry.
+                var otherBlocks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                void SetAside(GhostElement el) => otherBlocks[el.CadLayer] = otherBlocks.TryGetValue(el.CadLayer, out int soFar) ? soFar + 1 : 1;
+                string DrawnAs(GhostElement el) => el.Block == null ? ""
+                    : $"block{(string.IsNullOrWhiteSpace(el.Block.Name) ? "" : " " + el.Block.Name.Trim())}{(el.LocationPoint == null ? "" : $" at ({el.LocationPoint.X * FtToMm:0}, {el.LocationPoint.Y * FtToMm:0})")}: ";
+                // Review amendment C5: a block that holds blocks (a bound xref, a "doors" group) is ONE point here — said on every
+                // ticked row (review 2026-10-03), not only on a Doors or Windows row.
+                void NoteNested(string what, GhostElement el)
+                {
+                    if (el.Block?.Nested > 0)
+                        report.Warnings.Add($"{what}: {DrawnAs(el)}it holds {el.Block.Nested} block(s) inside it — read as ONE block, not as {el.Block.Nested} doors or windows.");
+                }
                 ElementPlacementFactory typer;
                 using (var t = new Transaction(doc, GhostFailurePolicy.TypesTxName))
                 {
@@ -214,6 +229,8 @@ namespace Sentinel.GhostBuilder
                     foreach (var el in elements)
                     {
                         if (!byLayer.TryGetValue(el.CadLayer ?? "", out var map) || !string.Equals(map.Category, "Walls", StringComparison.OrdinalIgnoreCase)) continue;
+                        // E17: a block on a Walls row is no wall — it has no run to file, so it would have been a bare SkippedNoGeometry.
+                        if (el.Block != null) { NoteNested($"Walls on '{el.CadLayer}'", el); SetAside(el); continue; }
                         string type = typer.ResolveWallType(el, map, out string gap, out string typedBy);
                         if (gap == null && Refusal("wall|" + type, () => ChangesetExecutor.ResolveWallType(doc, type)) is string no)
                             gap = no + GhostFiling.SyntheticHint(type);
@@ -237,6 +254,13 @@ namespace Sentinel.GhostBuilder
                 // ── 2. What each reviewed element becomes — reads only; a refusal by rule is a named gap, never a filing ──────
                 var plan = new List<Planned>();
                 var straight = new List<(string Label, string Level, double X0, double Y0, double X1, double Y1)>(); // this build's straight walls (mm)
+                // MA-1b (GHB-1): half of each one's thickness (mm), index for index with `straight` — half its TYPE's width: what
+                // the wall will be, also for a wall drawn as one line (no measured thickness).
+                var halves = new List<double>();
+                // MA-1b (F4 B): the doors and windows already planned, by kind and moved point — a second block within 1 mm of
+                // one is a duplicate in the drawing, named and not filed (Revit refuses two identical doors at one point).
+                var hostedAt = new List<(string Kind, double X, double Y, string What)>();
+                var widths = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
                 var arcs = new List<Curve>();                                                                         // this build's curved walls (ft)
                 var seq = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 int Next(string layer) => seq[layer] = seq.TryGetValue(layer, out int k) ? k + 1 : 1;
@@ -286,7 +310,12 @@ namespace Sentinel.GhostBuilder
                         if (run == null) continue;
                         int n = Next(el.CadLayer);
                         plan.Add(new Planned { Map = map, What = $"Walls on '{el.CadLayer}'", Dto = Prov(GhostFiling.Wall(el.CadLayer, n, typedBy, type, level.Name, run, baseMm), map, typedBy) });
-                        if (m == null) straight.Add(($"{el.CadLayer} #{n} (this build)", level.Name, run.Start[0], run.Start[1], run.End[0], run.End[1]));
+                        if (m == null)
+                        {
+                            straight.Add(($"{el.CadLayer} #{n} (this build)", level.Name, run.Start[0], run.Start[1], run.End[0], run.End[1]));
+                            if (!widths.TryGetValue(type, out double width)) widths[type] = width = ChangesetExecutor.ResolveWallType(doc, type).Width * FtToMm;
+                            halves.Add(width / 2);
+                        }
                         else arcs.Add(c);
                         filedRuns++;
                         if (typedBy == "guideline") report.WallsByGuideline++;
@@ -320,6 +349,15 @@ namespace Sentinel.GhostBuilder
                         continue;
                     }
                     string what = $"{map.Category} on '{el.CadLayer}'";
+                    NoteNested(what, el);
+                    // MA-1b (E17, review amendment C2): a block on a row that is not Doors or Windows is not placed — the middle
+                    // of what it draws along its X axis is no family's origin, and its angle would be lost. Counted per layer and
+                    // named after the loop. Before MA-1b such a block gave no element where it stands: nothing placed is lost.
+                    if (el.Block != null && k.Kind != "door" && k.Kind != "window")
+                    {
+                        SetAside(el);
+                        continue;
+                    }
                     if (k.Kind == "floor" || k.Kind == "ceiling")
                     {
                         string slab = k.Kind == "floor" ? "Floor" : "Ceiling";
@@ -361,7 +399,8 @@ namespace Sentinel.GhostBuilder
                         continue;
                     }
 
-                    // A door, window, column or furniture: the block's insertion point, or a drawn outline's centroid.
+                    // A door or window: the middle of what its block draws (MA-1b), or a drawn outline's centroid. A column or
+                    // furniture: a drawn outline's centroid (its blocks were set aside above).
                     XYZ pt = el.LocationPoint ?? ElementPlacementFactory.Centroid(el.LocationLoop);
                     if (pt == null) { report.SkippedNoGeometry++; continue; }
                     var syms = typer.SymbolsOf(map.Category); // B7: the factory's one reading of a category's loaded types
@@ -392,15 +431,47 @@ namespace Sentinel.GhostBuilder
                         continue;
                     }
                     double x = pt.X * FtToMm, y = pt.Y * FtToMm;
-                    if (hosted && HostProblem(x, y) is string hostWhy)
+                    if (hosted)
                     {
-                        report.SkippedNoHost++;
-                        report.Warnings.Add($"{what}: {hostWhy} — not filed (snapping DWG door blocks onto walls is GHB-1, MA-1b).");
-                        continue;
+                        // MA-1b (GHB-1): the one straight wall of this build within half its thickness of the point — for a block,
+                        // the one along the block's axis — and the point moved onto that wall's line. Then the executor's own
+                        // host rule at the moved point (B2, F9 A), so whatever it would refuse is a named gap here, never a
+                        // whole-build decline, and never a free-standing door.
+                        string drawnAs = DrawnAs(el); // the nested-block note (C5) was said above, before the E17 set-aside
+                        var snap= PlacementGeometry.Snap(straight, halves, level.Name, x, y, el.Block?.RotationDeg, out string hostWhy);
+                        if (snap != null)
+                        {
+                            (x, y) = (snap.Value.X, snap.Value.Y);
+                            hostWhy = HostProblem(x, y);
+                        }
+                        if (hostWhy != null)
+                        {
+                            report.SkippedNoHost++;
+                            if (PlacementGeometry.IsBrokenWall(hostWhy)) report.SkippedBrokenWall++; // F8: counted on its own line too
+                            report.Warnings.Add($"{what}: {drawnAs}{hostWhy} — not filed.");
+                            continue;
+                        }
+                        // F4 B (drill B1-10: Revit's answer to two identical doors at one point is an error that rolls the
+                        // whole build back) — the second one is named as a duplicate and not filed; nothing in the model is touched.
+                        string first = hostedAt.Where(h => h.Kind == k.Kind && Math.Abs(h.X - x) <= 1 && Math.Abs(h.Y - y) <= 1).Select(h => h.What).FirstOrDefault();
+                        if (first != null)
+                        {
+                            report.SkippedDuplicate++;
+                            report.Warnings.Add($"{what}: {drawnAs}a second {k.Kind} block at the same point as {first} ({x:0}, {y:0} mm) — a duplicate in the drawing; " +
+                                                $"not filed (Revit refuses two identical {k.Kind}s at one point and would roll the whole build back). Remove it in the drawing if it is not meant.");
+                            continue;
+                        }
+                        hostedAt.Add((k.Kind, x, y, what));
                     }
-                    plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Point(k.Kind, el.CadLayer, Next(el.CadLayer), sym.FamilyName, sym.Name, level.Name, x, y, levelMm), map, null) });
+                    plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Point(k.Kind, el.CadLayer, Next(el.CadLayer), sym.FamilyName, sym.Name, level.Name, x, y, levelMm,
+                        hosted ? el.Block?.RotationDeg : null, el.Block?.Mirrored == true), map, null) });
                 }
 
+                foreach (var kv in otherBlocks)
+                {
+                    report.SkippedBlocks += kv.Value;
+                    report.Warnings.Add($"{kv.Value} block(s) on '{kv.Key}' not placed: Sentinel places door and window blocks only — a block on any other row is not read yet (its angle would be lost).");
+                }
                 if (plan.Count == 0)
                     return Abandon("Nothing was built — no ticked row gave an element Sentinel can place (each reason is listed below); the types step was rolled back too.");
 
@@ -428,6 +499,10 @@ namespace Sentinel.GhostBuilder
                                                                         (maybeFiled ? $" — changeset \"{name}\" may exist on the bridge anyway: check {r.Key} on the web and withdraw it" : "")));
                     }
                     filed.Add(cs);
+                    // MA-1b (GHB-1): the bridge must have kept each block's angle — the executor places what it returned.
+                    if (GhostFiling.LostRotation(chunks[c], cs.Elements))
+                        return Abandon(GhostFailurePolicy.NotFiledLine("the bridge did not keep the door and window blocks' angle (place.Rotation) — it runs a build " +
+                                                                        "older than this add-in. Restart the bridge on the current build, then build again"));
                 }
                 var planOf = new Dictionary<string, Planned>(StringComparer.Ordinal);
                 for (int c = 0; c < filed.Count; c++)
@@ -541,6 +616,9 @@ namespace Sentinel.GhostBuilder
                 // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
                 // executor's recount left in the model. Its own list: a result of the build, not a warning.
                 report.Placement.AddRange(placing.Lines(doc, applied.Select(a => a.RevitUniqueId)));
+                // MA-1b (GHB-1): how the doors and windows placed from blocks sit against their blocks — what the executor
+                // measured after each commit, never what was planned.
+                report.Placement.AddRange(PlacementGeometry.TurnLines(results.SelectMany(x => x.Turned).ToList()));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
                 report.Ledger = !bound ? localLedger
                     : $"Ledger: {filed.Count - unrecorded.Count} of {filed.Count} changeset(s) recorded on {r.Key} (source dwg: {string.Join(", ", filed.Select(f => Short(f.Id)))})" +
@@ -553,7 +631,7 @@ namespace Sentinel.GhostBuilder
                 // amendment C19): a build whose every element Revit removed at commit is not an action to report.
                 if (report.Placed > 0)
                     GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
-                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily,
+                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedDuplicate + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,
                         report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
                 // MA-1a item 8: the reader's build:run receipt, for the same kept build — its gaps are the walls and types
                 // this build left as a named gap. Under the report's own condition (review amendment C19): a build that
