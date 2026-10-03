@@ -980,28 +980,6 @@ function validateGuideline(g) {
   }
   return errs;
 }
-var PLANNABLE = /* @__PURE__ */ new Set(["FloorPlan", "CeilingPlan"]);
-function planViews(views, naming, levelNames) {
-  if (!views || !naming || levelNames.length === 0) return [];
-  const status = "WIP_";
-  const browserStatus = naming.statusPrefixes?.[status];
-  const out = [];
-  for (const v of views) {
-    if (!v.namePrefix || !PLANNABLE.has(v.viewType)) continue;
-    for (const level of levelNames) {
-      const levelToken = level.trim().toUpperCase().replace(/\s+/g, "-");
-      out.push({
-        name: `${status}${v.namePrefix}_${levelToken}`,
-        use: v.use,
-        viewType: v.viewType,
-        levelName: level,
-        template: v.wipTemplate,
-        browserStatus
-      });
-    }
-  }
-  return out;
-}
 
 // src/sentinel-core/massing.ts
 var BOUNDS = {
@@ -1796,7 +1774,6 @@ export {
   netDelta,
   parseIds,
   parseLodMatrix,
-  planViews,
   priceSnapshot,
   raisedFederationTitleKey,
   raisedIdsTitleKey,

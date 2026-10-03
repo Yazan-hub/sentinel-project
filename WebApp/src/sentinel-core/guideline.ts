@@ -74,26 +74,19 @@ export interface GuidelineViewStandard {
   wipTemplate?: string;                             // Revit WIP view template name
   sheetTemplate?: string;                           // Revit sheet view template name
   viewType: string;                                 // "FloorPlan" | "CeilingPlan" | "Section" …
-  namePrefix?: string;                              // e.g. "FP" — absent means not plannable
+  namePrefix?: string;                              // e.g. "FP" — absent (and no tokens) means not plannable
   tag?: string[];                                   // categories to tag automatically
+  // MA-2e (ANV-1, F1 A): the View rule's tokens this entry fills, e.g. {DISC: "ARC", LEVEL: "{level}", TYPE: "PLAN", DESC: "GA"};
+  // "{level}" is the level's name verbatim. Read by the add-in's ViewPlanner (the only view planner).
+  tokens?: Record<string, string>;
 }
 
 export interface GuidelineViewNaming {
-  // Documentation only for now — the actual naming is fixed to [STATUS]_[TYPE]_[LEVEL] (see planViews /
-  // SentinelAddin ViewPlanner.cs); this field isn't read to drive that format.
+  // Documentation only — a view's name is the View rule's tokens from the entry's `tokens`, or the fixed
+  // WIP_<namePrefix>_<LEVEL> (SentinelAddin ViewPlanner.cs, MA-2e); this field isn't read to drive either.
   structure?: string;                               // e.g. "[STATUS]_[TYPE]_[LEVEL]_[DESCRIPTION]"
   source?: string;
   statusPrefixes?: Record<string, string>;          // e.g. "WIP_" -> "01_WIP_VIEWS"
-}
-
-/** One planned WIP view, one per plannable guideline entry per level. */
-export interface PlannedView {
-  name: string;
-  use: string;
-  viewType: string;
-  levelName: string;
-  template?: string;
-  browserStatus?: string;
 }
 
 /** MA-1a item 6: where a placed element goes. `worksets` maps a category Sentinel places (Walls, Floors, Roofs, Ceilings,
@@ -373,34 +366,4 @@ export function validateGuideline(g: Guideline): string[] {
     }
   }
   return errs;
-}
-
-const PLANNABLE = new Set(["FloorPlan", "CeilingPlan"]);
-
-/** Deterministic WIP view plan: one view per plannable guideline entry per level.
- *  Name follows the office structure [STATUS]_[TYPE]_[LEVEL] (description omitted). */
-export function planViews(
-  views: GuidelineViewStandard[] | undefined,
-  naming: GuidelineViewNaming | undefined,
-  levelNames: string[],
-): PlannedView[] {
-  if (!views || !naming || levelNames.length === 0) return [];
-  const status = "WIP_";
-  const browserStatus = naming.statusPrefixes?.[status];
-  const out: PlannedView[] = [];
-  for (const v of views) {
-    if (!v.namePrefix || !PLANNABLE.has(v.viewType)) continue;
-    for (const level of levelNames) {
-      const levelToken = level.trim().toUpperCase().replace(/\s+/g, "-");
-      out.push({
-        name: `${status}${v.namePrefix}_${levelToken}`,
-        use: v.use,
-        viewType: v.viewType,
-        levelName: level,
-        template: v.wipTemplate,
-        browserStatus,
-      });
-    }
-  }
-  return out;
 }
