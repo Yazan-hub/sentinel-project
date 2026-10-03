@@ -11,3 +11,5 @@ export type { NamingRuleset, NamingField, NamingResult, NamingFailure, NamingEnf
 export { mapLayer, validateLayers } from "./layers";
 export type { LayerRuleset, LayerDef, LayerExtension, LayerMapping, LayerValidation, LayerMatchKind, LayerEnforce } from "./layers";
 export { checkFederation, nameShape, raisedFederationTitleKey } from "./federation";
+export { parseLodMatrix, STAGES, MATRIX_STAGES, DEFAULT_STAGE_MAP } from "./lod-matrix"; // MA-2b: the one lod_matrix reader
+export type { LodMatrix, LodRow } from "./lod-matrix";

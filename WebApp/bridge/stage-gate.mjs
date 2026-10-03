@@ -4,11 +4,14 @@
 // completeness have no server source (the browser scan is not persisted), so a gate that needs one is not_checkable: it
 // never passes on a number nobody measured, and every check names what was read. measureGate is pure; readGateInputs is
 // the thin I/O half with its deps injected (the artefact-store idiom), so the tests never touch Supabase.
-import { evaluateGate, GATE_DEFS } from "./sentinel-core.mjs";
+import { evaluateGate, GATE_DEFS, parseLodMatrix } from "./sentinel-core.mjs";
 import { STAGES } from "./cde-store.mjs";
 
 export const NO_SERVER_SOURCE = "not measured — no server source: the browser scan is not persisted";
-const SOURCE = { hasStandardsPack: "ruleset artefact", openIssues: "BCF topics (bcf-store)", openRfis: "RFI store", hardClashes: "clash store", cobieComplete: "COBie on the live models" };
+const SOURCE = { hasStandardsPack: "ruleset artefact", openIssues: "BCF topics (bcf-store)", openRfis: "RFI store", hardClashes: "clash store", cobieComplete: "COBie on the live models",
+  lodState: "the newest lod_state ledger row" }; // MA-2b
+// The metrics whose reader names its own source (the models it read, the ledger row it read) in this input.
+const SOURCED = { cobieComplete: "cobieSource", lodState: "lodSource" };
 const count = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /** Judge `stage` on inputs = {hasStandardsPack, openIssues, openRfis, hardClashes}; a count is a finite number, or null
@@ -18,7 +21,7 @@ const count = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 export function measureGate(stage, inputs = {}) {
   const m = {
     health: null, compliance: null, blockViolations: null,
-    cobieComplete: count(inputs.cobieComplete),
+    cobieComplete: count(inputs.cobieComplete), lodState: count(inputs.lodState),
     hasStandardsPack: inputs.hasStandardsPack === true,
     openIssues: count(inputs.openIssues), openRfis: count(inputs.openRfis), hardClashes: count(inputs.hardClashes),
   };
@@ -27,7 +30,7 @@ export function measureGate(stage, inputs = {}) {
   const checks = g.checks.map((c, i) => {
     const metric = defs[i].metric;
     const source = !SOURCE[metric] ? NO_SERVER_SOURCE
-      : metric === "cobieComplete" ? (inputs.cobieSource ?? (c.na ? `not measured — ${SOURCE[metric]} not read` : SOURCE[metric]))
+      : SOURCED[metric] ? (inputs[SOURCED[metric]] ?? (c.na ? `not measured — ${SOURCE[metric]} not read` : SOURCE[metric]))
       : c.na ? `not measured — ${SOURCE[metric]} not read` : SOURCE[metric];
     return { ...c, source };
   });
@@ -45,17 +48,47 @@ export async function readGateInputs(key, deps = {}) {
   const resolveArtefact = deps.resolveArtefact || (await import("./artefact-store.mjs")).resolveArtefact;
   const docList = deps.docList || cde.docList, bcfListTopics = deps.bcfListTopics || cde.bcfListTopics;
   const is = (s, re) => re.test(String(s ?? "").trim());
-  const [ruleset, topics, rfis, clashes, cobie] = await Promise.all([
+  const [ruleset, topics, rfis, clashes, cobie, lod] = await Promise.all([
     resolveArtefact(key, "ruleset"), bcfListTopics(key, { status: "all" }), docList("rfi", key), docList("clash", key),
-    (deps.readCobie || readCobie)(key),
+    (deps.readCobie || readCobie)(key), (deps.readLodState || readLodState)(key),
   ]);
   return {
     cobieComplete: cobie.readiness, cobieSource: cobie.source,
+    lodState: lod.share, lodSource: lod.source, // MA-2b
     hasStandardsPack: ruleset.source !== "none",
     openIssues: topics.filter((t) => !is(t.topic_status, /^(closed|resolved)$/i)).length,
     openRfis: rfis.filter((r) => !is(r.status, /^closed$/i)).length,
     hardClashes: clashes.filter((c) => !is(c.status, /^resolved$/i)).length,
   };
+}
+
+/** MA-2b (design §3.2, D18): the design → coord gate's LOD state — the share at the DD row from the newest lod_state ledger row
+ *  (Promote's count in Revit; the bridge marked it claimed): {share, source}. null (not measured) when there is no row yet, when
+ *  the row's matrix maps DD to another project stage than design, when it was measured against another lod_matrix than the one
+ *  in force (journey-store lodRowStale), or when it has no share (a class the matrix asks for was not run, or nothing was
+ *  counted); the source says which. */
+export async function readLodState(key, deps = {}) {
+  const listAudit = deps.listAudit || (await import("./cde-store.mjs")).listAudit;
+  const resolveArtefact = deps.resolveArtefact || (await import("./artefact-store.mjs")).resolveArtefact;
+  const { lodRowStale, newestLodRow } = await import("./journey-store.mjs");
+  const [audit, mx] = await Promise.all([newestLodRow(key, listAudit), resolveArtefact(key, "lod_matrix")]);
+  const row = audit.rows[0];
+  if (!row) return { share: null, source: "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)" };
+  const v = row.new_value ?? {};
+  const stale = lodRowStale(row, mx, audit.reverted);
+  if (stale) return { share: null, source: `LOD state: not measured — ${stale}` };
+  // The row was measured against the matrix in force, so that matrix's stage map says where DD lands — never the row's own
+  // project_stage, which the client wrote (review).
+  let stage;
+  try { stage = parseLodMatrix(mx.body).stage_map.DD; } catch (e) { return { share: null, source: `LOD state: not measured — the lod_matrix in force did not parse: ${e.message}` }; }
+  if (stage !== "design")
+    return { share: null, source: `LOD state: not measured — lod_state ledger #${row.id} measured DD, which its lod_matrix maps to ${stage}, not design` };
+  if (typeof v.share !== "number") {
+    const unrun = (v.not_run ?? []).filter((n) => !String(n).endsWith(": no DD row in the LOD matrix"));
+    return { share: null, source: `LOD state: not measured — lod_state ledger #${row.id} has no share: ` +
+      (unrun.length ? `${unrun.join("; ")} (a class the matrix asks for that Promote did not run)` : "it counted no element") };
+  }
+  return { share: v.share, source: `lod_state ledger #${row.id} — ${v.line} (Revit's count, claimed: ${row.actor}, ${row.at})` };
 }
 
 /** COBie hand-over completeness of the project's live IFC models, from their manifests (captured with the governed

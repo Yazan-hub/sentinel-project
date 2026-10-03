@@ -1311,7 +1311,8 @@ async function handleRequest(req, res) {
       //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate, review and platform_gate rows are
       //   Sentinel's own → 400 (cde-store.mjs recordAudit). The machine credential writes any other row; a signed-in
       //   contributor a Revit report (REVIT_REPORT_TYPES: naming, family_heal, the modelling commands' reports of MA-1a
-      //   item 7, and item 8's build receipt, which the bridge words build:run and marks claimed for every caller); a
+      //   item 7, item 8's build receipt, which the bridge words build:run and marks claimed for every caller, and MA-2b's
+      //   lod_state row, marked claimed too); a
       //   signed-in lead also a note — {action, new_value?}, entity_type "note". 403 / 400 / 413 / 429 before anything
       //   is written (H0 D11, cde-store.mjs recordNote).
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordNote(p1, (await readBody(req)) || {}));
@@ -1402,6 +1403,9 @@ async function handleRequest(req, res) {
           return send(res, 200, await closeSupersededIdsTopics(cde, p1, resolveActor(b?.actor || url.searchParams.get("actor"), "web")));
         }
         if (!p3 && req.method === "GET") return send(res, 200, await art.listArtefacts(p1));
+        // MA-2b: GET /cde/:key/artefacts/lod_matrix/ids — the DD stage IDS made from the matrix in force (never installed as ids@n).
+        // Before the version GET, so "ids" is never read as a version. Any member, as every artefact read.
+        if (p3 === "lod_matrix" && p4 === "ids" && req.method === "GET") return send(res, 200, await art.lodMatrixIds(p1));
         if (p3 && !p4 && req.method === "GET") {
           const r = await art.artefactReply(p1, p3, req.headers["if-none-match"]);
           return send(res, r.status, r.body, r.etag && { ETag: r.etag });

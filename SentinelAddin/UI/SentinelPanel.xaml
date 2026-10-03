@@ -12,6 +12,7 @@
                     <TextBlock Text="{Binding JourneyKey}" FontSize="11" FontWeight="SemiBold"/>
                     <TextBlock Text="{Binding StandardsLine}" FontSize="11" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding NextLine}" FontSize="11" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding LodLine}" FontSize="11" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding PublishLine}" FontSize="11" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding ScanRulesetLine}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
                 </StackPanel>

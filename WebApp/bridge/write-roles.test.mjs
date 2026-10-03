@@ -589,7 +589,8 @@ describe("POST /cde/:key/manifests/:versionId (cde-rem-7): a backfill is a lead'
 
 // MA-1a items 7 and 8: the Revit report route takes the modelling commands' reports (one row per run, counts and actor)
 // and the build:run receipt, under the limits it already has. One bridge copy serves this whole file, so the report
-// budget (20 per user a minute) is shared across these tests: the contributor posts 9, the owner 21.
+// budget (20 per user a minute) is shared across these tests: the contributor posts 10, the owner 21. MA-2b adds the
+// lod_state row, marked claimed like the receipt.
 describe("POST /cde/:key/audit — the modelling commands' reports and the build:run receipt (MA-1a items 7, 8)", () => {
   const A = "/cde/demo/audit";
   const TYPES = ["datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor"];
@@ -617,6 +618,37 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
       ["build", "build:run", "contributor@example.test", { reader: "ghost-builder", model_calls: 2, claimed: true }],
       ["build", "build:run", "unsigned — drill", { reader: "datum", claimed: true }],
     ]);
+  });
+
+  it("a lod_state row is Promote's count in Revit: a contributor's lands under the verified identity, marked claimed by the bridge (MA-2b)", async () => {
+    const count = { when: "now", share: 20, total: 5, at: 1, below: 2, blocked: 2, not_measured: 0, not_run: [], changesets: [] };
+    const r = await call("POST", A, "contributor", { entity_type: "lod_state", actor: "x", action: "lod:state now · DD → design: 1 of 5 at DD (20%)", new_value: { ...count, claimed: false } });
+    expect(r.status).toBe(201);
+    expect(await call("POST", A, "machine", { entity_type: "lod_state", action: "lod:state now", new_value: "20%" }))
+      .toEqual({ status: 400, body: { message: "a lod_state row's new_value is the count, an object — nothing was saved" } });
+    expect(db.audit_log.map((a) => [a.entity_type, a.actor, a.new_value])).toEqual([["lod_state", "contributor@example.test", { ...count, claimed: true }]]);
+  });
+
+  // Review (MA-2b): the gate reads the row's share, so the bridge holds the count to itself — whoever posts it.
+  it.each([
+    ["a share the counts do not give", { share: 94 }, "a lod_state row's share is 20 for these counts, not 94 — nothing was saved"],
+    ["a share while a class the matrix asks for was not run", { not_run: ["Roofs: BDS DD v1 has no Roofs rules"] },
+      "a lod_state row's share is null (nothing counted, or a class the matrix asks for not run) for these counts, not 20 — nothing was saved"],
+    ["counts that do not add up to the total", { at: 4 }, "a lod_state row's at, below, blocked and not_measured add up to its total (5), not 8 — nothing was saved"],
+    ["a count that is not a whole number", { total: -5 }, "a lod_state row's total, at, below, blocked and not_measured are whole numbers ≥ 0 — nothing was saved"],
+    ["a when that is neither now nor after", { when: "later" }, 'a lod_state row\'s when is "now" or "after" — nothing was saved'],
+    ["a changeset that is not a changeset id", { changesets: ["cs-1"] }, "a lod_state row's changesets is a list of changeset ids — nothing was saved"],
+  ])("%s is refused — nothing is saved", async (_what, over, message) => {
+    const count = { when: "now", share: 20, total: 5, at: 1, below: 2, blocked: 2, not_measured: 0, not_run: [], changesets: [] };
+    for (const who of ["contributor", "machine"])
+      expect(await call("POST", A, who, { entity_type: "lod_state", action: "lod:state now", new_value: { ...count, ...over } })).toEqual({ status: 400, body: { message } });
+    expect(writes("audit_log")).toEqual([]);
+  });
+  it("a share is null when nothing was counted, or when a class with a DD row was not run — a class with no DD row asks nothing", async () => {
+    const ok = (v) => call("POST", A, "machine", { entity_type: "lod_state", action: "lod:state now", new_value: { when: "after", below: 0, blocked: 0, not_measured: 0, changesets: ["0b0b0b0b-0000-4000-8000-000000000001"], ...v } });
+    expect((await ok({ share: null, total: 0, at: 0, not_run: [] })).status).toBe(201);
+    expect((await ok({ share: null, total: 2, at: 2, not_run: ["Roofs: BDS DD v1 has no Roofs rules"] })).status).toBe(201);
+    expect((await ok({ share: 100, total: 2, at: 2, not_run: ["Floors: no DD row in the LOD matrix"] })).status).toBe(201);
   });
 
   it("a receipt that is not an object, and a build: action under another type, are refused — nothing is saved", async () => {

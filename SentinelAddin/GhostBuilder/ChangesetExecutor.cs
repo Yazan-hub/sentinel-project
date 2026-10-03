@@ -55,6 +55,9 @@ public sealed class ChangesetExecutor
         /// MA-1a item 5: the BLOCK check's line — placed anyway with N element(s) that will block a sync, or why BLOCK rules
         /// were not checked; null when none can fire. Set by ChangesetPlacementEvent; it rides on the result's note.
         public string Block { get; set; }
+        /// MA-2b: the DD IDS check's line (design §3.4 step 5) — placed anyway with N element(s) failing, and what it could not read
+        /// — or why it did not run; null on a changeset that is not Promote's. Set by ChangesetPlacementEvent; it rides on the note.
+        public string Ids { get; set; }
         /// MA-1a item 6: what the placement block did to the created elements — worksets, phase — or why it did nothing;
         /// null when the changeset created nothing. Set by ChangesetPlacementEvent from the plan it resolved.
         public List<string> Placement { get; set; }

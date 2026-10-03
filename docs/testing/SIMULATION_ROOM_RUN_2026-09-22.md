@@ -1311,3 +1311,61 @@ Notes:
 - Revit driving: Select by ID answered again this session (it did not in MA1b); the type selector's search box takes a typed name; a
   long "Promote" dialog's expanded list scrolls only by dragging its scrollbar; Revit's "Project Not Saved Recently" prompt blocks the
   MCP until answered; after a Revit restart the MCP server must be switched on again (Add-Ins ▸ Revit MCP Switch).
+
+## Session MA2b — the LOD matrix's stage map, the LOD state on the ledger, the DD IDS before commit, live (2026-10-03 ~08:30 → 11:25 local, branch feature/ma2b-lod-matrix-state 7f8fc2c → 0cbc6b0 → 2ea064f, Claude driving Revit 2024)
+
+Setup: two copies of `Documents\sentinel-scratch\ma1\ma1-src_detached.rvt` (the PRE-Promote B35 seed) in `Documents\Sentinel drills\ma2b\`:
+`ma2b-a.rvt` bound to `ma2b`, `ma2b-b.rvt` bound to `ma2b-none` (Project Setup, current-project scope, not saved). Scratch web projects
+on the test bridge 127.0.0.1:4101 (branch code, event poll off): office `ma2b-office` with `guideline@1` (`bds-dd-elements-guideline.json`,
+`5ac547cae77c…`), `type_catalog@1` (`a1c0436f6714…`), `lod_matrix@1` = the drill's DRAFT `bds-lod-matrix-dd-ma2b.json` (sha256
+`cb47a6d07da3…cb11`) and the pilot's `ruleset@1`; project `ma2b` in that office; `ma2b-none` with no office and no matrix (its own
+guideline and catalogue). **Signed in** (the founder's account; contributor of `ma2b`, `ma2b-none` and the office). The add-in: the
+branch build 7f8fc2c, deployed to Revit 2024 once (10:34); the two fixes below were committed after it, and only the bridge one ran
+live (see Owed). The founder's 4100 bridge was not touched.
+
+**Record before the first row** (by mouse, Type Properties on `ma2b-a.rvt`; UNSURE 1): `BDS_EXT_ARC_CMU_200 mm`, `BDS_INT_ARC_GYPS_100 mm`,
+`MA0 Interior - 100mm`, `BDS_INT_1 PNL_WOOD_1000 x 2100 mm` and `BDS_INT_2 PNL_WOOD_2000 x 2100 mm` — Fire Rating empty on every one;
+the four BDS window types loaded (`BDS_Window-1 Panel 3.10X1.50 m`, `-2/-3/-4 Panels 3.10X2.90 m`) — Analytic Construction `<None>`,
+Heat Transfer Coefficient (U) empty, no `U-Value`/`ThermalTransmittance` parameter; no type has an `Export Type to IFC As` (UNSURE 3:
+none on the seed). So the table's doors read 0 at DD, and L-3 takes every "else" branch. `analyze_model_statistics`: Walls 89, Doors
+38, Windows 7, Floors 36, Ceilings 9, Roofs 3 model-wide (the template's legend instances included; Promote counts 86 on its storeys).
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-1 the matrix's DD IDS, derived | `GET cde/ma2b/artefacts/lod_matrix/ids` 200: `matrix` `lod_matrix@1 · office · cb47a6d07da3…`, `sha256` its full sha, `project_stage` `design`, specifications `Walls · DD`, `Doors · DD`, `Windows · DD`, `unmatched` `[]`; `ma2b-none` 404 `no lod_matrix installed for ma2b-none or its office`; the PUT with `stage_map {SD: coord}` 400 (DD maps to design, before SD's coord), nothing installed — **pass** | replies |
+| G-0 the LOD check before any row | tender `gate:pass tender` (#1535); design `gate:not_checkable design` (#1536), four checks, the fourth `LOD state: elements at the DD row ≥ 90%`, `na: true`, source `LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)` — **pass** | replies |
+| N-1 no matrix, no row | `ma2b-b` → `ma2b-none`, Promote (DD): `LOD matrix: none — not installed for ma2b-none or its office — walls only (MA-0 rules)`; `LOD state: not measured — no lod_matrix@n to measure against (none — not installed for ma2b-none or its office)`; `DD now — Walls 0/60`; No pressed; `audit?entity_type=lod_state` `rows: []`; the pane `LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)` — **pass** | dialog, reply, pane |
+| L-1 the LOD state now | `ma2b-a` → `ma2b`, Promote (DD), the dialog in ~3 s (UNSURE 5): `LOD matrix: lod_matrix@1 · office · cb47a6d07da3… (DRAFT)`; `DD now — Walls 0/60 · Floors 5/9 · Roofs 1/3 · Ceilings 1/4 · Doors 2/7 · Windows 0/3` (= B35-3); `LOD state now (sent to the ledger — …): DD → design: 7 of 86 at DD (8%) · 70 below · 9 blocked · 0 not measured · 101 on other office types, not counted`; per level and class GR-FFL Walls 0/32/8/0, Floors 5/2/0/0, Roofs 1/0/0/0, Ceilings 1/3/0/0, Doors 0/6/0/0 (`missing Pset_DoorCommon.FireRating ×2` — the two DD-now doors), Windows 0/3/0/0; 01-FFL Walls 0/20/0/0, Floors 0/1/1/0, Doors 0/1/0/0; MA0 Roof Roofs 0/2/0/0 — they add up to 86 = 7 + 70 + 9; `DD also asks` Walls FireRating, IsExternal · Doors FireRating · Windows ThermalTransmittance. Doctor `10:54:08 LOD state now — Recorded: ledger #1537 · receipt 78ed60aed99c4ecb…` (UNSURE 6). Row #1537 `lod:state now · DD → design: 7 of 86 …`, `claimed: true`, `project_stage: design`, `matrix_sha256` = R-1's, actor the account's e-mail — **pass** | dialog, Doctor, row |
+| L-2 the pane and the journey | ↻ pressed (see the pane note below); the pane: `LOD state: DD → design: 7 of 86 at DD (8%) · … — Revit's count (claimed), <e-mail>, 2026-10-03 08:54 · ledger #1537`, the journey's `lod_state.line` word for word, `ledger.id` 1537; it wraps in the docked pane (UNSURE 7: it fits, on five lines) — **pass**, with **F-MA2b-1** (the time is UTC, unlabelled) | pane (read through UI Automation), reply |
+| W-1 the web Next strip | **owed**: the local-app route loads from `:4000`, where the founder's long-running `thatopen serve` serves the 4100 build, and the app needs a signed-in platform session (a password). The strip prints `lod_state.line` verbatim (`next-strip.test.ts`); the line is L-2's | — |
+| G-1 the gate reads the row | `gate:hold design` (#1538): the LOD check `na: false`, `ok: false`, `detail` `8`, source `lod_state ledger #1537 — DD → design: 7 of 86 … (Revit's count, claimed: <e-mail>, 2026-10-03T08:54:08.038951+00:00)`; the other three not measured — **pass** | reply, row |
+| I-1 the DD IDS before commit, Go back | `MA0 Interior - 100mm` Fire Rating set to 60 (GYPS 100's already empty). Promote (DD) → Yes (a second `now` row, #1539, the same reading — the partitions on the concept type stay below: not on a DD type). The review `Promote (DD) · GR-FFL` (changeset `b7c941bf…`): 48 rows ticked — 14 walls → `BDS_EXT_ARC_CMU_200 mm`, 10 partitions (W 2051439–48) → `BDS_INT_ARC_GYPS_100 mm`, floor 2062165 → `BDS_INT_STR_CONC_300 mm`, ceiling 2062245 → `BDS_INT_ARC_GYPS_50 mm`, doors 2069756/57 → the BDS PNL_WOOD types, 20 attaches; 30 sent to a person. Apply: `This changeset leaves 28 element(s) failing the DD IDS made from lod_matrix@1 · office · cb47a6d07da3…` = 14 outline + 10 partitions + 2 doors + the 2 attach-only gap walls (amendment D3); had the read seen the concept type's 60 it would be 18 — **UNSURE 2 held**. The dialog named the first eight (outline walls) and "… and 20 more" → **F-MA2b-2**. Go back: `You went back at the DD IDS check — nothing was placed. 28 element(s) would have failed …`, "The proposals are still pending"; the changeset `proposed`; MCP on `WIP_FP_GR_FFL`: the outline still `Generic - 200mm`, the partitions `MA0 Interior - 100mm` — **pass** (the partitions by count; see F-MA2b-2) | dialogs, reply, MCP |
+| I-2 Place anyway, the LOD state after | Review again (3 pending, the oldest first), the same 48; Apply; Place anyway. The result in ~3 s: `Applied 48 element(s) from "Promote (DD) · GR-FFL".`, `… — placed anyway, as the person chose: W 1747982 (Walls · DD): missing Pset_WallCommon.FireRating; … and 23 more`, `LOD state after (sent to the ledger — …): DD → design: 9 of 86 at DD (10%) · 68 below · 9 blocked · 0 not measured · 101 on other office types, not counted`; Doctor `11:12:19 LOD state after — Recorded: ledger #1548 · receipt 0c55ad1d2d2d3b10…`; the changeset's result note starts with the IDS line; row #1548 `lod:state after · …`, `changesets: ["b7c941bf-…"]` — **pass** | dialog, Doctor, rows |
+| L-3 after, per class | The pane shows #1548. Against L-1: GR-FFL Floors 5 → 6 and Ceilings 1 → 2 at DD (their class asks nothing); Walls 0/32/8 with `18× missing Pset_WallCommon.FireRating` (the 8 outline walls retyped and attached, and the 10 partitions — the 6 retyped walls 6,096 mm high keep their "top above 01_SSL" reason); Doors 0/6 with `4× missing Pset_DoorCommon.FireRating` (the two swapped doors and the two DD-now doors) — every "else" branch, as the record said. Gate `gate:hold design` (#1549), the LOD check `detail` `10` from #1548 — **pass** | rows, pane, reply |
+
+**Found in the drill:**
+- **F-MA2b-1 (0cbc6b0, minor, words) — the journey's LOD line printed the row's UTC time without its zone** ("08:54" for a 10:54 run).
+  It now reads "… 08:54 UTC · ledger #n". Run again live: the restarted test bridge's journey reply reads `2026-10-03 09:12 UTC · ledger #1548`.
+- **F-MA2b-2 (2ea064f, important, words) — the DD IDS dialog named eight elements and hid the rest.** The person chose Place anyway
+  without seeing the ten partitions. The dialog now counts the failures by specification and missing properties (every element in a
+  line) and names each element under See details (up to 200; the count covers the rest). Checked offline (promote-check 605/605);
+  **not run again live** — the redeploy was blocked (below), so the row is owed.
+- **The pane's content is wider than its docked column** (not MA-2b's): with Speckle docked beside it the pane is ~290 px wide and its
+  content ~456 px — long lines are cut and the ↻ button sits off the right edge; dragging the dock splitter did nothing. ↻ was pressed
+  through UI Automation, and the pane's lines were read the same way. Left as a follow-up task.
+- **Driving slips:** Windows' "Windows Input Experience" window (TextInputHost) held the foreground after Revit started, so the first
+  clicks were refused; the unsigned-add-in prompt's Load Once was pressed with a posted click, and bringing File Explorer, then Revit,
+  forward cleared it. Each of those "open Revit" calls made while Revit was already up started another Revit 2024 (three, each stopped
+  at its own unsigned-add-in prompt, no document); they were still running after the drill's Revit closed and blocked the redeploy —
+  the founder closes them. Never open an app that is already running; switch to its window.
+
+**Owed** (not passed): I-1's dialog with F-MA2b-2's fix, live (the redeploy was blocked); W-1, the strip in the browser; the pane
+showing "UTC" (the bridge's reply shows it); the signed-out actor on `lod_state` rows; one row on Revit 2026 and 2027; a real office's
+matrix (LM-1); a type with an IfcExportAs override (UNSURE 3, none on the seed); the LOD state on sync (S4, not built); the snap (D16,
+not built).
+
+Notes:
+- Left on the test ledger: `ma2b-office` (guideline@1, type_catalog@1, lod_matrix@1, ruleset@1, the account's membership), `ma2b`
+  (#1524–#1549: four gate runs, three `lod_state` rows, three Promote changesets — GR-FFL applied in a copy that was not saved, 01-FFL
+  and MA0 Roof left `proposed`), `ma2b-none` (no `lod_state` row). Scratch keys only.
+- Left on this PC: the two scratch copies and the request bodies in `Documents\Sentinel drills\ma2b\` (not saved; the drill's evidence).

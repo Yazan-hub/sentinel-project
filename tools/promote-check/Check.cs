@@ -51,6 +51,10 @@ static partial class Check
         TypedBodyChecks();
         WallSampleChecks();
         Ma2aWiringChecks();
+        LodMatrixParityChecks();
+        StageIdsChecks();
+        LodStateChecks(m, m2);
+        Ma2bWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

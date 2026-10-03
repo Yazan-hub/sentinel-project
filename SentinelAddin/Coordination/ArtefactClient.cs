@@ -81,6 +81,36 @@ namespace Sentinel.Coordination
             }
         }
 
+        /// <summary>MA-2b: GET /cde/:key/artefacts/lod_matrix/ids — the DD stage IDS the bridge makes from the matrix in force
+        /// (matrixToIds; never installed as ids@n). The reply's JSON, or null with <paramref name="why"/>: the bridge's own words on a
+        /// refusal ("HTTP 404: no lod_matrix installed for …"), else the transport error. Blocking (4 s), never throws; run it OFF
+        /// the API thread (PromoteContext.Fetch).</summary>
+        public static string? StageIds(string key, out string? why)
+        {
+            why = null;
+            try
+            {
+                var cfg = BcfConfig.Load();
+                using var cts = new CancellationTokenSource(DefaultTimeout);
+                using var msg = new HttpRequestMessage(HttpMethod.Get,
+                    (cfg.ServiceUrl ?? "").TrimEnd('/') + "/cde/" + Uri.EscapeDataString((key ?? "").Trim()) + "/artefacts/lod_matrix/ids");
+                if (!string.IsNullOrWhiteSpace(cfg.ServiceToken)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
+                using var resp = Http.SendAsync(msg, cts.Token).GetAwaiter().GetResult();
+                var text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (resp.IsSuccessStatusCode) return text;
+                string? said = null;
+                try { using var d = JsonDocument.Parse(text); if (d.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) said = m.GetString(); } catch { }
+                why = $"HTTP {(int)resp.StatusCode}: {said ?? resp.ReasonPhrase}";
+                return null;
+            }
+            catch (Exception e)
+            {
+                why = e is OperationCanceledException ? "timed out after " + DefaultTimeout.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) + " s"
+                    : (e.InnerException?.Message ?? e.Message);
+                return null;
+            }
+        }
+
         /// <summary>The bridge's answer → the artefact in force, updating the cache. Pure but for the cache writes.</summary>
         internal static ResolvedArtefact Interpret(string key, string kind, int status, string body, CachedArtefact? cached, DateTime nowUtc)
         {

@@ -1,0 +1,215 @@
+{
+  "ids": {
+    "title": "MA2B-LOD-001 0.1.0 · DD (lod_matrix@1 · office · abababababab…)",
+    "enforce": "warn",
+    "specifications": [
+      {
+        "name": "Walls · DD",
+        "applicability": {
+          "entity": "IFCWALL"
+        },
+        "requirements": {
+          "properties": [
+            {
+              "pset": "Pset_WallCommon",
+              "name": "FireRating",
+              "cardinality": "required"
+            },
+            {
+              "pset": "Pset_WallCommon",
+              "name": "IsExternal",
+              "cardinality": "required"
+            },
+            {
+              "pset": "Pset_WallCommon",
+              "name": "LoadBearing",
+              "cardinality": "required"
+            }
+          ],
+          "attributes": []
+        }
+      },
+      {
+        "name": "Ceilings · DD",
+        "applicability": {
+          "entity": "IFCCOVERING"
+        },
+        "requirements": {
+          "properties": [
+            {
+              "pset": "Pset_CoveringCommon",
+              "name": "AcousticRating",
+              "cardinality": "required"
+            }
+          ],
+          "attributes": []
+        }
+      },
+      {
+        "name": "Doors · DD",
+        "applicability": {
+          "entity": "IFCDOOR"
+        },
+        "requirements": {
+          "properties": [
+            {
+              "pset": "Pset_DoorCommon",
+              "name": "FireRating",
+              "cardinality": "required"
+            }
+          ],
+          "attributes": []
+        }
+      }
+    ]
+  },
+  "unmatched": [
+    {
+      "category": "Floors",
+      "property": "Combustible",
+      "reason": "no standard property set holds Combustible for IFCSLAB — name it as Pset_X.Combustible"
+    }
+  ],
+  "cases": [
+    {
+      "name": "wall rated",
+      "identity": {
+        "Class": "IFCWALL",
+        "Name": "wall rated"
+      },
+      "psets": [
+        {
+          "name": "Pset_WallCommon",
+          "rows": [
+            {
+              "name": "IsExternal",
+              "value": "True"
+            },
+            {
+              "name": "FireRating",
+              "value": "60"
+            }
+          ]
+        }
+      ],
+      "in_scope": true,
+      "failures": [
+        "Pset_WallCommon.LoadBearing"
+      ]
+    },
+    {
+      "name": "wall unrated",
+      "identity": {
+        "Class": "IFCWALL",
+        "Name": "wall unrated"
+      },
+      "psets": [
+        {
+          "name": "Pset_WallCommon",
+          "rows": [
+            {
+              "name": "IsExternal",
+              "value": "False"
+            }
+          ]
+        }
+      ],
+      "in_scope": true,
+      "failures": [
+        "Pset_WallCommon.FireRating",
+        "Pset_WallCommon.LoadBearing"
+      ]
+    },
+    {
+      "name": "wall blank rating",
+      "identity": {
+        "Class": "IFCWALL",
+        "Name": "wall blank rating"
+      },
+      "psets": [
+        {
+          "name": "Pset_WallCommon",
+          "rows": [
+            {
+              "name": "IsExternal",
+              "value": "True"
+            },
+            {
+              "name": "FireRating",
+              "value": ""
+            }
+          ]
+        }
+      ],
+      "in_scope": true,
+      "failures": [
+        "Pset_WallCommon.FireRating",
+        "Pset_WallCommon.LoadBearing"
+      ]
+    },
+    {
+      "name": "door rated",
+      "identity": {
+        "Class": "IFCDOOR",
+        "Name": "door rated"
+      },
+      "psets": [
+        {
+          "name": "Pset_DoorCommon",
+          "rows": [
+            {
+              "name": "FireRating",
+              "value": "FD30"
+            }
+          ]
+        }
+      ],
+      "in_scope": true,
+      "failures": []
+    },
+    {
+      "name": "door unrated",
+      "identity": {
+        "Class": "IFCDOOR",
+        "Name": "door unrated"
+      },
+      "psets": [],
+      "in_scope": true,
+      "failures": [
+        "Pset_DoorCommon.FireRating"
+      ]
+    },
+    {
+      "name": "ceiling",
+      "identity": {
+        "Class": "IFCCOVERING",
+        "Name": "ceiling"
+      },
+      "psets": [],
+      "in_scope": true,
+      "failures": [
+        "Pset_CoveringCommon.AcousticRating"
+      ]
+    },
+    {
+      "name": "window",
+      "identity": {
+        "Class": "IFCWINDOW",
+        "Name": "window"
+      },
+      "psets": [],
+      "in_scope": false,
+      "failures": []
+    },
+    {
+      "name": "column",
+      "identity": {
+        "Class": "IFCCOLUMN",
+        "Name": "column"
+      },
+      "psets": [],
+      "in_scope": false,
+      "failures": []
+    }
+  ]
+}

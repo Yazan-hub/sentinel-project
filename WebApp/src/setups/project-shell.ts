@@ -202,6 +202,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     hardClashes: kpis.hard, openIssues: kpis.open, openRfis: kpis.openRfis,
     hasStandardsPack: hasRuleset,
     cobieComplete: (project?.snapshot?.handover_readiness as number) ?? null, // 7D readiness (from snapshot)
+    lodState: null, // MA-2b: measured on the bridge from the newest lod_state ledger row — Run gate reads it
   });
 
   const advance = async () => {
@@ -291,7 +292,9 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
         const bg = na ? "#3a3a42" : c.ok ? "#22c55e" : "#eab308";
         const mk = na ? "–" : c.ok ? "✓" : "!";
         const detail = c.detail ? ` <span style="color:#6b7280">(${esc(String(c.detail))})</span>` : "";
-        const source = c.source ? ` <span style="color:#6b7280">· ${esc(String(c.source))}</span>` : "";
+        // MA-2b: the browser does not read the ledger's LOD state; a preview's LOD row says where it is measured (review C10).
+        const src = c.source ?? (preview && na && c.label.startsWith("LOD state") ? "measured on the bridge from the newest lod_state ledger row — Run gate" : "");
+        const source = src ? ` <span style="color:#6b7280">· ${esc(String(src))}</span>` : "";
         return `<div style="display:flex;align-items:center;gap:.5rem;font-size:12px;margin:.3rem 0">` +
           `<span style="width:16px;height:16px;border-radius:5px;display:grid;place-items:center;flex:none;font:700 10px ui-monospace;color:#fff;background:${bg}">${mk}</span>` +
           `<span style="color:#cbd2dc">${esc(c.label)}${detail}${source}</span></div>`;

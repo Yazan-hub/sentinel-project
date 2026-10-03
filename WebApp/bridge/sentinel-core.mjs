@@ -488,7 +488,10 @@ var GATE_DEFS = {
   design: [
     { metric: "health", op: ">=", value: 80, label: "Model health \u2265 80%" },
     { metric: "blockViolations", op: "==", value: 0, label: "No 'block' violations" },
-    { metric: "compliance", op: ">=", value: 70, label: "Standards compliance \u2265 70%" }
+    { metric: "compliance", op: ">=", value: 70, label: "Standards compliance \u2265 70%" },
+    // MA-2b (design §3.2, D18, blueprint P1-10): the design → coord gate reads the share at the DD row's LOD. 90 % is the
+    // founder's to change (decision F5): elements Promote cannot act on (groups, structure) stay in the count.
+    { metric: "lodState", op: ">=", value: 90, label: "LOD state: elements at the DD row \u2265 90%" }
   ],
   coord: [
     { metric: "hardClashes", op: "==", value: 0, label: "No open hard clashes" },
@@ -1685,17 +1688,85 @@ function validateLayers(names, rs) {
     mappings
   };
 }
+
+// src/sentinel-core/lod-matrix.ts
+var STAGES = ["tender", "design", "coord", "constr", "hand", "oper"];
+var MATRIX_STAGES = ["concept", "SD", "DD", "CD"];
+var DEFAULT_STAGE_MAP = { concept: "design", SD: "design", DD: "design", CD: "coord" };
+var LOD_CATEGORIES = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows"];
+var LOD_DD = { type: ["guideline_rule"], level: ["story_level"], top: ["next_story_level"], host: ["wall"] };
+var MAX_SNAP_MM = 50;
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var filled = (v) => typeof v === "string" && /[^\s\u0085]/.test(v);
+var bad = (path, want) => new Error(`${path} ${want}`);
+function parseLodMatrix(body) {
+  if (!isObj(body)) throw bad("the body", "must be a JSON object");
+  const stray = Object.keys(body).find((k) => !["standard_key", "semver", "status", "stage_map", "rows"].includes(k));
+  if (stray !== void 0) throw bad(stray, "is not a lod_matrix field \u2014 the body is {standard_key, semver, status?, stage_map?, rows}");
+  if (!filled(body.standard_key)) throw bad("standard_key", "must be a non-empty string");
+  if (typeof body.semver !== "string" || !/^\d+\.\d+\.\d+$/.test(body.semver)) throw bad("semver", "must be x.y.z");
+  if (body.status != null && body.status !== "draft" && body.status !== "approved") throw bad("status", "must be draft or approved");
+  const stage_map = { ...DEFAULT_STAGE_MAP };
+  if (body.stage_map != null) {
+    if (!isObj(body.stage_map)) throw bad("stage_map", "must be an object of matrix stage: project stage");
+    for (const [k, v] of Object.entries(body.stage_map)) {
+      if (!MATRIX_STAGES.includes(k)) throw bad(`stage_map.${k}`, `is not a matrix stage \u2014 ${MATRIX_STAGES.join(", ")}`);
+      if (typeof v !== "string" || !STAGES.includes(v)) throw bad(`stage_map.${k}`, `must be ${STAGES.join(" | ")}`);
+      stage_map[k] = v;
+    }
+    for (let i = 1; i < MATRIX_STAGES.length; i++) {
+      const [prev, k] = [MATRIX_STAGES[i - 1], MATRIX_STAGES[i]];
+      if (STAGES.indexOf(stage_map[k]) < STAGES.indexOf(stage_map[prev]))
+        throw bad(`stage_map.${k}`, `maps to ${stage_map[k]}, before ${prev}'s ${stage_map[prev]} \u2014 a later matrix stage never maps to an earlier project stage`);
+    }
+  }
+  if (!Array.isArray(body.rows) || body.rows.length === 0) throw bad("rows", "must be a non-empty array");
+  const seen = /* @__PURE__ */ new Set();
+  const rows = body.rows.map((r, i) => {
+    const at = `rows[${i}]`;
+    if (!isObj(r)) throw bad(at, "must be an object");
+    const strayRow = Object.keys(r).find((k) => k !== "category" && k !== "DD");
+    if (strayRow !== void 0) throw bad(`${at}.${strayRow}`, "is not a row field \u2014 a row is {category, DD} (Promote checks the DD stage only; stage_map names the others)");
+    if (typeof r.category !== "string" || !LOD_CATEGORIES.includes(r.category)) throw bad(`${at}.category`, `must be ${LOD_CATEGORIES.join(" | ")}`);
+    if (seen.has(r.category)) throw bad(`${at}.category`, "appears twice \u2014 one row per class");
+    seen.add(r.category);
+    if (!isObj(r.DD)) throw bad(`${at}.DD`, "must be an object");
+    const row = { category: r.category, dd: {}, properties: [], type_snap_mm: 0 };
+    for (const [k, v] of Object.entries(r.DD)) {
+      if (k === "properties") {
+        if (!Array.isArray(v) || !v.every(filled)) throw bad(`${at}.DD.properties`, "must be an array of non-empty strings");
+        row.properties = [...v];
+      } else if (k === "type_snap_mm") {
+        if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > MAX_SNAP_MM)
+          throw bad(`${at}.DD.type_snap_mm`, `must be a whole number of millimetres, 0 to ${MAX_SNAP_MM} (D16: 0 keeps the exact match)`);
+        if (v > 0 && (r.category === "Doors" || r.category === "Windows"))
+          throw bad(`${at}.DD.type_snap_mm`, `must be 0 for ${r.category} \u2014 a door or window is matched by its type name's W x H, never snapped`);
+        row.type_snap_mm = v;
+      } else if (!Object.prototype.hasOwnProperty.call(LOD_DD, k)) {
+        throw bad(`${at}.DD.${k}`, `is not a DD rule Promote reads \u2014 ${[...Object.keys(LOD_DD), "properties", "type_snap_mm"].join(", ")}`);
+      } else if (!LOD_DD[k].includes(v)) {
+        throw bad(`${at}.DD.${k}`, `must be ${LOD_DD[k].join(" | ")}`);
+      } else row.dd[k] = v;
+    }
+    if (row.dd.type === void 0) throw bad(`${at}.DD.type`, "is required \u2014 DD means typed by a guideline rule");
+    return row;
+  });
+  return { standard_key: body.standard_key, semver: body.semver, draft: body.status === "draft", stage_map, rows };
+}
 export {
   ASSET_KEYS,
   ASSUMED_BELOW,
   CATEGORY_BIC,
+  DEFAULT_STAGE_MAP,
   DEMO_IDS,
   GATE_DEFS,
   MAINTAINABLE_CLASSES,
   MASSING_SCHEMA,
+  MATRIX_STAGES,
   REQUIRED_FIELDS,
   RuleEngine,
   SCHEMA_VERSION,
+  STAGES,
   adjudicate,
   applies,
   assess,
@@ -1724,6 +1795,7 @@ export {
   nameShape,
   netDelta,
   parseIds,
+  parseLodMatrix,
   planViews,
   priceSnapshot,
   raisedFederationTitleKey,

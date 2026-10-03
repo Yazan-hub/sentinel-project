@@ -9,6 +9,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Sentinel.GhostBuilder; // MA-2b: LodStateReport
 
 namespace Sentinel.Coordination
 {
@@ -74,6 +75,30 @@ namespace Sentinel.Coordination
         public static object FixInPlace(string requirement, string bcfGuid, int applied, int notWritten, string actor) =>
             Row("fix_in_place", actor, $"Fix-in-place {requirement}: {applied} value(s) written, {notWritten} not written",
                 new { requirement, bcf_guid = bcfGuid, applied, not_written = notWritten, source = "revit" });
+
+        /// <summary>MA-2b: the LOD state of one Promote run ("now", every run — the read-only one too) or of one applied Promote
+        /// changeset ("after"): the line, the share, the stage map's project stage, and per level and class the counts with their
+        /// reasons (each list at most MaxNames rows and MaxReasons reasons beside its true total). The bridge marks it claimed.</summary>
+        public static object LodState(LodStateReport r, IReadOnlyList<string> changesetIds, string actor) =>
+            Row("lod_state", actor, $"lod:state {r.When} · {r.Line}", new
+            {
+                when = r.When, stage = r.Stage, project_stage = r.ProjectStage, matrix = r.Matrix, matrix_sha256 = r.MatrixSha, ids = r.Ids, guideline = r.Guideline,
+                line = r.Line, share = r.Share, total = r.Total, at = r.At, below = r.Below, blocked = r.Blocked, not_measured = r.NotMeasured,
+                office_typed = r.OfficeTyped,
+                rows =r.Rows.Take(MaxNames).Select(x => new
+                {
+                    level = x.Level, category = x.Category, total = x.Total, at = x.At, below = x.Below, blocked = x.Blocked, not_measured = x.NotMeasured,
+                    reasons = x.Reasons.Take(MaxReasons).Select(kv => new { reason = kv.Key.Length <= 200 ? kv.Key : kv.Key.Substring(0, 199) + "…", count = kv.Value }).ToArray(),
+                    reasons_total = x.Reasons.Count,
+                }).ToArray(),
+                rows_total = r.Rows.Count,
+                not_run = r.NotRun.Take(MaxNames).ToArray(),
+                changesets = (changesetIds ?? new string[0]).Take(MaxNames).ToArray(),
+                source = "revit",
+            });
+
+        /// <summary>Reasons kept per LOD state row (a row's reasons can be one per element; the count stays true).</summary>
+        public const int MaxReasons = 10;
 
         /// <summary>What the Doctor resolved in one window (DoctorBuffer), with Revit's own fix, in committed transactions.</summary>
         public static object Doctor(DoctorTally tally, string actor) =>

@@ -9,6 +9,7 @@
 // is told the changeset was not placed (NotRun: it stays proposed), with the exception named.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Sentinel.Coordination;
@@ -24,14 +25,15 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
     private HashSet<string> _ticked;
     private Document _doc;   // the model the review window was opened on (XC-1)
     private GuidelinePlacement _placement; // MA-1a item 6: the project's placement block, fetched by the caller; null = none
+    private PromoteContext _promote;       // MA-2b: a Promote changeset's DD IDS, fetched by the caller; null = not Promote's
 
-    public void SetRequest(ChangesetDto cs, HashSet<string> ticked, Document doc, GuidelinePlacement placement = null)
-    { _cs = cs; _ticked = ticked; _doc = doc; _placement = placement; }
+    public void SetRequest(ChangesetDto cs, HashSet<string> ticked, Document doc, GuidelinePlacement placement = null, PromoteContext promote = null)
+    { _cs = cs; _ticked = ticked; _doc = doc; _placement = placement; _promote = promote; }
 
     public void Execute(UIApplication app)
     {
-        var cs = _cs; var ticked = _ticked; var doc = _doc; var placement = _placement;
-        _cs = null; _ticked = null; _doc = null; _placement = null;
+        var cs = _cs; var ticked = _ticked; var doc = _doc; var placement = _placement; var promote = _promote;
+        _cs = null; _ticked = null; _doc = null; _placement = null; _promote = null;
         if (cs == null || ticked == null || doc == null)
         {
             // A Raise without a staged request must still complete — a silent return would hang
@@ -62,12 +64,19 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 }
             }
             var before = BlockCheck.Before(doc, out var note);
-            if (before == null)
+            // MA-2b (design §3.4 step 5): a Promote changeset with a DD IDS runs in the checked group too, so the person can go back.
+            if (before == null && promote?.Ids == null)
             {
                 result = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
                 result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
             }
-            else result = RunChecked(doc, cs, ticked, before, plan);
+            else
+            {
+                result = RunChecked(doc, cs, ticked, before, plan, promote?.Ids);
+                if (before == null && !result.NotRun) result.Block = note;
+            }
+            // A Promote changeset whose DD IDS could not be read is placed as before, and the result says it was not checked.
+            if (promote != null && promote.Ids == null && !result.NotRun) result.Ids = "DD IDS: not checked — " + promote.IdsWhy;
             // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing. Counted
             // from result.Applied — what the executor's recount left — so an element Revit removed at commit is in no line.
             if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null)
@@ -103,7 +112,9 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
     private static ChangesetExecutor.ExecutionResult NotPlaced(Exception ex) =>
         new ChangesetExecutor.ExecutionResult { NotRun = true, Error = $"The changeset was not placed — {ex.GetType().Name}: {ex.Message}" };
 
-    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, ChangesetDto cs, HashSet<string> ticked, ScanReport before, PlacementPlan plan)
+    /// MA-2b: <paramref name="before"/> is null when no BLOCK rule can fire, <paramref name="ids"/> when the changeset is not Promote's
+    /// (or its DD IDS was not read); the group runs when either check does.
+    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, ChangesetDto cs, HashSet<string> ticked, ScanReport before, PlacementPlan plan, StageIds ids = null)
     {
         using var group = new TransactionGroup(doc, UndoWatcher.TxName(cs.Name, cs.Id));
         try
@@ -119,7 +130,23 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 if (result.NotFinished == null) SentinelUndo.RollBack(group, doc);
                 return result;
             }
-            var added = BlockCheck.AddedSince(doc, before);
+            // MA-2b (design §3.4 step 5): the DD IDS made from the matrix, judged on what this changeset applied — before the BLOCK
+            // check and before the group is kept. Going back rolls everything back; the changeset stays proposed.
+            string idsLine = null;
+            if (ids != null)
+            {
+                var kindOf = (cs.Elements ?? new List<ChangesetElementDto>()).ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
+                var (fails, notRead, notJudged, judged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
+                if (fails.Count > 0 && !PromoteContext.PlaceAnyway(fails, ids.Matrix, $"changeset \"{cs.Name}\""))
+                {
+                    SentinelUndo.RollBack(group, doc);
+                    return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = StageIds.WentBack(fails.Count, ids.Matrix) };
+                }
+                // Passed only when nothing failed, nothing was unreadable and nothing was left out (review C2) — and said with how
+                // many were judged, never of none (third review).
+                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix);
+            }
+            var added = before == null ? new List<Violation>() : BlockCheck.AddedSince(doc, before);
             if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, $"changeset \"{cs.Name}\"", before.RulesetRef))
             {
                 SentinelUndo.RollBack(group, doc);
@@ -130,6 +157,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             if (group.Assimilate() != TransactionStatus.Committed)
                 return new ChangesetExecutor.ExecutionResult { Error = $"Revit did not keep the changeset's Undo group (status {group.GetStatus()})" };
             result.Block = block;
+            result.Ids = idsLine;
             return result;
         }
         catch (Exception ex)

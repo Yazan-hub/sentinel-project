@@ -56,9 +56,10 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if (unreviewed != null)
             return ReviewChangesetsCommand.Open(c, doc, cfg, key, unreviewed) ? Result.Succeeded : Result.Cancelled;
 
-        // The standards and the LOD matrix (off the API thread, the Annotate pattern), then the facts (on it).
-        var mxTask = Task.Run(() => ArtefactClient.Resolve(key, "lod_matrix"));
-        var standards = Task.Run(() => GhostStandards.Load(key, layers: false)).GetAwaiter().GetResult();
+        // The standards, the LOD matrix and (MA-2b) its DD stage IDS, off the API thread (the Annotate pattern) — PromoteContext, which
+        // the review's check before commit reads too — then the facts (on it).
+        var pc = Task.Run(() => PromoteContext.Fetch(key)).GetAwaiter().GetResult();
+        var standards = pc.Standards;
         if (!standards.Guideline.HasGuideline)
         {
             TaskDialog.Show(Title, $"Guideline: {standards.GuidelineSource.Label}\n\nNo DD rule file is installed for \"{key}\" or its office — nothing to plan. Install one as guideline@n.");
@@ -72,40 +73,15 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label));
             return Result.Cancelled;
         }
-        var mxSource = mxTask.GetAwaiter().GetResult();
-        LodMatrix mx = null;
-        if (mxSource.Origin != "none")
-        {
-            mx = LodMatrix.FromBody(mxSource.BodyJson ?? "", out var mxErr); // a body it cannot read is none, never a partial matrix
-            if (mxErr != null) mxSource = ArtefactClient.None("lod_matrix", $"{mxSource.Label} did not parse: {mxErr}");
-        }
-        var notRun = new List<string>();
-        var classes = LodMatrix.Classes(mx, mxSource.Label, standards.Guideline, notRun);
+        LodMatrix mx = pc.Mx;
+        var notRun = pc.NotRun.ToList();
+        var classes = pc.Classes;
         // With no matrix the header says "walls only"; otherwise each class left out is named below the plan.
-        var header = standards.Header + "\n" + (mx == null ? notRun[0] : "LOD matrix: " + mxSource.Label + (mx.Draft ? " (DRAFT)" : ""));
+        var header = standards.Header + "\n" + (mx == null ? notRun[0] : "LOD matrix: " + pc.MxLabel + (mx.Draft ? " (DRAFT)" : ""));
         if (mx == null) notRun.Clear();
         header += "\n" + PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
 
-        var docTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // basic wall type → its Function
-        foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))
-            docTypes[t.Name] = t.Function.ToString();
-        // The document's types per class, never across classes (BDS_INT_ARC_GYPS_50 mm is both a wall and a ceiling type).
-        var classTypes = new Dictionary<string, IReadOnlyDictionary<string, double?>>(StringComparer.Ordinal);
-        foreach (var (kind, bic) in Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category)))
-        {
-            var d = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var t in new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>())
-                d[ChangesetExecutor.TypeLabel(t)] = (t as HostObjAttributes)?.GetCompoundStructure() is CompoundStructure cs ? cs.GetWidth() * FtToMm : (double?)null;
-            classTypes[PromoteWallsPlanner.Classes[kind].Category] = d;
-        }
-        var levels = ChangesetExecutor.Stories(doc); // the one projection of the model's levels (MA-1a review amendment C6)
-        // Walls are read for doors too: a door's location reads its host storey's one-type verdict.
-        var walls = classes.Contains("Walls") || classes.Contains("Doors")
-            ? new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Select(w => Fact(doc, w)).ToList()
-            : new List<WallFact>();
-        var others = Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category))
-            .SelectMany(o => new FilteredElementCollector(doc).OfCategory(o.Bic).WhereElementIsNotElementType().Select(e => OtherFact(doc, e, o.Kind)))
-            .ToList();
+        var (walls, others, docTypes, classTypes, levels) = ReadFacts(doc, classes);
         if ((classes.Contains("Walls") ? walls.Count : 0) + others.Count == 0)
         {
             TaskDialog.Show(Title, "Nothing to promote in this model." + (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : ""));
@@ -129,6 +105,17 @@ public sealed class PromoteWallsCommand : IExternalCommand
         });
         plannerClock.Stop();
         var actor = UserSession.Actor;
+        // MA-2b, design §3.4 step 2: the LOD state now — one lod_state row per run, the read-only one too (the gate reads it).
+        // A read that throws (one element's parameter read) is said and posts no row — never the end of Promote (review).
+        LodStateReport lod = null;
+        string lodErr = null;
+        try { lod = LodStateOf(doc, plans, pc, "now"); }
+        catch (Exception ex) { lodErr = ex.Message; }
+        if (lod != null) GovernedNotify.Report("LOD state now", CommandReports.LodState(lod, null, actor), key);
+        var lodLines = lod == null ? new List<string>() : lod.LevelLines();
+        var lodText = lodErr != null ? "LOD state: not read — " + lodErr
+            : lod == null ? $"LOD state: not measured — no lod_matrix@n to measure against ({pc.MxLabel})"
+            : "LOD state now (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line + "\n" + string.Join("\n", lodLines.Take(12)) + (lodLines.Count > 12 ? $"\n… and {lodLines.Count - 12} more" : "");
         var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: classes.Count == 1 && classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
         // Elements, not reasons: one wall can be held for its type and for its top. DD now counts concept and settled
@@ -163,11 +150,12 @@ public sealed class PromoteWallsCommand : IExternalCommand
             MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
                                                 : $"File {bodies.Count} changeset(s)?",
             MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
-                          "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow +
-                          (asks.Count > 0 ? "\n\nDD also asks (listed for a person, not checked by Promote" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) : "") +
+                          "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText +
+                          (asks.Count > 0 ? "\n\nDD also asks (the DD IDS: counted in the LOD state, checked again before commit" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) +
+                                            (pc.Ids == null ? "\nDD IDS: not read — " + pc.IdsWhy : pc.Ids.Unmatched.Count > 0 ? "\nNot in the DD IDS: " + string.Join("; ", pc.Ids.Unmatched) : "") : "") +
                           (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
                           (notes.Count > 0 ? "\n\nTemplate check (the office's template should fix these):\n" + string.Join("\n", notes) : "") +
-                          (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing changes."
+                          (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing in the model changes" + (lod != null ? " (the LOD state above was sent to the ledger)." : ".")
                            : held.Count > 0 ? "\n\nNothing is filed, so the elements sent to a person are listed only here, not on the ledger." : ""),
             CommonButtons = bodies.Count == 0 ? TaskDialogCommonButtons.Ok : TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
         };
@@ -191,7 +179,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             var receipt = new BuildReceipt.Facts { Seconds = plannerClock.Elapsed.TotalSeconds, Candidates = (classes.Contains("Walls") ? walls.Count : 0) + others.Count };
             receipt.Parameters["classes"] = classes.ToArray();
             receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
-            receipt.Parameters["lod_matrix"] = mxSource.Label;
+            receipt.Parameters["lod_matrix"] = pc.MxLabel;
             GovernedNotify.Report("Promote receipt", BuildReceipt.Run("promote", BuildReceipt.AddinSha256, receipt,
                 plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key);
         }
@@ -199,6 +187,70 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TaskDialog.Show(Title, $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)));
         if (first == null) return Result.Failed;
         return ReviewChangesetsCommand.Open(c, doc, cfg, key, first) ? Result.Succeeded : Result.Cancelled;
+    }
+
+    /// <summary>The facts Promote plans from, read on the API thread for the classes that run: the walls (read for doors too: a door's
+    /// location reads its host storey's one-type verdict), the other classes' elements, the document's basic wall types → their
+    /// Function, its types per class (never across classes: BDS_INT_ARC_GYPS_50 mm is both a wall and a ceiling type) → build-up
+    /// mm, and its story levels. MA-2b: Promote's run and the LOD state after a Promote changeset read them the same way.</summary>
+    internal static (List<WallFact> Walls, List<ElementFact> Others, Dictionary<string, string> DocTypes,
+                     Dictionary<string, IReadOnlyDictionary<string, double?>> ClassTypes, List<LevelFact> Levels) ReadFacts(Document doc, IReadOnlyCollection<string> classes)
+    {
+        var docTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // basic wall type → its Function
+        foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))
+            docTypes[t.Name] = t.Function.ToString();
+        var classTypes = new Dictionary<string, IReadOnlyDictionary<string, double?>>(StringComparer.Ordinal);
+        foreach (var (kind, bic) in Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category)))
+        {
+            var d = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>())
+                d[ChangesetExecutor.TypeLabel(t)] = (t as HostObjAttributes)?.GetCompoundStructure() is CompoundStructure cs ? cs.GetWidth() * FtToMm : (double?)null;
+            classTypes[PromoteWallsPlanner.Classes[kind].Category] = d;
+        }
+        var levels = ChangesetExecutor.Stories(doc); // the one projection of the model's levels (MA-1a review amendment C6)
+        var walls = classes.Contains("Walls") || classes.Contains("Doors")
+            ? new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Select(w => Fact(doc, w)).ToList()
+            : new List<WallFact>();
+        var others = Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category))
+            .SelectMany(o => new FilteredElementCollector(doc).OfCategory(o.Bic).WhereElementIsNotElementType().Select(e => OtherFact(doc, e, o.Kind)))
+            .ToList();
+        return (walls, others, docTypes, classTypes, levels);
+    }
+
+    /// <summary>MA-2b (design §3.4 steps 2 and 10): the LOD state of these plans — the DD stage IDS judged, on the API thread and
+    /// read-only, on every element whose DD rules pass and whose class asks for properties (read through GovernedElementExtractor,
+    /// as the IDS reads an element). Null with no lod_matrix: there is nothing to measure against.</summary>
+    internal static LodStateReport LodStateOf(Document doc, IReadOnlyList<StoreyPlan> plans, PromoteContext pc, string when)
+    {
+        if (pc.Mx == null) return null;
+        string org = App.OrgFor(doc);
+        var props = new Dictionary<string, StageIds.Verdict>(StringComparer.Ordinal);
+        if (pc.Ids != null)
+        {
+            // Only the elements whose class has a specification; each judged against its own class's alone (review C2).
+            var ruled = plans.SelectMany(p => p.Lod)
+                .Where(f => f.RulesOk && pc.Ids.For(f.Category) != null)
+                .Select(f => (f.UniqueId, Spec: pc.Ids.For(f.Category), Element: doc.GetElement(f.UniqueId))).Where(x => x.Element != null).ToList();
+            var read = GovernedElementExtractor.ExtractByIds(doc, doc.Title, ruled.Select(x => x.Element.Id), org); // in the ids' order
+            for (int i = 0; i < ruled.Count && i < read.Count; i++)
+                props[ruled[i].UniqueId] = pc.Ids.Judge(read[i].identity.Class, StageIds.ValuesOf(read[i]), org, ruled[i].Spec);
+        }
+        var r = LodState.Read(plans, pc.Mx, pc.Ids, pc.IdsWhy, props, pc.NotRun);
+        r.When = when;
+        r.Matrix = pc.MxLabel;
+        r.MatrixSha = pc.MxSha; // the gate and the journey read the row only while this matrix is in force (review C3)
+        r.Guideline = pc.Standards.GuidelineSource.Label;
+        r.Ids = pc.Ids != null ? "DD IDS made from " + pc.Ids.Matrix : "DD IDS not read — " + pc.IdsWhy;
+        return r;
+    }
+
+    /// <summary>MA-2b, design §3.4 step 10: the LOD state after a Promote changeset was applied — the facts read again and planned
+    /// again, as Promote reads them. API thread (the review's result handler runs inside the placement event).</summary>
+    internal static LodStateReport LodStateAfter(Document doc, PromoteContext pc)
+    {
+        var (walls, others, docTypes, classTypes, levels) = ReadFacts(doc, pc.Classes);
+        var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline);
+        return LodStateOf(doc, plans, pc, "after");
     }
 
     /// <summary>One wall's facts, read on the API thread. A stacked-wall member reads as not basic: Revit types it

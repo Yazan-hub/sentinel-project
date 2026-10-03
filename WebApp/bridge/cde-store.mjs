@@ -1051,7 +1051,32 @@ const REVIT_REPORT_TYPES = ["naming", "family_heal",
   // per click, per save — with counts and the actor; never one row per element.
   "datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor",
   // MA-1a item 8: a reader's or planner's run receipt (buildRunRow words its action build:run and marks it claimed).
-  "build"];
+  "build",
+  // MA-2b: Promote's LOD state of the model, now or after an applied changeset (lodStateRow marks it claimed).
+  "lod_state"];
+
+/** MA-2b: a lod_state row is Promote's count of the model's LOD state — read in Revit, not measured by the bridge — so whoever
+ *  posts it, the bridge marks it claimed (the build:run rule). The journey line and the design gate's LOD check read the newest
+ *  one, so the count must hold to itself (review): whole counts that add up to the total, and the share those counts give —
+ *  floor(at·100/total), null when nothing was counted or a class the matrix has a DD row for was not run (LodStateReport.Share).
+ *  Anything else is a 400. */
+function lodStateRow(b) {
+  const v = b.new_value;
+  const no = (m) => Object.assign(new Error(`a lod_state row's ${m} — nothing was saved`), { status: 400 });
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw no("new_value is the count, an object");
+  if (!["total", "at", "below", "blocked", "not_measured"].every((k) => Number.isInteger(v[k]) && v[k] >= 0))
+    throw no("total, at, below, blocked and not_measured are whole numbers ≥ 0");
+  const sum = v.at + v.below + v.blocked + v.not_measured;
+  if (sum !== v.total) throw no(`at, below, blocked and not_measured add up to its total (${v.total}), not ${sum}`);
+  const notRun = v.not_run ?? [];
+  if (!Array.isArray(notRun) || !notRun.every((n) => typeof n === "string")) throw no("not_run is a list of reasons");
+  const share = v.total === 0 || notRun.some((n) => !n.endsWith(": no DD row in the LOD matrix")) ? null : Math.floor((v.at * 100) / v.total);
+  if ((v.share ?? null) !== share)
+    throw no(`share is ${share ?? "null (nothing counted, or a class the matrix asks for not run)"} for these counts, not ${v.share}`);
+  if (!["now", "after"].includes(v.when)) throw no('when is "now" or "after"');
+  if (!Array.isArray(v.changesets ?? []) || !(v.changesets ?? []).every(isUuid)) throw no("changesets is a list of changeset ids");
+  return { ...b, new_value: { ...v, claimed: true } };
+}
 
 /** MA-1a item 8: a build row is the add-in's own receipt of a reader or planner run. Whoever posts it — a signed-in
  *  contributor or the machine credential — the bridge words the action (build:run) and marks the receipt claimed: no
@@ -1088,6 +1113,7 @@ export async function recordNote(key, b = {}) {
   // MA-1a item 8: a receipt is worded and marked by the bridge for every caller, the machine credential included; and
   // build: actions belong to receipts, so no other row can pass for one.
   if (type === "build") b = buildRunRow(b);
+  else if (type === "lod_state") b = lodStateRow(b);
   else if (String(b.action ?? "").trim().toLowerCase().startsWith("build:"))
     throw Object.assign(new Error('build: rows are receipts (entity_type "build") — nothing was saved'), { status: 400 });
   if (role === "service") return recordAudit(key, b);

@@ -6,7 +6,7 @@
 
 export type Metric =
   | "health" | "compliance" | "blockViolations" | "hardClashes"
-  | "openIssues" | "openRfis" | "hasStandardsPack" | "cobieComplete";
+  | "openIssues" | "openRfis" | "hasStandardsPack" | "cobieComplete" | "lodState";
 
 export interface GateCheck {
   metric: Metric;
@@ -28,6 +28,9 @@ export interface GateMetrics {
   /** null: not read yet, or the read failed — not measured, never "none". */
   hasStandardsPack: boolean | null;
   cobieComplete: number | null; // 7D handover readiness % (from the project snapshot)
+  /** MA-2b: the share (%) of counted elements at the DD row of the lod_matrix — the newest lod_state ledger row's (Promote's
+   *  count in Revit); null until one exists ("LOD state: not measured", design §3.2). */
+  lodState: number | null;
 }
 
 export interface EvaluatedCheck { label: string; ok: boolean; na: boolean; detail: string; }
@@ -42,6 +45,9 @@ export const GATE_DEFS: Record<string, GateCheck[]> = {
     { metric: "health", op: ">=", value: 80, label: "Model health ≥ 80%" },
     { metric: "blockViolations", op: "==", value: 0, label: "No 'block' violations" },
     { metric: "compliance", op: ">=", value: 70, label: "Standards compliance ≥ 70%" },
+    // MA-2b (design §3.2, D18, blueprint P1-10): the design → coord gate reads the share at the DD row's LOD. 90 % is the
+    // founder's to change (decision F5): elements Promote cannot act on (groups, structure) stay in the count.
+    { metric: "lodState", op: ">=", value: 90, label: "LOD state: elements at the DD row ≥ 90%" },
   ],
   coord: [
     { metric: "hardClashes", op: "==", value: 0, label: "No open hard clashes" },

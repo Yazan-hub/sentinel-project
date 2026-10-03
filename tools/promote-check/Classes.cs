@@ -343,7 +343,8 @@ static partial class Check
         Ok(!partial.Contains("Floors") && notRun.Contains("Floors: the matrix's DD is \"level=story_level; top=next_story_level; type=guideline_rule\"; Promote v1 checks exactly \"level=story_level; type=guideline_rule\""),
            "a Floors row asking for what v1 does not check is not run, naming both (GN-4)");
         Ok(!partial.Contains("Roofs") && notRun.Contains("Roofs: no DD row in the LOD matrix") && partial.Contains("Doors"), "no Roofs row → Roofs not run; the rest do");
-        Ok(LodMatrix.FromBody("{\"rows\":{}}", out var bad) == null && bad == "rows must be an array" && LodMatrix.FromBody("", out var empty) == null && empty != null,
+        Ok(LodMatrix.FromBody("{\"standard_key\":\"X\",\"semver\":\"1.0.0\",\"rows\":{}}", out var bad) == null && bad == "rows must be a non-empty array"
+           && LodMatrix.FromBody("", out var empty) == null && empty != null,
            "a body it cannot read is an error, never a partial matrix");
     }
 

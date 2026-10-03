@@ -250,14 +250,14 @@ describe("classifyGate", () => {
 });
 
 describe("gate.stage — the bridge's own measurement on the ledger's stage (phase 5c), never a snapshot, never a ?? 0", () => {
-  it("tender with a ruleset artefact is met; design is not checkable, naming the three metrics with no server source", async () => {
+  it("tender with a ruleset artefact is met; design is not checkable, naming the three metrics with no server source and the LOD state not read", async () => {
     gateState.stage = "tender";
     expect(await getCheck("gate.stage").run("aster-tower")).toMatchObject({ status: "met", summary: "The “tender” stage gate passes." });
     gateState.stage = "design";
     const r = await getCheck("gate.stage").run("aster-tower");
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toBe("3 of 3 gate metrics have no server source (Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70%) — the gate cannot be confirmed.");
-    expect(r.evidence.map((e) => e.detail)).toEqual(Array(3).fill("not measured — no server source: the browser scan is not persisted"));
+    expect(r.reason).toBe("4 of 4 gate metrics have no server source (Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70%, LOD state: elements at the DD row ≥ 90%) — the gate cannot be confirmed.");
+    expect(r.evidence.map((e) => e.detail)).toEqual([...Array(3).fill("not measured — no server source: the browser scan is not persisted"), "not measured — the newest lod_state ledger row not read"]);
   });
   it("a counted failure is a violation naming the check; an unmeasured sibling stays a caveat", async () => {
     gateState.stage = "coord";
