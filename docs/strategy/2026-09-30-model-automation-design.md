@@ -342,9 +342,9 @@ The founder asked for the model to be "tied to office's rule set or standards, r
    - A ghost that breaks a BLOCK rule is never pre-ticked, unless the `set_parameter` rows that fix it are in the same batch.
    - The location line comes from the matrix.
    - The overlay shows the faces that will move.
-8. **Place.** All changesets of one storey run in **one ExternalEvent call, inside `SentinelUndo.Run`**. This gives one Undo entry per storey. Each changeset still holds at most 200 elements and gets its own ledger row. If any changeset of the storey fails, the whole storey rolls back. Before commit, the add-in runs the BLOCK rules on the new state, and the person may go back. Revit warnings are counted and shown, never erased ([BP] P1-3, GHB-5).
+8. **Place.** All changesets of one storey run in **one ExternalEvent call, inside `SentinelUndo.Run`**. This gives one Undo entry per storey. Each changeset still holds at most 200 elements and gets its own ledger row. If any changeset of the storey fails, the whole storey rolls back. Before commit, the add-in runs the BLOCK rules on the new state, and the person may go back. Revit warnings are counted and shown, never erased ([BP] P1-3, GHB-5). BUILT on `feature/ma2d-storey-undo`, drill MA2d pending (spec amendment S1: the storey runs in `ChangesetPlacementEvent.RunChecked`'s own TransactionGroup, which follows `SentinelUndo.Run`'s contract — kept only when Assimilate commits, rolled back on every other path).
 9. **Re-read.** Type, level, host and properties are compared with the plan. A mismatch becomes a row.
-10. **LOD state after**, plus a ledger row. An Undo of the storey posts `changeset_reverted` rows (AI-3). BUILT (MA-2b) for each applied Promote changeset; an Undo after it makes that row "not measured" until Promote runs again.
+10. **LOD state after**, plus a ledger row. An Undo of the storey posts `changeset_reverted` rows (AI-3). BUILT (MA-2b) for each applied Promote storey (MA-2d, spec amendment S5: one row naming every changeset id the bridge took as applied); an Undo after it makes that row "not measured" until Promote runs again.
 
 Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64), two ledger rows, and one Undo entry.
 
@@ -851,7 +851,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 
 **Volume and budgets**
 - At most 200 elements per changeset row, so a 5,000-element promotion writes about 25 changeset rows and 25 result posts. The changeset store has no write budget, so this is fine.
-- The XC-5 command reports go through the Revit report route (20 per user per minute, 256 KB per row). A Promote run posts **one** summary report, not one per changeset. If a report grows past 256 KB, it is split per storey.
+- The XC-5 command reports go through the Revit report route (20 per user per minute, 256 KB per row). A Promote run posts **one** summary report, not one per changeset. If a report grows past 256 KB, it is split per storey. (MA-2d, spec amendment S5: read as one `lod_state` row per storey applied, naming its changeset ids; the per-changeset `changeset_applied` rows are the ledger's record, not reports.)
 
 ### 6.7 New artefact kinds
 - **Today there are 11:** ids, ruleset, naming, contract, guideline, layers, type_catalog, publish, roi, review, carbon_factors.
