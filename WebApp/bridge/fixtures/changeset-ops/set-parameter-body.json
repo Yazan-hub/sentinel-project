@@ -1,0 +1,105 @@
+{
+  "name": "Promote (DD) · Level 1",
+  "source": "promote",
+  "actor": "yazan",
+  "elements": [
+    {
+      "op": "retype",
+      "kind": "wall",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000190",
+        "type_before": "Generic - 200mm"
+      },
+      "place": {
+        "TypeName": "BDS_EXT_ARC_CMU_200 mm"
+      },
+      "reason": "DD walls v0: Function Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm",
+      "validate": {
+        "identity": {
+          "Class": "IfcWall",
+          "Name": "W 312312"
+        }
+      }
+    },
+    {
+      "op": "retype",
+      "kind": "door",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000194",
+        "type_before": "M_Single-Flush : MA1 1000 x 2100mm"
+      },
+      "place": {
+        "TypeName": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+        "FamilyName": "BDS_INT_1 PNL"
+      },
+      "reason": "DD doors: HostFunction Interior, Size W1000 x H2100 mm → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm; sized by its type name (DR-1): after the swap the door's Width x Height read the new family's own",
+      "validate": {
+        "identity": {
+          "Class": "IfcDoor",
+          "Name": "Door 404"
+        }
+      }
+    },
+    {
+      "op": "set_parameter",
+      "kind": "wall",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a01"
+      },
+      "place": {
+        "TypeName": "BDS_EXT_ARC_CMU_200 mm"
+      },
+      "parameter": "Pset_WallCommon.FireRating",
+      "revit_parameter": "Fire Rating",
+      "from": "",
+      "to": "60 min",
+      "value_source": {
+        "kind": "catalogue"
+      },
+      "reason": "DD walls: Pset_WallCommon.FireRating \"60 min\" from type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating — a type edit: every element on BDS_EXT_ARC_CMU_200 mm reads it (0 in the model now, 1 more that this changeset retypes onto it)",
+      "validate": {
+        "identity": {
+          "Class": "IfcWall",
+          "Name": "type BDS_EXT_ARC_CMU_200 mm"
+        }
+      }
+    },
+    {
+      "op": "set_parameter",
+      "kind": "door",
+      "target": {
+        "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a03"
+      },
+      "place": {
+        "TypeName": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm",
+        "FamilyName": "BDS_INT_1 PNL"
+      },
+      "parameter": "Pset_DoorCommon.FireRating",
+      "revit_parameter": "Fire Rating",
+      "from": "",
+      "to": "FD30",
+      "value_source": {
+        "kind": "clause"
+      },
+      "reason": "DD doors: Pset_DoorCommon.FireRating \"FD30\" from ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · \"All doors shall be FD30.\" — a type edit: every element on BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm reads it (0 in the model now, 1 more that this changeset retypes onto it)",
+      "validate": {
+        "identity": {
+          "Class": "IfcDoor",
+          "Name": "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm"
+        }
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a02",
+      "name": "type BDS_INT_ARC_GYPS_100 mm · Pset_WallCommon.FireRating",
+      "reason": "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and no clause of ids@1 · project · 0a1b2c3d4e5f… pins one; a person fills it in Revit (Type Properties) — 1 element(s) on it"
+    },
+    {
+      "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a04",
+      "name": "type BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm · Pset_DoorCommon.FireRating",
+      "reason": "the sources disagree on Pset_DoorCommon.FireRating for BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm: \"FD60\" (type_catalog@1 · office · fedcba987654… · BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm · Fire Rating); \"FD30\" (ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · \"All doors shall…"
+    }
+  ]
+}

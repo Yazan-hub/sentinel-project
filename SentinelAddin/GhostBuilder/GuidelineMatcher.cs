@@ -121,6 +121,10 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-2a (BOS-5): the row's BuiltInCategory as its enum name ("OST_Walls"), written by Build Office System since
         /// MA-2a; null on a type_catalog@1 harvested before it. A row matches a category by name OR by this (SameCategory).</summary>
         [JsonPropertyName("bic")]       public string Bic { get; set; }
+        /// <summary>MA-2c: the type's harvested parameters by display name ("Fire Rating": "1 HR") — what set_parameter may cite
+        /// (CatalogValue). Kept as JSON: the bridge does not check their shape, so a row whose params are not an object still
+        /// reads, and gives no value.</summary>
+        [JsonPropertyName("params")]    public JsonElement? Params { get; set; }
     }
 
     /// <summary>The template a catalogue was harvested from (Build Office System's export).</summary>
@@ -342,6 +346,9 @@ namespace Sentinel.GhostBuilder
         // ---- resolution --------------------------------------------------------------------------
 
         private static string Norm(string s) => (s ?? string.Empty).Trim().ToLowerInvariant();
+        /// <summary>Review C23 (exactly that type): ASCII blanks off and ASCII letters folded only — the bridge's makeCiter norm. .NET and
+        /// JS trim (U+0085, U+FEFF) and fold (the Kelvin sign, ẞ) differently, and a row of another name is not that type's.</summary>
+        private static string Exact(string s) => new string((s ?? string.Empty).Trim(' ', '\t', '\r', '\n').Select(ch => ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch).ToArray());
         // Every whitespace, as guideline.ts's `\s+` does — a poster's NBSP in a fact name typed on the bridge and not here (review C23).
         private static string Squash(string s) => new string(Norm(s).Where(ch => !char.IsWhiteSpace(ch)).ToArray());
 
@@ -541,6 +548,18 @@ namespace Sentinel.GhostBuilder
         /// name only; window type names repeat across families.)</summary>
         public bool CatalogHas(string category, string family, string type) =>
             _catalog.Any(c => SameCategory(c, category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
+
+        /// <summary>MA-2c: the value set_parameter may write from the catalogue — the harvested parameter <paramref name="param"/> of
+        /// exactly one row of the category with this type name (and this family, when given), filled; null otherwise (no row, two
+        /// rows, no such parameter, empty). The bridge's makeCiter reads the same row the same way.</summary>
+        public string CatalogValue(string category, string family, string type, string param)
+        {
+            var rows = _catalog.Where(c => SameCategory(c, category) && Exact(c.Type) == Exact(type) && (family == null || Exact(c.Family) == Exact(family))).ToList();
+            if (rows.Count != 1 || !(rows[0].Params is JsonElement ps) || ps.ValueKind != JsonValueKind.Object
+                || !ps.TryGetProperty(param, out var v) || v.ValueKind != JsonValueKind.String) return null;
+            var s = v.GetString().Trim(' ', '\t', '\r', '\n'); // review C23: ASCII blanks only, as the bridge (.Trim() took U+0085, kept U+FEFF)
+            return s.Length == 0 ? null : s;
+        }
 
         /// <summary>"Family : Type" of every catalogue type of the category whose name carries exactly this W x H
         /// (TypeNameParse.TrySection) — what a door or window gap names. With <paramref name="faults"/>, a type whose harvested

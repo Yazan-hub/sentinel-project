@@ -16,7 +16,21 @@ export interface HeldItem {
   source: HoldSource; actor: string | null; at: string; ledger: LedgerRef; refusals: number; naming_note?: string;
 }
 export interface ClearedItem { container_name: string; by: string; version_id: string; at: string; label?: string; }
-export interface Holding { items: HeldItem[]; cleared_recent: ClearedItem[]; }
+/** MA-2c (design §6.4): one type-gap group — elements Promote held because the office has no type for them, from its type_gap
+ *  rows: the type the rule wants (else the size), how many, from which facts, the catalogue's nearest types. Closed by a lead's
+ *  dismissal (reason) or by the catalogue in force holding the type (type, catalog). */
+export interface TypeGap {
+  id: string; category: string; want: string | null; size: string | null; key: string | null; elements: number;
+  labels: string[]; nearest: string[]; at: string; actor: string | null; ledger: LedgerRef; runs: number;
+  /** Review amendment C10: the newest run's source and claim — counted in Revit, not by the bridge. */
+  source: string | null; claimed: boolean;
+  /** Review amendment C5: open again after a dismissal — a run reported more than it saw. */
+  reopened?: { since: string; more: number };
+  closed_by?: "dismissed" | "catalogue"; reason?: string | null; closed_at?: string; type?: string; catalog?: string;
+}
+export interface TypeGaps { open: TypeGap[]; closed: TypeGap[]; catalog: string | null; }
+/** type_gaps is null from a bridge before MA-2c (it lists none). */
+export interface Holding { items: HeldItem[]; cleared_recent: ClearedItem[]; type_gaps: TypeGaps | null; }
 
 /** The fields of the intake reply the panel reads (bridge/intake-logic.mjs runIntake, plus 6a's `hold`). */
 export interface IntakeReply {
@@ -99,7 +113,36 @@ export async function readHolding(baseUrl: string, key: string): Promise<Holding
     const why = !r.ok || !j ? j?.message || `HTTP ${r.status}` : "the bridge answered without a list";
     throw new Error(why.startsWith("not read — ") ? why : `not read — ${why}`);
   }
-  return { items: j.items, cleared_recent: Array.isArray(j.cleared_recent) ? j.cleared_recent : [] };
+  const g = (j as { type_gaps?: TypeGaps | null }).type_gaps;
+  return {
+    items: j.items, cleared_recent: Array.isArray(j.cleared_recent) ? j.cleared_recent : [],
+    type_gaps: g && Array.isArray(g.open) ? { open: g.open, closed: Array.isArray(g.closed) ? g.closed : [], catalog: g.catalog ?? null } : null,
+  };
+}
+
+/** MA-2c: a type-gap group in words — the add-in's TypeGaps.Line: "Walls: "BDS_EXT_ARC_CMU_125 mm" is not in the catalogue — 2
+ *  element(s) (Function Exterior); nearest: BDS_EXT_ARC_CMU_100 mm, …", or "Doors: no type named at 915 x 2134 mm — 1 element(s)". */
+export function typeGapLine(g: TypeGap): string {
+  return `${g.category}: ` + (g.want ? `"${g.want}" is not in the catalogue` : `no type named at ${g.size}`) + ` — ${g.elements} element(s)` +
+    (g.key ? ` (${g.key})` : "") + (g.nearest?.length ? `; nearest: ${g.nearest.slice(0, 3).join(", ")}` : "");
+}
+
+/** MA-2c: how a closed group was closed: "dismissed — <reason>" or "closed — <catalogue> has <type>". */
+export function typeGapClosedLine(g: TypeGap): string {
+  return g.closed_by === "catalogue" ? `closed — ${g.catalog} has ${g.type}` : `dismissed — ${g.reason ?? "no reason recorded"}`;
+}
+
+/** MA-2c: POST /cde/:key/holding/type-gaps/:group/dismiss {reason} → the hold:type_gap_dismissed row {id, hash}. A blank reason is
+ *  never sent; a refusal (a role below lead is a 403, a group no longer open a 409) throws the bridge's words. */
+export async function dismissTypeGap(baseUrl: string, key: string, group: string, reason: string): Promise<LedgerRef> {
+  const why = reason.trim();
+  if (!why) throw new Error("a dismissal needs a reason — the ledger records it");
+  const r = await bfetch(at(baseUrl, key, `holding/type-gaps/${encodeURIComponent(group)}/dismiss`), {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: why }),
+  });
+  const j = (await r.json().catch(() => null)) as (LedgerRef & { message?: string }) | null;
+  if (!r.ok || !j) throw new Error(j?.message || `HTTP ${r.status}`);
+  return { id: j.id ?? null, hash: j.hash ?? null };
 }
 
 /** POST /cde/:key/holding/dismiss {container_name, reason} → the hold:dismissed row {id, hash}. A blank reason is

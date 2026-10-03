@@ -246,10 +246,13 @@ namespace Sentinel.GhostBuilder
                 if (ProvenanceStamp.SourceOf(e.Stamp) == "promote") c.Stamped++;
                 byName.TryGetValue(storey, out var level);
                 int ddWas = c.DdNow, officeWas = c.OfficeTyped;
-                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, out var g, out var blocked);
+                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, out var g, out var blocked, out var gap);
                 // MA-2b: the element's DD verdict for the LOD state — the same counters "DD now" reads; an office-typed one is not counted.
                 if (c.OfficeTyped == officeWas) p.Lod.Add(new LodFact { UniqueId = e.UniqueId, Category = cls.Category, RulesOk = c.DdNow > ddWas, Blocked = blocked });
-                if (reason != null) p.Held.Add(new PromoteHeld { UniqueId = e.UniqueId, Label = e.Label, Reason = reason });
+                // MA-2c: an element that stays on its DD type (no reason, no ghost, not office-typed) — its type's properties are read.
+                if (reason == null && g == null && c.OfficeTyped == officeWas)
+                    p.Settled.Add((cls.Category, e.Kind == "door" || e.Kind == "window" ? e.Family : null, e.TypeName));
+                if (reason != null) p.Held.Add(new PromoteHeld { UniqueId = e.UniqueId, Label = e.Label, Reason = reason, Gap = gap });
                 else if (g != null) p.Ghosts.Add(g); // after the walls' ghosts; Bodies puts every retype before the attaches
             }
 
@@ -271,12 +274,13 @@ namespace Sentinel.GhostBuilder
         }
 
         // One element through the plan's checks, in order: the reason a person decides, or null — with a ghost, or with none
-        // (settled, counted in DD now; office-typed, taken out of the denominator).
+        // (settled, counted in DD now; office-typed, taken out of the denominator). MA-2c: a type gap's facts in gap.
         private static string Plan1(ElementFact e, string cat, string word, LevelFact level, ISet<string> oneType, string office,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, ClassCount c, out PromoteGhost g,
-            out bool blocked)
+            out bool blocked, out TypeGap gap)
         {
             g = null;
+            gap = null;
             bool family = e.Kind == "door" || e.Kind == "window";
             // MA-2b: these holds are BLOCKED in the LOD state — Promote cannot act on them.
             blocked = true;
@@ -298,14 +302,15 @@ namespace Sentinel.GhostBuilder
                 return null;
             }
             if (e.Kind == "floor" && e.Structural) { blocked = true; return "structural floor — Promote v1 does not retype structure; a person decides"; }
-            return family ? Swap(e, cat, oneType, office, docTypes, m, out g) : Retype(e, cat, word, docTypes, m, out g);
+            return family ? Swap(e, cat, oneType, office, docTypes, m, out g, out gap) : Retype(e, cat, word, docTypes, m, out g, out gap);
         }
 
         // Floors, roofs, ceilings: the DD rule's type at this element's thickness, loaded here with that same build-up.
         private static string Retype(ElementFact e, string cat, string word,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g)
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g, out TypeGap gap)
         {
             g = null;
+            gap = null;
             var t = e.ThicknessMm;
             if (t.HasValue && !Whole(t.Value)) return $"thickness {Mm(t.Value, "0.###")} mm is not a whole millimetre — exact match only (D16)";
             if (!m.HasCatalog) return NoCatalog(m);
@@ -316,7 +321,11 @@ namespace Sentinel.GhostBuilder
             var res = m.Resolve(new GuidelineInput { Category = cat, Params = ps, ThicknessMm = t });
             if (res.Source != "rule") return $"no DD rule for {what} in {m.Standard}";
             if (string.IsNullOrWhiteSpace(res.Type)) return "no build-up thickness to fill the DD rule's type — a person decides";
-            if (res.Confidence != 1) return m.Gap($"{e.Label} ({e.TypeName}, {what}{size})", res.Why);
+            if (res.Confidence != 1)
+            {
+                gap = new TypeGap { Category = cat, Want = res.Type, Size = t.HasValue ? Mm(t.Value, "0") + " mm" : null, Key = what, Nearest = res.Available ?? new List<string>() };
+                return m.Gap($"{e.Label} ({e.TypeName}, {what}{size})", res.Why);
+            }
             IReadOnlyDictionary<string, double?> types = null;
             if (docTypes == null || !docTypes.TryGetValue(cat, out types) || types == null || !types.TryGetValue(res.Type, out var build))
                 return $"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types";
@@ -334,9 +343,10 @@ namespace Sentinel.GhostBuilder
 
         // Doors, windows: the office family type of exactly this size (a door: and this location), loaded here; the host is kept.
         private static string Swap(ElementFact e, string cat, ISet<string> oneType, string office,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g)
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, out PromoteGhost g, out TypeGap gap)
         {
             g = null;
+            gap = null;
             if (e.HostTypeName == null)
                 return e.HostCategory == null ? "not hosted by a wall — rehosting is MA-5"
                     : $"its host is not a wall ({e.HostCategory}) — Promote v1 swaps wall-hosted {cat.ToLowerInvariant()} only; a person decides";
@@ -386,10 +396,15 @@ namespace Sentinel.GhostBuilder
                            (have.Count > 1 ? "; which one is office policy" : ", but no DD rule names it (office policy)");
                 if (faults?.Count > 0)
                     return $"the catalogue's {string.Join(", ", faults)} (named at {size}) read another Width x Height in the template — a template fault (WN-3); a person decides";
+                gap = new TypeGap { Category = cat, Size = size, Key = what };
                 return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", $"no {cat} type named at {size} in the catalogue");
             }
             if (string.IsNullOrWhiteSpace(res.Type)) return "the DD rule names no type — a person decides";
-            if (res.Confidence != 1) return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", res.Why);
+            if (res.Confidence != 1)
+            {
+                gap = new TypeGap { Category = cat, Want = res.Type, Size = $"{Mm(w, "0")} x {Mm(h, "0")} mm", Key = what, Nearest = res.Available ?? new List<string>() };
+                return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", res.Why);
+            }
             string target = res.Family + " : " + res.Type;
             if (!(TypeNameParse.TrySection(res.Type, out var rw, out var rh) && Same(rw, w) && Same(rh, h)))
                 return $"the DD rule gives {target} for {ps["Size"]} — the rule and the type name disagree; a person decides";

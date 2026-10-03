@@ -7,16 +7,18 @@
 // build (source "dwg", MA-1a step 2) is ticked in Ghost's own review, layer by layer, before it is filed,
 // and the add-in runs it as filed.
 import { randomUUID } from "node:crypto";
-import { checkFacts } from "./changesets-typing.mjs";
+import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 
 // MA-1 placement slice: roof, ceiling, door, window. MA-1a step 2: column, furniture — Ghost Builder's unhosted point families.
 export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture"];
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
- *  an existing wall. An element without op is a create. */
-export const OPS = ["create", "retype", "attach"];
+ *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
+ *  UniqueId, from a cited source the bridge checks (value_source) — [BP] P2-7's item, built once. */
+export const OPS = ["create", "retype", "attach", "set_parameter"];
 /** The kinds each op takes. */
-export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"] };
+export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"],
+  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"] };
 export const MAX_CHANGESET_ELEMENTS = 200;
 export const MAX_CHANGESET_EXCEPTIONS = 1000;
 export const MAX_BOUNDARY_POINTS = 256;
@@ -43,7 +45,10 @@ export const ADDIN_SOURCES = ["dwg", "promote"];
 const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent", "contract"]; // what a posted body is read for
 // MA-2a: `facts` — the poster's thickness and parameters (Function, Location, Material, …), kept as a record and, on an element
 // without place.TypeName, what the bridge types it from (changesets-typing).
-const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence", "facts"]; // what an element is rebuilt from
+// MA-2c: a set_parameter's parameter, the Revit parameter's name, the value the plan read (from), the value to write (to) and
+// where it comes from (value_source — the bridge checks it and writes its own record).
+const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence", "facts",
+  "parameter", "revit_parameter", "from", "to", "value_source"]; // what an element is rebuilt from
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
@@ -184,9 +189,43 @@ function sourceOf(s, note) {
  *  drawing-only ghost never are, and no evidence-backed ghost exists before MA-4); a retype or an attach is pre-ticked
  *  only as a single-answer Promote operation — a retype only with the type the plan saw — and only when a signed-in
  *  member filed it (review amendment C2): the source is the caller's own text, so the machine credential, which the
- *  bridge cannot tell from any other holder of the token, earns no pre-tick by writing "promote". */
+ *  bridge cannot tell from any other holder of the token, earns no pre-tick by writing "promote". MA-2c: a set_parameter is
+ *  never pre-ticked — a type edit reaches every element on the type (founder decision F1). */
 const pretickOf = (op, source, target, member) =>
-  member === true && op !== "create" && source === "promote" && (op === "attach" || target?.type_before != null);
+  member === true && source === "promote" && (op === "attach" || (op === "retype" && target?.type_before != null));
+
+const PSET_KEY = /^Pset_[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/;
+const VALUE_SOURCES = ["catalogue", "clause"];
+
+/** MA-2c (set_parameter, [BP] P2-7's item, built once): the type it writes (place.TypeName, and FamilyName for a door or
+ *  window), the parameter ("Pset_X.Prop"), the Revit parameter's name, the value the plan read (`from`, "" when empty — the
+ *  executor's stale guard compares it), the value to write and where it comes from. `cite` (changesets-typing.makeCiter) checks
+ *  the source against the installed artefact and returns the bridge's own record; a source it cannot check is a 400 — nothing is
+ *  written unchecked, and a person's own value is typed in Revit, not filed here. */
+function checkWrite(el, place, at, cite) {
+  if (!text(place.TypeName, 256)) throw err(400, `${at}: set_parameter needs place.TypeName — the type whose parameter it writes`);
+  if ((el.kind === "door" || el.kind === "window") && !text(place.FamilyName, 256))
+    throw err(400, `${at}: a ${el.kind} set_parameter needs place.FamilyName — a type name alone is not one type`);
+  if (typeof el.parameter !== "string" || !PSET_KEY.test(el.parameter)) throw err(400, `${at}: set_parameter needs parameter, a "Pset_Name.Property" key`);
+  // Review amendment C1: the kind's own property set only — a wall's catalogue "Fire Rating" is no door's.
+  if (!el.parameter.startsWith(`${KIND_PSET[el.kind]}.`)) throw err(400, `${at}: a ${el.kind} set_parameter writes ${KIND_PSET[el.kind]}, not ${el.parameter}`);
+  if (el.revit_parameter != null && (!text(el.revit_parameter, 256) || CONTROL_CHAR.test(el.revit_parameter)))
+    throw err(400, `${at}: revit_parameter must be one line of at most 256 characters`);
+  if (typeof el.from !== "string" || el.from.length > 500 || CONTROL_CHAR.test(el.from))
+    throw err(400, `${at}: set_parameter needs from — the value the plan read, "" when empty (the stale guard compares it)`);
+  // Review amendment C1: a set_parameter fills an EMPTY value only, whatever its source holds — the bridge's rule, not the planner's
+  // alone (an agent's post through the MCP tool meets it too). The executor refuses a type that reads filled now, too.
+  if (el.from.trim() !== "") throw err(400, `${at}: set_parameter fills an empty value only — a filled one is a person's (P2-7 edits it)`);
+  if (!text(el.to, 500) || CONTROL_CHAR.test(el.to)) throw err(400, `${at}: set_parameter needs to — one line of at most 500 characters`);
+  const vs = el.value_source;
+  if (!vs || typeof vs !== "object" || Array.isArray(vs) || !VALUE_SOURCES.includes(vs.kind))
+    throw err(400, `${at}: set_parameter needs value_source {kind: ${VALUE_SOURCES.join(" | ")}} — a value is written from a cited source, never a guess; a person types their own in Revit`);
+  if (!cite) throw err(400, `${at}: the bridge read no standards to check this value_source — nothing is written unchecked`);
+  return {
+    parameter: el.parameter, revit_parameter: el.revit_parameter == null ? null : el.revit_parameter.trim(), from: el.from, to: el.to.replace(/^ +| +$/g, ""), // review C23: what makeCiter checked (ASCII trim), not JS trim()
+    value_source: cite(el.kind, place, el.parameter, el.to, vs, at),
+  };
+}
 
 /** Validate + normalise a proposed changeset. Assigns proposal_guids (a posted one is ignored); a missing
  *  validate.identity.GlobalId is synced to the proposal_guid so adjudication failures (tagged by
@@ -198,8 +237,10 @@ const pretickOf = (op, source, target, member) =>
  *  MA-2a (full contract 2): with `type` — the typer changesets-typing.makeTyper builds from the project's guideline and
  *  catalogue — a create or retype without place.TypeName is typed from its facts (TypeName, and FamilyName for a point kind,
  *  filled; `typing` says the bridge did it and from what), or refused in the typer's words; without one it is the 400 it was.
- *  Every element carries `typing` ({typed_by: "caller"} for one that named its type); a bridge-typed one is never pre-ticked. */
-export function validateChangeset(body, { member = false, type = null } = {}) {
+ *  Every element carries `typing` ({typed_by: "caller"} for one that named its type); a bridge-typed one is never pre-ticked.
+ *  MA-2c: with `cite` — changesets-typing.makeCiter over the project's type catalogue and ids@n — a set_parameter's value_source is
+ *  checked and replaced by the bridge's own record; without one a set_parameter is a 400. */
+export function validateChangeset(body, { member = false, type = null, cite = null } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "a changeset must be an object");
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) throw err(400, "name is required — a changeset is reviewed by humans and needs a human-readable name");
@@ -246,6 +287,7 @@ export function validateChangeset(body, { member = false, type = null } = {}) {
     nested(el.target, TARGET_KEPT, `${at}.target`);
     nested(el.validate, VALIDATE_KEPT, `${at}.validate`);
     nested(el.validate?.identity, null, `${at}.validate.identity`);
+    nested(el.value_source, ["kind"], `${at}.value_source`); // MA-2c: the bridge writes the rest of the record itself
     const op = el.op ?? "create";
     if (!OPS.includes(op)) throw err(400, `${at}: op "${op}" is not supported — allowed: ${OPS.join(", ")}`);
     if (!OP_KINDS[op].includes(el.kind)) throw err(400, `${at}: kind "${el.kind}" is not supported${op === "create" ? "" : ` for ${op}`} — allowed: ${OP_KINDS[op].join(", ")}`);
@@ -256,7 +298,12 @@ export function validateChangeset(body, { member = false, type = null } = {}) {
     const place = Object.fromEntries(Object.entries(isBlock(el.place) ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k)));
     // MA-2a: the poster's facts, checked and kept name for name; an attach types nothing, so it takes none.
     const facts = checkFacts(el.facts, at);
-    if (facts && op === "attach") throw err(400, `${at}: attach takes no facts — nothing is typed`);
+    if (facts && (op === "attach" || op === "set_parameter")) throw err(400, `${at}: ${op} takes no facts — nothing is typed`);
+    // MA-2c: a set_parameter's own fields ride on no other op — each would be dropped silently.
+    if (op !== "set_parameter")
+      for (const f of ["parameter", "revit_parameter", "from", "to", "value_source"])
+        if (el[f] !== undefined) throw err(400, `${at}: ${op} takes no ${f} — only a set_parameter writes a value`);
+    let written = null; // a set_parameter's checked fields
     let typed = null; // the bridge's typing of this element, when it had to type it
     const typeIt = () => {
       typed = type(el.kind, facts, at); // a 400 in the typer's words when it cannot
@@ -305,8 +352,12 @@ export function validateChangeset(body, { member = false, type = null } = {}) {
       // A create's place fields ride on no retype or attach: the add-in would ignore them, and reads each into a typed field,
       // so one of the wrong type would fail every review in the project. A door's or window's retype names its family.
       for (const f of Object.keys(PLACE_FIELDS))
-        if (p[f] !== undefined && !(f === "FamilyName" && op === "retype" && PLACE_FIELDS.FamilyName.includes(el.kind)))
+        if (p[f] !== undefined && !(f === "FamilyName" && (op === "retype" || op === "set_parameter") && PLACE_FIELDS.FamilyName.includes(el.kind)))
           throw err(400, `${at}: ${op} takes no place.${f} — only a create sets it`);
+      if (op === "set_parameter") {
+        if (before !== null) throw err(400, `${at}: set_parameter takes no target.type_before — its stale guard is from`);
+        written = checkWrite(el, place, at, cite);
+      }
       if (op === "retype" && !text(place.TypeName, 256)) {
         if (!type) throw err(400, `${at}: retype needs place.TypeName`);
         typeIt();
@@ -315,8 +366,9 @@ export function validateChangeset(body, { member = false, type = null } = {}) {
         throw err(400, `${at}: a ${el.kind} retype needs place.FamilyName — a type name alone is not one type`);
       if (op === "attach" && (!text(p.BaseLevel, 256) || !text(p.TopLevel, 256) || p.BaseLevel === p.TopLevel))
         throw err(400, `${at}: attach needs two different levels, place.BaseLevel and place.TopLevel`);
-      const k = `${op}:${uid.toLowerCase()}`;
-      if (seen.has(k)) throw err(400, `${at}: a second ${op} for the same element`);
+      // MA-2c: one set_parameter per type and parameter.
+      const k = `${op}:${uid.toLowerCase()}` + (written ? `:${written.parameter.toLowerCase()}` : "");
+      if (seen.has(k)) throw err(400, `${at}: a second ${op} for the same element` + (written ? ` and ${written.parameter}` : ""));
       seen.add(k);
       target = { unique_id: uid, type_before: before };
     }
@@ -336,12 +388,21 @@ export function validateChangeset(body, { member = false, type = null } = {}) {
     // The curve too is rebuilt from the names the add-in reads (start, end, an arc's mid): a key inside it is listed, not stored.
     if (isBlock(place.LocationCurve)) place.LocationCurve = Object.fromEntries(Object.entries(place.LocationCurve).filter(([k]) => CURVE_KEPT.includes(k)));
     if (!identity.GlobalId) identity.GlobalId = proposal_guid;
+    // Review amendment C2 (MA-2c): a set_parameter's validate is the bridge's — the class from its kind, one pset row from parameter
+    // and to — so the referee judges the value Revit will write; a posted psets, quantities or other class is listed, never judged.
+    if (written) {
+      for (const f of ["psets", "quantities"]) if (validate[f] !== undefined) note(`${at}.validate.${f}`, "ignored: set by the bridge from parameter and to");
+      if (String(identity.Class).toUpperCase() !== KIND_ENTITY[el.kind]) { note(`${at}.validate.identity.Class`, "ignored: set by the bridge from kind"); identity.Class = KIND_ENTITY[el.kind]; }
+    }
+    const [pset, prop] = written ? written.parameter.split(".") : [];
     return {
       proposal_guid,
       kind: el.kind,
       op, target, reason: el.reason ?? null,
-      validate: { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
+      validate: written ? { identity, psets: [{ name: pset, rows: [{ name: prop, value: written.to }] }], quantities: [] }
+        : { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       place,
+      ...(written ?? {}), // MA-2c: a set_parameter's parameter, from, to and the bridge's value_source
       ...(provenance ? { provenance } : {}), // MA-1a item 4: only when sent, so every other changeset reads as before
       // MA-2a: the poster's facts as a record, and the bridge's own account of who typed the element — its rule, its input,
       // and which guideline and catalogue decided — or "caller" for an element that named its type.

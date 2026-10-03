@@ -125,6 +125,23 @@ public sealed class ChangesetElementDto
     /// the project's guideline and catalogue) or "caller"; null from a bridge before MA-2a and on an element the add-in files.
     /// Read only: the executor types by place.TypeName as for any changeset.</summary>
     [JsonPropertyName("typing")] public TypingDto Typing { get; set; }
+    /// <summary>MA-2c, a "set_parameter" (Target.UniqueId names a TYPE): the DD property, the Revit parameter's name, the value the
+    /// plan read on the type ("" when empty — the executor's stale guard compares it), the value to write, and the bridge's record
+    /// of where the value comes from. Null on every other op.</summary>
+    [JsonPropertyName("parameter")] public string Parameter { get; set; }
+    [JsonPropertyName("revit_parameter")] public string RevitParameter { get; set; }
+    [JsonPropertyName("from")] public string From { get; set; }
+    [JsonPropertyName("to")] public string To { get; set; }
+    [JsonPropertyName("value_source")] public ValueSourceDto ValueSource { get; set; }
+}
+
+/// <summary>MA-2c: where a set_parameter's value comes from, as the bridge checked it — "catalogue" or "clause", and the artefact,
+/// row or clause it cites ("type_catalog@2 · office · … · BDS_EXT_ARC_CMU_200 mm · Fire Rating").</summary>
+public sealed class ValueSourceDto
+{
+    [JsonPropertyName("kind")] public string Kind { get; set; }
+    [JsonPropertyName("ref")] public string Ref { get; set; }
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; }
 }
 
 public sealed class TypingDto
@@ -152,7 +169,8 @@ public static class ChangesetTrust
     /// rule holds: a Promote attach, and a Promote retype with the type the plan saw (DR-1). A person still clicks Apply.</summary>
     public static bool PreTick(ChangesetDto cs, ChangesetElementDto el)
     {
-        if (el.Op is null or "create") return false;
+        // MA-2c: a set_parameter is a TYPE edit — it reaches every element on the type — so it is never pre-ticked (founder decision F1).
+        if (el.Op is null or "create" or "set_parameter") return false;
         return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
     }
 
@@ -163,6 +181,17 @@ public static class ChangesetTrust
     /// office · …)"; null for one the caller typed, or from a bridge before MA-2a.</summary>
     public static string Typing(ChangesetElementDto el) =>
         el.Typing?.TypedBy == "bridge" ? "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")" : null;
+
+    /// <summary>Review C21 (MA-2c, founder decision F1's "14 more that this changeset retypes onto it"): the elements this changeset
+    /// retypes onto a set_parameter's type — same kind and type name; the family where both name one (the bridge's typer names a
+    /// wall's). The review row shows it beside the model's own count.</summary>
+    public static int RetypedOnto(ChangesetDto cs, ChangesetElementDto sp)
+    {
+        bool same(string a, string b) => string.Equals(a?.Trim() ?? "", b?.Trim() ?? "", StringComparison.OrdinalIgnoreCase);
+        return (cs.Elements ?? new List<ChangesetElementDto>()).Count(e => e.Op == "retype" && same(e.Kind ?? "wall", sp.Kind ?? "wall")
+            && same(e.Place?.TypeName, sp.Place?.TypeName)
+            && (string.IsNullOrWhiteSpace(e.Place?.FamilyName) || string.IsNullOrWhiteSpace(sp.Place?.FamilyName) || same(e.Place.FamilyName, sp.Place.FamilyName)));
+    }
 
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
     public static string SourceLabel(ChangesetDto cs) =>

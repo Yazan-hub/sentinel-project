@@ -173,6 +173,43 @@ public static class FixInPlaceService
         return t;
     }
 
+    /// <summary>MA-2c (set_parameter, [BP] P2-7's write built once on this table): where a DD property lives on a TYPE — the first of
+    /// PsetMap's candidates the type itself holds (a lookup that may fall to the type, or a built-in; never an instance-only lookup,
+    /// never the wall's Function), its value as the IDS reads it on the type ("" when empty), and why Sentinel cannot write it there
+    /// (null = it can: real, writable, stored as text). No such parameter → (null, null, null): the type does not hold the property.</summary>
+    internal static (Parameter? P, string? Current, string? NoWriter) OnType(ElementType t, Document doc, PsetEntry entry)
+    {
+        foreach (var c in entry.Candidates.Where(c => !c.InstanceOnly && (c.Kind == ParamKind.Lookup || c.Kind == ParamKind.BuiltIn)))
+        {
+            Parameter? p = c.Kind == ParamKind.Lookup ? t.LookupParameter(c.Name)
+                : Enum.TryParse<BuiltInParameter>(c.Name, out var bip) ? t.get_Parameter(bip) : null;
+            if (p == null || !IsReal(t, p)) continue;
+            string? why = p.IsReadOnly ? $"{p.Definition.Name} is read-only on the type"
+                : p.StorageType != StorageType.String ? $"{p.Definition.Name} is stored as {p.StorageType} — set_parameter writes text only; set it in Revit's Type Properties"
+                : null;
+            return (p, GovernedElementExtractor.ReadEntry(t, doc, entry) ?? "", why);
+        }
+        return (null, null, null);
+    }
+
+    /// <summary>MA-2c: one set_parameter on a TYPE, inside the caller's transaction (the changeset's): the property's parameter on the
+    /// type (<see cref="OnType"/>), the stale guard first — the value the IDS reads now must be EMPTY, whatever <paramref name="from"/>
+    /// says (review amendment C1: a set_parameter fills an empty value only; a filled one is a person's) — then the write, read back
+    /// as the IDS reads it. Anything else throws, and the changeset fails whole (the executor's rule).</summary>
+    internal static void WriteOnType(Document doc, ElementType t, string key, string from, string to, string? org)
+    {
+        var entry = PsetMap.Find(org, key) ?? throw new InvalidOperationException($"no parameter mapping for {key} — Sentinel does not know where this value lives");
+        var (p, current, noWriter) = OnType(t, doc, entry);
+        if (p == null) throw new InvalidOperationException($"type {t.Name} holds no parameter for {key} — re-run Promote");
+        if (noWriter != null) throw new InvalidOperationException($"type {t.Name}: {noWriter}");
+        if (!string.IsNullOrEmpty(current) || !string.IsNullOrEmpty(from))
+            throw new InvalidOperationException($"stale: {key} on type {t.Name} reads \"{current}\" now, the plan read \"{from}\" — set_parameter fills an empty value only (a filled one is a person's); re-run Promote");
+        if (!p.Set(to)) throw new InvalidOperationException($"Revit refused \"{to}\" for {p.Definition.Name} on type {t.Name}");
+        var back = GovernedElementExtractor.ReadEntry(t, doc, entry) ?? "";
+        if (!string.Equals(back, to, StringComparison.Ordinal))
+            throw new InvalidOperationException($"{p.Definition.Name} on type {t.Name} reads back \"{back}\", not \"{to}\" — not written");
+    }
+
     /// `get_Parameter(BuiltInParameter)` can hand back a parameter the element does not actually own — a door
     /// instance answers FIRE_RATING with a writable String parameter whose Set() returns true and whose value
     /// then reads back empty (found live, 2026-09-16). A real parameter is one in the element's own set.

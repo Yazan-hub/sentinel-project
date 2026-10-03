@@ -100,6 +100,21 @@ namespace Sentinel.Coordination
         /// <summary>Reasons kept per LOD state row (a row's reasons can be one per element; the count stays true).</summary>
         public const int MaxReasons = 10;
 
+        /// <summary>MA-2c (design §6.4): one Promote run's type gaps — the groups of held elements the office has no type for, each
+        /// with its category, the type it wants or its size, the facts its rules read, its element count, labels and the catalogue's
+        /// nearest types — and which catalogue and guideline judged. The bridge names each group, words the action and marks the row
+        /// claimed (cde-store.mjs typeGapRow); the Holding Area lists the groups.</summary>
+        public static object TypeGaps(IReadOnlyList<TypeGapGroup> groups, string catalog, string guideline, string actor) =>
+            Row("type_gap", actor, $"type_gap:run · {groups.Count} group(s), {groups.Sum(g => g.Elements)} element(s)", new
+            {
+                groups = groups.Take(GhostBuilder.TypeGaps.MaxGroups).Select(g => new
+                {
+                    category = g.Category, want = g.Want, size = g.Size, key = g.Key, elements = g.Elements,
+                    labels = g.Labels.ToArray(), nearest = g.Nearest.ToArray(),
+                }).ToArray(),
+                groups_total = groups.Count, catalog, guideline, source = "revit",
+            });
+
         /// <summary>What the Doctor resolved in one window (DoctorBuffer), with Revit's own fix, in committed transactions.</summary>
         public static object Doctor(DoctorTally tally, string actor) =>
             Row("doctor", actor, $"Doctor: {tally.Resolved} warning(s) resolved with Revit's own fix in {tally.ByTransaction.Count} kind(s) of transaction", new

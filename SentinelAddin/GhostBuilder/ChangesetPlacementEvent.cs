@@ -135,7 +135,9 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             string idsLine = null;
             if (ids != null)
             {
-                var kindOf = (cs.Elements ?? new List<ChangesetElementDto>()).ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
+                // MA-2c: a set_parameter's applied entry is a TYPE — the IDS judges the elements, so it is left out (its value is
+                // judged on the elements this changeset retyped onto the type).
+                var kindOf = (cs.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
                 var (fails, notRead, notJudged, judged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
                 if (fails.Count > 0 && !PromoteContext.PlaceAnyway(fails, ids.Matrix, $"changeset \"{cs.Name}\""))
                 {

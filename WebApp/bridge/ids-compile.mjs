@@ -14,6 +14,8 @@
 //     is returned in `unmatched`. A compiler that quietly ignored half a document would produce a
 //     gate that looks complete and enforces half the EIR — the worst possible failure here.
 
+import { notAValue } from "./changesets-typing.mjs";
+
 /** IFC entity for the nouns a requirement actually uses. Extend as a project's vocabulary demands. */
 export const ENTITY_VOCAB = [
   [/\b(fire|external|internal)?\s*doors?\b/i, "IFCDOOR"],
@@ -102,14 +104,21 @@ export function matrixToIds(matrix, { stage = "DD", label = null } = {}) {
   return { title: `${matrix.standard_key} ${matrix.semver} · ${stage}${label ? ` (${label})` : ""}`, enforce: "warn", specifications, unmatched };
 }
 
-const REQUIREMENT = /\b(shall|must|is required to|are required to|mandatory)\b/i;
+const REQUIREMENT = /\b(shall|must|is required to|are required to|(?:is|are) to be|mandatory)\b/i;
 const CARDINALITY_PROHIBITED = /\b(shall not|must not|is prohibited|are prohibited|no .{0,30} shall)\b/i;
 
 /** Split prose into candidate requirement sentences, keeping list bullets intact. */
 export function sentences(text) {
   return String(text || "")
     .replace(/\r\n?/g, "\n")
-    .split(/(?<=[.;:])\s+|\n+/)
+    .split(/\n+/)
+    // Review C23: a short piece after a stop ("… shall be 60 min. or better.", "1 hr. minimum.") stays with the sentence before
+    // it — dropped, it took the bound with it and the stored sentence read as a pinned value.
+    .flatMap((line) => line.split(/(?<=[.;:])\s+/).reduce((out, s) => {
+      if (out.length && s.trim().length <= 12) out[out.length - 1] += " " + s;
+      else out.push(s);
+      return out;
+    }, []))
     .map((s) => s.replace(/^\s*[-*•]\s*/, "").trim())
     .filter((s) => s.length > 12);
 }
@@ -129,7 +138,8 @@ function findPset(sentence) {
 
 /** A CamelCase or quoted property name stated verbatim — always preferred over the vocabulary guess. */
 function findExplicitProperty(sentence) {
-  const quoted = sentence.match(/["“']([A-Za-z][A-Za-z0-9 _]{2,40})["”']/);
+  // a quoted word in the value's place ("shall be 'FD30'") is the value, not a property name
+  const quoted = sentence.match(/(?<!\bbe:?\s+)["“']([A-Za-z][A-Za-z0-9 _]{2,40})["”']/);
   if (quoted) return quoted[1].replace(/\s+/g, "");
   const camel = sentence.match(/\b([A-Z][a-z]+(?:[A-Z][a-z0-9]+)+)\b/);
   return camel ? camel[1] : null;
@@ -137,7 +147,11 @@ function findExplicitProperty(sentence) {
 
 /** A required value: "shall be REI60", "shall be at least 60 minutes". */
 function findValue(sentence) {
-  const be = sentence.match(/\bshall be\s+(?:at least\s+|no less than\s+)?["“']?([A-Za-z0-9][A-Za-z0-9 .\-/]{0,24}?)["”']?\s*(?:\.|,|;|$)/i);
+  // Review C23: a value may open with "-" (an FRL: -/60/60), hold a decimal point (1.5 hr: a stop ends it only before a blank or
+  // the end) and EN 13501-2's subscript EI₁/EI₂. A value dropped here leaves a presence-only clause that the one-source weighing
+  // cannot see (a catalogue value then written past "must be FD60"): "must be", "is to be", "shall be:", "shall have a fire rating
+  // of", any run of blanks, a closing "!", and a decimal comma (0,18 — a comma ends the value only when no digit follows).
+  const be = sentence.match(/\b(?:(?:shall|must|is\s+to|are\s+to)\s+be:?|(?:shall|must)\s+have\s+an?\s+[a-z][a-z -]{1,40}?\s+of)\s+(?:at least\s+|no less than\s+)?["“']?([A-Za-z0-9-][A-Za-z0-9₁₂ .,\-/]{0,24}?)["”']?\s*(?:[.!](?=\s|$)|,(?!\d)|;|$)/i);
   if (!be) return null;
   const v = be[1].trim();
   // "recorded", "provided", "completed" describe the act of filling the field, not a value for it.
@@ -195,6 +209,15 @@ export function compileIds(text, { title = "Compiled from requirements" } = {}) 
       source_sentence: s,          // the clause this came from — the whole point of review
     });
   }
+
+  // Review C23 (context): a sentence is cut out of its document, and what stood around it — a heading, "Escape corridors:", a
+  // hard-wrapped "or better.", an exception after it — narrows it without being in it. A value is cited from a sentence (Promote
+  // writes it on every element of the class) only when the document said nothing else: every spec a whole-class one-value sentence
+  // (notAValue), and nothing left once those sentences are taken out but blanks and bullet marks. Then each spec is source_alone.
+  const whole = (sp) => { const p = sp.requirements.properties[0]; return p.value != null && notAValue(sp.source_sentence, p.value, sp.applicability.entity, `${p.pset}.${p.name}`) === null; };
+  let rest = String(text || "").replace(/\r\n?/g, "\n");
+  for (const sp of specs) rest = rest.replace(sp.source_sentence, "");
+  if (specs.length && specs.every(whole) && /^[\s\-*•]*$/.test(rest)) for (const sp of specs) sp.source_alone = true;
 
   return {
     title,

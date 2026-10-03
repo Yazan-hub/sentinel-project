@@ -258,6 +258,20 @@ public sealed class ChangesetExecutor
         return e;
     }
 
+    /// MA-2c: the TYPE a set_parameter names by UniqueId — of its kind's category, and still the type the plan named (a renamed or
+    /// replaced type fails the changeset, as a retype's type_before does).
+    private static ElementType ParamTarget(Document doc, ChangesetElementDto el)
+    {
+        var uid = el.Target?.UniqueId;
+        var t = (string.IsNullOrWhiteSpace(uid) ? null : doc.GetElement(uid)) as ElementType
+                ?? throw new InvalidOperationException($"set_parameter: type {uid} is not in this model — re-run Promote");
+        var named = el.Place?.FamilyName != null ? el.Place.FamilyName + " : " + el.Place.TypeName : el.Place?.TypeName;
+        if (el.Kind == null || !PromoteWallsPlanner.Classes.TryGetValue(el.Kind, out var cls) || t.Category == null || !t.Category.MatchesCategoryKey(cls.Category)
+            || !string.Equals(TypeLabel(t), named, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"set_parameter: {uid} is \"{TypeLabel(t)}\", not the {el.Kind} type \"{named}\" the plan named — re-run Promote");
+        return t;
+    }
+
     /// "Family : Type" for a loadable family's type, the name otherwise — what the planner wrote as type_before.
     internal static string TypeLabel(ElementType t) => t is FamilySymbol s ? s.FamilyName + " : " + s.Name : t.Name;
 
@@ -645,6 +659,17 @@ public sealed class ChangesetExecutor
                 Set(w, BuiltInParameter.WALL_HEIGHT_TYPE, top.Id);
                 Set(w, BuiltInParameter.WALL_TOP_OFFSET, 0.0);
                 Collect(result, el, w);
+            }
+
+            // MA-2c: set_parameter after every retype and attach, so a value lands on the type the retype just set (drill MA2b I-1: a
+            // retype drops the concept type's value) and the DD IDS checked before commit sees it. The TYPE's own parameter, the stale
+            // guard first (the value read now must be empty: review amendment C1), read back as the IDS reads it (FixInPlaceService).
+            foreach (var el in toPlace.Where(e => e.Op == "set_parameter"))
+            {
+                at = Label(el);
+                var type = ParamTarget(doc, el); // `t` is the transaction
+                FixInPlaceService.WriteOnType(doc, type, el.Parameter, el.From, el.To, App.OrgFor(doc));
+                Collect(result, el, type);
             }
 
             // Every ticked element must have been handled by a loop above — if the bridge's

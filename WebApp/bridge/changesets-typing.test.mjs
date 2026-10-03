@@ -3,7 +3,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS } from "./changesets-typing.mjs";
+import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue, NOT_ALONE, ENTITY_SUBTYPES, saysMore } from "./changesets-typing.mjs";
+import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -89,5 +90,157 @@ describe("changesets-typing — the bridge types from the facts, or says what is
     expect(saidOf({ params: { Material: "Stone" } })).toBe("Material Stone");
     expect(saidOf(null)).toBe("no facts");
     expect(saidOf({})).toBe("no facts");
+  });
+});
+
+// MA-2c: a set_parameter's value comes from a cited source the bridge checks — the catalogue row of exactly that type, or the one
+// value every whole-class clause of the installed ids@n pins. The shared fixture is the add-in's reading too (tools/promote-check).
+describe("changesets-typing — where a set_parameter's value comes from (MA-2c)", () => {
+  const VS = read("./fixtures/changeset-ops/value-sources.json");
+  const SRC = {
+    catalog: { body: VS.catalog, label: "type_catalog@2 · office · fedcba987654…", sha256: "cd".repeat(32) },
+    ids: { body: VS.ids, label: "ids@1 · project · 0a1b2c3d4e5f…", sha256: "ef".repeat(32) },
+  };
+  const cite = makeCiter(SRC, core);
+  const WALL = { TypeName: "BDS_EXT_ARC_CMU_200 mm" };
+  const DOOR = { FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" };
+
+  it("the catalogue parameter and the IFC entity of each kind are the shared fixture's (the add-in reads the same table)", () => {
+    expect(CATALOG_PARAM).toEqual(VS.catalog_param);
+    expect(KIND_ENTITY).toEqual(VS.kind_entity);
+    expect(KIND_PSET).toEqual(VS.kind_pset); // review C19: the add-in plans no key the bridge refuses
+    expect(CLASS_NOUN).toEqual(VS.class_noun); // review C23: a whole-class sentence names the clause's own entity
+  });
+
+  it("clauseValues reads every shared case as the add-in's Clauses does: a whole-class clause's one exact value, nothing else", () => {
+    for (const c of VS.clauses) {
+      const got = clauseValues(VS.ids, c.entity, c.key);
+      expect(got.map((h) => h.value), c.name).toEqual(c.values);
+      if (c.spec) expect(got[0], c.name).toMatchObject({ spec: c.spec, sentence: c.sentence });
+    }
+    expect(clauseValues(null, "IFCDOOR", "Pset_DoorCommon.FireRating")).toEqual([]);
+    expect(clauseValues({ specifications: [{ name: "bad", applicability: { entity: "(" }, requirements: { properties: [] } }] }, "IFCDOOR", "x.y")).toEqual([]);
+  });
+
+  it("a compiled clause whose sentence sets a bound, or narrows the class, cites nothing; one that names the whole class does (review C18)", () => {
+    const door = (s) => clauseValues(compileIds(s), "IFCDOOR", "Pset_DoorCommon.FireRating").map((h) => h.value);
+    for (const s of ["The fire rating of doors shall be FD30 or higher.", "The fire rating of doors shall be FD30 or greater.", "The fire rating of doors shall be at most FD60.",
+      "The fire rating of doors shall be no lower than FD30.", "The fire rating of doors shall be up to FD60.", "Fire doors' fire rating shall be FD60.",
+      "The fire rating of fire doors shall be FD60."])
+      expect(door(s), s).toEqual([]);
+    expect(clauseValues(compileIds("The fire rating of external walls shall be REI60."), "IFCWALL", "Pset_WallCommon.FireRating")).toEqual([]);
+    expect(door("The fire rating of doors shall be FD30.")).toEqual(["FD30"]);
+    expect(door("The fire rating of all doors shall be FD30.")).toEqual(["FD30"]);
+  });
+
+  it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
+    expect(VS.value_cases.length).toBe(252);
+    for (const c of VS.value_cases) {
+      const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
+      const entity = c.entity ?? "IFCDOOR", key = c.key ?? "Pset_DoorCommon.FireRating";
+      expect(notAValue(c.sentence, c.value, entity, key), tag).toBe(c.why);
+      if (!c.compiled) continue;
+      // The case is what compileIds makes of the sentence, and the clause it makes is cited exactly when the case says so.
+      const ids = compileIds(c.sentence), sp = ids.specifications[0], p = sp?.requirements.properties[0];
+      expect([p?.value, sp?.applicability.entity, `${p?.pset}.${p?.name}`], tag).toEqual([c.value, entity, key]);
+      expect(clauseValues(ids, sp.applicability.entity, `${p.pset}.${p.name}`).map((h) => h.value), tag).toEqual(c.why ? [] : [c.value]);
+    }
+  });
+
+  it("a sentence is cited only when its document said nothing but whole-class one-value sentences: every shared document (review C23 context)", () => {
+    expect(VS.document_cases.length).toBe(46);
+    for (const c of VS.document_cases) {
+      const ids = compileIds(c.text);
+      expect(ids.specifications, c.text).toEqual(c.specifications); // the add-in reads these (promote-check): they are compileIds' own
+      expect(clauseValues(ids, c.entity, c.key).map((h) => h.value), c.text).toEqual(c.values);
+    }
+    let said = "";
+    try { cite("wall", WALL, "Pset_WallCommon.ThermalTransmittance", "0.3", { kind: "clause" }, "e"); } catch (e) { said = e.message; }
+    expect(said.endsWith(`WALL — ThermalTransmittance ("The thermal transmittance of walls shall be 0.3."): ${NOT_ALONE}`), said).toBe(true);
+  });
+
+  it("the docs panel compiles the title and every heading with the bodies — a heading narrows the sentences under it (review C23 context)", () => {
+    const src = readFileSync(new URL("../src/setups/docs-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain('const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\\n\\n");');
+  });
+
+  it("a catalogue value is trimmed of ASCII blanks only, as the add-in trims it: every shared case (review C23)", () => {
+    for (const { raw, value, cited } of VS.catalog_trim) {
+      const types = [{ ...VS.catalog.types[0], params: { "Fire Rating": raw } }];
+      const c = makeCiter({ ids: NONE("ids"), catalog: { ...SRC.catalog, body: { ...VS.catalog, types } } }, core); // the shared ids@n says 60 min of shear walls
+      // C23: what is left after the ASCII trim is held to the one-value shape — a BOM or a no-break space is not ASCII
+      if (cited) expect(c("wall", WALL, "Pset_WallCommon.FireRating", value, { kind: "catalogue" }, "e").kind, JSON.stringify(raw)).toBe("catalogue");
+      else refused(() => c("wall", WALL, "Pset_WallCommon.FireRating", value, { kind: "catalogue" }, "e"), /is not one value/);
+    }
+  });
+
+  it("a clause is the whole class's only when its pattern matches every IFC class the entity is exported as, and a clause that says more of the key sends the value to a person: every shared ids case (review C23)", () => {
+    expect(ENTITY_SUBTYPES).toEqual(VS.entity_subtypes); // the add-in's Clauses.Subtypes is the same table
+    expect(VS.ids_cases.length).toBe(51);
+    for (const c of VS.ids_cases) {
+      const ids = { specifications: c.specifications };
+      expect(clauseValues(ids, c.entity, c.key).map((h) => h.value), c.name).toEqual(c.values);
+      expect(saysMore(ids, c.entity, c.key, c.value)?.spec ?? null, c.name).toBe(c.more);
+    }
+    // At the bridge: a cited FD30 with another clause demanding FD60 of some doors is a 400 that names it.
+    const ids = { specifications: VS.ids_cases.find((c) => c.more === "B" && c.specifications[1].applicability.predefinedType).specifications };
+    refused(() => makeCiter({ ...SRC, ids: { ...SRC.ids, body: ids } }, core)("door", { FamilyName: "F", TypeName: "T" }, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "e"),
+      /^e: set_parameter's value_source: ids@1 · project · 0a1b2c3d4e5f… · B \("FD60"\) also speaks of Pset_DoorCommon\.FireRating for IFCDOOR, and not as "FD30": it says more of this property/);
+  });
+
+  it("a catalogue row is exactly that type's (ASCII blanks and letters only), and its value one value: every shared catalogue case (review C23)", () => {
+    expect(VS.catalog_cases.length).toBe(21);
+    for (const c of VS.catalog_cases) {
+      const cite1 = makeCiter({ catalog: { body: { types: [c.row] }, label: "type_catalog@1", sha256: null }, ids: NONE("ids") }, core);
+      const run = () => cite1("door", { FamilyName: c.family, TypeName: c.type }, "Pset_DoorCommon.FireRating", c.value, { kind: "catalogue" }, "e");
+      if (c.cited) expect(run().kind, c.name).toBe("catalogue");
+      else refused(run, /no row|is not one value/);
+    }
+  });
+
+  it("a clause refused as not one value is named in the bridge's 400 (review C23)", () => {
+    const ids = { specifications: [{ name: "Doors FD30 or FD60", applicability: { entity: "IFCDOOR" },
+      requirements: { properties: [{ pset: "Pset_DoorCommon", name: "FireRating", value: "FD30 or FD60", cardinality: "required" }] } }] };
+    refused(() => makeCiter({ ...SRC, ids: { ...SRC.ids, body: ids } }, core)("door", DOOR, "Pset_DoorCommon.FireRating", "FD30 or FD60", { kind: "clause" }, "e"),
+      /^e: set_parameter's value_source: no clause of ids@1 · project · 0a1b2c3d4e5f… pins one value of Pset_DoorCommon\.FireRating for every IFCDOOR — Doors FD30 or FD60 \("FD30 or FD60"\): "FD30 or FD60" is not one value \(a bound, a choice or a qualifier\) — a person decides$/);
+  });
+
+  it("a catalogue source holds when exactly one row of that type gives exactly that value; the record names the catalogue, the type and the parameter", () => {
+    expect(cite("wall", WALL, "Pset_WallCommon.FireRating", "60 min", { kind: "catalogue" }, "elements[1]"))
+      .toEqual({ kind: "catalogue", ref: "type_catalog@2 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating", sha256: "cd".repeat(32) });
+    refused(() => cite("wall", WALL, "Pset_WallCommon.FireRating", "120 min", { kind: "catalogue" }, "elements[1]"),
+      /^elements\[1\]: set_parameter's value_source: type_catalog@2 · office · fedcba987654… gives BDS_EXT_ARC_CMU_200 mm Fire Rating "60 min", not "120 min" — a value is written only as its source holds it$/);
+    refused(() => cite("wall", { TypeName: "BDS_INT_ARC_GYPS_100 mm" }, "Pset_WallCommon.FireRating", "30 min", { kind: "catalogue" }, "e"),
+      /gives BDS_INT_ARC_GYPS_100 mm Fire Rating "", not "30 min"/);
+    refused(() => cite("wall", { TypeName: "BDS_EXT_ARC_CMU_212 mm" }, "Pset_WallCommon.FireRating", "60 min", { kind: "catalogue" }, "e"),
+      /type_catalog@2 · office · fedcba987654… has no row for Walls BDS_EXT_ARC_CMU_212 mm — one row is one source$/);
+    refused(() => cite("door", { FamilyName: "BDS_INT_2 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" }, "Pset_DoorCommon.FireRating", "FD30", { kind: "catalogue" }, "e"),
+      /has no row for Doors BDS_INT_2 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm/);
+    refused(() => cite("window", { FamilyName: "W", TypeName: "T" }, "Pset_WindowCommon.ThermalTransmittance", "1.4", { kind: "catalogue" }, "e"),
+      /the catalogue harvests no parameter for Pset_WindowCommon\.ThermalTransmittance — a person fills it$/);
+    refused(() => makeCiter({ ...SRC, catalog: NONE("type_catalog") }, core)("wall", WALL, "Pset_WallCommon.FireRating", "60 min", { kind: "catalogue" }, "e"),
+      /is the catalogue, and no type catalogue is installed for this project or its office \(none — not installed for ma2a or its office\): not checkable$/);
+  });
+
+  it("a clause source holds when the whole-class clauses pin exactly that one value; the record cites the clause's sentence", () => {
+    expect(cite("door", DOOR, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "elements[2]"))
+      .toEqual({ kind: "clause", ref: 'ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · "All doors shall be FD30."', sha256: "ef".repeat(32) });
+    refused(() => cite("door", DOOR, "Pset_DoorCommon.FireRating", "FD60", { kind: "clause" }, "e"), /ids@1 · project · 0a1b2c3d4e5f… pins "FD30" for Pset_DoorCommon\.FireRating, not "FD60"/);
+    refused(() => cite("wall", WALL, "Pset_WallCommon.FireRating", "REI60", { kind: "clause" }, "e"),
+      /no clause of ids@1 · project · 0a1b2c3d4e5f… pins one value of Pset_WallCommon\.FireRating for every IFCWALL$/);
+    refused(() => cite("roof", { TypeName: "R" }, "Pset_RoofCommon.FireRating", "REI30", { kind: "clause" }, "e"),
+      /the clauses of ids@1 · project · 0a1b2c3d4e5f… pin "REI30" and "REI60" for Pset_RoofCommon\.FireRating — they disagree; a person decides$/);
+    refused(() => makeCiter({ ...SRC, ids: NONE("ids") }, core)("door", DOOR, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "e"),
+      /is a clause, and no ids@n is installed for this project or its office \(none — not installed for ma2a or its office\): not checkable$/);
+  });
+
+  it("both sources are read whichever is cited: a catalogue and a clause that disagree are a 400 either way — the planner's 'disagree', at the bridge (review amendment C1)", () => {
+    const D2 = { FamilyName: "BDS_INT_2 PNL", TypeName: "BDS_INT_2 PNL_WOOD_2000 x 2100 mm" };
+    const both = '"FD60" \\(type_catalog@2 · office · fedcba987654… · BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm · Fire Rating\\) and "FD30" \\(ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · "All doors shall be FD30\\."\\) — a person decides$';
+    refused(() => cite("door", D2, "Pset_DoorCommon.FireRating", "FD60", { kind: "catalogue" }, "e"),
+      new RegExp("^e: set_parameter's value_source: the sources disagree on Pset_DoorCommon\\.FireRating for BDS_INT_2 PNL : BDS_INT_2 PNL_WOOD_2000 x 2100 mm: " + both));
+    refused(() => cite("door", D2, "Pset_DoorCommon.FireRating", "FD30", { kind: "clause" }, "e"), new RegExp("the sources disagree on Pset_DoorCommon\\.FireRating for .*: " + both));
+    // A wall's catalogue cite is not met by the shared ids' floor or narrowed clauses: they pin nothing (C7, F2).
+    expect(cite("wall", WALL, "Pset_WallCommon.FireRating", "60 min", { kind: "catalogue" }, "e").kind).toBe("catalogue");
   });
 });

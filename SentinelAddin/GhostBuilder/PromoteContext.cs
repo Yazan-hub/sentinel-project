@@ -27,13 +27,17 @@ namespace Sentinel.GhostBuilder
         /// <summary>The DD stage IDS, or null with <see cref="IdsWhy"/> (no matrix, a refusal, the bridge unreachable).</summary>
         public StageIds Ids;
         public string IdsWhy;
+        /// <summary>MA-2c: the clauses of the project's installed ids@n (project → office) a DD property's value may be cited from —
+        /// none, with why, when it is not installed or does not parse.</summary>
+        public Clauses Clauses;
 
-        /// <summary>The three reads side by side. Blocking (the guideline and catalogue have their own caps, the matrix and the IDS
-        /// 4 s); never throws. Call it OFF the API thread: Task.Run(() => PromoteContext.Fetch(key)).</summary>
+        /// <summary>The reads side by side. Blocking (the guideline and catalogue have their own caps, the matrix, the DD IDS and the
+        /// ids@n 4 s); never throws. Call it OFF the API thread: Task.Run(() => PromoteContext.Fetch(key)).</summary>
         public static PromoteContext Fetch(string key)
         {
             var mxTask = Task.Run(() => ArtefactClient.Resolve(key, "lod_matrix"));
             var idsTask = Task.Run(() => { var json = ArtefactClient.StageIds(key, out var why); return (json, why); });
+            var clauseTask = Task.Run(() => ArtefactClient.Resolve(key, "ids"));
             var pc = new PromoteContext { Standards = GhostStandards.Load(key, layers: false) };
             var src = mxTask.GetAwaiter().GetResult();
             if (src.Origin != "none")
@@ -50,6 +54,8 @@ namespace Sentinel.GhostBuilder
             // check before commit says not checked, with why.
             if (pc.Ids != null && StageIds.NotFrom(pc.Ids, pc.MxSha, pc.MxLabel) is string other) { pc.Ids = null; idsWhy = other; }
             pc.IdsWhy = idsWhy;
+            var ids = clauseTask.GetAwaiter().GetResult();
+            pc.Clauses = ids.Origin == "none" ? Clauses.None(ids.Label) : Clauses.FromIds(ids.BodyJson, ids.Label, out _);
             return pc;
         }
 

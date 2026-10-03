@@ -12,6 +12,7 @@ import { loadEnv } from "./thatopen-client.mjs";
 import { normalizeAgent, buildReceipt, verifyReceipt } from "./agent-provenance.mjs";
 import { currentUserToken, currentActor, resolveActor, currentSub } from "./bridge-auth.mjs";
 import { createLimiter, createKeyedLimiter } from "./public-verify.mjs";
+import { typeGapId } from "./holding-logic.mjs"; // MA-2c: a type-gap group's id
 
 const env = { ...process.env, ...loadEnv() }; // config/.env is authoritative
 const URL = (env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -1053,7 +1054,36 @@ const REVIT_REPORT_TYPES = ["naming", "family_heal",
   // MA-1a item 8: a reader's or planner's run receipt (buildRunRow words its action build:run and marks it claimed).
   "build",
   // MA-2b: Promote's LOD state of the model, now or after an applied changeset (lodStateRow marks it claimed).
-  "lod_state"];
+  "lod_state",
+  // MA-2c: Promote's type gaps of one run, grouped (typeGapRow names each group and marks the row claimed).
+  "type_gap"];
+
+/** MA-2c (design §6.4): one Promote run's type gaps — groups of held elements the office has no type for — counted in Revit, not by
+ *  the bridge: claimed, like lod_state, whoever posts it. Each group {category, want | size, key?, elements ≥ 1, labels?, nearest?}
+ *  is kept name for name and given the bridge's own id (holding-logic typeGapId: the same gap on every run is one group); the
+ *  bridge words the action. The Holding Area reads these rows (readHolding). Anything else is a 400. */
+function typeGapRow(b) {
+  const v = b.new_value;
+  const no = (m) => Object.assign(new Error(`a type_gap row's ${m} — nothing was saved`), { status: 400 });
+  const line = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <= max && !/[\u0000-\u001f]/.test(s);
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw no("new_value is the run's gap groups, an object");
+  if (!Array.isArray(v.groups) || v.groups.length < 1 || v.groups.length > 200) throw no("groups is a list of 1 to 200 gap groups");
+  const groups = v.groups.map((g, i) => {
+    const at = `groups[${i}]`;
+    if (!g || typeof g !== "object" || Array.isArray(g)) throw no(`${at} is an object`);
+    if (!line(g.category, 64)) throw no(`${at}.category is one line of at most 64 characters`);
+    for (const [f, max] of [["want", 256], ["size", 64], ["key", 500]]) if (g[f] != null && !line(g[f], max)) throw no(`${at}.${f} is one line of at most ${max} characters`);
+    if (g.want == null && g.size == null) throw no(`${at} names the type it wants or the size it has (want or size)`);
+    if (!Number.isInteger(g.elements) || g.elements < 1) throw no(`${at}.elements is a whole number ≥ 1`);
+    for (const f of ["labels", "nearest"])
+      if (g[f] != null && !(Array.isArray(g[f]) && g[f].length <= 50 && g[f].every((s) => line(s, 256)))) throw no(`${at}.${f} is a list of at most 50 one-line texts`);
+    const kept = { category: g.category.trim(), want: g.want?.trim() ?? null, size: g.size?.trim() ?? null, key: g.key ?? null, elements: g.elements, labels: g.labels ?? [], nearest: g.nearest ?? [] };
+    return { id: typeGapId(kept), ...kept };
+  });
+  const n = groups.reduce((s, g) => s + g.elements, 0);
+  // Not "hold:type_gap" (design §6.4): hold: actions are Sentinel's own rows (RESERVED_ACTIONS) and never come through this route.
+  return { ...b, action: `type_gap:run · ${groups.length} group(s), ${n} element(s)`, new_value: { ...v, groups, claimed: true } };
+}
 
 /** MA-2b: a lod_state row is Promote's count of the model's LOD state — read in Revit, not measured by the bridge — so whoever
  *  posts it, the bridge marks it claimed (the build:run rule). The journey line and the design gate's LOD check read the newest
@@ -1114,6 +1144,7 @@ export async function recordNote(key, b = {}) {
   // build: actions belong to receipts, so no other row can pass for one.
   if (type === "build") b = buildRunRow(b);
   else if (type === "lod_state") b = lodStateRow(b);
+  else if (type === "type_gap") b = typeGapRow(b);
   else if (String(b.action ?? "").trim().toLowerCase().startsWith("build:"))
     throw Object.assign(new Error('build: rows are receipts (entity_type "build") — nothing was saved'), { status: 400 });
   if (role === "service") return recordAudit(key, b);
@@ -1249,10 +1280,11 @@ export async function recordDeliveryGate(key, b = {}) {
  *  project's files and their versions (listFiles) and each version's newest verdict (listVersionVerdictRows). A read
  *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
 export async function readHolding(key) {
-  const { heldItems, clearedRecent } = await import("./holding-logic.mjs");
-  let rows, files, verdicts;
+  const { heldItems, clearedRecent, typeGapGroups } = await import("./holding-logic.mjs");
+  let rows, gapRows, files, verdicts;
   try {
     rows = await auditAll(key, { entity_type: "hold" });
+    gapRows = await auditAll(key, { entity_type: "type_gap" }); // MA-2c: Promote's type gaps, run by run
     [files, verdicts] = await Promise.all([listFiles(key), listVersionVerdictRows(key)]);
   } catch (e) {
     if (e?.status) throw e;
@@ -1263,7 +1295,44 @@ export async function readHolding(key) {
   for (const r of verdicts) if (!verdictOf.has(r.version_id)) verdictOf.set(r.version_id, r.verdict); // newest first
   const versionsByName = {};
   for (const f of files) (versionsByName[f.iso_name] ||= []).push(...f.versions.map((v) => ({ id: v.id, created_at: v.created_at, verdict: verdictOf.get(v.id) ?? null })));
-  return { items: heldItems(rows, rows, versionsByName), cleared_recent: clearedRecent(rows, rows, versionsByName) };
+  const core = await import("./sentinel-core.mjs");
+  return {
+    items: heldItems(rows, rows, versionsByName), cleared_recent: clearedRecent(rows, rows, versionsByName),
+    type_gaps: typeGapGroups(gapRows, rows, await catalogInForce(key), core.sameCategory),
+  };
+}
+
+/** MA-2c: the type catalogue in force for `key` (project → office) as the type-gap close rule reads it — {types, label}; types null
+ *  when none is installed or it could not be read or no longer passes the install check (the label says which: nothing is then
+ *  closed by it, and the groups stay open). */
+async function catalogInForce(key) {
+  try {
+    const { resolveArtefact, refLabel, validateArtefact } = await import("./artefact-store.mjs");
+    const a = await resolveArtefact(key, "type_catalog");
+    if (a.source === "none") return { types: null, label: `none — not installed for ${key} or its office` };
+    validateArtefact("type_catalog", a.body);
+    return { types: a.body.types, label: refLabel(a) };
+  } catch (e) {
+    return { types: null, label: `not read — ${e?.message || e}` };
+  }
+}
+
+/** MA-2c: POST /cde/:key/holding/type-gaps/:group/dismiss {reason} (design §6.8) — a lead clears a type-gap group, as dismissHold
+ *  clears a held file: lead or owner, the machine credential passes (founder decision F8: the existing dismissal's rule); a reason is
+ *  required (≤ 500); only an open group (409 otherwise). One hold:type_gap_dismissed row, new_value {group, reason, category, want,
+ *  size, elements, labels} — what it saw: a later run that reports no more keeps it closed (review amendment C5); the type_gap rows
+ *  stay. → {id, hash} of that row. */
+export async function dismissTypeGap(key, group, b = {}) {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "lead");
+  const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+  if (!reason || reason.length > 500) throw Object.assign(new Error("reason is required — a lead's dismissal says why, in at most 500 characters"), { status: 400 });
+  const g = (await readHolding(key)).type_gaps.open.find((x) => x.id === group);
+  if (!g) throw Object.assign(new Error(`type-gap group ${group} is not open on ${key}`), { status: 409 });
+  const proj = await ensureProject(key);
+  const row = await audit(proj.id, "hold", null, `hold:type_gap_dismissed ${group}`, b.actor || "web", null,
+    { group, reason, category: g.category, want: g.want, size: g.size, elements: g.elements, labels: g.labels });
+  return { id: row?.id ?? null, hash: row?.hash ?? null };
 }
 
 /** POST /cde/:key/holding/dismiss {container_name, reason} (spec 2026-09-27 Decision 8): a lead clears a held item —
