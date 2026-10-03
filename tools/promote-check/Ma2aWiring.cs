@@ -36,5 +36,16 @@ static partial class Check
         Ok(!executor.Contains("if (kind == \"wall\") return null;") && executor.Contains("cw.Kind == WallKind.Basic && nw.Kind == WallKind.Basic && Math.Abs(nw.Width - cw.Width) > TolFt")
            && executor.Contains("mm — a retype would move a face; a person decides\";"),
            "the executor refuses a wall retype whose target width is not the wall's (a bridge-typed retype's thickness is the poster's claim) — and checks nothing else about a wall, as before (review C3)");
+        // Drill MA2a (F-MA2a-3): the design's contract-2 wall (BaseLevel, TopLevel) went on the model's lowest level in silence.
+        int resolve = executor.IndexOf("private static Level ResolveLevel(Document doc, PlaceDto place)", StringComparison.Ordinal);
+        int baseLevel = executor.IndexOf("if (!string.IsNullOrWhiteSpace(place?.BaseLevel)) return LevelNamed(doc, place.BaseLevel);", StringComparison.Ordinal);
+        Ok(resolve > 0 && baseLevel > resolve && !executor.Contains("return levels.OrderBy(l => l.Elevation).First();")
+           && executor.Contains("throw new InvalidOperationException(\"names no level (place.LevelName, place.BaseLevel or place.BaseElevation) — Sentinel never picks its level\");"),
+           "a create's level is its LevelName, else contract 2's BaseLevel, else the level nearest its BaseElevation — never the model's lowest (F-MA2a-3)");
+        int topLevel = executor.IndexOf("else if (!string.IsNullOrWhiteSpace(el.Place.TopLevel))", StringComparison.Ordinal);
+        Ok(topLevel > executor.IndexOf("if (el.Place.TopElevation is double sent) topMm = sent;", StringComparison.Ordinal)
+           && topLevel < executor.IndexOf("PromoteWallsPlanner.WallTop(stories ??= Stories(doc), baseMm, level.Name, out var why)", StringComparison.Ordinal)
+           && executor.Contains("topLevel = LevelNamed(doc, el.Place.TopLevel);"),
+           "…and a wall create's top is contract 2's TopLevel when it names one, before the next-storey rule");
     }
 }

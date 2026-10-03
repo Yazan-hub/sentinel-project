@@ -275,6 +275,27 @@ export function validateChangeset(body, { member = false, type = null } = {}) {
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
       if (["roof", "ceiling", ...POINT_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
+      // Drill MA2a (F-MA2a-3): a wall or floor names its level too. The executor read only LevelName for a create and put the
+      // design's contract-2 wall (BaseLevel and TopLevel, design :675) on the model's lowest level, in silence. Contract 2's
+      // BaseLevel names a wall's level and TopLevel its top; two names for one end are refused, never chosen between.
+      if (el.kind === "wall" || el.kind === "floor") {
+        for (const f of ["BaseLevel", "TopLevel"])
+          if (place[f] !== undefined && !text(place[f], 256)) throw err(400, `${at}: place.${f} must be text of at most 256 characters`);
+        const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+        const named = text(place.LevelName, 256) || (el.kind === "wall" && text(place.BaseLevel, 256)) || place.BaseElevation !== undefined;
+        if (!named) throw err(400, el.kind === "wall"
+          ? `${at}: a wall needs place.LevelName or place.BaseLevel (or place.BaseElevation) — Sentinel never picks its level`
+          : `${at}: a floor needs place.LevelName (or place.BaseElevation) — Sentinel never picks its level`);
+        if (el.kind === "wall") {
+          if (text(place.LevelName, 256) && text(place.BaseLevel, 256) && !same(place.LevelName, place.BaseLevel))
+            throw err(400, `${at}: place.LevelName and place.BaseLevel name different levels — send one`);
+          if (place.TopLevel !== undefined && place.TopElevation !== undefined)
+            throw err(400, `${at}: place.TopLevel and place.TopElevation say the same thing twice — send one`);
+          const base = text(place.BaseLevel, 256) ? place.BaseLevel : place.LevelName;
+          if (text(place.TopLevel, 256) && text(base, 256) && same(place.TopLevel, base))
+            throw err(400, `${at}: place.TopLevel is the wall's own base level — name the level its top reaches`);
+        }
+      }
     } else {
       const uid = el.target?.unique_id;
       if (typeof uid !== "string" || !UNIQUE_ID.test(uid)) throw err(400, `${at}: ${op} needs target.unique_id, a Revit UniqueId`);

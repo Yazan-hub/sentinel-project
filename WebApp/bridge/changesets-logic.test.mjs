@@ -357,7 +357,7 @@ describe("validateChangeset — MA-1 creates", () => {
   const win = make("window", "IfcWindow", "MA1-W01", { LevelName: "GR-FFL", FamilyName: "M_Fixed", TypeName: "MA1 600 x 1200mm", Location: [24000, 3000, 0], SillHeight: 900, Mark: "MA1-W01" });
   const roof = make("roof", "IfcRoof", "MA1-R01", { LevelName: "MA0 Roof", TypeName: "Generic - 300mm", Boundary: [[0, 0], [12000, 0], [12000, 12000], [0, 12000]], Mark: "MA1-R01" });
   const ceiling = make("ceiling", "IfcCovering", "MA1-C01", { LevelName: "GR-FFL", TypeName: "MA1 Ceiling - 50mm", Boundary: [[0, 0], [4000, 0], [4000, 4500], [0, 4500]], Offset: 2700, Mark: "MA1-C01" });
-  const floor = make("floor", "IFCSLAB", "F1", { TypeName: "Generic 150mm", LocationLoop: [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]] });
+  const floor = make("floor", "IFCSLAB", "F1", { TypeName: "Generic 150mm", LevelName: "GR-FFL", LocationLoop: [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]] });
   const grid = make("grid", "IFCGRID", "A", { LocationCurve: { start: [0, 0, 0], end: [0, 9000, 0] } });
   const ok = (el) => validateChangeset(CS([el])).elements[0];
 
@@ -796,6 +796,34 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
   it("the add-in's sources are named, so the MCP tool can refuse to file as one", () => {
     expect(ADDIN_SOURCES).toEqual(["dwg", "promote"]);
     expect(TRUST_FIELDS).toEqual(["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"]);
+  });
+});
+
+describe("validateChangeset — a wall or floor names its level (drill MA2a, F-MA2a-3)", () => {
+  // Live: the design's contract-2 wall (BaseLevel GR-FFL, TopLevel 01-FFL, no LevelName) was stored, and the executor — which read
+  // only LevelName for a create — put it on the model's lowest level (GR_SSL, 300 mm high), in silence.
+  const bare = (kind, place) => ({ kind, validate: { identity: { Class: kind === "wall" ? "IfcWall" : "IfcSlab", Name: "X" } }, place });
+  const curve = { start: [0, 0, 0], end: [5000, 0, 0] }, loop = [[0, 0, 0], [5000, 0, 0], [5000, 5000, 0]];
+  it("a wall or floor that names no level at all is a 400 in words", () => {
+    status400(() => validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve })])),
+      /elements\[0\]: a wall needs place\.LevelName or place\.BaseLevel \(or place\.BaseElevation\) — Sentinel never picks its level/);
+    status400(() => validateChangeset(CS([bare("floor", { TypeName: "Generic 150mm", LocationLoop: loop })])),
+      /elements\[0\]: a floor needs place\.LevelName \(or place\.BaseElevation\) — Sentinel never picks its level/);
+  });
+  it("contract 2's BaseLevel names a wall's level; TopLevel its top", () => {
+    const el = validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, BaseLevel: "GR-FFL", TopLevel: "01-FFL" })])).elements[0];
+    expect(el.place).toMatchObject({ BaseLevel: "GR-FFL", TopLevel: "01-FFL" });
+    expect(validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, LevelName: "GR-FFL" })])).elements).toHaveLength(1);
+    expect(validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, BaseElevation: 0 })])).elements).toHaveLength(1);
+  });
+  it("two names for one end are refused, never chosen between", () => {
+    status400(() => validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, LevelName: "GR-FFL", BaseLevel: "01-FFL" })])),
+      /place\.LevelName and place\.BaseLevel name different levels/);
+    status400(() => validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, BaseLevel: "GR-FFL", TopLevel: "01-FFL", TopElevation: 6000 })])),
+      /place\.TopLevel and place\.TopElevation say the same thing twice/);
+    status400(() => validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, BaseLevel: "GR-FFL", TopLevel: "GR-FFL" })])),
+      /place\.TopLevel is the wall's own base level/);
+    status400(() => validateChangeset(CS([bare("wall", { TypeName: "Generic - 200mm", LocationCurve: curve, BaseLevel: 7 })])), /place\.BaseLevel must be text/);
   });
 });
 
