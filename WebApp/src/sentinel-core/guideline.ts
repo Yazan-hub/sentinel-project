@@ -253,7 +253,7 @@ export function resolveWithCatalog(
   input: ResolveInput,
   catalog: CatalogType[],
 ): Resolution {
-  const r = resolveType(guideline, input);
+  const { r, pattern } = resolveWinner(guideline, input);
   if (r.source === "none" || !r.type) return r;
 
   const inCatalog = catalog.some(
@@ -261,9 +261,9 @@ export function resolveWithCatalog(
   );
   if (inCatalog) return r;
 
-  // Find the rule that produced this, so we can offer what its pattern COULD produce.
-  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  const pattern = el?.rules.find((x) => x.use.typePattern && matches(x.when, input))?.use.typePattern;
+  // What the WINNING rule's pattern could produce (GuidelineMatcher.WithCatalogCheck reads the same rule). A document-order
+  // search here once listed the first matching pattern rule's sizes — a lower-specificity rule's — when the winner was listed
+  // after it (review of MA-2a; the shared fixture pins a reordered file).
   const options = pattern
     ? patternOptions(pattern, catalog.filter((c) => sameCategory(c, input.category)))
     : [];
@@ -305,8 +305,14 @@ export function validateAgainstCatalog(guideline: Guideline, catalog: CatalogTyp
 }
 
 export function resolveType(guideline: Guideline, input: ResolveInput): Resolution {
+  return resolveWinner(guideline, input).r;
+}
+
+/** resolveType, with the winning rule's (or the default's) `typePattern` beside the answer, for resolveWithCatalog's options. */
+function resolveWinner(guideline: Guideline, input: ResolveInput): { r: Resolution; pattern?: string } {
+  const none: Resolution = { family: "", params: {}, source: "none", confidence: 0 };
   const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  if (!el) return { family: "", params: {}, source: "none", confidence: 0 };
+  if (!el) return { r: none };
 
   const ordered = el.rules
     .map((rule, i) => ({ rule, i }))
@@ -316,28 +322,34 @@ export function resolveType(guideline: Guideline, input: ResolveInput): Resoluti
     const hit = matches(rule.when, input);
     if (hit) {
       return {
-        family: rule.use.family,
-        type: fillPattern(rule.use, input),
-        params: rule.use.params ?? {},
-        source: "rule",
-        confidence: 1,
-        why: rule.why,
-        matched: hit,
+        r: {
+          family: rule.use.family,
+          type: fillPattern(rule.use, input),
+          params: rule.use.params ?? {},
+          source: "rule",
+          confidence: 1,
+          why: rule.why,
+          matched: hit,
+        },
+        pattern: rule.use.typePattern,
       };
     }
   }
 
   if (el.default) {
     return {
-      family: el.default.family,
-      type: el.default.type,
-      params: el.default.params ?? {},
-      source: "default",
-      confidence: 0.6,
-      why: `No office rule matched — fell back to the ${el.category} default.`,
+      r: {
+        family: el.default.family,
+        type: el.default.type,
+        params: el.default.params ?? {},
+        source: "default",
+        confidence: 0.6,
+        why: `No office rule matched — fell back to the ${el.category} default.`,
+      },
+      pattern: el.default.typePattern,
     };
   }
-  return { family: "", params: {}, source: "none", confidence: 0 };
+  return { r: none };
 }
 
 /** Every (category, layer) the guideline does NOT cover. The honest gap list an office works through

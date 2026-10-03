@@ -386,5 +386,114 @@
     "matched": [
       "param:Location"
     ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior",
+        "Material": "Gypsum Wall Board"
+      },
+      "thicknessMm": 125
+    },
+    "guideline": {
+      "standard": "BDS DD walls, layer-free v0 (MA-2a) — DRAFT",
+      "office": "BDS",
+      "stage": "DD",
+      "status": "draft",
+      "elements": [
+        {
+          "category": "Walls",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm"
+              },
+              "why": "DD (MA-2a): an outside wall — one side looks out of the storey's outline — is the office's external CMU at the wall type's width."
+            },
+            {
+              "when": {
+                "params": {
+                  "Location": "Interior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "typePattern": "BDS_INT_ARC_CMU_{thickness} mm"
+              },
+              "why": "DD (MA-2a): an inside wall — both sides within the storey's outline — is the office's internal CMU at the wall type's width."
+            },
+            {
+              "when": {
+                "params": {
+                  "Function": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "typePattern": "BDS_EXT_ARC_CMU_{thickness} mm"
+              },
+              "why": "DD (MA-0): where the outer boundary cannot be read, a wall whose type's Function is Exterior is the external CMU at the wall type's width."
+            },
+            {
+              "when": {
+                "params": {
+                  "Function": "Interior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm"
+              },
+              "why": "DD (MA-0): where the outer boundary cannot be read, a wall whose type's Function is Interior is the gypsum partition at the wall type's width."
+            },
+            {
+              "when": {
+                "params": {
+                  "Location": "Exterior",
+                  "Material": "STONE"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "typePattern": "BDS_EXT_ARC_STONE_{thickness} mm"
+              },
+              "why": "DD (MA-2a): an outside wall whose build-up names stone is the office's stone-clad external wall at the wall type's width."
+            },
+            {
+              "when": {
+                "params": {
+                  "Location": "Interior",
+                  "Material": "GYPS"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "typePattern": "BDS_INT_ARC_GYPS_{thickness} mm"
+              },
+              "why": "DD (MA-2a): an inside wall whose build-up names gypsum is the office's gypsum partition at the wall type's width."
+            }
+          ]
+        }
+      ]
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_GYPS_125 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_INT_ARC_GYPS_50 mm",
+      "BDS_INT_ARC_GYPS_100 mm"
+    ],
+    "matched": [
+      "param:Location",
+      "param:Material"
+    ]
   }
 ]

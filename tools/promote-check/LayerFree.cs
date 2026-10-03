@@ -87,17 +87,19 @@ static partial class Check
 
     // The TS resolver's answers over the layer-free file (guideline-layerfree.test.ts writes them) against the C# port, on family,
     // type, source, confidence, options and the matched conditions (Matched ↔ matched, review C9) — never `why`. A case with its own
-    // `catalog` rows resolves against those (BOS-5).
+    // `catalog` rows resolves against those (BOS-5); one with its own `guideline` (the file reordered) against that.
     static void ResolverParityLayerFree(string guidelineText, GuidelineMatcher m3)
     {
         var path = Repo("WebApp", "src", "sentinel-core", "fixtures", "guideline-layerfree-cases.json");
         var cases = JsonNode.Parse(File.ReadAllText(path)).AsArray();
+        string catalogText = File.ReadAllText(Repo("demo", "bds-pilot", "bds-type-catalog.json"));
         int same = 0;
         foreach (var c in cases)
         {
             var input = c["input"];
-            var m = c["catalog"] == null ? m3
-                : GuidelineMatcher.FromBodies(guidelineText, new JsonObject { ["types"] = JsonNode.Parse(c["catalog"].ToJsonString()) }.ToJsonString(), out _, out _);
+            var m = c["catalog"] == null && c["guideline"] == null ? m3
+                : GuidelineMatcher.FromBodies(c["guideline"]?.ToJsonString() ?? guidelineText,
+                    c["catalog"] == null ? catalogText : new JsonObject { ["types"] = JsonNode.Parse(c["catalog"].ToJsonString()) }.ToJsonString(), out _, out _);
             var r = m.Resolve(new GuidelineInput
             {
                 Category = (string)input["category"],
@@ -112,6 +114,6 @@ static partial class Check
             if (ok) same++;
             else Console.WriteLine($"        differs: {input.ToJsonString()} → C# {r.Family} / {r.Type} / {r.Source} / {r.Confidence} / [{string.Join(", ", r.Available ?? new List<string>())}] / matched [{string.Join(", ", r.Matched ?? new List<string>())}]");
         }
-        Ok(cases.Count == 18 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
+        Ok(cases.Count == 19 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
     }
 }

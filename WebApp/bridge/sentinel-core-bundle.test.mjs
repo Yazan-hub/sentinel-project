@@ -29,8 +29,9 @@ describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", (
       expect(cases.length).toBeGreaterThan(0);
       for (const c of cases) {
         const cat = c.catalog ?? CATALOG;
-        const got = pick(bundle.resolveWithCatalog(G, c.input, cat));
-        expect(got, JSON.stringify(c.input)).toEqual(pick(source.resolveWithCatalog(G, c.input, cat)));
+        const g = c.guideline ?? G; // a case may carry the file reordered (the layer-free fixture's `available` case)
+        const got = pick(bundle.resolveWithCatalog(g, c.input, cat));
+        expect(got, JSON.stringify(c.input)).toEqual(pick(source.resolveWithCatalog(g, c.input, cat)));
         expect(got, JSON.stringify(c.input)).toMatchObject({ family: c.family, type: c.type, source: c.source, confidence: c.confidence, available: c.available });
         if ("matched" in c) expect(got.matched, JSON.stringify(c.input)).toEqual(c.matched); // the layer-free fixture carries it
       }

@@ -884,14 +884,12 @@ function matches(when, input) {
 }
 var specificity = (w) => (w.layer ? 1 : 0) + (w.level ? 1 : 0) + (w.discipline ? 1 : 0) + Object.keys(w.params ?? {}).length;
 function resolveWithCatalog(guideline, input, catalog) {
-  const r = resolveType(guideline, input);
+  const { r, pattern } = resolveWinner(guideline, input);
   if (r.source === "none" || !r.type) return r;
   const inCatalog = catalog.some(
     (c) => norm(c.type) === norm(r.type) && sameCategory(c, input.category)
   );
   if (inCatalog) return r;
-  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  const pattern = el?.rules.find((x) => x.use.typePattern && matches(x.when, input))?.use.typePattern;
   const options = pattern ? patternOptions(pattern, catalog.filter((c) => sameCategory(c, input.category))) : [];
   return {
     ...r,
@@ -922,34 +920,44 @@ function validateAgainstCatalog(guideline, catalog) {
   return errs;
 }
 function resolveType(guideline, input) {
+  return resolveWinner(guideline, input).r;
+}
+function resolveWinner(guideline, input) {
+  const none = { family: "", params: {}, source: "none", confidence: 0 };
   const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  if (!el) return { family: "", params: {}, source: "none", confidence: 0 };
+  if (!el) return { r: none };
   const ordered = el.rules.map((rule, i) => ({ rule, i })).sort((a, b) => specificity(b.rule.when) - specificity(a.rule.when) || a.i - b.i);
   for (const { rule } of ordered) {
     const hit = matches(rule.when, input);
     if (hit) {
       return {
-        family: rule.use.family,
-        type: fillPattern(rule.use, input),
-        params: rule.use.params ?? {},
-        source: "rule",
-        confidence: 1,
-        why: rule.why,
-        matched: hit
+        r: {
+          family: rule.use.family,
+          type: fillPattern(rule.use, input),
+          params: rule.use.params ?? {},
+          source: "rule",
+          confidence: 1,
+          why: rule.why,
+          matched: hit
+        },
+        pattern: rule.use.typePattern
       };
     }
   }
   if (el.default) {
     return {
-      family: el.default.family,
-      type: el.default.type,
-      params: el.default.params ?? {},
-      source: "default",
-      confidence: 0.6,
-      why: `No office rule matched \u2014 fell back to the ${el.category} default.`
+      r: {
+        family: el.default.family,
+        type: el.default.type,
+        params: el.default.params ?? {},
+        source: "default",
+        confidence: 0.6,
+        why: `No office rule matched \u2014 fell back to the ${el.category} default.`
+      },
+      pattern: el.default.typePattern
     };
   }
-  return { family: "", params: {}, source: "none", confidence: 0 };
+  return { r: none };
 }
 function coverageGaps(guideline, seen) {
   return seen.filter((s) => resolveType(guideline, s).source === "none");

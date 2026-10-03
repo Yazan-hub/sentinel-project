@@ -24,7 +24,11 @@ const GERMAN: CatalogType[] = [
 // The same rows from a harvest before BOS-5: the localized name alone, no bic — the catalogue cannot answer for "Walls".
 const GERMAN_NO_BIC: CatalogType[] = GERMAN.map(({ bic: _b, ...c }) => c);
 
-const INPUTS: { input: ResolveInput; catalog?: CatalogType[] }[] = [
+// The same file with its two-param rules listed LAST. The winner is unchanged (specificity first), and a gap's `available` must be
+// the WINNER's sizes: a document-order search listed the Location rule's CMU sizes for a GYPS gap (review of MA-2a).
+const REORDERED: Guideline = { ...G, elements: [{ ...G.elements[0], rules: [...G.elements[0].rules.slice(2), ...G.elements[0].rules.slice(0, 2)] }] };
+
+const INPUTS: { input: ResolveInput; catalog?: CatalogType[]; guideline?: Guideline }[] = [
   { input: wall({ Location: "Exterior" }, 200) }, { input: wall({ Location: "Interior" }, 200) }, { input: wall({ Location: "Interior" }, 100) },
   { input: wall({ Location: "Interior", Function: "Exterior" }, 100) },           // Location is listed first: it wins the tie
   { input: wall({ Function: "Exterior" }, 200) }, { input: wall({ Function: "Interior" }, 100) },
@@ -37,11 +41,12 @@ const INPUTS: { input: ResolveInput; catalog?: CatalogType[] }[] = [
   { input: wall({ Location: "Exterior" }, 200), catalog: GERMAN }, { input: wall({ Location: "Exterior" }, 200), catalog: GERMAN_NO_BIC },
   { input: wall({ Location: "Exterior" }, 150), catalog: GERMAN },               // bic also finds the options
   { input: wall({ Location: "Interior" }, 100.5) },                              // half a millimetre rounds UP on both sides: CMU_101, a gap (C# was to-even: CMU_100)
+  { input: wall({ Location: "Interior", Material: "Gypsum Wall Board" }, 125), guideline: REORDERED }, // a GYPS gap lists GYPS sizes, whatever the file's order
 ];
 
-const cases = INPUTS.map(({ input, catalog }) => {
-  const r = resolveWithCatalog(G, input, catalog ?? CATALOG);
-  return { input, ...(catalog ? { catalog } : {}), family: r.family || null, type: r.type ?? null, source: r.source, confidence: r.confidence, available: r.available ?? null, matched: r.matched ?? null };
+const cases = INPUTS.map(({ input, catalog, guideline }) => {
+  const r = resolveWithCatalog(guideline ?? G, input, catalog ?? CATALOG);
+  return { input, ...(catalog ? { catalog } : {}), ...(guideline ? { guideline } : {}), family: r.family || null, type: r.type ?? null, source: r.source, confidence: r.confidence, available: r.available ?? null, matched: r.matched ?? null };
 });
 const find = (pred: (c: (typeof cases)[number]) => boolean) => cases.find(pred)!;
 const P = (c: (typeof cases)[number]) => c.input.params ?? {};
@@ -54,7 +59,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
   });
 
   it("pins the answers Promote, Ghost Builder and the bridge depend on", () => {
-    expect(cases).toHaveLength(18);
+    expect(cases).toHaveLength(19);
     expect(find((c) => P(c).Location === "Exterior" && c.input.thicknessMm === 200 && !c.catalog)).toMatchObject({ type: "BDS_EXT_ARC_CMU_200 mm", source: "rule", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && c.input.thicknessMm === 200 && !P(c).Material)).toMatchObject({ type: "BDS_INT_ARC_CMU_200 mm", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && P(c).Function === "Exterior")).toMatchObject({ type: "BDS_INT_ARC_CMU_100 mm", confidence: 1 });
@@ -68,6 +73,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
     expect(find((c) => Object.keys(P(c)).length === 0)).toMatchObject({ source: "none" });
     expect(find((c) => c.input.thicknessMm === undefined)).toMatchObject({ source: "rule", confidence: 1, type: null });
     expect(find((c) => c.input.thicknessMm === 100.5)).toMatchObject({ type: "BDS_INT_ARC_CMU_101 mm", confidence: 0 });
+    expect(find((c) => c.guideline === REORDERED)).toMatchObject({ type: "BDS_INT_ARC_GYPS_125 mm", confidence: 0, available: ["BDS_INT_ARC_GYPS_50 mm", "BDS_INT_ARC_GYPS_100 mm"], matched: ["param:Location", "param:Material"] });
   });
 
   it("BOS-5: a catalogue row answers for a guideline category by its BuiltInCategory, not only by its name", () => {
