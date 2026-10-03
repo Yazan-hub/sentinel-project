@@ -59,6 +59,7 @@ static partial class Check
         PropertyPlannerChecks();
         Ma2cWiringChecks();
         TypeGapChecks();
+        StoreyBatchChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
