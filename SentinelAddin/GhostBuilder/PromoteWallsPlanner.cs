@@ -69,6 +69,18 @@ namespace Sentinel.GhostBuilder
     public sealed class PromoteHeld
     {
         public string UniqueId, Label, Reason;
+        /// <summary>MA-2c: set when the hold is a TYPE GAP (the "gap: …" reasons): the office has no type for the element. TypeGaps
+        /// groups them for the Holding Area. Null for every other hold.</summary>
+        public TypeGap Gap;
+    }
+
+    /// <summary>MA-2c: why a held element is a type gap — its category; the type its DD rule asks for and the catalogue lacks (Want),
+    /// or, with no rule to name one, the size no catalogue type is named at (Size, "915 x 2134 mm"); the facts the rule read (Key);
+    /// the catalogue's nearest types. The Holding Area groups gaps by category and Want, else Size (design §6.4).</summary>
+    public sealed class TypeGap
+    {
+        public string Category, Want, Size, Key;
+        public List<string> Nearest = new List<string>();
     }
 
     public sealed class StoreyPlan
@@ -176,7 +188,7 @@ namespace Sentinel.GhostBuilder
                 for (int k = 0; k < ws.Count; k++)
                 {
                     var w = ws[k];
-                    void Hold(string reason) => p.Held.Add(new PromoteHeld { UniqueId = w.UniqueId, Label = w.Label, Reason = reason });
+                    void Hold(string reason, TypeGap gap = null) => p.Held.Add(new PromoteHeld { UniqueId = w.UniqueId, Label = w.Label, Reason = reason, Gap = gap });
                     // MA-2b: a whole-wall hold is BLOCKED in the LOD state — Promote cannot act on it, whatever the matrix says.
                     void Block(string reason) { Hold(reason); p.Lod.Add(new LodFact { UniqueId = w.UniqueId, Category = "Walls", Blocked = true }); }
 
@@ -258,8 +270,9 @@ namespace Sentinel.GhostBuilder
                                     });
                                 }
                             }
-                            else if (res.Source == "rule")
-                                Hold(m.Gap($"{w.Label} ({w.TypeName}, {used})", res.Why));
+                            else if (res.Source == "rule") // MA-2c: a type gap when the rule names a type the catalogue lacks
+                                Hold(m.Gap($"{w.Label} ({w.TypeName}, {used})", res.Why), string.IsNullOrWhiteSpace(res.Type) ? null
+                                     : new TypeGap { Category = "Walls", Want = res.Type, Size = Mm(w.WidthMm, "0") + " mm", Key = used, Nearest = res.Available ?? new List<string>() });
                             else if (p.OneType)
                                 Hold($"every wall on {storey.Key}{aside} is \"{w.TypeName}\" — inside cannot be told from outside: its Function tells nothing, and " +
                                      (loc != null ? $"{m.Standard} has no rule for Location {loc}" : $"its location is unknown ({locWhy})") + "; a person decides");

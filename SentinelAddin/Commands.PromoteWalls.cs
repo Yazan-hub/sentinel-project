@@ -120,6 +120,13 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var lodText = lodErr != null ? "LOD state: not read — " + lodErr
             : lod == null ? $"LOD state: not measured — no lod_matrix@n to measure against ({pc.MxLabel})"
             : "LOD state now (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line + "\n" + string.Join("\n", lodLines.Take(12)) + (lodLines.Count > 12 ? $"\n… and {lodLines.Count - 12} more" : "");
+        // MA-2c (design §6.4): the run's type gaps — the held elements the office has no type for, grouped — as one type_gap row (the
+        // Holding Area lists each group until a lead dismisses it or a catalogue with the type is installed); the read-only run too.
+        var gaps = TypeGaps.Group(plans);
+        if (gaps.Count > 0) GovernedNotify.Report("Type gaps", CommandReports.TypeGaps(gaps, standards.CatalogSource.Label, standards.GuidelineSource.Label, actor), key);
+        var gapText = gaps.Count == 0 ? ""
+            : $"\n\nType gaps (sent to the ledger — the Holding Area lists them; the pane's Doctor log says whether it was recorded): {gaps.Count} group(s), {gaps.Sum(g => g.Elements)} element(s)\n" +
+              string.Join("\n", gaps.Take(8).Select(TypeGaps.Line)) + (gaps.Count > 8 ? $"\n… and {gaps.Count - 8} more" : "");
         var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: classes.Count == 1 && classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
         // Elements, not reasons: one wall can be held for its type and for its top. DD now counts concept and settled
@@ -157,7 +164,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
                                                 : $"File {bodies.Count} changeset(s)?",
             MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
-                          "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText +
+                          "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText + gapText +
                           (asks.Count > 0 ? "\n\nDD also asks (the DD IDS: counted in the LOD state, checked again before commit" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) +
                                             (pc.Ids == null ? "\nDD IDS: not read — " + pc.IdsWhy : pc.Ids.Unmatched.Count > 0 ? "\nNot in the DD IDS: " + string.Join("; ", pc.Ids.Unmatched) : "") : "") +
                           (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
