@@ -61,6 +61,16 @@ static partial class Check
                                                  Seg(6000, 4000, 12000, 4000), Seg(12000, 4000, 12000, 8000), Seg(12000, 8000, 6000, 8000), Seg(6000, 8000, 6000, 4000) };
         Ok(Enumerable.Range(0, 4).All(i => Loc(o, i) == "Exterior") && Enumerable.Range(4, 4).All(i => Loc(o, i) == "Interior"),
            "a closed courtyard's walls read Interior — the ceiling the file states, pinned so a change is seen");
+        // Review C23: a partition drawn INSIDE a thick shell wall's body (its centreline 100 mm in from the shell's) had its outer sample
+        // point past the shell's centreline, met nothing and read Exterior at confidence 1. Overlapping walls are unknown, in words; a
+        // partition merely abutting the shell's face (x = 350 against a 600 mm wall at x = 0) still reads Interior.
+        var thick = new List<WallLocation.Segment> { Seg(0, 0, 12000, 0), Seg(12000, 0, 12000, 8000), Seg(12000, 8000, 0, 8000), Seg(0, 8000, 0, 0, 600), Seg(100, 1000, 100, 7000, 100) };
+        Ok(Loc(thick, 4) == null && Why(thick, 4) == "its sample point lies beyond another wall's centreline (overlapping walls) — a person decides",
+           "a partition drawn inside a 600 mm shell wall's body is unknown, in words — not Exterior (review C23)");
+        Ok(Loc(thick, 3) == null && Why(thick, 3) == Why(thick, 4) && Enumerable.Range(0, 3).All(k => Loc(thick, k) == "Exterior"),
+           "…the shell wall it is drawn inside is unknown the same way (its own sample point is beyond the partition), the other three outline walls read Exterior");
+        var abut = new List<WallLocation.Segment>(thick) { [4] = Seg(350, 1000, 350, 7000, 100) };
+        Ok(Loc(abut, 4) == "Interior", "…while a partition abutting the shell's face reads Interior as before");
         Ok(WallLocation.Summary(8, 12, 1) == "outer boundary: 8 outside · 12 inside · 1 unknown", "the summary line");
     }
 
@@ -124,10 +134,10 @@ static partial class Check
         var civil = new List<WallFact>
         {
             W("RET", "Generic - 200mm", "Retaining", 200, top: "Level 2", set: w => w.Line = layout[8]),   // a partition's line: reads Interior
-            W("FND", "Generic - 200mm", "Foundation", 200, top: "Level 2", set: w => w.Line = layout[0]),  // an outline line: reads Exterior
+            W("FND", "Generic - 200mm", "Foundation", 200, top: "Level 2", set: w => w.Line = layout[1]),  // an outline line: reads Exterior
             W("SOF", "Generic - 200mm", "Soffit", 200, top: "Level 2"),                                   // no line: location unknown
         };
-        var civStorey = civil.Concat(mixed.Take(2)).Concat(others).ToList(); // E1 and I1 make it a mixed storey (the civil walls alone would be one-type: F2)
+        var civStorey = civil.Concat(mixed.Take(2)).Concat(others.Skip(1)).ToList(); // E1 and I1 make it a mixed storey (the civil walls alone would be one-type: F2); FND stands on O0's line
         var civ = PromoteWallsPlanner.Plan(civStorey, Levels, docTypes, m3).Single();
         Ok(!civ.OneType && civ.Ghosts.Count(g => g.Op == "retype") == 2 && G(civ, "RET") == null && G(civ, "FND") == null
            && civ.Held.Any(h => h.Label == "RET" && h.Reason == "Function Retaining — the rule that matched does not name Function: it does not decide a Retaining wall; a person decides")

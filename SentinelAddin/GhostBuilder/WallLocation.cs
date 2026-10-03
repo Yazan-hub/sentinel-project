@@ -10,7 +10,9 @@
 // enclose as well as a concept wall does; a curved wall's chord stands in for it as a barrier.
 //
 // CEILINGS, STATED. A wall facing a closed inner courtyard reads Interior (every direction meets a wall). A ray that escapes
-// through an opening in a wall drawn in pieces (GHB-6) reads that side as open. A storey is its walls' base level, as Promote
+// through an opening in a wall drawn in pieces (GHB-6) reads that side as open. A wall whose sample point lies beyond another
+// wall's centreline (overlapping walls — a partition drawn inside a thick wall's body) is unknown, in words (review C23); walls that
+// overlap only away from the located wall's middle are read as any other. A storey is its walls' base level, as Promote
 // plans it. Pure 2D in millimetres, no Revit types: tools/promote-check drives it over the concept layout, an L, a U, an O and
 // the drill drawing's own numbers; Promote (storey walls) and Ghost Builder (the walls of one build) feed it.
 using System;
@@ -53,6 +55,17 @@ namespace Sentinel.GhostBuilder
             if (len < MinLengthMm) { why = $"{Mm(len)} mm long — too short to look out from (under {Mm(MinLengthMm)} mm)"; return null; }
             double ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
             double mx = (w.X0 + w.X1) / 2, my = (w.Y0 + w.Y1) / 2, off = Math.Max(0, w.WidthMm) / 2 + ClearMm;
+            // Overlapping walls (review C23): a sample point BEYOND another wall's centreline — the short segment from this wall's
+            // middle to the point crosses it — starts its rays past that wall, which is then never met: a partition drawn inside a
+            // thick shell wall's body read Exterior. Unknown, in words. A wall abutting another's face, or meeting it end-on at its
+            // middle (the sample segment runs along it), crosses nothing and is read as before.
+            for (int j = 0; j < walls.Count; j++)
+            {
+                var o = walls[j];
+                if (j == i || o == null) continue;
+                if (Crosses(mx, my, mx + nx * off, my + ny * off, o) || Crosses(mx, my, mx - nx * off, my - ny * off, o))
+                { why = "its sample point lies beyond another wall's centreline (overlapping walls) — a person decides"; return null; }
+            }
             bool plusOpen = Open(walls, i, mx + nx * off, my + ny * off, nx, ny, ux, uy);
             bool minusOpen = Open(walls, i, mx - nx * off, my - ny * off, -nx, -ny, ux, uy);
             if (plusOpen != minusOpen) return Exterior;
@@ -95,6 +108,16 @@ namespace Sentinel.GhostBuilder
         {
             double vx = qx - px, vy = qy - py, t = vx * dx + vy * dy;
             return t > TolMm && Math.Abs(vx * dy - vy * dx) <= TolMm;
+        }
+
+        /// <summary>Does the segment a→b cross segment s — not parallel, the crossing on a→b past a and within s?</summary>
+        private static bool Crosses(double ax, double ay, double bx, double by, Segment s)
+        {
+            double dx = bx - ax, dy = by - ay, ex = s.X1 - s.X0, ey = s.Y1 - s.Y0, rx = s.X0 - ax, ry = s.Y0 - ay;
+            double den = dx * ey - dy * ex;
+            if (Math.Abs(den) < 1e-9 * Math.Sqrt((dx * dx + dy * dy) * (ex * ex + ey * ey))) return false;
+            double t = (rx * ey - ry * ex) / den, u = (rx * dy - ry * dx) / den;
+            return t > 0 && t <= 1 && u >= 0 && u <= 1;
         }
 
         private static string Mm(double v) => v.ToString("0", CultureInfo.InvariantCulture);

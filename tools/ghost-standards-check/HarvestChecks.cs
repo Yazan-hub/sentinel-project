@@ -48,7 +48,7 @@ static class HarvestChecks
         _ok(harvest.Contains("TypeHarvest.MaterialLabel(NamingManagerService.LayerMaterials(doc, t))") && harvest.Contains("case StorageType.ElementId:"),
             "a type's Material is its Material parameter's element name, else its build-up layers' materials; a parameter is read by its storage type");
         _ok(harvest.Contains("foreach (Category c in eb.Categories) categories.Add(Compat.CategoryKeyOf(c));"),
-            "a shared parameter's bound categories are written as English keys too, so a German harvest binds every parameter on an English Revit (BOS-5)");
+            "a shared parameter's bound categories are written as English keys too, so a German harvest binds every parameter bound to one of the 28 categories Sentinel knows (Compat.CategoryKeys) on an English Revit; a category outside them keeps its display name and binds on the harvesting locale only (BOS-5, review C24)");
         string compat = Src("Compat.cs");
         _ok(compat.Contains("public static string CategoryKeyOf(Category category)") && compat.Contains("public static string? BicNameOf(Category category)")
             && compat.Contains("Enum.IsDefined(typeof(BuiltInCategory), bic)") && !compat.Contains("category.BuiltInCategory"),

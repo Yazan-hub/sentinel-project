@@ -252,7 +252,7 @@ namespace Sentinel.Coordination
                 var resp = Send(GovHttp, HttpMethod.Get, url, null, cfg);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 if (resp.IsSuccessStatusCode) return (json, null);
-                try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("message", out var m)) return (null, $"HTTP {(int)resp.StatusCode}: {m.GetString()}"); } catch { }
+                try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("message", out var m)) return (null, $"HTTP {(int)resp.StatusCode}: {m.GetString()}"); } catch (JsonException) { }
                 return (null, "bridge returned HTTP " + (int)resp.StatusCode);
             }
             catch (Exception ex)
