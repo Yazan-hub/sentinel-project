@@ -91,8 +91,10 @@ namespace Sentinel.GhostBuilder
             var td = new TaskDialog("Sentinel — DD IDS check")
             {
                 MainInstruction = StageIds.Headline(fails.Count, matrix),
-                MainContent = string.Join("\n", fails.Take(8).Select(f => "• " + f)) + (fails.Count > 8 ? $"\n… and {fails.Count - 8} more" : "") +
+                MainContent = string.Join("\n", StageIds.Tally(fails).Select(t => "• " + t)) + "\n\nEach element is named under See details." +
                               "\n\nThe DD IDS is made from the LOD matrix's properties (matrixToIds). A missing value is a gap at DD, not an error in the model.",
+                // ponytail: 200 named lines, the tally above counts every one; a scrollable list if a real office's changeset outgrows it
+                ExpandedContent = string.Join("\n", fails.Take(200)) + (fails.Count > 200 ? $"\n… and {fails.Count - 200} more (counted above)" : ""),
                 AllowCancellation = true,
             };
             td.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Go back", $"Nothing is placed: {what} is rolled back and the model stays as it was.");

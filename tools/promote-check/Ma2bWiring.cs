@@ -32,8 +32,9 @@ static partial class Check
            && ctx.Contains("var v = ids.Judge(g.identity.Class, StageIds.ValuesOf(g), org, spec);")
            && promote.Contains("pc.Ids.Judge(read[i].identity.Class, StageIds.ValuesOf(read[i]), org, ruled[i].Spec);")
            && place.Contains("idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix);") && !place.Contains("every element passed")
-           && ctx.Contains("StageIds.NotFrom(pc.Ids, pc.MxSha, pc.MxLabel) is string other"),
-           "the DD IDS is checked before commit where the BLOCK check runs (step 5): going back rolls the group back; a check that could not run is said; each element is judged against its own class's specification, and what was not judged is said; how many were judged is said; an IDS made from another matrix than the one read is not used (review)");
+           && ctx.Contains("StageIds.NotFrom(pc.Ids, pc.MxSha, pc.MxLabel) is string other")
+           && ctx.Contains("MainContent = string.Join(\"\\n\", StageIds.Tally(fails)") && ctx.Contains("ExpandedContent = string.Join(\"\\n\", fails.Take(200))"),
+           "the DD IDS is checked before commit where the BLOCK check runs (step 5): going back rolls the group back; a check that could not run is said; each element is judged against its own class's specification, and what was not judged is said; how many were judged is said; an IDS made from another matrix than the one read is not used (review); the dialog counts every failing element and names each under See details (drill MA2b F-MA2b-2)");
         int afterAt = review.IndexOf("PromoteWallsCommand.LodStateAfter(doc, promote)", StringComparison.Ordinal);
         Ok(afterAt > review.IndexOf("onDone = result =>", StringComparison.Ordinal) && review.Contains("GovernedNotify.Report(\"LOD state after\"")
            && review.Contains("handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement, promote);"),

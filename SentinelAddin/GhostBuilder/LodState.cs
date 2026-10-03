@@ -126,6 +126,12 @@ namespace Sentinel.GhostBuilder
 
         public static string Headline(int n, string matrix) => $"This changeset leaves {n} element(s) failing the DD IDS made from {matrix}";
 
+        /// <summary>The failures counted by specification and missing properties, every failing element in one of the lines
+        /// (drill MA2b F-MA2b-2: the first eight lines alone hid the partitions): "Walls · DD: missing Pset_WallCommon.FireRating — 26 element(s)".</summary>
+        public static List<string> Tally(IEnumerable<string> fails) =>
+            fails.Select(f => { int i = f.IndexOf(" (", StringComparison.Ordinal); return i < 0 ? f : f.Substring(i + 2).Replace("): ", ": "); })
+                 .GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Key} — {g.Count()} element(s)").ToList();
+
         /// <summary>The line when the person went back: nothing was placed.</summary>
         public static string WentBack(int n, string matrix) =>
             $"You went back at the DD IDS check — nothing was placed. {n} element(s) would have failed the DD IDS made from {matrix}.";

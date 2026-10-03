@@ -52,6 +52,11 @@ static partial class Check
         Ok(StageIds.WentBack(1, "lod_matrix@2 · office · abababababab…") == "You went back at the DD IDS check — nothing was placed. 1 element(s) would have failed the DD IDS made from lod_matrix@2 · office · abababababab…."
            && StageIds.PlacedAnyway(fails, "lod_matrix@2") == "This changeset leaves 1 element(s) failing the DD IDS made from lod_matrix@2 — placed anyway, as the person chose: W 312312 (Walls · DD): missing Pset_WallCommon.FireRating",
            "going back and placing anyway are said in words, naming the matrix the IDS was made from");
+        var many = Enumerable.Range(0, 26).Select(i => $"W {1000 + i} (Walls · DD): missing Pset_WallCommon.FireRating")
+                             .Concat(new[] { "D 7 (Doors · DD): missing Pset_DoorCommon.FireRating", "W 9 (Walls · DD): missing Pset_WallCommon.FireRating, Pset_WallCommon.IsExternal" }).ToList();
+        Ok(StageIds.Tally(many).SequenceEqual(new[] { "Walls · DD: missing Pset_WallCommon.FireRating — 26 element(s)", "Doors · DD: missing Pset_DoorCommon.FireRating — 1 element(s)",
+                                                       "Walls · DD: missing Pset_WallCommon.FireRating, Pset_WallCommon.IsExternal — 1 element(s)" }),
+           "drill MA2b F-MA2b-2: the DD IDS dialog counts every failing element by specification and missing properties — the 27th is in a line as the first is");
         Ok(StageIds.NotChecked(unrated.NotRead.Concat(V("wall rated").NotRead)) == "DD IDS: not checked for Pset_WallCommon.LoadBearing — Sentinel has no Revit reader for them, so they are neither passed nor failed"
            && StageIds.NotChecked(new string[0]) == null,
            "a property Revit cannot read is said beside the answer — never dropped, never passed");
