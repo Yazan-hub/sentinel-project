@@ -364,5 +364,27 @@
     "matched": [
       "param:Location"
     ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Location": "Interior"
+      },
+      "thicknessMm": 100.5
+    },
+    "family": "Basic Wall",
+    "type": "BDS_INT_ARC_CMU_101 mm",
+    "source": "rule",
+    "confidence": 0,
+    "available": [
+      "BDS_INT_ARC_CMU_100 mm",
+      "BDS_INT_ARC_CMU_150 mm",
+      "BDS_INT_ARC_CMU_200 mm",
+      "BDS_INT_ARC_CMU_300 mm"
+    ],
+    "matched": [
+      "param:Location"
+    ]
   }
 ]

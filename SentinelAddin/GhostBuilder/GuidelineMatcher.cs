@@ -441,14 +441,16 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>An explicit type wins; otherwise `{thickness}` is filled from the measurement.
         /// Rounded to the nearest mm — a DWG measurement is never exactly 200.0 and template names
-        /// are integers. Null when a pattern has no measurement to fill it: that is a gap, not a guess.</summary>
+        /// are integers. Null when a pattern has no measurement to fill it: that is a gap, not a guess.
+        /// Half a millimetre rounds UP (AwayFromZero), as JavaScript's Math.round does for a positive number: .NET's default is
+        /// to-even, and 100.5 mm named CMU_100 here and CMU_101 on the bridge (review of MA-2a; the shared fixture pins 100.5).</summary>
         private static string FillPattern(GuidelineUse use, GuidelineInput input)
         {
             if (use == null) return null;
             if (!string.IsNullOrWhiteSpace(use.Type)) return use.Type;
             if (string.IsNullOrWhiteSpace(use.TypePattern) || !input.ThicknessMm.HasValue) return null;
             return use.TypePattern.Replace("{thickness}",
-                Math.Round(input.ThicknessMm.Value).ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                Math.Round(input.ThicknessMm.Value, MidpointRounding.AwayFromZero).ToString("0", System.Globalization.CultureInfo.InvariantCulture));
         }
 
         /// <summary>

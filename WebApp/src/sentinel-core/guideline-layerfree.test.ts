@@ -36,6 +36,7 @@ const INPUTS: { input: ResolveInput; catalog?: CatalogType[] }[] = [
   { input: wall({ Material: "Stone" }, 200) }, { input: wall({}, 200) }, { input: wall({ Location: "Exterior" }) }, // nothing guessed; no thickness, no type
   { input: wall({ Location: "Exterior" }, 200), catalog: GERMAN }, { input: wall({ Location: "Exterior" }, 200), catalog: GERMAN_NO_BIC },
   { input: wall({ Location: "Exterior" }, 150), catalog: GERMAN },               // bic also finds the options
+  { input: wall({ Location: "Interior" }, 100.5) },                              // half a millimetre rounds UP on both sides: CMU_101, a gap (C# was to-even: CMU_100)
 ];
 
 const cases = INPUTS.map(({ input, catalog }) => {
@@ -53,7 +54,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
   });
 
   it("pins the answers Promote, Ghost Builder and the bridge depend on", () => {
-    expect(cases).toHaveLength(17);
+    expect(cases).toHaveLength(18);
     expect(find((c) => P(c).Location === "Exterior" && c.input.thicknessMm === 200 && !c.catalog)).toMatchObject({ type: "BDS_EXT_ARC_CMU_200 mm", source: "rule", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && c.input.thicknessMm === 200 && !P(c).Material)).toMatchObject({ type: "BDS_INT_ARC_CMU_200 mm", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && P(c).Function === "Exterior")).toMatchObject({ type: "BDS_INT_ARC_CMU_100 mm", confidence: 1 });
@@ -66,6 +67,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
     expect(find((c) => P(c).Material === "Stone" && !P(c).Location)).toMatchObject({ source: "none", confidence: 0 });
     expect(find((c) => Object.keys(P(c)).length === 0)).toMatchObject({ source: "none" });
     expect(find((c) => c.input.thicknessMm === undefined)).toMatchObject({ source: "rule", confidence: 1, type: null });
+    expect(find((c) => c.input.thicknessMm === 100.5)).toMatchObject({ type: "BDS_INT_ARC_CMU_101 mm", confidence: 0 });
   });
 
   it("BOS-5: a catalogue row answers for a guideline category by its BuiltInCategory, not only by its name", () => {
