@@ -60,6 +60,16 @@ describe("changesets-typing — the bridge types from the facts, or says what is
       /only the Walls default of guideline@1 · office · 0123456789ab… would apply \(confidence 0\.6\) — Sentinel types by an office rule only; send place\.TypeName, or write a rule for 200 mm$/);
   });
 
+  it("a door is typed only when the catalogue holds the rule's family AND type as one row — a type name the catalogue holds under another family is a 400 naming the families it is under", () => {
+    // Window and door type names repeat across families (the C# side has CatalogHas(category, family, type) for this): the BDS
+    // catalogue holds BDS_INT_1 PNL_WOOD_1000 x 2100 mm under BDS_INT_1 PNL only; BDS_INT_2 PNL is a family with other types.
+    const doors = (family) => ({ ...G, elements: [...G.elements, { category: "Doors", rules: [{ when: { params: { Location: "Interior" } }, use: { family, type: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" }, why: "test" }] }] });
+    const typer = (family) => makeTyper({ guideline: { ...STANDARDS.guideline, body: doors(family) }, catalog: STANDARDS.catalog }, core);
+    expect(typer("BDS_INT_1 PNL")("door", { params: { Location: "Interior" } }, "e")).toMatchObject({ TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm", FamilyName: "BDS_INT_1 PNL", typing: { typed_by: "bridge" } });
+    refused(() => typer("BDS_INT_2 PNL")("door", { params: { Location: "Interior" } }, "elements[7]"),
+      /^elements\[7\]: .* "BDS_INT_2 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm" \(the rule of guideline@1 · office · 0123456789ab… for Location Interior\) is not one type in type_catalog@1 · office · fedcba987654… — the catalogue holds BDS_INT_1 PNL_WOOD_1000 x 2100 mm under BDS_INT_1 PNL; send place\.TypeName, or name that family in the rule$/);
+  });
+
   it("checkFacts keeps thickness_mm and params name for name and refuses what it cannot keep", () => {
     expect(checkFacts(undefined, "e")).toBeNull();
     expect(checkFacts({}, "e")).toEqual({});

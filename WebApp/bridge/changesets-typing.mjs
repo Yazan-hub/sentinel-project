@@ -79,6 +79,13 @@ export function makeTyper({ guideline: g, catalog: c }, core) {
     if (r.confidence < 1)
       throw err(400, `${lead}"${r.type}" (the rule of ${g.label} for ${said}) is not in ${c.label}` +
         (r.available?.length ? ` — the catalogue has ${r.available.join(", ")}` : " and the catalogue has no other size of it") + `${send}pick one of those`);
+    // The resolver checks the TYPE name in the category; a door's or window's type name repeats across families (the add-in has
+    // CatalogHas(category, family, type) for this). The pair must be one catalogue row, or Apply fails on a family:type the model
+    // does not hold — or places the wrong pair (review of MA-2a, C20).
+    const norm = (s) => (s ?? "").trim().toLowerCase();
+    const rows = c.body.types.filter((t) => core.sameCategory(t, category) && norm(t.type) === norm(r.type));
+    if (!rows.some((t) => norm(t.family) === norm(r.family)))
+      throw err(400, `${lead}"${r.family} : ${r.type}" (the rule of ${g.label} for ${said}) is not one type in ${c.label} — the catalogue holds ${r.type} under ${[...new Set(rows.map((t) => t.family))].join(", ")}${send}name that family in the rule`);
     return {
       TypeName: r.type, FamilyName: r.family,
       typing: {
