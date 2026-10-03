@@ -189,6 +189,10 @@ static partial class Check
            "a set_parameter reads into ChangesetElementDto (Parameter, From, To, ValueSource); the properties sent to a person into the exceptions");
         if (sp != null) sp.Pretick = true;
         Ok(sp != null && !ChangesetTrust.PreTick(cs, sp), "a set_parameter is never pre-ticked, whatever a bridge answers (founder decision F1)");
+        var doorEdit = cs?.Elements.FirstOrDefault(e => e.Op == "set_parameter" && e.Kind == "door");
+        Ok(sp != null && doorEdit != null && ChangesetTrust.RetypedOnto(cs, sp) == 1 && ChangesetTrust.RetypedOnto(cs, doorEdit) == 1
+           && ChangesetTrust.RetypedOnto(cs, new ChangesetElementDto { Op = "set_parameter", Kind = "wall", Place = new PlaceDto { TypeName = "BDS_INT_ARC_GYPS_100 mm" } }) == 0,
+           "a type edit's review row counts the elements this changeset retypes onto its type, beside the model's own count (review C21)");
 
         // C8: a type edit rides first in its storey's ghosts, so a storey of several chunks files it in the first.
         var chunkPlans = V1(m, others, walls);

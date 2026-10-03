@@ -182,6 +182,17 @@ public static class ChangesetTrust
     public static string Typing(ChangesetElementDto el) =>
         el.Typing?.TypedBy == "bridge" ? "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")" : null;
 
+    /// <summary>Review C21 (MA-2c, founder decision F1's "14 more that this changeset retypes onto it"): the elements this changeset
+    /// retypes onto a set_parameter's type — same kind and type name; the family where both name one (the bridge's typer names a
+    /// wall's). The review row shows it beside the model's own count.</summary>
+    public static int RetypedOnto(ChangesetDto cs, ChangesetElementDto sp)
+    {
+        bool same(string a, string b) => string.Equals(a?.Trim() ?? "", b?.Trim() ?? "", StringComparison.OrdinalIgnoreCase);
+        return (cs.Elements ?? new List<ChangesetElementDto>()).Count(e => e.Op == "retype" && same(e.Kind ?? "wall", sp.Kind ?? "wall")
+            && same(e.Place?.TypeName, sp.Place?.TypeName)
+            && (string.IsNullOrWhiteSpace(e.Place?.FamilyName) || string.IsNullOrWhiteSpace(sp.Place?.FamilyName) || same(e.Place.FamilyName, sp.Place.FamilyName)));
+    }
+
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
     public static string SourceLabel(ChangesetDto cs) =>
         cs.Source + (cs.Claimed == true ? " (claimed — the bridge records who a changeset says it is from, and cannot verify it)" : "");

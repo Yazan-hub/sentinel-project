@@ -32,6 +32,7 @@ static partial class Check
            && promote.Contains("p.Held.Concat(p.ToPerson).Select(h =>"),
            "Promote reads the DD types' properties after its preflight and before it files, says what it writes and what goes to a person, and lists each");
         Ok(window.Contains("\"set_parameter\" => $\"type edit {el.Kind}:") && window.Contains("$\"reaches {reachN} element(s) in the model now\"")
+           && window.Contains("(ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $\" + {more} if this changeset's retypes onto it are applied\" : \"\")")
            && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
            && review.Contains("new ChangesetReviewWindow(cs, reach)"),
            "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");

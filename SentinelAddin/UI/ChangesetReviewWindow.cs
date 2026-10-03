@@ -133,6 +133,7 @@ public sealed class ChangesetReviewWindow : Window
                 // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
                 "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +
                                    (reach != null && el.ProposalGuid != null && reach.TryGetValue(el.ProposalGuid, out var reachN) ? $"reaches {reachN} element(s) in the model now" : "reach not counted — the type is not in this model") +
+                                   (ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $" + {more} if this changeset's retypes onto it are applied" : "") + // review C21
                                    $"  ·  {el.Parameter} \"{el.From}\" → \"{el.To}\"  ·  from {el.ValueSource?.Ref ?? el.ValueSource?.Kind ?? "an unnamed source"}",
                 _ => CreateLabel(el, name),
             };

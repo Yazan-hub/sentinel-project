@@ -168,6 +168,7 @@ Not run: the drill, and the commit commands.
   - **A pattern Sentinel cannot read.** A clause whose entity pattern .NET cannot read applies to nothing, as before. The no-source reason now says `<u> clause(s) of <ids label> on <key> have an entity pattern Sentinel cannot read`, not "no clause pins one".
   - **Not changed.** A DD type that is not exactly one type in the model stays counted in the `not read` share of `NotOnType`, with no row of its own.
   - **Checks.** Section 34 pins all three.
+- **C21 — the review row also counts what the changeset retypes onto the type** (F1 A asks for "0 in the model now, 14 more that this changeset retypes onto it"). After C3's `reaches N element(s) in the model now`, the row adds ` + M if this changeset's retypes onto it are applied`. M is `ChangesetTrust.RetypedOnto`: the changeset's own retype rows of the same kind onto the same type name, and the same family when both name one. Section 34 pins it on the shared body; section 35 scans the window.
 
 **Minor, rejected:**
 
