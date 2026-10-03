@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Sentinel.Workflow; // NamingManagerService.LayerMaterials (MA-2a: the build-up's materials)
 
 namespace Sentinel.Standards;
 
@@ -36,8 +37,11 @@ public static class GoldenModelExtractor
 
     // Type parameters worth capturing when authoring rules. Deliberately a short list: the point is to
     // show what an office standard actually keys on, not to dump every parameter in the template.
+    // MA-2a: Function is read apart (FUNCTION_PARAM, an Integer: its enum name); Material falls back to the build-up's layers.
+    // Fire Rating and Material are what the office's rules key on; Assembly Code, Type Mark and Keynote are what the LOD
+    // matrix's property rows will ask for; Structural Material is structure's material.
     private static readonly string[] InterestingParams =
-    { "Fire Rating", "Material", "Structural Material", "Assembly Code", "Type Mark", "Keynote", "Function" };
+    { "Fire Rating", "Material", "Structural Material", "Assembly Code", "Type Mark", "Keynote" };
 
     /// <summary>
     /// Harvest every placeable TYPE in the template — the vocabulary the Office Modelling Guideline is
@@ -62,16 +66,21 @@ public static class GoldenModelExtractor
         {
             // No category = a Revit-internal type (view types, project info, …). Not part of the
             // office's family library and only noise in the picker.
-            string category;
-            try { category = t.Category?.Name ?? ""; } catch { continue; }
-            if (string.IsNullOrWhiteSpace(category)) continue;
+            Category? cat;
+            try { cat = t.Category; } catch { continue; }
+            if (cat is null || string.IsNullOrWhiteSpace(cat.Name)) continue;
+            // MA-2a (BOS-5): the row is keyed on the English key its BuiltInCategory names (the display name on a Revit whose
+            // category Sentinel does not know), so the guideline's "Walls" finds it whatever language harvested it.
+            string category = Compat.CategoryKeyOf(cat);
 
             string family = SafeFamilyName(t);
             if (!seen.Add(category + "|" + family + "|" + t.Name)) continue;
 
             var spec = new TypeSpec
             {
-                Category = category,
+                Category = Compat.CategoryKeyOf(cat),
+                Bic = Compat.BicNameOf(cat),
+                CategoryLocal = string.Equals(cat.Name, category, StringComparison.Ordinal) ? null : cat.Name,
                 Family = family,
                 Type = t.Name,
                 IsSystem = t is HostObjAttributes, // Wall/Floor/Ceiling/Roof — duplicated, not loaded
@@ -81,9 +90,17 @@ public static class GoldenModelExtractor
             };
             foreach (string p in InterestingParams)
             {
-                string? v = t.LookupParameter(p)?.AsString();
+                string? v = ParamText(doc, t.LookupParameter(p));
                 if (!string.IsNullOrWhiteSpace(v)) spec.Params[p] = v!;
             }
+            // MA-2a: the type's Function (walls, floors, doors, windows — whichever Revit gives it), by its enum name. The old
+            // LookupParameter("Function").AsString() was null on an Integer parameter: 0 of 1,434 BDS rows carried it.
+            var fn = t.get_Parameter(BuiltInParameter.FUNCTION_PARAM);
+            if (fn is { HasValue: true } && fn.StorageType == StorageType.Integer && TypeHarvest.FunctionName(fn.AsInteger()) is string function)
+                spec.Params["Function"] = function;
+            // MA-2a: a system type's build-up materials, when the type has no Material parameter of its own.
+            if (!spec.Params.ContainsKey("Material") && TypeHarvest.MaterialLabel(NamingManagerService.LayerMaterials(doc, t)) is string layers)
+                spec.Params["Material"] = layers;
             pack.Provision.TypeCatalog.Add(spec);
         }
 
@@ -94,6 +111,21 @@ public static class GoldenModelExtractor
     private static string SafeFamilyName(ElementType t)
     {
         try { return t.FamilyName ?? ""; } catch { return ""; }
+    }
+
+    /// <summary>MA-2a: a type parameter's value as text, by its storage: text as it is; an element id as that element's name (a
+    /// Material); an integer or a length is not a classification and is left out (Function is read apart, by its enum name).</summary>
+    private static string? ParamText(Document doc, Parameter? p)
+    {
+        if (p is null || !p.HasValue) return null;
+        switch (p.StorageType)
+        {
+            case StorageType.String: return p.AsString();
+            case StorageType.ElementId:
+                var id = p.AsElementId();
+                return id is null || id == ElementId.InvalidElementId ? null : doc.GetElement(id)?.Name;
+            default: return null;
+        }
     }
 
     /// <summary>A length parameter in MILLIMETRES. Revit stores internally in feet; the guideline and
@@ -146,8 +178,9 @@ public static class GoldenModelExtractor
 
             var binding = it.Current as Binding;
             var categories = new List<string>();
+            // MA-2a (BOS-5): the English key, so a German harvest's binding resolves on an English Revit (ResolveCategory binds BIC-first).
             if (binding is ElementBinding eb)
-                foreach (Category c in eb.Categories) categories.Add(c.Name);
+                foreach (Category c in eb.Categories) categories.Add(Compat.CategoryKeyOf(c));
 
             pack.Provision.SharedParameters.Add(new SharedParamSpec
             {

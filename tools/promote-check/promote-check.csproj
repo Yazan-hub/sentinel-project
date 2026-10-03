@@ -19,6 +19,8 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\PromoteWallsPlanner.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\PromotePlanner.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\PlacementGeometry.cs" />
+    <!-- MA-2a: inside or outside from the storey's own walls (the outer boundary) -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\WallLocation.cs" />
     <!-- MA-1a step 2: Ghost Builder's changeset bodies, and the Doctor's skip rule they must agree with -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFiling.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFailurePolicy.cs" />

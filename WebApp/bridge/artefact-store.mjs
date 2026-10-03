@@ -170,6 +170,20 @@ export function validateArtefact(kind, body) {
       objects(kind, `${at}.rules`, e.rules, (r, rat) => {
         if (!isObj(r.when)) throw bad(kind, `${rat}.when`, "must be an object");
         if (!isObj(r.use) || !filled(r.use.family)) throw bad(kind, `${rat}.use.family`, "must be a non-empty string");
+        // MA-2a: a rule that states no condition would match every element the bridge types. Refused at install only, as the
+        // strictest of the three validators (review C12): guideline.ts validateGuideline refuses only `when: {}`, the add-in's
+        // CheckGuideline neither — it reads an installed body as it is.
+        if (!["layer", "level", "discipline"].some((f) => filled(r.when[f])) && !(isObj(r.when.params) && Object.keys(r.when.params).length))
+          throw bad(kind, `${rat}.when`, "names no condition (layer, level, discipline or params) — it would match every element; use default");
+        // A when field present but blank (null, "") is a stated condition to guideline.ts matches() and a wildcard to the add-in's
+        // Matches: one installed rule, two answers. A params name or value that is not a non-empty string: a number threw in the
+        // bridge typer (a 500 with no words) and made the add-in read the whole guideline as none; null or "" matched every element
+        // carrying the parameter (review of MA-2a, C19).
+        for (const f of ["layer", "level", "discipline"])
+          if (f in r.when && !filled(r.when[f])) throw bad(kind, `${rat}.when.${f}`, "is present but blank — leave it out or name it");
+        if (isObj(r.when.params))
+          for (const [k, v] of Object.entries(r.when.params))
+            if (!filled(k) || !filled(v)) throw bad(kind, `${rat}.when.params.${k}`, "must be a non-empty string, name and value (the value is matched by substring)");
       });
       if (e.default != null && !(isObj(e.default) && filled(e.default.family))) throw bad(kind, `${at}.default.family`, "must be a non-empty string");
     });
@@ -211,6 +225,8 @@ export function validateArtefact(kind, body) {
       if (t.family != null && typeof t.family !== "string") throw bad(kind, `${at}.family`, "must be a string");
       if (t.system != null && typeof t.system !== "boolean") throw bad(kind, `${at}.system`, "must be true or false");
       for (const f of ["width_mm", "height_mm"]) if (t[f] != null && !Number.isFinite(t[f])) throw bad(kind, `${at}.${f}`, "must be a number or null");
+      // MA-2a (BOS-5): the row's BuiltInCategory, as Build Office System writes it since MA-2a; a type_catalog@1 without it still installs.
+      if (t.bic != null && typeof t.bic !== "string") throw bad(kind, `${at}.bic`, "must be a string (a BuiltInCategory name)");
     });
     // The harvest's top-level `source` travels as `template`: the PUT route lifts a top-level source into the pointer.
     if (body.template != null) {

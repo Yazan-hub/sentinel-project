@@ -374,23 +374,58 @@ function levelSequence(startISO, levels, opts = {}) {
 }
 function csvToSchedule(csv) {
   const rows = csv.trim().split(/\r?\n/);
-  if (rows.length && /name/i.test(rows[0]) && /start/i.test(rows[0])) rows.shift();
+  const header = rows.length > 0 && /name/i.test(rows[0]) && /start/i.test(rows[0]);
+  if (header) rows.shift();
   const palette = ["#5457e6", "#12b6c9", "#22a35c", "#d69417", "#8b52ea", "#6b7280", "#e0564a"];
   const tasks = [];
+  const refused = [];
   rows.forEach((line, i) => {
+    const row = i + 1 + (header ? 1 : 0);
+    if (!line.trim()) return;
     const c = splitCsv(line);
-    if (c.length < 3) return;
+    if (c.length < 3) {
+      refused.push({ row, reason: "fewer than three fields (name, start, finish)" });
+      return;
+    }
+    const start = normDate(c[1]), finish = normDate(c[2]);
+    if (!start.ok) {
+      refused.push({ row, reason: `start "${c[1]}" ${start.why}` });
+      return;
+    }
+    if (!finish.ok) {
+      refused.push({ row, reason: `finish "${c[2]}" ${finish.why}` });
+      return;
+    }
+    if (finish.date < start.date) {
+      refused.push({ row, reason: `finishes (${finish.date}) before it starts (${start.date})` });
+      return;
+    }
     const cats = (c[3] ?? "").split(/[;|]/).map((s) => s.trim().toUpperCase()).filter(Boolean).map((x) => x.startsWith("IFC") ? x : "IFC" + x);
+    const containers = (c[4] ?? "").split(/[;|]/).map((s) => s.trim()).filter(Boolean);
     tasks.push({
       id: `C${i + 1}`,
       name: c[0] || `Task ${i + 1}`,
-      start: normDate(c[1]),
-      finish: normDate(c[2]),
+      start: start.date,
+      finish: finish.date,
       categories: cats,
-      color: palette[i % palette.length]
+      color: palette[i % palette.length],
+      ...containers.length ? { containers } : {}
     });
   });
-  return { tasks };
+  return { tasks, ...refused.length ? { refused } : {} };
+}
+var midpKey = (n) => n.trim().replace(/\.(ifc|ifczip|rvt|nwc|nwd|pdf|dwg|zip)$/i, "").toLowerCase();
+function taskInformation(task, rows) {
+  return (task.containers ?? []).map((container) => {
+    const row = rows.find((r) => midpKey(r.container_name) === midpKey(container));
+    if (!row) return { container, state: "unplanned", words: "not in the MIDP \u2014 nobody is due to deliver it" };
+    const published = row.published_at ? String(row.published_at).slice(0, 10) : null;
+    if (published) {
+      return published <= task.start ? { container, state: "ready", words: `delivered ${published}, before the task starts` } : { container, state: "late", words: `delivered ${published}, after the task started ${task.start}` };
+    }
+    if (!row.due_date) return { container, state: "no_date", words: `planned with no due date (${row.status}) \u2014 not yet delivered` };
+    return row.due_date > task.start ? { container, state: "late", words: `due ${row.due_date}, after the task starts ${task.start} \u2014 it will be late` } : { container, state: "at_risk", words: `due ${row.due_date}, not yet delivered (${row.status}) \u2014 needed by ${task.start}` };
+  });
 }
 function scheduleRange(s) {
   if (!s.tasks.length) {
@@ -411,16 +446,16 @@ function addDays(d, days) {
 }
 function normDate(s) {
   const t = (s ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return { ok: true, date: t.slice(0, 10) };
   const m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
   if (m) {
     let [, a, b, y] = m;
     if (y.length === 2) y = "20" + y;
+    if (Number(a) <= 12 && Number(b) <= 12 && a !== b) return { ok: false, why: "could be day/month or month/day \u2014 write it as yyyy-mm-dd" };
     const day = Number(a) > 12 ? a : b, mon = Number(a) > 12 ? b : a;
-    return `${y}-${mon.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    return { ok: true, date: `${y}-${mon.padStart(2, "0")}-${day.padStart(2, "0")}` };
   }
-  const d = new Date(t);
-  return isNaN(+d) ? iso(/* @__PURE__ */ new Date()) : iso(d);
+  return { ok: false, why: "is not a date (yyyy-mm-dd)" };
 }
 function splitCsv(line) {
   const out = [];
@@ -793,6 +828,24 @@ function toCobieCsv(r, facility) {
 
 // src/sentinel-core/guideline.ts
 var norm = (s) => (s ?? "").trim().toLowerCase();
+var CATEGORY_BIC = {
+  Walls: "OST_Walls",
+  Floors: "OST_Floors",
+  Roofs: "OST_Roofs",
+  Ceilings: "OST_Ceilings",
+  Doors: "OST_Doors",
+  Windows: "OST_Windows",
+  Columns: "OST_Columns",
+  Furniture: "OST_Furniture",
+  Levels: "OST_Levels",
+  Grids: "OST_Grids"
+};
+function sameCategory(c, category) {
+  if (norm(c.category) === norm(category)) return true;
+  if (!c.bic) return false;
+  const key2 = Object.keys(CATEGORY_BIC).find((k) => norm(k) === norm(category));
+  return key2 !== void 0 && CATEGORY_BIC[key2] === c.bic;
+}
 function fillPattern(use, input) {
   if (use.type) return use.type;
   if (!use.typePattern) return void 0;
@@ -831,15 +884,13 @@ function matches(when, input) {
 }
 var specificity = (w) => (w.layer ? 1 : 0) + (w.level ? 1 : 0) + (w.discipline ? 1 : 0) + Object.keys(w.params ?? {}).length;
 function resolveWithCatalog(guideline, input, catalog) {
-  const r = resolveType(guideline, input);
+  const { r, pattern } = resolveWinner(guideline, input);
   if (r.source === "none" || !r.type) return r;
   const inCatalog = catalog.some(
-    (c) => norm(c.type) === norm(r.type) && norm(c.category) === norm(input.category)
+    (c) => norm(c.type) === norm(r.type) && sameCategory(c, input.category)
   );
   if (inCatalog) return r;
-  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  const pattern = el?.rules.find((x) => x.use.typePattern && matches(x.when, input))?.use.typePattern;
-  const options = pattern ? patternOptions(pattern, catalog.filter((c) => norm(c.category) === norm(input.category))) : [];
+  const options = pattern ? patternOptions(pattern, catalog.filter((c) => sameCategory(c, input.category))) : [];
   return {
     ...r,
     confidence: 0,
@@ -850,7 +901,7 @@ function resolveWithCatalog(guideline, input, catalog) {
 function validateAgainstCatalog(guideline, catalog) {
   const errs = [];
   for (const el of guideline.elements) {
-    const inCat = catalog.filter((c) => norm(c.category) === norm(el.category));
+    const inCat = catalog.filter((c) => sameCategory(c, el.category));
     if (!inCat.length) {
       errs.push(`"${el.category}" \u2014 the template has no types in this category at all.`);
       continue;
@@ -869,34 +920,44 @@ function validateAgainstCatalog(guideline, catalog) {
   return errs;
 }
 function resolveType(guideline, input) {
+  return resolveWinner(guideline, input).r;
+}
+function resolveWinner(guideline, input) {
+  const none = { family: "", params: {}, source: "none", confidence: 0 };
   const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  if (!el) return { family: "", params: {}, source: "none", confidence: 0 };
+  if (!el) return { r: none };
   const ordered = el.rules.map((rule, i) => ({ rule, i })).sort((a, b) => specificity(b.rule.when) - specificity(a.rule.when) || a.i - b.i);
   for (const { rule } of ordered) {
     const hit = matches(rule.when, input);
     if (hit) {
       return {
-        family: rule.use.family,
-        type: fillPattern(rule.use, input),
-        params: rule.use.params ?? {},
-        source: "rule",
-        confidence: 1,
-        why: rule.why,
-        matched: hit
+        r: {
+          family: rule.use.family,
+          type: fillPattern(rule.use, input),
+          params: rule.use.params ?? {},
+          source: "rule",
+          confidence: 1,
+          why: rule.why,
+          matched: hit
+        },
+        pattern: rule.use.typePattern
       };
     }
   }
   if (el.default) {
     return {
-      family: el.default.family,
-      type: el.default.type,
-      params: el.default.params ?? {},
-      source: "default",
-      confidence: 0.6,
-      why: `No office rule matched \u2014 fell back to the ${el.category} default.`
+      r: {
+        family: el.default.family,
+        type: el.default.type,
+        params: el.default.params ?? {},
+        source: "default",
+        confidence: 0.6,
+        why: `No office rule matched \u2014 fell back to the ${el.category} default.`
+      },
+      pattern: el.default.typePattern
     };
   }
-  return { family: "", params: {}, source: "none", confidence: 0 };
+  return { r: none };
 }
 function coverageGaps(guideline, seen) {
   return seen.filter((s) => resolveType(guideline, s).source === "none");
@@ -1627,6 +1688,7 @@ function validateLayers(names, rs) {
 export {
   ASSET_KEYS,
   ASSUMED_BELOW,
+  CATEGORY_BIC,
   DEMO_IDS,
   GATE_DEFS,
   MAINTAINABLE_CLASSES,
@@ -1670,10 +1732,12 @@ export {
   resolveRate,
   resolveType,
   resolveWithCatalog,
+  sameCategory,
   scan,
   scheduleRange,
   snapshotFromQuantities,
   summarizeDiff,
+  taskInformation,
   toCobieCsv,
   toElementGraph,
   validateAgainstCatalog,

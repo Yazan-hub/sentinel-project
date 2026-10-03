@@ -4,7 +4,7 @@
 // catalogue's label, TS "the template". Regenerated on every run; the file is committed, so a resolver change shows up
 // as a fixture diff.
 import { describe, it, expect } from "vitest";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { resolveWithCatalog, type Guideline, type CatalogType, type ResolveInput } from "./guideline";
 
 const OUT = "src/sentinel-core/fixtures/guideline-dd-cases.json";
@@ -49,7 +49,8 @@ describe("guideline DD fixtures (Promote v1, TS ↔ C#)", () => {
 
   it("writes fixtures/guideline-dd-cases.json as [{ input, family, type, source, confidence, available }]", () => {
     mkdirSync("src/sentinel-core/fixtures", { recursive: true });
-    writeFileSync(OUT, JSON.stringify(cases, null, 2) + "\n");
+    writeFileSync(OUT + ".tmp", JSON.stringify(cases, null, 2) + "\n");
+    renameSync(OUT + ".tmp", OUT); // MA-2a: atomic — bridge/sentinel-core-bundle.test.mjs reads this file in a parallel worker
     expect(JSON.parse(readFileSync(OUT, "utf8"))).toEqual(cases);
   });
 });

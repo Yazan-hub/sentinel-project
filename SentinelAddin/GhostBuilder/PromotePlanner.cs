@@ -259,8 +259,10 @@ namespace Sentinel.GhostBuilder
             {
                 if (m.RuleProduces("Walls", e.HostTypeName))
                 {
-                    loc = m.RuleParam("Walls", e.HostTypeName, "Function");
-                    if (loc == null) return $"host {e.HostTypeName}: its DD rules do not name one Function — a person decides";
+                    // MA-2a: a host settled by a layer-free rule names its Location (Exterior/Interior, the same words) — each producing
+                    // rule's Function, else its Location (review C6: the gypsum type is produced by one rule of each).
+                    loc = m.RuleLocation("Walls", e.HostTypeName);
+                    if (loc == null) return $"host {e.HostTypeName}: its DD rules do not name one Function or Location — a person decides";
                     if (!string.Equals(loc, e.HostFunction, StringComparison.OrdinalIgnoreCase)) tail = $" (host {e.HostTypeName}: its DD rule says {loc})";
                 }
                 else if (office != null && e.HostTypeName.StartsWith(office, StringComparison.OrdinalIgnoreCase))

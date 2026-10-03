@@ -234,6 +234,49 @@ internal static class StandardsReview
                 });
             });
         };
+
+        // MA-2a (BOS-3): a lead installs the harvested catalogue on the document's OFFICE from here — no CLI. The key is read on
+        // the API thread through the event hub; the scope read and the PUT run off Revit's thread (GovernedNotify, 120 s each);
+        // the bridge decides the role (lead on the office), and the window prints its words. Never on the project itself: a
+        // catalogue there would shadow the office's for that project alone (TypeCatalogExport.OfficeKeyFrom).
+        window.InstallRequested += () =>
+        {
+            // Review C22: signed out, GovernedNotify would send the machine's token, which the bridge reads as `service` and lets past
+            // the lead check — the office catalogue installed by whoever holds the shared token, under the Windows user's name.
+            if (!UserSession.IsSignedIn) { window.SetStatus(TypeCatalogExport.NotInstalledLine("sign in first — installing on the office is a lead's own action, not the machine's")); return; }
+            var pack = window.Source;
+            var src = pack.SourceModel;
+            if (src is null || string.IsNullOrWhiteSpace(src.Title) || pack.Provision.TypeCatalog.Count == 0)
+            {
+                window.SetStatus(TypeCatalogExport.NotInstalledLine("this pack has no harvested catalogue — extract from a template first (Build Office System)"));
+                return;
+            }
+            if (doc is null || App.Events is null) { window.SetStatus(TypeCatalogExport.NotInstalledLine("no open model to read the project from")); return; }
+            string title = src.Title;
+            var types = pack.Provision.TypeCatalog;
+            var views = pack.Provision.ViewTemplates;
+            window.SetStatus("Reading this model's project…");
+            App.Events.Enqueue(_ =>
+            {
+                if (!doc.IsValidObject) { window.SetStatus(TypeCatalogExport.NotInstalledLine("the model this window was opened on is closed")); return; }
+                var ctx = Sentinel.Engine.ProjectContext.For(doc);
+                if (!ctx.IsBound) { window.SetStatus(TypeCatalogExport.NotInstalledLine(Sentinel.Engine.ProjectContext.NotBound)); return; }
+                string key = ctx.Key;
+                window.SetStatus($"Asking Sentinel which office {key} belongs to…");
+                Task.Run(() =>
+                {
+                    var scope = GovernedNotify.ProjectScope(key);
+                    if (scope.Error is not null) { window.SetStatus(TypeCatalogExport.NotInstalledLine(scope.Error)); return; }
+                    var office = TypeCatalogExport.OfficeKeyFrom(scope.Json!, key, out var why);
+                    if (office is null) { window.SetStatus(TypeCatalogExport.NotInstalledLine(why!)); return; }
+                    window.SetStatus($"Installing type_catalog on {office} ({types.Count} types)…");
+                    var put = GovernedNotify.InstallArtefact(office, "type_catalog", TypeCatalogExport.InstallJson(title, DateTimeOffset.Now, types, views, title), UserSession.Actor);
+                    window.SetStatus(put.Error is null
+                        ? TypeCatalogExport.InstallLine(office, put.Version, put.Sha256, types.Count, title)
+                        : TypeCatalogExport.NotInstalledLine(put.Error));
+                });
+            });
+        };
         return window;
     }
 

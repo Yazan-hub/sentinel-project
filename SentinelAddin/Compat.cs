@@ -66,6 +66,27 @@ public static class Compat
     public static BuiltInCategory ResolveCategoryKey(string englishKey) =>
         CategoryKeys.TryGetValue(englishKey, out var bic) ? bic : BuiltInCategory.INVALID;
 
+    /// MA-2a (BOS-5): a category's BuiltInCategory as its enum name ("OST_Walls"), from its id on every Revit version (a built-in
+    /// category's id is its negative enum value; no 2023+ API). Null for a category Revit does not define (a subcategory, an
+    /// imported or custom one) — nothing is written for it.
+    public static string? BicNameOf(Category category)
+    {
+        long id = category.Id.IdValue();
+        if (id >= 0 || id < int.MinValue) return null;
+        var bic = (BuiltInCategory)(int)id;
+        return Enum.IsDefined(typeof(BuiltInCategory), bic) ? bic.ToString() : null;
+    }
+
+    /// MA-2a (BOS-5): the English key Sentinel's rules use for a category whose BuiltInCategory is one of CategoryKeys ("Walls" for
+    /// OST_Walls, whatever the display language), else the category's display name — what a harvest writes as `category`.
+    public static string CategoryKeyOf(Category category)
+    {
+        long id = category.Id.IdValue();
+        foreach (var kv in CategoryKeys)
+            if ((long)(int)kv.Value == id) return kv.Key;
+        return category.Name;
+    }
+
     /// Locale-safe test: does this category match an English ruleset key?
     /// Compares by BuiltInCategory id first; falls back to (localized) name so
     /// unmapped custom keys still behave as before on English installs.

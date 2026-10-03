@@ -24,6 +24,8 @@ static partial class Check
         try { Client(); Standards(); Layers(); Mapper(); ReviewerMemory(); }
         finally { try { Directory.Delete(ArtefactCache.Root, true); } catch { } }
         GuidelineChecks.Run(RepoRoot(), Ok);
+        HarvestChecks.Run(RepoRoot(), Ok);
+        InstallChecks.Run(RepoRoot(), Ok);
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

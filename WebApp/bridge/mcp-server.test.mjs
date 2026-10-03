@@ -154,6 +154,9 @@ describe("changeset tools", () => {
     expect(t.description).toMatch(/attach/);
     expect(t.description).toMatch(/TypeName/);
     expect(t.description).toMatch(/FamilyName/);
+    expect(t.description).toMatch(/facts \{thickness_mm\?, params\?/); // MA-2a: the bridge types from the facts
+    expect(t.description).toMatch(/never measured, never guessed/);
+    expect(t.description).toMatch(/400 naming what is missing/);
     expect(t.inputSchema.required).toEqual(["project", "name", "elements"]);
   });
 

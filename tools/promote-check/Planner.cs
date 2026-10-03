@@ -25,12 +25,17 @@ static partial class Check
     static int _uid;
     static WallFact W(string label, string type, string function, double mm, string baseLevel = "Level 1", string top = null,
                       double baseOff = 0, double topOff = 0, bool basic = true, bool group = false, string stamp = null,
-                      double height = 0, bool structural = false) => new WallFact
+                      double height = 0, bool structural = false, Action<WallFact> set = null)
     {
-        UniqueId = $"5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-{++_uid:x8}", Label = label, TypeName = type, Function = function,
-        WidthMm = mm, BaseLevel = baseLevel, TopLevel = top, BaseOffsetMm = baseOff, TopOffsetMm = topOff,
-        IsBasic = basic, InGroup = group, Stamp = stamp, HeightMm = height, Structural = structural,
-    };
+        var w = new WallFact
+        {
+            UniqueId = $"5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-{++_uid:x8}", Label = label, TypeName = type, Function = function,
+            WidthMm = mm, BaseLevel = baseLevel, TopLevel = top, BaseOffsetMm = baseOff, TopOffsetMm = topOff,
+            IsBasic = basic, InGroup = group, Stamp = stamp, HeightMm = height, Structural = structural,
+        };
+        set?.Invoke(w); // MA-2a: a wall's line (WallLocation.Segment) and material
+        return w;
+    }
 
     static void Planner(GuidelineMatcher m)
     {
@@ -75,7 +80,7 @@ static partial class Check
         Ok(l1.Ghosts.TakeWhile(g => g.Op == "retype").Count() == l1.Ghosts.Count(g => g.Op == "retype"), "retypes come before attaches");
         Ok(H(l1, "X1", "\"BDS_EXT_ARC_CMU_300 mm\" is in the catalogue but not loaded in this model — Sentinel creates no types") != null
            && G(l1, "retype", "X1") == null, "a target type missing from the document is held; no type is created");
-        var g1 = H(l1, "G1", "gap: G1 (Generic - 125mm, Exterior)");
+        var g1 = H(l1, "G1", "gap: G1 (Generic - 125mm, Function Exterior)"); // MA-2a: the gap names the facts the rule used
         Ok(g1 != null && g1.Reason.Contains(m.CatalogLabel) && G(l1, "retype", "G1") == null && G(l1, "attach", "G1") != null,
            "a 125 mm wall is held with a gap naming the catalogue — its attach is still planned");
         Ok(G(l1, "retype", "OK1") == null && G(l1, "attach", "OK1") == null && !l1.Held.Any(h => h.Label == "OK1"),
@@ -224,8 +229,8 @@ static partial class Check
             W("C2", "Generic - 200mm", "Exterior", 200, top: "Level 2"),
         }, Levels, tpl, m).Single();
         Ok(masked.Ghosts.Count == 0 && masked.Held.Count == 2 && masked.Held.All(h => h.Reason ==
-           "every wall on Level 1 besides the 1 on other office types is \"Generic - 200mm\" — inside cannot be told from outside; a person decides"),
-           "…but a template's office-typed wall does not mask a one-type storey");
+           "every wall on Level 1 besides the 1 on other office types is \"Generic - 200mm\" — inside cannot be told from outside: its Function tells nothing, and its location is unknown (no location line was read); a person decides"),
+           "…but a template's office-typed wall does not mask a one-type storey (MA-2a: the reason says why the location is unknown)");
 
         // A guideline with no office code: (b) is skipped, the concrete wall takes today's path.
         var g = JsonNode.Parse(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-walls-guideline.json"))).AsObject();

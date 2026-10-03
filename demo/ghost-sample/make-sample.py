@@ -85,6 +85,22 @@ MA1B_ANGLES = [0, 15, 30, 45, 60, 90, 120, 135, 150, 165]
 MA1B_DOORS = [(0, 1, 1, 0), (0, 1, 1, 0), (0, 1, 1, 60), (180, 1, 1, 0), (0, -1, 1, 0),
               (0, 1, 1, 0), (0, -1, 1, -80), (180, 1, 1, 0), (0, 1, 1, 0), (0, 1, -1, 0)]
 WALL_LEN, WALL_THICK, DOOR_W, WIN_W = 4000.0, 200.0, 900.0, 1200.0
+
+# MA-2a drill: walls drawn as TWO faces, so Ghost Builder measures each thickness and the guideline — not the layer mapping —
+# types them. --ma2a writes sample-walls-ma2a.dxf: a 10 x 7 m box of 200 mm walls on A-WALL-EXT (a layer rule types them), a
+# 100 mm partition on A-WALL-INT across it, a 100 mm free-standing partition inside the east room and one outside the box, both
+# on A-WALL-INT (no layer rule: the layer-free Location rule types the inside one; the outside one, open on both sides, is a
+# named gap). Far from the origin, clear of what the drill model holds. sample-walls-ma2a-expected.json states each wall's
+# centreline, thickness and the location the outer boundary must read; tools/promote-check reads it again with the add-in's own
+# WallLocation (two workings of one drawing), and drill MA2a compares Revit with both.
+MA2A_ORIGIN = (60000.0, 60000.0)
+MA2A_WALLS = [  # (layer, x1, y1, x2, y2, thickness, location) — centrelines, relative to MA2A_ORIGIN
+    ("A-WALL-EXT", 0, 0, 10000, 0, 200, "Exterior"), ("A-WALL-EXT", 10000, 0, 10000, 7000, 200, "Exterior"),
+    ("A-WALL-EXT", 10000, 7000, 0, 7000, 200, "Exterior"), ("A-WALL-EXT", 0, 7000, 0, 0, 200, "Exterior"),
+    ("A-WALL-INT", 4000, 0, 4000, 7000, 100, "Interior"),       # the partition across the box
+    ("A-WALL-INT", 6000, 3500, 8500, 3500, 100, "Interior"),    # free-standing inside the east room
+    ("A-WALL-INT", 0, -3000, 4000, -3000, 100, None),           # free-standing outside the box: open on both sides — unknown
+]
 MA1B_BLOCKS = {
     "DOOR-900": {"layer": "A-DOOR", "lines": [(0, 0, 0, DOOR_W)], "arcs": [(0, 0, DOOR_W, 0, 90)]},
     "WIN-1200": {"layer": "0", "lines": [(0, -50, WIN_W, -50), (0, 50, WIN_W, 50), (0, -50, 0, 50), (WIN_W, -50, WIN_W, 50)], "arcs": []},
@@ -301,7 +317,41 @@ def ma1b(plant):
     print(f"wrote {json_path}  ({os.path.getsize(json_path):,} bytes)")
 
 
+def ma2a():
+    """Write sample-walls-ma2a.dxf (every wall as its two faces) and sample-walls-ma2a-expected.json."""
+    def faces(x1, y1, x2, y2, t):   # the two faces of a wall drawn as a double line: the centreline offset ±t/2 along its normal
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        nx, ny = -dy / length * t / 2, dx / length * t / 2
+        return [(x1 + nx, y1 + ny, x2 + nx, y2 + ny), (x1 - nx, y1 - ny, x2 - nx, y2 - ny)]
+
+    ox, oy = MA2A_ORIGIN
+    lines, walls = [], []
+    for n, (layer, x1, y1, x2, y2, t, loc) in enumerate(MA2A_WALLS, 1):
+        for fx1, fy1, fx2, fy2 in faces(x1, y1, x2, y2, t):
+            lines.append((layer, round(ox + fx1, 3), round(oy + fy1, 3), round(ox + fx2, 3), round(oy + fy2, 3)))
+        walls.append({"n": n, "layer": layer, "start": [ox + x1, oy + y1], "end": [ox + x2, oy + y2], "thickness_mm": t, "location": loc})
+    path = os.path.join(HERE, "sample-walls-ma2a.dxf")
+    with open(path, "w", newline="") as f:
+        f.write(dxf([], (), ["A-WALL-EXT", "A-WALL-INT"], lines))
+    print(f"wrote {path}  ({os.path.getsize(path):,} bytes)")
+    expected = {
+        "what": "make-sample.py --ma2a: each wall of sample-walls-ma2a.dxf (drawn as two faces), its centreline, thickness and the "
+                "location the outer boundary must read (MA-2a). Millimetres. location null = unknown: a named gap, never a guess.",
+        "drawing": "sample-walls-ma2a.dxf",
+        "walls": walls,
+    }
+    json_path = os.path.join(HERE, "sample-walls-ma2a-expected.json")
+    with open(json_path, "w", newline="\n") as f:
+        f.write("{\n" + ",\n".join(f' "{k}": ' + ("[\n" + ",\n".join("  " + json.dumps(v) for v in value) + "\n ]" if isinstance(value, list) else json.dumps(value))
+                                    for k, value in expected.items()) + "\n}\n")
+    print(f"wrote {json_path}  ({os.path.getsize(json_path):,} bytes)")
+
+
 if __name__ == "__main__":
+    if "--ma2a" in sys.argv:
+        ma2a()
+        sys.exit(0)
     if "--ma1b" in sys.argv:
         ma1b("--plant" in sys.argv)
         sys.exit(0)

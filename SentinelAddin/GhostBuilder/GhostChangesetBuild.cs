@@ -223,6 +223,49 @@ namespace Sentinel.GhostBuilder
                     report.CreatedTypes.AddRange(wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
                     report.CreatedTypes.AddRange(floorProv.CreatedNames.Select(n => $"{n} (floor type the layer mapping names)"));
 
+                    // MA-2a: the outer boundary of this build (mm), so a layer-free Location rule can type a wall no layer rule names —
+                    // the drawn walls first (a drawn wall's index is its index here; its width is its measured thickness, 0 for one
+                    // drawn as a single line: the sample points then sit 100 mm off its line; only straight single runs on Walls rows
+                    // are read), then, as barriers only, the model's own walls that cross the build level (review C1: a fit-out
+                    // drawing added to a model that already has its shell reads its partitions as inside).
+                    var drawn = new List<WallLocation.Segment>();
+                    var drawnAt = new Dictionary<GhostElement, int>();
+                    foreach (var el in elements)
+                    {
+                        if (!byLayer.TryGetValue(el.CadLayer ?? "", out var wm) || !string.Equals(wm.Category, "Walls", StringComparison.OrdinalIgnoreCase) || el.Block != null) continue;
+                        var c = el.LocationCurve;
+                        if (c == null || !c.IsBound) continue;
+                        XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
+                        drawnAt[el] = drawn.Count;
+                        drawn.Add(new WallLocation.Segment { X0 = a.X * FtToMm, Y0 = a.Y * FtToMm, X1 = b.X * FtToMm, Y1 = b.Y * FtToMm, WidthMm = el.ThicknessMm, Curved = !(c is Line) });
+                    }
+                    double planeFt = level.Elevation, planeTolFt = WallLocation.TolMm / FtToMm;
+                    foreach (var mw in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
+                    {
+                        var mc = (mw.Location as LocationCurve)?.Curve;
+                        var bb = mw.get_BoundingBox(null);
+                        if (mc == null || !mc.IsBound || bb == null || bb.Min.Z > planeFt + planeTolFt || bb.Max.Z <= planeFt + planeTolFt) continue;
+                        XYZ ma = mc.GetEndPoint(0), mb = mc.GetEndPoint(1);
+                        drawn.Add(new WallLocation.Segment
+                        {
+                            X0 = ma.X * FtToMm, Y0 = ma.Y * FtToMm, X1 = mb.X * FtToMm, Y1 = mb.Y * FtToMm,
+                            WidthMm = mw.WallType?.Kind == WallKind.Basic ? mw.Width * FtToMm : 0, Curved = !(mc is Line),
+                        });
+                    }
+                    int outside = 0, inside = 0, unknown = 0;
+                    // The one fact a drawn wall's rule may see: its Location when the boundary reads one. The mapping's parameter values
+                    // are the local model's reading of the documents (EnrichParamsAsync, best-effort): they are written to the wall as
+                    // before (ApplyParams) and never pick its type (review C4). An unknown location is left out: a rule that needs it
+                    // cannot fire.
+                    Dictionary<string, string> GhostFacts(GhostElement el)
+                    {
+                        var facts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        string loc = drawnAt.TryGetValue(el, out int at) ? WallLocation.Locate(drawn, at, out _) : null;
+                        if (loc != null) facts["Location"] = loc;
+                        if (loc == WallLocation.Exterior) outside++; else if (loc == WallLocation.Interior) inside++; else unknown++;
+                        return facts;
+                    }
+
                     // Each wall's type: the reviewer's pick, else the guideline at the measured thickness (a size the model lacks
                     // is cloned here from its catalogue sibling), else the mapping — ElementPlacementFactory's rule, unchanged.
                     typer = new ElementPlacementFactory(doc, level, WallTypes(doc), guideline: r.Guideline);
@@ -231,7 +274,7 @@ namespace Sentinel.GhostBuilder
                         if (!byLayer.TryGetValue(el.CadLayer ?? "", out var map) || !string.Equals(map.Category, "Walls", StringComparison.OrdinalIgnoreCase)) continue;
                         // E17: a block on a Walls row is no wall — it has no run to file, so it would have been a bare SkippedNoGeometry.
                         if (el.Block != null) { NoteNested($"Walls on '{el.CadLayer}'", el); SetAside(el); continue; }
-                        string type = typer.ResolveWallType(el, map, out string gap, out string typedBy);
+                        string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el));
                         if (gap == null && Refusal("wall|" + type, () => ChangesetExecutor.ResolveWallType(doc, type)) is string no)
                             gap = no + GhostFiling.SyntheticHint(type);
                         if (gap != null)
@@ -245,6 +288,8 @@ namespace Sentinel.GhostBuilder
                     }
                     report.CreatedTypes.AddRange(typer.CreatedTypes);
                     report.Warnings.AddRange(typer.Notes);
+                    // MA-2a: what the outer boundary read of this build's walls — a count, so a drawing whose walls do not close is seen.
+                    if (drawn.Count > 0) report.Warnings.Add(WallLocation.Summary(outside, inside, unknown) + " (this build's drawn walls; an unknown location types by its layer rule or the mapping, never by a guess).");
                     if (t.Commit() != TransactionStatus.Committed)
                         return Abandon(GhostFailurePolicy.NotBuiltLine("Revit did not commit the types and families this build needs" +
                                                                        (fails.RolledBack != null ? ": " + fails.RolledBack : "")));

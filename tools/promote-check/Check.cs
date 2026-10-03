@@ -45,6 +45,12 @@ static partial class Check
         TrustChecks();
         TrustWiringChecks();
         Ma1bWiringChecks();
+        var m3 = LayerFreeChecks();
+        WallLocationChecks();
+        PlannerLayerFreeChecks(m, m3);
+        TypedBodyChecks();
+        WallSampleChecks();
+        Ma2aWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

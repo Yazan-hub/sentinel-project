@@ -1249,3 +1249,65 @@ Notes:
   (`ai_element_filter`, by family-symbol id; its bounding-box and wall-type filters are unreliable); the Revit MCP Switch toggles the
   server, so a timeout is checked before it is clicked; a type combo in Ghost's review takes typed text to jump to the type, then one
   click on the highlighted row; Ghost's level box lists the model's levels by name.
+
+## Session MA2a — rules without a layer, the wider harvest, bridge typing (full contract 2), live (2026-10-03 ~06:10 → 08:05 local, branch feature/ma2a-layer-free-rules 4cba919 → daafa83 → 9856407 → 90b8e36, Claude driving Revit 2024)
+
+Setup: five copies of `Documents\sentinel-scratch\ma1\ma1-src_detached.rvt` in `Documents\Sentinel drills\` (`ma2a-promote`, `-onetype`,
+`-ghost`, `-harvest`, `-orphan`). The restart copy is the PRE-Promote seed (outline `Generic - 200mm`, partitions `MA0 Interior -
+100mm`, gap walls `Generic - 125mm`), not the settled storey the plan's set-up assumed (amendment D6). Scratch web projects on the test
+bridge 127.0.0.1:4101: office `ma2a-office` (`guideline@1` = the layer-free DRAFT `8bcd989f…`, `type_catalog@1` = the pilot's
+catalogue without `bic`, `a1c0436f…`), projects `ma2a` and `ma2a-ghost` (own `guideline@1` `b2bcb612…`, a layer rule first) in that
+office, `ma2a-orphan` (no office). **Signed in** (the founder's account — Project Setup reads "Signed in as …"; contributor of
+`ma2a`, `ma2a-ghost`, `ma2a-orphan` and the office, raised to lead on the office for H-2). The add-in was deployed to Revit 2024 four
+times as the fixes landed (final DLL sha256 197e759b…); the test bridge was restarted once on the fixed bridge code. The founder's
+4100 bridge was not touched.
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-1 the layer-free rules read Promote's storeys | Header `Guideline: guideline@1 · office · 8bcd989fe1f3…`, `DRAFT rules: install them on a throwaway project only.`, `type_catalog@1 · office · a1c0436f6714…`, `Office template: 79 of 91`. `GR-FFL: 24 retype · 20 attach · 27 wall(s) sent to a person`, `01-FFL: 18 retype · 20 attach · 2`; the gap walls held `gap: W 2051449 (Generic - 125mm, Location Interior) — "BDS_INT_ARC_CMU_125 mm" is not in type_catalog@1 · office · … Available: BDS_INT_ARC_CMU_100 mm, …_150 mm, …_200 mm, …_300 mm`; no wall said `inside cannot be told from outside`; a template wall's retype reason `DD walls v0: Location Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm`. Same counts on the fixed build — **pass** (the storey was not settled: D6) | header; held reasons; tooltip |
+| P-2 a one-type storey types by location (F2) | 01-FFL reset to 20 × `Generic - 200mm` + one free wall drawn 6 m south (east was off the canvas). First build: `19 retype · 2 sent` — the outline wall 2051452 held "its sample point lies beyond another wall's centreline (overlapping walls)" because of the template's 6 mm waterproofing wall 34 mm off its face → **F-MA2a-1**; and a false `Template check: BDS_INT_ARC_CMU_200 mm is Function Interior in this model` → **F-MA2a-2**. Apply: `Applied 39 element(s)`, 7 outline → `BDS_EXT_ARC_CMU_200 mm`, 12 → `BDS_INT_ARC_CMU_200 mm` (MCP), wall types 1702 before and after, one Undo entry and one `changeset_reverted` (#1482, 39 guids). Fixed build: `01-FFL: 20 retype · 20 attach · 1 wall(s) sent to a person`, the free wall held with exactly the plan's words, no template note — **pass after the fixes** (UNSURE 1 held on the clean storey) | dialogs; MCP; audit #1481/#1482 |
+| P-4 a shell based below is a barrier (C1) | The 8 GR-FFL outline walls raised to MA0 Roof (Select by ID answered this session); Revit: 8 × "Highlighted walls overlap". `01-FFL: 12 retype · 9 sent`: every partition and gap wall `Location Interior`; the 8 outline walls unknown "its body overlaps a parallel wall's body (a wall drawn inside another)" — D5: two walls in one place, the plan expected Exterior. The 01-FFL outline deleted: `01-FFL: 12 retype · 12 attach · 1 wall(s) sent to a person`, all 12 reasons `DD walls v0: Location Interior, 200 mm → BDS_INT_ARC_CMU_200 mm` (filed, read, withdrawn) — **pass** (C1), first half recorded as D5 | dialogs; changeset reasons |
+| P-3 an unknown location on a mixed storey falls to Function | On `ma2a-promote` a free `Generic - 200mm` wall south of the 01-FFL outline: `01-FFL: 19 retype`, its reason `DD walls v0: Function Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm` (`Generic - 200mm` is Function Exterior in this model — H-1); the outline wall by the membrane `Location Exterior` (fix live) — **pass** | changeset reasons |
+| G-1 Ghost Builder: the layer rule, the layer-free rule, a gap | `sample-walls-ma2a.dxf` from Ghost's own picker, no type picked: the review counts drawn LINES (`A-WALL-EXT 8`, `A-WALL-INT 6`), the build pairs them: `Placed: 6`, `Walls: 6 typed by the guideline · 1 left as a reported gap`, `Wall on 'A-WALL-INT': gap: 100 mm wall on 'A-WALL-INT' — the guideline names no wall type for it (type_catalog: type_catalog@1 · office · …); skipped.`, `outer boundary: 4 outside · 2 inside · 1 unknown`; the changeset: 4 × `BDS_EXT_ARC_CMU_200 mm` (the layer rule) and 2 × `BDS_INT_ARC_CMU_100 mm` (the Location rule), each `provenance.rule` naming the guideline; no CreatedTypes line (no clone); one Undo. The same on the fixed build — **pass** (UNSURE 5: the faces pair) | summary; changeset 55f4929e / 7acd0c36 |
+| B-1 a contract-2 post without `place.TypeName` is typed | 201; `elements[0]` `BDS_EXT_ARC_CMU_200 mm`, `typing` `typed_by: bridge`, `matched: ["param:Location"]`, `input {category: Walls, params: {Location: Exterior}, thicknessMm: 200}`, the rule's words, both artefact labels and shas; `elements[1]` `BDS_INT_ARC_CMU_100 mm`; both `pretick: false`, `not_measured`; `claimed: true`; `ignored` only `source.job_id`; `facts` kept; audit `typed: 2`. 1.36 s including the Node client's start — **pass** (UNSURE 11: well under a few seconds) | reply; audit #1493 |
+| B-2 the bridge-typed changeset applied in Revit | Rows read `· not measured · typed by the bridge from the facts posted (guideline@1 · office · 8bcd989fe1f3…)` (full only with the window widened — UNSURE 9), unticked, "Tick suggested" leaves them so. Applied 2; partition 2051439 → `BDS_INT_ARC_CMU_100 mm`, same width; types 1702 unchanged. **But the new wall stood on GR_SSL, −300 → 0 mm** → **F-MA2a-3**. Fixed build and bridge, re-posted (51b5e38f): the wall 2069812 stands on GR-FFL, 0 → 3300 — **pass after the fix** (UNSURE 8 held) | review; MCP; changesets 2b41780c, 51b5e38f |
+| B-5 a claimed thickness that would move a face is refused | 201 typed `BDS_INT_ARC_CMU_200 mm` (unticked); Apply: "Transaction failed and was rolled back: "BDS_INT_ARC_CMU_200 mm" is 200 mm thick, wall 932a9e30-…-001f4d6f is 100 mm — a retype would move a face; a person decides. Reported as declined."; changeset declined, `rejected` 1 — **pass** | dialog; changeset 9ed8df9a |
+| B-3 a post the bridge cannot type is a 400 that names what is missing | (a)–(e) answered word for word as the plan wrote them; changeset counts unchanged — **pass** | replies |
+| B-4 the trust rules stay | 201; `ignored` lists `elements[0].typing` and `elements[0].pretick` as `ignored: set by the bridge`; stored `typing.typed_by: bridge`, `pretick: false`; withdrawn — **pass** | reply |
+| H-1 the harvest writes Function, Material and the BuiltInCategory | `Type catalogue exported (1462 types from ma2a-harvest)`, the dialog ends `A lead installs it from the review window too: Install catalogue on office (MA-2a, BOS-3) — no command line.` Basic Wall rows 80, all with `Function` (Exterior 52, Interior 22, Foundation 4, Retaining 1, Soffit 1) and `bic: OST_Walls`, 73 with `Material`; doors 41/41 with `Function`; `bic` on 1,362 of 1,462 rows, the only category without one the CAD import's; `category_local` on 0 rows — **pass** (UNSURE 3, 4). UNSURE 7: `Generic - 200mm` has no Material; the BDS labels are words like `BDS_GypsumBoard`, `BDS_StoneFacade`, `Concrete Masonry Units`, `BDS_WATERPROOF_CEMENT` (a `STONE`/`GYPS` rule matches them as substrings) | export file; one-liner |
+| H-3 a contributor is refused Install on office | `Catalogue NOT installed: HTTP 403: this action requires the lead role (you are contributor)`; the office still `version 1` — **pass** | status line |
+| H-4 a project with no office is refused | `Catalogue NOT installed: project ma2a-orphan belongs to no office — link it to an office in the web app first (a catalogue installed on a project would shadow its office's, for that project alone)`; `ma2a-orphan` type_catalog 404 `not_installed` — **pass** | status line |
+| H-2 Install on office from Revit (BOS-3) | As lead, from `ma2a-ghost` (D6): `type_catalog@2 · office · 91fa90605a58…: installed on ma2a-office — 1,463 types from ma2a-ghost. Ghost Builder, Promote and the bridge read it from here on; GET /cde/ma2a-office/artefacts/type_catalog answers the same sha.` GET: version 2, sha `91fa90605a58…`, 1,463 types with `bic`/`Function`; audit #1522 `artefact_installed type_catalog@2`, actor the signed-in e-mail, `source {tool: revit-build, document: ma2a-ghost}` — **pass** (UNSURE 6, 10) | status line; GET; audit |
+| H-5 the add-in reads what Revit installed | Header `type_catalog@2 · office · 91fa90605a58…`; first `Office template: 80 of 87` — the 7 were curtain wall types → **F-MA2a-4**; fixed build: `87 of 87` — **pass after the fix** | dialog |
+| R-1 parity | promote-check 569/569 with `…every shared case (29/29)` and `…every shared layer-free case (20/20)`; vitest guideline + bundle + typing 6 files, 49 passed; the whole suite 139 files, 2,159 passed, 1 skipped; `npm run build:bridge-core` leaves the bundle unchanged — **pass** | runs |
+
+**Found in the drill** (each fixed on the branch with its check and run again live):
+- **F-MA2a-1 (daafa83) — a thin lining read as an overlap.** The template's 6 mm waterproofing wall beside the outline sent the
+  outline wall to a person. A lining (parallel, known width ≤ 50 mm and thinner, body starting at or past the face) is read past. An
+  adversarial review of the first cut found width-0 and equal walls slipping through as linings and a partition wholly inside a shell
+  reading Interior; both are unknown now ("its body overlaps a parallel wall's body").
+- **F-MA2a-2 (daafa83) — a false template note** on a one-type storey; the note now compares with the side the rule decided.
+- **F-MA2a-3 (9856407) — the design's contract-2 wall went on the lowest level, in silence.** The executor reads `BaseLevel`/`TopLevel`
+  on a create and never picks a level; the bridge refuses a level-less wall or floor.
+- **F-MA2a-4 (90b8e36) — "80 of 87" for a model holding all 87:** the template count reads every type the model holds.
+- **Driving slip:** the wall tool kept chaining while a read-only MCP call waited for Revit and drew a second, diagonal wall in the
+  scratch copy; one Undo removed it before any Promote run. Do not call the MCP while a Revit tool is active.
+
+**Owed** (not passed): H-6 (a signed-out Install refused — the session was signed in; signing out is the founder's step); the
+signed-out actor on the ledger rows; one row on Revit 2026 and 2027; a non-English Revit harvest (BOS-5); floors, roofs, ceilings,
+doors and windows through the layer-free rules live (no `lod_matrix` installed); a closed inner courtyard and walls drawn in pieces
+under the boundary; the MCP tool posting `facts`; a survey-backed `measured` (MA-4); Ghost's clone path (not provoked); the office
+guideline's own layer-free rules written by a lead (design `:1081`), in the template's material words (H-1 gives them); the plan-only
+aster-tower run (B-3 (d) stands for it); a floor create naming no level, live (pinned offline).
+
+Notes:
+- Left on the test ledger: `ma2a-office` (#1458–#1522: guideline@1, type_catalog@1 and Revit's type_catalog@2, the account as lead),
+  `ma2a` (#1459–#1514: 3 changesets applied in copies that were not saved, 1 declined, 8 withdrawn), `ma2a-ghost` (#1460–#1519),
+  `ma2a-orphan` (#1461–#1520). No proposal is left pending.
+- Left on this PC: the five scratch copies (`ma2a-onetype` and `ma2a-promote` saved once mid-drill, with backups `.0001`/`.0002`), the
+  export files `%AppData%\Sentinel\exports\type-catalog-ma2a-{harvest,orphan,ghost}.json` (the drill's evidence). The `ma2a` and `ma2a-ghost` cache
+  folders (no `ma2a-orphan` folder was made) and the request bodies were deleted.
+- Settings restored: `bcf-config.json` from `.ma2abak` (same sha256); the test bridge stopped; Revit closed without saving.
+- Revit driving: Select by ID answered again this session (it did not in MA1b); the type selector's search box takes a typed name; a
+  long "Promote" dialog's expanded list scrolls only by dragging its scrollbar; Revit's "Project Not Saved Recently" prompt blocks the
+  MCP until answered; after a Revit restart the MCP server must be switched on again (Add-Ins ▸ Revit MCP Switch).

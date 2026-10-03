@@ -235,9 +235,9 @@ static partial class Check
         // The office-template check: the three commands that load the catalogue count, refuse at none, and say the count.
         foreach (var (file, count) in new[]
         {
-            ("Commands.GhostBuilder.cs", "resolved.Guideline.OfficeTypesIn(loadedTypes)"),
+            ("Commands.GhostBuilder.cs", "resolved.Guideline.OfficeTypesIn(heldTypes)"),  // F-MA2a-4: every type the model holds
             ("Commands.Massing.cs", "standards.Guideline.OfficeTypesIn(loadedTypes)"),
-            ("Commands.PromoteWalls.cs", "standards.Guideline.OfficeTypesIn(GhostBuilderCommand.LoadedTypes(doc))"),
+            ("Commands.PromoteWalls.cs", "standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc))"),
         })
         {
             string src = Src(file);

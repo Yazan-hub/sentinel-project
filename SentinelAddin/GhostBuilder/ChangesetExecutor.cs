@@ -127,12 +127,15 @@ public sealed class ChangesetExecutor
             return levels.FirstOrDefault(l => string.Equals(l.Name, place.LevelName, StringComparison.OrdinalIgnoreCase))
                    ?? throw new InvalidOperationException($"level \"{place.LevelName}\" does not exist in this model — include it in the changeset or re-propose without a LevelName");
         }
+        // Drill MA2a (F-MA2a-3): contract 2 names a wall's level BaseLevel (design :675). It was read only for an attach, and a
+        // create naming no LevelName fell to the model's LOWEST level — the design's wall went on GR_SSL, 300 mm high, in silence.
+        if (!string.IsNullOrWhiteSpace(place?.BaseLevel)) return LevelNamed(doc, place.BaseLevel);
         if (place?.BaseElevation is double mm)
         {
             var ft = mm * MmToFeet;
             return levels.OrderBy(l => Math.Abs(l.Elevation - ft)).First();
         }
-        return levels.OrderBy(l => l.Elevation).First();
+        throw new InvalidOperationException("names no level (place.LevelName, place.BaseLevel or place.BaseElevation) — Sentinel never picks its level");
     }
 
     // A named type that doesn't exist FAILS the changeset (named reason → declined) rather than
@@ -228,7 +231,7 @@ public sealed class ChangesetExecutor
         if (string.IsNullOrEmpty(n)) throw new InvalidOperationException("attach needs a BaseLevel and a TopLevel");
         return new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                    .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"level \"{n}\" does not exist in this model — re-run Promote");
+               ?? throw new InvalidOperationException($"level \"{n}\" does not exist in this model — re-run Promote, or re-propose naming a level it has");
     }
 
     /// The existing wall a retype/attach names by UniqueId.
@@ -294,8 +297,16 @@ public sealed class ChangesetExecutor
     /// touches a group member, a design option, a structural floor, or a door or window no wall hosts. Also the preflight.
     internal static string Unsafe(Element e, string kind, ElementType cur, ElementType nt)
     {
-        if (kind == "wall") return null;
         string what = $"{kind} {e.UniqueId}";
+        if (kind == "wall")
+        {
+            // MA-2a (review C3): a wall retype never moves a face either. Promote names a type at the wall's own width, so its retypes
+            // pass; a retype the bridge typed from a poster's facts (full contract 2) carries a CLAIMED thickness, and this is the one
+            // check that sees it. Nothing else about a wall is checked here, as before (MA-0's holds are the planner's).
+            if (cur is WallType cw && nt is WallType nw && cw.Kind == WallKind.Basic && nw.Kind == WallKind.Basic && Math.Abs(nw.Width - cw.Width) > TolFt)
+                return $"\"{nt.Name}\" is {Mm(nw.Width / MmToFeet)} mm thick, {what} is {Mm(cw.Width / MmToFeet)} mm — a retype would move a face; a person decides";
+            return null;
+        }
         if (e.GroupId != ElementId.InvalidElementId) return what + " is in a group — Sentinel does not edit group members";
         if (e.DesignOption != null) return what + " is in a design option — Sentinel does not edit design options";
         if (kind == "floor" && e.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1)
@@ -410,6 +421,12 @@ public sealed class ChangesetExecutor
                 Level topLevel = null;
                 double topMm;
                 if (el.Place.TopElevation is double sent) topMm = sent;
+                else if (!string.IsNullOrWhiteSpace(el.Place.TopLevel))
+                {
+                    // Contract 2's TopLevel (F-MA2a-3): the top is constrained to the level the poster named, offset 0.
+                    topLevel = LevelNamed(doc, el.Place.TopLevel);
+                    topMm = topLevel.Elevation / MmToFeet;
+                }
                 else
                 {
                     var top = PromoteWallsPlanner.WallTop(stories ??= Stories(doc), baseMm, level.Name, out var why)

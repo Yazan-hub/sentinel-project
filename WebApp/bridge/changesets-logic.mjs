@@ -7,6 +7,7 @@
 // build (source "dwg", MA-1a step 2) is ticked in Ghost's own review, layer by layer, before it is filed,
 // and the add-in runs it as filed.
 import { randomUUID } from "node:crypto";
+import { checkFacts } from "./changesets-typing.mjs";
 
 // MA-1 placement slice: roof, ceiling, door, window. MA-1a step 2: column, furniture — Ghost Builder's unhosted point families.
 export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture"];
@@ -40,7 +41,9 @@ export const TRUST_FIELDS = ["pretick", "accuracy", "confidence", "typing", "cla
  *  files as one of these. */
 export const ADDIN_SOURCES = ["dwg", "promote"];
 const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent", "contract"]; // what a posted body is read for
-const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence"]; // what an element is rebuilt from
+// MA-2a: `facts` — the poster's thickness and parameters (Function, Location, Material, …), kept as a record and, on an element
+// without place.TypeName, what the bridge types it from (changesets-typing).
+const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence", "facts"]; // what an element is rebuilt from
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
@@ -191,8 +194,12 @@ const pretickOf = (op, source, target, member) =>
  *  the changeset with its exceptions (the elements a planner sent to a person). The element is rebuilt field by field,
  *  so a field added to the shape must be added here and to ELEMENT_FIELDS, or it is listed under `ignored` and not kept.
  *  MA-1a item 8: each element also comes back with the bridge's pretick and accuracy, and the changeset with claimed
- *  and the list of what was ignored. */
-export function validateChangeset(body, { member = false } = {}) {
+ *  and the list of what was ignored.
+ *  MA-2a (full contract 2): with `type` — the typer changesets-typing.makeTyper builds from the project's guideline and
+ *  catalogue — a create or retype without place.TypeName is typed from its facts (TypeName, and FamilyName for a point kind,
+ *  filled; `typing` says the bridge did it and from what), or refused in the typer's words; without one it is the 400 it was.
+ *  Every element carries `typing` ({typed_by: "caller"} for one that named its type); a bridge-typed one is never pre-ticked. */
+export function validateChangeset(body, { member = false, type = null } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "a changeset must be an object");
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) throw err(400, "name is required — a changeset is reviewed by humans and needs a human-readable name");
@@ -245,16 +252,50 @@ export function validateChangeset(body, { member = false } = {}) {
     const validate = el.validate && typeof el.validate === "object" ? el.validate : {};
     if (!validate.identity || typeof validate.identity.Class !== "string" || !validate.identity.Class)
       throw err(400, `${at}: validate.identity.Class is required (the IFC class adjudication reads)`);
+    // Review amendment C3: rebuilt from the names the add-in reads — a posted place.pretick or place.measured is not stored.
+    const place = Object.fromEntries(Object.entries(isBlock(el.place) ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k)));
+    // MA-2a: the poster's facts, checked and kept name for name; an attach types nothing, so it takes none.
+    const facts = checkFacts(el.facts, at);
+    if (facts && op === "attach") throw err(400, `${at}: attach takes no facts — nothing is typed`);
+    let typed = null; // the bridge's typing of this element, when it had to type it
+    const typeIt = () => {
+      typed = type(el.kind, facts, at); // a 400 in the typer's words when it cannot
+      place.TypeName = typed.TypeName;
+      if (POINT_KINDS.includes(el.kind) && !text(place.FamilyName, 256) && text(typed.FamilyName, 256)) place.FamilyName = typed.FamilyName;
+    };
     let target = null;
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
       // After checkPlace, so a geometry error still reads as one. The Revit executor refuses an empty type too.
-      if (el.kind !== "level" && el.kind !== "grid" && !text(el.place.TypeName, 256))
-        throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
-      if (POINT_KINDS.includes(el.kind) && !text(el.place.FamilyName, 256))
+      if (el.kind !== "level" && el.kind !== "grid" && !text(place.TypeName, 256)) {
+        if (!type) throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
+        typeIt();
+      }
+      if (POINT_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
-      if (["roof", "ceiling", ...POINT_KINDS].includes(el.kind) && !text(el.place.LevelName, 256))
+      if (["roof", "ceiling", ...POINT_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
+      // Drill MA2a (F-MA2a-3): a wall or floor names its level too. The executor read only LevelName for a create and put the
+      // design's contract-2 wall (BaseLevel and TopLevel, design :675) on the model's lowest level, in silence. Contract 2's
+      // BaseLevel names a wall's level and TopLevel its top; two names for one end are refused, never chosen between.
+      if (el.kind === "wall" || el.kind === "floor") {
+        for (const f of ["BaseLevel", "TopLevel"])
+          if (place[f] !== undefined && !text(place[f], 256)) throw err(400, `${at}: place.${f} must be text of at most 256 characters`);
+        const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+        const named = text(place.LevelName, 256) || (el.kind === "wall" && text(place.BaseLevel, 256)) || place.BaseElevation !== undefined;
+        if (!named) throw err(400, el.kind === "wall"
+          ? `${at}: a wall needs place.LevelName or place.BaseLevel (or place.BaseElevation) — Sentinel never picks its level`
+          : `${at}: a floor needs place.LevelName (or place.BaseElevation) — Sentinel never picks its level`);
+        if (el.kind === "wall") {
+          if (text(place.LevelName, 256) && text(place.BaseLevel, 256) && !same(place.LevelName, place.BaseLevel))
+            throw err(400, `${at}: place.LevelName and place.BaseLevel name different levels — send one`);
+          if (place.TopLevel !== undefined && place.TopElevation !== undefined)
+            throw err(400, `${at}: place.TopLevel and place.TopElevation say the same thing twice — send one`);
+          const base = text(place.BaseLevel, 256) ? place.BaseLevel : place.LevelName;
+          if (text(place.TopLevel, 256) && text(base, 256) && same(place.TopLevel, base))
+            throw err(400, `${at}: place.TopLevel is the wall's own base level — name the level its top reaches`);
+        }
+      }
     } else {
       const uid = el.target?.unique_id;
       if (typeof uid !== "string" || !UNIQUE_ID.test(uid)) throw err(400, `${at}: ${op} needs target.unique_id, a Revit UniqueId`);
@@ -266,8 +307,11 @@ export function validateChangeset(body, { member = false } = {}) {
       for (const f of Object.keys(PLACE_FIELDS))
         if (p[f] !== undefined && !(f === "FamilyName" && op === "retype" && PLACE_FIELDS.FamilyName.includes(el.kind)))
           throw err(400, `${at}: ${op} takes no place.${f} — only a create sets it`);
-      if (op === "retype" && !text(p.TypeName, 256)) throw err(400, `${at}: retype needs place.TypeName`);
-      if (op === "retype" && (el.kind === "door" || el.kind === "window") && !text(p.FamilyName, 256))
+      if (op === "retype" && !text(place.TypeName, 256)) {
+        if (!type) throw err(400, `${at}: retype needs place.TypeName`);
+        typeIt();
+      }
+      if (op === "retype" && (el.kind === "door" || el.kind === "window") && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} retype needs place.FamilyName — a type name alone is not one type`);
       if (op === "attach" && (!text(p.BaseLevel, 256) || !text(p.TopLevel, 256) || p.BaseLevel === p.TopLevel))
         throw err(400, `${at}: attach needs two different levels, place.BaseLevel and place.TopLevel`);
@@ -289,7 +333,6 @@ export function validateChangeset(body, { member = false } = {}) {
     const identity = untrusted(validate.identity);
     // A pset or a quantity entry is IFC data, kept as sent — but for a trust field or a measurement on it, which is listed.
     const entries = (list, where) => (list || []).map((x, j) => { nested(x, null, `${at}.validate.${where}[${j}]`); return untrusted(x); });
-    const place = Object.fromEntries(Object.entries(isBlock(el.place) ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k)));
     // The curve too is rebuilt from the names the add-in reads (start, end, an arc's mid): a key inside it is listed, not stored.
     if (isBlock(place.LocationCurve)) place.LocationCurve = Object.fromEntries(Object.entries(place.LocationCurve).filter(([k]) => CURVE_KEPT.includes(k)));
     if (!identity.GlobalId) identity.GlobalId = proposal_guid;
@@ -298,14 +341,18 @@ export function validateChangeset(body, { member = false } = {}) {
       kind: el.kind,
       op, target, reason: el.reason ?? null,
       validate: { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
-      // Review amendment C3: rebuilt from the names the add-in reads — a posted place.pretick or place.measured is not stored.
       place,
       ...(provenance ? { provenance } : {}), // MA-1a item 4: only when sent, so every other changeset reads as before
+      // MA-2a: the poster's facts as a record, and the bridge's own account of who typed the element — its rule, its input,
+      // and which guideline and catalogue decided — or "caller" for an element that named its type.
+      ...(facts ? { facts } : {}),
+      typing: typed ? typed.typing : { typed_by: "caller" },
       // Review amendment C4: contract 2's reader id and evidence ids, as sent — the caller's claim, like the source.
       ...(el.cid != null ? { cid: el.cid.trim() } : {}),
       ...(el.evidence != null ? { evidence: el.evidence.map((x) => x.trim()) } : {}),
-      // MA-1a item 8: the bridge's own trust decisions. No survey job exists yet, so nothing is measured.
-      pretick: pretickOf(op, source, target, member),
+      // MA-1a item 8: the bridge's own trust decisions. No survey job exists yet, so nothing is measured. MA-2a: an element the
+      // bridge typed from posted facts is never pre-ticked for that — the facts are the poster's claim.
+      pretick: typed ? false : pretickOf(op, source, target, member),
       accuracy: { status: "not_measured" },
     };
   });

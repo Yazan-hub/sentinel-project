@@ -140,7 +140,7 @@ namespace Sentinel.GhostBuilder
         /// reviewer-facing reason naming the type catalogue in force; the wall is then skipped (massing: placed on a
         /// named placeholder), never built with an invented type, an unrelated clone, or the wrong size.
         /// </summary>
-        internal string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason, out string typedBy)
+        internal string ResolveWallType(GhostElement el, LayerMapping map, out string gapReason, out string typedBy, Dictionary<string, string> facts = null)
         {
             gapReason = null;
             typedBy = "mapping";
@@ -165,6 +165,10 @@ namespace Sentinel.GhostBuilder
             typedBy = "guideline";
             // Discipline is the layer's first token: A-WALL-EXT -> "A", S-WALL -> "S".
             string disc = (el.CadLayer ?? "").Split('-', '_').FirstOrDefault();
+            // MA-2a: the facts the layer-free rules may see — the wall's Location from this build's outer boundary (GhostFacts; the
+            // mapping's parameter values are the local model's document reading and are never facts) — as when.params, the same
+            // names Promote and the bridge use. A rule stating more conditions is tried first, then document order; where no rule
+            // names the layer, these decide.
             var res = _guideline.Resolve(new GuidelineInput
             {
                 Category = "Walls",
@@ -172,6 +176,7 @@ namespace Sentinel.GhostBuilder
                 Discipline = disc,
                 ThicknessMm = el.ThicknessMm,
                 Level = _level.Name,
+                Params = facts,
             });
 
             if (!_guideline.HasCatalog)

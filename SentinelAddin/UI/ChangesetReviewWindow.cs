@@ -130,6 +130,7 @@ public sealed class ChangesetReviewWindow : Window
                 _ => CreateLabel(el, name),
             };
             if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
+            if (ChangesetTrust.Typing(el) is string typing) label.Text += "  ·  " + typing; // MA-2a: the bridge typed it from posted facts
             if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
             row.Children.Add(label);
             list.Children.Add(row);

@@ -121,6 +121,21 @@ public sealed class ChangesetElementDto
     /// the bridge as sent. Read only: nothing in MA-1a acts on them. Null on an element the add-in files.</summary>
     [JsonPropertyName("cid")] public string Cid { get; set; }
     [JsonPropertyName("evidence")] public List<string> Evidence { get; set; }
+    /// <summary>MA-2a (full contract 2): the bridge's record of who typed the element — "bridge" (from the facts the poster sent, by
+    /// the project's guideline and catalogue) or "caller"; null from a bridge before MA-2a and on an element the add-in files.
+    /// Read only: the executor types by place.TypeName as for any changeset.</summary>
+    [JsonPropertyName("typing")] public TypingDto Typing { get; set; }
+}
+
+public sealed class TypingDto
+{
+    [JsonPropertyName("typed_by")] public string TypedBy { get; set; }
+    [JsonPropertyName("type")] public string Type { get; set; }
+    [JsonPropertyName("family")] public string Family { get; set; }
+    [JsonPropertyName("rule")] public string Rule { get; set; }
+    /// <summary>The bridge's refLabel of the guideline and catalogue that decided ("guideline@1 · office · 0123456789ab…").</summary>
+    [JsonPropertyName("guideline")] public string Guideline { get; set; }
+    [JsonPropertyName("catalog")] public string Catalog { get; set; }
 }
 
 public sealed class AccuracyDto
@@ -143,6 +158,11 @@ public static class ChangesetTrust
 
     /// <summary>The element's accuracy in words ("not measured"); null when the bridge sent none.</summary>
     public static string Accuracy(ChangesetElementDto el) => el.Accuracy?.Status?.Replace('_', ' ');
+
+    /// <summary>MA-2a: the review's words for an element the bridge typed — "typed by the bridge from the facts posted (guideline@1 ·
+    /// office · …)"; null for one the caller typed, or from a bridge before MA-2a.</summary>
+    public static string Typing(ChangesetElementDto el) =>
+        el.Typing?.TypedBy == "bridge" ? "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")" : null;
 
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
     public static string SourceLabel(ChangesetDto cs) =>

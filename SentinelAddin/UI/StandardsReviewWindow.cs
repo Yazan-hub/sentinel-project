@@ -36,6 +36,8 @@ public sealed class StandardsReviewWindow : Window
     public event Action<StandardsPack>? SaveRequested;
     /// <summary>Fires when the user asks to send the FULL extracted pack (not the ticked subset) to Sentinel as the office snapshot.</summary>
     public event Action? SnapshotRequested;
+    /// <summary>MA-2a (BOS-3): fires when a lead asks to install the harvested type catalogue on the document's office as type_catalog@n+1.</summary>
+    public event Action? InstallRequested;
     /// <summary>The full extracted pack as loaded — what the snapshot sends.</summary>
     public StandardsPack Source => _source;
 
@@ -61,6 +63,7 @@ public sealed class StandardsReviewWindow : Window
         var save = Btn("Save pack", () => Emit(SaveRequested));
         var iso = Btn("ISO 19650 ✓", RunIsoCheck);
         var snapshot = Btn("Send office snapshot to Sentinel", () => SnapshotRequested?.Invoke());
+        var install = Btn("Install catalogue on office", () => InstallRequested?.Invoke());
         var close = Btn("Close", Close);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
@@ -68,6 +71,7 @@ public sealed class StandardsReviewWindow : Window
         buttons.Children.Add(save);
         buttons.Children.Add(iso);
         buttons.Children.Add(snapshot);
+        buttons.Children.Add(install);
         buttons.Children.Add(close);
 
         var header = new TextBlock

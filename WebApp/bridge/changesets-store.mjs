@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures } from "./changesets-logic.mjs";
+import { makeTyper } from "./changesets-typing.mjs";
+import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 
 const STORE = "changeset";
@@ -21,7 +23,28 @@ const wire = (deps = {}) => ({
   requireMinRole: deps.requireMinRole || members.requireMinRole,
   myRole: deps.myRole || members.myRole,
   takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
+  resolveArtefact: deps.resolveArtefact || resolveArtefact,
 });
+
+/** MA-2a: does a posted body hold an element the bridge would have to type — a create or retype of a typed kind (not a level or
+ *  grid, never an attach) that names no place.TypeName? Only then are the standards read. */
+export const needsTyping = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e && typeof e === "object"
+  && (e.op ?? "create") !== "attach" && e.kind !== "level" && e.kind !== "grid"
+  && !(e.place && typeof e.place === "object" && typeof e.place.TypeName === "string" && e.place.TypeName.trim() !== ""));
+
+/** The typer for `key`: its guideline@n and type_catalog@n (project → office), each re-checked with the install validator — one
+ *  installed before a check existed is none with its reason — and the bundle's resolver. The GET is the add-in's read too. */
+async function typerFor(key, d) {
+  const core = await import("./sentinel-core.mjs");
+  const read = async (kind) => {
+    const a = await d.resolveArtefact(key, kind);
+    if (a.source === "none") return { body: null, label: `none — not installed for ${key} or its office`, sha256: null };
+    try { validateArtefact(kind, a.body); } catch (e) { return { body: null, label: `none — ${refLabel(a)} did not parse: ${e.message}`, sha256: null }; }
+    return { body: a.body, label: refLabel(a), sha256: a.sha256 };
+  };
+  const [guideline, catalog] = await Promise.all([read("guideline"), read("type_catalog")]);
+  return makeTyper({ guideline, catalog }, core);
+}
 
 export async function proposeChangeset(key, body, actor, deps) {
   const d = wire(deps);
@@ -31,7 +54,10 @@ export async function proposeChangeset(key, body, actor, deps) {
   // MA-1a item 8 (review amendment C2): a Promote retype or attach is pre-ticked only when a signed-in member filed it.
   // The machine credential ("service": a signed-out PC, the MCP server, any script that holds the token) earns none.
   const role = await d.myRole(key);
-  const v = validateChangeset(body, { member: role != null && role !== "service" }); // 400/413 before any changeset is stored
+  // MA-2a (full contract 2): an element without place.TypeName is typed from the project's guideline@n and type_catalog@n by the
+  // resolver the add-in's matcher mirrors, or refused in words; the standards are read only when a post needs them.
+  const type = needsTyping(body) ? await typerFor(key, d) : null;
+  const v = validateChangeset(body, { member: role != null && role !== "service", type }); // 400/413 before any changeset is stored
   const proj = await d.ensureProject(key);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
@@ -61,7 +87,7 @@ export async function proposeChangeset(key, body, actor, deps) {
   await d.docInsert(STORE, proj.id, changeset.id, changeset);
   await d.audit(proj.id, "changeset", changeset.id, "changeset_proposed", actor || "agent", null,
     { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source,
-      claimed: v.claimed, ignored: v.ignored.length });
+      claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by === "bridge").length });
   return changeset;
 }
 

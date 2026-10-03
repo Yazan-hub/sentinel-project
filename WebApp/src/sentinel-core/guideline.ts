@@ -151,9 +151,29 @@ export interface CatalogType {
   family: string;
   type: string;
   width_mm?: number | null;
+  /** MA-2a (BOS-5): the row's BuiltInCategory as its enum name ("OST_Walls"), written by Build Office System since MA-2a;
+   *  absent on a type_catalog@1 harvested before it. A row matches a guideline category by name OR by this id. */
+  bic?: string | null;
 }
 
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+
+/** MA-2a (BOS-5): the BuiltInCategory of each category Sentinel places, as a harvested row's `bic` spells it. A catalogue
+ *  harvested on a non-English Revit ("Wände", OST_Walls) still answers for "Walls". GuidelineMatcher.CategoryBics is the same
+ *  list, name for name; the layer-free fixture holds both to it. */
+export const CATEGORY_BIC: Record<string, string> = {
+  Walls: "OST_Walls", Floors: "OST_Floors", Roofs: "OST_Roofs", Ceilings: "OST_Ceilings", Doors: "OST_Doors",
+  Windows: "OST_Windows", Columns: "OST_Columns", Furniture: "OST_Furniture", Levels: "OST_Levels", Grids: "OST_Grids",
+};
+
+/** Does a catalogue row belong to `category`? By name (case and padding ignored), or by its BuiltInCategory when the row
+ *  carries one and the category is one Sentinel places. Never by name alone across locales: "Wände" is not "Walls". */
+export function sameCategory(c: CatalogType, category: string): boolean {
+  if (norm(c.category) === norm(category)) return true;
+  if (!c.bic) return false;
+  const key = Object.keys(CATEGORY_BIC).find((k) => norm(k) === norm(category));
+  return key !== undefined && CATEGORY_BIC[key] === c.bic;
+}
 
 /** Resolve `use` to a concrete type name: an explicit `type` wins, else `{thickness}` is substituted
  *  from the measured geometry. Returns undefined when a pattern has no measurement to fill it. */
@@ -233,19 +253,19 @@ export function resolveWithCatalog(
   input: ResolveInput,
   catalog: CatalogType[],
 ): Resolution {
-  const r = resolveType(guideline, input);
+  const { r, pattern } = resolveWinner(guideline, input);
   if (r.source === "none" || !r.type) return r;
 
   const inCatalog = catalog.some(
-    (c) => norm(c.type) === norm(r.type) && norm(c.category) === norm(input.category),
+    (c) => norm(c.type) === norm(r.type) && sameCategory(c, input.category),
   );
   if (inCatalog) return r;
 
-  // Find the rule that produced this, so we can offer what its pattern COULD produce.
-  const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  const pattern = el?.rules.find((x) => x.use.typePattern && matches(x.when, input))?.use.typePattern;
+  // What the WINNING rule's pattern could produce (GuidelineMatcher.WithCatalogCheck reads the same rule). A document-order
+  // search here once listed the first matching pattern rule's sizes — a lower-specificity rule's — when the winner was listed
+  // after it (review of MA-2a; the shared fixture pins a reordered file).
   const options = pattern
-    ? patternOptions(pattern, catalog.filter((c) => norm(c.category) === norm(input.category)))
+    ? patternOptions(pattern, catalog.filter((c) => sameCategory(c, input.category)))
     : [];
 
   return {
@@ -265,7 +285,7 @@ export function resolveWithCatalog(
 export function validateAgainstCatalog(guideline: Guideline, catalog: CatalogType[]): string[] {
   const errs: string[] = [];
   for (const el of guideline.elements) {
-    const inCat = catalog.filter((c) => norm(c.category) === norm(el.category));
+    const inCat = catalog.filter((c) => sameCategory(c, el.category));
     if (!inCat.length) {
       errs.push(`"${el.category}" — the template has no types in this category at all.`);
       continue;
@@ -285,8 +305,14 @@ export function validateAgainstCatalog(guideline: Guideline, catalog: CatalogTyp
 }
 
 export function resolveType(guideline: Guideline, input: ResolveInput): Resolution {
+  return resolveWinner(guideline, input).r;
+}
+
+/** resolveType, with the winning rule's (or the default's) `typePattern` beside the answer, for resolveWithCatalog's options. */
+function resolveWinner(guideline: Guideline, input: ResolveInput): { r: Resolution; pattern?: string } {
+  const none: Resolution = { family: "", params: {}, source: "none", confidence: 0 };
   const el = guideline.elements.find((e) => norm(e.category) === norm(input.category));
-  if (!el) return { family: "", params: {}, source: "none", confidence: 0 };
+  if (!el) return { r: none };
 
   const ordered = el.rules
     .map((rule, i) => ({ rule, i }))
@@ -296,28 +322,34 @@ export function resolveType(guideline: Guideline, input: ResolveInput): Resoluti
     const hit = matches(rule.when, input);
     if (hit) {
       return {
-        family: rule.use.family,
-        type: fillPattern(rule.use, input),
-        params: rule.use.params ?? {},
-        source: "rule",
-        confidence: 1,
-        why: rule.why,
-        matched: hit,
+        r: {
+          family: rule.use.family,
+          type: fillPattern(rule.use, input),
+          params: rule.use.params ?? {},
+          source: "rule",
+          confidence: 1,
+          why: rule.why,
+          matched: hit,
+        },
+        pattern: rule.use.typePattern,
       };
     }
   }
 
   if (el.default) {
     return {
-      family: el.default.family,
-      type: el.default.type,
-      params: el.default.params ?? {},
-      source: "default",
-      confidence: 0.6,
-      why: `No office rule matched — fell back to the ${el.category} default.`,
+      r: {
+        family: el.default.family,
+        type: el.default.type,
+        params: el.default.params ?? {},
+        source: "default",
+        confidence: 0.6,
+        why: `No office rule matched — fell back to the ${el.category} default.`,
+      },
+      pattern: el.default.typePattern,
     };
   }
-  return { family: "", params: {}, source: "none", confidence: 0 };
+  return { r: none };
 }
 
 /** Every (category, layer) the guideline does NOT cover. The honest gap list an office works through
