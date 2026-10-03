@@ -78,7 +78,7 @@ describe("getJourney", () => {
     const d = memDeps({ listAudit: vi.fn(async () => ({ rows: [row], total: 3, limit: 1, offset: 0 })) });
     const j = await getJourney("aster-villa", d);
     expect(d.listAudit).toHaveBeenCalledWith("aster-villa", { entity_type: "lod_state", limit: 1 });
-    expect(j.lod_state).toEqual({ line: "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 · ledger #4242",
+    expect(j.lod_state).toEqual({ line: "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 UTC · ledger #4242",
       share: 14, at: row.at, ledger: { id: 4242, hash: row.hash } });
     expect((await getJourney("aster-villa", memDeps())).lod_state).toEqual({ line: "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)", share: null, at: null, ledger: null });
     // A row measured against another matrix than the one in force is not the LOD state now (review C3).

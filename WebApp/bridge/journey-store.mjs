@@ -63,7 +63,7 @@ export function lodStateOf(fact, mxFact) {
   const stale = lodRowStale(row, mxFact.value, fact.value.reverted);
   if (stale) return { line: `LOD state: not measured — ${stale}`, share: null, at: row.at, ledger };
   return {
-    line: `LOD state: ${v.line ?? row.action} — Revit's count (claimed), ${row.actor}, ${String(row.at).slice(0, 16).replace("T", " ")} · ledger #${row.id}`,
+    line: `LOD state: ${v.line ?? row.action} — Revit's count (claimed), ${row.actor}, ${String(row.at).slice(0, 16).replace("T", " ")} UTC · ledger #${row.id}`,
     share: typeof v.share === "number" ? v.share : null, at: row.at, ledger,
   };
 }

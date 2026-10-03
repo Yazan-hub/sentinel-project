@@ -117,7 +117,7 @@ describe("tabIndex", () => {
 
 describe("lodLine (MA-2b)", () => {
   it("prints the bridge's line from the newest lod_state row as is; an office (or a bridge before MA-2b) has none", () => {
-    const line = "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 · ledger #4242";
+    const line = "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 UTC · ledger #4242";
     expect(lodLine(journey({ lod_state: { line, share: 14, at: "2026-10-03T09:15:00.000Z", ledger: { id: 4242, hash: null } } }))).toBe(line);
     expect(lodLine(journey({ lod_state: null }))).toBe("");
     expect(lodLine(journey())).toBe("");
