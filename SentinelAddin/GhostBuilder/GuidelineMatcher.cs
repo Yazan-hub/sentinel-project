@@ -118,6 +118,9 @@ namespace Sentinel.GhostBuilder
         /// <summary>A door's or window's harvested type Width and Height (mm); null when not harvested.</summary>
         [JsonPropertyName("width_mm")]  public double? WidthMm { get; set; }
         [JsonPropertyName("height_mm")] public double? HeightMm { get; set; }
+        /// <summary>MA-2a (BOS-5): the row's BuiltInCategory as its enum name ("OST_Walls"), written by Build Office System since
+        /// MA-2a; null on a type_catalog@1 harvested before it. A row matches a category by name OR by this (SameCategory).</summary>
+        [JsonPropertyName("bic")]       public string Bic { get; set; }
     }
 
     /// <summary>The template a catalogue was harvested from (Build Office System's export).</summary>
@@ -149,6 +152,9 @@ namespace Sentinel.GhostBuilder
         /// <summary>Set when the resolved type is NOT in the office's template — the review gate shows
         /// these so a human picks, instead of the builder inventing a type or snapping to a size.</summary>
         public List<string> Available { get; set; }
+        /// <summary>MA-2a: the conditions the winning rule stated, in the rule's own spelling — "layer", "level", "discipline",
+        /// "param:Location" — as guideline.ts's <c>matched</c>; null for a default or none. Promote's reason names them.</summary>
+        public List<string> Matched { get; set; }
     }
 
     public sealed class GuidelineInput
@@ -310,6 +316,7 @@ namespace Sentinel.GhostBuilder
                     throw Bad(at + ".system", "must be true or false");
                 if (Present(t, "width_mm", out var w) && w.ValueKind != JsonValueKind.Number) throw Bad(at + ".width_mm", "must be a number or null");
                 if (Present(t, "height_mm", out var h) && h.ValueKind != JsonValueKind.Number) throw Bad(at + ".height_mm", "must be a number or null");
+                if (Present(t, "bic", out var bic) && bic.ValueKind != JsonValueKind.String) throw Bad(at + ".bic", "must be a string (a BuiltInCategory name)");
             }
             if (Present(b, "template", out var tpl))
             {
@@ -337,6 +344,25 @@ namespace Sentinel.GhostBuilder
         private static string Norm(string s) => (s ?? string.Empty).Trim().ToLowerInvariant();
         private static string Squash(string s) => Norm(s).Replace(" ", string.Empty);
 
+        /// <summary>MA-2a (BOS-5): the BuiltInCategory of each category Sentinel places (PlacementCategories), as a harvested row's
+        /// <c>bic</c> spells it. guideline.ts's CATEGORY_BIC is the same list, name for name (the layer-free fixture holds both to it).</summary>
+        internal static readonly IReadOnlyDictionary<string, string> CategoryBics = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Walls"] = "OST_Walls", ["Floors"] = "OST_Floors", ["Roofs"] = "OST_Roofs", ["Ceilings"] = "OST_Ceilings", ["Doors"] = "OST_Doors",
+            ["Windows"] = "OST_Windows", ["Columns"] = "OST_Columns", ["Furniture"] = "OST_Furniture", ["Levels"] = "OST_Levels", ["Grids"] = "OST_Grids",
+        };
+
+        /// <summary>Does a catalogue row belong to <paramref name="category"/>? By name (case and padding ignored), or by its
+        /// BuiltInCategory when the row carries one and the category is one Sentinel places — so a catalogue harvested on a
+        /// non-English Revit ("Wände", OST_Walls) answers for "Walls". Never by name alone across locales.</summary>
+        private static bool SameCategory(CatalogEntry c, string category)
+        {
+            if (Norm(c.Category) == Norm(category)) return true;
+            if (string.IsNullOrEmpty(c.Bic)) return false;
+            string key = CategoryBics.Keys.FirstOrDefault(k => Norm(k) == Norm(category));
+            return key != null && CategoryBics[key] == c.Bic;
+        }
+
         /// <summary>
         /// Which family + type to place. First matching rule wins, MOST SPECIFIC FIRST — an author writes
         /// "external walls are CMU, and stone-clad external walls are stone" in that natural order and
@@ -352,7 +378,8 @@ namespace Sentinel.GhostBuilder
                          .OrderByDescending(x => Specificity(x.r.When)).ThenBy(x => x.i)
                          .Select(x => x.r))
             {
-                if (!Matches(rule.When, input)) continue;
+                var hit = Matches(rule.When, input);
+                if (hit == null) continue;
                 return WithCatalogCheck(new GuidelineResolution
                 {
                     Family = rule.Use?.Family,
@@ -361,6 +388,7 @@ namespace Sentinel.GhostBuilder
                     Source = "rule",
                     Confidence = 1.0,
                     Why = rule.Why,
+                    Matched = hit,
                 }, input, rule.Use?.TypePattern);
             }
 
@@ -388,12 +416,15 @@ namespace Sentinel.GhostBuilder
                  + (w.Params?.Count ?? 0);
         }
 
-        private static bool Matches(GuidelineWhen w, GuidelineInput input)
+        /// <summary>The conditions the rule stated and the input met ("layer", "level", "discipline", "param:&lt;key&gt;"), or null when
+        /// one is not met — guideline.ts's matches(). A stated field must match; an unstated one is a wildcard.</summary>
+        private static List<string> Matches(GuidelineWhen w, GuidelineInput input)
         {
-            if (w == null) return false;
-            if (w.Layer != null && Norm(w.Layer) != Norm(input.Layer)) return false;
-            if (w.Level != null && Norm(w.Level) != Norm(input.Level)) return false;
-            if (w.Discipline != null && Norm(w.Discipline) != Norm(input.Discipline)) return false;
+            if (w == null) return null;
+            var hit = new List<string>();
+            if (w.Layer != null) { if (Norm(w.Layer) != Norm(input.Layer)) return null; hit.Add("layer"); }
+            if (w.Level != null) { if (Norm(w.Level) != Norm(input.Level)) return null; hit.Add("level"); }
+            if (w.Discipline != null) { if (Norm(w.Discipline) != Norm(input.Discipline)) return null; hit.Add("discipline"); }
 
             foreach (var kv in w.Params ?? new Dictionary<string, string>())
             {
@@ -401,10 +432,11 @@ namespace Sentinel.GhostBuilder
                 // substring on the VALUE (so "FR60" matches "FR60 / REI60").
                 string key = (input.Params ?? new Dictionary<string, string>()).Keys
                     .FirstOrDefault(n => Squash(n) == Squash(kv.Key));
-                if (key == null) return false;
-                if (!Norm(input.Params[key]).Contains(Norm(kv.Value))) return false;
+                if (key == null) return null;
+                if (!Norm(input.Params[key]).Contains(Norm(kv.Value))) return null;
+                hit.Add("param:" + kv.Key);
             }
-            return true;
+            return hit;
         }
 
         /// <summary>An explicit type wins; otherwise `{thickness}` is filled from the measurement.
@@ -431,8 +463,7 @@ namespace Sentinel.GhostBuilder
         {
             if (!HasCatalog || string.IsNullOrWhiteSpace(r.Type)) return r;
 
-            bool present = _catalog.Any(c => Norm(c.Type) == Norm(r.Type)
-                                          && Norm(c.Category) == Norm(input.Category));
+            bool present = _catalog.Any(c => Norm(c.Type) == Norm(r.Type) && SameCategory(c, input.Category));
             if (present) return r;
 
             r.Available = pattern == null ? new List<string>() : PatternOptions(pattern, input.Category);
@@ -450,7 +481,7 @@ namespace Sentinel.GhostBuilder
         {
             var rx = PatternRx(pattern);
             return _catalog
-                .Where(c => Norm(c.Category) == Norm(category) && rx.IsMatch(c.Type ?? string.Empty))
+                .Where(c => SameCategory(c, category) && rx.IsMatch(c.Type ?? string.Empty))
                 .Select(c => c.Type)
                 .OrderBy(t => int.TryParse(rx.Match(t).Groups[1].Value, out int n) ? n : 0)
                 .ToList();
@@ -492,7 +523,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>Does the catalogue hold exactly this family AND type under the category? (Resolve's check matches the type
         /// name only; window type names repeat across families.)</summary>
         public bool CatalogHas(string category, string family, string type) =>
-            _catalog.Any(c => Norm(c.Category) == Norm(category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
+            _catalog.Any(c => SameCategory(c, category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
 
         /// <summary>"Family : Type" of every catalogue type of the category whose name carries exactly this W x H
         /// (TypeNameParse.TrySection) — what a door or window gap names. With <paramref name="faults"/>, a type whose harvested
@@ -500,7 +531,7 @@ namespace Sentinel.GhostBuilder
         public List<string> CatalogOfSize(string category, double widthMm, double heightMm, List<string> faults = null)
         {
             bool Is(double? v, double want) => v.HasValue && Math.Abs(v.Value - want) < 0.001;
-            var named = _catalog.Where(c => Norm(c.Category) == Norm(category) && TypeNameParse.TrySection(c.Type, out var w, out var h)
+            var named = _catalog.Where(c => SameCategory(c, category) && TypeNameParse.TrySection(c.Type, out var w, out var h)
                                            && Is(w, widthMm) && Is(h, heightMm)).ToList();
             var bad = faults == null ? new List<CatalogEntry>()
                 : named.Where(c => c.WidthMm.HasValue && c.HeightMm.HasValue && !(Is(c.WidthMm, widthMm) && Is(c.HeightMm, heightMm))).ToList();
@@ -527,8 +558,10 @@ namespace Sentinel.GhostBuilder
             int present = 0, total = 0;
             foreach (var c in _catalog)
             {
-                if (!HasRulesFor(c.Category)) continue;
-                string key = documentTypes.Keys.FirstOrDefault(k => Norm(k) == Norm(c.Category));
+                // MA-2a (BOS-5): a row filed under a localized name counts for the English category its bic names.
+                string cat = CategoryBics.Keys.FirstOrDefault(k => SameCategory(c, k)) ?? c.Category;
+                if (!HasRulesFor(cat)) continue;
+                string key = documentTypes.Keys.FirstOrDefault(k => SameCategory(c, k));
                 if (key == null) continue;
                 total++;
                 if (documentTypes[key].Any(t => Norm(t.Type) == Norm(c.Type) && (t.Family == null || Norm(t.Family) == Norm(c.Family)))) present++;
@@ -570,7 +603,7 @@ namespace Sentinel.GhostBuilder
             if (!HasCatalog) return errs; // nothing to check against — not an error
             foreach (var el in _doc.Elements)
             {
-                var inCat = _catalog.Where(c => Norm(c.Category) == Norm(el.Category)).ToList();
+                var inCat = _catalog.Where(c => SameCategory(c, el.Category)).ToList();
                 if (inCat.Count == 0)
                 {
                     errs.Add("\"" + el.Category + "\" — this office's template has no types in that category.");
