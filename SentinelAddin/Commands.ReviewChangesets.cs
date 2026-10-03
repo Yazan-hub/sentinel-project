@@ -93,7 +93,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         }
         // Review C7: a Promote part reviewed alone — a part of its storey waits twice (two Promote runs) or is missing — is said.
         if (batch.Count == 1 && cs.Source == "promote" && StoreyBatch.StoreyOf(cs.Name) != cs.Name)
-            TaskDialog.Show("Sentinel — AI proposals", $"\"{cs.Name}\" is reviewed alone: another part of its storey is missing or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.");
+            TaskDialog.Show("Sentinel — AI proposals", $"\"{cs.Name}\" is reviewed alone: another part of its storey is missing (not filed, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.");
 
         // Per-invocation handler/event (every sibling command does the same): a static pair would
         // let a second open review window clobber the staged request and double-fire callbacks.
@@ -164,23 +164,28 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 {
                     // A6: Revit may still finish or drop the transaction — reporting either way could be a lie.
                     TaskDialog.Show("Sentinel — AI proposals", result.NotFinished +
-                        "\n\nNothing was reported: the changeset stays proposed. Check the model before reviewing it again — a second Apply could duplicate what Revit finishes.");
+                        $"\n\nNothing was reported: the {(fresh.Count > 1 ? $"storey's {fresh.Count} changesets stay" : "changeset stays")} proposed. Check the model before reviewing it again — a second Apply could duplicate what Revit finishes.");
                     return;
                 }
                 if (result.Error != null)
                 {
                     // Whole changeset — MA-2d: the whole storey — rolled back: each changeset reported declined with the reason, honestly.
+                    // Review C14: counted from the declines the bridge took (C6's rule), never the number sent.
+                    int declined = 0;
                     foreach (var f in fresh)
-                        Report(cfg, key, f.Id, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
-                            $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"));
-                    TaskDialog.Show("Sentinel — AI proposals", $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined" +
-                        (fresh.Count > 1 ? $" — all {fresh.Count} changesets of the storey." : ".") + (fresh[0].Source == "promote" ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : ""));
+                        if (Report(cfg, key, f.Id, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
+                                $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"))) declined++;
+                    TaskDialog.Show("Sentinel — AI proposals", $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined: {declined} of {fresh.Count} changeset(s)" +
+                        (declined < fresh.Count ? " — the rest are still proposed; the model holds none of them." : ".") + (fresh[0].Source == "promote" ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : ""));
                     return;
                 }
                 // MA-1a step 2: an element Revit removed at commit is reported as rejected, with the reason in the note. MA-2d: each
                 // changeset of the storey is reported on its own ledger row; the storey's BLOCK and IDS lines ride on each note.
                 var gone = result.Gone.Select(a => a.ProposalGuid).ToList();
                 var undo = StoreyBatch.UndoName(fresh);
+                // Review C15: what the bridge took — the changesets it holds as applied, and the rejected rows it recorded.
+                var held = new List<string>();
+                int untickedTaken = 0, goneTaken = 0;
                 foreach (var (one, res) in result.Each)
                 {
                     var oneGone = res.Gone.Select(a => a.ProposalGuid).ToList();
@@ -191,6 +196,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
                     // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
                     if (!Report(cfg, key, one.Id, res.Applied, rejected, said)) continue;
+                    if (res.Applied.Count > 0) held.Add(one.Id);
+                    untickedTaken += StoreyBatch.Own(one, unticked).Count;
+                    goneTaken += oneGone.Count;
                     var guids = res.Applied.Select(a => a.ProposalGuid).ToList();
                     UndoWatcher.Remember(undo, key, one.Id, guids);
                     UndoWatcher.Remember(UndoWatcher.TxName(one.Name, one.Id), key, one.Id, guids);
@@ -198,23 +206,23 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // MA-2b, design §3.4 step 10: the LOD state after a Promote changeset, read again on this (the API) thread — one more
                 // lod_state row, which the gate and the strips read as the newest.
                 string after = null;
-                if (promote != null && result.Applied.Count > 0)
+                if (promote != null && held.Count > 0)
                 {
                     try
                     {
                         var lod = PromoteWallsCommand.LodStateAfter(doc, promote);
                         if (lod != null)
                         {
-                            GovernedNotify.Report("LOD state after", CommandReports.LodState(lod, fresh.Select(f => f.Id).ToList(), UserSession.Actor), key);
+                            GovernedNotify.Report("LOD state after", CommandReports.LodState(lod, held, UserSession.Actor), key);
                             after = "LOD state after (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line;
                         }
                     }
                     catch (Exception ex) { after = "LOD state after: not read — " + ex.Message; }
                 }
-                var warnings = GhostFailurePolicy.WarningsLine(result.Warnings, "changeset");
+                var warnings = GhostFailurePolicy.WarningsLine(result.Warnings, fresh.Count > 1 ? "storey" : "changeset");
                 TaskDialog.Show("Sentinel — AI proposals",
-                    $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : "") +
-                    (gone.Count > 0 ? $"\n{gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
+                    $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{untickedTaken} of {unticked.Count} unticked element(s) reported as rejected." : "") +
+                    (gone.Count > 0 ? $"\n{goneTaken} of {gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
                     (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                     (result.Ids != null ? "\n\n" + result.Ids : "") + (after != null ? "\n\n" + after : "") +
                     (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "")); // MA-1a item 6
