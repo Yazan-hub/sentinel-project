@@ -114,6 +114,6 @@ static partial class Check
             if (ok) same++;
             else Console.WriteLine($"        differs: {input.ToJsonString()} → C# {r.Family} / {r.Type} / {r.Source} / {r.Confidence} / [{string.Join(", ", r.Available ?? new List<string>())}] / matched [{string.Join(", ", r.Matched ?? new List<string>())}]");
         }
-        Ok(cases.Count == 19 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
+        Ok(cases.Count == 20 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
     }
 }

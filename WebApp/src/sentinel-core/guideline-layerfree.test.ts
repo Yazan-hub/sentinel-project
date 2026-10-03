@@ -42,6 +42,7 @@ const INPUTS: { input: ResolveInput; catalog?: CatalogType[]; guideline?: Guidel
   { input: wall({ Location: "Exterior" }, 150), catalog: GERMAN },               // bic also finds the options
   { input: wall({ Location: "Interior" }, 100.5) },                              // half a millimetre rounds UP on both sides: CMU_101, a gap (C# was to-even: CMU_100)
   { input: wall({ Location: "Interior", Material: "Gypsum Wall Board" }, 125), guideline: REORDERED }, // a GYPS gap lists GYPS sizes, whatever the file's order
+  { input: wall({ "Loca tion": "Exterior" }, 200) },                       // a poster's NBSP in a fact name: every whitespace is squashed on both sides
 ];
 
 const cases = INPUTS.map(({ input, catalog, guideline }) => {
@@ -59,7 +60,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
   });
 
   it("pins the answers Promote, Ghost Builder and the bridge depend on", () => {
-    expect(cases).toHaveLength(19);
+    expect(cases).toHaveLength(20);
     expect(find((c) => P(c).Location === "Exterior" && c.input.thicknessMm === 200 && !c.catalog)).toMatchObject({ type: "BDS_EXT_ARC_CMU_200 mm", source: "rule", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && c.input.thicknessMm === 200 && !P(c).Material)).toMatchObject({ type: "BDS_INT_ARC_CMU_200 mm", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && P(c).Function === "Exterior")).toMatchObject({ type: "BDS_INT_ARC_CMU_100 mm", confidence: 1 });
@@ -73,6 +74,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
     expect(find((c) => Object.keys(P(c)).length === 0)).toMatchObject({ source: "none" });
     expect(find((c) => c.input.thicknessMm === undefined)).toMatchObject({ source: "rule", confidence: 1, type: null });
     expect(find((c) => c.input.thicknessMm === 100.5)).toMatchObject({ type: "BDS_INT_ARC_CMU_101 mm", confidence: 0 });
+    expect(find((c) => "Loca tion" in P(c))).toMatchObject({ type: "BDS_EXT_ARC_CMU_200 mm", confidence: 1, matched: ["param:Location"] });
     expect(find((c) => c.guideline === REORDERED)).toMatchObject({ type: "BDS_INT_ARC_GYPS_125 mm", confidence: 0, available: ["BDS_INT_ARC_GYPS_50 mm", "BDS_INT_ARC_GYPS_100 mm"], matched: ["param:Location", "param:Material"] });
   });
 

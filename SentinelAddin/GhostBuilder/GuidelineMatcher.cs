@@ -342,7 +342,8 @@ namespace Sentinel.GhostBuilder
         // ---- resolution --------------------------------------------------------------------------
 
         private static string Norm(string s) => (s ?? string.Empty).Trim().ToLowerInvariant();
-        private static string Squash(string s) => Norm(s).Replace(" ", string.Empty);
+        // Every whitespace, as guideline.ts's `\s+` does — a poster's NBSP in a fact name typed on the bridge and not here (review C23).
+        private static string Squash(string s) => new string(Norm(s).Where(ch => !char.IsWhiteSpace(ch)).ToArray());
 
         /// <summary>MA-2a (BOS-5): the BuiltInCategory of each category Sentinel places (PlacementCategories), as a harvested row's
         /// <c>bic</c> spells it. guideline.ts's CATEGORY_BIC is the same list, name for name (the layer-free fixture holds both to it).</summary>

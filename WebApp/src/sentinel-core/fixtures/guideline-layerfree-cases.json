@@ -495,5 +495,22 @@
       "param:Location",
       "param:Material"
     ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "params": {
+        "Loca tion": "Exterior"
+      },
+      "thicknessMm": 200
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_200 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
   }
 ]
