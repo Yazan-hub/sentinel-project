@@ -154,6 +154,7 @@ Not run: the drill, and the commit commands.
 **Code review of the branch (2026-10-03, three reviews), applied:**
 
 - **C16 — a storey of type edits only never carries its held rows** (C8 can put a type edit on a storey with no other ghost; an older bridge or a refused source then refuses its body, and WithoutWrites has nothing left to file). `PromoteWallsPlanner.Bodies` carries such a storey's `Held` and `ToPerson` rows, named with their storey, on the first body that retypes or attaches, and files its type edits with no exceptions. When no body retypes or attaches, the first body carries them, as before. Section 34 pins both.
+- **C17 — C4's refile names the refused type edit and keeps the cap.** The bridge stops at the first element it refuses, so only the type edit at the `elements[k]` its words name keeps C4's reason; each other one reads `not filed with it: the bridge refused another type edit of this changeset (<the bridge's words>); run Promote again to file it, or fill it in Revit (Type Properties)`. When the bridge's words name no element, every one keeps C4's reason. The refiled body stays within `MaxExceptions` (1000): the held rows just before the type edits fold into the `(more)` row, whose count adds what it already held. Section 34 pins both.
 
 **Minor, rejected:**
 

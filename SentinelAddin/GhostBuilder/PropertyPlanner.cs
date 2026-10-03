@@ -270,15 +270,36 @@ namespace Sentinel.GhostBuilder
             removed = writes.Count;
             if (removed == 0 || removed == all.Count) return null;
             if (!(o["exceptions"] is JsonArray ex)) o["exceptions"] = ex = new JsonArray();
+            int held = ex.Count;
+            // Review C17: the bridge stops at the first element it refuses ("elements[k]: …"); only that one's source was refused.
+            var named = Regex.Match(why ?? "", @"elements\[(\d+)\]");
+            var at = writes.ToDictionary(w => w, w => all.IndexOf(w).ToString()); // the posted indices, before any is removed
             foreach (var w in writes)
             {
+                bool refused = !named.Success || named.Groups[1].Value == at[w];
                 all.Remove(w);
                 string fam = (string)w["place"]?["FamilyName"], type = (string)w["place"]?["TypeName"];
                 ex.Add(new JsonObject
                 {
                     ["unique_id"] = (string)w["target"]?["unique_id"],
                     ["name"] = OneLine($"type {(fam != null ? fam + " : " : "")}{type} · {(string)w["parameter"]}", 256),
-                    ["reason"] = OneLine($"not filed: the bridge refused its source — {why}; a person fills it in Revit (Type Properties)", 300),
+                    ["reason"] = OneLine(refused ? $"not filed: the bridge refused its source — {why}; a person fills it in Revit (Type Properties)"
+                        : $"not filed with it: the bridge refused another type edit of this changeset ({why}); run Promote again to file it, or fill it in Revit (Type Properties)", 300),
+                });
+            }
+            // Review C17: the bridge refuses more than MaxExceptions; the held rows just before the type edits fold into one "(more)" row.
+            // ponytail: assumes fewer than MaxExceptions type edits in one body (one per DD type × property).
+            int max = PromoteWallsPlanner.MaxExceptions;
+            if (ex.Count > max)
+            {
+                int keep = Math.Max(0, max - 1 - removed);
+                var folded = ex.Skip(keep).Take(held - keep).ToList();
+                int k = folded.Sum(f => (string)f["unique_id"] == "(more)" && Regex.Match((string)f["name"] ?? "", @"\d+") is Match mm && mm.Success ? int.Parse(mm.Value) : 1);
+                foreach (var f in folded) ex.Remove(f);
+                ex.Insert(keep, new JsonObject
+                {
+                    ["unique_id"] = "(more)", ["name"] = $"… and {k} more",
+                    ["reason"] = "sent to a person — more than one changeset holds; the Promote summary counts them",
                 });
             }
             return o;

@@ -177,8 +177,20 @@ static partial class Check
            && (string)an["exceptions"][2]["unique_id"] == U(0xa01) && (string)an["exceptions"][2]["name"] == "type BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating"
            && (string)an["exceptions"][2]["reason"] == "not filed: the bridge refused its source — Bridge 400: elements[2]: set_parameter's value_source: the sources disagree; a person fills it in Revit (Type Properties)"
            && (string)an["exceptions"][3]["name"] == "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm · Pset_DoorCommon.FireRating"
+           // Review C17: only the type edit the bridge named was refused for its source; the other one was not filed with it.
+           && (string)an["exceptions"][3]["reason"] == "not filed with it: the bridge refused another type edit of this changeset (Bridge 400: elements[2]: set_parameter's value_source: the sources disagree); run Promote again to file it, or fill it in Revit (Type Properties)"
            && PropertyPlanner.WithoutWrites(new { elements = new[] { new { op = "set_parameter" } } }, "x", out var none2) == null && none2 == 1,
            "a body refused for a set_parameter is filed again without its type edits, each an exception that says why; one of type edits only is not (C4)");
+        // Review C17: the re-filed body keeps the bridge's 1000-exception cap — the held rows past it fold into the "(more)" row.
+        var big = SP("GR-FFL", "retype", Enumerable.Range(0, 1100).Select(i => "W " + i).ToArray());
+        big.Ghosts.Add(SP("x", "set_parameter").Ghosts[0]);
+        var bigBody = PromoteWallsPlanner.Bodies(new List<StoreyPlan> { big }, "yazan")[0];
+        var capped = JsonSerializer.SerializeToNode(PropertyPlanner.WithoutWrites(bigBody, "Bridge 400: elements[1]: op \"set_parameter\" is not supported", out _), ChangesetClient.WriteJson);
+        var cx = capped?["exceptions"].AsArray();
+        Ok(Json(new[] { bigBody })[0]["exceptions"].AsArray().Count == PromoteWallsPlanner.MaxExceptions
+           && cx?.Count == PromoteWallsPlanner.MaxExceptions && (string)cx[998]["unique_id"] == "(more)" && (string)cx[998]["name"] == "… and 103 more"
+           && (string)cx[999]["name"] == "type BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating" && ((string)cx[999]["reason"]).StartsWith("not filed: the bridge refused its source — "),
+           "a body re-filed without its type edits stays within the bridge's 1000 exceptions: the held rows past it fold into the \"(more)\" row, the type edits stay named (C17)");
 
         // Review C16: a storey whose only ghosts are type edits (C8 put them there: its types are settled, no storey retypes onto
         // them) files them with no exceptions — its held rows ride on the first body with a retype or attach, as a storey with no
