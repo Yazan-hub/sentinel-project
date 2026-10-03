@@ -87,7 +87,8 @@ describe("readGateInputs — the four inputs, each from a store scoped by the pr
 });
 
 describe("readLodState — the design gate's LOD state from the newest lod_state ledger row (MA-2b)", () => {
-  const SHA = "a".repeat(64), MX = { body: {}, source: "office", ref: "lod_matrix@1", sha256: SHA, pointer_sha_mismatch: false };
+  const BODY = { standard_key: "BDS", semver: "1.0.0", rows: [{ category: "Walls", DD: { type: "guideline_rule" } }] };
+  const SHA = "a".repeat(64), MX = { body: BODY, source: "office", ref: "lod_matrix@1", sha256: SHA, pointer_sha_mismatch: false };
   const row = (over = {}) => ({ id: 4242, actor: "lead@office.example", at: "2026-10-03T09:15:00.000Z",
     new_value: { line: "DD → design: 248 of 264 at DD (94%) · 16 below · 0 blocked · 0 not measured", share: 94, project_stage: "design",
       matrix: "lod_matrix@1 · office · aaaaaaaaaaaa…", matrix_sha256: SHA, claimed: true, ...over } });
@@ -101,7 +102,9 @@ describe("readLodState — the design gate's LOD state from the newest lod_state
   });
   it.each([
     ["no row yet", [], MX, "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)"],
-    ["a matrix that maps DD past design", [row({ project_stage: "coord" })], MX, "LOD state: not measured — lod_state ledger #4242 measured DD, which its lod_matrix maps to coord, not design"],
+    // Review (MA-2b): the project stage is the matrix in force's stage_map, never the row's own claim.
+    ["a matrix that maps DD past design", [row()], { ...MX, body: { ...BODY, stage_map: { DD: "coord" } } },
+      "LOD state: not measured — lod_state ledger #4242 measured DD, which its lod_matrix maps to coord, not design"],
     ["a row measured against another matrix than the one in force", [row({ matrix: "lod_matrix@1 · office · bbbbbbbbbbbb…", matrix_sha256: "b".repeat(64) })], { ...MX, ref: "lod_matrix@2" },
       "LOD state: not measured — lod_state ledger #4242 was measured against lod_matrix@1 · office · bbbbbbbbbbbb…; lod_matrix@2 · office · aaaaaaaaaaaa… is in force — run Promote (DD) again"],
     ["a row whose matrix is no longer installed", [row()], { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false },

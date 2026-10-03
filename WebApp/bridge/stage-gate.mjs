@@ -4,7 +4,7 @@
 // completeness have no server source (the browser scan is not persisted), so a gate that needs one is not_checkable: it
 // never passes on a number nobody measured, and every check names what was read. measureGate is pure; readGateInputs is
 // the thin I/O half with its deps injected (the artefact-store idiom), so the tests never touch Supabase.
-import { evaluateGate, GATE_DEFS } from "./sentinel-core.mjs";
+import { evaluateGate, GATE_DEFS, parseLodMatrix } from "./sentinel-core.mjs";
 import { STAGES } from "./cde-store.mjs";
 
 export const NO_SERVER_SOURCE = "not measured — no server source: the browser scan is not persisted";
@@ -75,10 +75,14 @@ export async function readLodState(key, deps = {}) {
   const row = audit.rows?.[0];
   if (!row) return { share: null, source: "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)" };
   const v = row.new_value ?? {};
-  if (v.project_stage !== "design")
-    return { share: null, source: `LOD state: not measured — lod_state ledger #${row.id} measured DD, which its lod_matrix maps to ${v.project_stage}, not design` };
   const stale = lodRowStale(row, mx);
   if (stale) return { share: null, source: `LOD state: not measured — ${stale}` };
+  // The row was measured against the matrix in force, so that matrix's stage map says where DD lands — never the row's own
+  // project_stage, which the client wrote (review).
+  let stage;
+  try { stage = parseLodMatrix(mx.body).stage_map.DD; } catch (e) { return { share: null, source: `LOD state: not measured — the lod_matrix in force did not parse: ${e.message}` }; }
+  if (stage !== "design")
+    return { share: null, source: `LOD state: not measured — lod_state ledger #${row.id} measured DD, which its lod_matrix maps to ${stage}, not design` };
   if (typeof v.share !== "number") {
     const unrun = (v.not_run ?? []).filter((n) => !String(n).endsWith(": no DD row in the LOD matrix"));
     return { share: null, source: `LOD state: not measured — lod_state ledger #${row.id} has no share: ` +
