@@ -36,10 +36,23 @@ static partial class Check
            && massing.GetProperty("new_value").GetProperty("wall_gaps").GetInt32() == 4 && massing.GetProperty("new_value").GetProperty("images_sha256").ValueKind == JsonValueKind.Null,
            "a Massing build is one massing row; no image sha when the numbers are the reviewer's");
 
-        var annotate = Json(CommandReports.Annotate(6, 2, 1, 3, "guideline@3 · office · 0123…", "a"));
-        Ok(annotate.GetProperty("entity_type").GetString() == "annotate" && annotate.GetProperty("action").GetString() == "Annotate created 6 view(s) across 3 level(s)"
-           && annotate.GetProperty("new_value").GetProperty("skipped_existing").GetInt32() == 2 && annotate.GetProperty("new_value").GetProperty("guideline").GetString() == "guideline@3 · office · 0123…",
-           "an Annotate run is one annotate row, naming the guideline that planned the views");
+        var created6 = new[] { "WIP_FP_GR-FFL", "WIP_RCP_GR-FFL", "WIP_FP_01-FFL", "WIP_RCP_01-FFL", "WIP_FP_02-FFL", "WIP_RCP_02-FFL" };
+        const string pinnedNow = "Pinned now: 3/3 story level(s), 0/1 other level(s), 4/4 grid(s) (read from the model after the commit); links are not checked (MH-LNK-01 is not in code).";
+        var annotate = Json(CommandReports.Annotate(created6, 3, 2, 3, 1, 1, 2, 4, 1, 3, new long[] { 11, 12, 21, 22, 23, 24 }, pinnedNow, false,
+            "guideline@3 · office · 0123…", "ruleset@2 · office · 4567…", "a"));
+        var av = annotate.GetProperty("new_value");
+        Ok(annotate.GetProperty("entity_type").GetString() == "annotate" && annotate.GetProperty("action").GetString() == "Annotate created 6 view(s) and pinned 6 datum(s) across 3 level(s)"
+           && av.GetProperty("views_created").GetInt32() == 6 && av.GetProperty("views").GetArrayLength() == 6 && av.GetProperty("views")[5].GetString() == "WIP_RCP_02-FFL"
+           && av.GetProperty("skipped_existing").GetInt32() == 2 && av.GetProperty("refused").GetInt32() == 3
+           && av.GetProperty("failed").GetInt32() == 1 && av.GetProperty("unrouted").GetInt32() == 1 && av.GetProperty("pinned_levels").GetInt32() == 2
+           && av.GetProperty("pinned_grids").GetInt32() == 4 && av.GetProperty("pinned_ids").GetArrayLength() == 6 && av.GetProperty("pinned_ids")[0].GetInt64() == 11
+           && av.GetProperty("pinned_now").GetString() == pinnedNow && !av.GetProperty("undo_group_kept").GetBoolean() && av.GetProperty("story_levels").GetInt32() == 3
+           && av.GetProperty("guideline").GetString() == "guideline@3 · office · 0123…" && av.GetProperty("ruleset").GetString() == "ruleset@2 · office · 4567…",
+           "an Annotate run is one annotate row: the views and datums read back (named — the record when Revit did not keep the Undo group, B31), rows refused or failed or unrouted, and the guideline and ruleset that planned and named them (MA-2e, review C4)");
+        var annotateMany = Json(CommandReports.Annotate(Enumerable.Range(0, 205).Select(i => "V" + i).ToList(), 1, 0, 0, 0, 0, 0, 0, 0, 1, new long[0], pinnedNow, true, "g", "r", "a"))
+            .GetProperty("new_value");
+        Ok(annotateMany.GetProperty("views_created").GetInt32() == 205 && annotateMany.GetProperty("views").GetArrayLength() == CommandReports.MaxRecord && annotateMany.GetProperty("undo_group_kept").GetBoolean(),
+           "an Annotate row names at most MaxRecord views beside their true total (review C4)");
 
         var many = Enumerable.Range(1, 55).Select(i => "Workset: W" + i).ToList();
         var std = Json(CommandReports.ApplyStandard(many, new[] { "Line style: Hidden" }, new string[0], "a"));
@@ -121,7 +134,14 @@ static partial class Check
         Ok(Src("GhostBuilder", "DatumBuilder.cs").Contains("detected.Committed = t.Commit() == TransactionStatus.Committed;")
            && Src("Commands.Datum.cs").Contains("if (!result.Committed)"),
            "Datum reports only a transaction Revit committed, and says so when it did not");
-        Ok(Src("Commands.Annotate.cs").Contains("if (t.Commit() != TransactionStatus.Committed)"), "Annotate reports only a transaction Revit committed, and says so when it did not");
+        string annSrc = Src("Commands.Annotate.cs");
+        int readBack = annSrc.IndexOf("var present = "), notKept = annSrc.IndexOf("if (!kept");
+        Ok(annSrc.Contains("committed = t.Commit() == TransactionStatus.Committed;") && annSrc.Contains("catch (Autodesk.Revit.Exceptions.InvalidOperationException")
+           && readBack > 0 && readBack < notKept && notKept < annSrc.IndexOf("GovernedNotify.Report(\"Annotate\"")
+           && annSrc.Contains("var present = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))")
+           && annSrc.Contains("var pinnedNow = pick.Pins.Select(p => doc.GetElement(p.Id.ToElementId())).Where(e => e != null && e.Pinned)")
+           && annSrc.Contains("if (!kept && present.Count + pinnedNow.Count == 0)"),
+           "Annotate reads the model back after its group, kept or not (a group that throws too), says 'the model is as it was' only when the read-back finds nothing, and reports what it read (MA-2e, review C2)");
         string doctor = Src("Updaters", "FailureInterceptor.cs");
         Ok(doctor.Contains("Reported.Add(key, p.Text, p.Tx, p.Ids)") && doctor.Contains("Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds))")
            && doctor.Contains("Reported.Take(key)"),
