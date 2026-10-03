@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Sentinel.Coordination; // ArtefactClient.RefLabel (MA-2a: the install line)
 
 namespace Sentinel.Standards;
 
@@ -54,5 +56,48 @@ public static class TypeCatalogExport
         $"Type catalogue exported ({count} types from {templateTitle}) → {path}. " +
         $"Install it on the office: node bridge/artefact-import.mjs \"{path}\" --project <office> --kind type_catalog.\n\n" +
         "Run it from WebApp; <office> is the office's web project key. Ghost Builder and Photo Massing read the type " +
-        "catalogue installed on the project or its office — never this file.";
+        "catalogue installed on the project or its office — never this file.\n\n" +
+        "A lead installs it from the review window too: Install catalogue on office (MA-2a, BOS-3) — no command line.";
+
+    /// <summary>MA-2a (BOS-3): the body Install on office PUTs — the export plus a top-level <c>source</c> {tool: revit-build,
+    /// document}, which the bridge's PUT route lifts into the pointer's provenance (as the ruleset install's does).</summary>
+    public static string InstallJson(string templateTitle, DateTimeOffset extractedAt, List<TypeSpec> types, List<ViewTemplateSpec> viewTemplates, string document)
+    {
+        var body = JsonNode.Parse(Json(templateTitle, extractedAt, types, viewTemplates))!.AsObject();
+        body["source"] = new JsonObject { ["tool"] = "revit-build", ["document"] = document };
+        return body.ToJsonString();
+    }
+
+    /// <summary>MA-2a (BOS-3): the office a catalogue is installed on, read from GET /cde/projects/:key/scope's answer ({kind,
+    /// office_key}): an office's own key, or a project's office — never the project itself (a catalogue installed on a project
+    /// would shadow its office's for that project alone, and the office's later installs would no longer reach it). Null with
+    /// <paramref name="error"/> otherwise.</summary>
+    public static string? OfficeKeyFrom(string scopeJson, string key, out string? error)
+    {
+        error = null;
+        string? kind = null, office = null;
+        try
+        {
+            using var d = JsonDocument.Parse(scopeJson);
+            if (d.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                if (d.RootElement.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String) kind = k.GetString();
+                if (d.RootElement.TryGetProperty("office_key", out var o) && o.ValueKind == JsonValueKind.String) office = o.GetString();
+            }
+        }
+        catch (JsonException) { error = "the bridge's answer to the scope read could not be read"; return null; }
+        if (kind == "office") return key;
+        if (!string.IsNullOrWhiteSpace(office)) return office;
+        error = $"project {key} belongs to no office — link it to an office in the web app first (a catalogue installed on a project would shadow its office's, for that project alone)";
+        return null;
+    }
+
+    /// <summary>MA-2a (BOS-3): the window's line after an install — the artefact's label (the bridge's refLabel), the office, the count,
+    /// and where it is read from, so the proof (GET answers the same sha) is one line away.</summary>
+    public static string InstallLine(string officeKey, int version, string? sha256, int count, string templateTitle) =>
+        $"{ArtefactClient.RefLabel("type_catalog@" + version, "office", sha256)}: installed on {officeKey} — {count:N0} types from {templateTitle}. " +
+        $"Ghost Builder, Promote and the bridge read it from here on; GET /cde/{officeKey}/artefacts/type_catalog answers the same sha.";
+
+    /// <summary>MA-2a (BOS-3): the window's line after a refusal — the bridge's own words (a 403 carries the role sentence).</summary>
+    public static string NotInstalledLine(string error) => "Catalogue NOT installed: " + error;
 }

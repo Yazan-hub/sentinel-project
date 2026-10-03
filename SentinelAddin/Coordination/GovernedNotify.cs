@@ -237,6 +237,30 @@ namespace Sentinel.Coordination
             }
         }
 
+        /// <summary>
+        /// MA-2a (BOS-3): <c>GET /cde/projects/{key}/scope</c> — the bridge's answer as JSON text ({kind, office_key, keys};
+        /// TypeCatalogExport.OfficeKeyFrom reads the office out of it), or a reason. Blocking (120 s cap) — call it OFF the API
+        /// thread. A signed-in caller must be a member of the project or its office (the bridge's D7); the machine token passes.
+        /// </summary>
+        public static (string? Json, string? Error) ProjectScope(string projectKey)
+        {
+            if (string.IsNullOrWhiteSpace(projectKey)) return (null, NotBoundError);
+            try
+            {
+                var cfg = BcfConfig.Load();
+                var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/projects/" + Uri.EscapeDataString(projectKey.Trim()) + "/scope";
+                var resp = Send(GovHttp, HttpMethod.Get, url, null, cfg);
+                var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (resp.IsSuccessStatusCode) return (json, null);
+                try { using var d = JsonDocument.Parse(json); if (d.RootElement.TryGetProperty("message", out var m)) return (null, $"HTTP {(int)resp.StatusCode}: {m.GetString()}"); } catch { }
+                return (null, "bridge returned HTTP " + (int)resp.StatusCode);
+            }
+            catch (Exception ex)
+            {
+                return (null, ex is TaskCanceledException or OperationCanceledException ? "timed out after 120s" : (ex.InnerException?.Message ?? ex.Message));
+            }
+        }
+
         // ponytail: throttle is per process, not per document — two models synced within 60 s post one scan;
         // per-document map if that matters
         private static DateTime _lastScanPost = DateTime.MinValue;
