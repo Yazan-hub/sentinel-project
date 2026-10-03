@@ -59,7 +59,9 @@ public static class NamingManagerService
     }
 
     /// <summary>Layer material names of a compound type, finish layers first (the face a name describes), then the rest.</summary>
-    private static List<string> LayerMaterials(Document doc, ElementType et)
+    /// <summary>A system type's compound-layer materials, finish layers first, distinct. MA-2a: shared with Build Office System's
+    /// harvest (params.Material) and Promote's wall facts (the param Material), through TypeHarvest.MaterialLabel.</summary>
+    internal static List<string> LayerMaterials(Document doc, ElementType et)
     {
         if (et is not HostObjAttributes h || h.GetCompoundStructure() is not { } cs) return new List<string>();
         return cs.GetLayers()

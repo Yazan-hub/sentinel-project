@@ -64,8 +64,15 @@ public sealed class ProvisionSet
 /// <summary>One placeable type in the template — the vocabulary the guideline is allowed to use.</summary>
 public sealed class TypeSpec
 {
-    /// <summary>Revit category, e.g. "Walls", "Doors" — matches the GhostBuilder build categories.</summary>
+    /// <summary>Revit category, e.g. "Walls", "Doors" — matches the GhostBuilder build categories. MA-2a (BOS-5): the ENGLISH key
+    /// when the type's BuiltInCategory is one Sentinel knows (Compat.CategoryKeyOf), so a harvest on a German Revit still says
+    /// "Walls"; else the display name.</summary>
     [JsonPropertyName("category")] public string Category { get; set; } = "";
+    /// <summary>MA-2a (BOS-5): the BuiltInCategory as its enum name ("OST_Walls"); null (and left out) when the category has none
+    /// Revit defines. A reader compares on it where the name differs (GuidelineMatcher.SameCategory, guideline.ts sameCategory).</summary>
+    [JsonPropertyName("bic")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Bic { get; set; }
+    /// <summary>MA-2a (BOS-5): the category's display name on the Revit that harvested, only when it differs from Category.</summary>
+    [JsonPropertyName("category_local")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? CategoryLocal { get; set; }
     /// <summary>Family name. For system families (walls/floors/ceilings) this is the system family name.</summary>
     [JsonPropertyName("family")] public string Family { get; set; } = "";
     /// <summary>Type name as it appears in the template.</summary>

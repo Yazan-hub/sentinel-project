@@ -26,6 +26,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
     <Compile Include="..\..\SentinelAddin\Standards\TypeCatalogExport.cs" />
+    <Compile Include="..\..\SentinelAddin\Standards\TypeHarvest.cs" /> <!-- MA-2a: the harvest's words (Function names, the material label) -->
     <Compile Include="..\..\SentinelAddin\Standards\StandardsPack.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
   </ItemGroup>
