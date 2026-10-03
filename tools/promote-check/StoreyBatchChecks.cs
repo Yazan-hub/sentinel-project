@@ -45,6 +45,17 @@ static partial class Check
            && StoreyBatch.Of(pending.Concat(new[] { dup }), c1).SequenceEqual(new[] { c1 }) && StoreyBatch.Of(pending.Concat(new[] { dup }), c2).SequenceEqual(new[] { c2 })
            && StoreyBatch.Of(new[] { c1 }, c1).SequenceEqual(new[] { c1 }),
            "a storey of one changeset, any changeset that is not Promote's, and a part whose storey has a part waiting twice or missing, is reviewed alone");
+        // Review C13: two runs of 02-FFL — A files (1/2), (2/2); B files (1/2), its (2/2) not filed. Pending A1, B1, A2: A1 is reviewed
+        // alone (part 1 waits twice); B1 and A2 then look like one storey — they are never batched (each was pending when its storey
+        // looked wrong), while a later run's parts still are.
+        var a1 = Cs("ra100000-a", "Promote (DD) · 02-FFL (1/2)", "promote", "g");
+        var b1 = Cs("rb100000-a", "Promote (DD) · 02-FFL (1/2)", "promote", "h");
+        var a2 = Cs("ra200000-a", "Promote (DD) · 02-FFL (2/2)", "promote", "i");
+        var n1 = Cs("rn100000-a", "Promote (DD) · 02-FFL (1/2)", "promote", "j");
+        var n2 = Cs("rn200000-a", "Promote (DD) · 02-FFL (2/2)", "promote", "k");
+        Ok(StoreyBatch.Of(new[] { a1, b1, a2 }, a1).SequenceEqual(new[] { a1 }) && StoreyBatch.Of(new[] { b1, a2 }, b1).SequenceEqual(new[] { b1 })
+           && StoreyBatch.Of(new[] { a2 }, a2).SequenceEqual(new[] { a2 }) && StoreyBatch.Of(new[] { a2, n1, n2 }, n1).SequenceEqual(new[] { n1, n2 }),
+           "once a part was reviewed alone, the leftover parts of two runs never batch as one storey (A1, B1, A2: B1 and A2 alone); a later run's parts still batch");
 
         var merged = StoreyBatch.Merge(new[] { c1, c2 });
         Ok(merged.Id == c1.Id && merged.Name == "Promote (DD) · GR-FFL (2 changesets, one Undo)" && merged.Source == "promote" && merged.Claimed == true

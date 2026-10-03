@@ -104,6 +104,10 @@ The critic found no critical defect, four important findings (C1–C4) and seven
 
 **Checked and found sound by the critic** (kept): the group name matches the undo watcher (`Remember` keeps several entries under one name, `Hits` removes duplicates); `RollBack` and `Assimilate` follow the Ghost build's pattern; no view action happens inside the group (B31 does not apply); `GovernedNotify` is already pinned to a pool thread; every source scan fails on the old code; the MA-2e split.
 
+**Review amendments of the built branch (C13…, from three reviews of `c2e078e`).** Each lands with its check; the Task 3 code blocks above are what was built before them and are superseded where they differ.
+
+- **C13 (important) — C7 held only on the first look.** Pending A(1/2), B(1/2), A(2/2) (B's (2/2) not filed): A(1/2) is reviewed alone (part 1 waits twice), then B(1/2) and A(2/2) looked like one complete storey and were batched — one Undo over two runs' plans. `StoreyBatch.Of` now remembers, for the session, every part pending when its storey had a part waiting twice or missing, and never batches those parts again (a later run's parts still batch). Section 37 has the A1, B1, A2 case. Ceiling (Risks): the set is this Revit session's; another PC, or Revit restarted between, can still batch such leftovers. The full fix — a run id in the name — changes the name F1 A shows and is the founder's.
+
 ---
 
 ## File map
@@ -1364,7 +1368,7 @@ Push only under the standing push rule, after a secret scan of the range.
 ## Risks (each a ceiling stated in words)
 
 - **The batch is read from a name.** A changeset posted with `source: "promote"` and a storey's exact name and part count joins that storey's window and its Undo (F1 A). Every row still shows with the bridge's own pre-tick and the person applies; the bridge records each source as a claim. A bridge `batch` field is under Next (F1 B).
-- **Two runs of one storey are not batched (review C7).** Nothing in a changeset names its run, so when a part waits twice (two Promote runs from two PCs or sessions) or a part is missing, each part is reviewed alone — its own Undo entry, said in a dialog — never a guessed mix. A run id in the name or a bridge `batch` field (Next) would let such storeys batch again.
+- **Two runs of one storey are not batched (review C7).** Nothing in a changeset names its run, so when a part waits twice (two Promote runs from two PCs or sessions) or a part is missing, each part is reviewed alone — its own Undo entry, said in a dialog — never a guessed mix. Once a part was reviewed alone, the parts pending with it are never batched again in this Revit session (C13); another PC, or a restart between, can still batch two runs' leftovers (A1 alone, then B1 with A2). A run id in the name (the founder's: it changes the name) or a bridge `batch` field (Next) would close it and let such storeys batch again.
 - **F11 across storeys (review C2).** A type edit rides in the first storey whose retypes land on its type; a later storey of the same run depends on it. If that storey is declined (or its type edit unticked), the later storeys fail the DD IDS for that property until Promote plans again. A declined storey says so (`CarriedEdits`); unticking only the type edit row of an applied storey is not said — the later storey's DD IDS dialog is then the words.
 - **Revit still waits for the network.** `Send` moves the call off the API thread — the request and its sign-in token refresh too (C1) — but the command waits for the answer: a slow bridge holds Revit up to 8 s a read and 120 s a write, as before (C22's ceiling, now everywhere); a token refresh adds up to 18 s. A review flow that does not wait (the window answers when the report lands) is under Next.
 - **One window for a whole storey.** About 370 rows in the drill, no paging; the window does not say which part a row is in (the ledger rows do). UNSURE 5.

@@ -2,7 +2,7 @@
 // MA-2d (design §2.1 rule 5, §3.4 step 8): one Undo per storey. Promote files a storey of more than 200 ghosts as several changesets
 // named "<title> · <storey> (i/n)" (PromoteWallsPlanner.Bodies). The review opens a storey's pending parts as ONE window (Merge), and the
 // placement event applies them in ONE TransactionGroup named UndoName: one Undo entry, while each changeset keeps its own ledger row.
-// The storey is read from the name the add-in wrote on a Promote changeset (founder decision F1 A: no bridge field). Pure
+// The storey is read from the name the add-in wrote on a Promote changeset (founder decision F1 A: no bridge field). Pure but for C13's session set
 // (tools/promote-check, section 37).
 using System.Collections.Generic;
 using System.Linq;
@@ -34,15 +34,23 @@ public static class StoreyBatch
     {
         var alone = new List<ChangesetDto> { first };
         var fm = Part.Match(first?.Name ?? "");
-        if (first?.Source != "promote" || !fm.Success) return alone;
+        if (first?.Source != "promote" || !fm.Success || Mixed.Contains(first.Id)) return alone;
         string stem = StoreyOf(first.Name), n = fm.Groups[2].Value;
-        var parts = (pending ?? Enumerable.Empty<ChangesetDto>()).Where(c => c != null && c.Id != first.Id).Concat(new[] { first })
+        var parts = (pending ?? Enumerable.Empty<ChangesetDto>()).Where(c => c != null && c.Id != first.Id && !Mixed.Contains(c.Id)).Concat(new[] { first })
             .Select(c => (Cs: c, M: Part.Match(c.Name ?? "")))
             .Where(x => x.Cs.Source == "promote" && x.M.Success && x.M.Groups[2].Value == n && StoreyOf(x.Cs.Name) == stem)
             .GroupBy(x => int.Parse(x.M.Groups[1].Value)).OrderBy(g => g.Key).ToList();
-        return parts.Count == int.Parse(n) && parts.Select((g, i) => g.Key == i + 1 && g.Count() == 1).All(ok => ok)
-            ? parts.Select(g => g.Single().Cs).ToList() : alone;
+        if (parts.Count == int.Parse(n) && parts.Select((g, i) => g.Key == i + 1 && g.Count() == 1).All(ok => ok))
+            return parts.Select(g => g.Single().Cs).ToList();
+        // Review C13: once a part is reviewed alone, the leftovers of two runs (A1, B1, A2 → B1, A2) can look like one storey. Every
+        // part pending now is never batched again. ponytail: this session only (another PC, or Revit restarted between, can still
+        // batch such leftovers); a run id in the name (a founder's choice: it changes the name F1 A shows) or a bridge batch field closes it.
+        foreach (var x in parts.SelectMany(g => g)) Mixed.Add(x.Cs.Id);
+        return alone;
     }
+
+    // Review C13: the ids of Promote parts that were pending when their storey had a part waiting twice or missing.
+    private static readonly HashSet<string> Mixed = new HashSet<string>();
 
     /// <summary>The one changeset the review window shows for a storey: every part's elements and held rows, named as the storey
     /// ("… · GR-FFL (2 changesets, one Undo)"), with the first part's id and trust fields (Promote's on every part). A batch of one is
