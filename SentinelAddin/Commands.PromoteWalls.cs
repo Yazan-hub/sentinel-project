@@ -185,9 +185,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var run = PropertyPlanner.FileAll(bodies, (body, retry) =>
         {
             string err = null;
-            // Review C22: a network call this plan adds runs off the API thread (Revit still waits, as for PromoteContext.Fetch).
-            var cs = retry ? Task.Run(() => ChangesetClient.Propose(cfg, key, body, out err)).GetAwaiter().GetResult()
-                           : ChangesetClient.Propose(cfg, key, body, out err);
+            // Review C22, MA-2d: ChangesetClient sends every request off the API thread (Send) — the first attempt and the retry alike;
+            // Revit still waits for the answer, as for PromoteContext.Fetch.
+            var cs = ChangesetClient.Propose(cfg, key, body, out err);
             if (cs == null) return err ?? "not filed";
             first ??= cs;
             filedIds.Add(cs.Id);

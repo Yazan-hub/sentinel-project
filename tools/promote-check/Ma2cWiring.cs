@@ -43,8 +43,9 @@ static partial class Check
         Ok(promote.Contains("var run = PropertyPlanner.FileAll(bodies, (body, retry) =>")
            && promote.Contains("type edit(s) not filed — see Sent to a person")
            && promote.Contains("row(s) sent to a person reached no changeset") // C24
-           // Review C22: the retry is a network call the plan adds, so it runs off the API thread (the PromoteContext.Fetch pattern).
-           && promote.Contains("var cs = retry ? Task.Run(() => ChangesetClient.Propose(cfg, key, body, out err)).GetAwaiter().GetResult()"),
+           // Review C22: the retry is a network call the plan adds, so it runs off the API thread — MA-2d: ChangesetClient.Send, for every
+           // request (section 38).
+           && promote.Contains("var cs = ChangesetClient.Propose(cfg, key, body, out err);"),
            "Promote files through FileAll: a body the bridge refuses for a set_parameter is filed again without its type edits (C4), the held rows of a body not filed ride on the next (C24), and the result says how many");
     }
 }
