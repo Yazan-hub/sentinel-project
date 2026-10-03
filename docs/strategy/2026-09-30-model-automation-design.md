@@ -270,8 +270,8 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 
 | Artefact or rule | Used for | Today |
 |---|---|---|
-| `guideline@n` (Office Modelling Guideline) | Which type for which function, thickness and location; view set-up and view naming | BUILT. But every BDS type rule keys on a DWG layer. Promote and scan candidates have no layer, so today only the default would apply. MA-2 adds rules without a layer (the matcher already supports them) |
-| `type_catalog@n` (harvested from the office template by Build Office System; Aster: 1,239 types; BDS: 1,434) | The list of allowed types | BUILT. Installing it still needs a CLI run (BOS-3). The harvest keeps no Function and few type parameters; MA-2 extends it |
+| `guideline@n` (Office Modelling Guideline) | Which type for which function, thickness and location; view set-up and view naming | BUILT. Rules without a layer since MA-2a (plan `docs/superpowers/plans/2026-10-03-ma2a-layer-free-rules-harvest-bridge-typing.md`): a rule may key on `Function`, `Location` (Exterior/Interior, from the storey's outer boundary) and `Material` in `when.params`; Promote, Ghost Builder and the bridge pass them; `demo/bds-pilot/bds-dd-layerfree-guideline.json` is the DRAFT DD file. The pilot's office guideline (`bds-guideline.json`) still keys every rule on a layer: a lead writes the layer-free ones |
+| `type_catalog@n` (harvested from the office template by Build Office System; Aster: 1,239 types; BDS: 1,434) | The list of allowed types | BUILT. Since MA-2a a row keeps the type's `Function` (its enum name), `Material` (its Material parameter, else its build-up's layers), the type parameters the matrix will ask for (Fire Rating, Assembly Code, Type Mark, Keynote, Structural Material) and its `bic` (BuiltInCategory, BOS-5: the category is the English key its id names, the display name in `category_local`); a lead installs it from Revit's review window (BOS-3: Install catalogue on office). A type_catalog@1 from before reads as it did |
 | `naming@n` | Names for levels, views and new-size proposals | BUILT |
 | `layers@n` | CAD layers to categories | BUILT |
 | `ruleset@n` | Scan Now rules. A BLOCK rule stops the sync | BUILT (BLOCK at sync: package 2, merged 7271431). Ghost batches are checked against it before commit (TARGET, MA-1) |
@@ -319,7 +319,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 | # | Operation | Revit API (from the reports) | From | Phase |
 |---|---|---|---|---|
 | 1 | Datum right: story levels flagged and pinned, one plan per story. View actions may empty Revit's Undo list (B31), so they run in their own batch | `ViewPlan.Create`, `Element.Pinned` | DAT-3, ANV-1, ANV-2 | MA-2 |
-| 2 | Retype: generic → office type, by function, measured thickness, location and material. Needs rules without a layer and the Function kept in the catalogue harvest | `Element.ChangeTypeId` | C5 [MKT §6.3] | MA-0 (walls), MA-2 |
+| 2 | Retype: generic → office type, by function, measured thickness, location and material. Rules without a layer and the Function in the catalogue harvest landed in MA-2a; location is read from the storey's own walls (`WallLocation`: one side open = outside, both enclosed = inside, else unknown — a reason to a person) | `Element.ChangeTypeId` | C5 [MKT §6.3] | MA-0 (walls), MA-2a (location, material) |
 | 3 | Wall tops and bases to levels | `WALL_HEIGHT_TYPE`, `WALL_TOP_OFFSET`, `WALL_BASE_OFFSET` | GHB-2 | MA-0 (walls), MA-2 |
 | 4 | Required properties through `set_parameter`. The value comes from the catalogue type, a cited spec clause or a person, never a guess. On the pilot data most DD properties have no source yet, so they go to a person | Existing Fix in Revit path (`FixInPlaceService`, BUILT live 42/42) | [BP] P2-7 | MA-2 |
 | 5 | Wall joins | `WallUtils.AllowWallJoinAtEnd` | GHB-6 | MA-5 |
@@ -333,7 +333,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 1. **Read.** The add-in reads the facts of the model. They are pinned to the document.
 2. **LOD state now.** Counts per level and class, with reasons.
 3. **Plan.** One ghost per change, each with its rule, source and reason. The plan is shown before anything runs. This is Monta's "assignment plan" pattern [MKT §2.6].
-4. **Exceptions.** Anything ambiguous goes to the exception list and the Holding Area. It is never guessed. Example: when every concept wall has the same generic type, the planner cannot tell inside from outside, so those walls go to a person until MA-2 reads the outer boundary.
+4. **Exceptions.** Anything ambiguous goes to the exception list and the Holding Area. It is never guessed. Example: when every concept wall has the same generic type, its Function tells nothing; since MA-2a the planner reads inside or outside from the storey's own walls (the outer boundary) and types by a Location rule — and a wall whose location cannot be read (both sides open, a curved wall, too few walls) goes to a person with that reason.
 5. **Check.** An IDS for the target stage is made from the matrix and checked before commit. This is a new small function, `matrixToIds` (size S). It reuses `STANDARD_PSETS` and the IDS output shape from `ids-compile.mjs`. (`compileIds` itself reads prose, so it is not reused.)
 6. **BLOCK check.** Ghosts that would break a BLOCK rule of `ruleset@n` are marked. The review window says "this batch will block your sync: N elements".
 7. **Review.** Pre-tick rules (the bridge computes them):
@@ -1078,8 +1078,8 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Size:** L (5–6 weeks). **Depends on:** MA-1; the Change Requests drill.
 - **Delivers:**
   - The `lod_matrix` kind, with `stage_map` and `type_snap_mm`, C# and TS parsers, and a `tools/lod-check` parity check.
-  - **Rules without a layer.** The matcher already supports them. The work is: the planner and the readers pass Function, location (inside or outside, from the outer boundary) and material as params; a lead writes layer-free rules into the office guideline; C# and TS parity tests cover them. Size S–M.
-  - **A wider catalogue harvest.** Build Office System keeps each type's Function and the type parameters the matrix needs. BOS-3 (install the catalogue from Revit, no CLI) and BOS-5 (categories by BuiltInCategory, so non-English Revit still matches).
+  - **Rules without a layer.** LANDED in MA-2a (2026-10-03): Promote, Ghost Builder and the bridge pass Function, Location (from the outer boundary: `WallLocation`) and Material as params; the DRAFT layer-free DD file is `demo/bds-pilot/bds-dd-layerfree-guideline.json`; the C#/TS parity fixture is `WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json`. A lead still writes the office guideline's own layer-free rules.
+  - **A wider catalogue harvest.** LANDED in MA-2a: Function (enum name), Material, the matrix's type parameters, `bic` (BOS-5), Install catalogue on office from the review window (BOS-3).
   - The LOD state reader, plus a line in the pane, the Next strip and the web (C4).
   - A Promote plan with `retype`, `attach` and `set_parameter`.
   - Type-gap groups in the Holding Area, with their close rule (size M).
@@ -1122,7 +1122,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Delivers:**
   - `evidence_pack` with attestations and `evidence:*` rows. Intake accepts evidence kinds.
   - "Ask the owner": a drafted request letter and `evidence:requested` rows (S).
-  - Bridge typing: the bridge calls `resolveWithCatalog`, with the layer-free rules from MA-2 and C#/TS conformance tests.
+  - Bridge typing: LANDED EARLY in MA-2a (full contract 2) — an element posted without `place.TypeName` carries `facts {thickness_mm?, params?}` and the bridge calls `resolveWithCatalog` on the project's guideline@n and type_catalog@n, fills the type and records `typing`, or answers 400 naming what is missing; `measured` stays ignored until a survey job backs it (item 8); the shared fixture is `WebApp/bridge/fixtures/changeset-ops/contract2-typed-body.json`. The body at :681-705 is answered 201 with `facts` in place of `measured` and 200 mm (its 203 mm is a gap under the exact rule, :728).
   - sentinel-survey v0.1, pip wheels only: storeys, wall slices in the `WallPairing` shape, floors and ceilings, and deviation per element at 5, 10 and 20 cm.
   - Gaps go to the Holding Area as groups.
   - A decimated scan overlay in Revit.
