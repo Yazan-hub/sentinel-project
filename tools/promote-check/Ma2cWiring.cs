@@ -36,7 +36,8 @@ static partial class Check
            && !promote.Contains("every one the DD types hold is filled"),
            "with no DD property row, Promote's dialog shows PropertyReport.Line — what is held off the type is said, never the old literal (C20)");
         Ok(window.Contains("\"set_parameter\" => $\"type edit {el.Kind}:") && window.Contains("$\"reaches {reachN} element(s) in the model now\"")
-           && window.Contains("(ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $\" + {more} if this changeset's retypes onto it are applied\" : \"\")")
+           // MA-2d C11: a storey's window (StoreyBatch.Merge's name) counts "this storey's" retypes.
+           && window.Contains("(ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $\" + {more} if this {((_cs.Name ?? \"\").EndsWith(\", one Undo)\", StringComparison.Ordinal) ? \"storey\" : \"changeset\")}'s retypes onto it are applied\" : \"\")")
            && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
            && review.Contains("new ChangesetReviewWindow(cs, reach)"),
            "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");

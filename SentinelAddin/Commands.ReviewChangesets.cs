@@ -29,6 +29,18 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
     // machine credential reads as service).
     private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };
+    // MA-2d (drill MA2c D2): after a Promote storey is declined, Promote reopens a Promote storey still waiting for review before it
+    // plans again — said, so "re-run Promote" in the error does not surprise.
+    internal const string RunPromoteAgain = "Run Promote (DD) again to plan this storey anew: it first opens any other Promote storey still waiting for review, and plans again once none is waiting.";
+    // Review C2: MA-2c F11 puts a type edit on the first storey whose retypes land on its type, so a later storey of the same run
+    // may retype onto it; when a storey carrying type edits is declined, those storeys fail the DD IDS until Promote plans again — said.
+    internal static string CarriedEdits(IEnumerable<ChangesetDto> fresh)
+    {
+        var edits = fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter").ToList();
+        return edits.Count == 0 ? "" :
+            $"\n\nThis storey carried {edits.Count} type edit(s) ({string.Join(", ", edits.Select(e => e.Place?.TypeName ?? "?").Distinct())}). " +
+            "Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all ▸ Apply), then run Promote (DD).";
+    }
 
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
@@ -61,21 +73,27 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             return Result.Succeeded;
         }
 
-        var cs = pending[0]; // FIFO; the dialog says how many wait behind it
-        if (pending.Count > 1)
-            TaskDialog.Show("Sentinel — AI proposals", $"{pending.Count} proposals pending — reviewing the oldest first ({cs.Name}). Run again for the next.");
-        return Open(c, doc, cfg, key, cs) ? Result.Succeeded : Result.Cancelled;
+        // FIFO; MA-2d: a Promote storey's changesets are reviewed together (StoreyBatch). The dialog says how many wait behind it.
+        var batch = StoreyBatch.Of(pending, pending[0]);
+        if (pending.Count > batch.Count)
+            TaskDialog.Show("Sentinel — AI proposals", $"{pending.Count} proposals pending — reviewing the oldest first ({StoreyBatch.Merge(batch).Name}). Run again for the next.");
+        return Open(c, doc, cfg, key, batch) ? Result.Succeeded : Result.Cancelled;
     }
 
-    /// <summary>Open the review window on one proposed changeset of <paramref name="doc"/> (bound to <paramref name="key"/>).
+    /// <summary>Open the review window on proposed changesets of <paramref name="doc"/> (bound to <paramref name="key"/>): one, or (MA-2d)
+    /// the changesets of one Promote storey (StoreyBatch.Of) — shown as one, applied as one Undo, each reported on its own ledger row.
     /// False when a review window is already open. API thread (a command's Execute).</summary>
-    internal static bool Open(ExternalCommandData c, Document doc, BcfConfig cfg, string key, ChangesetDto cs)
+    internal static bool Open(ExternalCommandData c, Document doc, BcfConfig cfg, string key, IReadOnlyList<ChangesetDto> batch)
     {
+        var cs = StoreyBatch.Merge(batch);
         if (_reviewOpen)
         {
             TaskDialog.Show("Sentinel — AI proposals", "A review window is already open — finish or close it first.");
             return false;
         }
+        // Review C7: a Promote part reviewed alone — a part of its storey waits twice (two Promote runs) or is missing — is said.
+        if (batch.Count == 1 && cs.Source == "promote" && StoreyBatch.StoreyOf(cs.Name) != cs.Name)
+            TaskDialog.Show("Sentinel — AI proposals", $"\"{cs.Name}\" is reviewed alone: another part of its storey is missing or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.");
 
         // Per-invocation handler/event (every sibling command does the same): a static pair would
         // let a second open review window clobber the staged request and double-fire callbacks.
@@ -95,13 +113,18 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         window.Closed += (_, _) => _reviewOpen = false;
         window.DecideRequested += (ticked, unticked, note) =>
         {
-            // Re-fetch: only a still-proposed changeset may run (an agent may have withdrawn it).
-            var fresh = ChangesetClient.FetchOne(cfg, key, cs.Id, out var oneErr);
-            if (fresh == null || fresh.Status != "proposed")
+            // Re-fetch: only still-proposed changesets may run (an agent may have withdrawn one) — MA-2d: the whole storey, or nothing.
+            var fresh = new List<ChangesetDto>();
+            foreach (var one in batch)
             {
-                TaskDialog.Show("Sentinel — AI proposals",
-                    fresh == null ? $"Couldn't re-check the changeset:\n{oneErr}" : $"Changeset is now \"{fresh.Status}\" — nothing was created.");
-                return;
+                var f = ChangesetClient.FetchOne(cfg, key, one.Id, out var oneErr);
+                if (f == null || f.Status != "proposed")
+                {
+                    TaskDialog.Show("Sentinel — AI proposals",
+                        f == null ? $"Couldn't re-check the changeset:\n{oneErr}" : $"Changeset{(batch.Count > 1 ? $" \"{f.Name}\"" : "")} is now \"{f.Status}\" — nothing was created.");
+                    return;
+                }
+                fresh.Add(f);
             }
 
             // The bridge takes a result from a contributor or above only: ask BEFORE anything runs, or a viewer's Apply would
@@ -117,13 +140,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
             if (ticked.Count == 0)
             {
-                Report(cfg, key, cs.Id, new List<AppliedEntry>(), unticked, note); // declined — no transaction at all
+                int declined = 0;
+                foreach (var f in fresh) if (Report(cfg, key, f.Id, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note)) declined++; // declined — no transaction at all
+                // Review C6: said, never silent — counted from the declines the bridge took; nothing in the model changed.
+                TaskDialog.Show("Sentinel — AI proposals", $"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed." +
+                    (fresh[0].Source == "promote" ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : ""));
                 return;
             }
 
             // MA-2b (design §3.4 steps 5 and 10): a Promote changeset is checked against the DD IDS made from the LOD matrix before
             // commit, and its LOD state after is recorded — both from what PromoteContext reads, fetched off this thread.
-            var promote = fresh.Source == "promote" ? Task.Run(() => PromoteContext.Fetch(key)).GetAwaiter().GetResult() : null;
+            var promote = fresh[0].Source == "promote" ? Task.Run(() => PromoteContext.Fetch(key)).GetAwaiter().GetResult() : null;
             Action<ChangesetExecutor.ExecutionResult> onDone = null;
             onDone = result =>
             {
@@ -142,22 +169,32 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 }
                 if (result.Error != null)
                 {
-                    // Whole changeset rolled back: report declined with the reason — honestly.
-                    Report(cfg, key, cs.Id, new List<AppliedEntry>(),
-                        cs.Elements.Select(e => e.ProposalGuid).ToList(),
-                        $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"));
-                    TaskDialog.Show("Sentinel — AI proposals", $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined.");
+                    // Whole changeset — MA-2d: the whole storey — rolled back: each changeset reported declined with the reason, honestly.
+                    foreach (var f in fresh)
+                        Report(cfg, key, f.Id, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
+                            $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"));
+                    TaskDialog.Show("Sentinel — AI proposals", $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined" +
+                        (fresh.Count > 1 ? $" — all {fresh.Count} changesets of the storey." : ".") + (fresh[0].Source == "promote" ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : ""));
                     return;
                 }
-                // MA-1a step 2: an element Revit removed at commit is reported as rejected, with the reason in the note.
+                // MA-1a step 2: an element Revit removed at commit is reported as rejected, with the reason in the note. MA-2d: each
+                // changeset of the storey is reported on its own ledger row; the storey's BLOCK and IDS lines ride on each note.
                 var gone = result.Gone.Select(a => a.ProposalGuid).ToList();
-                var rejected = unticked.Concat(gone).Distinct().ToList();
-                var said = gone.Count == 0 ? note : $"{gone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
-                if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
-                if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
-                // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids.
-                if (Report(cfg, key, cs.Id, result.Applied, rejected, said))
-                    UndoWatcher.Remember(UndoWatcher.TxName(fresh.Name, fresh.Id), key, fresh.Id, result.Applied.Select(a => a.ProposalGuid));
+                var undo = StoreyBatch.UndoName(fresh);
+                foreach (var (one, res) in result.Each)
+                {
+                    var oneGone = res.Gone.Select(a => a.ProposalGuid).ToList();
+                    var rejected = StoreyBatch.Own(one, unticked).Concat(oneGone).Distinct().ToList();
+                    var said = oneGone.Count == 0 ? note : $"{oneGone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
+                    if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
+                    if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
+                    // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
+                    // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
+                    if (!Report(cfg, key, one.Id, res.Applied, rejected, said)) continue;
+                    var guids = res.Applied.Select(a => a.ProposalGuid).ToList();
+                    UndoWatcher.Remember(undo, key, one.Id, guids);
+                    UndoWatcher.Remember(UndoWatcher.TxName(one.Name, one.Id), key, one.Id, guids);
+                }
                 // MA-2b, design §3.4 step 10: the LOD state after a Promote changeset, read again on this (the API) thread — one more
                 // lod_state row, which the gate and the strips read as the newest.
                 string after = null;
@@ -168,7 +205,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         var lod = PromoteWallsCommand.LodStateAfter(doc, promote);
                         if (lod != null)
                         {
-                            GovernedNotify.Report("LOD state after", CommandReports.LodState(lod, new[] { fresh.Id }, UserSession.Actor), key);
+                            GovernedNotify.Report("LOD state after", CommandReports.LodState(lod, fresh.Select(f => f.Id).ToList(), UserSession.Actor), key);
                             after = "LOD state after (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line;
                         }
                     }
@@ -187,7 +224,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             // result says so. A guideline that could not be read is not "no block" (review amendment C7): nothing runs,
             // and the changeset stays proposed.
             GuidelinePlacement placement = null;
-            if (fresh.Elements.Any(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")))
+            if (fresh.SelectMany(f => f.Elements).Any(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")))
             {
                 var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
                 if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,

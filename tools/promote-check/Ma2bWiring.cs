@@ -28,7 +28,7 @@ static partial class Check
         Ok(judged > 0 && judged < place.IndexOf("BlockCheck.AddedSince(doc, before)", StringComparison.Ordinal)
            && judged < place.IndexOf("group.Assimilate()", StringComparison.Ordinal)
            && place.Contains("return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = StageIds.WentBack(fails.Count, ids.Matrix) };")
-           && place.Contains("if (before == null && promote?.Ids == null)") && place.Contains("result.Ids = \"DD IDS: not checked — \" + promote.IdsWhy;")
+           && !place.Contains("if (before == null && promote?.Ids == null") && place.Contains("result.Ids = \"DD IDS: not checked — \" + promote.IdsWhy;") // MA-2d C10: no lone path — every changeset runs in the group
            && ctx.Contains("var v = ids.Judge(g.identity.Class, StageIds.ValuesOf(g), org, spec);")
            && promote.Contains("pc.Ids.Judge(read[i].identity.Class, StageIds.ValuesOf(read[i]), org, ruled[i].Spec);")
            && place.Contains("idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix);") && !place.Contains("every element passed")
