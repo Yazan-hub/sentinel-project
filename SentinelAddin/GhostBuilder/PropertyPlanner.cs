@@ -51,7 +51,7 @@ namespace Sentinel.GhostBuilder
             (sentence != null && BoundWords.IsMatch(sentence)) || BoundWords.IsMatch(value ?? "") ? "sets a bound"
             : sentence != null && !WholeClass.IsMatch(sentence) ? "does not name the whole class" : null;
 
-        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence, Skip; }
+        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence, Skip; public bool Unreadable; }
         private readonly List<Row> _rows = new List<Row>();
         /// <summary>The ids@n's label ("ids@1 · project · 0a1b2c3d4e5f…"), or why there is none.</summary>
         public string Label;
@@ -84,7 +84,7 @@ namespace Sentinel.GhostBuilder
                             if (string.IsNullOrEmpty(value) || Str(p, "pset") == null || Str(p, "name") == null) continue;
                             var sentence = Str(s, "source_sentence");
                             c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Value = value, Spec = Str(s, "name") ?? "", Sentence = sentence,
-                                                  Skip = NotAValue(sentence, value) });
+                                                  Skip = NotAValue(sentence, value), Unreadable = !Readable(entity) });
                         }
                     }
                 }
@@ -117,6 +117,16 @@ namespace Sentinel.GhostBuilder
             return hits;
         }
 
+        /// <summary>Review C20: the clauses on <paramref name="key"/> whose entity pattern .NET cannot read — they apply to nothing (the
+        /// bridge skips them too), and the planner says so rather than "no clause pins one".</summary>
+        public int Unreadable(string key) => _rows.Count(r => r.Unreadable && r.Pset + "." + r.Prop == key);
+
+        private static bool Readable(string pattern)
+        {
+            try { _ = new Regex(pattern); return true; }
+            catch (ArgumentException) { return false; }
+        }
+
         private static string Str(JsonElement o, string name) => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     }
 
@@ -135,7 +145,7 @@ namespace Sentinel.GhostBuilder
         public int Written => Rows.Count(r => r.Outcome == "write");
         public int NoSource => Rows.Count(r => r.Outcome == "no source");
         /// <summary>The elements on the types whose property has no source (drill MA2 records it).</summary>
-        public int NoSourceElements => Rows.Where(r => r.Outcome == "no source").Sum(r => r.Elements);
+        public int NoSourceElements => Rows.Where(r => r.Outcome == "no source").GroupBy(r => r.UniqueId).Sum(g => g.First().Elements); // C20: each type once
         public int Other => Rows.Count(r => r.Outcome != "write" && r.Outcome != "no source");
         /// <summary>Review amendment C11: the DD type × property pairs not held on the type (an instance parameter, a wall's IsExternal
         /// read from its Function, a type not read) — not planned, and counted so nothing is skipped without a word.</summary>
@@ -143,10 +153,13 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Promote's header line: "DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 1 with no source —
         /// sent to a person (1 element(s) on those types) · 1 sent to a person for another reason · 2 held off the type (…) — not planned".</summary>
-        public string Line =>
-            $"DD properties: {Written} type edit(s) from a cited source (never pre-ticked) · {NoSource} with no source — sent to a person ({NoSourceElements} element(s) on those types)" +
+        public string Line => Rows.Count == 0
+            ? "DD properties: every one the DD types hold is filled, or the matrix asks none Sentinel reads on a type" + NotOnTypeWords // C20
+            : $"DD properties: {Written} type edit(s) from a cited source (never pre-ticked) · {NoSource} with no source — sent to a person ({NoSourceElements} element(s) on those types)" +
             (Other > 0 ? $" · {Other} sent to a person for another reason" : "") +
-            (NotOnType > 0 ? $" · {NotOnType} held off the type (instance, IsExternal from Function, or not read) — not planned" : "");
+            NotOnTypeWords;
+
+        private string NotOnTypeWords => NotOnType > 0 ? $" · {NotOnType} held off the type (instance, IsExternal from Function, or not read) — not planned" : "";
 
         /// <summary>One line per row: "✎ Walls · BDS_EXT_ARC_CMU_200 mm · Pset_WallCommon.FireRating → "60 min" (type_catalog@1 · …) — 1
         /// element(s) read the type" (review amendment C3: the reach, the planner's own count), or "→ a person: …".</summary>
@@ -239,6 +252,7 @@ namespace Sentinel.GhostBuilder
                         row.Why = $"no source for {key} on {v.Label} — " +
                                   (param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
                                   (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} {floor[0].Why} (\"{floor[0].Sentence ?? floor[0].Value}\"), not a value"
+                                   : clauses.Unreadable(key) is int u && u > 0 ? $"{u} clause(s) of {clauses.Label} on {key} have an entity pattern Sentinel cannot read" // C20
                                    : clauses.Installed ? $"no clause of {clauses.Label} pins one" : $"no ids@n is installed to cite ({clauses.Label})") +
                                   $"; a person fills it in Revit (Type Properties) — {row.Elements} element(s) on it";
                     }

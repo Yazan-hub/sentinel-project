@@ -157,6 +157,19 @@ static partial class Check
            && otherPlans.Single().Ghosts.All(g => g.Parameter != "Pset_BDS.Discipline")
            && otherPlans.Single().Ghosts.Any(g => g.Op == "set_parameter" && g.Parameter == "Pset_WallCommon.FireRating" && g.TypeName == "BDS_EXT_ARC_CMU_200 mm"),
            "a key outside the class's own set (KIND_PSET) is never planned as a write: it goes to a person, and the type's valid edits still ride (C19)");
+        // Review C20: the header names what is held off the type with no row too; "on those types" counts each type once; a clause
+        // whose entity pattern .NET cannot read is named, never "no clause pins one".
+        var twice = new PropertyReport { Rows = {
+            new PropertyRow { Outcome = "no source", UniqueId = "t1", Elements = 10 }, new PropertyRow { Outcome = "no source", UniqueId = "t1", Elements = 10 },
+            new PropertyRow { Outcome = "no source", UniqueId = "t2", Elements = 4 } } };
+        var unread = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls REI60\",\"applicability\":{\"entity\":\"(IFCWALL\"}," +
+            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_WallCommon\",\"name\":\"FireRating\",\"value\":\"REI60\",\"cardinality\":\"required\"}]}}]}", "ids@4 · project · 3a4b5c6d7e8f…", out _);
+        var ur = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, unread).Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm");
+        Ok(new PropertyReport { NotOnType = 2 }.Line == "DD properties: every one the DD types hold is filled, or the matrix asks none Sentinel reads on a type · 2 held off the type (instance, IsExternal from Function, or not read) — not planned"
+           && new PropertyReport().Line == "DD properties: every one the DD types hold is filled, or the matrix asks none Sentinel reads on a type"
+           && twice.NoSourceElements == 14
+           && ur.Outcome == "no source" && ur.Why.Contains(", and 1 clause(s) of ids@4 · project · 3a4b5c6d7e8f… on Pset_WallCommon.FireRating have an entity pattern Sentinel cannot read;"),
+           "the header counts what is held off the type when no row is planned, each no-source type's elements once, and names a clause it cannot read (C20)");
         var none = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, Clauses.None("none — not installed for ma2c or its office"));
         Ok(none.Rows.Single(r => r.Label == "BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm").Why.Contains("and no ids@n is installed to cite (none — not installed for ma2c or its office)"),
            "with no ids@n installed, a property with no catalogue value says there is no clause to cite");

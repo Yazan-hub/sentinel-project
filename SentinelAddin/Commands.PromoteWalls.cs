@@ -155,7 +155,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             .Where(cat => mx.Properties.TryGetValue(cat, out var ps) && ps.Count > 0).Select(cat => $"{cat}: {string.Join(", ", mx.Properties[cat])}").ToList();
         var held = plans.SelectMany(p => p.Held.Concat(p.ToPerson).Select(h => $"{p.Storey} · {h.Label}: {h.Reason}")).ToList();
         var propLines = props == null || props.Rows.Count == 0 ? new List<string>() : props.Lines();
-        var propText = props == null ? "" : props.Rows.Count == 0 ? "\n\nDD properties: every one the DD types hold is filled, or the matrix asks none Sentinel reads on a type"
+        var propText = props == null ? "" : props.Rows.Count == 0 ? "\n\n" + props.Line // review C20: it names what is held off the type
             : "\n\n" + props.Line + " — " + pc.Clauses.Label + "\n" + string.Join("\n", propLines.Take(12)) + (propLines.Count > 12 ? $"\n… and {propLines.Count - 12} more" : "");
         // A retype target whose Function in this model disagrees with the wall's side as the rule decided it: once per type, for the office to fix.
         var notes = plans.SelectMany(p => p.Ghosts).Select(g => g.Note).Where(n => n != null).Distinct().ToList();

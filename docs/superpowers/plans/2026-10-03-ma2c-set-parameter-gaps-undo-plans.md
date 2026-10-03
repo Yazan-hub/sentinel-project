@@ -162,6 +162,12 @@ Not run: the drill, and the commit commands.
   - **The planner's words.** `Clauses.Floors` becomes `NotValues`. Its no-source reason reads `<ids label> · <spec> sets a bound ("<sentence or value>"), not a value`, or `… does not name the whole class (…), not a value`. C7's "sets a minimum" becomes "sets a bound".
   - **Checks.** The shared fixture has 11 clause cases: a sentence bound, a value bound, a narrowed class, and a whole-class compiled sentence. Vitest runs `compileIds` round trips ("FD30 or higher", "at most", "up to", "fire doors", "external walls").
 - **C19 — the planner never plans a key the bridge always refuses** (this reverses C1's "No C# twin table"). C1 relied on C4 to send another class's key to a person. But C4 drops every type edit in the refused body, so a valid Fire Rating edit was lost with it. `PropertyPlanner.KindPset` is now the twin of `KIND_PSET`, and the shared fixture's `kind_pset` holds the two equal (vitest and section 33). A matrix key outside the class's own common set goes to a person as `no writer`: `<key> on <type>: "<value>" (<ref>), but Sentinel writes only Pset_WallCommon on a wall type — a person sets it in Revit`. Section 34 pins it.
+- **C20 — the DD properties line says what it counts** (minor findings).
+  - **No row planned.** When no property row is planned, the line still ends with C11's `· <k> held off the type (…) — not planned`. `PropertyReport.Line` now holds both forms, and Promote shows it.
+  - **Each type once.** The `(<n> element(s) on those types)` count takes each no-source type once, not once per property.
+  - **A pattern Sentinel cannot read.** A clause whose entity pattern .NET cannot read applies to nothing, as before. The no-source reason now says `<u> clause(s) of <ids label> on <key> have an entity pattern Sentinel cannot read`, not "no clause pins one".
+  - **Not changed.** A DD type that is not exactly one type in the model stays counted in the `not read` share of `NotOnType`, with no row of its own.
+  - **Checks.** Section 34 pins all three.
 
 **Minor, rejected:**
 
