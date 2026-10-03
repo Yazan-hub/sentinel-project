@@ -629,26 +629,23 @@ describe("validateArtefact — carbon_factors (item 6, 6D)", () => {
   });
 });
 
-describe("validateArtefact — lod_matrix (Promote v1)", () => {
+describe("validateArtefact — lod_matrix (Promote v1, MA-2b)", () => {
   const ok = readRepoJson("demo/bds-pilot/bds-lod-matrix-dd.json");
   const row = (i, over) => withItem(ok, "rows", i, over);
-  it("the demo matrix installs", () => {
+  // MA-2b: the install check is sentinel-core's parseLodMatrix (the bundle); the add-in's LodMatrix.FromBody reads the same cases.
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/lod-matrix/cases.json", import.meta.url), "utf8"));
+  it("the demo matrix (a v0 body) installs as before", () => {
     expect(fails("lod_matrix", ok)).toBeNull();
     expect(KINDS).toContain("lod_matrix");
   });
+  it.each(cases.map((c) => [c.name, c]))("the shared case: %s", (_name, c) => {
+    if (c.error === null) expect(validateArtefact("lod_matrix", c.body)).toBe(true);
+    else expect(fails("lod_matrix", c.body)).toMatchObject({ status: 400, message: `lod_matrix: ${c.error}` });
+  });
   it.each([
-    [{ ...ok, source: "x" }, "lod_matrix: source is not a lod_matrix field — the body is {standard_key, semver, status?, rows}"],
-    [{ ...ok, semver: "1" }, "lod_matrix: semver must be x.y.z"],
-    [{ ...ok, status: "final" }, "lod_matrix: status must be draft or approved"],
-    [{ ...ok, rows: [] }, "lod_matrix: rows must be a non-empty array"],
-    [row(0, { DD: { ...ok.rows[0].DD, joins: "clean" } }), "lod_matrix: rows[0].DD.joins is not a DD rule Promote reads — type, level, top, host, properties"],
-    [row(0, { DD: { ...ok.rows[0].DD, top: "roof" } }), "lod_matrix: rows[0].DD.top must be next_story_level"],
-    [row(1, { category: "Walls" }), "lod_matrix: rows[1].category appears twice — one row per class"],
-    [row(1, { category: "Stairs" }), "lod_matrix: rows[1].category must be Walls | Floors | Roofs | Ceilings | Doors | Windows"],
-    [row(1, { CD: {} }), "lod_matrix: rows[1].CD is not a row field — a row is {category, DD} (v0 knows the DD stage only)"],
-    [row(1, { DD: { level: "story_level" } }), "lod_matrix: rows[1].DD.type is required — DD means typed by a guideline rule"],
-    [row(1, { DD: { ...ok.rows[1].DD, properties: [""] } }), "lod_matrix: rows[1].DD.properties must be an array of non-empty strings (listed for a person, not enforced)"],
-    [row(1, { DD: { ...ok.rows[1].DD, constructor: "x" } }), "lod_matrix: rows[1].DD.constructor is not a DD rule Promote reads — type, level, top, host, properties"],
+    [{ ...ok, source: "x" }, "lod_matrix: source is not a lod_matrix field — the body is {standard_key, semver, status?, stage_map?, rows}"],
+    [row(0, { DD: { ...ok.rows[0].DD, joins: "clean" } }), "lod_matrix: rows[0].DD.joins is not a DD rule Promote reads — type, level, top, host, properties, type_snap_mm"],
+    [row(1, { DD: { ...ok.rows[1].DD, constructor: "x" } }), "lod_matrix: rows[1].DD.constructor is not a DD rule Promote reads — type, level, top, host, properties, type_snap_mm"],
   ])("a matrix Promote would not read as written is refused in words (%#)", (body, message) => {
     expect(fails("lod_matrix", body)).toMatchObject({ status: 400, message });
   });

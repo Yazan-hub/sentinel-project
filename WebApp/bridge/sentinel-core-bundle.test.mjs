@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as bundle from "./sentinel-core.mjs";
 import * as source from "../src/sentinel-core/guideline";
+import * as lodSource from "../src/sentinel-core/lod-matrix";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const FILES = [
@@ -20,6 +21,15 @@ describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", (
     for (const name of ["resolveWithCatalog", "resolveType", "validateGuideline", "validateAgainstCatalog", "sameCategory", "CATEGORY_BIC"])
       expect(typeof bundle[name], name).toBe(typeof source[name]);
     expect(bundle.CATEGORY_BIC).toEqual(source.CATEGORY_BIC);
+  });
+
+  // MA-2b: the install check runs parseLodMatrix from the bundle — every shared case, the same answer and the same words.
+  it("reads every lod_matrix case as the TS source does — rebuild the bundle when this fails", () => {
+    const cases = read("./fixtures/lod-matrix/cases.json");
+    expect(cases.length).toBe(26);
+    const run = (f, body) => { try { return f(body); } catch (e) { return { error: e.message }; } };
+    for (const c of cases) expect(run(bundle.parseLodMatrix, c.body), c.name).toEqual(run(lodSource.parseLodMatrix, c.body));
+    expect(bundle.STAGES).toEqual(lodSource.STAGES);
   });
 
   for (const f of FILES) {
