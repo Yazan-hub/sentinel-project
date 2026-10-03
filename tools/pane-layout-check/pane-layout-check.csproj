@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline layout check for the Live Coordination pane (SentinelAddin/UI/SentinelPanel.xaml): the real XAML is loaded
+       (its code-behind needs Revit, so x:Class and the event handlers are stripped), laid out at a narrow docked width
+       with the lines a real project shows, and measured. Drill MA2b found the pane wider than its dock: lines cut and
+       the ↻ button off the right edge. WPF needs Windows; no Revit. Run with `dotnet run` from this folder.
+       Given a folder as its argument, it also writes the pane at each width there as a PNG. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <AssemblyName>pane-layout-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- the journey box's cap: the code-behind applies it on every resize; the check applies the same function -->
+    <Compile Include="..\..\SentinelAddin\UI\PaneLayout.cs" />
+  </ItemGroup>
+</Project>
