@@ -80,7 +80,7 @@
     {
       "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-0004c401",
       "name": "W 312321",
-      "reason": "gap: W 312321 (Generic - 125mm, Exterior) — \"BDS_EXT_ARC_CMU_125 mm\" is not in type_catalog@1 · ma0-bds · 0123456789ab… (template BDS_Project Number_Project Name (Template)). Available: BDS_EXT_ARC_CMU_100 mm, BDS_EXT_ARC_CMU_200 mm, BDS_EXT_ARC_CMU_300 mm, BDS_EXT_ARC_CMU_400 mm. (type_catalog: ty…"
+      "reason": "gap: W 312321 (Generic - 125mm, Function Exterior) — \"BDS_EXT_ARC_CMU_125 mm\" is not in type_catalog@1 · ma0-bds · 0123456789ab… (template BDS_Project Number_Project Name (Template)). Available: BDS_EXT_ARC_CMU_100 mm, BDS_EXT_ARC_CMU_200 mm, BDS_EXT_ARC_CMU_300 mm, BDS_EXT_ARC_CMU_400 mm. (type_ca…"
     }
   ]
 }

@@ -35,6 +35,12 @@ namespace Sentinel.GhostBuilder
         public bool IsBasic, InGroup, InOption;
         /// <summary>The wall's Structural usage (WALL_STRUCTURAL_SIGNIFICANT = 1).</summary>
         public bool Structural;
+        /// <summary>MA-2a: the wall's location line in plan (mm) as the outer boundary reads it — a curved wall's chord, flagged;
+        /// null when none was read (the wall is then no barrier and its location is unknown).</summary>
+        public WallLocation.Segment Line;
+        /// <summary>MA-2a: the type's compound-layer materials, finish layers first, joined " / " ("Stone / Concrete Masonry
+        /// Units"); null when the type has none. Passed to the rules as the param Material.</summary>
+        public string Material;
     }
 
     public sealed class LevelFact
@@ -131,10 +137,30 @@ namespace Sentinel.GhostBuilder
                 byName.TryGetValue(storey.Key, out var baseLevel);
                 var next = baseLevel == null ? null : NextStory(levels, baseLevel.ElevationMm); // the executor's wall top too (MA-1a item 3)
                 var retypes = new List<PromoteGhost>();
-                var typed = new List<WallFact>(); // basic, ungrouped walls, settled included, office-typed not
+                var ws = storey.ToList();
+                // MA-2a: the storey's barriers as the outer boundary reads them — this storey's walls and every other wall that crosses
+                // its plane (a shell based below and rising past it: review C1), whatever their types. The storey's own walls come
+                // first, so a wall's index in ws is its index here; a wall with no line is no barrier.
+                double plane = baseLevel?.ElevationMm ?? double.NaN;
+                var segs = ws.Select(w => w.Line).ToList();
+                if (!double.IsNaN(plane))
+                    segs.AddRange(walls.Where(o => o.Line != null && !ws.Contains(o)
+                                                   && Elev(o.BaseLevel) + o.BaseOffsetMm <= plane + TolMm && TopMm(o, Elev(o.BaseLevel)) > plane + TolMm)
+                                       .Select(o => o.Line));
+                // §3.4 step 4: when every concept wall on the storey shares one type, its Function is the template's default and
+                // tells nothing — decided before the loop, because it decides what each wall's rule may see (MA-2a reads the
+                // outer boundary instead; a wall whose location cannot be read goes to a person). Settled walls count (a storey a
+                // first run half-promoted is not one-type); the office's other types do not (template samples would mask it).
+                var eligible = ws.Where(w => w.IsBasic && !w.InGroup && !w.InOption && baseLevel != null && baseLevel.IsStory).ToList();
+                bool OfficeOther(WallFact w) => !m.RuleProduces("Walls", w.TypeName) && office != null && (w.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase);
+                var typed = eligible.Where(w => !OfficeOther(w)).ToList(); // basic, ungrouped walls, settled included, office-typed not
+                p.OneType = typed.Count >= 2 && typed.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
+                int officeOthers = eligible.Count(OfficeOther);
+                var aside = officeOthers > 0 ? $" besides the {officeOthers} on other office types" : "";
 
-                foreach (var w in storey)
+                for (int k = 0; k < ws.Count; k++)
                 {
+                    var w = ws[k];
                     void Hold(string reason) => p.Held.Add(new PromoteHeld { UniqueId = w.UniqueId, Label = w.Label, Reason = reason });
 
                     // Whole-wall holds: nothing is proposed for these walls.
@@ -152,7 +178,6 @@ namespace Sentinel.GhostBuilder
                     // structure goes to a person whole.
                     bool typeOk = m.RuleProduces("Walls", w.TypeName);
                     if (!typeOk && office != null && (w.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase)) { p.OfficeTyped++; continue; }
-                    typed.Add(w);
                     if (!typeOk && w.Structural) { Hold("structural wall — Promote v0 does not retype or re-top structure; a person decides"); continue; }
 
                     // Type: settled, or the DD rule's exact answer already loaded in this model, or a person.
@@ -163,34 +188,53 @@ namespace Sentinel.GhostBuilder
                         Hold($"no type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16)");
                     else
                     {
-                        var res = m.Resolve(new GuidelineInput
+                        // MA-2a: what the rules may see — the type's Function (not on a one-type storey: it tells nothing there), the
+                        // wall's Location from the outer boundary when it can be read, its Material when the type has one. An
+                        // unknown is left out, so a rule that needs it cannot fire: a reason to a person, never a guess.
+                        string loc = WallLocation.Locate(segs, k, out string locWhy);
+                        bool fnSaysSide = string.Equals(w.Function, WallLocation.Exterior, StringComparison.OrdinalIgnoreCase)
+                                       || string.Equals(w.Function, WallLocation.Interior, StringComparison.OrdinalIgnoreCase);
+                        if (!p.OneType && loc != null && fnSaysSide && !string.Equals(w.Function, loc, StringComparison.OrdinalIgnoreCase))
                         {
-                            Category = "Walls",
-                            Params = new Dictionary<string, string> { ["Function"] = w.Function ?? "" },
-                            ThicknessMm = w.WidthMm,
-                        });
-                        if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
-                        {
-                            if (string.Equals(res.Type, w.TypeName, StringComparison.OrdinalIgnoreCase)) typeOk = true;
-                            else if (docBasicWallTypes == null || !docBasicWallTypes.TryGetValue(res.Type, out var fn))
-                                Hold($"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types");
-                            else
-                            {
-                                // The rule is the office's: proposed even when the template gave the target another Function.
-                                var note = string.IsNullOrEmpty(fn) || string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase)
-                                    ? null : $"{res.Type} is Function {fn} in this model";
-                                retypes.Add(new PromoteGhost
-                                {
-                                    Op = "retype", UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
-                                    Reason = $"DD walls v0: Function {w.Function}, {Mm(w.WidthMm, "0")} mm → {res.Type}" + (note == null ? "" : " — note: " + note),
-                                    Note = note,
-                                });
-                            }
+                            // Review C2: on a mixed storey the type's Function is a modelling decision; where the boundary reads the other
+                            // way (a courtyard wall, a misread outline, a template's wrong Function) neither is passed — a person decides.
+                            Hold($"Function {w.Function} but it reads " + (loc == WallLocation.Exterior
+                                 ? "outside (one side looks out of the storey's outline)" : "inside (both sides enclosed — a courtyard, or a misread outline)") + "; a person decides");
                         }
-                        else if (res.Source == "rule")
-                            Hold(m.Gap($"{w.Label} ({w.TypeName}, {w.Function})", res.Why));
                         else
-                            Hold($"no DD rule for Function {w.Function} in {m.Standard}");
+                        {
+                            var ps = new Dictionary<string, string>();
+                            if (!p.OneType && !string.IsNullOrEmpty(w.Function)) ps["Function"] = w.Function;
+                            if (loc != null) ps["Location"] = loc;
+                            if (!string.IsNullOrWhiteSpace(w.Material)) ps["Material"] = w.Material;
+                            var res = m.Resolve(new GuidelineInput { Category = "Walls", Params = ps, ThicknessMm = w.WidthMm });
+                            string used = What(ps, res.Matched);
+                            if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
+                            {
+                                if (string.Equals(res.Type, w.TypeName, StringComparison.OrdinalIgnoreCase)) typeOk = true;
+                                else if (docBasicWallTypes == null || !docBasicWallTypes.TryGetValue(res.Type, out var fn))
+                                    Hold($"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types");
+                                else
+                                {
+                                    // The rule is the office's: proposed even when the template gave the target another Function.
+                                    var note = string.IsNullOrEmpty(fn) || string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase)
+                                        ? null : $"{res.Type} is Function {fn} in this model";
+                                    retypes.Add(new PromoteGhost
+                                    {
+                                        Op = "retype", UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
+                                        Reason = $"DD walls v0: {used}, {Mm(w.WidthMm, "0")} mm → {res.Type}" + (note == null ? "" : " — note: " + note),
+                                        Note = note,
+                                    });
+                                }
+                            }
+                            else if (res.Source == "rule")
+                                Hold(m.Gap($"{w.Label} ({w.TypeName}, {used})", res.Why));
+                            else if (p.OneType)
+                                Hold($"every wall on {storey.Key}{aside} is \"{w.TypeName}\" — inside cannot be told from outside: its Function tells nothing, and " +
+                                     (loc != null ? $"{m.Standard} has no rule for Location {loc}" : $"its location is unknown ({locWhy})") + "; a person decides");
+                            else
+                                Hold($"no DD rule for {used} in {m.Standard}" + (loc == null ? $" (location unknown: {locWhy})" : ""));
+                        }
                     }
 
                     // Top: attached to the next story at offset 0, or an attach ghost, or a person.
@@ -211,22 +255,8 @@ namespace Sentinel.GhostBuilder
 
                     if (typeOk && topOk) p.DdNow++;
                 }
-                p.Walls = storey.Count() - p.OfficeTyped;
-
-                // §3.4 step 4: when every wall on the storey shares one type, inside cannot be told from outside — the
-                // retypes go to a person (MA-2 reads the outer boundary). The attaches stay. Settled walls count (a storey a
-                // first run half-promoted is not one-type); the office's other types do not (template samples would mask it).
-                var aside = p.OfficeTyped > 0 ? $" besides the {p.OfficeTyped} on other office types" : "";
-                p.OneType = typed.Count >= 2 && typed.Select(w => w.TypeName ?? "").Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
-                if (p.OneType)
-                    foreach (var g in retypes)
-                        p.Held.Add(new PromoteHeld
-                        {
-                            UniqueId = g.UniqueId, Label = g.Label,
-                            Reason = $"every wall on {storey.Key}{aside} is \"{g.TypeBefore}\" — inside cannot be told from outside; a person decides",
-                        });
-                else
-                    p.Ghosts.InsertRange(0, retypes); // retypes first, then attaches: the executor runs them in that order too
+                p.Walls = ws.Count - p.OfficeTyped;
+                p.Ghosts.InsertRange(0, retypes); // retypes first, then attaches: the executor runs them in that order too
                 plans.Add(p);
             }
             return plans;
@@ -308,5 +338,16 @@ namespace Sentinel.GhostBuilder
         private static string Clip(string s, int max) => s == null || s.Length <= max ? s : s.Substring(0, max - 1) + "…";
 
         private static string Mm(double v, string format) => v.ToString(format, CultureInfo.InvariantCulture);
+
+        /// <summary>MA-2a: the facts a rule used, in words — "Location Exterior, Material Stone" — from the params passed and the
+        /// winning rule's Matched ("param:Location"); every param passed when none matched (a hold names what was offered).</summary>
+        internal static string What(IReadOnlyDictionary<string, string> ps, IReadOnlyList<string> matched)
+        {
+            bool Used(string key) => matched != null && matched.Any(h => h.StartsWith("param:", StringComparison.Ordinal)
+                                                                        && string.Equals(h.Substring(6).Replace(" ", ""), key.Replace(" ", ""), StringComparison.OrdinalIgnoreCase));
+            var used = ps.Where(kv => Used(kv.Key)).ToList();
+            var said = (used.Count > 0 ? used : ps.ToList()).Select(kv => kv.Key + " " + kv.Value);
+            return ps.Count == 0 ? "no facts" : string.Join(", ", said);
+        }
     }
 }

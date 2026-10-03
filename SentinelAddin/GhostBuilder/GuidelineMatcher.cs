@@ -520,6 +520,20 @@ namespace Sentinel.GhostBuilder
             return values.Count == 1 ? values[0] : null; // a producing rule that does not name it is a disagreement
         }
 
+        /// <summary>MA-2a: a settled host's inside or outside — each producing rule's when.params Function, else its Location (the same
+        /// two words), the one distinct value, or null when the rules disagree. A rule that names neither is skipped: the DD layer-free
+        /// file produces one type from a Location+Material rule AND a Function rule, and RuleParam reads "not named" as a disagreement
+        /// (review C6). Promote v1's Swap reads a door's location from it.</summary>
+        public string RuleLocation(string category, string typeName)
+        {
+            var values = Producers(category, typeName)
+                .Select(r => r.When?.Params?.FirstOrDefault(kv => Squash(kv.Key) == "function").Value
+                          ?? r.When?.Params?.FirstOrDefault(kv => Squash(kv.Key) == "location").Value)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return values.Count == 1 ? values[0] : null;
+        }
+
         /// <summary>Does the catalogue hold exactly this family AND type under the category? (Resolve's check matches the type
         /// name only; window type names repeat across families.)</summary>
         public bool CatalogHas(string category, string family, string type) =>

@@ -1,0 +1,13 @@
+{
+ "what": "make-sample.py --ma2a: each wall of sample-walls-ma2a.dxf (drawn as two faces), its centreline, thickness and the location the outer boundary must read (MA-2a). Millimetres. location null = unknown: a named gap, never a guess.",
+ "drawing": "sample-walls-ma2a.dxf",
+ "walls": [
+  {"n": 1, "layer": "A-WALL-EXT", "start": [60000.0, 60000.0], "end": [70000.0, 60000.0], "thickness_mm": 200, "location": "Exterior"},
+  {"n": 2, "layer": "A-WALL-EXT", "start": [70000.0, 60000.0], "end": [70000.0, 67000.0], "thickness_mm": 200, "location": "Exterior"},
+  {"n": 3, "layer": "A-WALL-EXT", "start": [70000.0, 67000.0], "end": [60000.0, 67000.0], "thickness_mm": 200, "location": "Exterior"},
+  {"n": 4, "layer": "A-WALL-EXT", "start": [60000.0, 67000.0], "end": [60000.0, 60000.0], "thickness_mm": 200, "location": "Exterior"},
+  {"n": 5, "layer": "A-WALL-INT", "start": [64000.0, 60000.0], "end": [64000.0, 67000.0], "thickness_mm": 100, "location": "Interior"},
+  {"n": 6, "layer": "A-WALL-INT", "start": [66000.0, 63500.0], "end": [68500.0, 63500.0], "thickness_mm": 100, "location": "Interior"},
+  {"n": 7, "layer": "A-WALL-INT", "start": [60000.0, 57000.0], "end": [64000.0, 57000.0], "thickness_mm": 100, "location": null}
+ ]
+}
