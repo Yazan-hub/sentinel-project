@@ -118,6 +118,28 @@ static partial class Check
         Ok(np.Held.Any(h => h.Label == "F1" && h.Reason == "no DD rule for Function Exterior in BDS DD walls, layer-free v0 (MA-2a) — DRAFT (location unknown: both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it)"),
            "with no rule for its Function either, the held reason names the facts passed and why the location is unknown");
 
+        // Review after the landing (C21): a Function that is neither Exterior nor Interior (Retaining, Foundation, Soffit, Coreshaft) is
+        // not a side, so C2's disagreement never fired and the Location rule listed first retyped a retaining wall to an internal CMU
+        // at confidence 1. Now the wall is held unless the winning rule itself names Function.
+        var civil = new List<WallFact>
+        {
+            W("RET", "Generic - 200mm", "Retaining", 200, top: "Level 2", set: w => w.Line = layout[8]),   // a partition's line: reads Interior
+            W("FND", "Generic - 200mm", "Foundation", 200, top: "Level 2", set: w => w.Line = layout[0]),  // an outline line: reads Exterior
+            W("SOF", "Generic - 200mm", "Soffit", 200, top: "Level 2"),                                   // no line: location unknown
+        };
+        var civStorey = civil.Concat(mixed.Take(2)).Concat(others).ToList(); // E1 and I1 make it a mixed storey (the civil walls alone would be one-type: F2)
+        var civ = PromoteWallsPlanner.Plan(civStorey, Levels, docTypes, m3).Single();
+        Ok(!civ.OneType && civ.Ghosts.Count(g => g.Op == "retype") == 2 && G(civ, "RET") == null && G(civ, "FND") == null
+           && civ.Held.Any(h => h.Label == "RET" && h.Reason == "Function Retaining — the rule that matched does not name Function: it does not decide a Retaining wall; a person decides")
+           && civ.Held.Any(h => h.Label == "FND" && h.Reason == "Function Foundation — the rule that matched does not name Function: it does not decide a Foundation wall; a person decides"),
+           "a mixed storey: a Retaining wall reading Interior and a Foundation wall reading Exterior are held in words, neither retyped by the Location rule; E1 and I1 retype as before (C21)");
+        Ok(civ.Held.Any(h => h.Label == "SOF" && h.Reason.StartsWith("no DD rule for Function Soffit in ")), "…and a Soffit wall with no location and no rule for its Function is held as before");
+        var soffit = GuidelineMatcher.FromBodies(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-layerfree-guideline.json")).Replace("\"Function\": \"Exterior\"", "\"Function\": \"Soffit\""),
+                                                 File.ReadAllText(Repo("demo", "bds-pilot", "bds-type-catalog.json")), out _, out _);
+        var sp = PromoteWallsPlanner.Plan(civStorey, Levels, docTypes, soffit).Single();
+        Ok(G(sp, "SOF")?.Reason == "DD walls v0: Function Soffit, 200 mm → BDS_EXT_ARC_CMU_200 mm — note: BDS_EXT_ARC_CMU_200 mm is Function Exterior in this model" && sp.Held.Any(h => h.Label == "RET") && sp.Held.Any(h => h.Label == "FND"),
+           "…where a rule names the Function it decides (the Soffit wall retypes); where the Location rule listed first wins, the wall is still held");
+
         // Review C2: on a mixed storey a type's Function that disagrees with the reading is held, never outvoted by the file's order.
         // The O layout's courtyard walls carry Function Exterior (a courtyard wall is one) and read Interior; its east outline wall
         // is a Function-Interior type here and reads Exterior.

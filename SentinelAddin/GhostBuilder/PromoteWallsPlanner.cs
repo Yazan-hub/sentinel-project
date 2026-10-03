@@ -209,7 +209,13 @@ namespace Sentinel.GhostBuilder
                             if (!string.IsNullOrWhiteSpace(w.Material)) ps["Material"] = w.Material;
                             var res = m.Resolve(new GuidelineInput { Category = "Walls", Params = ps, ThicknessMm = w.WidthMm });
                             string used = What(ps, res.Matched);
-                            if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
+                            // Review C21 (C2 for the Functions that are not a side): on a mixed storey a Retaining, Foundation, Soffit or
+                            // Coreshaft wall is decided only by a rule that names its Function — a Location rule listed first would
+                            // retype a retaining wall to an internal CMU at confidence 1 with nothing said. A person decides.
+                            bool civilFn = ps.ContainsKey("Function") && !fnSaysSide;
+                            if (res.Source == "rule" && civilFn && !(res.Matched?.Contains("param:Function") ?? false))
+                                Hold($"Function {w.Function} — the rule that matched does not name Function: it does not decide a {w.Function} wall; a person decides");
+                            else if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
                             {
                                 if (string.Equals(res.Type, w.TypeName, StringComparison.OrdinalIgnoreCase)) typeOk = true;
                                 else if (docBasicWallTypes == null || !docBasicWallTypes.TryGetValue(res.Type, out var fn))
