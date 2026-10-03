@@ -37,19 +37,36 @@ namespace Sentinel.GhostBuilder
     /// value). The bridge's clauseValues reads them the same way.</summary>
     public sealed class Clauses
     {
-        /// <summary>Review amendments C7 (S8) and C18: a clause whose sentence — or value: a hand-written IDS has no sentence — says one
-        /// of these sets a bound, not a value ("shall be at least 60 minutes", "FD30 or higher"): never written. The bridge's
-        /// BOUND_WORDS is the same pattern.</summary>
+        /// <summary>Review amendment C23: the one shape a cited value has — ONE rating token (FD30, FD30S, REI 60, EI-30) or ONE number
+        /// with an optional time unit (60, 60 min, 120 minutes, 2 hr). An allow-list: a bound, a choice or a qualifier in any words is
+        /// not this shape. ASCII only (checked apart: NotAValue). The bridge's ONE_VALUE is the same pattern.</summary>
+        public static readonly Regex OneValue = new Regex(@"^(?:(?!(?:over|not|mins?|max|up|upto|to|or|and|than|less|more|from|at|no|ca|lt|gt|le|ge|lte|gte)[ -]?[0-9])[a-z]{1,4}[ -]?[0-9]{1,4}[a-z]{0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?: ?(?:mins?|minutes?|h|hrs?|hours?))?)(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        /// <summary>Review C23: what may follow the value in its sentence — a closing quote and a full stop. The bridge's SENTENCE_END.</summary>
+        public static readonly Regex SentenceEnd = new Regex("^[\"”'’]?[.!]?(?![\\s\\S])");
+        /// <summary>Review amendments C7 (S8) and C18: a clause whose sentence says one of these sets a bound, not a value ("shall be at
+        /// least 60 minutes"): never written. The bridge's BOUND_WORDS is the same pattern.</summary>
         public static readonly Regex BoundWords = new Regex(@"\b(at least|at most|minimum|maximum|(less|more|lower|higher|greater|fewer) than|or (more|better|higher|greater|above|over|less|lower|below|under|worse)|and (above|over|below|under)|up to|exceed\w*)\b|>=|<=|≥|≤", RegexOptions.IgnoreCase);
         /// <summary>Review C18: a clause with a sentence is cited only when the sentence names the class with no word that narrows it
         /// ("All doors shall …", "The fire rating of doors shall …") — compileIds maps "external walls" to the entity alone. The
         /// bridge's WHOLE_CLASS is the same pattern.</summary>
         public static readonly Regex WholeClass = new Regex(@"(^\s*|\b(all|every|each|the|of|for)\s+)(walls?|doors?|windows?|floors?|slabs?|roofs?|ceilings?|coverings?)\s+(shall|must|should|will|are|is|have|has|carry|carries|need|needs|require|requires)\b", RegexOptions.IgnoreCase);
 
-        /// <summary>Why a clause is not a cited value, in the planner's words (null = it is one) — the bridge's notAValue.</summary>
-        public static string NotAValue(string sentence, string value) =>
-            (sentence != null && BoundWords.IsMatch(sentence)) || BoundWords.IsMatch(value ?? "") ? "sets a bound"
-            : sentence != null && !WholeClass.IsMatch(sentence) ? "does not name the whole class" : null;
+        /// <summary>Why a clause is not a cited value, in the planner's words (null = it is one) — the bridge's notAValue, held to it by
+        /// the shared value_cases: the value is not ONE value (C23); its sentence sets a bound (C7), does not state the value, goes on
+        /// after it (C23), or does not name the whole class (C18). A hand-written IDS has no sentence: the value's shape alone.</summary>
+        public static string NotAValue(string sentence, string value)
+        {
+            var v = (value ?? "").Trim(' ', '\t', '\r', '\n');
+            if (v.Any(ch => ch < ' ' || ch > '~') || !OneValue.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
+            if (sentence == null) return null;
+            if (BoundWords.IsMatch(sentence)) return "it sets a bound — a person decides";
+            int at = sentence.IndexOf(v, StringComparison.Ordinal);
+            if (at < 0) return $"it does not state \"{v}\" — a person decides";
+            var tail = sentence.Substring(at + v.Length);
+            var said = Regex.Replace(tail, @"^ +|[ .!]+(?![\s\S])", "");
+            if (!SentenceEnd.IsMatch(tail)) return $"it narrows the class after the value (\"{said}\") — a person decides";
+            return WholeClass.IsMatch(sentence) ? null : "it does not name the whole class — a person decides";
+        }
 
         private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence, Skip; public bool Unreadable; }
         private readonly List<Row> _rows = new List<Row>();
@@ -251,7 +268,7 @@ namespace Sentinel.GhostBuilder
                         row.Outcome = "no source";
                         row.Why = $"no source for {key} on {v.Label} — " +
                                   (param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
-                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} {floor[0].Why} (\"{floor[0].Sentence ?? floor[0].Value}\"), not a value"
+                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} (\"{floor[0].Sentence ?? floor[0].Value}\"): {floor[0].Why}" // C23: the bridge's words
                                    : clauses.Unreadable(key) is int u && u > 0 ? $"{u} clause(s) of {clauses.Label} on {key} have an entity pattern Sentinel cannot read" // C20
                                    : clauses.Installed ? $"no clause of {clauses.Label} pins one" : $"no ids@n is installed to cite ({clauses.Label})") +
                                   $"; a person fills it in Revit (Type Properties) — {row.Elements} element(s) on it";

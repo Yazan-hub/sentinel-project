@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, clauseValues, makeCiter } from "./changesets-typing.mjs";
+import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, clauseValues, makeCiter, notAValue } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
@@ -130,6 +130,26 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     expect(clauseValues(compileIds("The fire rating of external walls shall be REI60."), "IFCWALL", "Pset_WallCommon.FireRating")).toEqual([]);
     expect(door("The fire rating of doors shall be FD30.")).toEqual(["FD30"]);
     expect(door("The fire rating of all doors shall be FD30.")).toEqual(["FD30"]);
+  });
+
+  it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
+    expect(VS.value_cases.length).toBe(63);
+    for (const c of VS.value_cases) {
+      const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
+      expect(notAValue(c.sentence, c.value), tag).toBe(c.why);
+      if (!c.compiled) continue;
+      // The case is what compileIds makes of the sentence, and the clause it makes is cited exactly when the case says so.
+      const ids = compileIds(c.sentence), sp = ids.specifications[0], p = sp?.requirements.properties[0];
+      expect(p?.value, tag).toBe(c.value);
+      expect(clauseValues(ids, sp.applicability.entity, `${p.pset}.${p.name}`).map((h) => h.value), tag).toEqual(c.why ? [] : [c.value]);
+    }
+  });
+
+  it("a clause refused as not one value is named in the bridge's 400 (review C23)", () => {
+    const ids = { specifications: [{ name: "Doors FD30 or FD60", applicability: { entity: "IFCDOOR" },
+      requirements: { properties: [{ pset: "Pset_DoorCommon", name: "FireRating", value: "FD30 or FD60", cardinality: "required" }] } }] };
+    refused(() => makeCiter({ ...SRC, ids: { ...SRC.ids, body: ids } }, core)("door", DOOR, "Pset_DoorCommon.FireRating", "FD30 or FD60", { kind: "clause" }, "e"),
+      /^e: set_parameter's value_source: no clause of ids@1 · project · 0a1b2c3d4e5f… pins one value of Pset_DoorCommon\.FireRating for every IFCDOOR — Doors FD30 or FD60 \("FD30 or FD60"\): "FD30 or FD60" is not one value \(a bound, a choice or a qualifier\) — a person decides$/);
   });
 
   it("a catalogue source holds when exactly one row of that type gives exactly that value; the record names the catalogue, the type and the parameter", () => {

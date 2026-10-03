@@ -111,27 +111,43 @@ export const KIND_ENTITY = { wall: "IFCWALL", floor: "IFCSLAB", roof: "IFCROOF",
 /** Review amendment C1: the property set a set_parameter of each kind writes — the class's own common set. The catalogue's "Fire
  *  Rating" of a wall is no door's: a key of another class's set is refused (checkWrite). */
 export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", roof: "Pset_RoofCommon", ceiling: "Pset_CoveringCommon", door: "Pset_DoorCommon", window: "Pset_WindowCommon" };
-/** Review amendments C7 (S8) and C18: a clause whose sentence — or whose value: a hand-written IDS has no sentence — says one of
- *  these sets a bound, not a value ("shall be at least 60 minutes", "FD30 or higher": compileIds keeps the bound in the value, or
- *  writes the number alone) — never written. The add-in's Clauses.BoundWords is the same pattern. */
+/** Review amendment C23: the one shape a cited clause value has — ONE rating token (a class code of 1-4 letters, a space or hyphen
+ *  or nothing, 1-4 digits, up to 2 letters: FD30, FD30S, REI 60, EI-30) or ONE number with an optional time unit (60, 60 min,
+ *  120 minutes, 2 hr, 1 hour). An allow-list: a bound, a choice or a qualifier in any words ("above FD30", "FD30 or FD60", "min",
+ *  "FD30 in escape corridors") is not this shape, so it goes to a person — a list of bound phrases (C18) could never be complete.
+ *  A code that is a word of a bound ("min 60", "over 60") is not a code. ASCII only (checked apart: notAValue). The add-in's
+ *  Clauses.OneValue is the same pattern. */
+export const ONE_VALUE = /^(?:(?!(?:over|not|mins?|max|up|upto|to|or|and|than|less|more|from|at|no|ca|lt|gt|le|ge|lte|gte)[ -]?[0-9])[a-z]{1,4}[ -]?[0-9]{1,4}[a-z]{0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?: ?(?:mins?|minutes?|h|hrs?|hours?))?)(?![\s\S])/i;
+/** Review C23: what may follow the value in its sentence — a closing quote and a full stop, nothing else ("… shall be FD30 in
+ *  escape corridors." narrows the class after the value). The add-in's Clauses.SentenceEnd is the same pattern. */
+export const SENTENCE_END = /^["”'’]?[.!]?(?![\s\S])/;
+/** Review amendments C7 (S8) and C18: a clause whose sentence says one of these sets a bound, not a value ("shall be at least 60
+ *  minutes": compileIds writes the number alone) — never written. The add-in's Clauses.BoundWords is the same pattern. */
 export const BOUND_WORDS = /\b(at least|at most|minimum|maximum|(less|more|lower|higher|greater|fewer) than|or (more|better|higher|greater|above|over|less|lower|below|under|worse)|and (above|over|below|under)|up to|exceed\w*)\b|>=|<=|≥|≤/i;
 /** Review C18: compileIds maps "external walls" or "fire doors" to the entity alone, so the applicability says "every wall" where
  *  the sentence says some. A clause with a sentence is cited only when the sentence names the class with no word that narrows it
  *  ("All doors shall …", "The fire rating of doors shall …"); one phrased any other way sends the property to a person. The
  *  add-in's Clauses.WholeClass is the same pattern. */
 export const WHOLE_CLASS = /(^\s*|\b(all|every|each|the|of|for)\s+)(walls?|doors?|windows?|floors?|slabs?|roofs?|ceilings?|coverings?)\s+(shall|must|should|will|are|is|have|has|carry|carries|need|needs|require|requires)\b/i;
-/** Why a clause is not a cited value, in the planner's words (null = it is one). */
+/** Why a clause is not a cited value, in the planner's words (null = it is one): the value is not ONE value (C23); its sentence
+ *  sets a bound (C7), does not state the value, goes on after it (C23), or does not name the whole class (C18). A hand-written
+ *  IDS has no sentence: the value's shape alone. The add-in's Clauses.NotAValue answers every value_cases row the same. */
 export function notAValue(sentence, value) {
-  if ((sentence != null && BOUND_WORDS.test(sentence)) || BOUND_WORDS.test(value)) return "sets a bound";
-  if (sentence != null && !WHOLE_CLASS.test(sentence)) return "does not name the whole class";
+  const v = String(value ?? "").replace(/^[ \t\r\n]+|[ \t\r\n]+(?![\s\S])/g, "");
+  if (/[^ -~]/.test(v) || !ONE_VALUE.test(v)) return `"${v}" is not one value (a bound, a choice or a qualifier) — a person decides`;
+  if (sentence == null) return null;
+  if (BOUND_WORDS.test(sentence)) return "it sets a bound — a person decides";
+  const at = sentence.indexOf(v);
+  if (at < 0) return `it does not state "${v}" — a person decides`;
+  const tail = sentence.slice(at + v.length);
+  if (!SENTENCE_END.test(tail)) return `it narrows the class after the value ("${tail.replace(/^ +|[ .!]+(?![\s\S])/g, "")}") — a person decides`;
+  if (!WHOLE_CLASS.test(sentence)) return "it does not name the whole class — a person decides";
   return null;
 }
 
-/** The values an installed ids@n pins for `key` ("Pset_X.Prop") on EVERY element of `entity`: a cited clause is a specification
- *  whose applicability is its entity alone (another facet narrows it to some elements) and whose required property carries one
- *  exact value (a pattern is not a value; nor is a bound, nor a clause whose sentence narrows the class: C7, C18). [{value, spec, sentence}] in the IDS's order; two values
- *  are both returned — the caller says they disagree. */
-export function clauseValues(ids, entity, key) {
+/** Every required exact-value clause on `key` ("Pset_X.Prop") whose applicability is `entity` alone, in the IDS's order:
+ *  [{value, spec, sentence, why}] — why null = a cited value (notAValue). */
+function clauseReadings(ids, entity, key) {
   const [pset, prop] = String(key).split(".");
   const out = [];
   for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
@@ -141,11 +157,20 @@ export function clauseValues(ids, entity, key) {
     try { re = new RegExp(a.entity, "i"); } catch { continue; }
     if (!re.test(entity)) continue;
     for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : [])
-      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.trim()
-          && !notAValue(typeof s.source_sentence === "string" ? s.source_sentence : null, p.value)) // C7, C18: a bound, or a class narrowed
-        out.push({ value: p.value.trim(), spec: String(s.name ?? ""), sentence: typeof s.source_sentence === "string" ? s.source_sentence : null });
+      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.trim()) {
+        const sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
+        out.push({ value: p.value.trim(), spec: String(s.name ?? ""), sentence, why: notAValue(sentence, p.value) });
+      }
   }
   return out;
+}
+
+/** The values an installed ids@n pins for `key` ("Pset_X.Prop") on EVERY element of `entity`: a cited clause is a specification
+ *  whose applicability is its entity alone (another facet narrows it to some elements) and whose required property carries one
+ *  exact value (a pattern is not a value; nor is a bound, a choice, a qualifier, nor a clause whose sentence narrows the class:
+ *  C7, C18, C23). [{value, spec, sentence}] in the IDS's order; two values are both returned — the caller says they disagree. */
+export function clauseValues(ids, entity, key) {
+  return clauseReadings(ids, entity, key).filter((h) => !h.why).map(({ value, spec, sentence }) => ({ value, spec, sentence }));
 }
 
 /** The check validateChangeset runs on a set_parameter's value_source. `standards` = {catalog, ids}, each {body (null = none
@@ -180,7 +205,10 @@ export function makeCiter({ catalog: c, ids: s }, core) {
     }
     if (!s.body) throw err(400, `${lead} is a clause, and no ids@n is installed for this project or its office (${s.label}): not checkable`);
     const values = [...new Set(hits.map((h) => h.value))];
-    if (values.length === 0) throw err(400, `${lead}: no clause of ${s.label} pins one value of ${key} for every ${KIND_ENTITY[kind]}`);
+    if (values.length === 0) {
+      const r = clauseReadings(s.body, KIND_ENTITY[kind], key).find((h) => h.why); // C23: a clause that is not a value says why
+      throw err(400, `${lead}: no clause of ${s.label} pins one value of ${key} for every ${KIND_ENTITY[kind]}` + (r ? ` — ${r.spec} ("${r.sentence ?? r.value}"): ${r.why}` : ""));
+    }
     if (values.length > 1) throw err(400, `${lead}: the clauses of ${s.label} pin ${values.map((v) => `"${v}"`).join(" and ")} for ${key} — they disagree; a person decides`);
     if (values[0] !== want) throw err(400, `${lead}: ${s.label} pins "${values[0]}" for ${key}, not "${want}" — a value is written only as its source holds it`);
     if (fromCatalog && fromCatalog !== want) throw disagree(fromCatalog, hits[0]);

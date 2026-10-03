@@ -37,9 +37,17 @@ static partial class Check
             else Console.WriteLine($"        {(string)c["name"]}: got [{string.Join(", ", got.Select(x => x.Value))}]");
         }
         Ok(err == null && cl.Installed && cases.Count == 11 && same == cases.Count
-           && cl.NotValues("IFCCOVERING", "Pset_CoveringCommon.FireRating").Select(x => x.Spec + " " + x.Why).SequenceEqual(new[] { "Ceilings at least REI30 sets a bound" })
-           && cl.NotValues("IFCWALL", "Pset_WallCommon.AcousticRating").Select(x => x.Why).SequenceEqual(new[] { "does not name the whole class" }),
+           && cl.NotValues("IFCCOVERING", "Pset_CoveringCommon.FireRating").Select(x => x.Spec + " " + x.Why).SequenceEqual(new[] { "Ceilings at least REI30 it sets a bound — a person decides" })
+           && cl.NotValues("IFCWALL", "Pset_WallCommon.AcousticRating").Select(x => x.Why).SequenceEqual(new[] { "it does not name the whole class — a person decides" }),
            $"every shared clause case ({same}/{cases.Count}) reads as the bridge's clauseValues: a whole-class clause's one exact value, nothing else — a floor (\"at least …\") is kept apart, never a value (C7)");
+        // Review C23: a cited value is ONE value — a rating token or a number with a time unit — and a sentence ends with it. The
+        // bridge's notAValue answers every case the same (vitest reads them too): a case the two sides answer differently fails here.
+        var vc = vs["value_cases"]?.AsArray();
+        var differ = vc == null ? new List<string> { "no value_cases" } : vc.Where(c => Clauses.NotAValue((string)c["sentence"], (string)c["value"]) != (string)c["why"])
+            .Select(c => $"{(string)c["value"]} / {(string)c["sentence"]}: got {Clauses.NotAValue((string)c["sentence"], (string)c["value"]) ?? "cited"}").ToList();
+        foreach (var d in differ.Take(8)) Console.WriteLine("        " + d);
+        Ok(vc?.Count == 63 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 22,
+           $"every shared value case ({(vc?.Count ?? 0) - differ.Count}/{vc?.Count ?? 0}) reads as the bridge's notAValue: one rating token or one number with a time unit, the sentence ending with it — a bound, a choice, a qualifier or a narrowing tail goes to a person (C23)");
         var bad = Clauses.FromIds("{", "ids@1 · project · 0a1b2c3d4e5f…", out var be);
         Ok(be != null && bad.For("IFCDOOR", "Pset_DoorCommon.FireRating").Count == 0 && bad.Label.StartsWith("ids@1 · project · 0a1b2c3d4e5f… did not parse: "),
            "an ids@n body that does not parse cites nothing, and says so");
@@ -140,15 +148,15 @@ static partial class Check
             "\"source_sentence\":\"All walls shall be at least REI60.\"}]}", "ids@2 · project · 1a2b3c4d5e6f…", out _);
         var fl = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, floorIds);
         Ok(floorIds.For("IFCWALL", "Pset_WallCommon.FireRating").Count == 0
-           && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 sets a bound (\"All walls shall be at least REI60.\"), not a value; a person fills it in Revit (Type Properties) — 1 element(s) on it"
+           && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 (\"All walls shall be at least REI60.\"): it sets a bound — a person decides; a person fills it in Revit (Type Properties) — 1 element(s) on it"
            && fl.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "write",
            "a clause that sets a minimum (\"at least …\") is never written, and the person is told so; the catalogue still gives its own type's value (C7)");
         // Review C19: a matrix key outside the class's own common set is never planned as a write (the bridge refuses it, and C4 would
         // drop the valid type edits of the same body with it): it goes to a person with the value and why.
         var mxOther = LodMatrix.FromBody(File.ReadAllText(Repo("demo", "bds-pilot", "bds-lod-matrix-dd-ma2b.json"))
             .Replace("\"Pset_WallCommon.IsExternal\"]", "\"Pset_WallCommon.IsExternal\", \"Pset_BDS.Discipline\"]"), out _);
-        var disc = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls are A\",\"applicability\":{\"entity\":\"IFCWALL\"}," +
-            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_BDS\",\"name\":\"Discipline\",\"value\":\"A\",\"cardinality\":\"required\"}]}}]}", "ids@3 · project · 2a3b4c5d6e7f…", out _);
+        var disc = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls are A1\",\"applicability\":{\"entity\":\"IFCWALL\"}," +
+            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_BDS\",\"name\":\"Discipline\",\"value\":\"A1\",\"cardinality\":\"required\"}]}}]}", "ids@3 · project · 2a3b4c5d6e7f…", out _);
         var otherPlans = V1(m, others, walls);
         var other = PropertyPlanner.Plan(otherPlans, mxOther, values.Append(new TypeValue { Category = "Walls", Type = "BDS_EXT_ARC_CMU_200 mm", UniqueId = U(0xa01),
             Key = "Pset_BDS.Discipline", Current = "", Param = "Discipline", Instances = 0 }).ToList(), m, disc);
