@@ -33,8 +33,9 @@ static partial class Check
             if (ok) same++;
             else Console.WriteLine($"        {(string)c["name"]}: got [{string.Join(", ", got.Select(x => x.Value))}]");
         }
-        Ok(err == null && cl.Installed && cases.Count == 7 && same == cases.Count
-           && cl.Floors("IFCCOVERING", "Pset_CoveringCommon.FireRating").Select(x => x.Spec).SequenceEqual(new[] { "Ceilings at least REI30" }),
+        Ok(err == null && cl.Installed && cases.Count == 11 && same == cases.Count
+           && cl.NotValues("IFCCOVERING", "Pset_CoveringCommon.FireRating").Select(x => x.Spec + " " + x.Why).SequenceEqual(new[] { "Ceilings at least REI30 sets a bound" })
+           && cl.NotValues("IFCWALL", "Pset_WallCommon.AcousticRating").Select(x => x.Why).SequenceEqual(new[] { "does not name the whole class" }),
            $"every shared clause case ({same}/{cases.Count}) reads as the bridge's clauseValues: a whole-class clause's one exact value, nothing else — a floor (\"at least …\") is kept apart, never a value (C7)");
         var bad = Clauses.FromIds("{", "ids@1 · project · 0a1b2c3d4e5f…", out var be);
         Ok(be != null && bad.For("IFCDOOR", "Pset_DoorCommon.FireRating").Count == 0 && bad.Label.StartsWith("ids@1 · project · 0a1b2c3d4e5f… did not parse: "),
@@ -136,7 +137,7 @@ static partial class Check
             "\"source_sentence\":\"All walls shall be at least REI60.\"}]}", "ids@2 · project · 1a2b3c4d5e6f…", out _);
         var fl = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, floorIds);
         Ok(floorIds.For("IFCWALL", "Pset_WallCommon.FireRating").Count == 0
-           && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 sets a minimum (\"All walls shall be at least REI60.\"), not a value; a person fills it in Revit (Type Properties) — 1 element(s) on it"
+           && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 sets a bound (\"All walls shall be at least REI60.\"), not a value; a person fills it in Revit (Type Properties) — 1 element(s) on it"
            && fl.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "write",
            "a clause that sets a minimum (\"at least …\") is never written, and the person is told so; the catalogue still gives its own type's value (C7)");
         var none = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, Clauses.None("none — not installed for ma2c or its office"));

@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, clauseValues, makeCiter } from "./changesets-typing.mjs";
+import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -117,6 +118,17 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     }
     expect(clauseValues(null, "IFCDOOR", "Pset_DoorCommon.FireRating")).toEqual([]);
     expect(clauseValues({ specifications: [{ name: "bad", applicability: { entity: "(" }, requirements: { properties: [] } }] }, "IFCDOOR", "x.y")).toEqual([]);
+  });
+
+  it("a compiled clause whose sentence sets a bound, or narrows the class, cites nothing; one that names the whole class does (review C18)", () => {
+    const door = (s) => clauseValues(compileIds(s), "IFCDOOR", "Pset_DoorCommon.FireRating").map((h) => h.value);
+    for (const s of ["The fire rating of doors shall be FD30 or higher.", "The fire rating of doors shall be FD30 or greater.", "The fire rating of doors shall be at most FD60.",
+      "The fire rating of doors shall be no lower than FD30.", "The fire rating of doors shall be up to FD60.", "Fire doors' fire rating shall be FD60.",
+      "The fire rating of fire doors shall be FD60."])
+      expect(door(s), s).toEqual([]);
+    expect(clauseValues(compileIds("The fire rating of external walls shall be REI60."), "IFCWALL", "Pset_WallCommon.FireRating")).toEqual([]);
+    expect(door("The fire rating of doors shall be FD30.")).toEqual(["FD30"]);
+    expect(door("The fire rating of all doors shall be FD30.")).toEqual(["FD30"]);
   });
 
   it("a catalogue source holds when exactly one row of that type gives exactly that value; the record names the catalogue, the type and the parameter", () => {

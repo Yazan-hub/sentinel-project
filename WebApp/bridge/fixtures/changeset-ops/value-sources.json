@@ -27,7 +27,18 @@
         "requirements": { "attributes": [], "properties": [{ "pset": "Pset_SlabCommon", "name": "FireRating", "value": "REI90", "cardinality": "optional" }] } },
       { "name": "Ceilings at least REI30", "applicability": { "entity": "IFCCOVERING" },
         "requirements": { "attributes": [], "properties": [{ "pset": "Pset_CoveringCommon", "name": "FireRating", "value": "REI30", "cardinality": "required" }] },
-        "source_sentence": "All ceilings shall be at least REI30." }
+        "source_sentence": "All ceilings shall be at least REI30." },
+      { "name": "WINDOW — FireRating", "applicability": { "entity": "IFCWINDOW" },
+        "requirements": { "properties": [{ "pset": "Pset_WindowCommon", "name": "FireRating", "cardinality": "required", "value": "E30 or higher" }] },
+        "source_sentence": "The fire rating of windows shall be E30 or higher." },
+      { "name": "Windows acoustic (hand-written)", "applicability": { "entity": "IFCWINDOW" },
+        "requirements": { "properties": [{ "pset": "Pset_WindowCommon", "name": "AcousticRating", "cardinality": "required", "value": "Rw 35 or above" }] } },
+      { "name": "WALL — AcousticRating", "applicability": { "entity": "IFCWALL" },
+        "requirements": { "properties": [{ "pset": "Pset_WallCommon", "name": "AcousticRating", "cardinality": "required", "value": "Rw 45" }] },
+        "source_sentence": "The acoustic rating of party walls shall be Rw 45." },
+      { "name": "DOOR — AcousticRating", "applicability": { "entity": "IFCDOOR" },
+        "requirements": { "properties": [{ "pset": "Pset_DoorCommon", "name": "AcousticRating", "cardinality": "required", "value": "Rw 30" }] },
+        "source_sentence": "The acoustic rating of doors shall be Rw 30." }
     ]
   },
   "clauses": [
@@ -37,6 +48,10 @@
     { "name": "two values for one key are both read (the caller says they disagree)", "entity": "IFCROOF", "key": "Pset_RoofCommon.FireRating", "values": ["REI30", "REI60"], "spec": "Roofs are recorded", "sentence": null },
     { "name": "an optional property pins nothing", "entity": "IFCSLAB", "key": "Pset_SlabCommon.FireRating", "values": [] },
     { "name": "another class's clause is not this one's", "entity": "IFCCOVERING", "key": "Pset_DoorCommon.FireRating", "values": [] },
-    { "name": "a floor (at least …) is not a value (review amendment C7)", "entity": "IFCCOVERING", "key": "Pset_CoveringCommon.FireRating", "values": [] }
+    { "name": "a floor (at least …) is not a value (review amendment C7)", "entity": "IFCCOVERING", "key": "Pset_CoveringCommon.FireRating", "values": [] },
+    { "name": "any bound in the sentence (or higher, at most, up to, >= …) is not a value (review C18)", "entity": "IFCWINDOW", "key": "Pset_WindowCommon.FireRating", "values": [] },
+    { "name": "a bound in the value of a clause with no sentence is not a value (review C18)", "entity": "IFCWINDOW", "key": "Pset_WindowCommon.AcousticRating", "values": [] },
+    { "name": "a sentence that narrows the class (party walls) is not every wall's, whatever its applicability (review C18)", "entity": "IFCWALL", "key": "Pset_WallCommon.AcousticRating", "values": [] },
+    { "name": "a compiled sentence that names the whole class (of doors shall) is cited (review C18)", "entity": "IFCDOOR", "key": "Pset_DoorCommon.AcousticRating", "values": ["Rw 30"], "spec": "DOOR — AcousticRating", "sentence": "The acoustic rating of doors shall be Rw 30." }
   ]
 }

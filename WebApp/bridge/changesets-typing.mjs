@@ -111,13 +111,25 @@ export const KIND_ENTITY = { wall: "IFCWALL", floor: "IFCSLAB", roof: "IFCROOF",
 /** Review amendment C1: the property set a set_parameter of each kind writes — the class's own common set. The catalogue's "Fire
  *  Rating" of a wall is no door's: a key of another class's set is refused (checkWrite). */
 export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", roof: "Pset_RoofCommon", ceiling: "Pset_CoveringCommon", door: "Pset_DoorCommon", window: "Pset_WindowCommon" };
-/** Review amendment C7 (S8): a clause whose sentence says one of these pins a floor, not a value ("shall be at least 60 minutes":
- *  compileIds writes value "60 minutes" from it) — never written. The add-in's Clauses.FloorWords is the same pattern. */
-export const FLOOR_WORDS = /\b(at least|no less than|not less than|minimum|or more|or better)\b/i;
+/** Review amendments C7 (S8) and C18: a clause whose sentence — or whose value: a hand-written IDS has no sentence — says one of
+ *  these sets a bound, not a value ("shall be at least 60 minutes", "FD30 or higher": compileIds keeps the bound in the value, or
+ *  writes the number alone) — never written. The add-in's Clauses.BoundWords is the same pattern. */
+export const BOUND_WORDS = /\b(at least|at most|minimum|maximum|(less|more|lower|higher|greater|fewer) than|or (more|better|higher|greater|above|over|less|lower|below|under|worse)|and (above|over|below|under)|up to|exceed\w*)\b|>=|<=|≥|≤/i;
+/** Review C18: compileIds maps "external walls" or "fire doors" to the entity alone, so the applicability says "every wall" where
+ *  the sentence says some. A clause with a sentence is cited only when the sentence names the class with no word that narrows it
+ *  ("All doors shall …", "The fire rating of doors shall …"); one phrased any other way sends the property to a person. The
+ *  add-in's Clauses.WholeClass is the same pattern. */
+export const WHOLE_CLASS = /(^\s*|\b(all|every|each|the|of|for)\s+)(walls?|doors?|windows?|floors?|slabs?|roofs?|ceilings?|coverings?)\s+(shall|must|should|will|are|is|have|has|carry|carries|need|needs|require|requires)\b/i;
+/** Why a clause is not a cited value, in the planner's words (null = it is one). */
+export function notAValue(sentence, value) {
+  if ((sentence != null && BOUND_WORDS.test(sentence)) || BOUND_WORDS.test(value)) return "sets a bound";
+  if (sentence != null && !WHOLE_CLASS.test(sentence)) return "does not name the whole class";
+  return null;
+}
 
 /** The values an installed ids@n pins for `key` ("Pset_X.Prop") on EVERY element of `entity`: a cited clause is a specification
  *  whose applicability is its entity alone (another facet narrows it to some elements) and whose required property carries one
- *  exact value (a pattern is not a value; a floor is not one either: C7). [{value, spec, sentence}] in the IDS's order; two values
+ *  exact value (a pattern is not a value; nor is a bound, nor a clause whose sentence narrows the class: C7, C18). [{value, spec, sentence}] in the IDS's order; two values
  *  are both returned — the caller says they disagree. */
 export function clauseValues(ids, entity, key) {
   const [pset, prop] = String(key).split(".");
@@ -125,12 +137,12 @@ export function clauseValues(ids, entity, key) {
   for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
     const a = s?.applicability;
     if (!a || typeof a !== "object" || typeof a.entity !== "string" || Object.keys(a).some((k) => k !== "entity")) continue;
-    if (typeof s.source_sentence === "string" && FLOOR_WORDS.test(s.source_sentence)) continue; // C7: a minimum, not a value
     let re;
     try { re = new RegExp(a.entity, "i"); } catch { continue; }
     if (!re.test(entity)) continue;
     for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : [])
-      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.trim())
+      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.trim()
+          && !notAValue(typeof s.source_sentence === "string" ? s.source_sentence : null, p.value)) // C7, C18: a bound, or a class narrowed
         out.push({ value: p.value.trim(), spec: String(s.name ?? ""), sentence: typeof s.source_sentence === "string" ? s.source_sentence : null });
   }
   return out;

@@ -37,11 +37,21 @@ namespace Sentinel.GhostBuilder
     /// value). The bridge's clauseValues reads them the same way.</summary>
     public sealed class Clauses
     {
-        /// <summary>Review amendment C7 (S8): a clause whose sentence says one of these pins a floor, not a value ("shall be at least 60
-        /// minutes" — compileIds writes value "60 minutes" from it): never written. The bridge's FLOOR_WORDS is the same pattern.</summary>
-        public static readonly Regex FloorWords = new Regex(@"\b(at least|no less than|not less than|minimum|or more|or better)\b", RegexOptions.IgnoreCase);
+        /// <summary>Review amendments C7 (S8) and C18: a clause whose sentence — or value: a hand-written IDS has no sentence — says one
+        /// of these sets a bound, not a value ("shall be at least 60 minutes", "FD30 or higher"): never written. The bridge's
+        /// BOUND_WORDS is the same pattern.</summary>
+        public static readonly Regex BoundWords = new Regex(@"\b(at least|at most|minimum|maximum|(less|more|lower|higher|greater|fewer) than|or (more|better|higher|greater|above|over|less|lower|below|under|worse)|and (above|over|below|under)|up to|exceed\w*)\b|>=|<=|≥|≤", RegexOptions.IgnoreCase);
+        /// <summary>Review C18: a clause with a sentence is cited only when the sentence names the class with no word that narrows it
+        /// ("All doors shall …", "The fire rating of doors shall …") — compileIds maps "external walls" to the entity alone. The
+        /// bridge's WHOLE_CLASS is the same pattern.</summary>
+        public static readonly Regex WholeClass = new Regex(@"(^\s*|\b(all|every|each|the|of|for)\s+)(walls?|doors?|windows?|floors?|slabs?|roofs?|ceilings?|coverings?)\s+(shall|must|should|will|are|is|have|has|carry|carries|need|needs|require|requires)\b", RegexOptions.IgnoreCase);
 
-        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence; public bool Floor; }
+        /// <summary>Why a clause is not a cited value, in the planner's words (null = it is one) — the bridge's notAValue.</summary>
+        public static string NotAValue(string sentence, string value) =>
+            (sentence != null && BoundWords.IsMatch(sentence)) || BoundWords.IsMatch(value ?? "") ? "sets a bound"
+            : sentence != null && !WholeClass.IsMatch(sentence) ? "does not name the whole class" : null;
+
+        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence, Skip; }
         private readonly List<Row> _rows = new List<Row>();
         /// <summary>The ids@n's label ("ids@1 · project · 0a1b2c3d4e5f…"), or why there is none.</summary>
         public string Label;
@@ -74,7 +84,7 @@ namespace Sentinel.GhostBuilder
                             if (string.IsNullOrEmpty(value) || Str(p, "pset") == null || Str(p, "name") == null) continue;
                             var sentence = Str(s, "source_sentence");
                             c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Value = value, Spec = Str(s, "name") ?? "", Sentence = sentence,
-                                                  Floor = sentence != null && FloorWords.IsMatch(sentence) });
+                                                  Skip = NotAValue(sentence, value) });
                         }
                     }
                 }
@@ -84,24 +94,25 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>The values the clauses pin for <paramref name="key"/> ("Pset_X.Prop") on every <paramref name="entity"/>
-        /// ("IFCDOOR"), in the IDS's order; two values are both returned — the caller says they disagree. A floor is not one (C7).</summary>
-        public List<(string Value, string Spec, string Sentence)> For(string entity, string key) => Hits(entity, key, false);
+        /// ("IFCDOOR"), in the IDS's order; two values are both returned — the caller says they disagree. A bound is not one, nor a
+        /// clause whose sentence narrows the class (C7, C18).</summary>
+        public List<(string Value, string Spec, string Sentence, string Why)> For(string entity, string key) => Hits(entity, key, false);
 
-        /// <summary>Review amendment C7: the clauses that set a MINIMUM for the key on every entity — never a value; the planner names
-        /// them to the person.</summary>
-        public List<(string Value, string Spec, string Sentence)> Floors(string entity, string key) => Hits(entity, key, true);
+        /// <summary>Review amendments C7 and C18: the clauses on the key for the entity that are not a value — a bound, or a sentence
+        /// that does not name the whole class (Why says which); the planner names them to the person.</summary>
+        public List<(string Value, string Spec, string Sentence, string Why)> NotValues(string entity, string key) => Hits(entity, key, true);
 
-        private List<(string Value, string Spec, string Sentence)> Hits(string entity, string key, bool floor)
+        private List<(string Value, string Spec, string Sentence, string Why)> Hits(string entity, string key, bool skipped)
         {
             int dot = (key ?? "").IndexOf('.');
             string pset = dot < 0 ? key : key.Substring(0, dot), prop = dot < 0 ? "" : key.Substring(dot + 1);
-            var hits = new List<(string Value, string Spec, string Sentence)>();
-            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop && x.Floor == floor))
+            var hits = new List<(string Value, string Spec, string Sentence, string Why)>();
+            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop && (x.Skip != null) == skipped))
             {
                 bool match;
                 try { match = Regex.IsMatch(entity ?? "", r.Entity, RegexOptions.IgnoreCase); }
                 catch (ArgumentException) { match = false; } // a pattern .NET cannot read applies to nothing (the bridge skips it too)
-                if (match) hits.Add((r.Value, r.Spec, r.Sentence));
+                if (match) hits.Add((r.Value, r.Spec, r.Sentence, r.Skip));
             }
             return hits;
         }
@@ -214,11 +225,11 @@ namespace Sentinel.GhostBuilder
                     }
                     else if (distinct.Count == 0)
                     {
-                        var floor = clauses.Floors(Entity(cat), key); // C7: a minimum is named, never written
+                        var floor = clauses.NotValues(Entity(cat), key); // C7, C18: a bound or a narrowed class is named, never written
                         row.Outcome = "no source";
                         row.Why = $"no source for {key} on {v.Label} — " +
                                   (param != null ? $"{m.CatalogLabel} gives no {param} for it" : "the catalogue harvests no value for it") + ", and " +
-                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} sets a minimum (\"{floor[0].Sentence}\"), not a value"
+                                  (floor.Count > 0 ? $"{clauses.Label} · {floor[0].Spec} {floor[0].Why} (\"{floor[0].Sentence ?? floor[0].Value}\"), not a value"
                                    : clauses.Installed ? $"no clause of {clauses.Label} pins one" : $"no ids@n is installed to cite ({clauses.Label})") +
                                   $"; a person fills it in Revit (Type Properties) — {row.Elements} element(s) on it";
                     }
