@@ -161,6 +161,7 @@ Not run: the drill, and the commit commands.
   - **Ceiling.** A whole-class sentence phrased any other way goes to a person, said.
   - **The planner's words.** `Clauses.Floors` becomes `NotValues`. Its no-source reason reads `<ids label> · <spec> sets a bound ("<sentence or value>"), not a value`, or `… does not name the whole class (…), not a value`. C7's "sets a minimum" becomes "sets a bound".
   - **Checks.** The shared fixture has 11 clause cases: a sentence bound, a value bound, a narrowed class, and a whole-class compiled sentence. Vitest runs `compileIds` round trips ("FD30 or higher", "at most", "up to", "fire doors", "external walls").
+- **C19 — the planner never plans a key the bridge always refuses** (this reverses C1's "No C# twin table"). C1 relied on C4 to send another class's key to a person. But C4 drops every type edit in the refused body, so a valid Fire Rating edit was lost with it. `PropertyPlanner.KindPset` is now the twin of `KIND_PSET`, and the shared fixture's `kind_pset` holds the two equal (vitest and section 33). A matrix key outside the class's own common set goes to a person as `no writer`: `<key> on <type>: "<value>" (<ref>), but Sentinel writes only Pset_WallCommon on a wall type — a person sets it in Revit`. Section 34 pins it.
 
 **Minor, rejected:**
 

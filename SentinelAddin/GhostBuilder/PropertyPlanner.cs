@@ -164,6 +164,15 @@ namespace Sentinel.GhostBuilder
             ["Pset_WallCommon.FireRating"] = "Fire Rating", ["Pset_DoorCommon.FireRating"] = "Fire Rating",
         };
 
+        /// <summary>Review C19: the property set a set_parameter of each kind may write — the class's own common set, the bridge's
+        /// KIND_PSET (it refuses any other key, and C4 would then drop the body's valid type edits with it). A matrix key outside it
+        /// goes to a person.</summary>
+        public static readonly IReadOnlyDictionary<string, string> KindPset = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["wall"] = "Pset_WallCommon", ["floor"] = "Pset_SlabCommon", ["roof"] = "Pset_RoofCommon",
+            ["ceiling"] = "Pset_CoveringCommon", ["door"] = "Pset_DoorCommon", ["window"] = "Pset_WindowCommon",
+        };
+
         /// <summary>The IFC entity a class is adjudicated as, as an IDS writes it ("IFCWALL") — the bridge's KIND_ENTITY.</summary>
         public static string Entity(string category) => PromoteWallsPlanner.Classes.Values.First(c => c.Category == category).Ifc.ToUpperInvariant();
 
@@ -238,12 +247,12 @@ namespace Sentinel.GhostBuilder
                         row.Outcome = "disagree";
                         row.Why = $"the sources disagree on {key} for {v.Label}: " + string.Join("; ", found.Select(f => $"\"{f.Value}\" ({f.Ref})")) + " — a person decides";
                     }
-                    else if (v.NoWriter != null)
+                    else if ((v.NoWriter ?? OtherSet(cat, key)) is string noWriter)
                     {
                         row.Outcome = "no writer";
                         row.Value = distinct[0];
                         row.Ref = found[0].Ref;
-                        row.Why = $"{key} on {v.Label}: \"{distinct[0]}\" ({found[0].Ref}), but {v.NoWriter} — a person sets it in Revit";
+                        row.Why = $"{key} on {v.Label}: \"{distinct[0]}\" ({found[0].Ref}), but {noWriter} — a person sets it in Revit";
                     }
                     else
                     {
@@ -267,6 +276,13 @@ namespace Sentinel.GhostBuilder
                 }
             }
             return report;
+        }
+
+        // Review C19: why Sentinel does not write a key outside the class's own common set (null = it is in it).
+        private static string OtherSet(string category, string key)
+        {
+            var kind = PromoteWallsPlanner.Classes.First(kv => kv.Value.Category == category).Key;
+            return (key ?? "").StartsWith(KindPset[kind] + ".", StringComparison.Ordinal) ? null : $"Sentinel writes only {KindPset[kind]} on a {kind} type";
         }
 
         /// <summary>Review amendment C4: a Promote body the bridge refused for a set_parameter (its source not confirmed at post time,

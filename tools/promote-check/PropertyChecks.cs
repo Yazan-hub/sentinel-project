@@ -22,6 +22,9 @@ static partial class Check
         Ok(ke.Count == PromoteWallsPlanner.Classes.Count && ke.All(kv => PromoteWallsPlanner.Classes[kv.Key].Ifc.ToUpperInvariant() == (string)kv.Value)
            && PropertyPlanner.Entity("Ceilings") == "IFCCOVERING",
            "each Promote kind's IFC entity is the bridge's KIND_ENTITY");
+        var kp = vs["kind_pset"]?.AsObject();
+        Ok(kp != null && kp.Count == PropertyPlanner.KindPset.Count && kp.All(kv => PropertyPlanner.KindPset.TryGetValue(kv.Key, out var v) && v == (string)kv.Value),
+           "the property set each kind may write is the bridge's KIND_PSET (review C19)");
         var cl = Clauses.FromIds(vs["ids"].ToJsonString(), "ids@1 · project · 0a1b2c3d4e5f…", out var err);
         var cases = vs["clauses"].AsArray();
         int same = 0;
@@ -140,6 +143,20 @@ static partial class Check
            && fl.Rows.Single(r => r.Label == "BDS_INT_ARC_GYPS_100 mm").Why == "no source for Pset_WallCommon.FireRating on BDS_INT_ARC_GYPS_100 mm — type_catalog@1 · office · fedcba987654… gives no Fire Rating for it, and ids@2 · project · 1a2b3c4d5e6f… · Walls at least REI60 sets a bound (\"All walls shall be at least REI60.\"), not a value; a person fills it in Revit (Type Properties) — 1 element(s) on it"
            && fl.Rows.Single(r => r.Label == "BDS_EXT_ARC_CMU_200 mm").Outcome == "write",
            "a clause that sets a minimum (\"at least …\") is never written, and the person is told so; the catalogue still gives its own type's value (C7)");
+        // Review C19: a matrix key outside the class's own common set is never planned as a write (the bridge refuses it, and C4 would
+        // drop the valid type edits of the same body with it): it goes to a person with the value and why.
+        var mxOther = LodMatrix.FromBody(File.ReadAllText(Repo("demo", "bds-pilot", "bds-lod-matrix-dd-ma2b.json"))
+            .Replace("\"Pset_WallCommon.IsExternal\"]", "\"Pset_WallCommon.IsExternal\", \"Pset_BDS.Discipline\"]"), out _);
+        var disc = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls are A\",\"applicability\":{\"entity\":\"IFCWALL\"}," +
+            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_BDS\",\"name\":\"Discipline\",\"value\":\"A\",\"cardinality\":\"required\"}]}}]}", "ids@3 · project · 2a3b4c5d6e7f…", out _);
+        var otherPlans = V1(m, others, walls);
+        var other = PropertyPlanner.Plan(otherPlans, mxOther, values.Append(new TypeValue { Category = "Walls", Type = "BDS_EXT_ARC_CMU_200 mm", UniqueId = U(0xa01),
+            Key = "Pset_BDS.Discipline", Current = "", Param = "Discipline", Instances = 0 }).ToList(), m, disc);
+        var dr = other.Rows.SingleOrDefault(r => r.Key == "Pset_BDS.Discipline");
+        Ok(dr?.Outcome == "no writer" && dr.Why.EndsWith("but Sentinel writes only Pset_WallCommon on a wall type — a person sets it in Revit")
+           && otherPlans.Single().Ghosts.All(g => g.Parameter != "Pset_BDS.Discipline")
+           && otherPlans.Single().Ghosts.Any(g => g.Op == "set_parameter" && g.Parameter == "Pset_WallCommon.FireRating" && g.TypeName == "BDS_EXT_ARC_CMU_200 mm"),
+           "a key outside the class's own set (KIND_PSET) is never planned as a write: it goes to a person, and the type's valid edits still ride (C19)");
         var none = PropertyPlanner.Plan(V1(m, others, walls), mx, values, m, Clauses.None("none — not installed for ma2c or its office"));
         Ok(none.Rows.Single(r => r.Label == "BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm").Why.Contains("and no ids@n is installed to cite (none — not installed for ma2c or its office)"),
            "with no ids@n installed, a property with no catalogue value says there is no clause to cite");

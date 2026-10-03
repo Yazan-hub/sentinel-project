@@ -1,7 +1,8 @@
 {
-  "_note": "MA-2c: where a set_parameter's value may come from. catalog_param and kind_entity are the add-in's PropertyPlanner.CatalogParam and PromoteWallsPlanner.Classes (upper-cased) and the bridge's CATALOG_PARAM and KIND_ENTITY; catalog is a type_catalog@n body (BDS rows, Fire Rating filled on two); ids is an ids@n body whose clauses the cases read. tools/promote-check and vitest read this file.",
+  "_note": "MA-2c: where a set_parameter's value may come from. kind_pset (review C19) is the add-in's PropertyPlanner.KindPset and the bridge's KIND_PSET; catalog_param and kind_entity are the add-in's PropertyPlanner.CatalogParam and PromoteWallsPlanner.Classes (upper-cased) and the bridge's CATALOG_PARAM and KIND_ENTITY; catalog is a type_catalog@n body (BDS rows, Fire Rating filled on two); ids is an ids@n body whose clauses the cases read. tools/promote-check and vitest read this file.",
   "catalog_param": { "Pset_WallCommon.FireRating": "Fire Rating", "Pset_DoorCommon.FireRating": "Fire Rating" },
   "kind_entity": { "wall": "IFCWALL", "floor": "IFCSLAB", "roof": "IFCROOF", "ceiling": "IFCCOVERING", "door": "IFCDOOR", "window": "IFCWINDOW" },
+  "kind_pset": { "wall": "Pset_WallCommon", "floor": "Pset_SlabCommon", "roof": "Pset_RoofCommon", "ceiling": "Pset_CoveringCommon", "door": "Pset_DoorCommon", "window": "Pset_WindowCommon" },
   "catalog": {
     "template": { "title": "MA2c value sources" },
     "types": [

@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, clauseValues, makeCiter } from "./changesets-typing.mjs";
+import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, clauseValues, makeCiter } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
@@ -108,6 +108,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   it("the catalogue parameter and the IFC entity of each kind are the shared fixture's (the add-in reads the same table)", () => {
     expect(CATALOG_PARAM).toEqual(VS.catalog_param);
     expect(KIND_ENTITY).toEqual(VS.kind_entity);
+    expect(KIND_PSET).toEqual(VS.kind_pset); // review C19: the add-in plans no key the bridge refuses
   });
 
   it("clauseValues reads every shared case as the add-in's Clauses does: a whole-class clause's one exact value, nothing else", () => {
