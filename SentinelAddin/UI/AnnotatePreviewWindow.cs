@@ -33,8 +33,8 @@ public sealed class AnnotatePreviewWindow : Window
 
         var header = new TextBlock
         {
-            Text = string.Join("\n", words) + "\n\nPre-ticked: a floor plan and an RCP for each story level (the guideline's first FloorPlan and " +
-                   "CeilingPlan entries), and every unpinned story level and grid. The rest are listed for you to tick; a greyed row says why it cannot be created.",
+            Text = string.Join("\n", words) + "\n\nPre-ticked where it can be created or pinned: the guideline's first FloorPlan entry and first " +
+                   "CeilingPlan entry for each story level, and every unpinned story level and grid. The rest are listed for you to tick; a greyed row says why it cannot be.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
 

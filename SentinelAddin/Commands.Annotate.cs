@@ -35,6 +35,18 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null) return Result.Cancelled;
 
+        // ANV-1 (F4, review C1): the ruleset Scan Now judges this document by, as App.ReloadRuleset cached it — no network call
+        // here. "Not loaded yet" is never read as none (the names would go unjudged): Annotate refuses, saying so — before the
+        // guideline's GET, so the person does not wait on it to be refused (review C16). An installed none (Has is true) plans the
+        // fixed names, and the preview says they are not checked.
+        if (App.Engine is not RuleEngineHost engine || !engine.Has(doc))
+        {
+            TaskDialog.Show(Title, "The project's ruleset has not loaded yet, so the view names cannot be judged by Scan Now's rule. Run Scan Now, then Annotate again. Nothing was created.");
+            return Result.Cancelled;
+        }
+        var ruleset = engine.RulesetFor(doc);
+        string rulesetLabel = engine.SourceFor(doc).Label;
+
         // guideline@n for this document's project (or its office): the key is read here on the API thread, the GET
         // runs off it and the command waits (4 s cap), as Governed Publish waits on /propose.
         string key = ProjectContext.For(doc).Key;
@@ -58,17 +70,6 @@ public sealed class AnnotateViewsCommand : IExternalCommand
             return Result.Cancelled;
         }
         var storyNames = new HashSet<string>(stories.Where(l => l.IsStory).Select(l => l.Name));
-
-        // ANV-1 (F4, review C1): the ruleset Scan Now judges this document by, as App.ReloadRuleset cached it — no network call
-        // here. "Not loaded yet" is never read as none (the names would go unjudged): Annotate refuses, saying so. An installed
-        // none (Has is true) plans the fixed names, and the preview says they are not checked.
-        if (App.Engine is not RuleEngineHost engine || !engine.Has(doc))
-        {
-            TaskDialog.Show(Title, "The project's ruleset has not loaded yet, so the view names cannot be judged by Scan Now's rule. Run Scan Now, then Annotate again. Nothing was created.");
-            return Result.Cancelled;
-        }
-        var ruleset = engine.RulesetFor(doc);
-        string rulesetLabel = engine.SourceFor(doc).Label;
 
         var allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
         // Template names too: View.Name = … throws when a VIEW TEMPLATE already holds that name.
@@ -113,7 +114,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         var pins = ViewPlanner.Pins(datums);
 
         var words = new List<string> { "Guideline: " + guidelineLabel, ViewPlanner.RuleLine(ruleset, rulesetLabel) };
-        if (storyNames.Count == 0) words.Add("No level in this model is a Building Story — nothing is pre-ticked; tick the rows you want.");
+        if (storyNames.Count == 0) words.Add("No level in this model is a Building Story — no view and no level is pre-ticked (unpinned grids still are); tick the rows you want.");
         words.Add(ViewPlanner.UndoWords());
 
         // A person decides: nothing is written before Create; Cancel writes nothing.
@@ -216,7 +217,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
 
         var sb = new StringBuilder();
         if (!kept)
-            sb.AppendLine($"Revit committed the views but did not keep the Undo group (B31?): {present.Count} view(s) and {pinnedNow.Count} pin(s) are in the model — the annotate ledger row is the record.").AppendLine();
+            sb.AppendLine($"Revit committed this run but did not keep the Undo group (B31?): {present.Count} view(s) and {pinnedNow.Count} pin(s) are in the model — the annotate ledger row is the record.").AppendLine();
         sb.AppendLine(words[0]).AppendLine(words[1]);
         sb.AppendLine($"Created: {present.Count} view(s). Pinned: {pinnedLevels} level(s) and {pinnedGrids} grid(s).");
         sb.AppendLine(pinnedLine);
@@ -224,7 +225,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         if (unrouted > 0) sb.AppendLine($"Not routed in the Project Browser: {unrouted} view(s) — no writable {string.Join(" / ", routeParams)} parameter.");
         if (failed.Count > 0)
         {
-            sb.AppendLine().AppendLine("Failed (each rolled back alone; the rest were kept):");
+            sb.AppendLine().AppendLine("Failed (each view rolled back alone, each pin set or refused alone; the rest were kept):");
             foreach (var f in failed) sb.AppendLine("  • " + f);
         }
         if (warnings.Count > 0)

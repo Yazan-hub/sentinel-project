@@ -189,9 +189,9 @@ Check("F6: the model's default plan and ceiling plan view types, never the first
 Check("DAT-3: only ticked pins are pinned; Building Story is read through the one projection, never set (DAT-2)",
     CountOf(ann, ".Pinned = true") == 1 && pinLoop > run && pinLoop < ann.IndexOf(".Pinned = true") && ann.Contains("ChangesetExecutor.Stories(doc)") && !ann.Contains("LEVEL_IS_BUILDING_STORY"));
 int loaded = ann.IndexOf("!engine.Has(doc)");
-Check("F4 (review C1): the ruleset is Scan Now's cached one — no network call — and 'not loaded yet' refuses before the plan, never read as none",
+Check("F4 (review C1, C16): the ruleset is Scan Now's cached one — no network call — and 'not loaded yet' refuses before the guideline's GET and the plan, never read as none",
     ann.Contains("engine.RulesetFor(doc)") && !ann.Contains("RulesetStore.Load(") && !ann.Contains("RulesetStore.None()")
-    && loaded > 0 && loaded < ann.IndexOf("ViewPlanner.Plan(")
+    && loaded > 0 && loaded < ann.IndexOf("ViewPlanner.Plan(") && loaded < ann.IndexOf("GhostStandards.Load(")
     && annN.Contains("then Annotate again. Nothing was created.\");\n            return Result.Cancelled;"));
 Check("a person decides: the preview opens before anything is written, and Cancel writes nothing",
     shown > 0 && shown < run && ann.Contains("if (pick.ShowDialog() != true) return Result.Cancelled;"));
