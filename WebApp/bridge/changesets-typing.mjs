@@ -111,14 +111,22 @@ export const KIND_ENTITY = { wall: "IFCWALL", floor: "IFCSLAB", roof: "IFCROOF",
 /** Review amendment C1: the property set a set_parameter of each kind writes — the class's own common set. The catalogue's "Fire
  *  Rating" of a wall is no door's: a key of another class's set is refused (checkWrite). */
 export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", roof: "Pset_RoofCommon", ceiling: "Pset_CoveringCommon", door: "Pset_DoorCommon", window: "Pset_WindowCommon" };
-/** Review amendment C23: the one shape a cited clause value has, an allow-list (a list of bound phrases, C18, could never be
- *  complete). ONE rating token: a classification code from the list (EN 13501-2 R, E, EI, EI1, EI2, EW, RE, REI, REW and their -M;
- *  BS 476 FD; DIN T and F; Rw), a space or hyphen or nothing, 1-3 digits, then up to two classification suffixes (S, Sa, Sm, S200,
- *  C, C0-C5, M: FD30S, FD 30 S, EI 60-C5, EI30-C5Sa, REI 120-M) — FD30, REI 60, EI-30, EI2 30, REI-M 90. Or ONE number with an
- *  optional time unit, hyphenated or not (60, 60 min, 120 minutes, 2 hr, 1-hour, 90-minute), a whole and a fraction of hours
- *  (1 1/2 hr), or an AS 1530.4 FRL (60/60/60, -/60/60). Anything else — "above FD30", "NLT 60", "c 60", "FD30 or FD60", "min" — is
- *  not this shape and goes to a person. ASCII only (checked apart: notAValue). The add-in's Clauses.OneValue is the same pattern. */
-export const ONE_VALUE = /^(?:(?:FD|T|F|Rw|R|R?EI?[12]?W?(?:-M)?)[ -]?[0-9]{1,3}(?:[ -]?(?:S(?:a|m|200)?|C[0-5]?|M)){0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?:[ -]?(?:mins?|minutes?|h|hrs?|hours?))?|[0-9]{1,2}[ -][13]\/[24] ?(?:h|hrs?|hours?)|(?:[0-9]{2,3}|-)\/(?:[0-9]{2,3}|-)\/(?:[0-9]{2,3}|-))(?![\s\S])/i;
+/** Review amendment C23 (values): the one shape a cited clause value has — an allow-list PER PROPERTY, each code with its own
+ *  periods and suffixes (a list of bound phrases, C18, could never be complete; one shape for every code let "Rw 45", "T 200 mm",
+ *  "EI 30-C0-C5", "REI 0" and "-/-/-" through as fire ratings). A FireRating is ONE rating as its standard writes it: BS 476 FD20,
+ *  30, 60, 90, 120 and its S (FD30S, FD 30 S); an EN 13501-2 code (R, E, EI, EI1, EI2, EW, RE, REI, REW; -M before the period or
+ *  after it) with one of its periods (15 20 30 45 60 90 120 180 240 360), then at most one C/C0-C5 and one Sa/Sm/S200 in that order
+ *  (EI 60-C5, EI30-C5Sa, REI-M 90, REI 120-M); DIN 4102 T30, T30-1-RS, T 90-2, F90-A, F 30-AB (periods 30 60 90 120 180); 1-999
+ *  minutes or 1-6 hours with a unit, hyphenated or not (60 min, 90-minute, 2 hr, 1-hour, 1.5 hr), or a fraction of an hour as IBC
+ *  writes it (3/4-hour, 1/3 hour, 1-1/2-hour, 1 1/2 hr); or an AS 1530.4 FRL with at least one period (-/60/60; -/-/- requires
+ *  nothing). A bare number, a zero period, a suffix the code does not take — not one. An AcousticRating is Rw and whole dB (Rw 45,
+ *  Rw 45 dB); a ThermalTransmittance one positive number below 10 (1.4). Any other property has no shape: a person fills it. ASCII
+ *  only (checked apart: notAValue). The add-in's Clauses.ValueShape holds the same patterns; the shared value_cases pin both. */
+export const VALUE_SHAPE = {
+  FireRating: /^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:REI|REW|RE|R|EI[12]?|EW|E)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|[1-9][0-9]{0,2}[ -]?(?:mins?|minutes?)|(?:[1-6](?:\.[0-9]{1,2})?|(?:[1-6][ -])?(?:1\/2|1\/3|2\/3|1\/4|3\/4))[ -]?(?:h|hrs?|hours?)|(?!-\/-\/-)(?:[1-9][0-9]{1,2}|-)\/(?:[1-9][0-9]{1,2}|-)\/(?:[1-9][0-9]{1,2}|-))(?![\s\S])/i,
+  AcousticRating: /^Rw ?[1-9][0-9](?: ?dB)?(?![\s\S])/i,
+  ThermalTransmittance: /^(?=[0-9.]*[1-9])[0-9](?:\.[0-9]{1,3})?(?![\s\S])/,
+};
 /** Review C23: the noun each IFC entity is named by in a whole-class sentence — "All doors shall be FD30." states a value of
  *  every IFCDOOR, "All windows shall be FD30." states none. The add-in's Clauses.ClassNoun is the same table. */
 export const CLASS_NOUN = { IFCWALL: ["walls"], IFCDOOR: ["doors"], IFCWINDOW: ["windows"], IFCSLAB: ["slabs", "floors"], IFCROOF: ["roofs"], IFCCOVERING: ["ceilings", "coverings"] };
@@ -126,7 +134,7 @@ const ASCII_TRIM = /^[ \t\r\n]+|[ \t\r\n]+(?![\s\S])/g;
 /** "Pset_DoorCommon.FireRating" → "fire rating": the property as a sentence names it. */
 const propWords = (key) => (String(key ?? "").split(".")[1] ?? "").replace(/[^A-Za-z0-9]/g, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
 /** Review C23 (final): the one wording a clause with a sentence is cited in, an allow-list on the whole sentence — "[The <property>
- *  of] [all|every|each|the] <the entity's noun> shall|must be <value>[.|!]", the value optionally quoted, ASCII, words apart by
+ *  of] [all] <the entity's plural> | every|each <its singular> shall|must be <value>[.|!]", the value optionally quoted, ASCII, words apart by
  *  spaces. Nothing may stand before the class (a place, a condition, an exception, "some of"), between "be" and the value (a bound,
  *  a negation, a qualifier) or after it (a choice, a narrowing); the noun is the clause's own entity's. Group 2 = the value as the
  *  sentence states it; null = an entity with no noun. The add-in's Clauses.Worded builds the same pattern. */
@@ -134,16 +142,17 @@ export function wordedAs(entity, key) {
   const nouns = CLASS_NOUN[entity];
   if (!nouns) return null;
   const prop = propWords(key);
-  const noun = nouns.map((w) => w.slice(0, -1) + "s?").join("|");
-  return new RegExp("^(?:the +" + (prop ? prop.replace(/ /g, " +") : "(?!)") + " +of +)?(?:(?:all|every|each|the) +)?(?:" + noun
-    + ") +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])", "i");
+  // Review C23 (wording): "all doors" / "doors" or "every door" / "each door" — never "the door(s)": one door, or doors named before.
+  return new RegExp("^(?:the +" + (prop ? prop.replace(/ /g, " +") : "(?!)") + " +of +)?(?:(?:all +)?(?:" + nouns.join("|") + ")|(?:every|each) +(?:"
+    + nouns.map((w) => w.slice(0, -1)).join("|") + ")) +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])", "i");
 }
 /** Why a clause is not a cited value, in the planner's words (null = it is one): the value is not ONE value (C23), or its sentence
  *  is not worded as every `entity` carrying exactly this value of `key` (wordedAs). A hand-written IDS has no sentence: the value's
  *  shape alone. The add-in's Clauses.NotAValue answers every value_cases row the same. */
 export function notAValue(sentence, value, entity, key) {
   const v = String(value ?? "").replace(ASCII_TRIM, "");
-  if (/[^ -~]/.test(v) || !ONE_VALUE.test(v)) return `"${v}" is not one value (a bound, a choice or a qualifier) — a person decides`;
+  const p = String(key ?? "").split(".")[1];
+  if (/[^ -~]/.test(v) || !Object.hasOwn(VALUE_SHAPE, p) || !VALUE_SHAPE[p].test(v)) return `"${v}" is not one value (a bound, a choice or a qualifier) — a person decides`;
   if (sentence == null) return null;
   const m = /[^ -~]/.test(sentence) ? null : wordedAs(entity, key)?.exec(sentence);
   if (m) return m[2] === v ? null : `it states "${m[2]}", not "${v}" — a person decides`;
@@ -155,6 +164,12 @@ export function notAValue(sentence, value, entity, key) {
  *  names, groups, alternation and anchors ("IFCDOOR", "^IFC(ROOF|SLAB)$"). "(?i)ifcdoor", "\AIFCDOOR" or "IFC[^]*" mean
  *  different things in each, so they apply to nothing on both sides. The add-in's Clauses.EntityPattern is the same. */
 export const ENTITY_PATTERN = /^[A-Za-z0-9_|()^$]+$/;
+
+/** Review C23 (context): a stored sentence is cut out of its document — a heading above it ("Doors to protected stairs"), a place
+ *  before a colon or a semicolon, a hard-wrapped "or better.", a bullet's lead-in, an exception after it ("Doors to plant rooms are
+ *  excluded.") all narrow it and are not in it. So a clause with a sentence is cited only when compileIds marked it source_alone:
+ *  its document said nothing but whole-class one-value sentences (compileIds). The add-in's Clauses.NotAlone is the same words. */
+export const NOT_ALONE = "its document says more than whole-class values (a heading, a place, a condition or an exception may narrow it) — a person decides";
 
 /** Every required exact-value clause on `key` ("Pset_X.Prop") whose applicability is `entity` alone, in the IDS's order:
  *  [{value, spec, sentence, why}] — why null = a cited value (notAValue). */
@@ -171,7 +186,8 @@ function clauseReadings(ids, entity, key) {
     for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : [])
       if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.replace(ASCII_TRIM, "")) {
         const sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
-        out.push({ value: p.value.replace(ASCII_TRIM, ""), spec: String(s.name ?? ""), sentence, why: notAValue(sentence, p.value, entity, key) });
+        out.push({ value: p.value.replace(ASCII_TRIM, ""), spec: String(s.name ?? ""), sentence,
+          why: notAValue(sentence, p.value, entity, key) ?? (sentence != null && s.source_alone !== true ? NOT_ALONE : null) });
       }
   }
   return out;
@@ -195,14 +211,14 @@ export function makeCiter({ catalog: c, ids: s }, core) {
   const refOf = (h) => `${s.label} · ${h.spec}` + (h.sentence ? ` · "${h.sentence}"` : "");
   return (kind, place, key, to, vs, at) => {
     const lead = `${at}: set_parameter's value_source`;
-    const want = to.trim();
+    const want = to.replace(ASCII_TRIM, ""); // review C23: ASCII blanks only, as the add-in — JS and .NET trim differ (U+0085, U+FEFF)
     const label = place.FamilyName ? `${place.FamilyName} : ${place.TypeName}` : place.TypeName;
     // What each source holds for this type and key, read before either is judged.
     const name = CATALOG_PARAM[key];
     const cat = KIND_CATEGORY[kind];
     const rows = c.body && name ? c.body.types.filter((r) => core.sameCategory(r, cat) && norm(r.type) === norm(place.TypeName)
       && (!place.FamilyName || norm(r.family) === norm(place.FamilyName))) : [];
-    const fromCatalog = rows.length === 1 && typeof rows[0].params?.[name] === "string" ? rows[0].params[name].trim() : "";
+    const fromCatalog = rows.length === 1 && typeof rows[0].params?.[name] === "string" ? rows[0].params[name].replace(ASCII_TRIM, "") : "";
     const catalogRef = `${c.label} · ${label} · ${name}`;
     const hits = s.body ? clauseValues(s.body, KIND_ENTITY[kind], key) : [];
     const disagree = (a, h) => err(400, `${lead}: the sources disagree on ${key} for ${label}: "${a}" (${catalogRef}) and "${h.value}" (${refOf(h)}) — a person decides`);

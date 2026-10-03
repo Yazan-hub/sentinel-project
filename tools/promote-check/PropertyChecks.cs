@@ -39,7 +39,7 @@ static partial class Check
             if (ok) same++;
             else Console.WriteLine($"        {(string)c["name"]}: got [{string.Join(", ", got.Select(x => x.Value))}]");
         }
-        Ok(err == null && cl.Installed && cases.Count == 12 && same == cases.Count
+        Ok(err == null && cl.Installed && cases.Count == 13 && same == cases.Count
            && cl.NotValues("IFCCOVERING", "Pset_CoveringCommon.FireRating").Select(x => x.Spec + " " + x.Why).SequenceEqual(new[] { "Ceilings at least REI30 it states \"at least REI30\", not \"REI30\" — a person decides" })
            && cl.NotValues("IFCWALL", "Pset_WallCommon.AcousticRating").Select(x => x.Why).SequenceEqual(new[] { "it is not worded \"the acoustic rating of all walls shall be Rw 45.\" — a person decides" })
            && cl.Unreadable("Pset_RoofCommon.AcousticRating") == 6,
@@ -51,8 +51,32 @@ static partial class Check
         var differ = vc == null ? new List<string> { "no value_cases" } : vc.Where(c => Judge(c) != (string)c["why"])
             .Select(c => $"{(string)c["value"]} / {(string)c["sentence"]}: got {Judge(c) ?? "cited"}").ToList();
         foreach (var d in differ.Take(8)) Console.WriteLine("        " + d);
-        Ok(vc?.Count == 142 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 42,
+        Ok(vc?.Count == 196 && differ.Count == 0 && vc.Count(c => c["why"] == null) == 59,
            $"every shared value case ({(vc?.Count ?? 0) - differ.Count}/{vc?.Count ?? 0}) reads as the bridge's notAValue: one rating token or one number with a time unit, the sentence ending with it — a bound, a choice, a qualifier or a narrowing tail goes to a person (C23)");
+        // Review C23 (context): a sentence is cited only when compileIds marked it source_alone — its document said nothing but
+        // whole-class one-value sentences. The specifications are compileIds' own (vitest holds them to it); both sides cite alike.
+        var dc = vs["document_cases"]?.AsArray();
+        var docDiffer = dc == null ? new List<string> { "no document_cases" } : dc.Where(c =>
+            !Clauses.FromIds(new JsonObject { ["specifications"] = c["specifications"].DeepClone() }.ToJsonString(), "ids@1", out _)
+                .For((string)c["entity"], (string)c["key"]).Select(x => x.Value).SequenceEqual(c["values"].AsArray().Select(x => (string)x)))
+            .Select(c => (string)c["text"]).ToList();
+        foreach (var d in docDiffer.Take(8)) Console.WriteLine("        " + d.Replace("\n", " / "));
+        Ok(dc?.Count == 39 && docDiffer.Count == 0 && dc.Count(c => c["values"].AsArray().Count > 0) == 5
+           && cl.NotValues("IFCWALL", "Pset_WallCommon.ThermalTransmittance").Select(x => x.Why).SequenceEqual(new[] { Clauses.NotAlone }),
+           $"every shared document ({(dc?.Count ?? 0) - docDiffer.Count}/{dc?.Count ?? 0}) cites as the bridge's clauseValues: a heading, a place before a colon, a wrapped \"or better.\", an exception after it — the sentence is not cited unless its document said nothing else (C23 context)");
+        var deep = "{\"specifications\":[{\"name\":\"d\",\"applicability\":{\"entity\":\"IFCDOOR\"},\"source_sentence\":\"All doors shall be FD30.\",\"source_alone\":true,\"x\":" + new string('[', 80) + new string(']', 80)
+                   + ",\"requirements\":{\"properties\":[{\"pset\":\"Pset_DoorCommon\",\"name\":\"FireRating\",\"value\":\"FD30\",\"cardinality\":\"required\"}]}}]}";
+        Ok(Clauses.FromIds(deep, "ids@1", out var de).For("IFCDOOR", "Pset_DoorCommon.FireRating").Select(x => x.Value).SequenceEqual(new[] { "FD30" }) && de == null,
+           "an ids@n nested deeper than 64 levels is read, as the bridge reads it (C23)");
+        var trims = vs["catalog_trim"]?.AsArray();
+        Ok(trims?.Count == 5 && trims.All(t =>
+           {
+               var row = vs["catalog"]["types"][0].DeepClone().AsObject();
+               row["params"] = new JsonObject { ["Fire Rating"] = (string)t["raw"] };
+               var cm = GuidelineMatcher.FromBodies(null, new JsonObject { ["types"] = new JsonArray(row) }.ToJsonString(), out _, out _);
+               return cm.CatalogValue("Walls", null, (string)row["type"], "Fire Rating") == (string)t["value"];
+           }),
+           "a catalogue value is trimmed of ASCII blanks only, as the bridge's makeCiter trims it (U+0085, U+FEFF, U+00A0 kept on both sides: C23)");
         var bad = Clauses.FromIds("{", "ids@1 · project · 0a1b2c3d4e5f…", out var be);
         Ok(be != null && bad.For("IFCDOOR", "Pset_DoorCommon.FireRating").Count == 0 && bad.Label.StartsWith("ids@1 · project · 0a1b2c3d4e5f… did not parse: "),
            "an ids@n body that does not parse cites nothing, and says so");
@@ -159,15 +183,15 @@ static partial class Check
         // Review C19: a matrix key outside the class's own common set is never planned as a write (the bridge refuses it, and C4 would
         // drop the valid type edits of the same body with it): it goes to a person with the value and why.
         var mxOther = LodMatrix.FromBody(File.ReadAllText(Repo("demo", "bds-pilot", "bds-lod-matrix-dd-ma2b.json"))
-            .Replace("\"Pset_WallCommon.IsExternal\"]", "\"Pset_WallCommon.IsExternal\", \"Pset_BDS.Discipline\"]"), out _);
-        var disc = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls are 60\",\"applicability\":{\"entity\":\"IFCWALL\"}," +
-            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_BDS\",\"name\":\"Discipline\",\"value\":\"60\",\"cardinality\":\"required\"}]}}]}", "ids@3 · project · 2a3b4c5d6e7f…", out _);
+            .Replace("\"Pset_WallCommon.IsExternal\"]", "\"Pset_WallCommon.IsExternal\", \"Pset_BDS.FireRating\"]"), out _);
+        var disc = Clauses.FromIds("{\"specifications\":[{\"name\":\"Walls are REI 60\",\"applicability\":{\"entity\":\"IFCWALL\"}," +
+            "\"requirements\":{\"properties\":[{\"pset\":\"Pset_BDS\",\"name\":\"FireRating\",\"value\":\"REI 60\",\"cardinality\":\"required\"}]}}]}", "ids@3 · project · 2a3b4c5d6e7f…", out _);
         var otherPlans = V1(m, others, walls);
         var other = PropertyPlanner.Plan(otherPlans, mxOther, values.Append(new TypeValue { Category = "Walls", Type = "BDS_EXT_ARC_CMU_200 mm", UniqueId = U(0xa01),
-            Key = "Pset_BDS.Discipline", Current = "", Param = "Discipline", Instances = 0 }).ToList(), m, disc);
-        var dr = other.Rows.SingleOrDefault(r => r.Key == "Pset_BDS.Discipline");
+            Key = "Pset_BDS.FireRating", Current = "", Param = "BDS Fire Rating", Instances = 0 }).ToList(), m, disc);
+        var dr = other.Rows.SingleOrDefault(r => r.Key == "Pset_BDS.FireRating");
         Ok(dr?.Outcome == "no writer" && dr.Why.EndsWith("but Sentinel writes only Pset_WallCommon on a wall type — a person sets it in Revit")
-           && otherPlans.Single().Ghosts.All(g => g.Parameter != "Pset_BDS.Discipline")
+           && otherPlans.Single().Ghosts.All(g => g.Parameter != "Pset_BDS.FireRating")
            && otherPlans.Single().Ghosts.Any(g => g.Op == "set_parameter" && g.Parameter == "Pset_WallCommon.FireRating" && g.TypeName == "BDS_EXT_ARC_CMU_200 mm"),
            "a key outside the class's own set (KIND_PSET) is never planned as a write: it goes to a person, and the type's valid edits still ride (C19)");
         // Review C20: the header names what is held off the type with no row too; "on those types" counts each type once; a clause

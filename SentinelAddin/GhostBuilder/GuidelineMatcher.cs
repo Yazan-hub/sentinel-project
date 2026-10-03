@@ -554,7 +554,7 @@ namespace Sentinel.GhostBuilder
             var rows = _catalog.Where(c => SameCategory(c, category) && Norm(c.Type) == Norm(type) && (family == null || Norm(c.Family) == Norm(family))).ToList();
             if (rows.Count != 1 || !(rows[0].Params is JsonElement ps) || ps.ValueKind != JsonValueKind.Object
                 || !ps.TryGetProperty(param, out var v) || v.ValueKind != JsonValueKind.String) return null;
-            var s = v.GetString().Trim();
+            var s = v.GetString().Trim(' ', '\t', '\r', '\n'); // review C23: ASCII blanks only, as the bridge (.Trim() took U+0085, kept U+FEFF)
             return s.Length == 0 ? null : s;
         }
 

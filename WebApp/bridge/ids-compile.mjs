@@ -14,6 +14,8 @@
 //     is returned in `unmatched`. A compiler that quietly ignored half a document would produce a
 //     gate that looks complete and enforces half the EIR — the worst possible failure here.
 
+import { notAValue } from "./changesets-typing.mjs";
+
 /** IFC entity for the nouns a requirement actually uses. Extend as a project's vocabulary demands. */
 export const ENTITY_VOCAB = [
   [/\b(fire|external|internal)?\s*doors?\b/i, "IFCDOOR"],
@@ -202,6 +204,15 @@ export function compileIds(text, { title = "Compiled from requirements" } = {}) 
       source_sentence: s,          // the clause this came from — the whole point of review
     });
   }
+
+  // Review C23 (context): a sentence is cut out of its document, and what stood around it — a heading, "Escape corridors:", a
+  // hard-wrapped "or better.", an exception after it — narrows it without being in it. A value is cited from a sentence (Promote
+  // writes it on every element of the class) only when the document said nothing else: every spec a whole-class one-value sentence
+  // (notAValue), and nothing left once those sentences are taken out but blanks and bullet marks. Then each spec is source_alone.
+  const whole = (sp) => { const p = sp.requirements.properties[0]; return p.value != null && notAValue(sp.source_sentence, p.value, sp.applicability.entity, `${p.pset}.${p.name}`) === null; };
+  let rest = String(text || "").replace(/\r\n?/g, "\n");
+  for (const sp of specs) rest = rest.replace(sp.source_sentence, "");
+  if (specs.length && specs.every(whole) && /^[\s\-*•]*$/.test(rest)) for (const sp of specs) sp.source_alone = true;
 
   return {
     title,

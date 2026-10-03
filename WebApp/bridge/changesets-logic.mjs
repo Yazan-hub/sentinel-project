@@ -222,7 +222,7 @@ function checkWrite(el, place, at, cite) {
     throw err(400, `${at}: set_parameter needs value_source {kind: ${VALUE_SOURCES.join(" | ")}} — a value is written from a cited source, never a guess; a person types their own in Revit`);
   if (!cite) throw err(400, `${at}: the bridge read no standards to check this value_source — nothing is written unchecked`);
   return {
-    parameter: el.parameter, revit_parameter: el.revit_parameter == null ? null : el.revit_parameter.trim(), from: el.from, to: el.to.trim(),
+    parameter: el.parameter, revit_parameter: el.revit_parameter == null ? null : el.revit_parameter.trim(), from: el.from, to: el.to.replace(/^ +| +$/g, ""), // review C23: what makeCiter checked (ASCII trim), not JS trim()
     value_source: cite(el.kind, place, el.parameter, el.to, vs, at),
   };
 }

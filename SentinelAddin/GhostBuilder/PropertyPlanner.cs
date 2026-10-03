@@ -37,12 +37,23 @@ namespace Sentinel.GhostBuilder
     /// value). The bridge's clauseValues reads them the same way.</summary>
     public sealed class Clauses
     {
-        /// <summary>Review amendment C23: the one shape a cited value has, an allow-list — ONE rating token (a classification code
-        /// from the list: R, E, EI, EI1, EI2, EW, RE, REI, REW and their -M, FD, T, F, Rw; then 1-3 digits and up to two suffixes S,
-        /// Sa, Sm, S200, C, C0-C5, M: FD30S, FD 30 S, EI 60-C5, REI-M 90), ONE number with an optional time unit, hyphenated or not
-        /// (60, 60 min, 1-hour, 90-minute), a whole and a fraction of hours (1 1/2 hr) or an FRL (60/60/60). "NLT 60", "c 60",
-        /// "above FD30" are not this shape. ASCII only (checked apart: NotAValue). The bridge's ONE_VALUE is the same pattern.</summary>
-        public static readonly Regex OneValue = new Regex(@"^(?:(?:FD|T|F|Rw|R|R?EI?[12]?W?(?:-M)?)[ -]?[0-9]{1,3}(?:[ -]?(?:S(?:a|m|200)?|C[0-5]?|M)){0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?:[ -]?(?:mins?|minutes?|h|hrs?|hours?))?|[0-9]{1,2}[ -][13]/[24] ?(?:h|hrs?|hours?)|(?:[0-9]{2,3}|-)/(?:[0-9]{2,3}|-)/(?:[0-9]{2,3}|-))(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        /// <summary>Review amendment C23 (values): the one shape a cited value has — an allow-list PER PROPERTY, each code with its own
+        /// periods and suffixes. A FireRating is one rating as its standard writes it: BS 476 FD20-FD120 and S; an EN 13501-2 code (R,
+        /// E, EI, EI1, EI2, EW, RE, REI, REW; -M before or after the period) with one of its periods, then at most one C/C0-C5 and one
+        /// Sa/Sm/S200 in that order; DIN 4102 T30-RS, T 90-2, F90-A; 1-999 minutes or 1-6 hours with a unit; a fraction of an hour
+        /// (3/4-hour, 1-1/2-hour); or an FRL with at least one period. An AcousticRating is Rw and whole dB; a ThermalTransmittance one
+        /// positive number below 10. Any other property has no shape. "Rw 45" as a fire rating, "T 200 mm", "EI 30-C0-C5", "REI 0",
+        /// "-/-/-", "90" are not one. ASCII only (checked apart: NotAValue). The bridge's VALUE_SHAPE holds the same patterns.</summary>
+        public static readonly IReadOnlyDictionary<string, Regex> ValueShape = new Dictionary<string, Regex>(StringComparer.Ordinal)
+        {
+            ["FireRating"] = new Regex(@"^(?:FD ?(?:20|30|60|90|120)(?:[ -]?S)?|(?:REI|REW|RE|R|EI[12]?|EW|E)(?:-M[ -]?(?:15|20|30|45|60|90|120|180|240|360)|[ -]?(?:15|20|30|45|60|90|120|180|240|360)(?:-M)?)(?:[ -]?C[0-5]?)?(?:[ -]?S(?:a|m|200))?|T ?(?:30|60|90|120|180)(?:-[12])?(?:-RS)?|F ?(?:30|60|90|120|180)(?:-(?:A|AB|B))?|[1-9][0-9]{0,2}[ -]?(?:mins?|minutes?)|(?:[1-6](?:\.[0-9]{1,2})?|(?:[1-6][ -])?(?:1/2|1/3|2/3|1/4|3/4))[ -]?(?:h|hrs?|hours?)|(?!-/-/-)(?:[1-9][0-9]{1,2}|-)/(?:[1-9][0-9]{1,2}|-)/(?:[1-9][0-9]{1,2}|-))(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+            ["AcousticRating"] = new Regex(@"^Rw ?[1-9][0-9](?: ?dB)?(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+            ["ThermalTransmittance"] = new Regex(@"^(?=[0-9.]*[1-9])[0-9](?:\.[0-9]{1,3})?(?![\s\S])", RegexOptions.CultureInvariant),
+        };
+        /// <summary>Review C23 (context): a clause with a sentence is cited only when compileIds marked it source_alone — its document
+        /// said nothing but whole-class one-value sentences; a heading, a place, a condition or an exception around a stored sentence
+        /// narrows it without being in it. The bridge's NOT_ALONE.</summary>
+        public const string NotAlone = "its document says more than whole-class values (a heading, a place, a condition or an exception may narrow it) — a person decides";
         /// <summary>Review C23: the noun a whole-class sentence names each entity by ("All doors shall be FD30." is every IFCDOOR's,
         /// "All windows shall be FD30." none of it). The bridge's CLASS_NOUN.</summary>
         public static readonly Dictionary<string, string[]> ClassNoun = new Dictionary<string, string[]>
@@ -70,9 +81,10 @@ namespace Sentinel.GhostBuilder
         {
             if (entity == null || !ClassNoun.TryGetValue(entity, out var nouns)) return null;
             var prop = PropWords(key);
-            var noun = string.Join("|", nouns.Select(w => w.Substring(0, w.Length - 1) + "s?"));
-            return new Regex("^(?:the +" + (prop.Length > 0 ? prop.Replace(" ", " +") : "(?!)") + " +of +)?(?:(?:all|every|each|the) +)?(?:" + noun
-                             + ") +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            // Review C23 (wording): "all doors" / "doors" or "every door" / "each door" — never "the door(s)": one door, or doors named before.
+            return new Regex("^(?:the +" + (prop.Length > 0 ? prop.Replace(" ", " +") : "(?!)") + " +of +)?(?:(?:all +)?(?:" + string.Join("|", nouns) + ")|(?:every|each) +(?:"
+                             + string.Join("|", nouns.Select(w => w.Substring(0, w.Length - 1))) + ")) +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])",
+                             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
         private static bool Ascii(string s) => s.All(ch => ch >= ' ' && ch <= '~');
@@ -83,7 +95,8 @@ namespace Sentinel.GhostBuilder
         public static string NotAValue(string sentence, string value, string entity, string key)
         {
             var v = (value ?? "").Trim(' ', '\t', '\r', '\n');
-            if (!Ascii(v) || !OneValue.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
+            var parts = (key ?? "").Split('.'); // the bridge's key.split(".")[1]
+            if (!Ascii(v) || parts.Length < 2 || !ValueShape.TryGetValue(parts[1], out var shape) || !shape.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
             if (sentence == null) return null;
             var m = Ascii(sentence) ? Worded(entity, key)?.Match(sentence) : null;
             if (m != null && m.Success) return m.Groups[2].Value == v ? null : $"it states \"{m.Groups[2].Value}\", not \"{v}\" — a person decides";
@@ -92,7 +105,7 @@ namespace Sentinel.GhostBuilder
             return $"it is not worded \"{(prop.Length > 0 ? $"the {prop} of " : "")}all {noun} shall be {v}.\" — a person decides";
         }
 
-        private sealed class Row { public string Entity, Pset, Prop, Raw, Value, Spec, Sentence; public bool Unreadable; }
+        private sealed class Row { public string Entity, Pset, Prop, Raw, Value, Spec, Sentence; public bool Unreadable, Alone; }
         private readonly List<Row> _rows = new List<Row>();
         /// <summary>The ids@n's label ("ids@1 · project · 0a1b2c3d4e5f…"), or why there is none.</summary>
         public string Label;
@@ -108,7 +121,7 @@ namespace Sentinel.GhostBuilder
             var c = new Clauses { Label = label, Installed = true };
             try
             {
-                using (var d = JsonDocument.Parse(json ?? ""))
+                using (var d = JsonDocument.Parse(json ?? "", new JsonDocumentOptions { MaxDepth = int.MaxValue })) // review C23: jsonb keeps any depth, and so does the bridge
                 {
                     if (d.RootElement.ValueKind != JsonValueKind.Object || !d.RootElement.TryGetProperty("specifications", out var specs) || specs.ValueKind != JsonValueKind.Array) return c;
                     foreach (var s in specs.EnumerateArray())
@@ -126,7 +139,8 @@ namespace Sentinel.GhostBuilder
                             var value = raw?.Trim(' ', '\t', '\r', '\n');
                             if (string.IsNullOrEmpty(value) || Str(p, "pset") == null || Str(p, "name") == null) continue;
                             c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Raw = raw, Value = value, Spec = Str(s, "name") ?? "",
-                                                  Sentence = Str(s, "source_sentence"), Unreadable = !Readable(entity) });
+                                                  Sentence = Str(s, "source_sentence"), Unreadable = !Readable(entity),
+                                                  Alone = s.TryGetProperty("source_alone", out var al) && al.ValueKind == JsonValueKind.True });
                         }
                     }
                 }
@@ -153,7 +167,7 @@ namespace Sentinel.GhostBuilder
             {
                 // a pattern outside EntityPattern applies to nothing (the bridge skips it too); the sentence is read for this entity (C23)
                 if (!Regex.IsMatch(entity ?? "", r.Entity, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) continue;
-                var why = NotAValue(r.Sentence, r.Raw, entity, key);
+                var why = NotAValue(r.Sentence, r.Raw, entity, key) ?? (r.Sentence != null && !r.Alone ? NotAlone : null); // C23 (context)
                 if ((why != null) == skipped) hits.Add((r.Value, r.Spec, r.Sentence, why));
             }
             return hits;

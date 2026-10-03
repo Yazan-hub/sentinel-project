@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue } from "./changesets-typing.mjs";
+import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue, NOT_ALONE } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
@@ -134,7 +134,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
-    expect(VS.value_cases.length).toBe(142);
+    expect(VS.value_cases.length).toBe(196);
     for (const c of VS.value_cases) {
       const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
       const entity = c.entity ?? "IFCDOOR", key = c.key ?? "Pset_DoorCommon.FireRating";
@@ -144,6 +144,26 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
       const ids = compileIds(c.sentence), sp = ids.specifications[0], p = sp?.requirements.properties[0];
       expect([p?.value, sp?.applicability.entity, `${p?.pset}.${p?.name}`], tag).toEqual([c.value, entity, key]);
       expect(clauseValues(ids, sp.applicability.entity, `${p.pset}.${p.name}`).map((h) => h.value), tag).toEqual(c.why ? [] : [c.value]);
+    }
+  });
+
+  it("a sentence is cited only when its document said nothing but whole-class one-value sentences: every shared document (review C23 context)", () => {
+    expect(VS.document_cases.length).toBe(39);
+    for (const c of VS.document_cases) {
+      const ids = compileIds(c.text);
+      expect(ids.specifications, c.text).toEqual(c.specifications); // the add-in reads these (promote-check): they are compileIds' own
+      expect(clauseValues(ids, c.entity, c.key).map((h) => h.value), c.text).toEqual(c.values);
+    }
+    let said = "";
+    try { cite("wall", WALL, "Pset_WallCommon.ThermalTransmittance", "0.3", { kind: "clause" }, "e"); } catch (e) { said = e.message; }
+    expect(said.endsWith(`WALL — ThermalTransmittance ("The thermal transmittance of walls shall be 0.3."): ${NOT_ALONE}`), said).toBe(true);
+  });
+
+  it("a catalogue value is trimmed of ASCII blanks only, as the add-in trims it: every shared case (review C23)", () => {
+    for (const { raw, value } of VS.catalog_trim) {
+      const types = [{ ...VS.catalog.types[0], params: { "Fire Rating": raw } }];
+      const c = makeCiter({ ...SRC, catalog: { ...SRC.catalog, body: { ...VS.catalog, types } } }, core);
+      expect(c("wall", WALL, "Pset_WallCommon.FireRating", value, { kind: "catalogue" }, "e").kind, JSON.stringify(raw)).toBe("catalogue");
     }
   });
 
