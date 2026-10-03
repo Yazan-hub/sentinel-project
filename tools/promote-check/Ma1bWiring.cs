@@ -56,7 +56,7 @@ static partial class Check
         Ok(planner.Contains("hosted ? el.Block?.RotationDeg : null, el.Block?.Mirrored == true"), "a hosted block is filed with its angle and mirror; an outline with none");
         Ok(planner.Contains("if (el.Block != null && k.Kind != \"door\" && k.Kind != \"window\")") && planner.Contains("report.SkippedBlocks += kv.Value;")
            && Src("Commands.GhostBuilder.cs").Contains("Skipped (a block on a row that is not Doors or Windows): {r.SkippedBlocks}")
-           && planner.Contains("report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,"),
+           && planner.Contains("report.SkippedNoHost + report.SkippedDuplicate + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,"),
            "a block on a row that is not Doors or Windows is not placed: counted, named, and in the ledger report's skipped count");
         // Review (2026-10-03): a block on a Walls row is set aside where the walls are typed — never a silent SkippedNoGeometry.
         int wallRow = planner.IndexOf("if (el.Block != null) { NoteNested($\"Walls on '{el.CadLayer}'\", el); SetAside(el); continue; }", StringComparison.Ordinal);
@@ -70,6 +70,15 @@ static partial class Check
            && Src("Commands.GhostBuilder.cs").Contains("of these, where a wall line stops short of the opening"),
            "a door or window at a wall broken at the opening is counted on its own summary line");
         Ok(planner.Contains("if (el.Block?.Nested > 0)"), "a block that holds blocks inside it is said to be read as one");
+        // F4 option B (drill B1-10, 2026-10-03: Revit answers two identical doors at one point with an error that rolls the whole
+        // build back): the second block at a planned door's or window's point is named a duplicate and not filed — after the
+        // snap and the host rule (both points are on the wall's line), before the plan takes it.
+        int dup = planner.IndexOf("report.SkippedDuplicate++;", StringComparison.Ordinal);
+        int filedPoint = planner.IndexOf("plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Point(", StringComparison.Ordinal);
+        Ok(dup > hostRule && dup < filedPoint && planner.Contains("hostedAt.Where(h => h.Kind == k.Kind && Math.Abs(h.X - x) <= 1 && Math.Abs(h.Y - y) <= 1)")
+           && planner.Contains("hostedAt.Add((k.Kind, x, y, what));")
+           && Src("Commands.GhostBuilder.cs").Contains("a duplicate in the drawing, not filed; F4): {r.SkippedDuplicate}"),
+           "a second door or window block within 1 mm of one already planned is named a duplicate and not filed (F4 B), counted on its own summary line and in the ledger's skipped count");
         Ok(planner.Contains("if (GhostFiling.LostRotation(chunks[c], cs.Elements))"), "a bridge that dropped the angle abandons the build before anything is placed");
         Ok(planner.Contains("report.Placement.AddRange(PlacementGeometry.TurnLines(results.SelectMany(x => x.Turned).ToList()));"),
            "the summary says how the placed doors sit against their blocks, from what the executor measured after the commit");

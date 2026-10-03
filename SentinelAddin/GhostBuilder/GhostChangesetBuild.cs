@@ -257,6 +257,9 @@ namespace Sentinel.GhostBuilder
                 // MA-1b (GHB-1): half of each one's thickness (mm), index for index with `straight` — half its TYPE's width: what
                 // the wall will be, also for a wall drawn as one line (no measured thickness).
                 var halves = new List<double>();
+                // MA-1b (F4 B): the doors and windows already planned, by kind and moved point — a second block within 1 mm of
+                // one is a duplicate in the drawing, named and not filed (Revit refuses two identical doors at one point).
+                var hostedAt = new List<(string Kind, double X, double Y, string What)>();
                 var widths = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
                 var arcs = new List<Curve>();                                                                         // this build's curved walls (ft)
                 var seq = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -448,6 +451,17 @@ namespace Sentinel.GhostBuilder
                             report.Warnings.Add($"{what}: {drawnAs}{hostWhy} — not filed.");
                             continue;
                         }
+                        // F4 B (drill B1-10: Revit's answer to two identical doors at one point is an error that rolls the
+                        // whole build back) — the second one is named as a duplicate and not filed; nothing in the model is touched.
+                        string first = hostedAt.Where(h => h.Kind == k.Kind && Math.Abs(h.X - x) <= 1 && Math.Abs(h.Y - y) <= 1).Select(h => h.What).FirstOrDefault();
+                        if (first != null)
+                        {
+                            report.SkippedDuplicate++;
+                            report.Warnings.Add($"{what}: {drawnAs}a second {k.Kind} block at the same point as {first} ({x:0}, {y:0} mm) — a duplicate in the drawing; " +
+                                                $"not filed (Revit refuses two identical {k.Kind}s at one point and would roll the whole build back). Remove it in the drawing if it is not meant.");
+                            continue;
+                        }
+                        hostedAt.Add((k.Kind, x, y, what));
                     }
                     plan.Add(new Planned { Map = map, What = what, Dto = Prov(GhostFiling.Point(k.Kind, el.CadLayer, Next(el.CadLayer), sym.FamilyName, sym.Name, level.Name, x, y, levelMm,
                         hosted ? el.Block?.RotationDeg : null, el.Block?.Mirrored == true), map, null) });
@@ -617,7 +631,7 @@ namespace Sentinel.GhostBuilder
                 // amendment C19): a build whose every element Revit removed at commit is not an action to report.
                 if (report.Placed > 0)
                     GovernedNotify.Report("Ghost Builder", CommandReports.GhostBuild(r.Drawing, level.Name, report.Placed, report.DeletedByRevit.Count,
-                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,
+                        report.WallGaps, report.TypeGaps, report.SkippedNoHost + report.SkippedDuplicate + report.SkippedNoGeometry + report.SkippedUnknownFamily + report.SkippedBlocks,
                         report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count, bound ? filed.Select(f => f.Id).ToList() : new List<string>(), UserSession.Actor), r.Key);
                 // MA-1a item 8: the reader's build:run receipt, for the same kept build — its gaps are the walls and types
                 // this build left as a named gap. Under the report's own condition (review amendment C19): a build that

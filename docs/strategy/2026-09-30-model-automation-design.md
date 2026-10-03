@@ -1069,7 +1069,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Drill MA1b (Revit 2024):**
   - `make-sample.py` gets 10 door blocks at known angles. Result: 10 hosted doors that cut their walls, rotation within 1°.
   - An import in the Level 3 plan gives Base L3 and Top L4.
-  - A planted duplicate reports "Placed 9 (1 deleted by Revit)".
+  - A planted duplicate: Revit refused both doors with an error ("not cutting anything") and rolled the build back — so the planner names the second block at one point as a duplicate and does not file it (F4 B, drill B1-10, 2026-10-03); nothing is erased.
 
 **MA-2: LOD matrix + Promote v1 (walls, floors, ceilings).**
 - **Landed early (2026-09-30):** the `lod_matrix` kind (v0, DD only) arrived with Promote v1 — floors, roofs, ceilings, doors

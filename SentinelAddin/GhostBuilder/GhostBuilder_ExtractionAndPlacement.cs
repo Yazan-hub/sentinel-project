@@ -444,6 +444,10 @@ namespace Sentinel.GhostBuilder
             /// <summary>MA-1b (F8): of SkippedNoHost, the doors and windows standing where a wall's line stops short of the
             /// opening — a wall drawn in two pieces at the opening; the pieces are not joined yet (GHB-6).</summary>
             public int SkippedBrokenWall;
+            /// <summary>MA-1b (F4, option B — drill B1-10): a second door or window block at the same point as one already
+            /// planned (within 1 mm after both moved onto the wall's line) — a duplicate in the drawing. Not filed: Revit
+            /// answers two identical doors at one point with an error, not a warning, and rolls the whole build back.</summary>
+            public int SkippedDuplicate;
             /// <summary>MA-1b (E17): block inserts on a row that is not Doors or Windows — not placed, named per layer in Warnings.</summary>
             public int SkippedBlocks;
             /// <summary>MA-1a step 2 (DWG): placed elements whose provenance stamp reads source dwg after the build.</summary>
