@@ -5,7 +5,7 @@ import {
   validateChangeset, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper } from "./changesets-typing.mjs";
+import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 
 const wall = (over = {}) => ({
   kind: "wall",
@@ -216,13 +216,14 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     ...over,
   });
 
-  it("OPS is create, retype, attach; VOCABULARY is the MA-1 list", () => {
-    expect(OPS).toEqual(["create", "retype", "attach"]);
+  it("OPS is create, retype, attach, set_parameter (MA-2c); VOCABULARY is the MA-1 list", () => {
+    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter"]);
     expect(VOCABULARY).toEqual(MA1);
   });
 
-  it("OP_KINDS: create takes the vocabulary, retype six element kinds, attach walls only", () => {
-    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"] });
+  it("OP_KINDS: create takes the vocabulary, retype and set_parameter six element kinds, attach walls only", () => {
+    const SIX = ["wall", "floor", "roof", "ceiling", "door", "window"];
+    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: SIX, attach: ["wall"], set_parameter: SIX });
   });
 
   it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
@@ -910,5 +911,99 @@ describe("validateChangeset — bridge typing (MA-2a, full contract 2)", () => {
     // The body as the design wrote it — a `measured` block and no facts — is still refused, in words: 203 mm is a gap under the exact rule.
     const design = { ...fx.posted, elements: [{ ...fx.posted.elements[0], facts: undefined, measured: { thickness_mm: 203, height_mm: 3050 } }] };
     status400(() => validateChangeset(design, { type: makeTyper(standards, core) }), /no rule of guideline@1 · office · 0123456789ab… matches a wall with no facts/);
+  });
+});
+
+// MA-2c: set_parameter writes one value on an existing TYPE from a cited source — [BP] P2-7's item, built once. The bridge checks
+// the source (cite, changesets-typing.makeCiter over the project's catalogue and ids@n) and writes its own record; it is never
+// pre-ticked. The fixture is the body the add-in's PropertyPlanner files (tools/promote-check writes the same).
+describe("validateChangeset — set_parameter (MA-2c)", () => {
+  const TYPE_UID = "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a01";
+  const VS = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/value-sources.json", import.meta.url), "utf8"));
+  const cite = makeCiter({
+    catalog: { body: VS.catalog, label: "type_catalog@1 · office · fedcba987654…", sha256: "cd".repeat(32) },
+    ids: { body: VS.ids, label: "ids@1 · project · 0a1b2c3d4e5f…", sha256: "ef".repeat(32) },
+  }, core);
+  const write = (over = {}) => ({
+    op: "set_parameter", kind: "wall", target: { unique_id: TYPE_UID }, place: { TypeName: "BDS_EXT_ARC_CMU_200 mm" },
+    parameter: "Pset_WallCommon.FireRating", revit_parameter: "Fire Rating", from: "", to: "60 min", value_source: { kind: "catalogue" },
+    reason: "DD walls: from the catalogue", validate: { identity: { Class: "IfcWall", Name: "type BDS_EXT_ARC_CMU_200 mm" } },
+    ...over,
+  });
+
+  it("keeps the parameter, from, to and the bridge's own value_source; a member's Promote post still never pre-ticks it", () => {
+    const v = validateChangeset(CS([write()], { source: "promote" }), { member: true, cite });
+    expect(v.elements[0]).toMatchObject({
+      op: "set_parameter", kind: "wall", target: { unique_id: TYPE_UID, type_before: null }, place: { TypeName: "BDS_EXT_ARC_CMU_200 mm" },
+      parameter: "Pset_WallCommon.FireRating", revit_parameter: "Fire Rating", from: "", to: "60 min", pretick: false,
+      value_source: { kind: "catalogue", ref: "type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating", sha256: "cd".repeat(32) },
+    });
+    expect(v.ignored).toEqual([]);
+  });
+
+  it("a posted value_source.ref is not kept (the bridge writes the record) and is listed; a door's clause source cites its sentence", () => {
+    const v = validateChangeset(CS([write({ value_source: { kind: "catalogue", ref: "trust me" } }),
+      write({ kind: "door", place: { FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" }, parameter: "Pset_DoorCommon.FireRating", to: "FD30", value_source: { kind: "clause" },
+        validate: { identity: { Class: "IfcDoor", Name: "type BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm" } } })]), { cite });
+    expect(v.ignored).toEqual([{ field: "elements[0].value_source.ref", why: "ignored: not a field this bridge keeps" }]);
+    expect(v.elements[1].value_source.ref).toBe('ids@1 · project · 0a1b2c3d4e5f… · Doors carry FD30 · "All doors shall be FD30."');
+  });
+
+  it("each refusal says what is missing: the type, the family, the parameter, from, to, the source — and a source the bridge cannot check", () => {
+    status400(() => validateChangeset(CS([write({ place: {} })]), { cite }), /^elements\[0\]: set_parameter needs place\.TypeName — the type whose parameter it writes$/);
+    status400(() => validateChangeset(CS([write({ kind: "door", place: { TypeName: "T" } })]), { cite }), /a door set_parameter needs place\.FamilyName/);
+    status400(() => validateChangeset(CS([write({ parameter: "FireRating" })]), { cite }), /set_parameter needs parameter, a "Pset_Name\.Property" key/);
+    status400(() => validateChangeset(CS([write({ parameter: "Pset_DoorCommon.FireRating" })]), { cite }), /^elements\[0\]: a wall set_parameter writes Pset_WallCommon, not Pset_DoorCommon\.FireRating$/); // C1
+    status400(() => validateChangeset(CS([write({ from: undefined })]), { cite }), /set_parameter needs from — the value the plan read, "" when empty \(the stale guard compares it\)/);
+    status400(() => validateChangeset(CS([write({ to: " " })]), { cite }), /set_parameter needs to — one line of at most 500 characters/);
+    status400(() => validateChangeset(CS([write({ to: "60\nmin" })]), { cite }), /set_parameter needs to/);
+    // C1: a filled value is a person's, whatever the source says — the bridge refuses it, not only the add-in's planner.
+    status400(() => validateChangeset(CS([write({ from: "30 min" })]), { cite }), /^elements\[0\]: set_parameter fills an empty value only — a filled one is a person's \(P2-7 edits it\)$/);
+    status400(() => validateChangeset(CS([write({ value_source: { kind: "person" } })]), { cite }),
+      /set_parameter needs value_source \{kind: catalogue \| clause\} — a value is written from a cited source, never a guess; a person types their own in Revit/);
+    status400(() => validateChangeset(CS([write()])), /the bridge read no standards to check this value_source — nothing is written unchecked/);
+    status400(() => validateChangeset(CS([write({ to: "120 min" })]), { cite }), /gives BDS_EXT_ARC_CMU_200 mm Fire Rating "60 min", not "120 min"/);
+    status400(() => validateChangeset(CS([write({ target: { unique_id: TYPE_UID, type_before: "X" } })]), { cite }), /set_parameter takes no target\.type_before — its stale guard is from/);
+    status400(() => validateChangeset(CS([write({ facts: { thickness_mm: 200 } })]), { cite }), /set_parameter takes no facts — nothing is typed/);
+    status400(() => validateChangeset(CS([write({ place: { TypeName: "BDS_EXT_ARC_CMU_200 mm", Mark: "W1" } })]), { cite }), /set_parameter takes no place\.Mark — only a create sets it/);
+  });
+
+  it("the referee judges the value written: the bridge builds a set_parameter's validate from its kind, parameter and to; a posted pset, quantity or other class is listed, never judged (review amendment C2)", () => {
+    const v = validateChangeset(CS([write({ validate: { identity: { Class: "IfcBuildingElementProxy", Name: "type X" },
+      psets: [{ name: "Pset_WallCommon", rows: [{ name: "FireRating", value: "REI120" }] }], quantities: [] } })]), { cite });
+    expect(v.elements[0].validate).toMatchObject({ identity: { Class: "IFCWALL", Name: "type X" },
+      psets: [{ name: "Pset_WallCommon", rows: [{ name: "FireRating", value: "60 min" }] }], quantities: [] });
+    expect(v.ignored).toEqual([
+      { field: "elements[0].validate.psets", why: "ignored: set by the bridge from parameter and to" },
+      { field: "elements[0].validate.quantities", why: "ignored: set by the bridge from parameter and to" },
+      { field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" }]);
+    expect(validateChangeset(CS([write()]), { cite }).elements[0].validate.identity.Class).toBe("IfcWall"); // the kind's class, as the add-in posts it, is kept
+  });
+
+  it("one set_parameter per type and parameter; another op carrying a set_parameter's fields is refused, never dropped", () => {
+    status400(() => validateChangeset(CS([write(), write()]), { cite }), /elements\[1\]: a second set_parameter for the same element and Pset_WallCommon\.FireRating/);
+    status400(() => validateChangeset(CS([{ ...wall(), to: "60 min" }])), /^elements\[0\]: create takes no to — only a set_parameter writes a value$/);
+    status400(() => validateChangeset(CS([{ op: "attach", kind: "wall", target: { unique_id: TYPE_UID }, place: { BaseLevel: "L1", TopLevel: "L2" },
+      validate: { identity: { Class: "IfcWall" } }, parameter: "Pset_WallCommon.FireRating" }])), /attach takes no parameter/);
+  });
+
+  it("the shared fixture: the add-in's body passes, every write field kept, each source the bridge's record (tools/promote-check writes the same body)", () => {
+    const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/set-parameter-body.json", import.meta.url), "utf8"));
+    const v = validateChangeset(body, { member: true, cite });
+    expect(v).toMatchObject({ name: body.name, source: "promote" });
+    v.elements.forEach((el, i) => {
+      const sent = body.elements[i];
+      expect(el).toMatchObject({ kind: sent.kind, op: sent.op, reason: sent.reason, place: sent.place });
+      if (sent.op === "set_parameter") {
+        expect(el).toMatchObject({ parameter: sent.parameter, revit_parameter: sent.revit_parameter, from: sent.from, to: sent.to, pretick: false });
+        expect(el.value_source.kind).toBe(sent.value_source.kind);
+        const [pset, prop] = sent.parameter.split("."); // C2: the bridge's own validate, from parameter and to
+        expect(el.validate.psets).toEqual([{ name: pset, rows: [{ name: prop, value: sent.to }] }]);
+      }
+    });
+    // C8: retypes first within a chunk (ByWall), the type edits after — the executor runs them after the attach loop either way.
+    expect(body.elements.map((e) => e.op)).toEqual(["retype", "retype", "set_parameter", "set_parameter"]);
+    expect(v.ignored).toEqual([]); // the add-in sends nothing the bridge sets itself
+    expect(v.exceptions).toEqual(body.exceptions);
   });
 });

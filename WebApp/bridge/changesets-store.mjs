@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures } from "./changesets-logic.mjs";
-import { makeTyper } from "./changesets-typing.mjs";
+import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 
@@ -27,23 +27,35 @@ const wire = (deps = {}) => ({
 });
 
 /** MA-2a: does a posted body hold an element the bridge would have to type — a create or retype of a typed kind (not a level or
- *  grid, never an attach) that names no place.TypeName? Only then are the standards read. */
+ *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. */
 export const needsTyping = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e && typeof e === "object"
-  && (e.op ?? "create") !== "attach" && e.kind !== "level" && e.kind !== "grid"
+  && !["attach", "set_parameter"].includes(e.op ?? "create") && e.kind !== "level" && e.kind !== "grid"
   && !(e.place && typeof e.place === "object" && typeof e.place.TypeName === "string" && e.place.TypeName.trim() !== ""));
 
-/** The typer for `key`: its guideline@n and type_catalog@n (project → office), each re-checked with the install validator — one
- *  installed before a check existed is none with its reason — and the bundle's resolver. The GET is the add-in's read too. */
+/** MA-2c: does a posted body hold a set_parameter? Only then are the type catalogue and the ids@n read, to check its source. */
+export const needsCiting = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e?.op === "set_parameter");
+
+/** One standard of `key` (project → office), re-checked with the install validator — one installed before a check existed is none
+ *  with its reason. The GET is the add-in's read too. */
+async function standardOf(key, kind, d) {
+  const a = await d.resolveArtefact(key, kind);
+  if (a.source === "none") return { body: null, label: `none — not installed for ${key} or its office`, sha256: null };
+  try { validateArtefact(kind, a.body); } catch (e) { return { body: null, label: `none — ${refLabel(a)} did not parse: ${e.message}`, sha256: null }; }
+  return { body: a.body, label: refLabel(a), sha256: a.sha256 };
+}
+
+/** The typer for `key`: its guideline@n and type_catalog@n and the bundle's resolver. */
 async function typerFor(key, d) {
   const core = await import("./sentinel-core.mjs");
-  const read = async (kind) => {
-    const a = await d.resolveArtefact(key, kind);
-    if (a.source === "none") return { body: null, label: `none — not installed for ${key} or its office`, sha256: null };
-    try { validateArtefact(kind, a.body); } catch (e) { return { body: null, label: `none — ${refLabel(a)} did not parse: ${e.message}`, sha256: null }; }
-    return { body: a.body, label: refLabel(a), sha256: a.sha256 };
-  };
-  const [guideline, catalog] = await Promise.all([read("guideline"), read("type_catalog")]);
+  const [guideline, catalog] = await Promise.all([standardOf(key, "guideline", d), standardOf(key, "type_catalog", d)]);
   return makeTyper({ guideline, catalog }, core);
+}
+
+/** MA-2c: the check of a set_parameter's source for `key`: its type_catalog@n and ids@n, and the bundle's category match. */
+async function citerFor(key, d) {
+  const core = await import("./sentinel-core.mjs");
+  const [catalog, ids] = await Promise.all([standardOf(key, "type_catalog", d), standardOf(key, "ids", d)]);
+  return makeCiter({ catalog, ids }, core);
 }
 
 export async function proposeChangeset(key, body, actor, deps) {
@@ -57,7 +69,9 @@ export async function proposeChangeset(key, body, actor, deps) {
   // MA-2a (full contract 2): an element without place.TypeName is typed from the project's guideline@n and type_catalog@n by the
   // resolver the add-in's matcher mirrors, or refused in words; the standards are read only when a post needs them.
   const type = needsTyping(body) ? await typerFor(key, d) : null;
-  const v = validateChangeset(body, { member: role != null && role !== "service", type }); // 400/413 before any changeset is stored
+  // MA-2c: a set_parameter's value is written only as an installed catalogue or clause holds it — the bridge checks the source.
+  const cite = needsCiting(body) ? await citerFor(key, d) : null;
+  const v = validateChangeset(body, { member: role != null && role !== "service", type, cite }); // 400/413 before any changeset is stored
   const proj = await d.ensureProject(key);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
@@ -150,9 +164,19 @@ export async function reportResult(key, id, { applied, rejected, note } = {}, ac
     const now2 = await d.docGet(STORE, proj.id, id);
     throw err(409, `changeset is ${now2?.status ?? "gone"} — a result can be reported exactly once, from proposed`);
   }
+  // MA-2c ([BP] P2-7's param:apply, built once): each value written — its type, parameter, from, to and the bridge's record of its
+  // source — rides on the changeset_applied row.
+  // Review amendment C9: each entry names the type exactly — its kind, the UniqueId the plan named and the one Revit reported (one
+  // name can be both a wall type and a ceiling type: BDS_INT_ARC_GYPS_50 mm).
+  const done = new Map(updated.result.applied.map((a) => [a.proposal_guid, a]));
+  const values = cs.elements.filter((e) => e.op === "set_parameter" && done.has(e.proposal_guid)).map((e) => ({
+    proposal_guid: e.proposal_guid, kind: e.kind, type: e.place?.FamilyName ? `${e.place.FamilyName} : ${e.place.TypeName}` : e.place?.TypeName ?? null,
+    unique_id: e.target?.unique_id ?? null, revit_unique_id: done.get(e.proposal_guid).revit_unique_id ?? null,
+    parameter: e.parameter, from: e.from, to: e.to, value_source: e.value_source ?? null,
+  }));
   await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
-    { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note });
+    { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}) });
   return updated;
 }
 

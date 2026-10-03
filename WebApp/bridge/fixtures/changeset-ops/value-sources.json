@@ -1,0 +1,42 @@
+{
+  "_note": "MA-2c: where a set_parameter's value may come from. catalog_param and kind_entity are the add-in's PropertyPlanner.CatalogParam and PromoteWallsPlanner.Classes (upper-cased) and the bridge's CATALOG_PARAM and KIND_ENTITY; catalog is a type_catalog@n body (BDS rows, Fire Rating filled on two); ids is an ids@n body whose clauses the cases read. tools/promote-check and vitest read this file.",
+  "catalog_param": { "Pset_WallCommon.FireRating": "Fire Rating", "Pset_DoorCommon.FireRating": "Fire Rating" },
+  "kind_entity": { "wall": "IFCWALL", "floor": "IFCSLAB", "roof": "IFCROOF", "ceiling": "IFCCOVERING", "door": "IFCDOOR", "window": "IFCWINDOW" },
+  "catalog": {
+    "template": { "title": "MA2c value sources" },
+    "types": [
+      { "category": "Walls", "family": "Basic Wall", "type": "BDS_EXT_ARC_CMU_200 mm", "system": true, "width_mm": 200, "height_mm": null, "params": { "Assembly Code": "B2010", "Fire Rating": "60 min" } },
+      { "category": "Walls", "family": "Basic Wall", "type": "BDS_INT_ARC_GYPS_100 mm", "system": true, "width_mm": 100, "height_mm": null, "params": { "Assembly Code": "C1010140" } },
+      { "category": "Doors", "family": "BDS_INT_1 PNL", "type": "BDS_INT_1 PNL_WOOD_1000 x 2100 mm", "system": false, "width_mm": 960, "height_mm": 1980, "params": { "Assembly Code": "C1020", "Type Mark": "47" } },
+      { "category": "Doors", "family": "BDS_INT_2 PNL", "type": "BDS_INT_2 PNL_WOOD_2000 x 2100 mm", "system": false, "width_mm": 980, "height_mm": 2080, "params": { "Fire Rating": "FD60" } }
+    ]
+  },
+  "ids": {
+    "title": "MA2c clauses",
+    "specifications": [
+      { "name": "Doors carry FD30", "applicability": { "entity": "IFCDOOR" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_DoorCommon", "name": "FireRating", "value": "FD30", "cardinality": "required" }] },
+        "source_sentence": "All doors shall be FD30." },
+      { "name": "Fire walls carry REI60", "applicability": { "entity": "IFCWALL", "predefinedType": "SHEAR" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_WallCommon", "name": "FireRating", "value": "REI60", "cardinality": "required" }] } },
+      { "name": "Windows carry a U-value", "applicability": { "entity": "IFCWINDOW" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_WindowCommon", "name": "ThermalTransmittance", "pattern": "^[0-9.]+$", "cardinality": "required" }] } },
+      { "name": "Roofs are recorded", "applicability": { "entity": "^IFC(ROOF|SLAB)$" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_RoofCommon", "name": "FireRating", "value": "REI30", "cardinality": "required" }, { "pset": "Pset_RoofCommon", "name": "FireRating", "value": "REI60", "cardinality": "required" }] } },
+      { "name": "Slabs are REI90", "applicability": { "entity": "^IFC(ROOF|SLAB)$" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_SlabCommon", "name": "FireRating", "value": "REI90", "cardinality": "optional" }] } },
+      { "name": "Ceilings at least REI30", "applicability": { "entity": "IFCCOVERING" },
+        "requirements": { "attributes": [], "properties": [{ "pset": "Pset_CoveringCommon", "name": "FireRating", "value": "REI30", "cardinality": "required" }] },
+        "source_sentence": "All ceilings shall be at least REI30." }
+    ]
+  },
+  "clauses": [
+    { "name": "a whole-class clause pins one value", "entity": "IFCDOOR", "key": "Pset_DoorCommon.FireRating", "values": ["FD30"], "spec": "Doors carry FD30", "sentence": "All doors shall be FD30." },
+    { "name": "a clause narrowed by a predefined type is not every wall's", "entity": "IFCWALL", "key": "Pset_WallCommon.FireRating", "values": [] },
+    { "name": "a pattern is not a value", "entity": "IFCWINDOW", "key": "Pset_WindowCommon.ThermalTransmittance", "values": [] },
+    { "name": "two values for one key are both read (the caller says they disagree)", "entity": "IFCROOF", "key": "Pset_RoofCommon.FireRating", "values": ["REI30", "REI60"], "spec": "Roofs are recorded", "sentence": null },
+    { "name": "an optional property pins nothing", "entity": "IFCSLAB", "key": "Pset_SlabCommon.FireRating", "values": [] },
+    { "name": "another class's clause is not this one's", "entity": "IFCCOVERING", "key": "Pset_DoorCommon.FireRating", "values": [] },
+    { "name": "a floor (at least …) is not a value (review amendment C7)", "entity": "IFCCOVERING", "key": "Pset_CoveringCommon.FireRating", "values": [] }
+  ]
+}

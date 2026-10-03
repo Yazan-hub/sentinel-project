@@ -95,3 +95,83 @@ export function makeTyper({ guideline: g, catalog: c }, core) {
     };
   };
 }
+
+// ── MA-2c: where a set_parameter's value comes from. The bridge, not the caller, says it (the trust rule): the cited artefact
+// must hold exactly the value posted — a catalogue row of exactly that type, or the one value every whole-class clause of the
+// installed ids@n pins. Never a guess: no row, two rows, two values, another value — each a 400 in words. The add-in's
+// PropertyPlanner reads the same two sources; fixtures/changeset-ops/value-sources.json holds both sides to one table and one
+// reading of the clauses.
+
+/** The catalogue parameter a DD property is harvested under (Build Office System reads "Fire Rating" by its display name,
+ *  GoldenModelExtractor.InterestingParams). A property not here has no catalogue source: the harvest reads no thermal value. */
+export const CATALOG_PARAM = { "Pset_WallCommon.FireRating": "Fire Rating", "Pset_DoorCommon.FireRating": "Fire Rating" };
+/** The IFC entity each Promote kind is adjudicated as (PromoteWallsPlanner.Classes' Ifc, as an IDS writes it): what a clause's
+ *  applicability must match. */
+export const KIND_ENTITY = { wall: "IFCWALL", floor: "IFCSLAB", roof: "IFCROOF", ceiling: "IFCCOVERING", door: "IFCDOOR", window: "IFCWINDOW" };
+/** Review amendment C1: the property set a set_parameter of each kind writes — the class's own common set. The catalogue's "Fire
+ *  Rating" of a wall is no door's: a key of another class's set is refused (checkWrite). */
+export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", roof: "Pset_RoofCommon", ceiling: "Pset_CoveringCommon", door: "Pset_DoorCommon", window: "Pset_WindowCommon" };
+/** Review amendment C7 (S8): a clause whose sentence says one of these pins a floor, not a value ("shall be at least 60 minutes":
+ *  compileIds writes value "60 minutes" from it) — never written. The add-in's Clauses.FloorWords is the same pattern. */
+export const FLOOR_WORDS = /\b(at least|no less than|not less than|minimum|or more|or better)\b/i;
+
+/** The values an installed ids@n pins for `key` ("Pset_X.Prop") on EVERY element of `entity`: a cited clause is a specification
+ *  whose applicability is its entity alone (another facet narrows it to some elements) and whose required property carries one
+ *  exact value (a pattern is not a value; a floor is not one either: C7). [{value, spec, sentence}] in the IDS's order; two values
+ *  are both returned — the caller says they disagree. */
+export function clauseValues(ids, entity, key) {
+  const [pset, prop] = String(key).split(".");
+  const out = [];
+  for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
+    const a = s?.applicability;
+    if (!a || typeof a !== "object" || typeof a.entity !== "string" || Object.keys(a).some((k) => k !== "entity")) continue;
+    if (typeof s.source_sentence === "string" && FLOOR_WORDS.test(s.source_sentence)) continue; // C7: a minimum, not a value
+    let re;
+    try { re = new RegExp(a.entity, "i"); } catch { continue; }
+    if (!re.test(entity)) continue;
+    for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : [])
+      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.trim())
+        out.push({ value: p.value.trim(), spec: String(s.name ?? ""), sentence: typeof s.source_sentence === "string" ? s.source_sentence : null });
+  }
+  return out;
+}
+
+/** The check validateChangeset runs on a set_parameter's value_source. `standards` = {catalog, ids}, each {body (null = none
+ *  installed, or one that did not parse), label, sha256} as the typer's; `core` = the bundle (sameCategory). Returns (kind, place,
+ *  key, to, valueSource, at) → the bridge's own record {kind, ref, sha256}, or throws a 400 that says what does not hold.
+ *  Review amendment C1: BOTH sources are read whichever is cited — a catalogue row and a clause that hold different values are a
+ *  400 "the sources disagree", as the add-in's PropertyPlanner sends them to a person: the bridge holds the rule, not the caller. */
+export function makeCiter({ catalog: c, ids: s }, core) {
+  const norm = (v) => String(v ?? "").trim().toLowerCase();
+  const refOf = (h) => `${s.label} · ${h.spec}` + (h.sentence ? ` · "${h.sentence}"` : "");
+  return (kind, place, key, to, vs, at) => {
+    const lead = `${at}: set_parameter's value_source`;
+    const want = to.trim();
+    const label = place.FamilyName ? `${place.FamilyName} : ${place.TypeName}` : place.TypeName;
+    // What each source holds for this type and key, read before either is judged.
+    const name = CATALOG_PARAM[key];
+    const cat = KIND_CATEGORY[kind];
+    const rows = c.body && name ? c.body.types.filter((r) => core.sameCategory(r, cat) && norm(r.type) === norm(place.TypeName)
+      && (!place.FamilyName || norm(r.family) === norm(place.FamilyName))) : [];
+    const fromCatalog = rows.length === 1 && typeof rows[0].params?.[name] === "string" ? rows[0].params[name].trim() : "";
+    const catalogRef = `${c.label} · ${label} · ${name}`;
+    const hits = s.body ? clauseValues(s.body, KIND_ENTITY[kind], key) : [];
+    const disagree = (a, h) => err(400, `${lead}: the sources disagree on ${key} for ${label}: "${a}" (${catalogRef}) and "${h.value}" (${refOf(h)}) — a person decides`);
+    if (vs.kind === "catalogue") {
+      if (!c.body) throw err(400, `${lead} is the catalogue, and no type catalogue is installed for this project or its office (${c.label}): not checkable`);
+      if (!name) throw err(400, `${lead} is the catalogue, and the catalogue harvests no parameter for ${key} — a person fills it`);
+      if (rows.length !== 1) throw err(400, `${lead}: ${c.label} has ${rows.length ? `${rows.length} rows` : "no row"} for ${cat} ${label} — one row is one source`);
+      if (fromCatalog !== want) throw err(400, `${lead}: ${c.label} gives ${label} ${name} "${fromCatalog}", not "${want}" — a value is written only as its source holds it`);
+      const other = hits.find((h) => h.value !== want);
+      if (other) throw disagree(want, other);
+      return { kind: "catalogue", ref: catalogRef, sha256: c.sha256 ?? null };
+    }
+    if (!s.body) throw err(400, `${lead} is a clause, and no ids@n is installed for this project or its office (${s.label}): not checkable`);
+    const values = [...new Set(hits.map((h) => h.value))];
+    if (values.length === 0) throw err(400, `${lead}: no clause of ${s.label} pins one value of ${key} for every ${KIND_ENTITY[kind]}`);
+    if (values.length > 1) throw err(400, `${lead}: the clauses of ${s.label} pin ${values.map((v) => `"${v}"`).join(" and ")} for ${key} — they disagree; a person decides`);
+    if (values[0] !== want) throw err(400, `${lead}: ${s.label} pins "${values[0]}" for ${key}, not "${want}" — a value is written only as its source holds it`);
+    if (fromCatalog && fromCatalog !== want) throw disagree(fromCatalog, hits[0]);
+    return { kind: "clause", ref: refOf(hits[0]), sha256: s.sha256 ?? null };
+  };
+}
