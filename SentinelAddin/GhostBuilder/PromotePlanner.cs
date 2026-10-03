@@ -14,6 +14,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Sentinel.Engine;
 
 namespace Sentinel.GhostBuilder
@@ -38,9 +39,11 @@ namespace Sentinel.GhostBuilder
         public bool InGroup, InOption, Structural;
     }
 
-    /// <summary>lod_matrix@n v0 as Promote v1 reads it: per class (Revit category, as guideline@n), what DD means. The bridge
-    /// refused any key Promote does not read at install; a row that still asks for something else is not run (GN-4), so
-    /// "DD now" never reads higher than what was checked. properties are listed for a person, never enforced.</summary>
+    /// <summary>lod_matrix@n as Promote reads it: per class (Revit category, as guideline@n), what DD means; since MA-2b also the
+    /// stage map (D18) and each row's snap (D16). The C# twin of sentinel-core's parseLodMatrix (lod-matrix.ts): it accepts and
+    /// refuses the same bodies in the same words — tools/promote-check and vitest read WebApp/bridge/fixtures/lod-matrix/cases.json.
+    /// A row that asks for something Promote does not check is not run (GN-4), so the LOD state never reads higher than what was
+    /// checked. properties are what the stage IDS (the bridge's matrixToIds) and the LOD state ask of an element.</summary>
     public sealed class LodMatrix
     {
         public static readonly string[] Order = { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows" };
@@ -53,12 +56,29 @@ namespace Sentinel.GhostBuilder
             ["Doors"] = "host=wall; level=story_level; type=guideline_rule", ["Windows"] = "host=wall; level=story_level; type=guideline_rule",
         };
 
+        /// <summary>Sentinel's project stages, in order (sentinel-core STAGES; GATE_DEFS is keyed by them).</summary>
+        public static readonly string[] Stages = { "tender", "design", "coord", "constr", "hand", "oper" };
+        /// <summary>The matrix's design stages, in order.</summary>
+        public static readonly string[] MatrixStages = { "concept", "SD", "DD", "CD" };
+        /// <summary>D18: concept, SD and DD → design; CD → coord.</summary>
+        public static readonly IReadOnlyDictionary<string, string> DefaultStageMap = new Dictionary<string, string>(StringComparer.Ordinal)
+        { ["concept"] = "design", ["SD"] = "design", ["DD"] = "design", ["CD"] = "coord" };
+        /// <summary>A snap is measurement noise or a near size, never another type.</summary>
+        public const int MaxSnapMm = 50;
+        private static readonly Dictionary<string, string> DdRules = new Dictionary<string, string>(StringComparer.Ordinal)
+        { ["type"] = "guideline_rule", ["level"] = "story_level", ["top"] = "next_story_level", ["host"] = "wall" };
+
         public bool Draft;
-        /// <summary>Category → its DD row without properties, as one sorted string "host=wall; level=story_level; type=guideline_rule".</summary>
+        /// <summary>Category → its DD rules (no properties, no snap), as one sorted string "host=wall; level=story_level; type=guideline_rule".</summary>
         public Dictionary<string, string> Dd = new Dictionary<string, string>(StringComparer.Ordinal);
         public Dictionary<string, List<string>> Properties = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        /// <summary>MA-2b: every matrix stage → its project stage (the body's stage_map over <see cref="DefaultStageMap"/>).</summary>
+        public Dictionary<string, string> StageMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        /// <summary>MA-2b: category → its DD row's type_snap_mm (0 = the exact match, D16).</summary>
+        public Dictionary<string, int> SnapMm = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        /// <summary>The raw lod_matrix@n body → the matrix, or null with <paramref name="error"/> naming the field. Never throws.</summary>
+        /// <summary>The raw lod_matrix@n body → the matrix, or null with <paramref name="error"/> in parseLodMatrix's words
+        /// ("rows[1].DD.type_snap_mm must be …"). Never throws; never a partial matrix.</summary>
         public static LodMatrix FromBody(string json, out string error)
         {
             error = null;
@@ -67,42 +87,104 @@ namespace Sentinel.GhostBuilder
                 using (var d = JsonDocument.Parse(json ?? ""))
                 {
                     var b = d.RootElement;
-                    if (b.ValueKind != JsonValueKind.Object) throw new InvalidDataException("the body must be a JSON object");
-                    if (!b.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array) throw new InvalidDataException("rows must be an array");
+                    if (b.ValueKind != JsonValueKind.Object) throw Bad("the body", "must be a JSON object");
+                    foreach (var p in JsOrder(b))
+                        if (Array.IndexOf(new[] { "standard_key", "semver", "status", "stage_map", "rows" }, p.Name) < 0)
+                            throw Bad(p.Name, "is not a lod_matrix field — the body is {standard_key, semver, status?, stage_map?, rows}");
+                    if (!(b.TryGetProperty("standard_key", out var sk) && Filled(sk))) throw Bad("standard_key", "must be a non-empty string");
+                    // [0-9] and \z: .NET's \d takes any Unicode digit and its $ a final newline; JS's /^\d+\.\d+\.\d+$/ takes neither.
+                    if (!(b.TryGetProperty("semver", out var sv) && sv.ValueKind == JsonValueKind.String && Regex.IsMatch(sv.GetString(), @"^[0-9]+\.[0-9]+\.[0-9]+\z")))
+                        throw Bad("semver", "must be x.y.z");
+                    if (Present(b, "status", out var st) && !(st.ValueKind == JsonValueKind.String && (st.GetString() == "draft" || st.GetString() == "approved")))
+                        throw Bad("status", "must be draft or approved");
                     var mx = new LodMatrix
                     {
-                        Draft = b.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String
-                                && string.Equals(st.GetString(), "draft", StringComparison.OrdinalIgnoreCase),
+                        Draft = Present(b, "status", out st) && st.GetString() == "draft",
+                        StageMap = DefaultStageMap.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal),
                     };
+
+                    if (Present(b, "stage_map", out var sm))
+                    {
+                        if (sm.ValueKind != JsonValueKind.Object) throw Bad("stage_map", "must be an object of matrix stage: project stage");
+                        foreach (var kv in JsOrder(sm))
+                        {
+                            if (Array.IndexOf(MatrixStages, kv.Name) < 0) throw Bad("stage_map." + kv.Name, "is not a matrix stage — " + string.Join(", ", MatrixStages));
+                            if (kv.Value.ValueKind != JsonValueKind.String || Array.IndexOf(Stages, kv.Value.GetString()) < 0)
+                                throw Bad("stage_map." + kv.Name, "must be " + string.Join(" | ", Stages));
+                            mx.StageMap[kv.Name] = kv.Value.GetString();
+                        }
+                        for (int s = 1; s < MatrixStages.Length; s++)
+                        {
+                            string prev = MatrixStages[s - 1], k = MatrixStages[s];
+                            if (Array.IndexOf(Stages, mx.StageMap[k]) < Array.IndexOf(Stages, mx.StageMap[prev]))
+                                throw Bad("stage_map." + k, $"maps to {mx.StageMap[k]}, before {prev}'s {mx.StageMap[prev]} — a later matrix stage never maps to an earlier project stage");
+                        }
+                    }
+
+                    if (!(b.TryGetProperty("rows", out var rows) && rows.ValueKind == JsonValueKind.Array && rows.GetArrayLength() > 0))
+                        throw Bad("rows", "must be a non-empty array");
                     int i = 0;
                     foreach (var r in rows.EnumerateArray())
                     {
                         string at = "rows[" + i++ + "]";
-                        if (r.ValueKind != JsonValueKind.Object) throw new InvalidDataException(at + " must be an object");
-                        if (!r.TryGetProperty("category", out var c) || c.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(c.GetString()))
-                            throw new InvalidDataException(at + ".category must be a non-empty string");
-                        if (!r.TryGetProperty("DD", out var dd) || dd.ValueKind != JsonValueKind.Object) throw new InvalidDataException(at + ".DD must be an object");
+                        if (r.ValueKind != JsonValueKind.Object) throw Bad(at, "must be an object");
+                        foreach (var p in JsOrder(r))
+                            if (p.Name != "category" && p.Name != "DD")
+                                throw Bad(at + "." + p.Name, "is not a row field — a row is {category, DD} (Promote checks the DD stage only; stage_map names the others)");
+                        string cat = r.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+                        if (cat == null || Array.IndexOf(Order, cat) < 0) throw Bad(at + ".category", "must be " + string.Join(" | ", Order));
+                        if (mx.Dd.ContainsKey(cat)) throw Bad(at + ".category", "appears twice — one row per class");
+                        if (!r.TryGetProperty("DD", out var dd) || dd.ValueKind != JsonValueKind.Object) throw Bad(at + ".DD", "must be an object");
                         var keys = new List<string>();
                         var props = new List<string>();
-                        foreach (var kv in dd.EnumerateObject())
+                        int snap = 0;
+                        foreach (var kv in JsOrder(dd))
                         {
                             if (kv.Name == "properties")
                             {
-                                if (kv.Value.ValueKind != JsonValueKind.Array || kv.Value.EnumerateArray().Any(x => x.ValueKind != JsonValueKind.String))
-                                    throw new InvalidDataException(at + ".DD.properties must be an array of strings");
+                                if (kv.Value.ValueKind != JsonValueKind.Array || kv.Value.EnumerateArray().Any(x => !Filled(x)))
+                                    throw Bad(at + ".DD.properties", "must be an array of non-empty strings");
                                 props.AddRange(kv.Value.EnumerateArray().Select(x => x.GetString()));
                             }
-                            else if (kv.Value.ValueKind != JsonValueKind.String) throw new InvalidDataException(at + ".DD." + kv.Name + " must be a string");
-                            else keys.Add(kv.Name + "=" + kv.Value.GetString());
+                            else if (kv.Name == "type_snap_mm")
+                            {
+                                if (!(kv.Value.ValueKind == JsonValueKind.Number && kv.Value.TryGetDouble(out var v) && v == Math.Floor(v) && v >= 0 && v <= MaxSnapMm))
+                                    throw Bad(at + ".DD.type_snap_mm", $"must be a whole number of millimetres, 0 to {MaxSnapMm} (D16: 0 keeps the exact match)");
+                                snap = (int)kv.Value.GetDouble();
+                                if (snap > 0 && (cat == "Doors" || cat == "Windows"))
+                                    throw Bad(at + ".DD.type_snap_mm", $"must be 0 for {cat} — a door or window is matched by its type name's W x H, never snapped");
+                            }
+                            else if (!DdRules.TryGetValue(kv.Name, out var want))
+                                throw Bad(at + ".DD." + kv.Name, "is not a DD rule Promote reads — " + string.Join(", ", DdRules.Keys.Concat(new[] { "properties", "type_snap_mm" })));
+                            else if (kv.Value.ValueKind != JsonValueKind.String || kv.Value.GetString() != want)
+                                throw Bad(at + ".DD." + kv.Name, "must be " + want);
+                            else keys.Add(kv.Name + "=" + want);
                         }
+                        if (!keys.Any(k => k.StartsWith("type=", StringComparison.Ordinal))) throw Bad(at + ".DD.type", "is required — DD means typed by a guideline rule");
                         keys.Sort(StringComparer.Ordinal);
-                        mx.Dd[c.GetString()] = string.Join("; ", keys);
-                        mx.Properties[c.GetString()] = props;
+                        mx.Dd[cat] = string.Join("; ", keys);
+                        mx.Properties[cat] = props;
+                        mx.SnapMm[cat] = snap;
                     }
                     return mx;
                 }
             }
             catch (Exception ex) { error = ex.Message; return null; }
+        }
+
+        private static InvalidDataException Bad(string path, string want) => new InvalidDataException(path + " " + want);
+        // Optional = absent or null, as the bridge reads it.
+        private static bool Present(JsonElement o, string name, out JsonElement v) => o.TryGetProperty(name, out v) && v.ValueKind != JsonValueKind.Null;
+        // Blank as the bridge's filled() reads it — JS's /[^\s\u0085]/: JS's \s includes U+FEFF and leaves out U+0085, char.IsWhiteSpace
+        // the reverse, so U+FEFF is named here, as an escape (a raw byte-order mark is lost by any tool that strips one).
+        private static bool Filled(JsonElement v) => v.ValueKind == JsonValueKind.String && v.GetString().Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF');
+        // An object's members in JS's Object.keys order — integer-like names first, ascending, then the rest as written — so the
+        // first stray key named is the one the TS reader names.
+        private static IEnumerable<JsonProperty> JsOrder(JsonElement o)
+        {
+            var all = o.EnumerateObject().ToList();
+            bool Index(string k) => uint.TryParse(k, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n < uint.MaxValue && n.ToString(CultureInfo.InvariantCulture) == k;
+            return all.Where(p => Index(p.Name)).OrderBy(p => uint.Parse(p.Name, CultureInfo.InvariantCulture)).Concat(all.Where(p => !Index(p.Name)));
         }
 
         /// <summary>The classes Promote runs, in <see cref="Order"/>; each class left out gets its reason in <paramref name="notRun"/>.
