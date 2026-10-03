@@ -5,19 +5,19 @@
 **Goal:** Three things change, the first slice of MA-2:
 - **Rules without a layer.** A guideline rule may name no DWG layer and match on what the element *is*: its `Function` (the type's), its `Location` — inside or outside, read from the storey's own walls (the outer boundary) — and its `Material` (its build-up), as `when.params`, spelled the same in TS and C#. Promote passes them for every wall it plans, Ghost Builder for every wall it draws, and a one-type storey (every concept wall on one generic type, which MA-0 held whole because its Function told nothing) now types by location — while a wall whose location cannot be read goes to a person with that reason, never a guess. A lead writes such rules into the office guideline; the DRAFT DD file `demo/bds-pilot/bds-dd-layerfree-guideline.json` and the drill's Ghost guideline are the first two.
 - **The wider harvest.** Build Office System's catalogue row keeps the type's `Function` (0 of 1,434 BDS rows carried it: the old read was `AsString()` on an Integer), its `Material` (its Material parameter, else its build-up's layers), the type parameters the LOD matrix will ask for, and — beside the category name — its `BuiltInCategory` (`bic`, BOS-5), so a catalogue harvested on a German Revit still answers for "Walls". A lead installs the catalogue on the office from the review window (BOS-3): one button, the PUT off the API thread, the bridge's role check, the window's words. A `type_catalog@1` installed before this reads exactly as it did.
-- **Bridge typing — full contract 2.** `POST /changesets/:key` accepts a create or retype without `place.TypeName` when the project's `guideline@n` and `type_catalog@n` let the bridge type it: the element posts `facts {thickness_mm?, params?: {Function?, Location?, Material?, …}}`, the bridge resolves them with the same resolver the add-in mirrors, fills the type (and a door's or window's family) from the catalogue only, records who typed it and from what in `typing`, and otherwise answers 400 saying exactly what is missing. The trust rules of MA-1a item 8 stay; a bridge-typed element is never pre-ticked for that. The design's contract-2 example body is answered 201 with its facts (amendment C2 says what differs and why).
+- **Bridge typing — full contract 2.** `POST /changesets/:key` accepts a create or retype without `place.TypeName` when the project's `guideline@n` and `type_catalog@n` let the bridge type it: the element posts `facts {thickness_mm?, params?: {Function?, Location?, Material?, …}}`, the bridge resolves them with the same resolver the add-in mirrors, fills the type (and a door's or window's family) from the catalogue only, records who typed it and from what in `typing`, and otherwise answers 400 saying exactly what is missing. The trust rules of MA-1a item 8 stay; a bridge-typed element is never pre-ticked for that. The design's contract-2 example body is answered 201 with its facts (spec amendment S2 says what differs and why).
 
-**Source of truth:** `docs/strategy/2026-09-30-model-automation-design.md` — MA-2 (`:1074-1099`), its "Rules without a layer" and "wider catalogue harvest" bullets (`:1081-1082`), the artefact table (`:273-274`), the operations table (`:321-324`), the outer-boundary sentence (`:336`), the contract-2 body and what the bridge adds (`:681-735`), bridge typing (`:1125`, listed under MA-4 and taken here — amendment C1). The audit's rows BOS-3 (`docs/strategy/2026-09-30-revit-addin-audit.md:812`) and BOS-5 (`:814`, `:1064`). The items-6–8 plan's amendment C33 (`docs/superpowers/plans/2026-10-02-ma1a-items6-8-placement-reports-receipts.md:129`): "a contract-2 post still needs place.TypeName until bridge typing lands (MA-2)" — this plan closes it. Base: master `bb363de`. Repo root: `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`.
+**Source of truth:** `docs/strategy/2026-09-30-model-automation-design.md` — MA-2 (`:1074-1099`), its "Rules without a layer" and "wider catalogue harvest" bullets (`:1081-1082`), the artefact table (`:273-274`), the operations table (`:321-324`), the outer-boundary sentence (`:336`), the contract-2 body and what the bridge adds (`:681-735`), bridge typing (`:1125`, listed under MA-4 and taken here — spec amendment S1). The audit's rows BOS-3 (`docs/strategy/2026-09-30-revit-addin-audit.md:812`) and BOS-5 (`:814`, `:1064`). The items-6–8 plan's amendment C33 (`docs/superpowers/plans/2026-10-02-ma1a-items6-8-placement-reports-receipts.md:129`): "a contract-2 post still needs place.TypeName until bridge typing lands (MA-2)" — this plan closes it. Base: master `bb363de`. Repo root: `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`.
 
 **Architecture:**
 
-*One spelling, one fixture.* The matcher on both sides already supports a rule with no layer (`when.params` only); nothing in the resolver's logic changes. What changes is the INPUT: the readers pass `Function`, `Location` and `Material` as params, and the parity is pinned by data — `guideline-layerfree.test.ts` resolves 17 inputs through the TS resolver over the new DD file and writes `WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json`; `tools/promote-check` reads the same file into the C# `GuidelineMatcher` and demands 17/17; `bridge/sentinel-core-bundle.test.mjs` resolves the same cases through the committed bundle `bridge/sentinel-core.mjs` and holds it to the TS source, so a bundle that was not rebuilt fails a test in the suite that runs on every commit. The values are spelled once: `Function` = the WallFunction enum NAME (`Exterior`, `Interior`, …; never the localized value string), `Location` = `Exterior` | `Interior` (chosen so the pilot's existing door rules `Location: EXT` / `INT` still match by substring), `Material` = the build-up's material names, finish layers first, joined ` / `.
+*One spelling, one fixture.* The matcher on both sides already supports a rule with no layer (`when.params` only); nothing in the resolver's logic changes. What changes is the INPUT: the readers pass `Function`, `Location` and `Material` as params, and the parity is pinned by data — `guideline-layerfree.test.ts` resolves 17 inputs through the TS resolver over the new DD file and writes `WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json`; `tools/promote-check` reads the same file into the C# `GuidelineMatcher` and demands 17/17; `bridge/sentinel-core-bundle.test.mjs` resolves the same cases through the committed bundle `bridge/sentinel-core.mjs` and holds it to the TS source, so a bundle that was not rebuilt fails a test in the suite that runs on every commit. The values are spelled once: `Function` = the WallFunction enum NAME (`Exterior`, `Interior`, …; never the localized value string), `Location` = `Exterior` | `Interior` (the same two words as `Function`, so a lead reads one vocabulary; no reader in this plan passes a Location for a door — that is under Next, with bridge typing of doors), `Material` = the build-up's material names, finish layers first, joined ` / `. The fixture rows also carry `matched` (the conditions the winning rule stated), so the C# `Matched` is held to the TS `matched` by data too (review C9).
 
-*The outer boundary (`WallLocation`, pure C#).* Inside or outside is read from the storey's own walls, whatever their types (an office type, a structural wall, a curtain wall enclose as a concept wall does). A wall is **Exterior** when exactly one of its two sides looks out — from a point just beyond that face (half the width plus 100 mm), a ray away from the wall or along it either way meets no other wall of the storey — while the other side is enclosed in all three directions; **Interior** when both sides are enclosed; otherwise **unknown with its reason** (both sides open: a free-standing wall or a storey whose walls do not close; fewer than three other walls; a curved wall; a wall under 500 mm). An unknown location is left out of the params, so a rule that needs it cannot fire, and the hold names why. Ceilings, stated: a wall facing a closed inner courtyard reads Interior; a ray that escapes through a gap in a wall drawn in pieces (GHB-6) reads that side as open. Promote feeds it every wall of the storey (the base level), Ghost Builder the drawn walls of one build; the bridge never computes a location — the poster supplies it as a fact.
+*The outer boundary (`WallLocation`, pure C#).* Inside or outside is read from the storey's own walls, whatever their types (an office type, a structural wall, a curtain wall enclose as a concept wall does). A wall is **Exterior** when exactly one of its two sides looks out — from a point just beyond that face (half the width plus 100 mm), a ray away from the wall or along it either way meets no other wall of the storey — while the other side is enclosed in all three directions; **Interior** when both sides are enclosed; otherwise **unknown with its reason** (both sides open: a free-standing wall or a storey whose walls do not close; fewer than three other walls; a curved wall; a wall under 500 mm). An unknown location is left out of the params, so a rule that needs it cannot fire, and the hold names why. Ceilings, stated: a wall facing a closed inner courtyard reads Interior; a ray that escapes through a gap in a wall drawn in pieces (GHB-6) reads that side as open. Promote feeds it the storey's walls and, as barriers, every other wall that crosses the storey's plane (a shell based on the ground floor and rising to the roof encloses the floors above it — review C1); Ghost Builder feeds it this build's drawn walls with the model's own walls at the build level as barriers (a fit-out drawing added to a model that already has its shell: C1); the bridge never computes a location — the poster supplies it as a fact.
 
-*Promote.* `WallFact` gains the wall's line and material; the planner decides the one-type storey BEFORE the loop (it decides what each wall's rule may see): on one, `Function` is dropped (it is the template's default, and tells nothing) and `Location` carries the decision; on a mixed storey `Function` is still passed (it is a modelling decision there) with `Location` and `Material` beside it, and the rule file's order decides. The retype's reason names what the rule used (`Location Exterior, 200 mm → …`), through the matcher's new `Matched` (the TS resolver's `matched`, ported). A door hosted by a wall a Location rule settled reads its location from that rule (`RuleParam` falls back from `Function` to `Location`).
+*Promote.* `WallFact` gains the wall's line and material; the planner decides the one-type storey BEFORE the loop (it decides what each wall's rule may see): on one, `Function` is dropped (it is the template's default, and tells nothing) and `Location` carries the decision; on a mixed storey `Function` is still passed (it is a modelling decision there) with `Location` and `Material` beside it, and the rule file's order decides — unless the two disagree (a wall whose type says Exterior and whose sides both read enclosed: a courtyard wall, or a misread outline): then neither is passed and the wall is held with that sentence (review C2). The retype's reason names what the rule used (`Location Exterior, 200 mm → …`), through the matcher's new `Matched` (the TS resolver's `matched`, ported). A door hosted by a wall a Location rule settled reads its location from that rule (`RuleLocation`: each producing rule's `Function`, else its `Location`, one distinct value — review C6).
 
-*Ghost Builder.* The typer gets the facts of each drawn wall — the document's parameter assignments for its layer (P2: Material, Fire Rating), and its Location from this build's drawn walls — as `when.params`. A layer rule listed first still wins on its layer (document order decides a tie between a layer rule and a one-param rule); where no rule names the layer, the layer-free rules decide; with neither, the gap it was. The summary counts how many drawn walls read outside, inside and unknown.
+*Ghost Builder.* The typer gets one fact for each drawn wall — its Location from the outer boundary (this build's drawn walls, with the model's walls at the build level as barriers) — as `when.params`. The mapping's parameter values (P2) are the local model's reading of the project documents (`EnrichParamsAsync`); they are written to the wall as before and never pick its type (review C4). A rule stating more conditions is tried first, then document order: a layer rule listed first wins over a layer-free rule only when it states at least as many conditions (a layer rule and a one-param rule tie, and the lead's order decides; a two-param layer-free rule beats a layer rule — review C5); where no rule names the layer, the layer-free rules decide; with neither, the gap it was. The summary counts how many drawn walls read outside, inside and unknown.
 
 *The bridge.* `changesets-typing.mjs` is pure: `checkFacts` keeps `facts {thickness_mm?, params?}` name for name or refuses in words; `makeTyper(standards, bundle)` returns the function `validateChangeset` calls for an element without `place.TypeName` — exact or a 400 (D16, as Promote): an office rule at confidence 1 whose type the catalogue holds, else a refusal naming what is missing (no guideline → "not checkable"; no catalogue; no rule for those facts; a `{thickness}` type with no thickness; a type the catalogue lacks, with the sizes it has; a category default, which is not an office rule). `changesets-store.proposeChangeset` reads `guideline@n` and `type_catalog@n` (project → office, each re-checked with the install validator) only when a post needs typing, builds the typer and passes it in; the validated element carries `facts` (a record), `typing` (`typed_by: "bridge"` with type, family, rule, matched, input, the two labels and shas — or `typed_by: "caller"`) and is never pre-ticked when the bridge typed it. The install validator refuses a rule whose `when` names no condition (it would match every element the bridge types) and accepts a row's `bic`. The add-in reads the stored body as any other changeset (`place.TypeName`); its DTO gains `typing`, and Review AI Proposals says "typed by the bridge from the facts posted (guideline@1 · office · …)" beside the accuracy.
 
@@ -51,7 +51,7 @@
 - Commits end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - Line numbers are master `bb363de`'s and shift as tasks land: match the quoted text, not the number. The source files are CRLF on disk, the docs hold a few odd bytes: use the Edit tool, which matches the text and keeps the file's line endings; never `sed -i`; `grep -a` on docs.
 
-**Dry run (planner, 2026-10-03):** every code step below was applied in order, task by task, to a fresh `git archive` export of master `bb363de` in a scratch folder outside the repository (each "replace" matching its text exactly once, CRLF kept). Each "see it fail" step was run and failed as written; the generator was run where Task 4 says; the checks were run after each task. The steps were then applied once more, start to finish, to a second fresh export, with the fail and pass runs of every task repeated (the totals below are that run's). Last, a script read THIS document's own code blocks — the 107 `Create` and replace steps as an implementer reads them — and applied them to a third fresh export, which came out byte for byte equal to the second. The code blocks in this plan are the exact text that was applied.
+**Dry run (planner, 2026-10-03):** every code step below was applied in order, task by task, to a fresh `git archive` export of master `bb363de` in a scratch folder outside the repository (each "replace" matching its text exactly once, CRLF kept). Each "see it fail" step was run and failed as written; the generator was run where Task 4 says; the checks were run after each task. The steps were then applied once more, start to finish, to a second fresh export, with the fail and pass runs of every task repeated (the totals below are that run's). Last, a script read THIS document's own code blocks — the `Create` and replace steps as an implementer reads them (107 then; 111 after the review amendments below) — and applied them to a third fresh export, which came out byte for byte equal to the second. The code blocks in this plan are the exact text that was applied.
 - Master's own totals, measured first: `promote-check` `476/476`; `ghost-standards-check` `147/147`; `guideline-check` `17/17`; `ghost-p2-check` `107/107`; `session-check` `47/47`; the bridge suite `Test Files  83 passed (83)`, `Tests  1679 passed | 1 skipped (1680)`; `npm test` (`vitest run`, every file) `136 passed`, `2115 passed | 1 skipped`.
 - Task 1: the new TS test `1 failed | 5 passed` (the BOS-5 test: `CATEGORY_BIC` is not exported yet); after the code, the TS test `6 passed` and the bundle test `2 failed | 1 passed` — the committed bundle is stale (its `sameCategory` is missing, and the German row's case differs); after `npm run build:bridge-core`, `src/sentinel-core/guideline*` + the bundle test `Test Files  5 passed (5)`, `Tests  42 passed (42)` (`guideline.test` 13, `guideline-fixtures` 2, `guideline-layerfree` 6, `guideline-bds` 18, `sentinel-core-bundle` 3). `ghost-standards-check` `149/149` (the two new guideline files parse).
 - Task 2: `promote-check` fails to compile (`CategoryBics`, `Matched` missing: 3 + 3 + … errors), then `496/496`; `guideline-check` `17/17`, `ghost-standards-check` `149/149`, `annotate-check` `ALL PASS`, `wallpair-check` `9/9`.
@@ -61,9 +61,11 @@
 - Task 6: `promote-check` `532/539` (the seven wiring lines `FAIL`), then `539/539`; both builds as above.
 - Task 7: `ghost-standards-check` fails to compile (`OfficeKeyFrom`, `InstallJson`, `InstallLine`, `NotInstalledLine` missing), then `176/176`; both builds as above.
 - Task 8: `ghost-p2-check` `107/107` (the sample folder's README grew by 7 bytes and still leaves the spec its room).
-- Final tree: all 25 check projects pass (`promote-check` `539/539`, `ghost-standards-check` `176/176`, `guideline-check` `17/17`, `ghost-p2-check` `107/107`, `session-check` `47/47`, `massing-check` `17/17`, `wallpair-check` `9/9`, `roi-check` `50/50`, `event-check` `44/44`, `heal-check` `9/9`, `gate-check` `219/219`, `publish-check` `124/124`, the rest as on master); the bridge suite `85 passed`, `1705 passed | 1 skipped`; `npm test` `139 passed`, `2147 passed | 1 skipped`; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`; 2026 `0`, `3`; 2022 `0`, `3`; 2027 `0`, `5` — master's counts (2022 and 2027 are not required builds).
+- Final tree: all 25 tracked check projects pass (`promote-check` `539/539`, `ghost-standards-check` `176/176`, `guideline-check` `17/17`, `ghost-p2-check` `107/107`, `session-check` `47/47`, `massing-check` `17/17`, `wallpair-check` `9/9`, `roi-check` `50/50`, `event-check` `44/44`, `heal-check` `9/9`, `gate-check` `219/219`, `publish-check` `124/124`, the rest as on master); the bridge suite `85 passed`, `1705 passed | 1 skipped`; `npm test` `139 passed`, `2147 passed | 1 skipped`; builds Revit 2024 `0 Error(s)`, `5 Warning(s)`; 2026 `0`, `3`; 2022 `0`, `3`; 2027 `0`, `5` — master's counts (2022 and 2027 are not required builds).
 
-The dry run found five things the plan now carries. **The committed bundle is already stale on master**: a fresh `npm run build:bridge-core` differs from `bridge/sentinel-core.mjs` in 77 lines of the programme-CSV parser (a 4D change after commit `50f49ba` was not rebundled) — Task 1's rebuild carries that drift into its commit, and says so; the new bundle test is the check that was missing. The shared fixture `promote-body.json` changes in one string: a gap's reason now names the fact the rule used ("Function Exterior"), and because the planner clips an exception's reason at 300 characters the stored text moves by nine characters at its end — Task 4 replaces the whole string, exactly. The MA-1b wiring scan looked for `ResolveWallType(… typedBy)` with its closing bracket; the facts argument follows it now (Task 6 drops the bracket from the scan). A test of mine filed two retypes of one element (the bridge's own "a second retype" rule caught it: the second now has its own id). And the TS fixture holds 17 cases, not the 18 first written. Not run: every line of the drill section, which only Revit can run; the commit commands. Nothing in the repository was changed by the dry run.
+**Dry run after the review amendments (2026-10-03, the totals the tasks now state):** every code step of the amended plan was applied once more, in task order, to a fresh `git archive` export of this branch in the session's scratch folder, by a script that reads this document's `Create` and replace blocks as an implementer does (each replace matched exactly once; CRLF kept); the "see it fail" runs were made for Tasks 1–7 by applying each task's check files before its code. Measured: Task 1 `1 failed | 6 passed (7)`, then `7 passed (7)`, the stale bundle `2 failed | 1 passed (3)`, the rebuild `64.7kb`, then `Test Files 5 passed`, `Tests 43 passed (43)`; `ghost-standards-check` `149/149`. Task 2: `CategoryBics` ×3 and `Matched` ×10 missing, then `497/497` (the C5 two-param line), `guideline-check` `17/17`, `ghost-standards-check` `149/149`, `annotate-check` `ALL PASS`, `wallpair-check` `9/9`. Task 3: `9 failed | 247 passed (256)`, then `346 passed (346)`; `bridge/` `85 passed`, `1705 passed | 1 skipped`. Task 4: the generator's two files (1,728 and 1,240 bytes); `WallLocation.cs` could not be found, then `539/539` (the C1 and C2 checks and the RuleLocation cases: the planner's lines are 19 now); `session-check` `47/47`; `changesets-logic` `85 passed`. Task 5: `TypeHarvest.cs` could not be found, then `163/163`; builds 2024 `0 Error(s)`, `5 Warning(s)`, 2026 `0`, `3`. Task 6: `539/548` (nine wiring lines `FAIL`), then `548/548`; both builds as above. Task 7: the four `TypeCatalogExport` members missing (8 errors), then `176/176`; both builds as above. Task 8: every tracked `tools/*-check` project passes (25 in git — `tools/rvtinfo-check` is a 26th folder on this PC that git does not track, so an export has none; the counts above, `promote-check` `548/548`, `ghost-standards-check` `176/176`, `ghost-p2-check` `107/107`, `datum-check` `DATUM OK`, the rest as before); `npm test` `139 passed`, `2148 passed | 1 skipped (2149)`; builds 2024 `0`, `5`; 2026 `0`, `3`; 2022 `0`, `3`; 2027 `0`, `5`. This run found two things, both fixed in the plan before the totals above were taken: the C1 check's "room with no shell" case resolves to `BDS_EXT_ARC_CMU_100 mm`, which the check's document-type table did not hold (the planner held it as "not loaded"; the table now has it), and `GhostChangesetBuild` already declares `tolFt` in an enclosing scope (the barrier read's tolerance is `planeTolFt`). Not run: the drill section; the commit commands. Nothing in the repository was changed by the dry run.
+
+The first dry run found five things the plan now carries. **The committed bundle is already stale on master**: a fresh `npm run build:bridge-core` differs from `bridge/sentinel-core.mjs` in 77 lines of the programme-CSV parser (a 4D change after commit `50f49ba` was not rebundled) — Task 1's rebuild carries that drift into its commit, and says so; the new bundle test is the check that was missing. The shared fixture `promote-body.json` changes in one string: a gap's reason now names the fact the rule used ("Function Exterior"), and because the planner clips an exception's reason at 300 characters the stored text moves by nine characters at its end — Task 4 replaces the whole string, exactly. The MA-1b wiring scan looked for `ResolveWallType(… typedBy)` with its closing bracket; the facts argument follows it now (Task 6 drops the bracket from the scan). A test of mine filed two retypes of one element (the bridge's own "a second retype" rule caught it: the second now has its own id). And the TS fixture holds 17 cases, not the 18 first written. Not run: every line of the drill section, which only Revit can run; the commit commands. Nothing in the repository was changed by the dry run.
 
 ---
 
@@ -75,22 +77,45 @@ The plan builds option **A** of each. None needs an answer before the work start
 |---|---|---|---|
 | F1 | What "outside" means — how a wall's location is read | **A:** from the storey's own walls: a wall is outside when one of its two sides looks out (from a point just beyond that face, a line away from the wall or along it either way meets no other wall of the storey) and the other is enclosed; inside when both are enclosed; otherwise unknown, with the reason. **B:** from the storey's floor slabs: a point just beyond each face tested against the floor outlines | **A.** It needs nothing but the walls Promote already reads and the walls Ghost just drew, and works on a concept model with no floors. Ceilings, stated in the code: a wall facing a closed inner courtyard reads inside; a wall drawn in pieces (GHB-6) lets a line out through its gap; a curved wall is unknown. B is wrong wherever a slab overhangs its wall (a balcony) and asks for Revit's sketch API, which changed in 2022 |
 | F2 | A storey where every concept wall is one generic type (MA-0 held all of them: "inside cannot be told from outside") | **A:** the type's Function is dropped there (it is the template's default and tells nothing) and the rules see the Location read from the boundary; a wall whose location cannot be read is still held, with that reason. **B:** keep holding the whole storey | **A.** It is what the design's §3.4 step 4 promised MA-2 would do. Ceiling: a free-standing wall outside the outline, or a storey whose walls do not close, still goes to a person — named, never guessed |
-| F3 | A retype posted without `place.TypeName` (an agent naming an existing wall by its UniqueId) | **A:** the bridge types it from the `facts` the poster sends about that wall (its thickness, Function, Location, Material), as it types a create; it is never pre-ticked for that, and the executor's own checks (the type the plan saw, a build-up that would move a face) still guard at Apply. **B:** a retype without a type stays a 400 | **A.** Without it the design's example body (a create and a retype) could never be answered 201. Ceiling: the facts are the poster's claim about an element the bridge cannot see; a wrong claim gives a wrong proposal that a person reads unticked |
+| F3 | A retype posted without `place.TypeName` (an agent naming an existing wall by its UniqueId) | **A:** the bridge types it from the `facts` the poster sends about that wall (its thickness, Function, Location, Material), as it types a create; it is never pre-ticked for that. At Apply the executor checks that the type is loaded in the model and — new here, review C3 — that a wall retype's target has the wall's own width (`Unsafe`, 0.5 mm): a claimed thickness that would move a face is refused in words. Nothing else about a wall is checked at Apply (`type_before` is null on a bridge-typed retype). **B:** a retype without a type stays a 400 | **A.** Without it the design's example body (a create and a retype) could never be answered 201. Ceiling: the facts are the poster's claim about an element the bridge cannot see; a same-width wrong claim (Interior said of an exterior wall) gives a wrong proposal that a person reads unticked |
 | F4 | A guideline's category default (confidence 0.6) when the bridge types | **A:** refused — "only the Walls default of guideline@n would apply (confidence 0.6) — Sentinel types by an office rule only"; the poster sends the type or a lead writes a rule. **B:** accepted at 0.6 | **A.** Promote holds at anything under confidence 1 (D16); the bridge should not be the softer judge. Ceiling: a guideline written around its default (the pilot's Walls default is the gypsum pattern) types nothing on the bridge until a rule is written |
-| F5 | The carrier of the thickness and the parameters a poster sends | **A:** a new element field `facts {thickness_mm?, params?}`, kept as a record; `measured` stays what item 8 made it — ignored and listed until a survey job the bridge ran backs it. **B:** read `measured.thickness_mm` as a claimed thickness | **A.** `measured` means "backed by a job"; reading it for typing would make the trust rule's words untrue. Ceiling: the design's body (`:681-705`) is answered 201 only with `facts` in place of `measured` (amendment C2) |
+| F5 | The carrier of the thickness and the parameters a poster sends | **A:** a new element field `facts {thickness_mm?, params?}`, kept as a record; `measured` stays what item 8 made it — ignored and listed until a survey job the bridge ran backs it. **B:** read `measured.thickness_mm` as a claimed thickness | **A.** `measured` means "backed by a job"; reading it for typing would make the trust rule's words untrue. Ceiling: the design's body (`:681-705`) is answered 201 only with `facts` in place of `measured` (spec amendment S2) |
 | F6 | Where "Install catalogue on office" installs | **A:** on the document's OFFICE (its project's `office_key`; an office document's own key) — a project with no office is refused in words. **B:** on the document's project when it has no office | **A.** A catalogue on a project shadows the office's for that project alone, and later office installs no longer reach it (the ruleset install already warns of this). Ceiling: a project outside any office cannot install from Revit; the CLI still can |
-| F7 | How a harvested row names its category on a non-English Revit | **A:** `category` = the English key its BuiltInCategory names (the same table the bindings resolve by), `bic` = the enum name, `category_local` = the display name only when it differs; both matchers also compare a row on its `bic`. **B:** `category` = the display name, `bic` beside it, matchers compare on `bic` only | **A.** Every reader that compares by name keeps working, including the office-template count, and the German case is pinned on both sides. Ceiling: a category Sentinel's table does not know (stairs, railings…) keeps its display name and no `bic` — as today |
+| F7 | How a harvested row names its category on a non-English Revit | **A:** `category` = the English key its BuiltInCategory names (the same table the bindings resolve by), `bic` = the enum name, `category_local` = the display name only when it differs; both matchers also compare a row on its `bic`. **B:** `category` = the display name, `bic` beside it, matchers compare on `bic` only | **A.** Every reader that compares by name keeps working, including the office-template count, and the German case is pinned on both sides. Ceiling: every built-in category gets its `bic` (stairs and railings too — both are in `CategoryKeys`); only a subcategory, an imported or a custom category (a positive id) has none, and a category outside `CategoryKeys` keeps its display name as `category` (review C8) |
 | F8 | Which type parameters the harvest keeps | **A:** the seven it listed, read right: `Function` (the Integer, by its enum name), `Material` (its element's name, else the build-up's layers), `Fire Rating`, `Assembly Code`, `Type Mark`, `Keynote`, `Structural Material`. **B:** more (Width and Height are already their own fields) | **A.** Fire Rating and Material are what the office's rules key on; Assembly Code, Type Mark and Keynote are what the matrix's property rows will ask for; Function is what MA-2 needed. Ceiling: a rule on any other type parameter has nothing to match until it is added here |
 | F9 | How a wall's `Material` is spelled | **A:** the build-up's material names, finish layers first, distinct, joined " / " ("Stone / Concrete Masonry Units"); a rule matches by substring (`Material: STONE`). **B:** the outermost finish layer's name only | **A.** A rule written as "STONE" or "GYPS" matches a build-up that names it anywhere; B would miss a stone face behind a plaster. Ceiling: "CMU" matches nothing in "Concrete Masonry Units" — a rule names the words the template uses |
-| F10 | A layer rule and a layer-free rule that both match (Ghost Builder on a drawing) | **A:** document order decides the tie (both state one condition); the lead lists layer rules first, so a layer rule wins on its layer and the layer-free rules decide where no layer rule exists. **B:** make a layer always count more | **A.** It is the matcher's existing rule (most specific first, then the office's own order) and needs no change on either side; the drill's Ghost guideline is written that way. Ceiling: a lead who lists a layer-free rule above a layer rule gets the layer-free answer on that layer — the `why` names the rule, so it is seen |
+| F10 | A layer rule and a layer-free rule that both match (Ghost Builder on a drawing) | **A:** the matcher's existing order — a rule stating more conditions is tried first, then document order; a layer counts one condition, so a layer rule and a one-param rule tie and the lead's order decides, and a layer-free rule on two params (Location + Material) beats a layer rule wherever it matches (review C5). The lead lists layer rules first, so a layer rule wins on its layer against one-param rules, and the layer-free rules decide where no layer rule exists. **B:** make a layer always count more | **A.** It needs no change on either side; the drill's Ghost guideline is written that way, and both fixtures pin the two-param case. Ceiling: a lead who lists a layer-free rule above a layer rule, or writes a two-param layer-free rule, gets the layer-free answer on that layer — the `why` and `matched` name the rule, so it is seen |
 
-## Amendments to the spec's words (BINDING — they override any task text they contradict)
+## Review amendments (2026-10-03, BINDING — they override any task text they contradict)
 
-- **C1 (bridge typing moves from MA-4 to MA-2a).** The design lists "the bridge calls `resolveWithCatalog`" under MA-4 (`:1125`); the orchestrator's scope puts it here, and the items-6–8 plan's C33 says a contract-2 post is a 400 "until bridge typing lands". Task 8 marks the design's bullet LANDED EARLY.
-- **C2 (the design's example body, `:681-705`).** It is answered 201 **with `facts` in place of `measured` and 200 mm in place of 203 mm**: `measured` is ignored by item 8's trust rule (F5), and the design's own note (`:728`) says a 203 mm wall is a gap under the exact rule. The shared fixture `contract2-typed-body.json` is that body, and its test also shows the body as written is still a 400 that says "no facts". The design's wording (Task 8) says so.
-- **C3 (a retype is typed from facts).** The design's retype carries only a UniqueId; the bridge has no model to read, so a retype without a type is typed from the `facts` the poster sends (F3), or stays the 400 it was.
-- **C4 (an empty `when` is refused at install only).** The TS `validateGuideline` always refused a rule with no condition; the bridge's install validator did not, and a layer-free rule with `params: {}` would have matched every element the bridge types. The bridge refuses it at install from now on (the same words as the TS). The add-in's `CheckGuideline` is NOT changed: it reads installed bodies, and refusing one already installed would silently turn a project's guideline into none. The bridge re-validates a body before typing with it, so such a body reads "none — did not parse" there.
-- **C5 (the invariant "no type is created" is about what this plan adds).** Ghost Builder's clone of a catalogue sibling for a measured size the model lacks (`GhostTypeCreator`, F43) is master's behaviour and is neither touched nor widened; the drill's Ghost row records whether it ran.
+Two independent reviews — whether the code says only what it measured (code-honesty), and whether the plan and its drill can be run as written (exec-drill) — raised the points below. Each was checked against the code, the drill record or the design line it cites. Where it held, the plan was changed where the problem is: the tasks, checks, commands and drill rows in this document already carry the change, and this list says what moved and why. Where it did not hold, the plan was left alone (the returned list says where the code shows it). The spec amendments that follow were renumbered S1–S5 so this list keeps the C-numbers.
+
+- **C1 (Task 4 `PromoteWallsPlanner`, Task 6 `GhostChangesetBuild`; `LayerFreePlanner` checks; drill P-4; E28 — critical).** The barrier list was the storey's own walls (`GroupBy(BaseLevel)`), so a shell based on the ground floor and rising to the roof enclosed nothing above it, and every room-closing partition on the first floor read one side open — `Location Exterior` at confidence 1, nothing held, nothing said. Promote now adds every wall whose vertical extent crosses the storey's plane (base ≤ plane + 1 mm < top, the planner's own `TopMm`); Ghost adds the model's walls whose bounding box spans the build level. Three checks pin it (a shell to the Roof, the room alone, a shell stopping at the plane) and P-4 runs it on the B35 model.
+- **C2 (Task 4 planner; `LayerFreePlanner`; Architecture *Promote*; Risks; E29 — important).** On a mixed storey a wall whose type says Exterior and whose sides both read enclosed (the plan's own courtyard ceiling) was retyped to an internal type at confidence 1 by the file's order, with a template note as its only trace. Now, where Function (Exterior/Interior) and the Location read disagree, neither is passed and the wall is held: "Function Exterior but it reads inside (both sides enclosed — a courtyard, or a misread outline); a person decides" (and the other way round). Pinned on the O layout; where they agree, or the location is unknown, or the storey is one-type, nothing changes.
+- **C3 (Task 6 `ChangesetExecutor.Unsafe`; F3; Risks; UNSURE 8; drill B-1, B-2, B-5; E30 — important, raised by both reviews).** F3 claimed "the executor's own checks (… a build-up that would move a face) still guard at Apply"; `Unsafe` began `if (kind == "wall") return null;` and `type_before` is null on a bridge-typed retype, so a claimed thickness was applied with no check and moved both faces — and B-1's body claimed 200 mm of a 100 mm partition. `Unsafe` now compares a wall retype's basic `WallType.Width` within 0.5 mm and refuses with the same "would move a face" sentence; F3 and the Risks say exactly what guards (the type loaded, the width) and what does not; B-1/B-2 post the partition's own 100 mm and B-5 posts the wrong claim and sees Apply refuse it. Scanned in `Ma2aWiring` (the executor compiles in no check project), proven in B-5.
+- **C4 (Task 6 `GhostFacts`; E9; Architecture *Ghost Builder*; `Ma2aWiring` — important; closes C13 too).** The plan fed the mapping's `ParamAssignment`s to the rules as "the document's parameter assignments"; they are written only by `LocalGhostBuilder.MergeParams` from `EnrichParamsAsync` — the local model's best-effort reading of the documents (the installed `layers@n` rows carry none) — and would have picked the TYPE at confidence 1 under the guideline's name. Ghost now passes `Location` alone; the model's values are still written to the placed wall (`ApplyParams`) and are shown on the review row as before, and the scan refuses `facts[pa.Name]`. With no mapping value in the facts, the reviewer's minor point that a computed Location silently overwrote a mapping's `Location` (C13) has nothing left to overwrite.
+- **C5 (F10; Architecture; Task 1 TS test; Task 2 `LayerFree.cs` — important).** "A layer rule listed first still wins on its layer" is true only at equal specificity: both matchers sort by how many conditions a rule states (a layer counts one), then by document order, so a layer-free rule on two params beats a layer rule wherever it matches. F10 and the Architecture now say the real rule, and one case on each side (a `{layer}` rule listed first losing to a later `{Location, Material}` rule) pins it so a lead who reads the fixture sees it. The matcher is unchanged.
+- **C6 (Task 4 `GuidelineMatcher.RuleLocation`, `PromotePlanner.Swap`; `LayerFreePlanner` D2; E8 — important).** `RuleParam` returns one value only when every producing rule names the param, so the gypsum type — produced by `{Location: Interior, Material: GYPS}` AND `{Function: Interior}` — named no one Function and no one Location, and every door in the common gypsum partition would have gone to a person once the layer-free file was installed. `RuleLocation` reads each producing rule's Function, else its Location, skipping rules naming neither; the D2 check now expects the swap, and a true disagreement (Interior by Location, Exterior by Function) is still held in the same words.
+- **C7 (Task 1 Interfaces; Task 5 `TypeHarvest`, `HarvestChecks` — minor).** The API enum member is `Coreshaft` (read by reflection on Revit 2024's RevitAPI.dll: Interior, Exterior, Foundation, Retaining, Soffit, Coreshaft); the plan wrote `CoreShaft` in three places while Promote's `Function.ToString()` writes the enum's spelling. One spelling now, and the comment names the API as its source.
+- **C8 (F7; Task 5 `HarvestChecks`; drill H-1 — minor).** "A category Sentinel's table does not know (stairs, railings…) gets no `bic`" was false twice: `BicNameOf` names every defined `BuiltInCategory`, and both are in `CategoryKeys`. The ceiling now reads: every built-in category gets its `bic`; only a subcategory, an import or a custom category (a positive id) has none. The hand-built check row is a custom category, and H-1 looks for a row with no `bic` among those.
+- **C9 (Task 1 fixture, bundle test; Task 2 `ResolverParityLayerFree` — minor).** `Matched` ↔ `matched` was pinned by three hand-written lines, not by the shared data. The fixture rows now carry `matched`, the C# parity compares it (null for none), and the bundle test checks it where a fixture has it.
+- **C10 (Task 1 `guideline-layerfree.test.ts`, `guideline-fixtures.test.ts` — minor).** The bundle test reads two fixtures that two other test files rewrite in the same parallel vitest run (`vitest.config.ts` runs files in workers); a read between truncate and write would have been an empty file. Both generators write a temp name and `renameSync` it into place.
+- **C11 (Architecture *One spelling, one fixture* — minor).** "`Location: EXT`/`INT` keeps matching the pilot's door rules" justified nothing: no reader in this plan passes a Location for a door. The real reason (one vocabulary with `Function`) is stated, and door Location facts stay under Next.
+- **C12 (S4 — minor).** "The same words as the TS" overstated it: the bridge's install check is the strictest of three validators (it also refuses `{params: {}}` and a blank layer), the TS refuses only `when: {}`, the add-in neither. S4 says so plainly.
+- **C13 (Task 6 `GhostFacts` — minor).** A computed `Location` silently overwrote a mapping param of the same name. Folded into C4: no mapping value is a fact any more, so there is nothing to overwrite.
+- **C14 (drill set-up, P-1, P-2, B-1, B-2, bodies; UNSURE 1 — critical, exec-drill).** The rows described a model that no longer exists: since B33/B35 the seed walls are settled on BDS types (partitions `BDS_INT_ARC_GYPS_100 mm`, 100 mm, never `Generic - 200mm`), `GR-FFL` holds about 52 template walls, and P-2's one-type reset could never make `typed.Distinct().Count() == 1` there. The set-up states the model as it is, P-2 and the boundary proof run on `01-FFL` (the clean storey), P-1 reads the settled storey honestly, B-1 picks a partition as it is and posts its own 100 mm.
+- **C15 (drill G-1 — important, exec-drill).** Ghost Builder acquires the drawing itself (`Commands.GhostBuilder.cs`: the folder's pick window, then its own import); the row's Insert ▸ Import CAD needed a file dialog that refuses typed names and would at best have been reused by name. The row now uses the pick window. `bds-layers.json` is not installed on `ma2a-ghost` (optional in the review): its standard rows would change which provisioner runs, and that is not what the row proves.
+- **C16 (drill set-up "Record before the first row"; UNSURE 1; merge gate — important, exec-drill).** Inside/outside was never made observable wall by wall, and `GR-FFL`'s template walls were unnamed barriers. The set-up records each wall's id, type and expected reading through the read-only MCP before P-1, and names the template walls as barriers; the merge gate is judged on `01-FFL`; types are verified through the MCP filter, not Select by ID (unresponsive in MA1b, record `:1248`).
+- **C17 (drill "Owed before the first row" — important, exec-drill).** Design `:1081`'s "a lead writes layer-free rules into the office guideline" is MA-2a's own spec text and was in no task, row or owed line. It is now owed by name, with the DRAFT file as the starting point.
+- **C18 (drill table order, P-2/B-2 Record, "Owed", closing list; Task 8 Step 2 — minor, exec-drill).** The merge gate depended on an unstated row order (H-2 installs `type_catalog@2` for every row after it): one line states it. P-2 and B-2 record the wall-type count before and after Apply ("equal — no type created", design `:1093`). Design `:1098`'s aster-tower run is named as substituted by B-3 (d). The closing list says which leftovers stay and which are deleted. "All 25 check projects": there are 26 folders on this PC, but `tools/rvtinfo-check` is not tracked by git (an export has 25) — the step says both.
+
+## Amendments to the spec's words (BINDING — they override any task text they contradict; numbered S1–S5 so the review amendments above keep C1…)
+
+- **S1 (bridge typing moves from MA-4 to MA-2a).** The design lists "the bridge calls `resolveWithCatalog`" under MA-4 (`:1125`); the orchestrator's scope puts it here, and the items-6–8 plan's C33 says a contract-2 post is a 400 "until bridge typing lands". Task 8 marks the design's bullet LANDED EARLY.
+- **S2 (the design's example body, `:681-705`).** It is answered 201 **with `facts` in place of `measured` and 200 mm in place of 203 mm**: `measured` is ignored by item 8's trust rule (F5), and the design's own note (`:728`) says a 203 mm wall is a gap under the exact rule. The shared fixture `contract2-typed-body.json` is that body, and its test also shows the body as written is still a 400 that says "no facts". The design's wording (Task 8) says so.
+- **S3 (a retype is typed from facts).** The design's retype carries only a UniqueId; the bridge has no model to read, so a retype without a type is typed from the `facts` the poster sends (F3), or stays the 400 it was.
+- **S4 (an empty `when` is refused at install only).** The TS `validateGuideline` refused a rule whose `when` has no key at all; the bridge's install validator did not, and a layer-free rule with `params: {}` would have matched every element the bridge types. The bridge refuses it at install from now on, and its check is the strictest of the three (review C12): `when: {}`, `when: {params: {}}` and a blank `layer` are all refused with "names no condition (layer, level, discipline or params) — it would match every element; use default"; the TS `validateGuideline` still refuses only `when: {}` (its own words); the add-in's `CheckGuideline` refuses neither. The add-in's `CheckGuideline` is NOT changed: it reads installed bodies, and refusing one already installed would silently turn a project's guideline into none. The bridge re-validates a body before typing with it, so such a body reads "none — did not parse" there.
+- **S5 (the invariant "no type is created" is about what this plan adds).** Ghost Builder's clone of a catalogue sibling for a measured size the model lacks (`GhostTypeCreator`, F43) is master's behaviour and is neither touched nor widened; the drill's Ghost row records whether it ran.
 
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
@@ -103,8 +128,8 @@ The plan builds option **A** of each. None needs an answer before the work start
 | E5 | A one-type storey is decided before the loop, from the same walls as before (basic, ungrouped, not in an option, on a story; settled walls in, the office's other types out) | The pre-loop decision is what lets Function be dropped per wall. The hold's "besides the N on other office types" counts those walls the same way |
 | E6 | On a one-type storey with MA-0's Function-only file the storey is still held whole — each reason now says "…has no rule for Location Exterior" or "…its location is unknown (…)" | Honest: the location was read, the file cannot use it. The old reason's phrase "inside cannot be told from outside" is kept, so the existing check that counts it still holds |
 | E7 | `PromoteWallsPlanner.What(ps, matched)`: the facts the rule used, in words; every fact offered when no rule fired | A hold says what was on the table; a retype says what decided |
-| E8 | `PromotePlanner.Swap` reads a host's `RuleParam("Location")` when its rules name no `Function` | A door in a wall a Location rule settled would otherwise be held "do not name one Function" — the words now say "Function or Location" |
-| E9 | Ghost's facts: the mapping's `ParamAssignment`s (first value per name) plus `Location`; the summary adds one line "outer boundary: N outside · M inside · K unknown" | The document's values (P2) were never passed to the matcher; now `Material: STONE` from a spec can drive the pilot's own rules. The line makes a drawing whose walls do not close visible |
+| E8 | `PromotePlanner.Swap` reads a host's `GuidelineMatcher.RuleLocation` — each producing rule's `Function`, else its `Location` (the same two words), one distinct value, rules naming neither skipped (review C6) | `RuleParam` reads "not named" as a disagreement, so a type the DD layer-free file produces from a Location+Material rule AND a Function rule (`BDS_INT_ARC_GYPS_{thickness}`) named no one Function and no one Location: every door in a gypsum partition would have gone to a person. The hold's words stay "do not name one Function or Location" for a true disagreement |
+| E9 | Ghost's facts: `Location` only; the mapping's `ParamAssignment`s are the local model's reading of the documents (`EnrichParamsAsync`, best-effort) and are applied as parameters as before — never passed to the rules (review C4); the summary adds one line "outer boundary: N outside · M inside · K unknown" | A value a local model read from a spec would otherwise have picked the TYPE at confidence 1 under the guideline's name, with nothing saying where the Material came from. The line makes a drawing whose walls do not close visible |
 | E10 | `facts {thickness_mm?, params?}`: at most 20 params, names ≤ 64 and values ≤ 256 one-line characters, thickness 0–10,000 mm; a stray key is a 400; an attach takes none | A fact the bridge did not read would be a fact the poster thinks it typed by. 10 m covers any wall; 20 params covers the matrix's rows |
 | E11 | `typing` on every stored element: `{typed_by: "caller"}` or the bridge's full record `{typed_by: "bridge", type, family, rule, matched, input, guideline, guideline_sha256, catalog, catalog_sha256}` | "Marks who typed it" explicitly; the labels are the bridge's `refLabel`, so a reader sees WHICH guideline decided (F54's lesson). The add-in's `TypingDto` reads the first six; the shas are for the ledger |
 | E12 | A bridge-typed element is never pre-ticked: `pretick: typed ? false : pretickOf(…)` | The facts are a claim; item 8's single-answer rule is for Promote's own plan, which typed before posting |
@@ -123,6 +148,9 @@ The plan builds option **A** of each. None needs an answer before the work start
 | E25 | `bridge/sentinel-core-bundle.test.mjs` compares the bundle with the TS source on every case of both shared fixtures and on the exported names | The only way a check "sees a stale bundle": the dry run found master's bundle already stale |
 | E26 | `promote-body.json`'s one changed string is replaced whole (the clipped 300 characters) | The planner clips an exception's reason; a partial edit would leave the fixture a character off |
 | E27 | The drill drawing `sample-walls-ma2a.dxf` draws every wall as two faces | A wall drawn as one line has no measured thickness, and Ghost's typer then takes the mapping, not the guideline (`ThicknessMm <= 0`); the MA-1a and MA-1b samples are single lines, so none of them can show a layer-free rule typing a wall |
+| E28 | The barrier list of a storey is its own walls plus every wall whose vertical extent crosses the storey's plane — base elevation (`BaseLevel` + `BaseOffsetMm`) ≤ plane + 1 mm < top (`TopLevel` + `TopOffsetMm`, or base + `HeightMm`), the planner's own `TopMm`; Ghost reads the model's walls whose bounding box spans the build level's elevation (review C1) | `GroupBy(BaseLevel)` listed only the walls BASED on the storey: a shell based on the ground floor and rising to the roof was no barrier on the first floor, and every room-closing partition there read one side open — Exterior at confidence 1. The storey's own walls come first in the list, so a wall's index is unchanged |
+| E29 | On a mixed storey a wall whose type's `Function` (Exterior/Interior) disagrees with the `Location` read is held: "Function Exterior but it reads inside (both sides enclosed — a courtyard, or a misread outline); a person decides" / "Function Interior but it reads outside (one side looks out of the storey's outline); a person decides" (review C2) | Passing both let the file's order decide, and the Location rule listed first retyped a courtyard wall (Function Exterior) to an internal type at confidence 1 with only a template note. Where they agree, or the location is unknown, or the storey is one-type, nothing changes |
+| E30 | `ChangesetExecutor.Unsafe` checks a wall retype's width: a basic target `WallType.Width` more than 0.5 mm from the wall's is refused with "a retype would move a face; a person decides" (review C3) | `Unsafe` began `if (kind == "wall") return null;` and `type_before` is null on a bridge-typed retype, so a claimed thickness was applied with no check and moved both faces. Promote names a type at the wall's own width, so its retypes pass; the BDS CMU and GYPS rows carry their named width in the catalogue |
 
 ---
 
@@ -133,7 +161,7 @@ The plan builds option **A** of each. None needs an answer before the work start
 | `demo/bds-pilot/bds-dd-layerfree-guideline.json` (new) | 1 | The DRAFT layer-free DD wall rules (Location, Material, then MA-0's Function) |
 | `demo/ghost-sample/ma2a-ghost-guideline.json` (new) | 1 | The drill's Ghost guideline: a layer rule listed first, then Location rules |
 | `WebApp/src/sentinel-core/guideline.ts` | 1 | `CatalogType.bic`, `CATEGORY_BIC`, `sameCategory` in the catalogue reads |
-| `WebApp/src/sentinel-core/guideline-layerfree.test.ts` (new), `fixtures/guideline-layerfree-cases.json` (new, generated) | 1 | The 17 shared cases, the German rows, the mixed file |
+| `WebApp/src/sentinel-core/guideline-layerfree.test.ts` (new), `fixtures/guideline-layerfree-cases.json` (new, generated), `guideline-fixtures.test.ts` | 1 | The 17 shared cases (with `matched`), the German rows, the mixed file, the two-param case; both generators write their fixture whole (a temp file renamed into place) |
 | `WebApp/bridge/sentinel-core-bundle.test.mjs` (new), `WebApp/bridge/sentinel-core.mjs` (rebuilt) | 1 | A stale bundle fails; the bundle |
 | `SentinelAddin/GhostBuilder/GuidelineMatcher.cs` | 2 | `CatalogEntry.Bic`, `Matched`, `CategoryBics`, `SameCategory`, the `bic` check |
 | `tools/promote-check/LayerFree.cs` (new), `Check.cs` | 2 | The layer-free file, BOS-5, the parity read, the mixed file |
@@ -145,7 +173,7 @@ The plan builds option **A** of each. None needs an answer before the work start
 | `WebApp/bridge/fixtures/changeset-ops/contract2-typed-body.json` (new) | 3, 4 | The design's body with facts: posted and stored (vitest and promote-check) |
 | `SentinelAddin/GhostBuilder/WallLocation.cs` (new) | 4 | Pure: the outer boundary — `Segment`, `Locate`, `Summary`, `RayMeets` |
 | `SentinelAddin/GhostBuilder/PromoteWallsPlanner.cs` | 4 | `WallFact.Line`, `Material`; the one-type pre-pass; the params; `What` |
-| `SentinelAddin/GhostBuilder/PromotePlanner.cs` | 4 | `Swap` reads a host rule's Location |
+| `SentinelAddin/GhostBuilder/PromotePlanner.cs`, `GuidelineMatcher.cs` | 4 | `Swap` reads a host rule's location through the new `RuleLocation` |
 | `SentinelAddin/Coordination/ChangesetClient.cs` | 4 | `TypingDto`, `ChangesetTrust.Typing` |
 | `demo/ghost-sample/make-sample.py`, `sample-walls-ma2a.dxf`, `sample-walls-ma2a-expected.json` (new, generated) | 4 | `--ma2a`: the drill drawing as two-face walls, and what each must read |
 | `tools/promote-check/LayerFreePlanner.cs` (new), `Planner.cs`, `Check.cs`, `promote-check.csproj`; `WebApp/bridge/fixtures/changeset-ops/promote-body.json` | 4 | The boundary's checks, the planner's, the typed body's, the drawing's; the fixture's changed string |
@@ -153,7 +181,7 @@ The plan builds option **A** of each. None needs an answer before the work start
 | `SentinelAddin/Standards/StandardsPack.cs`, `GoldenModelExtractor.cs`, `SentinelAddin/Compat.cs`, `SentinelAddin/Workflow/NamingManagerService.cs` | 5 | `TypeSpec.Bic`, `CategoryLocal`; the reads; `CategoryKeyOf`, `BicNameOf`; the shared material read |
 | `tools/ghost-standards-check/HarvestChecks.cs` (new), `Check.cs`, `ghost-standards-check.csproj` | 5 | The harvest's checks and source scans |
 | `SentinelAddin/Commands.PromoteWalls.cs` | 6 | `Fact` reads the line and the material; `WallLine` |
-| `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, `ElementPlacementFactory.cs` | 6 | The drawn walls, `GhostFacts`, the summary line; the typer's `facts` |
+| `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, `ElementPlacementFactory.cs`, `ChangesetExecutor.cs` | 6 | The drawn walls and the model's walls as barriers, `GhostFacts` (Location only), the summary line; the typer's `facts`; `Unsafe` checks a wall retype's width |
 | `SentinelAddin/UI/ChangesetReviewWindow.cs` | 6 | The typing line |
 | `tools/promote-check/Ma2aWiring.cs` (new), `Ma1bWiring.cs`, `Check.cs` | 6 | The source scans |
 | `SentinelAddin/Standards/TypeCatalogExport.cs` | 7 | `InstallJson`, `OfficeKeyFrom`, `InstallLine`, `NotInstalledLine`; the dialog's new sentence |
@@ -176,9 +204,10 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
 - Create `WebApp/src/sentinel-core/guideline-layerfree.test.ts` — the shared cases; it writes `fixtures/guideline-layerfree-cases.json`
 - Create `WebApp/bridge/sentinel-core-bundle.test.mjs` — the bundle against the source
 - Modify `WebApp/src/sentinel-core/guideline.ts` — `CatalogType.bic`, `CATEGORY_BIC`, `sameCategory`
+- Modify `WebApp/src/sentinel-core/guideline-fixtures.test.ts` — the fixture is written whole: a temp file renamed into place (review C10: the bundle test reads it from a parallel worker)
 - Rebuild `WebApp/bridge/sentinel-core.mjs`
 
-**Interfaces:** `CatalogType.bic?: string | null` — a row's BuiltInCategory as its enum name (`"OST_Walls"`). `CATEGORY_BIC: Record<string, string>` — the ten categories Sentinel places → their `OST_` names (the C# `GuidelineMatcher.CategoryBics` is the same list). `sameCategory(row, category): boolean` — by name (case and padding ignored), else by `bic` when the row carries one and the category is one of the ten; used wherever the resolver reads the catalogue. The params' spelling, fixed here for every reader: `Function` = `Exterior` | `Interior` | `Foundation` | `Retaining` | `Soffit` | `CoreShaft` (the enum name); `Location` = `Exterior` | `Interior`; `Material` = the build-up's material names joined ` / `.
+**Interfaces:** `CatalogType.bic?: string | null` — a row's BuiltInCategory as its enum name (`"OST_Walls"`). `CATEGORY_BIC: Record<string, string>` — the ten categories Sentinel places → their `OST_` names (the C# `GuidelineMatcher.CategoryBics` is the same list). `sameCategory(row, category): boolean` — by name (case and padding ignored), else by `bic` when the row carries one and the category is one of the ten; used wherever the resolver reads the catalogue. The params' spelling, fixed here for every reader: `Function` = `Exterior` | `Interior` | `Foundation` | `Retaining` | `Soffit` | `Coreshaft` (the enum's own spelling — `Autodesk.Revit.DB.WallFunction`, read by reflection on Revit 2024's RevitAPI.dll: review C7); `Location` = `Exterior` | `Interior`; `Material` = the build-up's material names joined ` / `.
 
 - [ ] **Step 1: The two rule files and the failing tests.**
 
@@ -236,11 +265,12 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
 // MA-2a: the layer-free rules — Function, Location (inside or outside, from the outer boundary) and Material as when.params —
 // resolved by the TS resolver over demo/bds-pilot/bds-dd-layerfree-guideline.json and the real BDS catalogue, and written to
 // fixtures/guideline-layerfree-cases.json so the add-in's C# port (GuidelineMatcher, tools/promote-check ResolverParityLayerFree)
-// and the bridge's bundle (bridge/sentinel-core-bundle.test.mjs) give the same family, type, source, confidence and options.
-// A case may carry its own `catalog` rows (BOS-5: a row whose category is a localized name and whose `bic` is the
-// BuiltInCategory); the others resolve against the BDS catalogue. Never `why`. Regenerated on every run and committed.
+// and the bridge's bundle (bridge/sentinel-core-bundle.test.mjs) give the same family, type, source, confidence, options and
+// matched conditions. A case may carry its own `catalog` rows (BOS-5: a row whose category is a localized name and whose `bic`
+// is the BuiltInCategory); the others resolve against the BDS catalogue. Never `why`. Regenerated on every run and committed —
+// written to a temp name and renamed into place, so a parallel vitest worker reading it never sees a half-written file.
 import { describe, it, expect } from "vitest";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { resolveWithCatalog, validateGuideline, validateAgainstCatalog, CATEGORY_BIC, type Guideline, type CatalogType, type ResolveInput } from "./guideline";
 
 const OUT = "src/sentinel-core/fixtures/guideline-layerfree-cases.json";
@@ -274,7 +304,7 @@ const INPUTS: { input: ResolveInput; catalog?: CatalogType[] }[] = [
 
 const cases = INPUTS.map(({ input, catalog }) => {
   const r = resolveWithCatalog(G, input, catalog ?? CATALOG);
-  return { input, ...(catalog ? { catalog } : {}), family: r.family || null, type: r.type ?? null, source: r.source, confidence: r.confidence, available: r.available ?? null };
+  return { input, ...(catalog ? { catalog } : {}), family: r.family || null, type: r.type ?? null, source: r.source, confidence: r.confidence, available: r.available ?? null, matched: r.matched ?? null };
 });
 const find = (pred: (c: (typeof cases)[number]) => boolean) => cases.find(pred)!;
 const P = (c: (typeof cases)[number]) => c.input.params ?? {};
@@ -312,9 +342,10 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
     expect(validateAgainstCatalog(G, GERMAN_NO_BIC)).toEqual(['"Walls" — the template has no types in this category at all.']);
   });
 
-  it("writes fixtures/guideline-layerfree-cases.json as [{ input, catalog?, family, type, source, confidence, available }]", () => {
+  it("writes fixtures/guideline-layerfree-cases.json as [{ input, catalog?, family, type, source, confidence, available, matched }]", () => {
     mkdirSync("src/sentinel-core/fixtures", { recursive: true });
-    writeFileSync(OUT, JSON.stringify(cases, null, 2) + "\n");
+    writeFileSync(OUT + ".tmp", JSON.stringify(cases, null, 2) + "\n");
+    renameSync(OUT + ".tmp", OUT); // atomic: bridge/sentinel-core-bundle.test.mjs reads this file in a parallel worker
     expect(JSON.parse(readFileSync(OUT, "utf8"))).toEqual(cases);
   });
 });
@@ -334,7 +365,38 @@ describe("a layer rule and layer-free rules together (drill MA2a's Ghost guideli
     const unknown = resolveWithCatalog(M, { category: "Walls", layer: "A-WALL-INT", discipline: "A", params: {}, thicknessMm: 100 }, CATALOG);
     expect(unknown).toMatchObject({ source: "none", confidence: 0 });
   });
+  it("a layer-free rule on TWO params, listed last, is tried before the layer rule listed first: the matcher orders by how many conditions a rule states, a layer counting one", () => {
+    const two = { when: { params: { Location: "Interior", Material: "GYPS" } }, use: { family: "Basic Wall", typePattern: "BDS_INT_ARC_GYPS_{thickness} mm" }, why: "two conditions" };
+    const M2: Guideline = { ...M, elements: [{ ...M.elements[0], rules: [...M.elements[0].rules, two] }] };
+    const r = resolveWithCatalog(M2, { category: "Walls", layer: "A-WALL-EXT", discipline: "A", params: { Location: "Interior", Material: "Gypsum Wall Board" }, thicknessMm: 100 }, CATALOG);
+    expect(r).toMatchObject({ type: "BDS_INT_ARC_GYPS_100 mm", confidence: 1, matched: ["param:Location", "param:Material"] });
+  });
 });
+```
+
+In `WebApp/src/sentinel-core/guideline-fixtures.test.ts`, replace
+
+```ts
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+```
+
+with
+
+```ts
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+```
+
+In `WebApp/src/sentinel-core/guideline-fixtures.test.ts`, replace
+
+```ts
+    writeFileSync(OUT, JSON.stringify(cases, null, 2) + "\n");
+```
+
+with
+
+```ts
+    writeFileSync(OUT + ".tmp", JSON.stringify(cases, null, 2) + "\n");
+    renameSync(OUT + ".tmp", OUT); // MA-2a: atomic — bridge/sentinel-core-bundle.test.mjs reads this file in a parallel worker
 ```
 
 `Create` `demo/ghost-sample/ma2a-ghost-guideline.json`:
@@ -405,13 +467,14 @@ describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", (
         const got = pick(bundle.resolveWithCatalog(G, c.input, cat));
         expect(got, JSON.stringify(c.input)).toEqual(pick(source.resolveWithCatalog(G, c.input, cat)));
         expect(got, JSON.stringify(c.input)).toMatchObject({ family: c.family, type: c.type, source: c.source, confidence: c.confidence, available: c.available });
+        if ("matched" in c) expect(got.matched, JSON.stringify(c.input)).toEqual(c.matched); // the layer-free fixture carries it
       }
     });
   }
 });
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** From `WebApp`: `npx vitest run src/sentinel-core/guideline-layerfree.test.ts`. Expect `1 failed | 5 passed (6)`: the BOS-5 test (`CATEGORY_BIC` is not exported, `sameCategory` does not exist — the German row answers for nothing). The other five pass: the matcher already resolves layer-free rules, and the last test writes `src/sentinel-core/fixtures/guideline-layerfree-cases.json`.
+- [ ] **Step 2: Run it, and see it fail.** From `WebApp`: `npx vitest run src/sentinel-core/guideline-layerfree.test.ts`. Expect `1 failed | 6 passed (7)`: the BOS-5 test (`CATEGORY_BIC` is not exported, `sameCategory` does not exist — the German row answers for nothing). The other six pass: the matcher already resolves layer-free rules (the two-param case included), and the fixture test writes `src/sentinel-core/fixtures/guideline-layerfree-cases.json`.
 
 - [ ] **Step 3: The source: a row's `bic`, and the comparison that reads it.**
 
@@ -509,14 +572,14 @@ with
     const inCat = catalog.filter((c) => sameCategory(c, el.category));
 ```
 
-- [ ] **Step 4: Run the source's test, then see the committed bundle fail.** From `WebApp`: `npx vitest run src/sentinel-core/guideline-layerfree.test.ts` — expect `6 passed (6)` (and the fixture rewritten with the German case at confidence 1). Then `npx vitest run bridge/sentinel-core-bundle.test.mjs` — expect `2 failed | 1 passed (3)`: "exports the resolver and the BOS-5 category ids" (`sameCategory` is `undefined` in the bundle) and "gives the fixture's answer on every case of guideline-layerfree-cases.json" (the German row). This is the stale bundle the suite could not see before.
+- [ ] **Step 4: Run the source's test, then see the committed bundle fail.** From `WebApp`: `npx vitest run src/sentinel-core/guideline-layerfree.test.ts` — expect `7 passed (7)` (and the fixture rewritten with the German case at confidence 1). Then `npx vitest run bridge/sentinel-core-bundle.test.mjs` — expect `2 failed | 1 passed (3)`: "exports the resolver and the BOS-5 category ids" (`sameCategory` is `undefined` in the bundle) and "gives the fixture's answer on every case of guideline-layerfree-cases.json" (the German row). This is the stale bundle the suite could not see before.
 
-- [ ] **Step 5: Rebuild the bundle, and see it pass.** From `WebApp`: `npm run build:bridge-core` (it prints `bridge\sentinel-core.mjs  64.7kb`). Then `npx vitest run src/sentinel-core/guideline bridge/sentinel-core-bundle.test.mjs`. Expect `Test Files  5 passed (5)` and `Tests  42 passed (42)` (`guideline.test` 13, `guideline-fixtures` 2, `guideline-layerfree` 6, `guideline-bds` 18, `sentinel-core-bundle` 3). The rebuilt bundle also carries a drift master already had: the programme-CSV parser of a 4D commit was never rebundled (77 lines); `git diff --stat WebApp/bridge/sentinel-core.mjs` shows it, and the commit message says so. From the repo root: `dotnet run --project tools/ghost-standards-check` — expect `149/149 checks pass` (its fixtures loop parses the two new guideline files as `guideline@n`).
+- [ ] **Step 5: Rebuild the bundle, and see it pass.** From `WebApp`: `npm run build:bridge-core` (it prints `bridge\sentinel-core.mjs  64.7kb`). Then `npx vitest run src/sentinel-core/guideline bridge/sentinel-core-bundle.test.mjs`. Expect `Test Files  5 passed (5)` and `Tests  43 passed (43)` (`guideline.test` 13, `guideline-fixtures` 2, `guideline-layerfree` 7, `guideline-bds` 18, `sentinel-core-bundle` 3). The rebuilt bundle also carries a drift master already had: the programme-CSV parser of a 4D commit was never rebundled (77 lines); `git diff --stat WebApp/bridge/sentinel-core.mjs` shows it, and the commit message says so. From the repo root: `dotnet run --project tools/ghost-standards-check` — expect `149/149 checks pass` (its fixtures loop parses the two new guideline files as `guideline@n`).
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add demo/bds-pilot/bds-dd-layerfree-guideline.json demo/ghost-sample/ma2a-ghost-guideline.json WebApp/src/sentinel-core/guideline.ts WebApp/src/sentinel-core/guideline-layerfree.test.ts WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json WebApp/bridge/sentinel-core-bundle.test.mjs WebApp/bridge/sentinel-core.mjs
+git add demo/bds-pilot/bds-dd-layerfree-guideline.json demo/ghost-sample/ma2a-ghost-guideline.json WebApp/src/sentinel-core/guideline.ts WebApp/src/sentinel-core/guideline-layerfree.test.ts WebApp/src/sentinel-core/guideline-fixtures.test.ts WebApp/src/sentinel-core/fixtures/guideline-layerfree-cases.json WebApp/bridge/sentinel-core-bundle.test.mjs WebApp/bridge/sentinel-core.mjs
 git commit -F - <<'EOF'
 feat(sentinel-core): layer-free rules pinned by a shared fixture; a catalogue row answers by its BuiltInCategory (BOS-5); a stale bridge bundle fails a test (MA-2a)
 
@@ -613,13 +676,23 @@ static partial class Check
         Ok(byLocation.Type == "BDS_INT_ARC_CMU_100 mm" && byLocation.Confidence == 1 && byLocation.Matched.SequenceEqual(new[] { "param:Location" }),
            "a layer no rule names types by Location");
         Ok(GR("A-WALL-INT", new Dictionary<string, string>(), 100).Source == "none", "…and with no Location read it is a gap, never the default (there is none)");
+        // Review C5: the matcher orders by how many conditions a rule states (a layer counts one), then by document order — so a
+        // layer-free rule on two params, listed LAST, is tried before the layer rule listed first. Pinned here and in the TS test.
+        var twoNode = JsonNode.Parse(File.ReadAllText(Repo("demo", "ghost-sample", "ma2a-ghost-guideline.json")));
+        twoNode["elements"][0]["rules"].AsArray().Add(JsonNode.Parse("{\"when\":{\"params\":{\"Location\":\"Interior\",\"Material\":\"GYPS\"}},\"use\":{\"family\":\"Basic Wall\",\"typePattern\":\"BDS_INT_ARC_GYPS_{thickness} mm\"},\"why\":\"two conditions\"}"));
+        var two = GuidelineMatcher.FromBodies(twoNode.ToJsonString(), catalog, out _, out _);
+        var twoR = two.Resolve(new GuidelineInput { Category = "Walls", Layer = "A-WALL-EXT", Discipline = "A", ThicknessMm = 100,
+                                                    Params = new Dictionary<string, string> { ["Location"] = "Interior", ["Material"] = "Gypsum Wall Board" } });
+        Ok(twoR.Type == "BDS_INT_ARC_GYPS_100 mm" && twoR.Matched.SequenceEqual(new[] { "param:Location", "param:Material" }),
+           "a layer-free rule on TWO params, listed last, beats the layer rule listed first on its own layer — the matcher orders by how many conditions a rule states (review C5; the TS test pins the same)");
 
         ResolverParityLayerFree(text, m3);
         return m3;
     }
 
     // The TS resolver's answers over the layer-free file (guideline-layerfree.test.ts writes them) against the C# port, on family,
-    // type, source, confidence and options — never `why`. A case with its own `catalog` rows resolves against those (BOS-5).
+    // type, source, confidence, options and the matched conditions (Matched ↔ matched, review C9) — never `why`. A case with its own
+    // `catalog` rows resolves against those (BOS-5).
     static void ResolverParityLayerFree(string guidelineText, GuidelineMatcher m3)
     {
         var path = Repo("WebApp", "src", "sentinel-core", "fixtures", "guideline-layerfree-cases.json");
@@ -637,10 +710,12 @@ static partial class Check
                 ThicknessMm = (double?)input["thicknessMm"],
             });
             var want = c["available"]?.AsArray().Select(x => (string)x) ?? Enumerable.Empty<string>();
+            var wantMatched = c["matched"]?.AsArray().Select(x => (string)x).ToList(); // null when the TS resolver matched nothing
             bool ok = r.Family == (string)c["family"] && r.Type == (string)c["type"] && r.Source == (string)c["source"]
-                      && r.Confidence == (double)c["confidence"] && (r.Available ?? new List<string>()).SequenceEqual(want);
+                      && r.Confidence == (double)c["confidence"] && (r.Available ?? new List<string>()).SequenceEqual(want)
+                      && (wantMatched == null ? r.Matched == null : r.Matched != null && r.Matched.SequenceEqual(wantMatched));
             if (ok) same++;
-            else Console.WriteLine($"        differs: {input.ToJsonString()} → C# {r.Family} / {r.Type} / {r.Source} / {r.Confidence} / [{string.Join(", ", r.Available ?? new List<string>())}]");
+            else Console.WriteLine($"        differs: {input.ToJsonString()} → C# {r.Family} / {r.Type} / {r.Source} / {r.Confidence} / [{string.Join(", ", r.Available ?? new List<string>())}] / matched [{string.Join(", ", r.Matched ?? new List<string>())}]");
         }
         Ok(cases.Count == 17 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
     }
@@ -662,7 +737,7 @@ with
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** From the repo root: `dotnet run --project tools/promote-check`. Expect a compile failure: `'GuidelineMatcher' does not contain a definition for 'CategoryBics'` (three times) and `'GuidelineResolution' does not contain a definition for 'Matched'` (three times), plus `CatalogEntry` has no `Bic`.
+- [ ] **Step 2: Run it, and see it fail.** From the repo root: `dotnet run --project tools/promote-check`. Expect a compile failure: `'GuidelineMatcher' does not contain a definition for 'CategoryBics'` (three times) and `'GuidelineResolution' does not contain a definition for 'Matched'` (ten times).
 
 - [ ] **Step 3: The matcher.**
 
@@ -921,7 +996,7 @@ with
                 var inCat = _catalog.Where(c => SameCategory(c, el.Category)).ToList();
 ```
 
-- [ ] **Step 4: Run it, and see it pass.** From the repo root: `dotnet run --project tools/promote-check` — expect `496/496 checks pass` (master `476`; the new lines are under "MA-2a — the layer-free rule file", "BOS-5" and "the drill's Ghost guideline", the parity line reading `17/17`). Then the other projects that compile `GuidelineMatcher.cs`: `dotnet run --project tools/guideline-check` `17/17`; `tools/ghost-standards-check` `149/149`; `tools/annotate-check` `ALL PASS`; `tools/wallpair-check` `9/9`.
+- [ ] **Step 4: Run it, and see it pass.** From the repo root: `dotnet run --project tools/promote-check` — expect `497/497 checks pass` (master `476`; the new lines are under "MA-2a — the layer-free rule file", "BOS-5" and "the drill's Ghost guideline", the parity line reading `17/17`). Then the other projects that compile `GuidelineMatcher.cs`: `dotnet run --project tools/guideline-check` `17/17`; `tools/ghost-standards-check` `149/149`; `tools/annotate-check` `ALL PASS`; `tools/wallpair-check` `9/9`.
 
 - [ ] **Step 5: Commit.**
 
@@ -1825,12 +1900,13 @@ EOF
 **Files:**
 - Create `SentinelAddin/GhostBuilder/WallLocation.cs` — pure: `Segment`, `Locate`, `Summary`, `RayMeets`
 - Modify `SentinelAddin/GhostBuilder/PromoteWallsPlanner.cs` — `WallFact.Line`, `WallFact.Material`; the one-type pre-pass; the params; the reasons; `What`
-- Modify `SentinelAddin/GhostBuilder/PromotePlanner.cs` — `Swap` reads a host rule's `Location`
+- Modify `SentinelAddin/GhostBuilder/GuidelineMatcher.cs` — `RuleLocation` (review C6)
+- Modify `SentinelAddin/GhostBuilder/PromotePlanner.cs` — `Swap` reads a host rule's location through `RuleLocation`
 - Modify `SentinelAddin/Coordination/ChangesetClient.cs` — `TypingDto`, `ChangesetElementDto.Typing`, `ChangesetTrust.Typing`
 - Modify `demo/ghost-sample/make-sample.py` — `--ma2a`; generated: `sample-walls-ma2a.dxf`, `sample-walls-ma2a-expected.json`
 - Create `tools/promote-check/LayerFreePlanner.cs`; modify `Planner.cs`, `Check.cs`, `promote-check.csproj`; modify `WebApp/bridge/fixtures/changeset-ops/promote-body.json` (one string)
 
-**Interfaces:** `WallLocation.Segment { X0, Y0, X1, Y1, WidthMm; Curved }` (mm, in plan). `WallLocation.Locate(walls, i, out why)` → `"Exterior"` | `"Interior"` | `null` with `why` in plain words (`both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it`; `a curved wall — its sides are not read (MA-2a reads straight walls)`; `only N other wall(s) on the storey — no outline to be inside or outside of`; `N mm long — too short to look out from (under 500 mm)`; `no location line was read`). Constants: `ClearMm` 100, `MinLengthMm` 500, `MinOthers` 3, `TolMm` 1. `WallLocation.Summary(ext, int, unk)` → `outer boundary: N outside · M inside · K unknown`. `WallFact.Line` (a `Segment`, null when none was read), `WallFact.Material` (the label, null when none). Promote's reason: `DD walls v0: <what the rule used>, <mm> mm → <type>`; the one-type hold: `every wall on <storey>[ besides the N on other office types] is "<type>" — inside cannot be told from outside: its Function tells nothing, and <standard> has no rule for Location <loc> | its location is unknown (<why>); a person decides`; no rule on a mixed storey: `no DD rule for <facts> in <standard>[ (location unknown: <why>)]`. `TypingDto { TypedBy, Type, Family, Rule, Guideline, Catalog }`; `ChangesetTrust.Typing(el)` → `typed by the bridge from the facts posted (<guideline label>)` or null. `make-sample.py --ma2a` writes the drawing (seven walls as two faces each: four 200 mm on `A-WALL-EXT`, three 100 mm on `A-WALL-INT`, at origin (60000, 60000)) and the expected file (`walls[].location`: four `Exterior`, two `Interior`, one `null`).
+**Interfaces:** `WallLocation.Segment { X0, Y0, X1, Y1, WidthMm; Curved }` (mm, in plan). `WallLocation.Locate(walls, i, out why)` → `"Exterior"` | `"Interior"` | `null` with `why` in plain words (`both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it`; `a curved wall — its sides are not read (MA-2a reads straight walls)`; `only N other wall(s) on the storey — no outline to be inside or outside of`; `N mm long — too short to look out from (under 500 mm)`; `no location line was read`). Constants: `ClearMm` 100, `MinLengthMm` 500, `MinOthers` 3, `TolMm` 1. `WallLocation.Summary(ext, int, unk)` → `outer boundary: N outside · M inside · K unknown`. `WallFact.Line` (a `Segment`, null when none was read), `WallFact.Material` (the label, null when none). Promote's reason: `DD walls v0: <what the rule used>, <mm> mm → <type>`; the one-type hold: `every wall on <storey>[ besides the N on other office types] is "<type>" — inside cannot be told from outside: its Function tells nothing, and <standard> has no rule for Location <loc> | its location is unknown (<why>); a person decides`; no rule on a mixed storey: `no DD rule for <facts> in <standard>[ (location unknown: <why>)]`; a mixed storey's Function against its reading (C2): `Function Exterior but it reads inside (both sides enclosed — a courtyard, or a misread outline); a person decides` / `Function Interior but it reads outside (one side looks out of the storey's outline); a person decides`. The barrier list (C1, E28): the storey's walls first, then every other wall whose base ≤ the storey's elevation + 1 mm < its top. `GuidelineMatcher.RuleLocation(category, typeName)` (C6) → each producing rule's `Function`, else its `Location`; one distinct value or null. `TypingDto { TypedBy, Type, Family, Rule, Guideline, Catalog }`; `ChangesetTrust.Typing(el)` → `typed by the bridge from the facts posted (<guideline label>)` or null. `make-sample.py --ma2a` writes the drawing (seven walls as two faces each: four 200 mm on `A-WALL-EXT`, three 100 mm on `A-WALL-INT`, at origin (60000, 60000)) and the expected file (`walls[].location`: four `Exterior`, two `Interior`, one `null`).
 
 - [ ] **Step 1: The failing checks, the fixture's changed string, and the generator.**
 
@@ -1903,11 +1979,19 @@ static partial class Check
         Ok(WallLocation.Summary(8, 12, 1) == "outer boundary: 8 outside · 12 inside · 1 unknown", "the summary line");
     }
 
+    // The O layout again, for the planner's checks: a closed inner courtyard inside an 18 x 12 m outline.
+    static List<WallLocation.Segment> Courtyard() => new List<WallLocation.Segment>
+    {
+        Seg(0, 0, 18000, 0), Seg(18000, 0, 18000, 12000), Seg(18000, 12000, 0, 12000), Seg(0, 12000, 0, 0),
+        Seg(6000, 4000, 12000, 4000), Seg(12000, 4000, 12000, 8000), Seg(12000, 8000, 6000, 8000), Seg(6000, 8000, 6000, 4000),
+    };
+
     // The layer-free rule file through Promote's planner: a one-type storey types by location, an unknown location goes to a person.
     static void PlannerLayerFreeChecks(GuidelineMatcher m, GuidelineMatcher m3)
     {
         Console.WriteLine("\nMA-2a — Promote passes Function, Location and Material (PromoteWallsPlanner with the layer-free file)");
-        var docTypes = new Dictionary<string, string>(DocTypes, StringComparer.OrdinalIgnoreCase) { ["BDS_INT_ARC_CMU_200 mm"] = "Interior", ["BDS_INT_ARC_CMU_100 mm"] = "Interior" };
+        var docTypes = new Dictionary<string, string>(DocTypes, StringComparer.OrdinalIgnoreCase)
+            { ["BDS_INT_ARC_CMU_200 mm"] = "Interior", ["BDS_INT_ARC_CMU_100 mm"] = "Interior", ["BDS_EXT_ARC_CMU_100 mm"] = "Exterior" };
         var layout = Concept(); layout.Add(Seg(30000, 0, 34000, 0));
         // Every wall Generic - 200mm, Function Exterior (the template's default): the one-type storey MA-0 held whole.
         var oneType = layout.Select((s, i) => W($"W{i + 1}", "Generic - 200mm", "Exterior", 200, top: "Level 2", set: w => w.Line = s)).ToList();
@@ -1949,21 +2033,62 @@ static partial class Check
         Ok(np.Held.Any(h => h.Label == "F1" && h.Reason == "no DD rule for Function Exterior in BDS DD walls, layer-free v0 (MA-2a) — DRAFT (location unknown: both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it)"),
            "with no rule for its Function either, the held reason names the facts passed and why the location is unknown");
 
-        Console.WriteLine("\nMA-2a — a door's location from a host settled by a Location rule (PromotePlanner.Swap)");
+        // Review C2: on a mixed storey a type's Function that disagrees with the reading is held, never outvoted by the file's order.
+        // The O layout's courtyard walls carry Function Exterior (a courtyard wall is one) and read Interior; its east outline wall
+        // is a Function-Interior type here and reads Exterior.
+        var court = Courtyard();
+        var cw = court.Select((s, i) => i == 1 ? W("C2", "MA0 Interior - 100mm", "Interior", 100, top: "Level 2", set: w => w.Line = s)
+                                               : W($"C{i + 1}", "Generic - 200mm", "Exterior", 200, top: "Level 2", set: w => w.Line = s)).ToList();
+        cw.Add(W("CI", "MA0 Interior - 100mm", "Interior", 100, top: "Level 2", set: w => w.Line = Seg(2000, 2000, 2000, 10000, 100)));
+        var cp = PromoteWallsPlanner.Plan(cw, Levels, docTypes, m3).Single();
+        Ok(!cp.OneType && cp.Ghosts.Count(g => g.Op == "retype") == 4 && G(cp, "C1")?.TypeName == "BDS_EXT_ARC_CMU_200 mm" && G(cp, "CI")?.TypeName == "BDS_INT_ARC_CMU_100 mm"
+           && Enumerable.Range(5, 4).All(n => cp.Held.Any(h => h.Label == $"C{n}" && h.Reason == "Function Exterior but it reads inside (both sides enclosed — a courtyard, or a misread outline); a person decides")),
+           "a mixed storey: the four courtyard walls (Function Exterior, reading Interior) are held in words, 0 retyped to an internal type; the outline and the partition, where both agree, retype (review C2)");
+        Ok(cp.Held.Any(h => h.Label == "C2" && h.Reason == "Function Interior but it reads outside (one side looks out of the storey's outline); a person decides"),
+           "…and an outline wall of a Function-Interior type is held the other way round");
+
+        // Review C1: the storey's barriers are its own walls AND every wall that crosses its plane. A shell based on Level 1 rising to
+        // the Roof encloses Level 2: a room of four partitions there reads Interior. The same room with no shell reads Exterior on
+        // every wall (each has one side open) — the barrier list is what decides.
+        var shell = Concept().Take(8).Select((s, i) => W($"S{i + 1}", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Roof", set: w => w.Line = s)).ToList();
+        var roomSegs = new[] { Seg(8000, 4000, 16000, 4000, 100), Seg(16000, 4000, 16000, 8000, 100), Seg(16000, 8000, 8000, 8000, 100), Seg(8000, 8000, 8000, 4000, 100) };
+        List<WallFact> Room() => roomSegs.Select((s, i) => W($"R{i + 1}", "MA0 Interior - 100mm", "Interior", 100, baseLevel: "Level 2", top: "Roof", set: w => w.Line = s)).ToList();
+        var l2 = PromoteWallsPlanner.Plan(shell.Concat(Room()).ToList(), Levels, docTypes, m3).Single(p => p.Storey == "Level 2");
+        Ok(l2.OneType && l2.Held.Count == 0 && l2.Ghosts.Count(g => g.Op == "retype") == 4
+           && Enumerable.Range(1, 4).All(n => G(l2, $"R{n}")?.Reason == "DD walls v0: Location Interior, 100 mm → BDS_INT_ARC_CMU_100 mm"),
+           "a shell based on Level 1 rising to the Roof is a barrier on Level 2: a room of four partitions there reads Interior, none Exterior (review C1)");
+        var alone = PromoteWallsPlanner.Plan(Room(), Levels, docTypes, m3).Single();
+        Ok(alone.Ghosts.Count(g => g.Op == "retype") == 4 && Enumerable.Range(1, 4).All(n => G(alone, $"R{n}")?.TypeName == "BDS_EXT_ARC_CMU_100 mm"),
+           "…the same room with no shell reads Exterior on every wall — the barrier list is what decides");
+        var low = Concept().Take(8).Select((s, i) => W($"L{i + 1}", "BDS_EXT_ARC_CMU_200 mm", "Exterior", 200, top: "Level 2", set: w => w.Line = s)).ToList();
+        var l2low = PromoteWallsPlanner.Plan(low.Concat(Room()).ToList(), Levels, docTypes, m3).Single(p => p.Storey == "Level 2");
+        Ok(Enumerable.Range(1, 4).All(n => G(l2low, $"R{n}")?.TypeName == "BDS_EXT_ARC_CMU_100 mm"), "…and a shell that stops AT Level 2 (top = the plane) is no barrier there");
+
+        Console.WriteLine("\nMA-2a — a door's location from a host settled by a Location rule (PromotePlanner.Swap, GuidelineMatcher.RuleLocation)");
+        string catalogText = File.ReadAllText(Repo("demo", "bds-pilot", "bds-type-catalog.json"));
+        string layerFree = File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-layerfree-guideline.json"));
         var doorsG = JsonNode.Parse(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-elements-guideline.json"))).AsObject();
         var wallsBlock = doorsG["elements"].AsArray().First(e => (string)e["category"] == "Walls");
-        wallsBlock["rules"] = JsonNode.Parse(File.ReadAllText(Repo("demo", "bds-pilot", "bds-dd-layerfree-guideline.json")))["elements"][0]["rules"].DeepClone();
-        var md = GuidelineMatcher.FromBodies(doorsG.ToJsonString(), File.ReadAllText(Repo("demo", "bds-pilot", "bds-type-catalog.json")), out var dge, out _);
-        Ok(dge == null && md.RuleParam("Walls", "BDS_INT_ARC_CMU_100 mm", "Function") == null && md.RuleParam("Walls", "BDS_INT_ARC_CMU_100 mm", "Location") == "Interior",
-           "a Walls block of Location rules: RuleParam names no Function for the internal CMU type, and names its Location");
+        wallsBlock["rules"] = JsonNode.Parse(layerFree)["elements"][0]["rules"].DeepClone();
+        var md = GuidelineMatcher.FromBodies(doorsG.ToJsonString(), catalogText, out var dge, out _);
+        Ok(dge == null && md.RuleParam("Walls", "BDS_INT_ARC_GYPS_100 mm", "Function") == null && md.RuleParam("Walls", "BDS_INT_ARC_GYPS_100 mm", "Location") == null
+           && md.RuleLocation("Walls", "BDS_INT_ARC_GYPS_100 mm") == "Interior" && md.RuleLocation("Walls", "BDS_INT_ARC_CMU_100 mm") == "Interior" && md.RuleLocation("Walls", "BDS_EXT_ARC_CMU_200 mm") == "Exterior",
+           "the gypsum type is produced by a Location+Material rule and a Function rule: RuleParam names no one Function and no one Location, RuleLocation reads Function else Location per rule and names Interior (review C6)");
         var door = Dw("door", "D1", "M_Single-Flush", "MA1 1000 x 2100mm", 1000, 2100, host: "BDS_INT_ARC_CMU_100 mm", hostFn: "Interior");
         var dp = PromotePlanner.Plan(new[] { "Doors" }, new List<WallFact>(), new[] { door }, Levels, docTypes, V1Types(), md);
         Ok(dp.SelectMany(p => p.Ghosts).Any(g => g.Label == "D1" && g.TypeName == "BDS_INT_1 PNL_WOOD_1000 x 2100 mm"),
-           "a door in a host the Location rule settled is swapped by that location: Swap reads the host rule's Location when it names no Function");
-        var noLoc = Dw("door", "D2", "M_Single-Flush", "MA1 1000 x 2100mm", 1000, 2100, host: "BDS_INT_ARC_GYPS_100 mm", hostFn: "Interior");
-        var dp2 = PromotePlanner.Plan(new[] { "Doors" }, new List<WallFact>(), new[] { noLoc }, Levels, docTypes, V1Types(), md);
-        Ok(dp2.SelectMany(p => p.Held).Any(h => h.Label == "D2" && h.Reason == "host BDS_INT_ARC_GYPS_100 mm: its DD rules do not name one Function or Location — a person decides"),
-           "a host two rules produce with different conditions (Location+Material, Function) names no one Function or Location: held, in words");
+           "a door in a host the Location rule settled is swapped by that location");
+        var inGyps = Dw("door", "D2", "M_Single-Flush", "MA1 1000 x 2100mm", 1000, 2100, host: "BDS_INT_ARC_GYPS_100 mm", hostFn: "Interior");
+        var dp2 = PromotePlanner.Plan(new[] { "Doors" }, new List<WallFact>(), new[] { inGyps }, Levels, docTypes, V1Types(), md);
+        Ok(dp2.SelectMany(p => p.Ghosts).Any(g => g.Label == "D2" && g.TypeName == "BDS_INT_1 PNL_WOOD_1000 x 2100 mm"),
+           "a door in the gypsum partition — the common case the DD file exists for — is swapped too (it was held under RuleParam)");
+        // A true disagreement: the gypsum type produced by a Location Interior rule AND a Function Exterior rule — held, in words.
+        wallsBlock["rules"] = JsonNode.Parse(layerFree.Replace("\"Function\": \"Interior\"", "\"Function\": \"Exterior\""))["elements"][0]["rules"].DeepClone();
+        var mdx = GuidelineMatcher.FromBodies(doorsG.ToJsonString(), catalogText, out _, out _);
+        var dp3 = PromotePlanner.Plan(new[] { "Doors" }, new List<WallFact>(), new[] { inGyps }, Levels, docTypes, V1Types(), mdx);
+        Ok(mdx.RuleLocation("Walls", "BDS_INT_ARC_GYPS_100 mm") == null
+           && dp3.SelectMany(p => p.Held).Any(h => h.Label == "D2" && h.Reason == "host BDS_INT_ARC_GYPS_100 mm: its DD rules do not name one Function or Location — a person decides"),
+           "a host whose producing rules say Interior (Location) and Exterior (Function) names no one location: held, in words");
     }
 
     // The bridge-typed body as the add-in reads it (the `stored` half of the shared fixture vitest proves from `posted`).
@@ -2361,8 +2486,15 @@ with
                 var next = baseLevel == null ? null : NextStory(levels, baseLevel.ElevationMm); // the executor's wall top too (MA-1a item 3)
                 var retypes = new List<PromoteGhost>();
                 var ws = storey.ToList();
-                // MA-2a: the storey's walls as the outer boundary reads them — every wall with a line, whatever its type, encloses.
+                // MA-2a: the storey's barriers as the outer boundary reads them — this storey's walls and every other wall that crosses
+                // its plane (a shell based below and rising past it: review C1), whatever their types. The storey's own walls come
+                // first, so a wall's index in ws is its index here; a wall with no line is no barrier.
+                double plane = baseLevel?.ElevationMm ?? double.NaN;
                 var segs = ws.Select(w => w.Line).ToList();
+                if (!double.IsNaN(plane))
+                    segs.AddRange(walls.Where(o => o.Line != null && !ws.Contains(o)
+                                                   && Elev(o.BaseLevel) + o.BaseOffsetMm <= plane + TolMm && TopMm(o, Elev(o.BaseLevel)) > plane + TolMm)
+                                       .Select(o => o.Line));
                 // §3.4 step 4: when every concept wall on the storey shares one type, its Function is the template's default and
                 // tells nothing — decided before the loop, because it decides what each wall's rule may see (MA-2a reads the
                 // outer boundary instead; a wall whose location cannot be read goes to a person). Settled walls count (a storey a
@@ -2441,38 +2573,50 @@ with
                         // MA-2a: what the rules may see — the type's Function (not on a one-type storey: it tells nothing there), the
                         // wall's Location from the outer boundary when it can be read, its Material when the type has one. An
                         // unknown is left out, so a rule that needs it cannot fire: a reason to a person, never a guess.
-                        var ps = new Dictionary<string, string>();
-                        if (!p.OneType && !string.IsNullOrEmpty(w.Function)) ps["Function"] = w.Function;
                         string loc = WallLocation.Locate(segs, k, out string locWhy);
-                        if (loc != null) ps["Location"] = loc;
-                        if (!string.IsNullOrWhiteSpace(w.Material)) ps["Material"] = w.Material;
-                        var res = m.Resolve(new GuidelineInput { Category = "Walls", Params = ps, ThicknessMm = w.WidthMm });
-                        string used = What(ps, res.Matched);
-                        if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
+                        bool fnSaysSide = string.Equals(w.Function, WallLocation.Exterior, StringComparison.OrdinalIgnoreCase)
+                                       || string.Equals(w.Function, WallLocation.Interior, StringComparison.OrdinalIgnoreCase);
+                        if (!p.OneType && loc != null && fnSaysSide && !string.Equals(w.Function, loc, StringComparison.OrdinalIgnoreCase))
                         {
-                            if (string.Equals(res.Type, w.TypeName, StringComparison.OrdinalIgnoreCase)) typeOk = true;
-                            else if (docBasicWallTypes == null || !docBasicWallTypes.TryGetValue(res.Type, out var fn))
-                                Hold($"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types");
-                            else
-                            {
-                                // The rule is the office's: proposed even when the template gave the target another Function.
-                                var note = string.IsNullOrEmpty(fn) || string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase)
-                                    ? null : $"{res.Type} is Function {fn} in this model";
-                                retypes.Add(new PromoteGhost
-                                {
-                                    Op = "retype", UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
-                                    Reason = $"DD walls v0: {used}, {Mm(w.WidthMm, "0")} mm → {res.Type}" + (note == null ? "" : " — note: " + note),
-                                    Note = note,
-                                });
-                            }
+                            // Review C2: on a mixed storey the type's Function is a modelling decision; where the boundary reads the other
+                            // way (a courtyard wall, a misread outline, a template's wrong Function) neither is passed — a person decides.
+                            Hold($"Function {w.Function} but it reads " + (loc == WallLocation.Exterior
+                                 ? "outside (one side looks out of the storey's outline)" : "inside (both sides enclosed — a courtyard, or a misread outline)") + "; a person decides");
                         }
-                        else if (res.Source == "rule")
-                            Hold(m.Gap($"{w.Label} ({w.TypeName}, {used})", res.Why));
-                        else if (p.OneType)
-                            Hold($"every wall on {storey.Key}{aside} is \"{w.TypeName}\" — inside cannot be told from outside: its Function tells nothing, and " +
-                                 (loc != null ? $"{m.Standard} has no rule for Location {loc}" : $"its location is unknown ({locWhy})") + "; a person decides");
                         else
-                            Hold($"no DD rule for {used} in {m.Standard}" + (loc == null ? $" (location unknown: {locWhy})" : ""));
+                        {
+                            var ps = new Dictionary<string, string>();
+                            if (!p.OneType && !string.IsNullOrEmpty(w.Function)) ps["Function"] = w.Function;
+                            if (loc != null) ps["Location"] = loc;
+                            if (!string.IsNullOrWhiteSpace(w.Material)) ps["Material"] = w.Material;
+                            var res = m.Resolve(new GuidelineInput { Category = "Walls", Params = ps, ThicknessMm = w.WidthMm });
+                            string used = What(ps, res.Matched);
+                            if (res.Source == "rule" && res.Confidence == 1 && !string.IsNullOrWhiteSpace(res.Type))
+                            {
+                                if (string.Equals(res.Type, w.TypeName, StringComparison.OrdinalIgnoreCase)) typeOk = true;
+                                else if (docBasicWallTypes == null || !docBasicWallTypes.TryGetValue(res.Type, out var fn))
+                                    Hold($"\"{res.Type}\" is in the catalogue but not loaded in this model — Sentinel creates no types");
+                                else
+                                {
+                                    // The rule is the office's: proposed even when the template gave the target another Function.
+                                    var note = string.IsNullOrEmpty(fn) || string.Equals(fn, w.Function, StringComparison.OrdinalIgnoreCase)
+                                        ? null : $"{res.Type} is Function {fn} in this model";
+                                    retypes.Add(new PromoteGhost
+                                    {
+                                        Op = "retype", UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
+                                        Reason = $"DD walls v0: {used}, {Mm(w.WidthMm, "0")} mm → {res.Type}" + (note == null ? "" : " — note: " + note),
+                                        Note = note,
+                                    });
+                                }
+                            }
+                            else if (res.Source == "rule")
+                                Hold(m.Gap($"{w.Label} ({w.TypeName}, {used})", res.Why));
+                            else if (p.OneType)
+                                Hold($"every wall on {storey.Key}{aside} is \"{w.TypeName}\" — inside cannot be told from outside: its Function tells nothing, and " +
+                                     (loc != null ? $"{m.Standard} has no rule for Location {loc}" : $"its location is unknown ({locWhy})") + "; a person decides");
+                            else
+                                Hold($"no DD rule for {used} in {m.Standard}" + (loc == null ? $" (location unknown: {locWhy})" : ""));
+                        }
                     }
 ```
 
@@ -2533,6 +2677,34 @@ with
 }
 ```
 
+In `SentinelAddin/GhostBuilder/GuidelineMatcher.cs`, replace
+
+```csharp
+            return values.Count == 1 ? values[0] : null; // a producing rule that does not name it is a disagreement
+        }
+```
+
+with
+
+```csharp
+            return values.Count == 1 ? values[0] : null; // a producing rule that does not name it is a disagreement
+        }
+
+        /// <summary>MA-2a: a settled host's inside or outside — each producing rule's when.params Function, else its Location (the same
+        /// two words), the one distinct value, or null when the rules disagree. A rule that names neither is skipped: the DD layer-free
+        /// file produces one type from a Location+Material rule AND a Function rule, and RuleParam reads "not named" as a disagreement
+        /// (review C6). Promote v1's Swap reads a door's location from it.</summary>
+        public string RuleLocation(string category, string typeName)
+        {
+            var values = Producers(category, typeName)
+                .Select(r => r.When?.Params?.FirstOrDefault(kv => Squash(kv.Key) == "function").Value
+                          ?? r.When?.Params?.FirstOrDefault(kv => Squash(kv.Key) == "location").Value)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return values.Count == 1 ? values[0] : null;
+        }
+```
+
 In `SentinelAddin/GhostBuilder/PromotePlanner.cs`, replace
 
 ```csharp
@@ -2547,8 +2719,9 @@ with
 ```csharp
                 if (m.RuleProduces("Walls", e.HostTypeName))
                 {
-                    // MA-2a: a host settled by a layer-free rule names its Location (Exterior/Interior, the same words) instead.
-                    loc = m.RuleParam("Walls", e.HostTypeName, "Function") ?? m.RuleParam("Walls", e.HostTypeName, "Location");
+                    // MA-2a: a host settled by a layer-free rule names its Location (Exterior/Interior, the same words) — each producing
+                    // rule's Function, else its Location (review C6: the gypsum type is produced by one rule of each).
+                    loc = m.RuleLocation("Walls", e.HostTypeName);
                     if (loc == null) return $"host {e.HostTypeName}: its DD rules do not name one Function or Location — a person decides";
 ```
 
@@ -2602,12 +2775,12 @@ with
         el.Typing?.TypedBy == "bridge" ? "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")" : null;
 ```
 
-- [ ] **Step 4: Run it, and see it pass.** From the repo root: `dotnet run --project tools/promote-check` — expect `532/532 checks pass` (496 + the boundary's 13, the planner's 13, the typed body's 6, the drawing's 4, and the two amended lines of `Planner.cs` passing as rewritten). Then `dotnet run --project tools/session-check` (it compiles `ChangesetClient.cs`) — `47/47`. From `WebApp`: `npx vitest run bridge/changesets-logic.test.mjs` — `85 passed` (the `promote-body` parity fixture still passes `validateChangeset` with its changed string).
+- [ ] **Step 4: Run it, and see it pass.** From the repo root: `dotnet run --project tools/promote-check` — expect `539/539 checks pass` (497 + the boundary's 13, the planner's 19, the typed body's 6, the drawing's 4, and the two amended lines of `Planner.cs` passing as rewritten). Then `dotnet run --project tools/session-check` (it compiles `ChangesetClient.cs`) — `47/47`. From `WebApp`: `npx vitest run bridge/changesets-logic.test.mjs` — `85 passed` (the `promote-body` parity fixture still passes `validateChangeset` with its changed string).
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add SentinelAddin/GhostBuilder/WallLocation.cs SentinelAddin/GhostBuilder/PromoteWallsPlanner.cs SentinelAddin/GhostBuilder/PromotePlanner.cs SentinelAddin/Coordination/ChangesetClient.cs demo/ghost-sample/make-sample.py demo/ghost-sample/sample-walls-ma2a.dxf demo/ghost-sample/sample-walls-ma2a-expected.json tools/promote-check/LayerFreePlanner.cs tools/promote-check/Planner.cs tools/promote-check/Check.cs tools/promote-check/promote-check.csproj WebApp/bridge/fixtures/changeset-ops/promote-body.json
+git add SentinelAddin/GhostBuilder/WallLocation.cs SentinelAddin/GhostBuilder/PromoteWallsPlanner.cs SentinelAddin/GhostBuilder/PromotePlanner.cs SentinelAddin/GhostBuilder/GuidelineMatcher.cs SentinelAddin/Coordination/ChangesetClient.cs demo/ghost-sample/make-sample.py demo/ghost-sample/sample-walls-ma2a.dxf demo/ghost-sample/sample-walls-ma2a-expected.json tools/promote-check/LayerFreePlanner.cs tools/promote-check/Planner.cs tools/promote-check/Check.cs tools/promote-check/promote-check.csproj WebApp/bridge/fixtures/changeset-ops/promote-body.json
 git commit -F - <<'EOF'
 feat(promote): the outer boundary (WallLocation: one side open = outside, both enclosed = inside, else unknown with its reason); Promote passes Function, Location and Material, types a one-type storey by location and holds an unknown; a door reads its host rule's Location; the add-in reads the bridge's typing; the MA-2a drill drawing (MA-2a)
 
@@ -2625,7 +2798,7 @@ EOF
 - Modify `SentinelAddin/Workflow/NamingManagerService.cs` — `LayerMaterials` shared
 - Create `tools/ghost-standards-check/HarvestChecks.cs`; modify `Check.cs`, `ghost-standards-check.csproj`
 
-**Interfaces:** `TypeHarvest.FunctionName(int)` → `Interior` (0), `Exterior` (1), `Foundation` (2), `Retaining` (3), `Soffit` (4), `CoreShaft` (5), else null. `TypeHarvest.MaterialLabel(names)` → distinct names in order joined ` / `, or null. `TypeSpec.Bic` (`bic`, written when set), `TypeSpec.CategoryLocal` (`category_local`, written only when it differs from `Category`). `Compat.BicNameOf(Category)` → the enum name or null (a subcategory or custom category); `Compat.CategoryKeyOf(Category)` → the English key of `CategoryKeys` for that BuiltInCategory, else `Category.Name`. The harvest's row: `category` = `CategoryKeyOf`, `bic`, `category_local`, `params.Function` from `FUNCTION_PARAM` (Integer), `params.Material` from the Material parameter's element name else the build-up's layers, the other five parameters by storage type; a shared parameter's `categories` as English keys.
+**Interfaces:** `TypeHarvest.FunctionName(int)` → `Interior` (0), `Exterior` (1), `Foundation` (2), `Retaining` (3), `Soffit` (4), `Coreshaft` (5), else null — the enum's own spelling (`Autodesk.Revit.DB.WallFunction`; Promote's `wt.Function.ToString()` writes the same, review C7). `TypeHarvest.MaterialLabel(names)` → distinct names in order joined ` / `, or null. `TypeSpec.Bic` (`bic`, written when set), `TypeSpec.CategoryLocal` (`category_local`, written only when it differs from `Category`). `Compat.BicNameOf(Category)` → the enum name or null (a subcategory or custom category); `Compat.CategoryKeyOf(Category)` → the English key of `CategoryKeys` for that BuiltInCategory, else `Category.Name`. The harvest's row: `category` = `CategoryKeyOf`, `bic`, `category_local`, `params.Function` from `FUNCTION_PARAM` (Integer), `params.Material` from the Material parameter's element name else the build-up's layers, the other five parameters by storage type; a shared parameter's `categories` as English keys.
 
 - [ ] **Step 1: The failing checks.**
 
@@ -2645,8 +2818,8 @@ static class HarvestChecks
         _ok = ok;
         Console.WriteLine("\nMA-2a — the wider harvest: Function, Material, BuiltInCategory (TypeHarvest, TypeSpec, GoldenModelExtractor)");
         _ok(TypeHarvest.FunctionName(0) == "Interior" && TypeHarvest.FunctionName(1) == "Exterior" && TypeHarvest.FunctionName(2) == "Foundation"
-            && TypeHarvest.FunctionName(3) == "Retaining" && TypeHarvest.FunctionName(4) == "Soffit" && TypeHarvest.FunctionName(5) == "CoreShaft",
-            "FunctionName: Revit's six WallFunction values by name, the enum's spelling (what a rule's `Function: Exterior` matches)");
+            && TypeHarvest.FunctionName(3) == "Retaining" && TypeHarvest.FunctionName(4) == "Soffit" && TypeHarvest.FunctionName(5) == "Coreshaft",
+            "FunctionName: Revit's six WallFunction values by name, the enum's own spelling — Coreshaft, not CoreShaft (what a rule's `Function: Exterior` matches, and what Promote's Function.ToString() writes)");
         _ok(TypeHarvest.FunctionName(6) == null && TypeHarvest.FunctionName(-1) == null, "…and nothing for a value outside the enum");
         _ok(TypeHarvest.MaterialLabel(new[] { "Stone", "Concrete Masonry Units", "Stone", " ", null }) == "Stone / Concrete Masonry Units",
             "MaterialLabel: distinct names in the order given, joined ' / '; blanks dropped");
@@ -2657,7 +2830,7 @@ static class HarvestChecks
         {
             new() { Category = "Walls", Bic = "OST_Walls", Family = "Basic Wall", Type = "OFF_EXT_200 mm", IsSystem = true, WidthMm = 200, Params = { ["Function"] = "Exterior", ["Material"] = "Stone / Concrete Masonry Units" } },
             new() { Category = "Walls", Bic = "OST_Walls", CategoryLocal = "Wände", Family = "Basic Wall", Type = "OFF_INT_100 mm", IsSystem = true, WidthMm = 100 },
-            new() { Category = "Shaft Openings", Family = "Shaft", Type = "S" },
+            new() { Category = "Site Markers", Family = "Marker", Type = "S" }, // a custom category: a positive id, so BicNameOf gives null (review C8)
         };
         string body = TypeCatalogExport.Json("Office_Template", new DateTimeOffset(2026, 10, 3, 9, 0, 0, TimeSpan.FromHours(2)), rows, new List<ViewTemplateSpec>());
         using var d = System.Text.Json.JsonDocument.Parse(body);
@@ -2667,7 +2840,8 @@ static class HarvestChecks
             "a row carries bic and params.Function / params.Material; category_local is left out when the category is the English key");
         _ok(t1.GetProperty("category").GetString() == "Walls" && t1.GetProperty("category_local").GetString() == "Wände",
             "a row harvested on a non-English Revit: category is the English key its bic names, category_local keeps the display name");
-        _ok(!t2.TryGetProperty("bic", out _) && !t2.TryGetProperty("category_local", out _), "a category Sentinel does not know carries no bic and no category_local — the row reads as before");
+        _ok(!t2.TryGetProperty("bic", out _) && !t2.TryGetProperty("category_local", out _),
+            "a custom or imported category (a positive id: BicNameOf gives null; every built-in one, stairs and railings included, has its bic) carries no bic and no category_local — the row reads as before");
         var read = Sentinel.GhostBuilder.GuidelineMatcher.FromBodies(null, body, out _, out var err);
         _ok(read.HasCatalog && err == null && read.CatalogHas("Walls", "Basic Wall", "OFF_INT_100 mm"), "the export parses as type_catalog@n, and the add-in's matcher reads the German row for Walls through its bic");
 
@@ -2738,12 +2912,14 @@ namespace Sentinel.Standards;
 /// </summary>
 public static class TypeHarvest
 {
-    /// <summary>Revit's WallFunction values (Interior 0 … CoreShaft 5), by name — the Function a wall, floor, door or window type
-    /// carries (FUNCTION_PARAM, an Integer). Written as the enum NAME, never the localized value string, so a rule written as
-    /// `Function: Exterior` reads the same on a German Revit. Null for a value outside the enum: nothing is written.</summary>
+    /// <summary>Revit's WallFunction values (Interior 0 … Coreshaft 5), by name — the Function a wall, floor, door or window type
+    /// carries (FUNCTION_PARAM, an Integer). Written as the enum NAME in the enum's own spelling (Autodesk.Revit.DB.WallFunction:
+    /// Interior, Exterior, Foundation, Retaining, Soffit, Coreshaft — read by reflection on Revit 2024's RevitAPI.dll; Promote's
+    /// wt.Function.ToString() writes the same), never the localized value string, so a rule written as `Function: Exterior` reads
+    /// the same on a German Revit. Null for a value outside the enum: nothing is written.</summary>
     public static string? FunctionName(int value) => value switch
     {
-        0 => "Interior", 1 => "Exterior", 2 => "Foundation", 3 => "Retaining", 4 => "Soffit", 5 => "CoreShaft", _ => null,
+        0 => "Interior", 1 => "Exterior", 2 => "Foundation", 3 => "Retaining", 4 => "Soffit", 5 => "Coreshaft", _ => null,
     };
 
     /// <summary>A type's build-up materials as one label — distinct names in the order given (finish layers first, as
@@ -3013,10 +3189,11 @@ EOF
 - Create `tools/promote-check/Ma2aWiring.cs`; modify `Check.cs`, `Ma1bWiring.cs` (one scan line)
 - Modify `SentinelAddin/Commands.PromoteWalls.cs` — `Fact` reads the line and the material; `WallLine`
 - Modify `SentinelAddin/GhostBuilder/ElementPlacementFactory.cs` — `ResolveWallType(…, facts)`
-- Modify `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` — the drawn walls, `GhostFacts`, the summary line
+- Modify `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` — the drawn walls and the model's walls as barriers, `GhostFacts` (Location only), the summary line
+- Modify `SentinelAddin/GhostBuilder/ChangesetExecutor.cs` — `Unsafe` checks a wall retype's width (review C3)
 - Modify `SentinelAddin/UI/ChangesetReviewWindow.cs` — the typing line
 
-**Interfaces:** `ElementPlacementFactory.ResolveWallType(el, map, out gap, out typedBy, Dictionary<string,string> facts = null)` — the facts become the matcher's `Params`. Ghost's facts for a wall: the mapping's `ParamAssignment`s (first value per name) and `Location` when `WallLocation` reads one from this build's drawn walls (each straight single run on a Walls row, its measured thickness as width). The summary gains `outer boundary: N outside · M inside · K unknown (this build's drawn walls; an unknown location types by its layer rule or the mapping, never by a guess).` Promote's `WallFact.Line` is the wall's location curve in mm (an arc's chord, flagged), its width the basic type's; `Material` the basic type's build-up label. Review AI Proposals adds `  ·  typed by the bridge from the facts posted (<label>)` to a bridge-typed row.
+**Interfaces:** `ElementPlacementFactory.ResolveWallType(el, map, out gap, out typedBy, Dictionary<string,string> facts = null)` — the facts become the matcher's `Params`. Ghost's facts for a wall: `Location` only, when `WallLocation` reads one from this build's drawn walls (each straight single run on a Walls row, its measured thickness as width) with the model's walls whose bounding box spans the build level's elevation appended as barriers (C1); the mapping's `ParamAssignment`s are applied to the placed wall as before and are not facts (C4). `ChangesetExecutor.Unsafe` for a wall: a basic target `WallType.Width` more than 0.5 mm from the current type's → `"<type>" is <n> mm thick, wall <uid> is <m> mm — a retype would move a face; a person decides`; else null as before. The summary gains `outer boundary: N outside · M inside · K unknown (this build's drawn walls; an unknown location types by its layer rule or the mapping, never by a guess).` Promote's `WallFact.Line` is the wall's location curve in mm (an arc's chord, flagged), its width the basic type's; `Material` the basic type's build-up label. Review AI Proposals adds `  ·  typed by the bridge from the facts posted (<label>)` to a bridge-typed row.
 
 - [ ] **Step 1: The failing source scans.**
 
@@ -3041,10 +3218,14 @@ static partial class Check
         string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs");
         Ok(ghost.Contains("drawn.Add(new WallLocation.Segment { X0 = a.X * FtToMm, Y0 = a.Y * FtToMm, X1 = b.X * FtToMm, Y1 = b.Y * FtToMm, WidthMm = el.ThicknessMm, Curved = !(c is Line) });"),
            "Ghost Builder lists this build's drawn walls in mm as the outer boundary reads them, each with its measured thickness");
-        Ok(ghost.Contains("string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el, map));")
+        Ok(ghost.Contains("foreach (var mw in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())")
+           && ghost.Contains("bb.Min.Z > planeFt + planeTolFt || bb.Max.Z <= planeFt + planeTolFt) continue;")
+           && ghost.IndexOf("foreach (var mw in new FilteredElementCollector(doc)", StringComparison.Ordinal) > ghost.IndexOf("drawnAt[el] = drawn.Count;", StringComparison.Ordinal),
+           "…and, after them (so a drawn wall's index holds), the model's own walls that cross the build level as barriers — a fit-out drawing in a model with its shell reads its partitions as inside (review C1)");
+        Ok(ghost.Contains("string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el));")
            && ghost.Contains("string loc = drawnAt.TryGetValue(el, out int at) ? WallLocation.Locate(drawn, at, out _) : null;")
-           && ghost.Contains("if (loc != null) facts[\"Location\"] = loc;"),
-           "each wall's rule sees the document's parameter assignments for its layer and its Location when the boundary reads one — never a guessed one");
+           && ghost.Contains("if (loc != null) facts[\"Location\"] = loc;") && !ghost.Contains("facts[pa.Name]"),
+           "each wall's rule sees its Location when the boundary reads one and nothing else — the mapping's parameter values (the local model's reading of the documents) never pick a type (review C4)");
         Ok(ghost.Contains("report.Warnings.Add(WallLocation.Summary(") && ghost.IndexOf("report.Warnings.Add(WallLocation.Summary(", StringComparison.Ordinal) > ghost.IndexOf("report.Warnings.AddRange(typer.Notes);", StringComparison.Ordinal),
            "the summary says how many walls read outside, inside and unknown, after the types are settled");
         string factory = Src("GhostBuilder", "ElementPlacementFactory.cs");
@@ -3053,6 +3234,10 @@ static partial class Check
            "the typer passes the facts to the matcher as when.params — the same names the bridge and Promote use");
         Ok(Src("UI", "ChangesetReviewWindow.cs").Contains("if (ChangesetTrust.Typing(el) is string typing) label.Text += \"  ·  \" + typing;"),
            "Review AI Proposals says when the bridge typed an element, beside its accuracy");
+        string executor = Src("GhostBuilder", "ChangesetExecutor.cs");
+        Ok(!executor.Contains("if (kind == \"wall\") return null;") && executor.Contains("cw.Kind == WallKind.Basic && nw.Kind == WallKind.Basic && Math.Abs(nw.Width - cw.Width) > TolFt")
+           && executor.Contains("mm — a retype would move a face; a person decides\";"),
+           "the executor refuses a wall retype whose target width is not the wall's (a bridge-typed retype's thickness is the poster's claim) — and checks nothing else about a wall, as before (review C3)");
     }
 }
 ```
@@ -3084,7 +3269,7 @@ with
         Ok(wallRow > 0 && wallRow < planner.IndexOf("typer.ResolveWallType(el, map, out string gap, out string typedBy", StringComparison.Ordinal), // MA-2a adds the facts argument
 ```
 
-- [ ] **Step 2: Run it, and see it fail.** From the repo root: `dotnet run --project tools/promote-check`. Expect `532/539 checks pass` — the seven new lines under "MA-2a wiring" `FAIL`.
+- [ ] **Step 2: Run it, and see it fail.** From the repo root: `dotnet run --project tools/promote-check`. Expect `539/548 checks pass` — the nine new lines under "MA-2a wiring" `FAIL`.
 
 - [ ] **Step 3: The wiring.**
 
@@ -3183,9 +3368,10 @@ In `SentinelAddin/GhostBuilder/ElementPlacementFactory.cs`, replace
 with
 
 ```csharp
-            // MA-2a: the facts the layer-free rules may see — the document's parameter assignments for the layer (Material, Fire
-            // Rating) and the wall's Location from this build's outer boundary — as when.params, the same names Promote and the
-            // bridge use. A layer rule still wins where one is written first; where none names the layer, these decide.
+            // MA-2a: the facts the layer-free rules may see — the wall's Location from this build's outer boundary (GhostFacts; the
+            // mapping's parameter values are the local model's document reading and are never facts) — as when.params, the same
+            // names Promote and the bridge use. A rule stating more conditions is tried first, then document order; where no rule
+            // names the layer, these decide.
             var res = _guideline.Resolve(new GuidelineInput
             {
                 Category = "Walls",
@@ -3214,9 +3400,11 @@ In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, replace
 with
 
 ```csharp
-                    // MA-2a: this build's drawn walls as the outer boundary reads them (mm), so a layer-free Location rule can type a
-                    // wall no layer rule names. A wall's width is its measured thickness (0 for one drawn as a single line: the
-                    // sample points then sit 100 mm off its line). Only straight single runs on Walls rows are read.
+                    // MA-2a: the outer boundary of this build (mm), so a layer-free Location rule can type a wall no layer rule names —
+                    // the drawn walls first (a drawn wall's index is its index here; its width is its measured thickness, 0 for one
+                    // drawn as a single line: the sample points then sit 100 mm off its line; only straight single runs on Walls rows
+                    // are read), then, as barriers only, the model's own walls that cross the build level (review C1: a fit-out
+                    // drawing added to a model that already has its shell reads its partitions as inside).
                     var drawn = new List<WallLocation.Segment>();
                     var drawnAt = new Dictionary<GhostElement, int>();
                     foreach (var el in elements)
@@ -3228,14 +3416,27 @@ with
                         drawnAt[el] = drawn.Count;
                         drawn.Add(new WallLocation.Segment { X0 = a.X * FtToMm, Y0 = a.Y * FtToMm, X1 = b.X * FtToMm, Y1 = b.Y * FtToMm, WidthMm = el.ThicknessMm, Curved = !(c is Line) });
                     }
+                    double planeFt = level.Elevation, planeTolFt = WallLocation.TolMm / FtToMm;
+                    foreach (var mw in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
+                    {
+                        var mc = (mw.Location as LocationCurve)?.Curve;
+                        var bb = mw.get_BoundingBox(null);
+                        if (mc == null || !mc.IsBound || bb == null || bb.Min.Z > planeFt + planeTolFt || bb.Max.Z <= planeFt + planeTolFt) continue;
+                        XYZ ma = mc.GetEndPoint(0), mb = mc.GetEndPoint(1);
+                        drawn.Add(new WallLocation.Segment
+                        {
+                            X0 = ma.X * FtToMm, Y0 = ma.Y * FtToMm, X1 = mb.X * FtToMm, Y1 = mb.Y * FtToMm,
+                            WidthMm = mw.WallType?.Kind == WallKind.Basic ? mw.Width * FtToMm : 0, Curved = !(mc is Line),
+                        });
+                    }
                     int outside = 0, inside = 0, unknown = 0;
-                    // The facts a wall's rule may see: the document's parameter assignments for its layer (P2: Material, Fire Rating) and
-                    // its Location when the boundary reads one. An unknown location is left out: a rule that needs it cannot fire.
-                    Dictionary<string, string> GhostFacts(GhostElement el, LayerMapping map)
+                    // The one fact a drawn wall's rule may see: its Location when the boundary reads one. The mapping's parameter values
+                    // are the local model's reading of the documents (EnrichParamsAsync, best-effort): they are written to the wall as
+                    // before (ApplyParams) and never pick its type (review C4). An unknown location is left out: a rule that needs it
+                    // cannot fire.
+                    Dictionary<string, string> GhostFacts(GhostElement el)
                     {
                         var facts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var pa in map.Params ?? new List<ParamAssignment>())
-                            if (!string.IsNullOrWhiteSpace(pa?.Name) && !string.IsNullOrWhiteSpace(pa.Value) && !facts.ContainsKey(pa.Name)) facts[pa.Name] = pa.Value;
                         string loc = drawnAt.TryGetValue(el, out int at) ? WallLocation.Locate(drawn, at, out _) : null;
                         if (loc != null) facts["Location"] = loc;
                         if (loc == WallLocation.Exterior) outside++; else if (loc == WallLocation.Interior) inside++; else unknown++;
@@ -3250,7 +3451,33 @@ with
                         if (!byLayer.TryGetValue(el.CadLayer ?? "", out var map) || !string.Equals(map.Category, "Walls", StringComparison.OrdinalIgnoreCase)) continue;
                         // E17: a block on a Walls row is no wall — it has no run to file, so it would have been a bare SkippedNoGeometry.
                         if (el.Block != null) { NoteNested($"Walls on '{el.CadLayer}'", el); SetAside(el); continue; }
-                        string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el, map));
+                        string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el));
+```
+
+In `SentinelAddin/GhostBuilder/ChangesetExecutor.cs`, replace
+
+```csharp
+    internal static string Unsafe(Element e, string kind, ElementType cur, ElementType nt)
+    {
+        if (kind == "wall") return null;
+        string what = $"{kind} {e.UniqueId}";
+```
+
+with
+
+```csharp
+    internal static string Unsafe(Element e, string kind, ElementType cur, ElementType nt)
+    {
+        string what = $"{kind} {e.UniqueId}";
+        if (kind == "wall")
+        {
+            // MA-2a (review C3): a wall retype never moves a face either. Promote names a type at the wall's own width, so its retypes
+            // pass; a retype the bridge typed from a poster's facts (full contract 2) carries a CLAIMED thickness, and this is the one
+            // check that sees it. Nothing else about a wall is checked here, as before (MA-0's holds are the planner's).
+            if (cur is WallType cw && nt is WallType nw && cw.Kind == WallKind.Basic && nw.Kind == WallKind.Basic && Math.Abs(nw.Width - cw.Width) > TolFt)
+                return $"\"{nt.Name}\" is {Mm(nw.Width / MmToFeet)} mm thick, {what} is {Mm(cw.Width / MmToFeet)} mm — a retype would move a face; a person decides";
+            return null;
+        }
 ```
 
 In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, replace
@@ -3282,14 +3509,14 @@ with
             if (ChangesetTrust.Typing(el) is string typing) label.Text += "  ·  " + typing; // MA-2a: the bridge typed it from posted facts
 ```
 
-- [ ] **Step 4: Run it, and see it pass.** From the repo root: `dotnet run --project tools/promote-check` — expect `539/539 checks pass`. Both builds (`-p:RevitVersion=2024` and `2026`, each with `-p:DeployToRevit=false`): `0 Error(s)`; `5` and `3` warnings.
+- [ ] **Step 4: Run it, and see it pass.** From the repo root: `dotnet run --project tools/promote-check` — expect `548/548 checks pass`. Both builds (`-p:RevitVersion=2024` and `2026`, each with `-p:DeployToRevit=false`): `0 Error(s)`; `5` and `3` warnings.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add SentinelAddin/Commands.PromoteWalls.cs SentinelAddin/GhostBuilder/ElementPlacementFactory.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/UI/ChangesetReviewWindow.cs tools/promote-check/Ma2aWiring.cs tools/promote-check/Ma1bWiring.cs tools/promote-check/Check.cs
+git add SentinelAddin/Commands.PromoteWalls.cs SentinelAddin/GhostBuilder/ElementPlacementFactory.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/GhostBuilder/ChangesetExecutor.cs SentinelAddin/UI/ChangesetReviewWindow.cs tools/promote-check/Ma2aWiring.cs tools/promote-check/Ma1bWiring.cs tools/promote-check/Check.cs
 git commit -F - <<'EOF'
-feat(revit): Promote reads each wall's line and build-up material for the layer-free rules; Ghost Builder passes the document's parameter values and the Location read from this build's walls, and counts what the outer boundary read; Review AI Proposals names a bridge-typed element (MA-2a)
+feat(revit): Promote reads each wall's line and build-up material for the layer-free rules; Ghost Builder passes the Location read from this build's walls with the model's walls at the build level as barriers, and counts what the outer boundary read; the executor refuses a wall retype that would move a face; Review AI Proposals names a bridge-typed element (MA-2a)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -3758,7 +3985,7 @@ with
 `make-sample.py --step2` / `--plant` / `--ma1b` / `--ma2a` write the drill drawings (MA-1a step 2, MA-1b, MA-2a plans).
 ```
 
-- [ ] **Step 2: Run everything, and see it pass.** From the repo root, every check project — `for d in tools/*-check; do dotnet run --project $d; done` — all 25 pass: `promote-check` `539/539`, `ghost-standards-check` `176/176`, `ghost-p2-check` `107/107` (the README still leaves the spec its room), `guideline-check` `17/17`, `session-check` `47/47`, `massing-check` `17/17`, `wallpair-check` `9/9`, the others as on master. From `WebApp`: `npx vitest run bridge/` — `Test Files  85 passed (85)`, `Tests  1705 passed | 1 skipped (1706)`; `npm test` — `139 passed`, `2147 passed | 1 skipped (2148)`. Both builds with `-p:DeployToRevit=false`: Revit 2024 `0 Error(s)`, `5 Warning(s)`; Revit 2026 `0 Error(s)`, `3 Warning(s)` (2022 and 2027 also compile with `0 Error(s)`; they are not required). `git status` shows nothing but these commits: no `.rvt`, no `config/.env`, no `%AppData%` file.
+- [ ] **Step 2: Run everything, and see it pass.** From the repo root, every check project — `for d in tools/*-check; do dotnet run --project $d; done` — all pass (25 tracked projects; `tools/rvtinfo-check` is a 26th folder on this PC that git does not track — run it too if it is there, and say so): `promote-check` `548/548`, `ghost-standards-check` `176/176`, `ghost-p2-check` `107/107` (the README still leaves the spec its room), `guideline-check` `17/17`, `session-check` `47/47`, `massing-check` `17/17`, `wallpair-check` `9/9`, `datum-check` `DATUM OK`, the others as on master. From `WebApp`: `npx vitest run bridge/` — `Test Files  85 passed (85)`, `Tests  1705 passed | 1 skipped (1706)`; `npm test` — `139 passed`, `2148 passed | 1 skipped (2149)`. Both builds with `-p:DeployToRevit=false`: Revit 2024 `0 Error(s)`, `5 Warning(s)`; Revit 2026 `0 Error(s)`, `3 Warning(s)` (2022 and 2027 also compile with `0 Error(s)`; they are not required). `git status` shows nothing but these commits: no `.rvt`, no `config/.env`, no `%AppData%` file.
 
 - [ ] **Step 3: Commit.**
 
@@ -3785,7 +4012,9 @@ EOF
 - **A storey with a closed inner courtyard, and a wall drawn in pieces (GHB-6), under the boundary** (F1's ceilings): pinned offline, not drilled.
 - **The MCP tool posting `facts`**: the tool forwards elements as given; the drill posts the bodies itself (B-1, B-3).
 - **A survey-backed `measured`**: MA-4; `measured` is still ignored, and B-3 (e) shows it.
-- **Ghost Builder's clone of a catalogue sibling** (C5): not provoked; recorded if G-1 shows a `CreatedTypes` line.
+- **Ghost Builder's clone of a catalogue sibling** (S5): not provoked; recorded if G-1 shows a `CreatedTypes` line.
+- **The office guideline's own layer-free rules** (design `:1081`: "a lead writes layer-free rules into the office guideline"): a lead's step on `bds-office`, in the template's own material words (UNSURE 7), with the DRAFT file `bds-dd-layerfree-guideline.json` as the starting point — owed; nothing in this plan installs a rule on a real office (review C17).
+- **Design `:1098`'s plan-only run on aster-tower** ("no guideline@n — not checkable"): no founder model is opened. The bridge's "not checkable" is row B-3 (d) on `ma2a-orphan`; Promote's is MA-0's and unchanged (review C18).
 
 The drill record ends with the list of owed rows, and each goes into the "owed" memory.
 
@@ -3815,33 +4044,36 @@ The drill record ends with the list of owed rows, and each goes into the "owed" 
   - On `ma2a-ghost` alone: `b4101 PUT "cde/ma2a-ghost/artefacts/guideline?actor=drill" @../demo/ghost-sample/ma2a-ghost-guideline.json` (a layer rule listed first, then the Location rules; the catalogue comes from the office).
   - The proof: `b4101 GET cde/ma2a/artefacts/guideline` answers `"source":"office"`, `"ref":"guideline@1"` and the standard `BDS DD walls, layer-free v0 (MA-2a) — DRAFT`; `b4101 GET cde/ma2a-ghost/artefacts/guideline` answers `"source":"project"`; `b4101 GET cde/ma2a-orphan/artefacts/guideline` is a 404 `not_installed`.
   - **If the session is, or will be, signed in:** `b4101 POST cde/ma2a/members '{"email":"<the account e-mail>","role":"contributor"}'`, the same for `ma2a-ghost`, and for the office `b4101 POST cde/ma2a-office/members '{"email":"<the account e-mail>","role":"contributor"}'` — record the office reply's `user_id`: row H-2 raises it to lead with `b4101 PATCH "cde/ma2a-office/members/<user_id>" '{"role":"lead"}'`, after H-3 has run as a contributor. Signing in itself is the founder's step (Standards ▸ Sign in).
-- **Scratch copies** (in `%USERPROFILE%\Documents\Sentinel drills`, each a copy on disk of `%USERPROFILE%\Documents\sentinel-scratch\ma1\ma1-src_detached.rvt`, the B35 model: the 24 × 12 m concept outline of eight walls, ten partitions and two gap walls per storey, the BDS types loaded, 38 doors). The file dialog refuses a typed name: copy the file on disk first, then open the copy. Never open aster-tower, Demo, a pilot file or any founder file.
-  - `ma2a-promote.rvt` — bound to `ma2a` (Project Setup); rows P-1, P-3, B-1, B-2, B-3, B-4, H-5.
-  - `ma2a-onetype.rvt` — bound to `ma2a`; row P-2. Before the row: in the `GR-FFL` plan select every wall of the storey (drag a window over the whole outline, then Filter ▸ Walls only; the status bar counts 20) and change their type to `Generic - 200mm` in the Type Selector; then draw one more `Generic - 200mm` wall on `GR-FFL` well outside the outline (Wall tool, two clicks, about 6 m east of the east wall, 4 m long). Record the 21 walls' types.
+- **Scratch copies** (in `%USERPROFILE%\Documents\Sentinel drills`, each a copy on disk of `%USERPROFILE%\Documents\sentinel-scratch\ma1\ma1-src_detached.rvt`, the B35 model **as the drills left it** (review C14): the 24 × 12 m concept layout of eight outline walls, ten partitions and two gap walls per storey, placed from `demo/promote-sample/make-concept.py`'s coordinates — but since B33/B35 the 36 convertible seed walls are SETTLED on BDS types (the outline walls `BDS_EXT_ARC_CMU_200 mm`, the partitions `BDS_INT_ARC_GYPS_100 mm`, 100 mm wide — they were `MA0 Interior - 100mm`, never `Generic - 200mm`), only the four gap walls are still `Generic - 125mm`, and `GR-FFL` also holds about 52 of the template's own walls (B33 MA0-1: 72 walls on GR-FFL; B35-1: 24 retypes, 22 held, 32 office-typed there) while `01-FFL` holds the 20 seed walls alone (B35-1: `01-FFL 18 · 20 · 2 held`). The BDS types are loaded; 38 doors). **`01-FFL` is the clean storey**: the boundary proof and every "every wall" count run there. The file dialog refuses a typed name: copy the file on disk first, then open the copy. Never open aster-tower, Demo, a pilot file or any founder file.
+  - `ma2a-promote.rvt` — bound to `ma2a` (Project Setup); rows P-1, P-3, B-1, B-2, B-3, B-4, B-5, H-5.
+  - `ma2a-onetype.rvt` — bound to `ma2a`; rows P-2 and P-4, on `01-FFL`. Before P-2: in the `01-FFL` plan select every wall of the storey (drag a window over the whole outline, then Filter ▸ Walls only; the status bar counts 20 — if it counts more, another drill left walls there: record them and their types) and change their type to `Generic - 200mm` in the Type Selector; then draw one more `Generic - 200mm` wall on `01-FFL` well outside the outline (Wall tool, two clicks, about 6 m east of the east wall, 4 m long). Record the 21 walls' ids and types (the read-only `get_current_view_elements`). Before P-4: select the eight `GR-FFL` outline walls (the plan `GR-FFL`, Filter ▸ Walls, then Properties: Top Constraint `Up to level: MA0 Roof`, Top Offset 0) so the shell rises past `01-FFL`; record their ids.
   - `ma2a-ghost.rvt` — bound to `ma2a-ghost`; row G-1. Ghost source folder = `demo/ghost-sample`; Ollama running as in MA1a-S2 (the mapping tiers ask it; with no `layers@n` on `ma2a-ghost` the rows are heuristic — and the TYPE is the guideline's, which is the point).
   - `ma2a-harvest.rvt` — bound to `ma2a`; rows H-1, H-3, H-2 (in that order).
   - `ma2a-orphan.rvt` — bound to `ma2a-orphan`; rows B-3 (d) and H-4.
 - **The types the rows depend on.** `BDS_EXT_ARC_CMU_200 mm`, `BDS_INT_ARC_CMU_200 mm` and `BDS_INT_ARC_CMU_100 mm` must be loaded in the B35 model (MA1a-I68 recorded "Office template: 79 of 91 office type(s) present"). Check before P-1 with the Type Selector of a wall. If one is missing, make it by hand (Edit Type ▸ Duplicate from the nearest BDS CMU type ▸ rename, set its width) in the scratch copy, and record it: a person created it, Sentinel did not.
-- **Record before the first row:** whether the session is signed in; the Phase of the `GR-FFL` plan (`New Construction`); the levels (`GR_SSL` −300, `GR-FFL` 0, `01_SSL` 3000, `01-FFL` 3300, `MA0 Roof` 6300); each storey's wall types as found (an earlier drill's Promote may have retyped some: a settled wall gets no retype, and the row says so).
+- **Record before the first row:** whether the session is signed in; the Phase of the `GR-FFL` plan (`New Construction`); the levels (`GR_SSL` −300, `GR-FFL` 0, `01_SSL` 3000, `01-FFL` 3300, `MA0 Roof` 6300); each storey's wall types as found (an earlier drill's Promote may have retyped some: a settled wall gets no retype, and the row says so). **Wall by wall, before P-1 (review C16):** on the `01-FFL` plan and on the `GR-FFL` plan, the read-only `get_current_view_elements` (Walls) lists each wall's ElementId and type; against `make-concept.py`'s coordinates write the expected reading beside each seed wall — the eight outline walls `Exterior`, the ten partitions and the two gap walls `Interior`, the drawn free wall `unknown` — and on `GR-FFL` list the template's own walls (ids, types) as the barriers they are, with no expected reading. The pass conditions below are judged against this list; a reading that differs is recorded wall by wall.
 - **Before each row, record** the last row id of `b4101 GET "cde/ma2a/audit?limit=1"` (or the row's project).
-- **Driving notes** (MA1a-I35, MA1a-I68, MA1b): Select by ID needs its dialog on screen before typing — wait about 6 s; the read-only Revit MCP `get_selected_elements` gives a selected wall's ElementId and UniqueId (B-1 needs a UniqueId). A contextual Modify tab appears only when the ribbon is not on Manage. Do not click in the drawing area with nothing in hand over a CAD import: a stray click picks it and Delete removes it. The Promote dialog's "Sent to a person" is its expanded text; the review window's rows carry the reason as a tooltip.
+- **Driving notes** (MA1a-I35, MA1a-I68, MA1b): Select by ID stopped answering in the MA1b session (record `:1248`) — verify a retyped wall's type through the read-only Revit MCP (`get_selected_elements` after a click, or `get_current_view_elements` filtered to Walls), not through Select by ID; `get_selected_elements` gives a selected wall's ElementId and UniqueId (B-1 needs a UniqueId). A contextual Modify tab appears only when the ribbon is not on Manage. Do not click in the drawing area with nothing in hand over a CAD import: a stray click picks it and Delete removes it. The Promote dialog's "Sent to a person" is its expanded text; the review window's rows carry the reason as a tooltip.
+- **Run the rows in table order.** H-2 (the install of `type_catalog@2` on `ma2a-office`) comes after the last bridge row (B-4), so the pilot's catalogue without `bic` (`type_catalog@1`) drives every P, G and B row — the merge gate's last condition (review C18).
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
-| P-1 The layer-free rules type Promote's walls by location (UNSURE 1, 2) | On `ma2a-promote.rvt`, `GR-FFL` plan: Sentinel ▸ Promote (DD) ▸ **No** (a read-only run). Read the header and the plan | The header reads `Guideline: guideline@1 · office · …` with `DRAFT rules: install them on a throwaway project only.`, `type_catalog@1 · office · …`, and the office-template line. The `GR-FFL` line counts retypes and holds. In "Sent to a person" **no** wall says `inside cannot be told from outside` (the storey is mixed: `Generic - 200mm` and `MA0 Interior - 100mm`); the two gap walls (`Generic - 125mm`) are held `gap: W … (Generic - 125mm, Location Interior) — "BDS_INT_ARC_CMU_125 mm" is not in type_catalog@1 · office · … . Available: BDS_INT_ARC_CMU_100 mm, BDS_INT_ARC_CMU_150 mm, BDS_INT_ARC_CMU_200 mm, BDS_INT_ARC_CMU_300 mm.` Then **Yes** and read the review: each outline wall's retype row carries the reason `DD walls v0: Location Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm` (tooltip), each partition's `DD walls v0: Location Interior, 100 mm → BDS_INT_ARC_CMU_100 mm`. A wall an earlier drill already put on a BDS type is settled: no row, and the storey's `DD now` counts it. Close the review without applying (P-2 applies) | the header; the `GR-FFL` line; the gap walls' reasons; one outline and one partition reason word for word; which walls were already settled |
-| P-2 A one-type storey types by location; a wall whose location is unknown goes to a person (F2; UNSURE 1) | On `ma2a-onetype.rvt` (every `GR-FFL` wall `Generic - 200mm`, plus the one drawn outside the outline): Promote ▸ **No**, read; then Promote ▸ **Yes**, tick nothing more, Apply | **No:** `GR-FFL: 20 retype · … · 1 wall(s) sent to a person`. The held one is the outside wall, with exactly: `every wall on GR-FFL is "Generic - 200mm" — inside cannot be told from outside: its Function tells nothing, and its location is unknown (both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it); a person decides`. **Yes:** the review's 20 retype rows read `… → BDS_EXT_ARC_CMU_200 mm` for the eight outline walls and `… → BDS_INT_ARC_CMU_200 mm` for the ten partitions and the two corridor gap walls (reason `DD walls v0: Location Exterior|Interior, 200 mm → …`); signed in, the retypes open ticked (a Promote retype with the type the plan saw, from a member); signed out, unticked (tick them). After Apply: `Applied N element(s)`; select an outline wall by id (the result's `revit_element_id`): type `BDS_EXT_ARC_CMU_200 mm`; a partition: `BDS_INT_ARC_CMU_200 mm`; the outside wall still `Generic - 200mm`. One Undo entry | the No dialog's `GR-FFL` line and the held reason word for word; the 20 types; the Applied count; the actor on the ledger row (`b4101 GET "cde/ma2a/audit?entity_type=changeset&limit=2"`) |
+| P-1 The layer-free rules read Promote's settled storey, and name the gap walls' location (UNSURE 1, 2) | On `ma2a-promote.rvt`, `GR-FFL` plan: Sentinel ▸ Promote (DD) ▸ **No** (a read-only run). Read the header and the plan | The header reads `Guideline: guideline@1 · office · …` with `DRAFT rules: install them on a throwaway project only.`, `type_catalog@1 · office · …`, and the office-template line. `GR-FFL` is a settled, mixed storey (review C14): its seed walls are on BDS types the layer-free file produces, so they get no retype row and `DD now` counts them (36 of the 40 seed walls over both storeys); the two gap walls (`Generic - 125mm`) are held `gap: W … (Generic - 125mm, Location Interior) — "BDS_INT_ARC_CMU_125 mm" is not in type_catalog@1 · office · … . Available: BDS_INT_ARC_CMU_100 mm, BDS_INT_ARC_CMU_150 mm, BDS_INT_ARC_CMU_200 mm, BDS_INT_ARC_CMU_300 mm.` — `Location Interior` is the boundary's reading of a free-standing corridor wall with the template's walls as barriers too; **no** wall says `inside cannot be told from outside`; the template's own walls' rows (retypes, holds, `Function … but it reads …` holds under C2) are recorded as they come, not judged. Then **Yes** and read the review: a template wall's retype reason reads `DD walls v0: Location …` or `Function …` as the rule used (tooltip). Close the review without applying (P-2 applies) | the header; the `GR-FFL` line; the gap walls' reasons word for word; the template walls' rows as they come; the `DD now` count |
+| P-2 A one-type storey types by location; a wall whose location is unknown goes to a person (F2; UNSURE 1) | On `ma2a-onetype.rvt`, `01-FFL` plan (every `01-FFL` wall reset to `Generic - 200mm`, plus the one drawn outside the outline): Promote ▸ **No**, read; then Promote ▸ **Yes**, tick nothing more, Apply. Before Apply record the model's wall-type count (`analyze_model_statistics`, or the Type Selector's list length) | **No:** `01-FFL: 20 retype · … · 1 wall(s) sent to a person`. The held one is the outside wall, with exactly: `every wall on 01-FFL is "Generic - 200mm" — inside cannot be told from outside: its Function tells nothing, and its location is unknown (both sides look out to open plan — a free-standing wall, or the storey's walls do not close around it); a person decides`. **Yes:** the review's 20 retype rows read `… → BDS_EXT_ARC_CMU_200 mm` for the eight outline walls and `… → BDS_INT_ARC_CMU_200 mm` for the ten partitions and the two corridor gap walls (reason `DD walls v0: Location Exterior|Interior, 200 mm → …`), each matching the wall-by-wall list; signed in, the retypes open ticked (a Promote retype with the type the plan saw, from a member); signed out, unticked (tick them). After Apply: `Applied N element(s)`; through the MCP filter an outline wall's type is `BDS_EXT_ARC_CMU_200 mm`, a partition's `BDS_INT_ARC_CMU_200 mm`, the outside wall still `Generic - 200mm`. The wall-type count is unchanged ("equal — no type created", design `:1093`). One Undo entry | the No dialog's `01-FFL` line and the held reason word for word; the 20 types against the list; the Applied count; the type count before and after; the actor on the ledger row (`b4101 GET "cde/ma2a/audit?entity_type=changeset&limit=2"`) |
+| P-4 A shell based below the storey is a barrier on it (review C1; E28) | On `ma2a-onetype.rvt`, after P-2 and one Undo (the 20 walls are `Generic - 200mm` again): set the eight `GR-FFL` outline walls' Top Constraint to `MA0 Roof` (set-up); then on the `01-FFL` plan Promote ▸ **No** | `01-FFL: 20 retype · … · 1 wall(s) sent to a person` as in P-2 — the `01-FFL` outline walls still read `Location Exterior` (the shell's faces coincide with theirs: a ray from just beyond the face meets nothing), the partitions and gap walls `Location Interior`, the outside wall unknown. Then, with the shell still raised, select the eight `01-FFL` outline walls and delete them (the shell below now stands for them; the ten partitions, the two gap walls and the drawn wall stay): Promote ▸ **No** reads `01-FFL: 12 retype · … · 1 wall(s) sent to a person` with every partition `Location Interior` — a storey of partitions inside a shell based below it reads inside, none `Exterior` (without C1 every room-closing partition would have read `Location Exterior`). Undo the deletion and the eight walls' top change. Close without applying | the two `01-FFL` lines; one partition's reason in each run |
 | P-3 Where the location is unknown on a mixed storey, Function still decides — as MA-0 did | On `ma2a-promote.rvt`, `01-FFL` plan: draw one `Generic - 200mm` wall well outside the outline (about 6 m east, 4 m long). Promote ▸ **No**; read `01-FFL` | The new wall is NOT held and its row (Yes, then look; apply nothing) carries `DD walls v0: Function Exterior, 200 mm → BDS_EXT_ARC_CMU_200 mm` — the type's Function (record what the Type Properties say the Function of `Generic - 200mm` is in this model; if it is Interior, the reason says `Function Interior … → BDS_INT_ARC_GYPS_200 mm` and the row is a gap "not in the catalogue … Available: 50, 100" — record which); an outline wall of `01-FFL` still reads `Location Exterior`. Close without applying. Undo the drawn wall | the two reasons; the type's Function |
-| G-1 Ghost Builder on a drawing: the layer rule where one exists, the layer-free rule where none does, a gap where neither (F10; UNSURE 5) | On `ma2a-ghost.rvt`, `GR-FFL` plan: Zoom to Fit; the ground around x 60000–70000, y 57000–67000 (mm) is clear (the B35 model lies within 0–24000; look with `get_current_view_elements`). Insert ▸ Import CAD ▸ `sample-walls-ma2a.dxf` (Millimeters, origin to origin). Ghost Builder: in the review **pick no type by hand** — leave each row's type as proposed; tick `A-WALL-EXT` and `A-WALL-INT`; build level `GR-FFL`; Build | The review lists `A-WALL-EXT` with `4 element(s)` and `A-WALL-INT` with `3 element(s)` (the faces are paired: 14 lines, 7 walls). The summary: `Placed: 6`; one wall skipped: `Wall on 'A-WALL-INT': gap: 100 mm wall on 'A-WALL-INT' — the guideline names no wall type for it (type_catalog: type_catalog@1 · office · …); skipped.` (the outside free wall: no layer rule for A-WALL-INT, and both its sides open); the line `outer boundary: 4 outside · 2 inside · 1 unknown (this build's drawn walls; …)`; `6 typed by the guideline` in the walls line. Select by id (the changeset's `result.applied`): the four `A-WALL-EXT` walls are `BDS_EXT_ARC_CMU_200 mm` (the layer rule, listed first — whatever the boundary read), the partition and the inside free wall `BDS_INT_ARC_CMU_100 mm` (the Location rule). `b4101 GET changesets/ma2a-ghost/<id>`: each wall's `provenance.rule` names the guideline. If a `CreatedTypes` line appears (`BDS_INT_ARC_CMU_100 mm` was not loaded and Ghost cloned a sibling), record it: master's path (C5), not this plan's. One Undo removes the build | the review's rows; the summary word for word; the six types; the gap's sentence; whether a type was cloned |
-| B-1 A contract-2 post without `place.TypeName` is typed by the bridge: 201, the stored type, the reason (UNSURE 8, 11) | On `ma2a-promote.rvt` select one `Generic - 200mm` partition of `GR-FFL` and read its UniqueId (`get_selected_elements`). Save body B-1 below with that UniqueId in the session's scratch folder (never in the repository). `b4101 POST changesets/ma2a @<file>`; time it | 201. `elements[0].place.TypeName` is `BDS_EXT_ARC_CMU_200 mm`; `elements[0].typing` is `typed_by: "bridge"`, `type`, `family: "Basic Wall"`, `matched: ["param:Location"]`, `input: {category: "Walls", params: {Location: "Exterior"}, thicknessMm: 200}`, `rule` beginning `DD (MA-2a): an outside wall`, `guideline: "guideline@1 · office · <sha12>…"`, `catalog: "type_catalog@1 · office · <sha12>…"` and both shas; `elements[1].place.TypeName` is `BDS_INT_ARC_CMU_200 mm`, its typing `typed_by: "bridge"`; both `pretick: false`, both `accuracy.status: not_measured`; `claimed: true`; `ignored` is exactly `[{field: "source.job_id", …}]`; `elements[0].facts` is kept as posted. `b4101 GET "cde/ma2a/audit?limit=1"`: the `changeset_proposed` row's `new_value.typed` is 2. Under one second (record it) | the reply's two `typing` blocks; the audit row; the time |
-| B-2 The bridge-typed changeset is applied in Revit as the chosen type; the review names who typed it (UNSURE 9) | Review AI Proposals on `ma2a-promote.rvt`: open B-1's changeset | Both rows carry `  ·  typed by the bridge from the facts posted (guideline@1 · office · …)` after `not measured`; both open unticked (a create never; a bridge-typed retype never). Tick both ▸ Apply: `Applied 2 element(s)`. The new wall (select by id) is `BDS_EXT_ARC_CMU_200 mm` on `GR-FFL` rising to `01-FFL`; the partition is now `BDS_INT_ARC_CMU_200 mm`. One Undo entry; `b4101 GET changesets/ma2a/<id>` reads `applied` | the two rows' text; the two types; the status |
+| G-1 Ghost Builder on a drawing: the layer rule where one exists, the layer-free rule where none does, a gap where neither (F10; UNSURE 5) | On `ma2a-ghost.rvt`, `GR-FFL` plan: Zoom to Fit; the ground around x 60000–70000, y 57000–67000 (mm) is clear (the B35 model lies within 0–24000; look with `get_current_view_elements`). Sentinel ▸ Ghost Builder; in its drawing pick window choose `sample-walls-ma2a.dxf` (the source folder `demo/ghost-sample` lists it; Ghost imports it itself — no Insert ▸ Import CAD, review C15). In the review **pick no type by hand** — leave each row's type as proposed; tick `A-WALL-EXT` and `A-WALL-INT`; build level `GR-FFL`; Build. The model's `GR-FFL` walls (0–24000) are barriers under C1 but lie 36 m from the drawing: they change no reading | The review lists `A-WALL-EXT` with `4 element(s)` and `A-WALL-INT` with `3 element(s)` (the faces are paired: 14 lines, 7 walls). The summary: `Placed: 6`; one wall skipped: `Wall on 'A-WALL-INT': gap: 100 mm wall on 'A-WALL-INT' — the guideline names no wall type for it (type_catalog: type_catalog@1 · office · …); skipped.` (the outside free wall: no layer rule for A-WALL-INT, and both its sides open); the line `outer boundary: 4 outside · 2 inside · 1 unknown (this build's drawn walls; …)`; `6 typed by the guideline` in the walls line. Select by id (the changeset's `result.applied`): the four `A-WALL-EXT` walls are `BDS_EXT_ARC_CMU_200 mm` (the layer rule, listed first — whatever the boundary read), the partition and the inside free wall `BDS_INT_ARC_CMU_100 mm` (the Location rule). `b4101 GET changesets/ma2a-ghost/<id>`: each wall's `provenance.rule` names the guideline. If a `CreatedTypes` line appears (`BDS_INT_ARC_CMU_100 mm` was not loaded and Ghost cloned a sibling), record it: master's path (S5), not this plan's. One Undo removes the build | the review's rows; the summary word for word; the six types; the gap's sentence; whether a type was cloned |
+| B-1 A contract-2 post without `place.TypeName` is typed by the bridge: 201, the stored type, the reason (UNSURE 8, 11) | On `ma2a-promote.rvt` select one seed partition of `GR-FFL` as it is (`BDS_INT_ARC_GYPS_100 mm`, 100 mm wide — review C14) and read its UniqueId (`get_selected_elements`). Save body B-1 below with that UniqueId in the session's scratch folder (never in the repository). `b4101 POST changesets/ma2a @<file>`; time it | 201. `elements[0].place.TypeName` is `BDS_EXT_ARC_CMU_200 mm`; `elements[0].typing` is `typed_by: "bridge"`, `type`, `family: "Basic Wall"`, `matched: ["param:Location"]`, `input: {category: "Walls", params: {Location: "Exterior"}, thicknessMm: 200}`, `rule` beginning `DD (MA-2a): an outside wall`, `guideline: "guideline@1 · office · <sha12>…"`, `catalog: "type_catalog@1 · office · <sha12>…"` and both shas; `elements[1].place.TypeName` is `BDS_INT_ARC_CMU_100 mm` (the facts say 100 mm: the partition's own width), its typing `typed_by: "bridge"`, `matched: ["param:Location"]`; both `pretick: false`, both `accuracy.status: not_measured`; `claimed: true`; `ignored` is exactly `[{field: "source.job_id", …}]`; `elements[0].facts` is kept as posted. `b4101 GET "cde/ma2a/audit?limit=1"`: the `changeset_proposed` row's `new_value.typed` is 2. Under one second (record it) | the reply's two `typing` blocks; the audit row; the time |
+| B-2 The bridge-typed changeset is applied in Revit as the chosen type; the review names who typed it (UNSURE 9) | Review AI Proposals on `ma2a-promote.rvt`: open B-1's changeset. Record the model's wall-type count first | Both rows carry `  ·  typed by the bridge from the facts posted (guideline@1 · office · …)` after `not measured`; both open unticked (a create never; a bridge-typed retype never). Tick both ▸ Apply: `Applied 2 element(s)`. Through the MCP filter: the new wall is `BDS_EXT_ARC_CMU_200 mm` on `GR-FFL` rising to `01-FFL`; the partition is now `BDS_INT_ARC_CMU_100 mm` — the same width, so its faces did not move (`Unsafe`, C3, let it through). The wall-type count is unchanged ("equal — no type created", design `:1093`). One Undo entry; `b4101 GET changesets/ma2a/<id>` reads `applied` | the two rows' text; the two types; the type count before and after; the status |
+| B-5 A claimed thickness that would move a face is refused at Apply, in words (review C3; E30) | Post body B-5 (B-1's retype alone, `thickness_mm: 200` for the same 100 mm partition — a wrong claim; after B-2's Undo the partition is `BDS_INT_ARC_GYPS_100 mm` again) to `changesets/ma2a`; Review AI Proposals ▸ open it ▸ tick ▸ Apply | The post is 201 with `place.TypeName` `BDS_INT_ARC_CMU_200 mm` (the bridge cannot see the wall: it types the claim, unticked). Apply is refused, nothing changes in the model, and the message reads `"BDS_INT_ARC_CMU_200 mm" is 200 mm thick, wall <UniqueId> is 100 mm — a retype would move a face; a person decides`; the partition is still `BDS_INT_ARC_GYPS_100 mm` (MCP filter); `b4101 GET changesets/ma2a/<id>` shows the failure. Withdraw it: `b4101 POST changesets/ma2a/<id>/withdraw '{}'` | the refusal word for word; the partition's type; the changeset status |
 | B-3 A post the bridge cannot type is a 400 that names what is missing; nothing is stored | Save bodies B-3 (a)–(e) below; post (a)–(c) and (e) to `changesets/ma2a`, (d) to `changesets/ma2a-orphan`. Count `b4101 GET changesets/ma2a` before and after | (a) 400 `elements[0]: a wall without place.TypeName is typed by the bridge from the project's guideline and type catalogue — no rule of guideline@1 · office · … matches a wall with Material Stone, 200 mm; send place.TypeName, or add a layer-free rule for it`. (b) 400 `… "BDS_INT_ARC_CMU_125 mm" (the rule of guideline@1 · office · … for Location Interior, 125 mm) is not in type_catalog@1 · office · … — the catalogue has BDS_INT_ARC_CMU_100 mm, BDS_INT_ARC_CMU_150 mm, BDS_INT_ARC_CMU_200 mm, BDS_INT_ARC_CMU_300 mm; send place.TypeName, or pick one of those`. (c) 400 `… the rule of guideline@1 · office · … for Location Exterior names its type with {thickness} and no thickness was sent; send place.TypeName, or send facts.thickness_mm`. (d) 400 `… no guideline is installed for this project or its office (none — not installed for ma2a-orphan or its office): not checkable; send place.TypeName, or install guideline@n`. (e) — the design's body as written, `measured` and no `facts` — 400 `… no rule of … matches a wall with no facts; …`. The changeset count is unchanged | the five replies word for word; the counts |
 | B-4 The trust rules stay: a posted `typing` and `pretick` are ignored and listed; the bridge's own typing stands | Post body B-4 (B-1's typed wall with `typing: {typed_by: "me"}` and `pretick: true` on it) | 201; `ignored` lists `elements[0].pretick` and `elements[0].typing` as `ignored: set by the bridge`; the stored `typing.typed_by` is `bridge`; `pretick` false. Withdraw it: `b4101 POST changesets/ma2a/<id>/withdraw '{}'` | the `ignored` list; the typing |
-| H-1 Build Office System's harvest writes Function, Material and the BuiltInCategory into the rows (UNSURE 3, 4, 7) | On `ma2a-harvest.rvt`: Sentinel ▸ Build Office System. Read the export dialog; open the export file it names (`%AppData%\Sentinel\exports\type-catalog-<title>.json`) with a node one-liner from `WebApp`: `node -e 'const t = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).types; const w = t.filter(x => x.category === "Walls" && x.family === "Basic Wall"); console.log("walls", w.length, "with Function", w.filter(x => x.params.Function).length, "with Material", w.filter(x => x.params.Material).length, "with bic", w.filter(x => x.bic === "OST_Walls").length); console.log("doors with Function", t.filter(x => x.category === "Doors" && x.params.Function).length, "rows with bic", t.filter(x => x.bic).length, "of", t.length, "category_local", t.filter(x => x.category_local).length); console.log(JSON.stringify(w.find(x => x.type === "Generic - 200mm")))' "<the export path>"` | The dialog ends `A lead installs it from the review window too: Install catalogue on office (MA-2a, BOS-3) — no command line.` Every Basic Wall row has `params.Function` (`Exterior` or `Interior` — the enum name, matching the type's Function in Type Properties: check `Generic - 200mm` and `MA0 Interior - 100mm` by hand) and `bic: "OST_Walls"`; the walls with a build-up have `params.Material` (record `Generic - 200mm`'s: expected the layer's material name, e.g. `Default Wall`); door rows have `params.Function` (`Interior`/`Exterior`); rows with `bic` ≥ the rows of known categories; `category_local` on 0 rows (English Revit). A row of a category Sentinel's table does not know (`Stairs`, `Railings`…) has no `bic` | the counts; the `Generic - 200mm` row; one door row |
+| H-1 Build Office System's harvest writes Function, Material and the BuiltInCategory into the rows (UNSURE 3, 4, 7) | On `ma2a-harvest.rvt`: Sentinel ▸ Build Office System. Read the export dialog; open the export file it names (`%AppData%\Sentinel\exports\type-catalog-<title>.json`) with a node one-liner from `WebApp`: `node -e 'const t = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).types; const w = t.filter(x => x.category === "Walls" && x.family === "Basic Wall"); console.log("walls", w.length, "with Function", w.filter(x => x.params.Function).length, "with Material", w.filter(x => x.params.Material).length, "with bic", w.filter(x => x.bic === "OST_Walls").length); console.log("doors with Function", t.filter(x => x.category === "Doors" && x.params.Function).length, "rows with bic", t.filter(x => x.bic).length, "of", t.length, "category_local", t.filter(x => x.category_local).length); console.log(JSON.stringify(w.find(x => x.type === "Generic - 200mm")))' "<the export path>"` | The dialog ends `A lead installs it from the review window too: Install catalogue on office (MA-2a, BOS-3) — no command line.` Every Basic Wall row has `params.Function` (`Exterior` or `Interior` — the enum name, matching the type's Function in Type Properties: check `Generic - 200mm` and `MA0 Interior - 100mm` by hand) and `bic: "OST_Walls"`; the walls with a build-up have `params.Material` (record `Generic - 200mm`'s: expected the layer's material name, e.g. `Default Wall`); door rows have `params.Function` (`Interior`/`Exterior`); rows with `bic` ≥ the rows of known categories (every built-in category has one — `Stairs` and `Railings` rows carry `OST_Stairs` / `OST_StairsRailing`, review C8); `category_local` on 0 rows (English Revit). A row whose category is a subcategory, an import or a custom category (the model's ImportInstance type rows, or any row whose `category` is not a Revit built-in name — list them with `node -e 'const t = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).types; console.log([...new Set(t.filter(x => !x.bic).map(x => x.category))])' "<the export path>"`) has no `bic`; if the model has none such, record "none in this model" and the ceiling stays pinned offline | the counts; the `Generic - 200mm` row; one door row; the no-`bic` categories |
 | H-3 A contributor is refused Install on office with the role sentence (signed in; else **owed**) | Signed in as a contributor of `ma2a-office` (set-up): in the same review window click **Install catalogue on office** | The status runs `Reading this model's project…` → `Asking Sentinel which office ma2a belongs to…` → `Catalogue NOT installed: HTTP 403: this action requires the lead role (you are contributor)`. `b4101 GET cde/ma2a-office/artefacts/type_catalog` still answers `version 1`. Signed out: the row is **owed** (the machine credential installs as `service`) | the status line; the version |
 | H-2 Install on office from Revit (BOS-3) lands type_catalog@2 on the scratch office, and GET answers the same sha (UNSURE 6, 10) | Raise the account to lead: `b4101 PATCH "cde/ma2a-office/members/<user_id>" '{"role":"lead"}'` (signed out: skip; the machine credential installs). Click **Install catalogue on office** again | The status ends `type_catalog@2 · office · <sha12>…: installed on ma2a-office — <N> types from <title>. Ghost Builder, Promote and the bridge read it from here on; GET /cde/ma2a-office/artefacts/type_catalog answers the same sha.` `b4101 GET cde/ma2a-office/artefacts/type_catalog`: `version 2`, `sha256` beginning with the window's twelve characters, `body.types` with `bic` and `params.Function` as H-1 read them, `body.template.title` the model's title. `b4101 GET "cde/ma2a-office/audit?limit=1"`: `artefact_installed type_catalog@2`, `actor` the signed-in e-mail (signed out: the machine's label), `new_value.source` `{tool: "revit-build", document: "<title>"}`. No new artefact on `ma2a` itself (`b4101 GET cde/ma2a/artefacts` shows no own `type_catalog`) | the status line; the GET's version and sha; the audit row |
 | H-4 A project with no office is refused: nothing is installed on it | On `ma2a-orphan.rvt` (bound to `ma2a-orphan`): Build Office System ▸ **Install catalogue on office** | `Catalogue NOT installed: project ma2a-orphan belongs to no office — link it to an office in the web app first (a catalogue installed on a project would shadow its office's, for that project alone)`. `b4101 GET cde/ma2a-orphan/artefacts/type_catalog` is a 404 `not_installed` | the status line; the 404 |
 | H-5 The add-in reads what Revit installed | On `ma2a-promote.rvt`: Promote ▸ **No** | The header now reads `type_catalog@2 · office · <sha12>…` (H-2's sha) and the office-template line counts against the B35 model's own harvest (expected every type present). Nothing else changes in the plan | the header's two lines |
-| R-1 The parity check passes on the branch's HEAD | From the repo root: `dotnet run --project tools/promote-check`; from `WebApp`: `npx vitest run src/sentinel-core/guideline bridge/sentinel-core-bundle.test.mjs bridge/changesets-typing.test.mjs` | `539/539 checks pass` with the lines `the C# matcher gives the TS resolver's answer on every shared case (29/29)` and `…every shared layer-free case (17/17)`; vitest `6 files`, `47 passed` (42 + the typer's 5). The bundle test passes on the committed bundle | the two lines; the vitest total |
+| R-1 The parity check passes on the branch's HEAD | From the repo root: `dotnet run --project tools/promote-check`; from `WebApp`: `npx vitest run src/sentinel-core/guideline bridge/sentinel-core-bundle.test.mjs bridge/changesets-typing.test.mjs` | `548/548 checks pass` with the lines `the C# matcher gives the TS resolver's answer on every shared case (29/29)` and `…every shared layer-free case (17/17)`; vitest `6 files`, `48 passed` (43 + the typer's 5). The bundle test passes on the committed bundle | the two lines; the vitest total |
 
 Bodies (saved as files in the session's scratch folder, never in the repository). B-1 — the design's example body with this model's values: the wall is 90 m north of the outline (B1-13's clear ground), on `GR-FFL` rising to `01-FFL`; the retype names the partition selected in the row:
 
@@ -3857,12 +4089,12 @@ Bodies (saved as files in the session's scratch folder, never in the repository)
       "validate": { "identity": { "Class": "IfcWall", "Name": "MA2a wall 88" } } },
     { "op": "retype", "kind": "wall",
       "target": { "unique_id": "<the partition's UniqueId>" },
-      "facts": { "thickness_mm": 200, "params": { "Location": "Interior", "Function": "Interior" } },
+      "facts": { "thickness_mm": 100, "params": { "Location": "Interior", "Function": "Interior" } },
       "reason": "DD: an inside concept partition needs an office type",
       "validate": { "identity": { "Class": "IfcWall", "Name": "MA2a partition" } } } ] }
 ```
 
-B-3 (a)–(e): each is B-1's first element alone (the create), with its `facts` changed — (a) `{ "thickness_mm": 200, "params": { "Material": "Stone" } }`; (b) `{ "thickness_mm": 125, "params": { "Location": "Interior" } }`; (c) `{ "params": { "Location": "Exterior" } }`; (d) B-1's first element as it is, posted to `changesets/ma2a-orphan`; (e) the design's element as written: no `facts`, `"measured": { "thickness_mm": 203, "height_mm": 3050 }` in its place. B-4: B-1's first element with `"typing": { "typed_by": "me" }` and `"pretick": true` added to it.
+B-3 (a)–(e): each is B-1's first element alone (the create), with its `facts` changed — (a) `{ "thickness_mm": 200, "params": { "Material": "Stone" } }`; (b) `{ "thickness_mm": 125, "params": { "Location": "Interior" } }`; (c) `{ "params": { "Location": "Exterior" } }`; (d) B-1's first element as it is, posted to `changesets/ma2a-orphan`; (e) the design's element as written: no `facts`, `"measured": { "thickness_mm": 203, "height_mm": 3050 }` in its place. B-4: B-1's first element with `"typing": { "typed_by": "me" }` and `"pretick": true` added to it. B-5: B-1's second element alone (the retype, the same UniqueId) with `"thickness_mm": 200` — a claim the wall does not bear.
 
 Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session MA2a, with gaps named F-MA2a-n, each fixed on the branch, and the list of **owed** rows at its end. Then:
 - close Revit without saving the scratch copies;
@@ -3870,8 +4102,8 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session 
 - stop the test bridge on 4101;
 - restore the add-in's bridge settings by copying `bcf-config.json.ma2abak` back over `bcf-config.json`, compare the two files' sha256 (`certutil -hashfile`, the hashes only) and delete the backup;
 - say which add-in build is deployed in Revit 2024: the branch's, when the merge follows at once; master's again (`git checkout master`, the same `dotnet build`) when the drill failed or the merge waits;
-- list what the drill left on the shared ledger: the scratch office `ma2a-office` with `guideline@1`, `type_catalog@1` and `type_catalog@2` (Revit's install), the projects `ma2a`, `ma2a-ghost` (with its own `guideline@1`) and `ma2a-orphan`, any membership added for the sign-in (and its role change), and the changesets, reports and audit rows of each row;
-- list what the drill left on this PC, outside the repository: the `ma2a`, `ma2a-ghost` and `ma2a-orphan` folders under `%AppData%\Sentinel\cache`, the export file `%AppData%\Sentinel\exports\type-catalog-<title>.json` (H-1), the five scratch copies in `Documents\Sentinel drills`, and the body files in the session's scratch folder.
+- list what the drill left on the shared ledger: the scratch office `ma2a-office` with `guideline@1`, `type_catalog@1` and `type_catalog@2` (Revit's install), the projects `ma2a`, `ma2a-ghost` (with its own `guideline@1`) and `ma2a-orphan`, any membership added for the sign-in (and its role change), and the changesets, reports and audit rows of each row — left in place on purpose (scratch keys; nothing real was touched), as the earlier drills' scratch projects were;
+- list what the drill left on this PC, outside the repository: the `ma2a`, `ma2a-ghost` and `ma2a-orphan` folders under `%AppData%\Sentinel\cache`, the export file `%AppData%\Sentinel\exports\type-catalog-<title>.json` (H-1), the five scratch copies in `Documents\Sentinel drills`, and the body files in the session's scratch folder — the cache folders and the body files are deleted (they hold scratch keys and the partition's UniqueId only); the export file and the scratch copies stay, named, as the drill's evidence.
 
 ## Merge (after the drill)
 
@@ -3879,13 +4111,13 @@ Merge when all of these hold:
 - every drill row passed, or is named **owed** in the record;
 - each F-MA2a-n fix is committed on the branch, and Task 8 Step 2's checks were run again after the last fix;
 - a fix that changes what Revit does — the boundary's reading, the planner, the harvest, the install — was deployed and its row run again live before the merge. A row whose fix was not run again is recorded as **owed**, not as passed;
-- UNSURE 1 and 5 held (the B35 walls read inside and outside as the offline layout says; Ghost pairs the drawn faces). If the boundary misreads the B35 outline, `WallLocation` goes back to planning and nothing is merged;
-- the pilot's catalogue without `bic` (type_catalog@1 on the scratch office) drove P-1, P-2, G-1 and B-1 as it did before this plan.
+- UNSURE 1 and 5 held (the `01-FFL` seed walls read inside and outside as the wall-by-wall list says — P-2 and P-4 on the clean storey; `GR-FFL`'s readings are recorded, with the template's walls as barriers, not judged; Ghost pairs the drawn faces). If the boundary misreads the `01-FFL` outline, `WallLocation` goes back to planning and nothing is merged;
+- the pilot's catalogue without `bic` (type_catalog@1 on the scratch office) drove every P, G and B row — every row before H-2, in table order — as it did before this plan.
 
 ```bash
 git checkout master
 git merge --no-ff feature/ma2a-layer-free-rules -F - <<'EOF'
-Merge feature/ma2a-layer-free-rules: MA-2a - rules without a layer: a guideline rule may match on Function, Location (inside or outside, read from the storey's own walls - one side open is outside, both enclosed inside, anything else unknown and a named reason to a person) and Material in when.params, spelled the same in TS and C# and pinned by one shared fixture; Promote passes them (a one-type storey types by location; an unknown location is held), Ghost Builder passes the document's values and the location of this build's walls (a layer rule listed first still wins on its layer), and the bridge types a changeset element posted without place.TypeName from the facts it sends (full contract 2: typing says who typed it, a bridge-typed element is never pre-ticked, a post it cannot type is a 400 that names what is missing, measured stays ignored). The wider harvest: Build Office System keeps each type's Function by its enum name, its Material, the matrix's type parameters and its BuiltInCategory beside the category (BOS-5; a type_catalog@1 reads as before), and a lead installs the catalogue on the office from the review window (BOS-3) off the API thread with the bridge's role check. The bridge bundle is rebuilt and a test now fails on a stale one (the bundle had carried a 4D parser drift since 50f49ba). Drill MA2a recorded. graphify is not on PATH on this PC: the graph was not updated
+Merge feature/ma2a-layer-free-rules: MA-2a - rules without a layer: a guideline rule may match on Function, Location (inside or outside, read from the storey's own walls - one side open is outside, both enclosed inside, anything else unknown and a named reason to a person) and Material in when.params, spelled the same in TS and C# and pinned by one shared fixture; Promote passes them (a one-type storey types by location; an unknown location is held; a Function that disagrees with the reading is held; every wall crossing the storey's plane is a barrier), Ghost Builder passes the location of this build's walls with the model's walls at the build level as barriers (a rule stating more conditions is tried first, then the lead's order), the executor refuses a wall retype that would move a face, and the bridge types a changeset element posted without place.TypeName from the facts it sends (full contract 2: typing says who typed it, a bridge-typed element is never pre-ticked, a post it cannot type is a 400 that names what is missing, measured stays ignored). The wider harvest: Build Office System keeps each type's Function by its enum name, its Material, the matrix's type parameters and its BuiltInCategory beside the category (BOS-5; a type_catalog@1 reads as before), and a lead installs the catalogue on the office from the review window (BOS-3) off the API thread with the bridge's role check. The bridge bundle is rebuilt and a test now fails on a stale one (the bundle had carried a 4D parser drift since 50f49ba). Drill MA2a recorded. graphify is not on PATH on this PC: the graph was not updated
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -3897,14 +4129,14 @@ Push only under the standing push rule, after a secret scan of the range.
 
 ## UNSURE facts this drill settles
 
-1. Do the B35 model's walls read inside and outside from the outer boundary as the offline concept layout says (eight outline walls Exterior, ten partitions and two corridor gap walls Interior) — the model's walls were placed from the same coordinates, with their corners meeting at the centrelines? (P-1, P-2.) Everything in `WallLocation` rests on it.
+1. Do the B35 model's `01-FFL` seed walls read inside and outside from the outer boundary as the wall-by-wall list says (eight outline walls Exterior, ten partitions and two corridor gap walls Interior, the drawn free wall unknown) — the model's walls were placed from `make-concept.py`'s coordinates, with their corners meeting at the centrelines? (P-2, P-4; `01-FFL` holds the seed walls alone — `GR-FFL`'s 52 template walls are barriers whose readings are recorded, not judged.) Everything in `WallLocation` rests on it.
 2. Are `BDS_EXT_ARC_CMU_200 mm`, `BDS_INT_ARC_CMU_200 mm` and `BDS_INT_ARC_CMU_100 mm` loaded in the B35 model? (P-1; the set-up says what to do if not.)
 3. Does a type's `FUNCTION_PARAM` come out as the Integer whose value `TypeHarvest.FunctionName` names — a wall type whose Type Properties say Exterior writing `"Function": "Exterior"` — and does a door symbol give one too? (H-1.) The table is the API's documented values; this is the live read.
 4. Does `(BuiltInCategory)(int)Category.Id.IdValue()` name `OST_Walls` and the other known categories for every harvested type on Revit 2024, and do subcategories and imports come out with no `bic`? (H-1.)
 5. Does Ghost Builder pair each drawn wall's two faces into one wall with its measured thickness (4 on `A-WALL-EXT`, 3 on `A-WALL-INT`), so the guideline — not the mapping — types them? (G-1.)
 6. Does `GET /cde/projects/:key/scope` answer the add-in's bearer for a signed-in member of the project (D7: a member of the project or of its office) and for the machine token; and does the office's lead check pass the lead and refuse the contributor in the sentence? (H-2, H-3.)
 7. What are the B35 wall types' build-up material names — does `Generic - 200mm` carry a `Material` label at all, and does any BDS type's label hold a word a rule could key on (`Gypsum`, `Stone`)? (H-1.) It decides whether a Material rule can drive the pilot's template or a lead names other words.
-8. Does the executor accept a bridge-typed retype whose `type_before` is null and change the partition's type? (B-2.)
+8. Does the executor accept a bridge-typed retype whose `type_before` is null and whose target has the wall's own width, and change the partition's type (B-2) — and refuse one whose claimed thickness is not the wall's, with the `Unsafe` sentence (B-5)? For a wall that width is the only check at Apply besides the type being loaded (C3).
 9. Does the review row's text with `typed by the bridge from the facts posted (…)` fit the row? (B-2.)
 10. Does the add-in's install body's `source {tool, document}` land in the pointer's `source`, as the ruleset install's does? (H-2.)
 11. How long is a typed post on 4101 — two artefact reads and a 1,434-row catalogue scan per untyped element? (B-1.) Only a run measures it.
@@ -3912,18 +4144,18 @@ Push only under the standing push rule, after a secret scan of the range.
 
 ## Risks
 
-- **The boundary is a reading with named ceilings (F1).** A wall facing a closed inner courtyard reads inside and is retyped as an internal wall; a storey whose outline walls stop short (GHB-6's broken walls) lets a line out and reads its partitions "both sides open" — unknown, to a person. Both are honest, neither is right; the ceiling is in the code's words and in E3.
+- **The boundary is a reading with named ceilings (F1).** A wall facing a closed inner courtyard reads inside: on a one-type storey (Function dropped) it is retyped as an internal wall; on a mixed storey its Function Exterior disagrees and it is held (C2). A storey whose outline walls stop short (GHB-6's broken walls) lets a line out and reads its partitions "both sides open" — unknown, to a person. Each is a reading said in words, not a right answer; the ceiling is in the code's words and in E3.
 - **A one-type storey drops Function (F2).** A storey of walls that truly are all one exterior type (a single-skin shed) is typed by location — which is right. A storey whose outline does not close is held wall by wall with the location's reason, where MA-0 held it with one sentence: more rows to a person, each saying why.
-- **The bridge types a retype from a claim (F3).** A poster who says a wall is Interior and 100 mm gets an Interior 100 mm type proposed for it; the executor's own checks still refuse a type the model lacks or a build-up that would move a face, and the row opens unticked, but a person who ticks without reading applies the claim.
+- **The bridge types a retype from a claim (F3).** A poster who says a wall is Interior and 100 mm gets an Interior 100 mm type proposed for it. At Apply the executor refuses a type the model lacks and (C3, E30) a wall type whose width is not the wall's — a claimed thickness that would move a face; nothing else about a wall is checked (`type_before` is null on a bridge-typed retype). The row opens unticked, but a person who ticks a same-width wrong claim without reading applies it.
 - **A Material rule matches words, not materials (F9).** `Material: CMU` matches nothing in `Concrete Masonry Units`; a lead writes the template's own words. The drill reads what the template's words are (UNSURE 7).
 - **The rebuilt bundle carries a drift this plan did not make.** The 4D programme-CSV parser on the bridge changes to its TS source's behaviour (refusals per row) with the first bridge restart after the merge; it is tested TS, but it was never live. Named in the merge message and the deployment note; not drilled.
-- **An empty `when` is now refused at install (C4).** A guideline someone re-installs with such a rule is refused with the reason; the pilot's files have none. The add-in still reads one already installed.
+- **An empty `when` is now refused at install (S4).** A guideline someone re-installs with such a rule is refused with the reason; the pilot's files have none. The add-in still reads one already installed.
 - **The MA-0 Function-only file's wording changes on `ma0-bds`.** Its one-type holds now read "…has no rule for Location Exterior" — the same hold, more words. A reader of the old record sees the new phrase.
-- **Promote passes Function on a mixed storey even where the template's Function is wrong.** As MA-0 did (its F2 note still prints the template check); a Location rule listed first takes precedence where the location is read.
+- **Promote passes Function on a mixed storey, and holds where the boundary reads the other way (C2).** A template whose Functions are wrong (B33's F2: `BDS_INT_ARC_GYPS_100 mm` is Function Exterior in the BDS template) sends more rows to a person than MA-0 did — each saying "Function Exterior but it reads inside …" — where MA-0 printed a template note and proposed. Where Function and Location agree, the Location rule listed first decides as before.
 - **A typed post scans the catalogue once per untyped element.** 200 elements × 1,434 rows is cheap; a 20,000-row catalogue × 200 is 4 million string compares — still under a second in Node, not measured (UNSURE 11 measures the pilot's size).
 - **BOS-3 with the machine credential installs as `service`.** Anyone holding the token installs, as the CLI already lets them; the signed-in path is the one with a lead check. The drill records the actor.
 - **The German harvest is proven offline only.** The key derivation (`CategoryKeyOf`) and the bic comparison are pinned by rows and scans; no non-English Revit is on this PC.
-- **Ghost's clone path is unchanged (C5).** A layer-free rule can name a size the model lacks; Ghost then clones a catalogue sibling as it did for a layer rule. The invariant "no type is created" is about what this plan adds; G-1 records whether the path ran.
+- **Ghost's clone path is unchanged (S5).** A layer-free rule can name a size the model lacks; Ghost then clones a catalogue sibling as it did for a layer rule. The invariant "no type is created" is about what this plan adds; G-1 records whether the path ran.
 - **`facts` rides on any create.** A poster may send `facts` beside a `TypeName`; they are kept as a record and type nothing. A reader could take them for a measurement: they are the poster's words, and `accuracy` still says `not_measured`.
 
 ## Next (out of scope here)
