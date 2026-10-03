@@ -2,8 +2,9 @@
 // read; a metric with no server source is n/a and makes the gate not_checkable, never a pass; every check names its
 // source. readGateInputs runs over injected stores — no Supabase.
 import { describe, it, expect, vi } from "vitest";
-import { measureGate, readGateInputs, readCobie, NO_SERVER_SOURCE } from "./stage-gate.mjs";
+import { measureGate, readGateInputs, readCobie, readLodState, NO_SERVER_SOURCE } from "./stage-gate.mjs";
 import { STAGES } from "./cde-store.mjs";
+import { STAGES as CORE_STAGES } from "./sentinel-core.mjs";
 
 const ALL = { hasStandardsPack: true, openIssues: 0, openRfis: 0, hardClashes: 0 };
 
@@ -21,7 +22,14 @@ describe("measureGate — pure, never a pass on an unmeasured metric", () => {
       ["Model health ≥ 80%", true, NO_SERVER_SOURCE],
       ["No 'block' violations", true, NO_SERVER_SOURCE],
       ["Standards compliance ≥ 70%", true, NO_SERVER_SOURCE],
+      ["LOD state: elements at the DD row ≥ 90%", true, "not measured — the newest lod_state ledger row not read"],
     ]);
+  });
+  it("MA-2b: the LOD state check reads the share the newest lod_state row measured, and names the row", () => {
+    const g = measureGate("design", { ...ALL, lodState: 94, lodSource: "lod_state ledger #4242 — DD → design: 248 of 264 at DD (94%)" });
+    expect(g.checks.at(-1)).toEqual({ label: "LOD state: elements at the DD row ≥ 90%", ok: true, na: false, detail: "94", source: "lod_state ledger #4242 — DD → design: 248 of 264 at DD (94%)" });
+    expect(g.status).toBe("not_checkable"); // health, compliance and block violations still have no server source
+    expect(STAGES).toEqual(CORE_STAGES); // one stage list (D18): the store's, the matrix's and the gate's
   });
   it("coord: a measured failure holds the gate even beside an unmeasured check; the counted checks name their stores", () => {
     const g = measureGate("coord", { ...ALL, hardClashes: 3 });
@@ -57,11 +65,13 @@ describe("readGateInputs — the four inputs, each from a store scoped by the pr
       ? [{ status: "Open" }, { status: "Answered" }, { status: "Closed" }]
       : [{ status: "raised" }, { status: "reviewed" }, { status: "approved" }, { status: "resolved" }])),
     readCobie: vi.fn(async () => ({ readiness: 97, source: "COBie on the live models: T.ifc v2 97/100" })),
+    readLodState: vi.fn(async () => ({ share: 94, source: "lod_state ledger #4242" })),
     ...over,
   });
   it("counts open topics (not Closed/Resolved), open RFIs (not Closed) and unresolved clashes; the ruleset from the resolver", async () => {
     const d = deps();
-    expect(await readGateInputs("aster-tower", d)).toEqual({ hasStandardsPack: true, openIssues: 2, openRfis: 2, hardClashes: 3, cobieComplete: 97, cobieSource: "COBie on the live models: T.ifc v2 97/100" });
+    expect(await readGateInputs("aster-tower", d)).toEqual({ hasStandardsPack: true, openIssues: 2, openRfis: 2, hardClashes: 3, cobieComplete: 97, cobieSource: "COBie on the live models: T.ifc v2 97/100",
+      lodState: 94, lodSource: "lod_state ledger #4242" });
     expect(d.resolveArtefact).toHaveBeenCalledWith("aster-tower", "ruleset");
     expect(d.bcfListTopics).toHaveBeenCalledWith("aster-tower", { status: "all" });
     expect(d.docList.mock.calls).toEqual([["rfi", "aster-tower"], ["clash", "aster-tower"]]);
@@ -73,6 +83,34 @@ describe("readGateInputs — the four inputs, each from a store scoped by the pr
   it("a store that cannot be read fails the run — it never counts as zero", async () => {
     const d = deps({ docList: async (store) => { if (store === "clash") throw new Error("Supabase 500: boom"); return []; } });
     await expect(readGateInputs("aster-tower", d)).rejects.toThrow("Supabase 500: boom");
+  });
+});
+
+describe("readLodState — the design gate's LOD state from the newest lod_state ledger row (MA-2b)", () => {
+  const SHA = "a".repeat(64), MX = { body: {}, source: "office", ref: "lod_matrix@1", sha256: SHA, pointer_sha_mismatch: false };
+  const row = (over = {}) => ({ id: 4242, actor: "lead@office.example", at: "2026-10-03T09:15:00.000Z",
+    new_value: { line: "DD → design: 248 of 264 at DD (94%) · 16 below · 0 blocked · 0 not measured", share: 94, project_stage: "design",
+      matrix: "lod_matrix@1 · office · aaaaaaaaaaaa…", matrix_sha256: SHA, claimed: true, ...over } });
+  const reading = (rows, mx = MX) => ({ listAudit: vi.fn(async () => ({ rows, total: rows.length, limit: 1, offset: 0 })), resolveArtefact: vi.fn(async () => mx) });
+  it("the newest row's share, its source naming the row, the line and that Revit claimed it — while its matrix is the one in force", async () => {
+    const d = reading([row()]);
+    expect(await readLodState("aster-tower", d)).toEqual({ share: 94,
+      source: "lod_state ledger #4242 — DD → design: 248 of 264 at DD (94%) · 16 below · 0 blocked · 0 not measured (Revit's count, claimed: lead@office.example, 2026-10-03T09:15:00.000Z)" });
+    expect(d.listAudit).toHaveBeenCalledWith("aster-tower", { entity_type: "lod_state", limit: 1 });
+    expect(d.resolveArtefact).toHaveBeenCalledWith("aster-tower", "lod_matrix");
+  });
+  it.each([
+    ["no row yet", [], MX, "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)"],
+    ["a matrix that maps DD past design", [row({ project_stage: "coord" })], MX, "LOD state: not measured — lod_state ledger #4242 measured DD, which its lod_matrix maps to coord, not design"],
+    ["a row measured against another matrix than the one in force", [row({ matrix: "lod_matrix@1 · office · bbbbbbbbbbbb…", matrix_sha256: "b".repeat(64) })], { ...MX, ref: "lod_matrix@2" },
+      "LOD state: not measured — lod_state ledger #4242 was measured against lod_matrix@1 · office · bbbbbbbbbbbb…; lod_matrix@2 · office · aaaaaaaaaaaa… is in force — run Promote (DD) again"],
+    ["a row whose matrix is no longer installed", [row()], { body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false },
+      "LOD state: not measured — lod_state ledger #4242 was measured against lod_matrix@1 · office · aaaaaaaaaaaa…; no lod_matrix is installed now — run Promote (DD) again"],
+    ["a class the matrix asks for that Promote did not run", [row({ share: null, not_run: ["Floors: no DD row in the LOD matrix", "Roofs: BDS DD v1 has no Roofs rules"] })], MX,
+      "LOD state: not measured — lod_state ledger #4242 has no share: Roofs: BDS DD v1 has no Roofs rules (a class the matrix asks for that Promote did not run)"],
+    ["a row that counted nothing", [row({ share: null })], MX, "LOD state: not measured — lod_state ledger #4242 has no share: it counted no element"],
+  ])("%s is not measured, in words", async (_what, rows, mx, source) => {
+    expect(await readLodState("p", reading(rows, mx))).toEqual({ share: null, source });
   });
 });
 

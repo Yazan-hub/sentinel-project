@@ -24,6 +24,7 @@ function memDeps(over = {}) {
     listFiles: vi.fn(async () => [{ iso_name: "A.ifc", container_type: "model", versions: [{ id: "v-1", revision: "P01", state: "published", is_live: true }] }]),
     getFederation: vi.fn(async () => ({ latest: null, stale: false, live_set: [{ version_id: "v-1" }] })),
     listTransmittals: vi.fn(async () => []),
+    listAudit: vi.fn(async () => ({ rows: [], total: 0, limit: 1, offset: 0 })),
     ...over,
   };
 }
@@ -69,6 +70,26 @@ describe("getJourney", () => {
     expect(j).toMatchObject({ kind: "office", office_key: null, total: 5, done: 5, next: null });
     expect(j.steps.find((x) => x.id === "projects").evidence.ref).toBe("aster-tower,aster-villa");
     for (const f of ["getScan", "listVersionVerdictRows", "listFiles", "getFederation", "listTransmittals"]) expect(d[f]).not.toHaveBeenCalled();
+  });
+  it("MA-2b: the LOD state line is the newest lod_state row's — Revit's count, claimed, with its ledger id — or not measured, in words", async () => {
+    const row = { id: 4242, hash: "h".repeat(64), actor: "lead@office.example", at: "2026-10-03T09:15:00.000Z", action: "lod:state now · …",
+      new_value: { line: "DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured", share: 14, claimed: true,
+        matrix: "lod_matrix@1 · office · 23bb57937fb0…", matrix_sha256: SHA } };
+    const d = memDeps({ listAudit: vi.fn(async () => ({ rows: [row], total: 3, limit: 1, offset: 0 })) });
+    const j = await getJourney("aster-villa", d);
+    expect(d.listAudit).toHaveBeenCalledWith("aster-villa", { entity_type: "lod_state", limit: 1 });
+    expect(j.lod_state).toEqual({ line: "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 · ledger #4242",
+      share: 14, at: row.at, ledger: { id: 4242, hash: row.hash } });
+    expect((await getJourney("aster-villa", memDeps())).lod_state).toEqual({ line: "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)", share: null, at: null, ledger: null });
+    // A row measured against another matrix than the one in force is not the LOD state now (review C3).
+    const old = { ...row, new_value: { ...row.new_value, matrix: "lod_matrix@1 · office · bbbbbbbbbbbb…", matrix_sha256: "b".repeat(64) } };
+    expect((await getJourney("aster-villa", memDeps({ listAudit: vi.fn(async () => ({ rows: [old], total: 1, limit: 1, offset: 0 })) }))).lod_state).toEqual({
+      line: "LOD state: not measured — lod_state ledger #4242 was measured against lod_matrix@1 · office · bbbbbbbbbbbb…; lod_matrix@1 · office · 23bb57937fb0… is in force — run Promote (DD) again",
+      share: null, at: row.at, ledger: { id: 4242, hash: row.hash } });
+    const down = await getJourney("aster-villa", memDeps({ listAudit: async () => { throw new Error("ledger down"); } }));
+    expect(down.lod_state.line).toBe("LOD state: unavailable — ledger down");
+    expect(down.done).toBe(6); // the ledger read costs no step
+    expect((await getJourney("aster-office", memDeps())).lod_state).toBeNull(); // an office has no model
   });
   it("a non-member is refused before any fact is read", async () => {
     const d = memDeps({ ensureProject: async (key) => { throw projectNotFound(key); } });

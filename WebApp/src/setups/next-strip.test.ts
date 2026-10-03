@@ -5,7 +5,7 @@ const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 vi.mock("./active-project", () => ({ activePid: () => "aster-villa", onActiveProjectChange: () => () => {} }));
 
-import { fetchJourney, standardsLine, nextLine, stepDetail, tabIndex, type Journey, type JourneyStep } from "./next-strip";
+import { fetchJourney, standardsLine, nextLine, stepDetail, tabIndex, lodLine, type Journey, type JourneyStep } from "./next-strip";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const ref = (kind: string, n: number, sha: string) =>
@@ -112,5 +112,14 @@ describe("tabIndex", () => {
   it("is -1 when the label is absent or null", () => {
     expect(tabIndex(labels, "Nope")).toBe(-1);
     expect(tabIndex(labels, null)).toBe(-1);
+  });
+});
+
+describe("lodLine (MA-2b)", () => {
+  it("prints the bridge's line from the newest lod_state row as is; an office (or a bridge before MA-2b) has none", () => {
+    const line = "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 · ledger #4242";
+    expect(lodLine(journey({ lod_state: { line, share: 14, at: "2026-10-03T09:15:00.000Z", ledger: { id: 4242, hash: null } } }))).toBe(line);
+    expect(lodLine(journey({ lod_state: null }))).toBe("");
+    expect(lodLine(journey())).toBe("");
   });
 });

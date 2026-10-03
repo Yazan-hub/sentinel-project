@@ -1311,7 +1311,8 @@ async function handleRequest(req, res) {
       //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate, review and platform_gate rows are
       //   Sentinel's own → 400 (cde-store.mjs recordAudit). The machine credential writes any other row; a signed-in
       //   contributor a Revit report (REVIT_REPORT_TYPES: naming, family_heal, the modelling commands' reports of MA-1a
-      //   item 7, and item 8's build receipt, which the bridge words build:run and marks claimed for every caller); a
+      //   item 7, item 8's build receipt, which the bridge words build:run and marks claimed for every caller, and MA-2b's
+      //   lod_state row, marked claimed too); a
       //   signed-in lead also a note — {action, new_value?}, entity_type "note". 403 / 400 / 413 / 429 before anything
       //   is written (H0 D11, cde-store.mjs recordNote).
       if (p2 === "audit" && req.method === "POST") return send(res, 201, await cde.recordNote(p1, (await readBody(req)) || {}));

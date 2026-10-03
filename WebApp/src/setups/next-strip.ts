@@ -21,6 +21,8 @@ export interface Journey {
   key: string; kind: "office" | "project"; office_key: string | null;
   standards: { ids: JourneyRef; ruleset: JourneyRef; naming: JourneyRef };
   steps: JourneyStep[]; next: string | null; done: number; total: number;
+  /** MA-2b: the newest lod_state ledger row's line (null for an office; absent from a bridge before MA-2b). */
+  lod_state?: { line: string; share: number | null; at: string | null; ledger: { id: number; hash: string | null } | null } | null;
 }
 
 /** GET /cde/:key/journey; throws with the bridge's message on any failure. */
@@ -51,6 +53,10 @@ export function nextLine(j: Journey): { text: string; tab: string | null } {
   return { text: `Next: ${step.label} — ${hint}`, tab: step.how.web?.tab ?? null };
 }
 
+/** MA-2b: "LOD state: …" exactly as the bridge words it from the newest lod_state ledger row — the line the Revit pane prints
+ *  too; "" when there is none to print (an office). */
+export const lodLine = (j: Journey): string => j.lod_state?.line ?? "";
+
 /** B2: one line per step for the Guide's journey list, chosen by status — a todo's own reason never reads as "Not checkable". */
 export function stepDetail(s: JourneyStep, next: string | null): string {
   if (s.status === "done") return `Evidence: ${s.evidence?.label ?? "(missing — should not happen)"}`;
@@ -69,6 +75,7 @@ export function nextStrip(opts: { baseUrl: string; onOpenTab: (label: string) =>
   root.style.cssText = "display:flex;flex-direction:column;gap:.25rem;padding:.4rem .6rem;border-bottom:1px solid #2a2a30;background:#16161a;color:#c9cfda;font:12px system-ui;flex:0 0 auto";
   root.innerHTML =
     '<div id="ns-std" style="color:#9ca3af"></div>' +
+    '<div id="ns-lod" style="color:#9ca3af"></div>' +
     '<div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">' +
       '<span id="ns-next" style="color:#eee;font-weight:600"></span>' +
       `<button id="ns-open" style="${btn};display:none">Open</button>` +
@@ -86,6 +93,7 @@ export function nextStrip(opts: { baseUrl: string; onOpenTab: (label: string) =>
     el("ns-std").textContent = "Loading journey…";
     el("ns-std").style.color = "#9ca3af";
     el("ns-next").textContent = "";
+    el("ns-lod").textContent = "";
     el("ns-open").style.display = "none";
     el("ns-journey").style.display = "none";
     try {
@@ -94,6 +102,7 @@ export function nextStrip(opts: { baseUrl: string; onOpenTab: (label: string) =>
       const n = nextLine(j);
       tab = n.tab;
       el("ns-std").textContent = standardsLine(j);
+      el("ns-lod").textContent = lodLine(j);
       el("ns-next").textContent = n.text;
       el("ns-open").style.display = tab ? "" : "none";
       el("ns-journey").textContent = `${j.done} of ${j.total} ▸ Journey`;

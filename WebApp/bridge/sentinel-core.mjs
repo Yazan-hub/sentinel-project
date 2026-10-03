@@ -488,7 +488,10 @@ var GATE_DEFS = {
   design: [
     { metric: "health", op: ">=", value: 80, label: "Model health \u2265 80%" },
     { metric: "blockViolations", op: "==", value: 0, label: "No 'block' violations" },
-    { metric: "compliance", op: ">=", value: 70, label: "Standards compliance \u2265 70%" }
+    { metric: "compliance", op: ">=", value: 70, label: "Standards compliance \u2265 70%" },
+    // MA-2b (design §3.2, D18, blueprint P1-10): the design → coord gate reads the share at the DD row's LOD. 90 % is the
+    // founder's to change (decision F5): elements Promote cannot act on (groups, structure) stay in the count.
+    { metric: "lodState", op: ">=", value: 90, label: "LOD state: elements at the DD row \u2265 90%" }
   ],
   coord: [
     { metric: "hardClashes", op: "==", value: 0, label: "No open hard clashes" },

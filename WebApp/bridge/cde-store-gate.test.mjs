@@ -118,7 +118,8 @@ describe("runStageGate — lead only, the current stage, the bridge's measuremen
     db.audit_log.push(gateRow(1, "gate:pass tender", { stage: "tender", status: "pass", checks: [], next_stage: "design" }));
     const r = await runStageGate("aster-tower", "design", "lead@example.test");
     expect(r.status).toBe("not_checkable");
-    expect(r.checks.map((c) => c.source)).toEqual([NO_SOURCE, NO_SOURCE, NO_SOURCE]);
+    // MA-2b: the fourth check is the LOD state; no lod_state row was read here, so it is not measured, in words.
+    expect(r.checks.map((c) => c.source)).toEqual([NO_SOURCE, NO_SOURCE, NO_SOURCE, "not measured — the newest lod_state ledger row not read"]);
     expect(calls.find((c) => c.method === "POST").body).toMatchObject({ action: "gate:not_checkable design", new_value: { stage: "design", status: "not_checkable", next_stage: "coord" } });
     expect(await projectStage("aster-tower")).toBe("design");
     expect((await projectGates("aster-tower")).design).toMatchObject({ status: "not_checkable", ledger: { id: 901, hash: HASH(91) } });

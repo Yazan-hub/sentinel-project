@@ -589,7 +589,8 @@ describe("POST /cde/:key/manifests/:versionId (cde-rem-7): a backfill is a lead'
 
 // MA-1a items 7 and 8: the Revit report route takes the modelling commands' reports (one row per run, counts and actor)
 // and the build:run receipt, under the limits it already has. One bridge copy serves this whole file, so the report
-// budget (20 per user a minute) is shared across these tests: the contributor posts 9, the owner 21.
+// budget (20 per user a minute) is shared across these tests: the contributor posts 10, the owner 21. MA-2b adds the
+// lod_state row, marked claimed like the receipt.
 describe("POST /cde/:key/audit — the modelling commands' reports and the build:run receipt (MA-1a items 7, 8)", () => {
   const A = "/cde/demo/audit";
   const TYPES = ["datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor"];
@@ -617,6 +618,14 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
       ["build", "build:run", "contributor@example.test", { reader: "ghost-builder", model_calls: 2, claimed: true }],
       ["build", "build:run", "unsigned — drill", { reader: "datum", claimed: true }],
     ]);
+  });
+
+  it("a lod_state row is Promote's count in Revit: a contributor's lands under the verified identity, marked claimed by the bridge (MA-2b)", async () => {
+    const r = await call("POST", A, "contributor", { entity_type: "lod_state", actor: "x", action: "lod:state now · DD → design: 1 of 5 at DD (20%)", new_value: { share: 20, claimed: false } });
+    expect(r.status).toBe(201);
+    expect(await call("POST", A, "machine", { entity_type: "lod_state", action: "lod:state now", new_value: "20%" }))
+      .toEqual({ status: 400, body: { message: "a lod_state row's new_value is the count, an object — nothing was saved" } });
+    expect(db.audit_log.map((a) => [a.entity_type, a.actor, a.new_value])).toEqual([["lod_state", "contributor@example.test", { share: 20, claimed: true }]]);
   });
 
   it("a receipt that is not an object, and a build: action under another type, are refused — nothing is saved", async () => {

@@ -3,7 +3,21 @@ import { evaluateGate, GATE_DEFS, type GateMetrics } from "./gates";
 
 const M = (over: Partial<GateMetrics> = {}): GateMetrics => ({
   health: null, compliance: null, blockViolations: 0, hardClashes: 0,
-  openIssues: 0, openRfis: 0, hasStandardsPack: false, cobieComplete: null, ...over,
+  openIssues: 0, openRfis: 0, hasStandardsPack: false, cobieComplete: null, lodState: 100, ...over,
+});
+
+describe("the design gate's LOD state (MA-2b, design §3.2: the share at the DD row's LOD)", () => {
+  const met = { health: 85, compliance: 75, blockViolations: 0 };
+  it("not measured until a lod_state row exists — the gate is not checkable, never a pass", () => {
+    const r = evaluateGate("design", M({ ...met, lodState: null }));
+    expect(r.checks[r.checks.length - 1]).toEqual({ label: "LOD state: elements at the DD row ≥ 90%", ok: false, na: true, detail: "no data" });
+    expect(r.status).toBe("not_checkable");
+  });
+  it("a measured share below the bar holds the gate; at or above it, the check is met", () => {
+    expect(evaluateGate("design", M({ ...met, lodState: 89 })).status).toBe("hold");
+    const met90 = evaluateGate("design", M({ ...met, lodState: 90 })).checks; // no .at(): the web's tsconfig lib is before es2022
+    expect(met90[met90.length - 1]).toMatchObject({ ok: true, na: false, detail: "90" });
+  });
 });
 
 describe("evaluateGate", () => {
