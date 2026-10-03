@@ -10,6 +10,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using Sentinel.Commands; // BcfConfig (bridge URL + platform project id)
 
 namespace Sentinel.Coordination;
@@ -242,13 +243,29 @@ internal static class ChangesetClient
     /// <summary>How a request body is written: nulls left out (a retype's target has no type_before on an attach).</summary>
     internal static readonly JsonSerializerOptions WriteJson = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
-    private static HttpRequestMessage Req(HttpMethod m, string url, string token)
+    private static HttpRequestMessage Req(HttpMethod m, string url, string token, string json = null)
     {
         var msg = new HttpRequestMessage(m, url);
+        if (json != null) msg.Content = new StringContent(json, Encoding.UTF8, "application/json"); // MA-2d C1: a write's body, built with it
         if (!string.IsNullOrWhiteSpace(token))
             msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return msg;
     }
+
+    // MA-2d (house rule: no network call on Revit's API thread): every request this client sends — Promote's and Ghost Builder's
+    // Propose and Withdraw, the review's FetchProposed, FetchOne, MyRole and ReportResult, the undo watcher's revert — is built, sent
+    // and read on a pool thread. Review C1: built there too, because reading the token (BcfConfig.ServiceToken → UserSession.AccessToken)
+    // refreshes a token with a minute or less left over the network (a mutex wait up to 10 s, a Supabase call up to 8 s); make() runs
+    // before the first await, so that mutex is taken and released on one thread. The body — UserSession.Actor in it, a file read — is
+    // serialized on the caller's. ponytail: the caller still waits for the answer (8 s reads, 120 s writes), so Revit is held as long
+    // as before; a review flow that does not wait is the upgrade (MA-2d Risks).
+    private static (HttpResponseMessage Resp, string Body) Send(HttpClient http, Func<HttpRequestMessage> make) =>
+        Task.Run(async () =>
+        {
+            var msg = make();
+            var resp = await http.SendAsync(msg).ConfigureAwait(false);
+            return (resp, await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+        }).GetAwaiter().GetResult();
 
     public static List<ChangesetDto> FetchProposed(BcfConfig cfg, string projectKey, out string error)
     {
@@ -256,8 +273,7 @@ internal static class ChangesetClient
         try
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}?status=proposed";
-            var resp = ReadHttp.SendAsync(Req(HttpMethod.Get, url, cfg.ServiceToken)).GetAwaiter().GetResult();
-            var body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
             var list = JsonSerializer.Deserialize<List<ChangesetDto>>(body) ?? new List<ChangesetDto>();
             return list.OrderBy(c => c.CreatedAt, StringComparer.Ordinal).ToList(); // FIFO — oldest first
@@ -271,8 +287,7 @@ internal static class ChangesetClient
         try
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}";
-            var resp = ReadHttp.SendAsync(Req(HttpMethod.Get, url, cfg.ServiceToken)).GetAwaiter().GetResult();
-            var body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
             return JsonSerializer.Deserialize<ChangesetDto>(body);
         }
@@ -289,10 +304,9 @@ internal static class ChangesetClient
         body = null; error = null;
         try
         {
-            var msg = Req(HttpMethod.Post, $"{cfg.ServiceUrl.TrimEnd('/')}{path}", cfg.ServiceToken);
-            msg.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-            var resp = WriteHttp.SendAsync(msg).GetAwaiter().GetResult();
-            body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            // Review C1: the request — its token and its body — is built inside Send's pool thread; payload was serialized here.
+            HttpResponseMessage resp;
+            (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Post, $"{cfg.ServiceUrl.TrimEnd('/')}{path}", cfg.ServiceToken, payload));
             if ((int)resp.StatusCode != expect) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return false; }
             return true;
         }
@@ -307,8 +321,7 @@ internal static class ChangesetClient
         try
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/cde/{Uri.EscapeDataString(projectKey)}/members/me";
-            var resp = ReadHttp.SendAsync(Req(HttpMethod.Get, url, cfg.ServiceToken)).GetAwaiter().GetResult();
-            var body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
             using var doc = JsonDocument.Parse(body);
             return doc.RootElement.TryGetProperty("role", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "";

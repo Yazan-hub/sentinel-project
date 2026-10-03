@@ -66,6 +66,10 @@ public sealed class ChangesetExecutor
         /// (PlacementGeometry.Turn), and whether its family lacks the hand or the facing flip. OffDeg NaN = it could not be
         /// read back. Empty when the changeset carried no Rotation.
         public List<(string Label, double OffDeg, bool Hand, bool Facing, bool NoHandFlip, bool NoFacingFlip)> Turned { get; } = new();
+        /// MA-2d: each changeset's own result, in the order it ran — a Promote storey's several changesets run in one group
+        /// (ChangesetPlacementEvent.RunChecked), and the fields above are the storey's whole; one entry for a changeset run alone. Set by
+        /// ChangesetPlacementEvent for a placed storey; the review reports each entry on its own ledger row.
+        public List<(ChangesetDto Cs, ExecutionResult Res)> Each { get; } = new();
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets

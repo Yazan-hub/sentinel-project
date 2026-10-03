@@ -27,6 +27,8 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\PropertyPlanner.cs" />
     <!-- MA-2c: a run's type gaps, grouped for the Holding Area -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeGaps.cs" />
+    <!-- MA-2d: a Promote storey's changesets, reviewed and applied as one -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\StoreyBatch.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\GovElement.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
     <!-- MA-1a step 2: Ghost Builder's changeset bodies, and the Doctor's skip rule they must agree with -->

@@ -1445,3 +1445,78 @@ three Promote changesets — GR-FFL applied then undone, two withdrawn), `ma2c-b
 `Documents\Sentinel drills\ma2c\` (the drill's evidence; never committed).
 
 **After the drill — C26** (66ef8c7, from the report-only attack run at 1a8f782): the compiler now keeps the value of "must be", "is to be", "shall be:", "shall have a … of", a doubled blank, a closing "!", a quoted value and a decimal comma; the docs panel compiles headings and the title with the bodies; a clause naming the property or set in another spelling is weighed on both sides; a U-value's decimal comma takes 1–2 digits. No drill row's input reaches the changed code (the drill's ids@2 is one plain sentence, and no thermal value is written): checked offline on both sides (shared cases value 249, document 46, ids 50; promote-check 659/659), not run again live.
+
+## Session MA2d — one Undo per storey, live (2026-10-03 ~19:20 → 20:45 local, branch feature/ma2d-storey-undo c0c01bc → cef26db, Claude driving Revit 2024)
+
+Setup: the branch build c0c01bc deployed to Revit 2024 at 19:20 on the founder's explicit ask ("deploy the ma2d branch to 2024"; DLL
+`4bef357200c…`; before it, master 3242452's `b7b75b69d70…`), cef26db at 20:14 for the re-run (`497e9c49c46…`). The add-in's bridge
+settings backed up and pointed at the test bridge 127.0.0.1:4101 (no bridge change in MA-2d). Scratch office `ma2d-office`
+(`guideline@1` `5ac547ca…`, `type_catalog@1` = `catalog-fr2.json` with Fire Rating "60 min" on `BDS_EXT_ARC_CMU_200 mm` and "30 min" on
+`BDS_INT_ARC_GYPS_100 mm`, `ca0ab99f…`, `lod_matrix@1` `cb47a6d0…`, `ruleset@1`); projects `ma2d`, `ma2d-ma0`, `ma2d-26`; **signed in**,
+the account lead on all four (copied from `ma2c`'s lead in a script that never printed the e-mail). Scratch copies in
+`Documents\Sentinel drills\ma2d\`: `ma2d-a.rvt` and `ma2d-26.rvt` (the B35 seed), `ma2d-ma0.rvt` (the MA-0 seed central
+`ma0-seed-central-0848.rvt.bak`, opened detached, worksets discarded). None saved.
+
+**The crowd** (S2, C3): `MA0 Interior - 100mm` present (MCP); GR-FFL's walls read with the MCP — the 24 × 12 m outline, partitions every
+4 m, two 125 mm walls at y 6000, and template sample walls crossing the outline at y ≈ 2588 / 4672 / 7224 / 10296 (x 16.5–24 m). Rows
+chosen at least ~500 mm clear of all of them: 1000, 1800, 3400, 4000, 5300, 6700, 8000, 8800, 9500, 11000. `crowd.json` 160 → changeset
+`a0a2e40f` (#1610), the 160 creates ticked (UI Automation), Apply → `Applied 160 element(s) from "MA2d crowd seed".`
+
+**Record before the first row:** `analyze_model_statistics` totalTypes 1702, door types 41, Walls 249 (89 + 160); Undo list top
+`Sentinel AI changeset: MA2d crowd seed [a0a2e40f]`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-1 one storey, one window | `File 4 changeset(s)?`; `GR-FFL: 184 retype · 180 attach · 22 wall(s) sent to a person · DD now 0/200`; `LOD state now … 7 of 246 at DD (2%) · 230 below · 9 blocked` (#1614); `DD properties: 2 type edit(s) from a cited source (never pre-ticked) · 6 with no source …` (GYPS_100 "30 min", 181 read; CMU_200 "60 min", 23 read); type gaps 5 groups, 8 elements. Filed `GR-FFL (1/2)` 200 (102 retype, 2 set_parameter, 96 attach) and `(2/2)` 170 (86 retype, 84 attach), `01-FFL` 40, `MA0 Roof` 1. ONE window `Sentinel — Review AI proposal: Promote (DD) · GR-FFL (2 changesets, one Undo)`: 406 rows = 370 + 36 sent to a person, 368 pre-ticked, the two type edits unticked; the row `type edit wall: BDS_INT_ARC_GYPS_100 mm · reaches 1 element(s) in the model now + 170 if this storey's retypes onto it are applied …` (170 = 88 + 82 across both parts, C11) — **pass**, with **F-MA2d-1** (the row's tooltip said "170 more that this changeset retypes onto it") | dialog and rows (UI Automation) |
+| A-1 the storey applied | Both type edits ticked; Apply → ONE DD IDS dialog: 4 failing — Doors 2069756/2069757 (no Fire Rating source) and W 2051449/2051450 (the 125 mm gap walls); **no crowd or outline wall** (F11 gone within the storey); Go back reads `storey "Promote (DD) · GR-FFL" (2 changesets) is rolled back`. Place anyway → ONE result `Applied 370 element(s) from "Promote (DD) · GR-FFL (2 changesets, one Undo)".` with ONE `LOD state after … 187 of 246 at DD (76%)`. Ledger: #1624 `changeset_applied` (1/2) 200 + `values` GYPS_100 = 30 min, CMU_200 = 60 min; #1625 (2/2) 170; #1626 `lod_state` naming both ids. 184 wall retypes, 0 not in the catalogue. totalTypes 1702 after — **zero types created** — **pass**, with **F-MA2d-2** (the dialog's heading said "This changeset leaves 4 element(s)") | dialogs, rows, MCP |
+| U-1 one Undo | Undo list before: top ONE `Sentinel AI changeset: Promote (DD) · GR-FFL [5a51f29e]` (UNSURE 1: the storey's name with the first part's id), the crowd's under it; one Undo → top is the crowd's. MCP GR-FFL: `MA0 Interior - 100mm` 170 (160 + 10 seed), `Generic - 200mm` 14; GYPS_100 Fire Rating empty (Type Properties); Doctor `Undo watcher: undo of changeset aa6d4f9c — changeset_reverted row posted (170 guid(s))` and `… 5a51f29e … (200 guid(s))`; #1627, #1628 — **pass** | Undo list, MCP, pane, rows |
+| S-1 all or nothing | Pending 01-FFL and MA0 Roof withdrawn (D2 of MA2c); Promote → Yes → the storey's window again (`54fef822` 200 + `c5b965ac` 170). W 2069927 picked (its retype and attach only in `(2/2)`, C12); deleted (Select by ID — see D2 below); the storey reopened by Review AI Proposals (`4 proposals pending — reviewing the oldest first (Promote (DD) · GR-FFL (2 changesets, one Undo)).`); type edits ticked; Apply → `Transaction failed and was rolled back: changeset "Promote (DD) · GR-FFL (2/2)": wall 3fe083f7-…-001f95a7 is not in this model — re-run Promote`, `Reported as declined: 2 of 2 changeset(s).`, C2's `This storey carried 2 type edit(s) (BDS_INT_ARC_GYPS_100 mm, BDS_EXT_ARC_CMU_200 mm). Other storeys of the same run that retype onto those types will fail the DD IDS check …`, and `Run Promote (DD) again to plan this storey anew: it first opens any other Promote storey still waiting for review, and plans again once none is waiting.` #1642, #1643 declined. MCP: `MA0 Interior` 169, `Generic - 200mm` 14 — nothing of `(1/2)` kept; GYPS_100 Fire Rating empty. Promote → opened `01-FFL` first; untick all ▸ Apply → `Declined 1 of 1 changeset(s) — nothing in the model changed.` + the Run line (C6); `MA0 Roof` the same; Promote → plans again → No — **pass** | dialogs, rows, MCP |
+| AST-1 plan-only | aster-tower local opened detached (worksets discarded; the local file unchanged): `Guideline: none — not installed for aster-tower or its office` / `No DD rule file is installed for "aster-tower" or its office — nothing to plan. Install one as guideline@n.` (C8: "not installed"); before and after: no proposed changeset, no `lod_state`, no `type_gap` row — **pass** | dialog, replies |
+| G2-A, G2-B | Measured — the table below | — |
+| R26-1 Revit 2026 | **owed**: the founder's OK named Revit 2024 only | — |
+| F-MA2d-1, F-MA2d-2 run again | cef26db deployed (20:14); fresh `ma2d-a.rvt`, the crowd again (`8c144a90`), Promote → Yes: the tooltip `… (1 in the model now, 170 more that this storey retypes onto it)`; Apply → `This storey "Promote (DD) · GR-FFL" (2 changesets) leaves 4 element(s) failing the DD IDS made from lod_matrix@1 …`; Place anyway → the result line and both notes (#1690, #1691) start `This storey "Promote (DD) · GR-FFL" (2 changesets) leaves 4 element(s)` — **pass** | dialogs, rows |
+
+**Gate G2's numbers** (F2, F3; the reviewer is the drill runner, Claude, as in G1; the window cannot change a row — said once):
+
+| Model · storey | Rows filed | Sent to a person | Unticked (reason) | DD properties to a person | LOD before → after | Window → result |
+|---|---|---|---|---|---|---|
+| A · MA-0 seed · GR-FFL | 46 (24 retype, 2 type edits, 20 attach) | 28 | 0 | 6 types (6 elements) | 10% → 36% | ~1 min |
+| A · MA-0 seed · 01-FFL | 38 (18 retype, 20 attach) | 2 (gap walls) | 0 | — | 36% → 62% | ~1 min |
+| B · crowded B35 · GR-FFL | 370 in 2 changesets | 36 | 0 | 6 types (9 elements) | 2% → 76% | ~7 min (most of it my UI Automation reads and a misclick) |
+| B · crowded B35 · 01-FFL | 40 (18 retype, 1 floor, 1 door, 20 attach) | 3 (2 gap walls, 1 structural floor) | 0 | — | 75% → 83% | ~1.5–2 min |
+
+G1's baseline on the MA-0 seed: 25 unticks on storey 1, about 2 min 20 s. Every row of both models was a catalogue type the rules name or
+an attach to the next story, so nothing was unticked; what a person must still do is the "sent to a person" column (gap types, walls
+whose base offset an attach would move, non-basic walls, structural floors) and the DD properties with no source. Revit's warnings were not
+counted. The G2 decision is the founder's (F4; recommended default: continue — MA-3, then MA-4).
+
+**Drill amendments:**
+- **D1** — the `.rvt` file association is Revit 2027's version selector: it hands the file to Revit 2024 but drops it, so 2024 opens on
+  its Home page. Open the scratch copies from Revit's Open dialog or Recent.
+- **D2** — Select by ID is greyed while the focus is in the Project Browser (not because of the modeless review window). S-1 closed the
+  window (nothing is reported; the storey stays proposed), clicked the view, selected and deleted the wall, and reopened the storey with
+  Review AI Proposals — the same test: a part's target missing at Apply.
+- **D3** — the drill driver's lesson: a pop-up of another application (McAfee's "Antivirus protection expired", Renew / Uninstall — the
+  founder's choice) dims the screen and takes every click; Revit's TaskDialog buttons offer no UI Automation Invoke, so the drill waits
+  for the founder to close it.
+
+**Found in the drill:** F-MA2d-1 and F-MA2d-2 (cef26db, minor, words; run again live — pass).
+
+**Notes:**
+- A rolled-back or undone Promote changeset keeps its status `applied` on the bridge with a `changeset_reverted` row (as since the
+  changesets' first build).
+- `analyze_model_statistics` counts 57 families before A-1 and 56 after (families in use after the door swaps); types 1702 both times.
+- Driving slips: a Place anyway click mis-scaled once; the first Undo attempt toggled the Undo list shut and hit the Precast tab;
+  Promote's dialog on the MA-0 seed was narrower, so the first Yes missed; the AST-1 notice and the Promote dialog were closed through UI
+  Automation where clicks did not land.
+
+**Owed** (not passed): R26-1 (Revit 2026) and a Revit 2027 row; a second account approving a batch (MA2 row 7); the signed-out actor;
+W-1 (the web Holding Area) and the Next strip; a window U-value; a real office matrix (LM-1); a real concept model for G2 (F2); the G2
+decision (F4); DAT-3, ANV-1, ANV-2 (MA-2e).
+
+**Closing list:** Revit closed without saving any scratch copy or the detached aster-tower copy; sign-in left as found (signed in); the
+test bridge stopped; the add-in's bridge settings restored (sha256 `366a193f4680…` = the backup's), the backup deleted;
+`%AppData%\Sentinel\cache\ma2d` and `ma2d-ma0` deleted. The branch build cef26db stays on Revit 2024 until the merge's deploy. Left on the
+test ledger (scratch keys, on purpose): `ma2d-office` #1598–#1606, `ma2d` #1599–#1692 (nine `lod_state`, five `type_gap` runs, the
+crowds, the storeys applied, undone, declined, withdrawn), `ma2d-ma0` #1600–#1674, `ma2d-26` #1601–#1609 (created, membership). Left on
+this PC: the scratch copies and the drill's files in `Documents\Sentinel drills\ma2d\` (evidence; never committed).

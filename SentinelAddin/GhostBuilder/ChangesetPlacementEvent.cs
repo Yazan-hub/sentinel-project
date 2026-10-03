@@ -21,20 +21,20 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
 {
     public event Action<ChangesetExecutor.ExecutionResult> Completed;
 
-    private ChangesetDto _cs;
+    private List<ChangesetDto> _batch; // MA-2d: one changeset, or a Promote storey's changesets (StoreyBatch) — applied as one Undo
     private HashSet<string> _ticked;
     private Document _doc;   // the model the review window was opened on (XC-1)
     private GuidelinePlacement _placement; // MA-1a item 6: the project's placement block, fetched by the caller; null = none
     private PromoteContext _promote;       // MA-2b: a Promote changeset's DD IDS, fetched by the caller; null = not Promote's
 
-    public void SetRequest(ChangesetDto cs, HashSet<string> ticked, Document doc, GuidelinePlacement placement = null, PromoteContext promote = null)
-    { _cs = cs; _ticked = ticked; _doc = doc; _placement = placement; _promote = promote; }
+    public void SetRequest(IReadOnlyList<ChangesetDto> batch, HashSet<string> ticked, Document doc, GuidelinePlacement placement = null, PromoteContext promote = null)
+    { _batch = batch?.ToList(); _ticked = ticked; _doc = doc; _placement = placement; _promote = promote; }
 
     public void Execute(UIApplication app)
     {
-        var cs = _cs; var ticked = _ticked; var doc = _doc; var placement = _placement; var promote = _promote;
-        _cs = null; _ticked = null; _doc = null; _placement = null; _promote = null;
-        if (cs == null || ticked == null || doc == null)
+        var batch = _batch; var ticked = _ticked; var doc = _doc; var placement = _placement; var promote = _promote;
+        _batch = null; _ticked = null; _doc = null; _placement = null; _promote = null;
+        if (batch == null || batch.Count == 0 || ticked == null || doc == null)
         {
             // A Raise without a staged request must still complete — a silent return would hang
             // any caller awaiting the callback.
@@ -51,7 +51,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
         {
             // MA-1a item 6: what the ticked creates need from the model — the worksets the block names (a missing one is
             // refused here, before any transaction: the changeset stays proposed) and the active view's phase.
-            var kinds = (cs.Elements ?? new List<ChangesetElementDto>())
+            var kinds = batch.SelectMany(cs => cs.Elements ?? new List<ChangesetElementDto>())
                 .Where(e => ticked.Contains(e.ProposalGuid) && (e.Op is null or "create")).Select(e => e.Kind).ToList();
             PlacementPlan plan = null;
             if (kinds.Count > 0)
@@ -65,16 +65,11 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             }
             var before = BlockCheck.Before(doc, out var note);
             // MA-2b (design §3.4 step 5): a Promote changeset with a DD IDS runs in the checked group too, so the person can go back.
-            if (before == null && promote?.Ids == null)
-            {
-                result = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
-                result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
-            }
-            else
-            {
-                result = RunChecked(doc, cs, ticked, before, plan, promote?.Ids);
-                if (before == null && !result.NotRun) result.Block = note;
-            }
+            // MA-2d (design §3.4 step 8; review C10): every changeset — one alone or a Promote storey's several — runs in the checked
+            // group: one Undo, all or nothing. The executor bare left two Undo entries for a create with a Rotation (TurnToBlocks is a
+            // second transaction; its comment says every caller runs the executor inside a group — now true).
+            result = RunChecked(doc, batch, ticked, before, plan, promote?.Ids);
+            if (before == null && !result.NotRun) result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
             // A Promote changeset whose DD IDS could not be read is placed as before, and the result says it was not checked.
             if (promote != null && promote.Ids == null && !result.NotRun) result.Ids = "DD IDS: not checked — " + promote.IdsWhy;
             // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing. Counted
@@ -113,22 +108,39 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
         new ChangesetExecutor.ExecutionResult { NotRun = true, Error = $"The changeset was not placed — {ex.GetType().Name}: {ex.Message}" };
 
     /// MA-2b: <paramref name="before"/> is null when no BLOCK rule can fire, <paramref name="ids"/> when the changeset is not Promote's
-    /// (or its DD IDS was not read); the group runs when either check does.
-    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, ChangesetDto cs, HashSet<string> ticked, ScanReport before, PlacementPlan plan, StageIds ids = null)
+    /// (or its DD IDS was not read); MA-2d (review C10): the group runs for every changeset, checked or not.
+    /// MA-2d (design §3.4 step 8, spec amendment S1): every changeset of <paramref name="batch"/> runs through the executor in order
+    /// inside ONE group (GhostChangesetBuild's pattern) named StoreyBatch.UndoName; the DD IDS then judges what the whole storey applied
+    /// — so a type edit in the first changeset is seen by the retypes onto its type in a later one (MA-2c F11, within the storey;
+    /// across storeys its ceiling stays — review C2) — the BLOCK check runs
+    /// once, and the group is kept: one Undo entry. Any changeset that fails rolls the whole storey back (S4).
+    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, IReadOnlyList<ChangesetDto> batch, HashSet<string> ticked, ScanReport before, PlacementPlan plan, StageIds ids = null)
     {
-        using var group = new TransactionGroup(doc, UndoWatcher.TxName(cs.Name, cs.Id));
+        var what = batch.Count == 1 ? $"changeset \"{batch[0].Name}\"" : $"storey \"{StoreyBatch.StoreyOf(batch[0].Name)}\" ({batch.Count} changesets)";
+        using var group = new TransactionGroup(doc, StoreyBatch.UndoName(batch));
         try
         {
             group.Start();
             // F-S2-1: a group forces modal failure handling on its inner transactions unless told not to.
             group.IsFailureHandlingForcedModal = false;
-            var result = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
-            if (result.Error != null || result.NotFinished != null)
+            var result = new ChangesetExecutor.ExecutionResult();
+            foreach (var cs in batch)
             {
-                // ponytail: a Pending commit (NotFinished) is disposed with the group, as Ghost's build does; the executor's
-                // all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
-                if (result.NotFinished == null) SentinelUndo.RollBack(group, doc);
-                return result;
+                var res = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
+                if (res.Error != null || res.NotFinished != null)
+                {
+                    // ponytail: a Pending commit (NotFinished) is disposed with the group, as Ghost's build does; the executor's
+                    // all-or-nothing preprocessor answers every error, so Revit should never leave one pending.
+                    if (res.NotFinished == null) SentinelUndo.RollBack(group, doc);
+                    // The storey is all or nothing: the error names the changeset that failed when there are several.
+                    if (res.Error != null && batch.Count > 1) res.Error = $"changeset \"{cs.Name}\": {res.Error}";
+                    return res;
+                }
+                result.Each.Add((cs, res));
+                result.Applied.AddRange(res.Applied);
+                result.Gone.AddRange(res.Gone);
+                result.Turned.AddRange(res.Turned);
+                foreach (var kv in res.Warnings) result.Warnings[kv.Key] = (result.Warnings.TryGetValue(kv.Key, out var seen) ? seen : 0) + kv.Value;
             }
             // MA-2b (design §3.4 step 5): the DD IDS made from the matrix, judged on what this changeset applied — before the BLOCK
             // check and before the group is kept. Going back rolls everything back; the changeset stays proposed.
@@ -137,19 +149,19 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             {
                 // MA-2c: a set_parameter's applied entry is a TYPE — the IDS judges the elements, so it is left out (its value is
                 // judged on the elements this changeset retyped onto the type).
-                var kindOf = (cs.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
+                var kindOf = batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
                 var (fails, notRead, notJudged, judged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
-                if (fails.Count > 0 && !PromoteContext.PlaceAnyway(fails, ids.Matrix, $"changeset \"{cs.Name}\""))
+                if (fails.Count > 0 && !PromoteContext.PlaceAnyway(fails, ids.Matrix, what))
                 {
                     SentinelUndo.RollBack(group, doc);
                     return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = StageIds.WentBack(fails.Count, ids.Matrix) };
                 }
                 // Passed only when nothing failed, nothing was unreadable and nothing was left out (review C2) — and said with how
                 // many were judged, never of none (third review).
-                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix);
+                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? "This " + what : null);
             }
             var added = before == null ? new List<Violation>() : BlockCheck.AddedSince(doc, before);
-            if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, $"changeset \"{cs.Name}\"", before.RulesetRef))
+            if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, what, before.RulesetRef))
             {
                 SentinelUndo.RollBack(group, doc);
                 return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = BlockCheck.WentBack(added) };
@@ -157,7 +169,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // The line first: nothing may throw once the group is kept (the catch below says "not placed").
             var block = added.Count > 0 ? BlockCheck.PlacedAnyway(added, doc.IsWorkshared) : null;
             if (group.Assimilate() != TransactionStatus.Committed)
-                return new ChangesetExecutor.ExecutionResult { Error = $"Revit did not keep the changeset's Undo group (status {group.GetStatus()})" };
+                return new ChangesetExecutor.ExecutionResult { Error = $"Revit did not keep the {(batch.Count == 1 ? "changeset's" : "storey's")} Undo group (status {group.GetStatus()})" };
             result.Block = block;
             result.Ids = idsLine;
             return result;

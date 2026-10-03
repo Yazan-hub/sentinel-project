@@ -53,8 +53,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             return Result.Failed;
         }
         var unreviewed = pending.FirstOrDefault(p => p.Source == "promote");
-        if (unreviewed != null)
-            return ReviewChangesetsCommand.Open(c, doc, cfg, key, unreviewed) ? Result.Succeeded : Result.Cancelled;
+        if (unreviewed != null) // MA-2d: with the rest of its storey (StoreyBatch)
+            return ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(pending, unreviewed)) ? Result.Succeeded : Result.Cancelled;
 
         // The standards, the LOD matrix and (MA-2b) its DD stage IDS, off the API thread (the Annotate pattern) — PromoteContext, which
         // the review's check before commit reads too — then the facts (on it).
@@ -179,17 +179,19 @@ public sealed class PromoteWallsCommand : IExternalCommand
 
         ChangesetDto first = null;
         var filedIds = new List<string>(); // MA-1a item 8: the changesets this run filed, for its receipt
+        var filed = new List<ChangesetDto>(); // MA-2d: the first storey's changesets are opened together
         // Review amendments C4 and C24: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the op)
         // never costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception that
         // says why — and the held rows of a body not filed ride on the next one filed (FileAll).
         var run = PropertyPlanner.FileAll(bodies, (body, retry) =>
         {
             string err = null;
-            // Review C22: a network call this plan adds runs off the API thread (Revit still waits, as for PromoteContext.Fetch).
-            var cs = retry ? Task.Run(() => ChangesetClient.Propose(cfg, key, body, out err)).GetAwaiter().GetResult()
-                           : ChangesetClient.Propose(cfg, key, body, out err);
+            // Review C22, MA-2d: ChangesetClient sends every request off the API thread (Send) — the first attempt and the retry alike;
+            // Revit still waits for the answer, as for PromoteContext.Fetch.
+            var cs = ChangesetClient.Propose(cfg, key, body, out err);
             if (cs == null) return err ?? "not filed";
             first ??= cs;
+            filed.Add(cs);
             filedIds.Add(cs.Id);
             return null;
         });
@@ -211,7 +213,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                                    (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no changeset — they are listed only in Promote's dialog\n" : "") +
                                    (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)) : ""));
         if (first == null) return Result.Failed;
-        return ReviewChangesetsCommand.Open(c, doc, cfg, key, first) ? Result.Succeeded : Result.Cancelled;
+        return ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(filed, first)) ? Result.Succeeded : Result.Cancelled;
     }
 
     /// <summary>The facts Promote plans from, read on the API thread for the classes that run: the walls (read for doors too: a door's
