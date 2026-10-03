@@ -121,17 +121,20 @@ namespace Sentinel.GhostBuilder
                 var extra = v.Tokens.Keys.FirstOrDefault(k => !rule.Tokens.Contains(k));
                 if (extra != null) return $"'{v.Use}' gives {extra}, which {rule.Id} does not have (its tokens: {string.Join(", ", rule.Tokens)})";
                 var parts = new List<string>();
+                string tokenRefusal = null;
                 foreach (var t in rule.Tokens)
                 {
                     if (!v.Tokens.TryGetValue(t, out var raw) || string.IsNullOrWhiteSpace(raw))
                         return $"'{v.Use}' gives no {t} — {rule.Id} needs it; add it to the entry's tokens";
                     string value = raw.Replace(LevelToken, level);
-                    if (rule.TokenDefs.TryGetValue(t, out var def) && !Accepts(def, org, value))
-                        return $"{t} '{value}' does not pass {def} ({rule.Id})"
+                    if (tokenRefusal == null && rule.TokenDefs.TryGetValue(t, out var def) && !Accepts(def, org, value))
+                        tokenRefusal = $"{t} '{value}' does not pass {def} ({rule.Id})"
                              + (raw.Contains(LevelToken) ? $" — the level's name is used as it is: rename the level, or give the entry another {t}" : "");
                     parts.Add(value);
                 }
                 name = string.Join(rule.Separator, parts);
+                // Review C14: Scan Now passes a name its rule excludes or whitelists before it reads a token, so the planner does too.
+                if (tokenRefusal != null && !Admits(rule, name)) { name = null; return tokenRefusal; }
             }
             else name = "WIP_" + v.NamePrefix + "_" + Regex.Replace(level.Trim().ToUpperInvariant(), @"\s+", "-");
 
@@ -155,11 +158,14 @@ namespace Sentinel.GhostBuilder
         private static bool Passes(Rule r, string org, string name, out string error)
         {
             error = null;
-            if ((r.Exclusions ?? new List<string>()).Any(x => Regex.IsMatch(name, x))) return true;
-            if (r.Whitelist != null && r.Whitelist.Contains(name)) return true;
+            if (Admits(r, name)) return true;
             if (r.Tokens.Count == 0) return false;
             return RuleRegex.Matches(r, org, name, out error);
         }
+
+        // An excluded or whitelisted name: Scan Now passes it whatever its tokens (RuleEngineHost.CheckName).
+        private static bool Admits(Rule r, string name) =>
+            (r.Exclusions ?? new List<string>()).Any(x => Regex.IsMatch(name, x)) || (r.Whitelist != null && r.Whitelist.Contains(name));
 
         // The View rules Scan Now judges a name by: with tokens, or with a whitelist (review C5); lists never null below.
         private static List<Rule> ViewRules(Ruleset ruleset) =>

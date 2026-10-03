@@ -144,6 +144,12 @@ Check("C5: a rule that needs the office code, with ruleset.org empty, refuses in
 var extraTok = new List<GuidelineViewStandard> { new() { Use = "GA Plan", ViewType = "FloorPlan", Tokens = new() { ["DISCIPLINE"] = "ARC", ["DISC"] = "ARC", ["LEVEL"] = "{level}", ["TYPE"] = "PLAN", ["DESC"] = "GA" } } };
 Check("C11: a token the View rule does not have is refused by name, never dropped in silence",
     ViewPlanner.Plan(extraTok, naming, l01, astRules, null)[0].Refusal == "'GA Plan' gives DISCIPLINE, which VN-01 does not have (its tokens: DISC, LEVEL, TYPE, DESC)");
+var wlTok = new Ruleset { Rules = { new Rule { Id = "VN-WT", Target = RuleTarget.View, Tokens = { "DISC", "LEVEL" }, TokenDefs = { ["LEVEL"] = @"L\d{2}" }, Whitelist = { "ARC_Level 1" } } } };
+var discLevel = new List<GuidelineViewStandard> { new() { Use = "GA Plan", ViewType = "FloorPlan", Tokens = new() { ["DISC"] = "ARC", ["LEVEL"] = "{level}" } } };
+var wt = ViewPlanner.Plan(discLevel, naming, new List<(string, bool)> { ("Level 1", true), ("Level 2", true) }, wlTok, null);
+Check("C14: a whitelisted name whose token value fails its definition is creatable, as Scan Now passes it; an unlisted one keeps the token's words",
+    wt[0].Name == "ARC_Level 1" && wt[0].Refusal == null && wt[0].PreTicked
+    && wt[1].Refusal == @"LEVEL 'Level 2' does not pass L\d{2} (VN-WT) — the level's name is used as it is: rename the level, or give the entry another LEVEL");
 
 // ── MA-2e (DAT-3, F3 A, F7): the pin rows, the read-back and the B31 words ──
 var pinRows = ViewPlanner.Pins(new[]
