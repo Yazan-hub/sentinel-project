@@ -111,39 +111,50 @@ export const KIND_ENTITY = { wall: "IFCWALL", floor: "IFCSLAB", roof: "IFCROOF",
 /** Review amendment C1: the property set a set_parameter of each kind writes — the class's own common set. The catalogue's "Fire
  *  Rating" of a wall is no door's: a key of another class's set is refused (checkWrite). */
 export const KIND_PSET = { wall: "Pset_WallCommon", floor: "Pset_SlabCommon", roof: "Pset_RoofCommon", ceiling: "Pset_CoveringCommon", door: "Pset_DoorCommon", window: "Pset_WindowCommon" };
-/** Review amendment C23: the one shape a cited clause value has — ONE rating token (a class code of 1-4 letters, a space or hyphen
- *  or nothing, 1-4 digits, up to 2 letters: FD30, FD30S, REI 60, EI-30) or ONE number with an optional time unit (60, 60 min,
- *  120 minutes, 2 hr, 1 hour). An allow-list: a bound, a choice or a qualifier in any words ("above FD30", "FD30 or FD60", "min",
- *  "FD30 in escape corridors") is not this shape, so it goes to a person — a list of bound phrases (C18) could never be complete.
- *  A code that is a word of a bound ("min 60", "over 60") is not a code. ASCII only (checked apart: notAValue). The add-in's
- *  Clauses.OneValue is the same pattern. */
-export const ONE_VALUE = /^(?:(?!(?:over|not|mins?|max|up|upto|to|or|and|than|less|more|from|at|no|ca|lt|gt|le|ge|lte|gte)[ -]?[0-9])[a-z]{1,4}[ -]?[0-9]{1,4}[a-z]{0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?: ?(?:mins?|minutes?|h|hrs?|hours?))?)(?![\s\S])/i;
-/** Review C23: what may follow the value in its sentence — a closing quote and a full stop, nothing else ("… shall be FD30 in
- *  escape corridors." narrows the class after the value). The add-in's Clauses.SentenceEnd is the same pattern. */
-export const SENTENCE_END = /^["”'’]?[.!]?(?![\s\S])/;
-/** Review amendments C7 (S8) and C18: a clause whose sentence says one of these sets a bound, not a value ("shall be at least 60
- *  minutes": compileIds writes the number alone) — never written. The add-in's Clauses.BoundWords is the same pattern. */
-export const BOUND_WORDS = /\b(at least|at most|minimum|maximum|(less|more|lower|higher|greater|fewer) than|or (more|better|higher|greater|above|over|less|lower|below|under|worse)|and (above|over|below|under)|up to|exceed\w*)\b|>=|<=|≥|≤/i;
-/** Review C18: compileIds maps "external walls" or "fire doors" to the entity alone, so the applicability says "every wall" where
- *  the sentence says some. A clause with a sentence is cited only when the sentence names the class with no word that narrows it
- *  ("All doors shall …", "The fire rating of doors shall …"); one phrased any other way sends the property to a person. The
- *  add-in's Clauses.WholeClass is the same pattern. */
-export const WHOLE_CLASS = /(^\s*|\b(all|every|each|the|of|for)\s+)(walls?|doors?|windows?|floors?|slabs?|roofs?|ceilings?|coverings?)\s+(shall|must|should|will|are|is|have|has|carry|carries|need|needs|require|requires)\b/i;
-/** Why a clause is not a cited value, in the planner's words (null = it is one): the value is not ONE value (C23); its sentence
- *  sets a bound (C7), does not state the value, goes on after it (C23), or does not name the whole class (C18). A hand-written
- *  IDS has no sentence: the value's shape alone. The add-in's Clauses.NotAValue answers every value_cases row the same. */
-export function notAValue(sentence, value) {
-  const v = String(value ?? "").replace(/^[ \t\r\n]+|[ \t\r\n]+(?![\s\S])/g, "");
+/** Review amendment C23: the one shape a cited clause value has, an allow-list (a list of bound phrases, C18, could never be
+ *  complete). ONE rating token: a classification code from the list (EN 13501-2 R, E, EI, EI1, EI2, EW, RE, REI, REW and their -M;
+ *  BS 476 FD; DIN T and F; Rw), a space or hyphen or nothing, 1-3 digits, then up to two classification suffixes (S, Sa, Sm, S200,
+ *  C, C0-C5, M: FD30S, FD 30 S, EI 60-C5, EI30-C5Sa, REI 120-M) — FD30, REI 60, EI-30, EI2 30, REI-M 90. Or ONE number with an
+ *  optional time unit, hyphenated or not (60, 60 min, 120 minutes, 2 hr, 1-hour, 90-minute), a whole and a fraction of hours
+ *  (1 1/2 hr), or an AS 1530.4 FRL (60/60/60, -/60/60). Anything else — "above FD30", "NLT 60", "c 60", "FD30 or FD60", "min" — is
+ *  not this shape and goes to a person. ASCII only (checked apart: notAValue). The add-in's Clauses.OneValue is the same pattern. */
+export const ONE_VALUE = /^(?:(?:FD|T|F|Rw|R|R?EI?[12]?W?(?:-M)?)[ -]?[0-9]{1,3}(?:[ -]?(?:S(?:a|m|200)?|C[0-5]?|M)){0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?:[ -]?(?:mins?|minutes?|h|hrs?|hours?))?|[0-9]{1,2}[ -][13]\/[24] ?(?:h|hrs?|hours?)|(?:[0-9]{2,3}|-)\/(?:[0-9]{2,3}|-)\/(?:[0-9]{2,3}|-))(?![\s\S])/i;
+/** Review C23: the noun each IFC entity is named by in a whole-class sentence — "All doors shall be FD30." states a value of
+ *  every IFCDOOR, "All windows shall be FD30." states none. The add-in's Clauses.ClassNoun is the same table. */
+export const CLASS_NOUN = { IFCWALL: ["walls"], IFCDOOR: ["doors"], IFCWINDOW: ["windows"], IFCSLAB: ["slabs", "floors"], IFCROOF: ["roofs"], IFCCOVERING: ["ceilings", "coverings"] };
+const ASCII_TRIM = /^[ \t\r\n]+|[ \t\r\n]+(?![\s\S])/g;
+/** "Pset_DoorCommon.FireRating" → "fire rating": the property as a sentence names it. */
+const propWords = (key) => (String(key ?? "").split(".")[1] ?? "").replace(/[^A-Za-z0-9]/g, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+/** Review C23 (final): the one wording a clause with a sentence is cited in, an allow-list on the whole sentence — "[The <property>
+ *  of] [all|every|each|the] <the entity's noun> shall|must be <value>[.|!]", the value optionally quoted, ASCII, words apart by
+ *  spaces. Nothing may stand before the class (a place, a condition, an exception, "some of"), between "be" and the value (a bound,
+ *  a negation, a qualifier) or after it (a choice, a narrowing); the noun is the clause's own entity's. Group 2 = the value as the
+ *  sentence states it; null = an entity with no noun. The add-in's Clauses.Worded builds the same pattern. */
+export function wordedAs(entity, key) {
+  const nouns = CLASS_NOUN[entity];
+  if (!nouns) return null;
+  const prop = propWords(key);
+  const noun = nouns.map((w) => w.slice(0, -1) + "s?").join("|");
+  return new RegExp("^(?:the +" + (prop ? prop.replace(/ /g, " +") : "(?!)") + " +of +)?(?:(?:all|every|each|the) +)?(?:" + noun
+    + ") +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])", "i");
+}
+/** Why a clause is not a cited value, in the planner's words (null = it is one): the value is not ONE value (C23), or its sentence
+ *  is not worded as every `entity` carrying exactly this value of `key` (wordedAs). A hand-written IDS has no sentence: the value's
+ *  shape alone. The add-in's Clauses.NotAValue answers every value_cases row the same. */
+export function notAValue(sentence, value, entity, key) {
+  const v = String(value ?? "").replace(ASCII_TRIM, "");
   if (/[^ -~]/.test(v) || !ONE_VALUE.test(v)) return `"${v}" is not one value (a bound, a choice or a qualifier) — a person decides`;
   if (sentence == null) return null;
-  if (BOUND_WORDS.test(sentence)) return "it sets a bound — a person decides";
-  const at = sentence.indexOf(v);
-  if (at < 0) return `it does not state "${v}" — a person decides`;
-  const tail = sentence.slice(at + v.length);
-  if (!SENTENCE_END.test(tail)) return `it narrows the class after the value ("${tail.replace(/^ +|[ .!]+(?![\s\S])/g, "")}") — a person decides`;
-  if (!WHOLE_CLASS.test(sentence)) return "it does not name the whole class — a person decides";
-  return null;
+  const m = /[^ -~]/.test(sentence) ? null : wordedAs(entity, key)?.exec(sentence);
+  if (m) return m[2] === v ? null : `it states "${m[2]}", not "${v}" — a person decides`;
+  const prop = propWords(key);
+  return `it is not worded "${prop ? `the ${prop} of ` : ""}all ${CLASS_NOUN[entity]?.[0] ?? entity} shall be ${v}." — a person decides`;
 }
+
+/** Review C23: an applicability entity is a regex both the bridge (JS) and the add-in (.NET) read — and they read alike only
+ *  names, groups, alternation and anchors ("IFCDOOR", "^IFC(ROOF|SLAB)$"). "(?i)ifcdoor", "\AIFCDOOR" or "IFC[^]*" mean
+ *  different things in each, so they apply to nothing on both sides. The add-in's Clauses.EntityPattern is the same. */
+export const ENTITY_PATTERN = /^[A-Za-z0-9_|()^$]+$/;
 
 /** Every required exact-value clause on `key` ("Pset_X.Prop") whose applicability is `entity` alone, in the IDS's order:
  *  [{value, spec, sentence, why}] — why null = a cited value (notAValue). */
@@ -153,13 +164,14 @@ function clauseReadings(ids, entity, key) {
   for (const s of Array.isArray(ids?.specifications) ? ids.specifications : []) {
     const a = s?.applicability;
     if (!a || typeof a !== "object" || typeof a.entity !== "string" || Object.keys(a).some((k) => k !== "entity")) continue;
+    if (!ENTITY_PATTERN.test(a.entity)) continue; // C23: a pattern outside what JS and .NET read alike applies to nothing
     let re;
     try { re = new RegExp(a.entity, "i"); } catch { continue; }
     if (!re.test(entity)) continue;
     for (const p of Array.isArray(s.requirements?.properties) ? s.requirements.properties : [])
-      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.trim()) {
+      if (p?.pset === pset && p?.name === prop && p.cardinality === "required" && p.pattern == null && typeof p.value === "string" && p.value.replace(ASCII_TRIM, "")) {
         const sentence = typeof s.source_sentence === "string" ? s.source_sentence : null;
-        out.push({ value: p.value.trim(), spec: String(s.name ?? ""), sentence, why: notAValue(sentence, p.value) });
+        out.push({ value: p.value.replace(ASCII_TRIM, ""), spec: String(s.name ?? ""), sentence, why: notAValue(sentence, p.value, entity, key) });
       }
   }
   return out;

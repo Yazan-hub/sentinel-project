@@ -37,38 +37,62 @@ namespace Sentinel.GhostBuilder
     /// value). The bridge's clauseValues reads them the same way.</summary>
     public sealed class Clauses
     {
-        /// <summary>Review amendment C23: the one shape a cited value has — ONE rating token (FD30, FD30S, REI 60, EI-30) or ONE number
-        /// with an optional time unit (60, 60 min, 120 minutes, 2 hr). An allow-list: a bound, a choice or a qualifier in any words is
-        /// not this shape. ASCII only (checked apart: NotAValue). The bridge's ONE_VALUE is the same pattern.</summary>
-        public static readonly Regex OneValue = new Regex(@"^(?:(?!(?:over|not|mins?|max|up|upto|to|or|and|than|less|more|from|at|no|ca|lt|gt|le|ge|lte|gte)[ -]?[0-9])[a-z]{1,4}[ -]?[0-9]{1,4}[a-z]{0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?: ?(?:mins?|minutes?|h|hrs?|hours?))?)(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        /// <summary>Review C23: what may follow the value in its sentence — a closing quote and a full stop. The bridge's SENTENCE_END.</summary>
-        public static readonly Regex SentenceEnd = new Regex("^[\"”'’]?[.!]?(?![\\s\\S])");
-        /// <summary>Review amendments C7 (S8) and C18: a clause whose sentence says one of these sets a bound, not a value ("shall be at
-        /// least 60 minutes"): never written. The bridge's BOUND_WORDS is the same pattern.</summary>
-        public static readonly Regex BoundWords = new Regex(@"\b(at least|at most|minimum|maximum|(less|more|lower|higher|greater|fewer) than|or (more|better|higher|greater|above|over|less|lower|below|under|worse)|and (above|over|below|under)|up to|exceed\w*)\b|>=|<=|≥|≤", RegexOptions.IgnoreCase);
-        /// <summary>Review C18: a clause with a sentence is cited only when the sentence names the class with no word that narrows it
-        /// ("All doors shall …", "The fire rating of doors shall …") — compileIds maps "external walls" to the entity alone. The
-        /// bridge's WHOLE_CLASS is the same pattern.</summary>
-        public static readonly Regex WholeClass = new Regex(@"(^\s*|\b(all|every|each|the|of|for)\s+)(walls?|doors?|windows?|floors?|slabs?|roofs?|ceilings?|coverings?)\s+(shall|must|should|will|are|is|have|has|carry|carries|need|needs|require|requires)\b", RegexOptions.IgnoreCase);
-
-        /// <summary>Why a clause is not a cited value, in the planner's words (null = it is one) — the bridge's notAValue, held to it by
-        /// the shared value_cases: the value is not ONE value (C23); its sentence sets a bound (C7), does not state the value, goes on
-        /// after it (C23), or does not name the whole class (C18). A hand-written IDS has no sentence: the value's shape alone.</summary>
-        public static string NotAValue(string sentence, string value)
+        /// <summary>Review amendment C23: the one shape a cited value has, an allow-list — ONE rating token (a classification code
+        /// from the list: R, E, EI, EI1, EI2, EW, RE, REI, REW and their -M, FD, T, F, Rw; then 1-3 digits and up to two suffixes S,
+        /// Sa, Sm, S200, C, C0-C5, M: FD30S, FD 30 S, EI 60-C5, REI-M 90), ONE number with an optional time unit, hyphenated or not
+        /// (60, 60 min, 1-hour, 90-minute), a whole and a fraction of hours (1 1/2 hr) or an FRL (60/60/60). "NLT 60", "c 60",
+        /// "above FD30" are not this shape. ASCII only (checked apart: NotAValue). The bridge's ONE_VALUE is the same pattern.</summary>
+        public static readonly Regex OneValue = new Regex(@"^(?:(?:FD|T|F|Rw|R|R?EI?[12]?W?(?:-M)?)[ -]?[0-9]{1,3}(?:[ -]?(?:S(?:a|m|200)?|C[0-5]?|M)){0,2}|[0-9]{1,4}(?:\.[0-9]{1,2})?(?:[ -]?(?:mins?|minutes?|h|hrs?|hours?))?|[0-9]{1,2}[ -][13]/[24] ?(?:h|hrs?|hours?)|(?:[0-9]{2,3}|-)/(?:[0-9]{2,3}|-)/(?:[0-9]{2,3}|-))(?![\s\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        /// <summary>Review C23: the noun a whole-class sentence names each entity by ("All doors shall be FD30." is every IFCDOOR's,
+        /// "All windows shall be FD30." none of it). The bridge's CLASS_NOUN.</summary>
+        public static readonly Dictionary<string, string[]> ClassNoun = new Dictionary<string, string[]>
         {
-            var v = (value ?? "").Trim(' ', '\t', '\r', '\n');
-            if (v.Any(ch => ch < ' ' || ch > '~') || !OneValue.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
-            if (sentence == null) return null;
-            if (BoundWords.IsMatch(sentence)) return "it sets a bound — a person decides";
-            int at = sentence.IndexOf(v, StringComparison.Ordinal);
-            if (at < 0) return $"it does not state \"{v}\" — a person decides";
-            var tail = sentence.Substring(at + v.Length);
-            var said = Regex.Replace(tail, @"^ +|[ .!]+(?![\s\S])", "");
-            if (!SentenceEnd.IsMatch(tail)) return $"it narrows the class after the value (\"{said}\") — a person decides";
-            return WholeClass.IsMatch(sentence) ? null : "it does not name the whole class — a person decides";
+            ["IFCWALL"] = new[] { "walls" }, ["IFCDOOR"] = new[] { "doors" }, ["IFCWINDOW"] = new[] { "windows" },
+            ["IFCSLAB"] = new[] { "slabs", "floors" }, ["IFCROOF"] = new[] { "roofs" }, ["IFCCOVERING"] = new[] { "ceilings", "coverings" },
+        };
+        /// <summary>Review C23: an applicability entity pattern both dialects read alike — names, groups, alternation, anchors. "(?i)",
+        /// "\A", "\p{L}", "[^]" mean different things in .NET and JS: such a clause applies to nothing on both sides. The bridge's
+        /// ENTITY_PATTERN.</summary>
+        public static readonly Regex EntityPattern = new Regex(@"^[A-Za-z0-9_|()^$]+(?![\s\S])");
+
+        private static string PropWords(string key)
+        {
+            int dot = (key ?? "").IndexOf('.');
+            var prop = dot < 0 ? "" : Regex.Replace(key.Substring(dot + 1), "[^A-Za-z0-9]", "");
+            return Regex.Replace(prop, "([a-z0-9])([A-Z])", "$1 $2").ToLowerInvariant();
         }
 
-        private sealed class Row { public string Entity, Pset, Prop, Value, Spec, Sentence, Skip; public bool Unreadable; }
+        /// <summary>Review C23 (final): the one wording a clause with a sentence is cited in — "[The &lt;property&gt; of]
+        /// [all|every|each|the] &lt;the entity's noun&gt; shall|must be &lt;value&gt;[.|!]", the value optionally quoted. Nothing before
+        /// the class, between "be" and the value, or after it. Group 2 = the value as stated; null = an entity with no noun. The
+        /// bridge's wordedAs builds the same pattern.</summary>
+        public static Regex Worded(string entity, string key)
+        {
+            if (entity == null || !ClassNoun.TryGetValue(entity, out var nouns)) return null;
+            var prop = PropWords(key);
+            var noun = string.Join("|", nouns.Select(w => w.Substring(0, w.Length - 1) + "s?"));
+            return new Regex("^(?:the +" + (prop.Length > 0 ? prop.Replace(" ", " +") : "(?!)") + " +of +)?(?:(?:all|every|each|the) +)?(?:" + noun
+                             + ") +(?:shall|must) +be +([\"']?)(.+?)\\1[.!]?(?![\\s\\S])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        private static bool Ascii(string s) => s.All(ch => ch >= ' ' && ch <= '~');
+
+        /// <summary>Why a clause is not a cited value, in the planner's words (null = it is one) — the bridge's notAValue, held to it
+        /// by the shared value_cases: the value is not ONE value (C23), or the sentence is not worded as every <paramref name="entity"/>
+        /// carrying exactly this value of <paramref name="key"/> (Worded). A hand-written IDS has no sentence: the value's shape alone.</summary>
+        public static string NotAValue(string sentence, string value, string entity, string key)
+        {
+            var v = (value ?? "").Trim(' ', '\t', '\r', '\n');
+            if (!Ascii(v) || !OneValue.IsMatch(v)) return $"\"{v}\" is not one value (a bound, a choice or a qualifier) — a person decides";
+            if (sentence == null) return null;
+            var m = Ascii(sentence) ? Worded(entity, key)?.Match(sentence) : null;
+            if (m != null && m.Success) return m.Groups[2].Value == v ? null : $"it states \"{m.Groups[2].Value}\", not \"{v}\" — a person decides";
+            var prop = PropWords(key);
+            var noun = entity != null && ClassNoun.TryGetValue(entity, out var nouns) ? nouns[0] : entity;
+            return $"it is not worded \"{(prop.Length > 0 ? $"the {prop} of " : "")}all {noun} shall be {v}.\" — a person decides";
+        }
+
+        private sealed class Row { public string Entity, Pset, Prop, Raw, Value, Spec, Sentence; public bool Unreadable; }
         private readonly List<Row> _rows = new List<Row>();
         /// <summary>The ids@n's label ("ids@1 · project · 0a1b2c3d4e5f…"), or why there is none.</summary>
         public string Label;
@@ -97,11 +121,12 @@ namespace Sentinel.GhostBuilder
                         {
                             if (p.ValueKind != JsonValueKind.Object || Str(p, "cardinality") != "required") continue;
                             if (p.TryGetProperty("pattern", out var pt) && pt.ValueKind != JsonValueKind.Null) continue;
-                            var value = Str(p, "value")?.Trim();
+                            // C23: trimmed of ASCII blanks only, as the bridge — .Trim() took a no-break space off and cited what the bridge refuses
+                            var raw = Str(p, "value");
+                            var value = raw?.Trim(' ', '\t', '\r', '\n');
                             if (string.IsNullOrEmpty(value) || Str(p, "pset") == null || Str(p, "name") == null) continue;
-                            var sentence = Str(s, "source_sentence");
-                            c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Value = value, Spec = Str(s, "name") ?? "", Sentence = sentence,
-                                                  Skip = NotAValue(sentence, value), Unreadable = !Readable(entity) });
+                            c._rows.Add(new Row { Entity = entity, Pset = Str(p, "pset"), Prop = Str(p, "name"), Raw = raw, Value = value, Spec = Str(s, "name") ?? "",
+                                                  Sentence = Str(s, "source_sentence"), Unreadable = !Readable(entity) });
                         }
                     }
                 }
@@ -124,12 +149,12 @@ namespace Sentinel.GhostBuilder
             int dot = (key ?? "").IndexOf('.');
             string pset = dot < 0 ? key : key.Substring(0, dot), prop = dot < 0 ? "" : key.Substring(dot + 1);
             var hits = new List<(string Value, string Spec, string Sentence, string Why)>();
-            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop && (x.Skip != null) == skipped))
+            foreach (var r in _rows.Where(x => x.Pset == pset && x.Prop == prop && !x.Unreadable))
             {
-                bool match;
-                try { match = Regex.IsMatch(entity ?? "", r.Entity, RegexOptions.IgnoreCase); }
-                catch (ArgumentException) { match = false; } // a pattern .NET cannot read applies to nothing (the bridge skips it too)
-                if (match) hits.Add((r.Value, r.Spec, r.Sentence, r.Skip));
+                // a pattern outside EntityPattern applies to nothing (the bridge skips it too); the sentence is read for this entity (C23)
+                if (!Regex.IsMatch(entity ?? "", r.Entity, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) continue;
+                var why = NotAValue(r.Sentence, r.Raw, entity, key);
+                if ((why != null) == skipped) hits.Add((r.Value, r.Spec, r.Sentence, why));
             }
             return hits;
         }
@@ -140,6 +165,7 @@ namespace Sentinel.GhostBuilder
 
         private static bool Readable(string pattern)
         {
+            if (!EntityPattern.IsMatch(pattern)) return false; // C23: read alike by .NET and JS, or by neither
             try { _ = new Regex(pattern); return true; }
             catch (ArgumentException) { return false; }
         }

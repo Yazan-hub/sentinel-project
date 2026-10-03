@@ -109,7 +109,14 @@ const CARDINALITY_PROHIBITED = /\b(shall not|must not|is prohibited|are prohibit
 export function sentences(text) {
   return String(text || "")
     .replace(/\r\n?/g, "\n")
-    .split(/(?<=[.;:])\s+|\n+/)
+    .split(/\n+/)
+    // Review C23: a short piece after a stop ("… shall be 60 min. or better.", "1 hr. minimum.") stays with the sentence before
+    // it — dropped, it took the bound with it and the stored sentence read as a pinned value.
+    .flatMap((line) => line.split(/(?<=[.;:])\s+/).reduce((out, s) => {
+      if (out.length && s.trim().length <= 12) out[out.length - 1] += " " + s;
+      else out.push(s);
+      return out;
+    }, []))
     .map((s) => s.replace(/^\s*[-*•]\s*/, "").trim())
     .filter((s) => s.length > 12);
 }

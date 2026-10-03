@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
-import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, clauseValues, makeCiter, notAValue } from "./changesets-typing.mjs";
+import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
 import { VOCABULARY } from "./changesets-logic.mjs";
 
@@ -109,6 +109,7 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     expect(CATALOG_PARAM).toEqual(VS.catalog_param);
     expect(KIND_ENTITY).toEqual(VS.kind_entity);
     expect(KIND_PSET).toEqual(VS.kind_pset); // review C19: the add-in plans no key the bridge refuses
+    expect(CLASS_NOUN).toEqual(VS.class_noun); // review C23: a whole-class sentence names the clause's own entity
   });
 
   it("clauseValues reads every shared case as the add-in's Clauses does: a whole-class clause's one exact value, nothing else", () => {
@@ -133,14 +134,15 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
   });
 
   it("a cited clause value is ONE value — a rating token or a number with a time unit — and its sentence ends with it: every shared case (review C23)", () => {
-    expect(VS.value_cases.length).toBe(63);
+    expect(VS.value_cases.length).toBe(142);
     for (const c of VS.value_cases) {
       const tag = `${JSON.stringify(c.value)} / ${JSON.stringify(c.sentence)}`;
-      expect(notAValue(c.sentence, c.value), tag).toBe(c.why);
+      const entity = c.entity ?? "IFCDOOR", key = c.key ?? "Pset_DoorCommon.FireRating";
+      expect(notAValue(c.sentence, c.value, entity, key), tag).toBe(c.why);
       if (!c.compiled) continue;
       // The case is what compileIds makes of the sentence, and the clause it makes is cited exactly when the case says so.
       const ids = compileIds(c.sentence), sp = ids.specifications[0], p = sp?.requirements.properties[0];
-      expect(p?.value, tag).toBe(c.value);
+      expect([p?.value, sp?.applicability.entity, `${p?.pset}.${p?.name}`], tag).toEqual([c.value, entity, key]);
       expect(clauseValues(ids, sp.applicability.entity, `${p.pset}.${p.name}`).map((h) => h.value), tag).toEqual(c.why ? [] : [c.value]);
     }
   });
