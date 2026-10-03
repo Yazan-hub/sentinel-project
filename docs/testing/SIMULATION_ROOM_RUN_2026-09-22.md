@@ -1369,3 +1369,15 @@ Notes:
   (#1524–#1549: four gate runs, three `lod_state` rows, three Promote changesets — GR-FFL applied in a copy that was not saved, 01-FFL
   and MA0 Roof left `proposed`), `ma2b-none` (no `lod_state` row). Scratch keys only.
 - Left on this PC: the two scratch copies and the request bodies in `Documents\Sentinel drills\ma2b\` (not saved; the drill's evidence).
+
+**Owed rows run live** (2026-10-03 ~14:05 local, after the founder closed the stray Revits and restarted the 4100 bridge on master;
+Revit 2024 with branch fix/pane-narrow-dock 2660146 = master 6a87d9f + the pane fix; `ma2b-a.rvt` rebound to `ma2b`, not saved):
+- **F-MA2b-1 — pass.** The pane's LOD line reads `… lead@…, 2026-10-03 09:12 UTC · ledger #1548` (UI Automation read).
+- **F-MA2b-2 — pass.** Apply on the drill's pending `Promote (DD) · 01-FFL`: `This changeset leaves 21 element(s) failing the DD IDS
+  made from lod_matrix@1 · office · cb47a6d07da3…`, tallied `Walls · DD: missing Pset_WallCommon.FireRating — 20 element(s)` and
+  `Doors · DD: missing Pset_DoorCommon.FireRating — 1 element(s)`; See details names all 21 (W 2051451–2051470, Door 2069761). Go back:
+  nothing placed, no ledger row.
+- **The pane in a narrow dock (drill D5) — pass.** Docked alone and dragged to the drill's width (content 2268–2544 px on a 2560 px
+  screen at 150 %): ↻ at 2499–2535 (it was at 2685, off the screen), every journey line wraps, the journey box scrolls with its bar from
+  the key down, ⚡ Fix whole with Rule and Mode beside it, the Doctor toggle in view; unbound (`ma1-bds` 404) its empty lines take no room.
+- Still owed: W-1 (the strip in the browser) and the rest of the list above.
