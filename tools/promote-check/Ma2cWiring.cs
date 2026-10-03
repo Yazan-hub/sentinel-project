@@ -31,6 +31,10 @@ static partial class Check
            && promote.Contains("FixInPlaceService.OnType(hits[0], doc, entry)") && promote.Contains("lodText + propText +")
            && promote.Contains("p.Held.Concat(p.ToPerson).Select(h =>"),
            "Promote reads the DD types' properties after its preflight and before it files, says what it writes and what goes to a person, and lists each");
+        // Review C25 (C20's wiring): with no property row, the dialog shows the report's own line, which names what is held off the type.
+        Ok(promote.Contains("var propText = props == null ? \"\" : props.Rows.Count == 0 ? \"\\n\\n\" + props.Line")
+           && !promote.Contains("every one the DD types hold is filled"),
+           "with no DD property row, Promote's dialog shows PropertyReport.Line — what is held off the type is said, never the old literal (C20)");
         Ok(window.Contains("\"set_parameter\" => $\"type edit {el.Kind}:") && window.Contains("$\"reaches {reachN} element(s) in the model now\"")
            && window.Contains("(ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $\" + {more} if this changeset's retypes onto it are applied\" : \"\")")
            && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
