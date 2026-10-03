@@ -43,6 +43,24 @@ static partial class Check
            && reply.Unmatched.SequenceEqual(new[] { "Floors: Combustible — no standard property set holds Combustible for IFCSLAB — name it as Pset_X.Combustible" })
            && StageIds.FromReply("{\"message\":\"no lod_matrix\"}", out var bad) == null && bad.StartsWith("the DD IDS reply could not be read"),
            "the route's reply reads with the matrix's label and what matrixToIds could not place; a reply it cannot read is said, never an empty IDS");
+
+        // The check before commit's words (design §3.4 step 5): what fails is said, with its rule; what cannot be read is said too.
+        var unrated = V("wall unrated");
+        var fails = new List<string> { StageIds.Line("W 312312", "Walls · DD", unrated) };
+        Ok(fails[0] == "W 312312 (Walls · DD): missing Pset_WallCommon.FireRating" && StageIds.Line("W 1", "Walls · DD", V("wall rated")) == null,
+           "an element that fails is one line: its label, the specification (the class and stage) and every missing property");
+        Ok(StageIds.WentBack(1, "lod_matrix@2 · office · abababababab…") == "You went back at the DD IDS check — nothing was placed. 1 element(s) would have failed the DD IDS made from lod_matrix@2 · office · abababababab…."
+           && StageIds.PlacedAnyway(fails, "lod_matrix@2") == "This changeset leaves 1 element(s) failing the DD IDS made from lod_matrix@2 — placed anyway, as the person chose: W 312312 (Walls · DD): missing Pset_WallCommon.FireRating",
+           "going back and placing anyway are said in words, naming the matrix the IDS was made from");
+        Ok(StageIds.NotChecked(unrated.NotRead.Concat(V("wall rated").NotRead)) == "DD IDS: not checked for Pset_WallCommon.LoadBearing — Sentinel has no Revit reader for them, so they are neither passed nor failed"
+           && StageIds.NotChecked(new string[0]) == null,
+           "a property Revit cannot read is said beside the answer — never dropped, never passed");
+        Ok(StageIds.NotJudged(new[] { "not in the DD IDS: Floors: Combustible — no standard property set holds Combustible for IFCSLAB — name it as Pset_X.Combustible",
+                                      "W 312 is exported as IFCCOVERING, which the DD IDS for Walls (IFCWALL) does not judge" })
+           == "DD IDS: not judged — not in the DD IDS: Floors: Combustible — no standard property set holds Combustible for IFCSLAB — name it as Pset_X.Combustible; "
+              + "W 312 is exported as IFCCOVERING, which the DD IDS for Walls (IFCWALL) does not judge — neither passed nor failed"
+           && StageIds.NotJudged(new string[0]) == null,
+           "what the check did not judge — a property the IDS could not place, an element exported as another class — is said; \"every element passed\" is said only when nothing was left out");
     }
 
     // ── 31. MA-2b: the LOD state reader — at DD, below, blocked, not measured, per level and class, from Promote's own facts ──

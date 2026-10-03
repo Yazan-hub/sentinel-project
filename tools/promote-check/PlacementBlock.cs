@@ -183,7 +183,7 @@ static partial class Check
         Ok(placed > started && stamped > placed, "the executor places what it created inside its transaction, before the stamp and the commit");
         Ok(executor.Contains("NotRun = true, Error = inOption"), "a design-option refusal leaves the changeset proposed (NotRun), never declined");
         Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("PlacementApply.Resolve(doc, placement, app.ActiveUIDocument?.ActiveView,")
-           && Src("Commands.ReviewChangesets.cs").Contains("handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement);"),
+           && Src("Commands.ReviewChangesets.cs").Contains("handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement, promote);"), // MA-2b: + the DD IDS
            "Review AI Proposals and Promote: the project's placement block and the active view reach the executor");
         string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs");
         int ghostRefusal = ghost.IndexOf("PlacementApply.DesignOptionRefusal(doc,", StringComparison.Ordinal);

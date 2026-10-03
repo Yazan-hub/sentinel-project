@@ -138,6 +138,9 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     public string PublishLine { get => _publishLine; private set { _publishLine = value; OnChanged(); } }
     private string _scanRulesetLine = "";
     public string ScanRulesetLine { get => _scanRulesetLine; private set { _scanRulesetLine = value; OnChanged(); } }
+    private string _lodLine = "";
+    /// MA-2b: "LOD state: …" from the newest lod_state ledger row, as the journey words it (the web's Next strip prints the same).
+    public string LodLine { get => _lodLine; private set { _lodLine = value; OnChanged(); } }
     private int _journeySeq;
     /// Bumped (on the Revit API thread) by every refresh, ShowUnbound and ShowLoading: a caller that captured it can
     /// tell whether the strip has moved on since.
@@ -155,7 +158,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         {
             // Like the web strip: while loading, no line from the previous document or ruleset stays up.
             JourneyKey = $"Journey · {projectKey} — loading…";
-            StandardsLine = NextLine = PublishLine = ScanRulesetLine = "";
+            StandardsLine = NextLine = PublishLine = ScanRulesetLine = LodLine = "";
         });
         // Same dispatcher OnUi uses: the pane's (WPF application) dispatcher when there is one.
         var ui = Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
@@ -167,6 +170,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             var (j, why) = journey.Status == TaskStatus.RanToCompletion ? journey.Result : (null, journey.Exception?.GetBaseException().Message);
             JourneyKey = j is null ? $"Journey · {projectKey}" : $"Journey · {j.Key} ({j.Kind})";
             StandardsLine = j?.StandardsLine ?? "";
+            LodLine = j?.LodLine ?? "";
             NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
             PublishLine = PublishLines.Policy(policy.Status == TaskStatus.RanToCompletion ? policy.Result
                 : ArtefactClient.None("publish", "the policy read did not finish (" + (policy.Exception?.GetBaseException().Message ?? "unknown") + ")"));
@@ -182,7 +186,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         OnUi(() =>
         {
             JourneyKey = "Journey — not bound — Sentinel ▸ Project Setup";
-            StandardsLine = NextLine = PublishLine = ScanRulesetLine = "";
+            StandardsLine = NextLine = PublishLine = ScanRulesetLine = LodLine = "";
         });
     }
 
@@ -199,7 +203,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             Score = 0; // raises ScoreText, which reads _notScored
             Status = $"{docTitle} — loading its ruleset…";
             JourneyKey = "Journey — loading…";
-            StandardsLine = NextLine = PublishLine = ScanRulesetLine = "";
+            StandardsLine = NextLine = PublishLine = ScanRulesetLine = LodLine = "";
         });
     }
 

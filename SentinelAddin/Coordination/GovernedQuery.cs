@@ -95,6 +95,9 @@ namespace Sentinel.Coordination
             public string? RulesetSemver;
             public string? RulesetSha256;
             public string? RulesetLabel; // "unavailable — …" when the bridge could not read the standards
+            /// <summary>MA-2b: "LOD state: …" exactly as the bridge words it from the newest lod_state ledger row (the web strip prints
+            /// the same); "" for an office, or from a bridge before MA-2b.</summary>
+            public string LodLine = "";
         }
 
         /// <summary>
@@ -185,6 +188,7 @@ namespace Sentinel.Coordination
                     RulesetSemver = Str(rs, "semver"),
                     RulesetSha256 = Str(rs, "sha256"),
                     RulesetLabel = Str(rs, "label"),
+                    LodLine = Str(Obj(root, "lod_state"), "line") ?? "",
                 };
             }
             catch (Exception e) { failure = e.Message; return null; } // never surface a read failure into Revit

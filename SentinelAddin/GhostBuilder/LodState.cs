@@ -109,6 +109,38 @@ namespace Sentinel.GhostBuilder
             return v;
         }
 
+        // ── the check before commit's words (design §3.4 step 5): what fails is said, never silently dropped ──────────────────
+
+        /// <summary>One element that fails: "W 312312 (Walls · DD): missing Pset_WallCommon.FireRating"; null when nothing is missing.</summary>
+        public static string Line(string label, string spec, Verdict v) =>
+            v.Missing.Count == 0 ? null : $"{label} ({spec}): missing {string.Join(", ", v.Missing)}";
+
+        public static string Headline(int n, string matrix) => $"This changeset leaves {n} element(s) failing the DD IDS made from {matrix}";
+
+        /// <summary>The line when the person went back: nothing was placed.</summary>
+        public static string WentBack(int n, string matrix) =>
+            $"You went back at the DD IDS check — nothing was placed. {n} element(s) would have failed the DD IDS made from {matrix}.";
+
+        /// <summary>The summary and ledger-note line when the person placed it anyway, the first five elements named.</summary>
+        public static string PlacedAnyway(IReadOnlyList<string> fails, string matrix) =>
+            Headline(fails.Count, matrix) + " — placed anyway, as the person chose: " + string.Join("; ", fails.Take(5)) +
+            (fails.Count > 5 ? $"; … and {fails.Count - 5} more" : "");
+
+        /// <summary>What the check could not judge, said beside its answer: "DD IDS: not checked for Pset_WallCommon.LoadBearing — …".</summary>
+        public static string NotChecked(IEnumerable<string> notRead)
+        {
+            var n = notRead.Distinct(StringComparer.Ordinal).ToList();
+            return n.Count == 0 ? null : "DD IDS: not checked for " + string.Join(", ", n) + " — Sentinel has no Revit reader for them, so they are neither passed nor failed";
+        }
+
+        /// <summary>What the check did not judge, said beside its answer (review C2): a property the matrix asks that matrixToIds
+        /// could not place, an element exported as another class — "DD IDS: not judged — not in the DD IDS: Floors: Combustible — …".</summary>
+        public static string NotJudged(IEnumerable<string> what)
+        {
+            var n = what.Distinct(StringComparer.Ordinal).ToList();
+            return n.Count == 0 ? null : "DD IDS: not judged — " + string.Join("; ", n.Take(8)) + (n.Count > 8 ? $"; … and {n.Count - 8} more" : "") + " — neither passed nor failed";
+        }
+
         /// <summary>An extracted element's values, "Pset.Prop" → value (the first row of a name, case ignored).</summary>
         public static Dictionary<string, string> ValuesOf(GovElement e)
         {

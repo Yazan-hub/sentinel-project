@@ -115,6 +115,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 return;
             }
 
+            // MA-2b (design §3.4 steps 5 and 10): a Promote changeset is checked against the DD IDS made from the LOD matrix before
+            // commit, and its LOD state after is recorded — both from what PromoteContext reads, fetched off this thread.
+            var promote = fresh.Source == "promote" ? Task.Run(() => PromoteContext.Fetch(key)).GetAwaiter().GetResult() : null;
             Action<ChangesetExecutor.ExecutionResult> onDone = null;
             onDone = result =>
             {
@@ -145,14 +148,32 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 var rejected = unticked.Concat(gone).Distinct().ToList();
                 var said = gone.Count == 0 ? note : $"{gone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
                 if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
+                if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                 // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids.
                 if (Report(cfg, key, cs.Id, result.Applied, rejected, said))
                     UndoWatcher.Remember(UndoWatcher.TxName(fresh.Name, fresh.Id), key, fresh.Id, result.Applied.Select(a => a.ProposalGuid));
+                // MA-2b, design §3.4 step 10: the LOD state after a Promote changeset, read again on this (the API) thread — one more
+                // lod_state row, which the gate and the strips read as the newest.
+                string after = null;
+                if (promote != null && result.Applied.Count > 0)
+                {
+                    try
+                    {
+                        var lod = PromoteWallsCommand.LodStateAfter(doc, promote);
+                        if (lod != null)
+                        {
+                            GovernedNotify.Report("LOD state after", CommandReports.LodState(lod, new[] { fresh.Id }, UserSession.Actor), key);
+                            after = "LOD state after (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line;
+                        }
+                    }
+                    catch (Exception ex) { after = "LOD state after: not read — " + ex.Message; }
+                }
                 var warnings = GhostFailurePolicy.WarningsLine(result.Warnings, "changeset");
                 TaskDialog.Show("Sentinel — AI proposals",
                     $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + (unticked.Count > 0 ? $"\n{unticked.Count} unticked element(s) reported as rejected." : "") +
                     (gone.Count > 0 ? $"\n{gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
                     (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
+                    (result.Ids != null ? "\n\n" + result.Ids : "") + (after != null ? "\n\n" + after : "") +
                     (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "")); // MA-1a item 6
             };
             // MA-1a item 6: the project's guideline, for its placement block — only when a ticked element is a create.
@@ -172,7 +193,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 placement = standards.Guideline.Placement;
             }
             handler.Completed += onDone;
-            handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement);
+            handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement, promote);
             evt.Raise();
         };
         window.Show();
