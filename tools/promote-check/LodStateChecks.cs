@@ -61,6 +61,18 @@ static partial class Check
               + "W 312 is exported as IFCCOVERING, which the DD IDS for Walls (IFCWALL) does not judge — neither passed nor failed"
            && StageIds.NotJudged(new string[0]) == null,
            "what the check did not judge — a property the IDS could not place, an element exported as another class — is said; \"every element passed\" is said only when nothing was left out");
+        Ok(StageIds.Summary(3, new string[0], new string[0], new string[0], "lod_matrix@1") == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)"
+           && StageIds.Summary(0, new string[0], new string[0], new string[0], "lod_matrix@1") == "DD IDS: nothing this changeset applied is asked anything by the DD IDS (lod_matrix@1)"
+           && StageIds.Summary(1, fails, new[] { "Pset_WallCommon.LoadBearing" }, new string[0], "lod_matrix@1")
+              == StageIds.PlacedAnyway(fails, "lod_matrix@1") + " " + StageIds.NotChecked(new[] { "Pset_WallCommon.LoadBearing" }),
+           "the check before commit says how many elements it judged — never that every element passed when it judged none (review)");
+        var b64 = new string('b', 64);
+        var withSha = StageIds.FromReply("{\"matrix\":\"lod_matrix@2 · office · bbbbbbbbbbbb…\",\"sha256\":\"" + b64 + "\",\"ids\":" + fx["ids"].ToJsonString() + "}", out _);
+        Ok(withSha.Sha == b64 && StageIds.NotFrom(withSha, b64, "lod_matrix@2 · office · bbbbbbbbbbbb…") == null
+           && StageIds.NotFrom(withSha, new string('a', 64), "lod_matrix@1 · office · aaaaaaaaaaaa… (cached 09:15)")
+              == "the DD IDS was made from lod_matrix@2 · office · bbbbbbbbbbbb…, not from the lod_matrix read (lod_matrix@1 · office · aaaaaaaaaaaa… (cached 09:15)) — run it again"
+           && StageIds.NotFrom(reply, null, "none") != null,
+           "the DD IDS and the matrix read are one matrix, by sha: an IDS made from another (a cached matrix, an install in between) is not used (review)");
     }
 
     // ── 31. MA-2b: the LOD state reader — at DD, below, blocked, not measured, per level and class, from Promote's own facts ──

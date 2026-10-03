@@ -46,6 +46,9 @@ namespace Sentinel.GhostBuilder
             pc.Classes = LodMatrix.Classes(pc.Mx, pc.MxLabel, pc.Standards.Guideline, pc.NotRun);
             var (idsJson, idsWhy) = idsTask.GetAwaiter().GetResult();
             if (idsJson != null) pc.Ids = StageIds.FromReply(idsJson, out idsWhy);
+            // Review: the IDS judges only when it was made from the matrix read — else the LOD state reads not measured and the
+            // check before commit says not checked, with why.
+            if (pc.Ids != null && StageIds.NotFrom(pc.Ids, pc.MxSha, pc.MxLabel) is string other) { pc.Ids = null; idsWhy = other; }
             pc.IdsWhy = idsWhy;
             return pc;
         }
@@ -54,12 +57,14 @@ namespace Sentinel.GhostBuilder
         /// the IDS reads it, each against its own class's specification only. The lines of the elements that fail ("W 312 (Walls ·
         /// DD): missing Pset_WallCommon.FireRating"), the requirements Revit cannot read, and what was not judged at all (review C2):
         /// the matrix's properties matrixToIds could not place for an applied class, an element exported as another class, an
-        /// element not found or not read. API thread, read-only — safe inside the open TransactionGroup.</summary>
-        public static (List<string> Fails, List<string> NotRead, List<string> NotJudged) JudgeApplied(Document doc, StageIds ids, IEnumerable<AppliedEntry> applied, IReadOnlyDictionary<string, string> kindOf)
+        /// element not found or not read — and how many elements were judged (review: "passed" is never said of none). API thread,
+        /// read-only — safe inside the open TransactionGroup.</summary>
+        public static (List<string> Fails, List<string> NotRead, List<string> NotJudged, int Judged) JudgeApplied(Document doc, StageIds ids, IEnumerable<AppliedEntry> applied, IReadOnlyDictionary<string, string> kindOf)
         {
             var fails = new List<string>();
             var notRead = new List<string>();
             var notJudged = new List<string>();
+            int judged = 0;
             string org = App.OrgFor(doc);
             foreach (var a in applied.GroupBy(x => x.RevitUniqueId).Select(g => g.First()))
             {
@@ -73,10 +78,11 @@ namespace Sentinel.GhostBuilder
                 if (g == null) { notJudged.Add(label + ": the extractor read nothing"); continue; }
                 var v = ids.Judge(g.identity.Class, StageIds.ValuesOf(g), org, spec);
                 if (!v.InScope) { notJudged.Add($"{label} is exported as {g.identity.Class}, which the DD IDS for {cls.Category} ({spec.Entity}) does not judge"); continue; }
+                judged++;
                 if (StageIds.Line(label, spec.Name, v) is string line) fails.Add(line);
                 notRead.AddRange(v.NotRead);
             }
-            return (fails, notRead, notJudged);
+            return (fails, notRead, notJudged, judged);
         }
 
         /// <summary>Ask the person, modal, in the same API call (the group still open): true = place anyway. Closing is going back.</summary>

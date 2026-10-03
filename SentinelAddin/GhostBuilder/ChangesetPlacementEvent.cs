@@ -136,16 +136,15 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             if (ids != null)
             {
                 var kindOf = (cs.Elements ?? new List<ChangesetElementDto>()).ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
-                var (fails, notRead, notJudged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
+                var (fails, notRead, notJudged, judged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
                 if (fails.Count > 0 && !PromoteContext.PlaceAnyway(fails, ids.Matrix, $"changeset \"{cs.Name}\""))
                 {
                     SentinelUndo.RollBack(group, doc);
                     return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = StageIds.WentBack(fails.Count, ids.Matrix) };
                 }
-                // "every element passed" only when nothing failed, nothing was unreadable and nothing was left out (review C2).
-                var said = new[] { fails.Count > 0 ? StageIds.PlacedAnyway(fails, ids.Matrix) : null, StageIds.NotChecked(notRead), StageIds.NotJudged(notJudged) }
-                    .Where(x => x != null).ToList();
-                idsLine = said.Count > 0 ? string.Join(" ", said) : $"DD IDS: every element passed ({ids.Matrix})";
+                // Passed only when nothing failed, nothing was unreadable and nothing was left out (review C2) — and said with how
+                // many were judged, never of none (third review).
+                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix);
             }
             var added = before == null ? new List<Violation>() : BlockCheck.AddedSince(doc, before);
             if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, $"changeset \"{cs.Name}\"", before.RulesetRef))

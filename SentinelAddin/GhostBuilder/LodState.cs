@@ -46,6 +46,8 @@ namespace Sentinel.GhostBuilder
         }
 
         public string Title, Matrix;
+        /// <summary>The sha256 of the lod_matrix body the IDS was made from (the route's reply): it must be the matrix read (<see cref="NotFrom"/>).</summary>
+        public string Sha;
         public List<Spec> Specs = new List<Spec>();
         /// <summary>The matrix's properties matrixToIds could not place, as "Floors: Combustible — no standard property set …".</summary>
         public List<string> Unmatched = new List<string>();
@@ -61,6 +63,7 @@ namespace Sentinel.GhostBuilder
                     var r = d.RootElement;
                     var s = FromIds(r.GetProperty("ids"));
                     s.Matrix = r.TryGetProperty("matrix", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
+                    s.Sha = r.TryGetProperty("sha256", out var h) && h.ValueKind == JsonValueKind.String ? h.GetString() : null;
                     if (r.TryGetProperty("unmatched", out var u) && u.ValueKind == JsonValueKind.Array)
                         s.Unmatched = u.EnumerateArray().Select(x => $"{x.GetProperty("category").GetString()}: {x.GetProperty("property").GetString()} — {x.GetProperty("reason").GetString()}").ToList();
                     return s;
@@ -68,6 +71,12 @@ namespace Sentinel.GhostBuilder
             }
             catch (Exception ex) { error = "the DD IDS reply could not be read (" + ex.Message + ")"; return null; }
         }
+
+        /// <summary>Review: the matrix and the IDS are two reads (a cached matrix on a timeout, a new lod_matrix@n installed between
+        /// them), so the IDS stands only when it was made from the matrix read — the same sha. Null when it was; else why not.</summary>
+        public static string NotFrom(StageIds ids, string mxSha, string mxLabel) =>
+            ids.Sha != null && string.Equals(ids.Sha, mxSha, StringComparison.Ordinal) ? null
+            : $"the DD IDS was made from {ids.Matrix ?? "a lod_matrix it does not name"}, not from the lod_matrix read ({mxLabel}) — run it again";
 
         /// <summary>An IDS in the JSON spec shape → its specifications' entities and required "Pset.Prop" keys.</summary>
         public static StageIds FromIds(JsonElement ids)
@@ -139,6 +148,16 @@ namespace Sentinel.GhostBuilder
         {
             var n = what.Distinct(StringComparer.Ordinal).ToList();
             return n.Count == 0 ? null : "DD IDS: not judged — " + string.Join("; ", n.Take(8)) + (n.Count > 8 ? $"; … and {n.Count - 8} more" : "") + " — neither passed nor failed";
+        }
+
+        /// <summary>The check before commit's line (review C2 and the third review): what failed, what was not read, what was not
+        /// judged — or, when none of these, how many elements were judged and passed; "nothing … is asked" when it judged none.</summary>
+        public static string Summary(int judged, IReadOnlyList<string> fails, IEnumerable<string> notRead, IEnumerable<string> notJudged, string matrix)
+        {
+            var said = new[] { fails.Count > 0 ? PlacedAnyway(fails, matrix) : null, NotChecked(notRead), NotJudged(notJudged) }.Where(x => x != null).ToList();
+            return said.Count > 0 ? string.Join(" ", said)
+                : judged > 0 ? $"DD IDS: {judged} element(s) judged, all passed ({matrix})"
+                : $"DD IDS: nothing this changeset applied is asked anything by the DD IDS ({matrix})";
         }
 
         /// <summary>An extracted element's values, "Pset.Prop" → value (the first row of a name, case ignored).</summary>
