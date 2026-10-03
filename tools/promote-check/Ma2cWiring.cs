@@ -37,7 +37,9 @@ static partial class Check
            && review.Contains("new ChangesetReviewWindow(cs, reach)"),
            "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");
         Ok(promote.Contains("err.StartsWith(\"Bridge 400:\") && err.Contains(\"set_parameter\") && PropertyPlanner.WithoutWrites(body, err, out var dropped) is object again")
-           && promote.Contains("type edit(s) not filed — see Sent to a person"),
+           && promote.Contains("type edit(s) not filed — see Sent to a person")
+           // Review C22: the retry is a network call the plan adds, so it runs off the API thread (the PromoteContext.Fetch pattern).
+           && promote.Contains("cs = Task.Run(() => ChangesetClient.Propose(cfg, key, again, out err)).GetAwaiter().GetResult();"),
            "a body the bridge refuses for a set_parameter is filed again without its type edits, and the result says how many (C4)");
     }
 }

@@ -189,7 +189,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             // says why. Only a second refusal counts as not filed; a body of type edits only is not filed again.
             if (cs == null && err != null && err.StartsWith("Bridge 400:") && err.Contains("set_parameter") && PropertyPlanner.WithoutWrites(body, err, out var dropped) is object again)
             {
-                cs = ChangesetClient.Propose(cfg, key, again, out err);
+                // Review C22: a network call this plan adds runs off the API thread (Revit still waits, as for PromoteContext.Fetch).
+                cs = Task.Run(() => ChangesetClient.Propose(cfg, key, again, out err)).GetAwaiter().GetResult();
                 if (cs != null) typeEditsNotFiled += dropped;
             }
             if (cs == null) failed.Add(err);
