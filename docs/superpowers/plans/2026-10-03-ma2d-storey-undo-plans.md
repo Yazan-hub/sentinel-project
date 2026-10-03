@@ -1326,6 +1326,11 @@ Request bodies and the drill's files are kept in `Documents\Sentinel drills\ma2d
 
 Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as session MA2d, with gaps named F-MA2d-n, each fixed on the branch ("fix(drill MA2d): …" with its check), G2's numbers in their own table for the founder's decision (F4), and the list of **owed** rows at its end.
 
+**Drill amendments (run 2026-10-03, session MA2d):**
+- **D1** — the `.rvt` association is Revit 2027's version selector: it hands the file to Revit 2024 but drops it. Open the scratch copies from Revit's Open dialog or Recent.
+- **D2** — Select by ID is greyed while the focus is in the Project Browser. S-1 may close the review window (nothing is reported; the storey stays proposed), click the view, delete the wall, and reopen the storey with Review AI Proposals: the same test.
+- **D3** — a pop-up of another application (an antivirus notice) can take every click; Revit's TaskDialog buttons offer no UI Automation Invoke, so the drill waits for the founder to close it.
+
 **Closing list:**
 - close Revit (2024 and 2026) without saving any scratch copy or the detached aster-tower copy;
 - return the sign-in to the state found before the drill;
