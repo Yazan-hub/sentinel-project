@@ -281,6 +281,23 @@ namespace Sentinel.Engine
             (withdrawn.Count == 0 ? "" : $"\n\nWithdrawn instead (the decline did not land): {string.Join(", ", withdrawn)}.") +
             (kept.Count == 0 ? "" : $"\n\nStill proposed — neither declined nor withdrawn: {string.Join(", ", kept)}. Withdraw it on the web before anyone reviews it.");
 
+        /// <summary>MA-3b4 review C10: B4's withdrawals under MA-3b C6's rule — after the first the bridge did not answer (anything but a
+        /// "Bridge 4xx" refusal: unreachable, a timeout, a 5xx), the rest are not sent and are named still proposed, so the guard waits
+        /// one 120 s, never one per changeset. <paramref name="withdraw"/> returns null when withdrawn, else its error.</summary>
+        public static string WithdrawEach(IEnumerable<(string Id, string Shown)> changesets, Func<string, string> withdraw)
+        {
+            var withdrawn = new List<string>();
+            var kept = new List<string>();
+            var stalled = false;
+            foreach (var (id, shown) in changesets)
+            {
+                var err = stalled ? "" : withdraw(id);
+                if (err == null) withdrawn.Add(shown);
+                else { kept.Add(shown); stalled |= !err.StartsWith("Bridge 4", StringComparison.Ordinal); }
+            }
+            return WithdrawnInstead(withdrawn, kept);
+        }
+
         /// <summary>MA-3b4 review C8: Ghost Builder's results whose save on this PC failed and whose report did not land — the round's
         /// "kept on this PC" is not true for them.</summary>
         public static string NotKept(IList<string> ids) => ids.Count == 0 ? ""

@@ -156,11 +156,9 @@ namespace Sentinel.GhostBuilder
                 ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>
                 {
                     var landed = new HashSet<string>(rep.Landed.Select(x => x.R.ChangesetId), StringComparer.Ordinal);
-                    var withdrawn = new List<string>();
-                    var kept = new List<string>();
-                    foreach (var cs in filed.Where(f => !landed.Contains(f.Id)))
-                        (ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));
-                    return UnreportedResults.WithdrawnInstead(withdrawn, kept);
+                    // Review C10: one 120 s wait at most — WithdrawEach stops after the first the bridge did not answer.
+                    return UnreportedResults.WithdrawEach(filed.Where(f => !landed.Contains(f.Id)).Select(f => (f.Id, Short(f.Id))),
+                        id => ChangesetClient.Withdraw(cfg, r.Key, id, out var why) ? null : why ?? "no answer");
                 }), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);
                 report.Ledger = UnreportedResults.GhostDeclining(declines.Count);
                 return report;

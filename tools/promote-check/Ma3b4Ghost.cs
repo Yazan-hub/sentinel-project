@@ -22,12 +22,16 @@ static partial class Check
            "AI-2: Ghost Builder writes each applied result on this PC (the model, the file, its Undo names) before its report, which goes through ReportAll on a pool thread — remembered for the undo watcher once the bridge takes it; Report and its modal Retry are gone");
         int decline = At(ghost, "GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)");
         int declines = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>");
-        int withdraw = At(ghost, "(ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));");
+        // Review C11: only the declines the bridge did not take are withdrawn (a withdrawal of one it declined is refused — a false
+        // "still proposed"); review C10: through WithdrawEach, which stops after the first the bridge did not answer.
+        int landedSet = At(ghost, "var landed = new HashSet<string>(rep.Landed.Select(x => x.R.ChangesetId), StringComparer.Ordinal);");
+        int notLanded = At(ghost, "return UnreportedResults.WithdrawEach(filed.Where(f => !landed.Contains(f.Id)).Select(f => (f.Id, Short(f.Id))),");
+        int withdraw = At(ghost, "id => ChangesetClient.Withdraw(cfg, r.Key, id, out var why) ? null : why ?? \"no answer\");");
         int asked = At(ghost, "}), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);");
         // Review C3: the withdrawals run inside ReportAll's round, before its finally releases the guard — no review can open them meanwhile.
         int all = At(review, "internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null, Func<Reported, string> after = null)");
         int then = At(review, "if (after?.Invoke(rep) is string extra && extra.Length > 0) rep.Words.Add(extra.TrimStart('\\n')); // MA-3b4 review C3");
-        Ok(decline > 0 && declines > decline && withdraw > declines && asked > withdraw && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
+        Ok(decline > 0 && declines > decline && landedSet > declines && notLanded > landedSet && withdraw > notLanded && asked > withdraw && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
            && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved.Select(u => Short(u.ChangesetId)).ToList());")
            && all > 0 && then > all && review.IndexOf("finally { Release(); }", all, StringComparison.Ordinal) > then,
            "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");

@@ -50,6 +50,14 @@ static partial class Check
            && UnreportedResults.WithdrawnInstead(new List<string> { "55f4929e" }, new List<string> { "7acd0c36" }) == "\n\nWithdrawn instead (the decline did not land): 55f4929e.\n\nStill proposed — neither declined nor withdrawn: 7acd0c36. Withdraw it on the web before anyone reviews it."
            && UnreportedResults.WithdrawnInstead(new List<string>(), new List<string>()) == "",
            "B4 kept: a rolled-back build's declines are reported off Revit's thread; one not taken is withdrawn instead, one neither is named");
+        // Review C10: the withdrawals keep MA-3b C6's rule — one wait for a bridge that does not answer, never one per changeset.
+        var tried = new List<string>();
+        var silent = UnreportedResults.WithdrawEach(new[] { ("a1", "a1"), ("b2", "b2"), ("c3", "c3") }, id => { tried.Add(id); return id == "a1" ? "the bridge did not answer within 120 s" : null; });
+        var refusedTried = new List<string>();
+        var refused = UnreportedResults.WithdrawEach(new[] { ("a1", "a1"), ("b2", "b2"), ("c3", "c3") }, id => { refusedTried.Add(id); return id == "a1" ? "Bridge 409: {\"error\":\"not proposed\"}" : null; });
+        Ok(tried.SequenceEqual(new[] { "a1" }) && silent == UnreportedResults.WithdrawnInstead(new List<string>(), new List<string> { "a1", "b2", "c3" })
+           && refusedTried.SequenceEqual(new[] { "a1", "b2", "c3" }) && refused == UnreportedResults.WithdrawnInstead(new List<string> { "b2", "c3" }, new List<string> { "a1" }),
+           "review C10: a rolled-back build's withdrawals stop after the first the bridge did not answer (the rest named still proposed, the guard held one 120 s wait, not one per changeset); a bridge's refusal does not stop them");
         Ok(UnreportedResults.OpenHeld(2) == "2 result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open or a report is in flight. Once it is done, run Review AI Proposals in this model: it checks the model and sends them."
            && UnreportedResults.Failed(null).StartsWith("reporting failed — it did not finish\nWhat Revit applied is kept on this PC (" + UnreportedResults.Root + ")", StringComparison.Ordinal),
            "a guard that stops the open-time send is said, never a silent skip; a round that failed says nothing on this PC is lost");
