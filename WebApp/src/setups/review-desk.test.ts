@@ -8,7 +8,7 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
-import { storeyOf, groupDesk, ghostLine, reviewWords, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
+import { storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   readDecided, readLedger, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
@@ -223,5 +223,31 @@ describe("the Modeling studio is retired; the desk takes its tab (source scan)",
     expect(main).not.toContain("model-panel");
     expect(main).not.toContain('label: "Model"');
     expect(existsSync(new URL("./model-panel.ts", import.meta.url))).toBe(false);
+  });
+});
+describe("MA-3b3 — a carried decline on the desk", () => {
+  const c3 = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3b3-carry.json", import.meta.url), "utf8"));
+  const carried = c3.changeset as PendingChangeset;
+
+  it("says where the decline was made, by whom, in which changeset, and that the bridge carried it; it binds as any decline", () => {
+    const [n1, n2, n3] = carried.elements;
+    expect(reviewWords(n1)).toBe('declined on the web by reviewer@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by the bridge: wrong type: W 1 is a party wall — binds: Revit shows it unticked and refuses the tick');
+    expect(reviewWords(n2)).toBe('declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by the bridge: W 2 is demolished in the next package — binds: Revit shows it unticked and refuses the tick');
+    expect(reviewWords(n3)).toBe("waiting — nobody decided on the web");
+    expect(declinedBy({ by: "x", role: null, carried_from: { changeset: "c", name: "N", proposal_guid: "g", origin: "a script" } })).toBe('declined before by x in "N", carried here by the bridge');
+    expect(declinedBy(after.elements[0].review!)).toBe("declined by reviewer@example.com (contributor)");
+  });
+
+  it("Recently decided: a carried decline the report rejected is said with its origin, never as the web's", () => {
+    const r = carried.elements[1].review!;
+    const v = decidedView({ ...carried, status: "declined", result: { applied: [], rejected: ["n-2"], note: "x", reported_at: "2026-10-04T14:00:00.000Z", reported_by: "modeller@example.com",
+      declined_on_web: [{ proposal_guid: "n-2", by: r.by, role: r.role, reason: r.reason!, carried_from: r.carried_from }] } }, null);
+    expect(v.declined[0].why).toEqual(['declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by the bridge: W 2 is demolished in the next package']);
+  });
+
+  it("the desk's intro says a decline is carried (source scan)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("a decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its changeset is still proposed.");
+    expect(src).not.toContain("a new Promote run proposes a declined ghost again, undecided");
   });
 });
