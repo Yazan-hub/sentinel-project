@@ -268,7 +268,7 @@ static partial class Check
            "review C1, C6: a 409 on a result the bridge already holds is landed and watched for Undo, never 'refused'; after the first report of a round that did not land, the rest wait for Retry report (one 120 s wait, not n)");
         int gone = At(review, "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }");
         Ok(gone > At(review, "async Task Decide(") && gone < At(review, "window.Applying(\"Applying in Revit…\");") && window.Contains("Closed += (_, _) => _gone = true;")
-           && review.Contains("App.Events.Enqueue(doc, \"say the review's result\", (_, _) => TaskDialog.Show(Title, words), _ => { });") && Count(review, "window.Say(") == 3
+           && review.Contains("if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));") && Count(review, "window.Say(") == 3 // MA-3b2b: no DocPin, no swallowed refusal
            && review.Contains("if (raised == ExternalEventRequest.Denied || raised == ExternalEventRequest.TimedOut)") && Count(review, "handler.Completed -= onDone;") == 3,
            "review C2, M3: a window closed before Apply places nothing; words for a closed window go to the Doctor log and a dialog, never lost; a request Revit did not take (or one that threw) gives Apply back, said");
         Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
@@ -285,7 +285,7 @@ static partial class Check
         const string closedBeforeApply = "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }";
         int raise = At(review, "_ = window.Dispatcher.BeginInvoke(new Action(() =>");
         Ok(picker.Contains("Closed += (_, _) => _gone = true;") && picker.Contains("if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + status); return; }")
-           && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(doc, \"say the review's result\", (_, _) => TaskDialog.Show(Title, rep.Text), _ => { });")
+           && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));") // MA-3b2b
            && At(review, "if (picker.Gone)") > At(review, "var rep = await retried;") && At(review, "if (picker.Gone)") < At(review, "var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);")
            && window.Contains("if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + words); return; }"),
            "review C11: the words of a round the picker started reach the Doctor log and a dialog when the picker was closed meanwhile; words posted to a window or picker that closed in between go to the Doctor log");
