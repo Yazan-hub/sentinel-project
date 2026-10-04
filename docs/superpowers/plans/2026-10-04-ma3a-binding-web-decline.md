@@ -4,24 +4,25 @@
 
 **Goal:** The first slice of MA-3 (Review desk) — the review states of design §6.6 and founder decision D17, end to end, with no new rendering technology — and the drill MA3a:
 - **The bridge holds the rules.** Each ghost of a changeset gets a web review state — proposed, accepted or declined — on the changeset doc (`elements[i].review`, the doc's `review_rev`), and every desk post writes ONE `changeset_reviewed` ledger row; a lead's re-open writes ONE `changeset_reopened` row. A decline needs a reason. Only a signed-in person reviews: the machine credential (the add-in signed out, the MCP agent, any script holding `BCF_TOKEN`) gets a 403 that says "sign in" (as `reviewDecide` does for model versions); a contributor or above accepts or declines; only a lead or owner re-opens a decline. Nothing is decided once the changeset is not proposed.
-- **A web decline binds, a web accept is advice.** Revit's review window shows a declined ghost unticked, disabled, with `declined on the web by <who> (<role>): <reason> · a lead may re-open it on the web desk`; an accepted one reads as advice and keeps the bridge's pre-tick. Apply re-checks the fresh copies: a ticked ghost declined after the window opened refuses the whole Apply, naming it — nothing is created. The result carries the `review_rev` Apply re-checked: the bridge refuses (409) a result that applies a decline Revit had seen, and records one that landed after the re-check as `applied_over_late_decline` — said in Revit and kept on the result and the `changeset_applied` row.
-- **No lost update (gotcha 1).** Every write of a changeset doc — a result, a withdraw, a review, a re-open — swaps on `review_rev` and bumps it; a lost swap reads again and decides again on the new doc (three in a row: a 409 in words). Today's result and withdraw swap on `status` only, so a web decision written between their read and their write would be lost silently.
+- **A web decline binds, a web accept is advice.** Revit's review window shows a declined ghost unticked, disabled, with `declined on the web by <who> (<role>): <reason> · a lead may re-open it on the web desk`; an accepted one reads as advice and keeps the bridge's pre-tick. Apply re-checks the fresh copies: a ticked ghost declined after the window opened refuses the whole Apply, naming it — nothing is created. The result carries the `review_rev` Apply re-checked: the bridge refuses (409) a result that applies a decline Revit had seen, and records one that landed after the re-check as `applied_over_late_decline` — said in Revit and kept on the result and the `changeset_applied` row. A result with no `review_rev` (an add-in before MA-3a, a script) is never judged late: each decline it applied is recorded as `applied_over_decline_unchecked` — the bridge cannot tell whether it was seen (C2).
+- **The changeset doc is the bridge's alone (C1).** Migration 0037 takes the `changeset` store's signed-in writer away (0034's pattern), and the bridge writes every changeset doc with the service key after its own role check — a member can no longer re-open a decline by writing the doc straight through Supabase. The `changeset_reviewed` and `changeset_reopened` actions are reserved on the open audit route (C5).
+- **No lost update (gotcha 1).** Every write of a changeset doc — a result, a withdraw, a review, a re-open — swaps on `review_rev` and bumps it; a lost swap reads again and decides again on the new doc (three in a row: a 503 in words, which Revit's `Report` offers to retry — C3). Today's result and withdraw swap on `status` only, so a web decision written between their read and their write would be lost silently.
 - **The web review desk** (`WebApp/src/setups/review-desk.ts`, tab "Review" in BIM tools): the ghosts waiting in Revit's review, by storey (a Promote storey's ` (i/n)` parts together, StoreyBatch's rule) and by what they do; tick ghosts, Accept or Decline (a reason) in one post per changeset; a lead's Re-open. Plain DOM, no 3D (ghosts in the viewer are MA-3d). It takes the tab of the **Modeling studio, which is retired** (`model-panel.ts` deleted — it skipped Governed Intake; its local sketches are no longer shown).
 - **Drill MA3a** — short: Revit 2024, a scratch copy of the B35 seed, the test bridge on `127.0.0.1:4101`, the web desk on a local dev server on port 4002 built against 4101 in one founder session (rows D-1 … D-5).
 
 **Source of truth:** `docs/strategy/2026-09-30-model-automation-design.md` — MA-3 (`:1102-1120`), the review states (§6.6, `:844-850`), the ledger rows `changeset_reviewed` / `changeset_reopened` (`:830-831`), the routes (`:876-877`), storage (`:942`), who may do what (`:945-956`), D17 (`:1338`), the two-account risk row (`:1368`); `docs/strategy/2026-09-30-revit-addin-audit.md` — AI-2 (`:352`), AI-5 (`:355`), the review findings (`:343-345`); the MA-2d plan's Risks (`docs/superpowers/plans/2026-10-03-ma2d-storey-undo-plans.md`). Base: `feature/ma3-review-desk` at `32605ca` (master `57b6295` + gate G2's decision). Repo root: `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`.
 
-**Scope (tight, as the founder asks):** the review states and the desk's decisions, the bridge's trust rules, Revit obeying them in the existing window, the desk as a list. Left to Next (named under **Next**): MA-3b (the Revit desk that does not wait — AI-2, AI-5's picker, grouping, per-row decline reasons, zoom), MA-3c (the DirectContext3D ghost overlay — AI-4, GHB-4), MA-3d (web highlights by GlobalId, the proposal model, the Editor spike), a Revit "ticked" lock, and reserving the `changeset_reviewed` / `changeset_reopened` actions on the open audit route.
+**Scope (tight, as the founder asks):** the review states and the desk's decisions, the bridge's trust rules, Revit obeying them in the existing window, the desk as a list. Left to Next (named under **Next**): MA-3b (the Revit desk that does not wait — AI-2, AI-5's picker, grouping, per-row decline reasons, zoom), MA-3c (the DirectContext3D ghost overlay — AI-4, GHB-4), MA-3d (web highlights by GlobalId, the proposal model, the Editor spike), a Revit "ticked" lock, and carrying a decline forward to a Promote re-run (C4).
 
 **Architecture:**
 
 *Pure (bridge).* `WebApp/bridge/changesets-logic.mjs` gains `REVIEW_STATES`, `reviewState(el)`, `reviewRev(cs)`, `reviewNext(state, action)`, `applyDecisions(cs, decisions, who)`, `reopenDecline(cs, guid, reason, who)` and `resultConflicts(cs, appliedGuids, rejectedGuids, seen)`. A shared fixture, `WebApp/bridge/fixtures/changeset-ops/ma3a-review.json`, holds one changeset before and after the desk's decisions, a lead's re-open, and a result reply over a late decline: vitest proves the bridge makes it, promote-check reads it as the add-in does (house rule 2, JSON contracts).
 
-*Store and routes (bridge).* `changesets-store.mjs`'s writes go through one `rewrite(d, pid, id, decide)` — read, decide, `docReplaceIfField(…, "review_rev", <the revision read>)`, three tries. `reviewChangeset` and `reopenGhost` are new; `reportResult` takes `review_rev` and judges the result with `resultConflicts`. Two routes in `bcf-service.mjs`: `POST /changesets/:key/:id/review` and `/reopen`.
+*Store and routes (bridge).* `changesets-store.mjs`'s writes go through one `rewrite(d, pid, id, decide)` — read, decide, `docReplaceIfField(…, "review_rev", <the revision read>, { service: true })`, three tries; the filing's `docInsert` is a service write too (C1). `WebApp/db/migrations/0037_changeset_bridge_only.sql` leaves the `changeset` store no signed-in writer; `cde-store.mjs` reserves the two new actions on the open audit route (C5). `reviewChangeset` and `reopenGhost` are new; `reportResult` takes `review_rev` and judges the result with `resultConflicts`. Two routes in `bcf-service.mjs`: `POST /changesets/:key/:id/review` and `/reopen`.
 
-*Revit.* `ChangesetClient.cs` reads `review` (`ReviewDto`) and `review_rev`; `ChangesetTrust` gains `DeclinedOnWeb`, `ReviewLine`, `DeclinedHeader`, `DeclinedTicked`, `LateDeclines`, and `PreTick` returns false for a declined ghost; `ReportResult` sends `review_rev` and returns the reply. The window disables a declined row and leads it with the review line; `DecideRequested` refuses a declined tick on the fresh copies before anything runs; `Report` says a late decline the bridge recorded. No new HTTP call: `Ma2dWiring`'s counts hold.
+*Revit.* `ChangesetClient.cs` reads `review` (`ReviewDto`) and `review_rev`; `ChangesetTrust` gains `DeclinedOnWeb`, `ReviewLine`, `DeclinedHeader`, `DeclinedTicked`, `LateDeclines`, and `PreTick` returns false for a declined ghost; `ReportResult` sends `review_rev` and returns the reply. The window disables a declined row and leads it with the review line; `DecideRequested` refuses a declined tick on the fresh copies before anything runs; `Report` says a late or unchecked decline the bridge recorded; Ghost Builder's applying `Report` sends the `review_rev` its filing reply carried (C2). No new HTTP call: `Ma2dWiring`'s counts hold.
 
-*Web.* `review-desk.ts` — pure helpers (`storeyOf`, `groupDesk`, `ghostLine`, `reviewWords`, `canDecide`, `canReopen`, `rowWords`), the bridge calls (`readPending`, `postReview`, `postReopen`) and the panel (`reviewDeskPanel`); mounted in `main.ts` where the Model tab was.
+*Web.* `review-desk.ts` — pure helpers (`storeyOf`, `groupDesk`, `ghostLine`, `reviewWords`, `canDecide`, `canReopen`, `rowWords`, `postsFor` — C6), the bridge calls (`readPending`, `postReview`, `postReopen`) and the panel (`reviewDeskPanel`); mounted in `main.ts` where the Model tab was.
 
 **Tech Stack:** Node bridge (ESM, vitest 2); C# add-in (`SentinelAddin/`: net48 for Revit 2021–2024, net8 for 2025–2026, net10 for 2027; System.Text.Json 8; WPF built in code); the offline check `tools/promote-check`; TypeScript web app on That Open (`WebApp/src`, vitest in node, plain DOM).
 
@@ -35,7 +36,7 @@
   - **Nothing is lost.** Every write of a changeset doc swaps on `review_rev`; no write overwrites another's decision.
   - **No network call on Revit's API thread** (house rule): no new HTTP call in the add-in — the result's body gains a field and its reply is read; every request stays inside `ChangesetClient.Send`'s pool thread (`Ma2dWiring` still counts 4 `() => Req(` and 3 GET sends).
   - **No Revit write is added.** Refusing an Apply creates nothing (the window's `DecideRequested` returns before `handler.SetRequest`).
-  - **No new database table, no migration** (design `:943`).
+  - **No new database table** (design `:943`). **One migration, 0037 (C1, overriding this plan's earlier "no migration")**: it redefines `bridge_docs_floor` only; it is applied on the founder's "apply" (never by a task), after the bridge that writes changesets with the service key runs.
 - After the add-in task, both builds: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false` and the same with `-p:RevitVersion=2026`. **Every build of the add-in in the tasks carries `-p:DeployToRevit=false`.**
 - net48 rules: no `string.Contains(char)`, no `^1` index, no `record`; a new file names its own `using`s.
 - Checks: from `WebApp`, `npx vitest run <files>`; from the repo root, `dotnet run --project tools/promote-check`. A full vitest run rewrites `WebApp/bridge/fixtures/lod-matrix/ids-cases.json` with LF only: when `git diff --ignore-all-space --stat` on it is empty, `git checkout -- WebApp/bridge/fixtures/lod-matrix/ids-cases.json`.
@@ -56,6 +57,14 @@
 - After Tasks 1–4: the full `npx vitest run` `2305 passed | 1 skipped (2306)`.
 - Task 5: its eight replaces were applied from the text in the worktree, each matching exactly once (`16` lines changed, 8 out, 8 in). Not run: the drill, which needs Revit and the founder, and the commit commands. Nothing on any branch of the repository was changed by the dry run; only this plan is committed.
 
+**Dry run after the review amendments (amender, 2026-10-04)** — these totals supersede the ones above where they differ. A fresh detached worktree at `eb3516f` (`scratchpad/ma3/amd`, `node_modules` linked; removed afterwards); Tasks 1–5 applied from this document's amended text by the same block-reading script (every replace matched exactly once), each "see it fail" and "see it pass" run:
+- Task 1: `17 failed (17)` → with the logic tests `111 passed (111)` (unchanged counts; C2 rewrote one test).
+- Task 2: `32 failed | 54 passed (86)` over the store, ledger-write and migration-0037 files → the five files `197 passed (197)`; `vitest run bridge` `91 passed (91)` files, `1849 passed | 1 skipped (1850)`; `ids-cases.json` rewritten LF-only with no other change and restored.
+- Task 3: the same four compile errors → `promote-check` `695/695`; `session-check` `47/47`; builds 2022 `0`/`3`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 2027 `0`/`3` (errors/warnings, `-p:DeployToRevit=false`), no warning in a file MA-3a touches.
+- Task 4: `Failed to load url ./review-desk` → `1 failed | 8 passed (9)` → `9 passed (9)`; `vitest run src` `55 passed (55)`, `484 passed (484)`; `tsc` 18 errors before and after, none in `review-desk.ts`.
+- Task 5: eight replaces, each once. The full `npx vitest run` `143 passed (143)` files, `2313 passed | 1 skipped (2314)`; all 26 `tools/*-check` pass (`promote-check` `695/695`, the other 25 as on `32605ca`).
+- Not run: `0037_probe.sql` (no database here; it needs the founder's "apply" — F7) and the drill.
+
 ---
 
 ## Founder decisions (each has a recommended default, used unless the founder says otherwise)
@@ -65,11 +74,12 @@ The plan builds the default of each. None needs an answer before the work starts
 | # | Choice | Options | Default |
 |---|---|---|---|
 | F1 | Who may review and re-open on the web (Q1). `requireMinRole` lets the machine credential through ("service"), so any `BCF_TOKEN` holder — the MCP agent included — could decline or re-open | **A:** a signed-in person only: the machine credential's post is a 403 `… on the web desk is a signed-in person's — sign in (the machine credential, the MCP agent and scripts never review)`; then contributor to decide, lead or owner to re-open (design `:952-953`). **B:** the machine credential passes, as on the other changeset routes | **A** — the precedent is `reviewDecide` (`cde-store.mjs:1398-1401`); the MCP server keeps "no write tool beyond proposing" (§6.8) |
-| F2 | A decline that lands after Revit's re-check at Apply (gotcha 2): Revit is placing, and refusing its report would leave elements in the model unreported | **A:** Revit sends the `review_rev` it re-checked. A result applying a ghost declined at or before it is a 409 (the add-in refuses that tick, so a client that did not is refused and said); one declined after it is recorded as `applied_over_late_decline` (on the result, on the `changeset_applied` row, and said in Revit). **B:** always refuse. **C:** a Revit "ticked" lock before Apply | **A.** A result with no `review_rev` (Ghost Builder's own build; an add-in before MA-3a) is revision 0: every decline in it is late — recorded, never refused. C is Next |
+| F2 | A decline that lands after Revit's re-check at Apply (gotcha 2): Revit is placing, and refusing its report would leave elements in the model unreported | **A:** Revit sends the `review_rev` it re-checked. A result applying a ghost declined at or before it is a 409 (the add-in refuses that tick, so a client that did not is refused and said); one declined after it is recorded as `applied_over_late_decline` (on the result, on the `changeset_applied` row, and said in Revit). **B:** always refuse. **C:** a Revit "ticked" lock before Apply | **A.** A result with no `review_rev` (an add-in before MA-3a; a script) is **unchecked** (C2): each decline it applied is recorded as `applied_over_decline_unchecked`, with the words "the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline" — never refused (the elements are already placed) and never called late (that would be a guess). Ghost Builder's own build sends the `review_rev` its filing reply carried (0). C is Next |
 | F3 | Where decisions live (Q3; design `:942` says "ledger rows; the views are derived from the ledger") | **A:** on the changeset doc (each ghost's `review`, the doc's `review_rev`) and as `changeset_reviewed` / `changeset_reopened` rows. **B:** ledger rows only, derived per read | **A** (spec amendment S1) — the add-in already reads the doc, and the bridge must judge a result against the decisions in the same swap; a derived view would be a second read and a race. The rows stay the record |
 | F4 | Changing a decision (Q5) | **A:** proposed → accepted or declined, accepted → declined: any signed-in contributor; declined → proposed: only a lead's re-open; a repeat (accept an accepted ghost, decline a declined one) is a 409; nothing once the changeset is not proposed. **B:** any step by anyone | **A.** Each post is all or none; each is a ledger row |
 | F5 | The Modeling studio (Q12) | **A:** delete `model-panel.ts` and its tab; the desk takes the slot; keep `sentinel-core/ifc-writer.ts` (MA-3d writes the proposal IFC from it). **B:** keep both | **A.** Sketches saved in a browser's local storage (`sentinel:model:<pid>`) are no longer shown; the tab's comment in `main.ts` says so |
 | F6 | The drill's web rows (the desk needs the founder's platform sign-in, and port 4000 is held by the founder's `thatopen serve`) | **A:** one founder session: `thatopen serve --port 4002` built against the test bridge on 4101; the founder signs in on the desk. **B:** owed | **A.** Without the founder, D-2 … D-4 are **owed** — and since only a signed-in person can decline (F1), D-3 (the binding in Revit) cannot run either: **the merge waits for that session** |
+| F7 | Migration 0037 (C1: the `changeset` store loses its signed-in writer) | **A:** the founder says "apply" before the drill: the controller applies it after the test bridge with service writes is up (the founder's 4100 bridge on master still forwards a signed-in person's changeset writes, which 0037 then refuses — see the Deployment order), and runs `probes/0037_probe.sql`; its result is written into the migration's header. **B:** after the merge, with the deployment | **B** — applying it while the founder's 4100 bridge runs master's store would make a signed-in person's Revit result or withdraw lose its swap on 4100 (0 rows patched, a 409) until the bridge restarts on the merged code; the drill's rows do not need it (the binding is the bridge's and Revit's). The probe is then **owed** at the merge, and the web app's publish waits for the apply (Deployment) |
 
 ## Amendments to the spec's words (BINDING — they override any task text they contradict; numbered S1…, so a review's amendments take C1…)
 
@@ -82,17 +92,33 @@ The plan builds the default of each. None needs an answer before the work starts
 
 | # | Decision | Why / ceiling |
 |---|---|---|
-| E1 | Every write of a changeset doc is `rewrite`: read, decide, swap on `review_rev`, three tries, then a 409 `the changeset changed three times while this was being written — nothing was saved; send it again` | The decision is made again on the doc the swap lost to, so a result is judged against a decline that landed during its write. Ceiling: Revit's `Report` stops at a 409 ("retrying cannot fix this") although a retry would land; three writes inside one report's window is not expected |
+| E1 | Every write of a changeset doc is `rewrite`: read, decide, swap on `review_rev` (a service write — C1), three tries, then a **503** `the changeset changed three times while this was being written — nothing was saved; send it again` (C3) | The decision is made again on the doc the swap lost to, so a result is judged against a decline that landed during its write. 503 is not in `Report`'s no-retry list, so Revit offers Retry with its existing duplicate warning |
 | E2 | A doc from before MA-3a (no `review_rev`) swaps on the field being absent (`docReplaceIfField`'s `null`), and reads as revision 0 | No migration of stored docs |
 | E3 | The desk's posts share one write budget, `changeset reviews`, 60 a minute per person and 300 for all (`takeWriteBudget`, as `changeset reverts`) | Each post is a ledger row |
 | E4 | `baseDeps` keeps a `docReplaceIfStatus` that throws | A test whose write is not mocked fails in words, never with a PATCH to the bridge's Supabase |
 | E5 | The desk ticks ghosts and posts once per changeset; Re-open is per ghost | One ledger row per decision post; a storey's parts are separate changesets |
 | E6 | The window leads a decided row with its review line (`declined on the web by …  ·  retype wall: W 1 …`) and puts it first in the tooltip | The row's text trims with an ellipsis; the decline's reason must never be the part cut off |
-| E7 | `Report`'s `reviewRev` is optional; Ghost Builder's calls are unchanged (they send none) | Ghost Builder files and applies in one flow and shows no web decision; its result is judged as revision 0 (F2) |
+| E7 | `Report`'s `reviewRev` is optional; Ghost Builder's applying call sends `cs.ReviewRev`, the revision its filing reply carried (0) — C2; its all-or-nothing rollback call applies nothing and sends none | Ghost Builder files and applies in one flow and shows no web decision: a decline that lands in between is later than revision 0, so it is judged late (true: Ghost Builder never saw it), not unchecked |
 
 ## The scout's gotchas, settled (G1–G11)
 
 G1 the lost update: E1. G2 a decline after the re-check: F2 A. G3 the window is a snapshot: Apply's `DeclinedTicked` on the fresh copies (Task 3). G4 Promote opens its review straight after filing: the drill closes the window (D-1). G5 a changeset whose every ghost is declined stays proposed until Revit reports it: said by the window's header and by the desk. G6/G7 ghost sizes and coordinates: MA-3d. G8 the Editor: MA-3d's spike. G9 DirectContext3D: MA-3c. G10 the machine credential: F1 A. G11 AI-2's unreported record: MA-3b.
+
+## Review amendments (BINDING — the plan review of 2026-10-04; the task text below already carries each one)
+
+The review found one critical, five important and two minor points. Each amendment is written into the task text it changes; where the two differ, this section wins.
+
+- **C1 (critical — a contributor could undo a binding decline by writing the changeset doc directly; it overrides the constraint "no migration").** 0033/0034 leave `bridge_docs_floor('changeset') = 'contributor'`, so a signed-in member with the public anon key and their own JWT could PATCH a changeset doc through Supabase — set a declined ghost back to proposed (a re-open by a non-lead, no `changeset_reopened` row), delete a `review`, forge `review.by` — and Revit would obey it. Task 2 adds `WebApp/db/migrations/0037_changeset_bridge_only.sql` (0034's pattern: `bridge_docs_floor` without `'changeset'`; reads unchanged) and `probes/0037_probe.sql` (the floors; a signed-in contributor's direct update of a changeset doc patches 0 rows and a direct insert is refused by row-level security; the control `rfi` update patches 1 row; rolled back). `cde.docReplaceIfField` gains a 7th parameter `{ service = false } = {}` passed to `sb`; `changesets-store`'s writes pass `{ service: true }`, always after its own role check — `proposeChangeset`'s `docInsert` and `rewrite`'s swap. Store tests: `mock.calls[i][6]` / `docInsert`'s `[4]` are `{service: true}` (one new test), and every `.slice(4)` became `.slice(4, 6)`. `migration-0037.test.mjs` scans the SQL, the probe and the store (as `migration-0033.test.mjs` does). Deployment: the bridge with service writes first, then the founder's "apply" of 0037 and its probe (recorded in the migration's header), then the add-in, then the publish (F7). Merge condition: the probe passed live or is named owed.
+- **C2 (important — a result without `review_rev` dodged the 409, and "late" was a guess).** `resultConflicts` with `seen == null` puts each applied decline in a new list `unchecked` (never `late`, never `refused`); `reportResult` stores `result.applied_over_decline_unchecked`, and the `changeset_applied` row carries it with `unchecked_why: "the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline"`. `review_rev_seen` is stored as `{value, claimed: true}`. Ghost Builder's applying `Report` sends `cs.ReviewRev`, the revision its filing reply carried (0). `ChangesetTrust.LateDeclines` also says the unchecked list (one new promote-check check). The fixture's `late_reply` carries `review_rev_seen: {value: 2, claimed: true}` and `applied_over_decline_unchecked: []`; the vitest "no review_rev" tests expect `unchecked`.
+- **C3 (important — three lost swaps answered 409, so Revit stopped reporting with elements placed).** `rewrite`'s exhaustion is `err(503, …)` with the same words; 503 is not in `Report`'s no-retry list, so Revit offers Retry with its duplicate warning. The store test expects `status: 503`; E1's ceiling sentence and the matching Risks line are deleted.
+- **C4 (important — a decline binds its changeset only; a Promote re-run proposes the ghost again, undecided and pre-ticked).** Words now, code in MA-3b: a Risks line; `DeclinedHeader` and the desk's intro line end with "— a new Promote run proposes a declined ghost again, undecided"; Next ▸ MA-3b carries the decline forward by (`target.unique_id`, `op`, `place.TypeName`/`to`).
+- **C5 (important — the ledger rows the plan calls the record could be forged through the open audit route).** `RESERVED_ACTIONS` in `cde-store.mjs` gains `"changeset_reviewed", "changeset_reopened"`; `ledger-write.test.mjs` gains two rows (`changeset_reviewed rows are written by Sentinel, not through this route` and the re-open's). The Next item and the Risks line are removed.
+- **C6 (minor — one repeat refused a whole changeset).** `review-desk.ts` gains the pure `postsFor(ticked, decision)`: one post per changeset, leaving out a ghost whose `review?.state` is already the decision's target; the status line says `<n> already accepted|declined — not sent`. One test in `review-desk.test.ts`.
+- **D1 (important — D-3's late decline had nothing left to decline).** D-3's late decline targets a ghost D-2 did not decline that is ticked in Revit — an attach or a retype (signed out: tick it first); D-1 records the attach guids too.
+- **D2 (important — one account made lead contradicted D-2's `(contributor)`).** The founder's account is added as `contributor`; with one account, D-4 starts with `b4101 PATCH cde/ma3a/members/<user_id> '{"role":"lead"}'` (the existing role-change route; the reply recorded). With two accounts the second is added as `lead` at set-up.
+- **M2 (minor — Task 4 rides on the founder's session).** No change: Task 4 stays (a decline cannot be made otherwise — the machine credential gets a 403), and D-3 stays a merge blocker. Task 5 Step 2's totals were measured again after C1–C6 (the amended dry run above).
+
+**Rejected, with the reason:** C1's sentence "until 0037 is applied, the desk's header says 'a decline binds in Revit; until migration 0037 a project member can still edit it outside Sentinel'". The desk cannot know whether 0037 is applied (no route reports a migration), so a fixed sentence would stay after the apply and become false — a guess, against the house rule. In its place the deployment orders the web app's publish after the apply (step 4 waits for step 2), so no published desk offers a decline while the hole is open; the Risks line says the hole in words, and the merge message says whether 0037 is applied or owed.
 
 ---
 
@@ -104,13 +130,16 @@ G1 the lost update: E1. G2 a decline after the re-check: F2 A. G3 the window is 
 | `WebApp/bridge/fixtures/changeset-ops/ma3a-review.json` (new) | 1 | The shared fixture: `before`, `decisions`, `who`, `after`, `reopen`, `reopened_review`, `late_reply` |
 | `WebApp/bridge/changesets-review.test.mjs` (new) | 1 | The review states (17 tests) |
 | `WebApp/bridge/changesets-store.mjs` | 2 | `rewrite`, `reviewer`, `ledgerRef`; `review_rev: 0` at filing; `reportResult` (judged, swapped on `review_rev`), `withdrawChangeset` (swapped); `reviewChangeset`, `reopenGhost` |
-| `WebApp/bridge/changesets-store.test.mjs` | 2 | `docReplaceIfField` mocks (and the tripwire); 13 new tests |
+| `WebApp/bridge/changesets-store.test.mjs` | 2 | `docReplaceIfField` mocks (and the tripwire); 14 new tests |
 | `WebApp/bridge/bcf-service.mjs` | 2 | `POST /changesets/:key/:id/review`, `/reopen`; the actor's fallback `web` |
+| `WebApp/bridge/cde-store.mjs`, `ledger-write.test.mjs` | 2 | `docReplaceIfField(…, { service })` (C1); `changeset_reviewed`, `changeset_reopened` reserved (C5), 2 tests |
+| `WebApp/db/migrations/0037_changeset_bridge_only.sql`, `probes/0037_probe.sql`, `WebApp/bridge/migration-0037.test.mjs` (new) | 2 | The changeset store bridge-only (C1), written, not applied; its probe; 4 tests |
+| `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` | 3 | The applying `Report` sends `cs.ReviewRev` (C2) |
 | `SentinelAddin/Coordination/ChangesetClient.cs` | 3 | `ReviewDto`, `ChangesetElementDto.Review`, `ChangesetDto.ReviewRev`; `ChangesetTrust` (`PreTick`, `DeclinedOnWeb`, `ReviewLine`, `DeclinedHeader`, `DeclinedTicked`, `LateDeclines`); `ReportResult(…, reviewRev, out reply, out error)` |
 | `SentinelAddin/UI/ChangesetReviewWindow.cs` | 3 | The declines' header; a declined row disabled; the review line leading each decided row |
 | `SentinelAddin/Commands.ReviewChangesets.cs` | 3 | Apply refuses a declined tick on the fresh copies; the result sends `one.ReviewRev`; `Report` says a late decline |
-| `tools/promote-check/Ma3aReview.cs` (new), `Check.cs`, `Ma2dWiring.cs` | 3 | Sections 40 (13 checks) and 41 (3 scans); one scan string updated |
-| `WebApp/src/setups/review-desk.ts` (new), `review-desk.test.ts` (new) | 4 | The desk; its 8 tests |
+| `tools/promote-check/Ma3aReview.cs` (new), `Check.cs`, `Ma2dWiring.cs` | 3 | Sections 40 (14 checks) and 41 (3 scans); one scan string updated |
+| `WebApp/src/setups/review-desk.ts` (new), `review-desk.test.ts` (new) | 4 | The desk; its 9 tests |
 | `WebApp/src/main.ts`; `WebApp/src/setups/model-panel.ts` (deleted) | 4 | The Review tab where the Model tab was |
 | `docs/strategy/2026-09-30-model-automation-design.md` | 5 | What was built, drill pending |
 
@@ -135,7 +164,7 @@ How a code step is written: `Create` gives the whole new file. `In <file>, repla
   - `reviewNext(state, action: "accept" | "decline" | "reopen") → state`, else throws 409 in words.
   - `applyDecisions(cs, decisions: [{proposal_guid, decision, reason?}], who: {by, role, at}) → {updated, rows: [{proposal_guid, name, from, to, reason}]}` — throws 400 (shape, reason) / 409 (status, step).
   - `reopenDecline(cs, guid, reason, who) → {updated, row: {proposal_guid, name, declined_by, declined_reason, reason}}`.
-  - `resultConflicts(cs, appliedGuids, rejectedGuids, seen) → {refused, late, declined_on_web}`, each entry `{proposal_guid, name, by, role, reason, rev}` — throws 400 when `seen` is not an integer 0…`reviewRev(cs)` (null/undefined read as 0).
+  - `resultConflicts(cs, appliedGuids, rejectedGuids, seen) → {refused, late, unchecked, declined_on_web}`, each entry `{proposal_guid, name, by, role, reason, rev}` — throws 400 when `seen` is given and is not an integer 0…`reviewRev(cs)`; `seen` null/undefined puts every applied decline in `unchecked`, never `refused` or `late` (C2).
   - A ghost's name, everywhere it is said: `` `${op ?? "create"} ${kind} "${validate.identity.Name ?? proposal_guid}"` `` — e.g. `retype wall "W 1"`.
 
 - [ ] **Step 1: The fixture and the failing tests.**
@@ -200,9 +229,10 @@ Create `WebApp/bridge/fixtures/changeset-ops/ma3a-review.json`:
     "id": "cs-ma3a", "status": "partially_applied", "review_rev": 4,
     "result": {
       "applied": [{ "proposal_guid": "g-3", "revit_element_id": 2051449, "revit_unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c401" }],
-      "rejected": ["g-1", "g-2", "g-4"], "note": null, "review_rev_seen": 2,
+      "rejected": ["g-1", "g-2", "g-4"], "note": null, "review_rev_seen": { "value": 2, "claimed": true },
       "declined_on_web": [{ "proposal_guid": "g-4", "name": "set_parameter wall \"BDS_EXT_ARC_CMU_200 mm\"", "by": "reviewer@example.com", "role": "contributor", "reason": "no fire strategy issued yet", "rev": 1 }],
-      "applied_over_late_decline": [{ "proposal_guid": "g-3", "name": "retype wall \"W 2\"", "by": "reviewer@example.com", "role": "contributor", "reason": "W 2 is demolished", "rev": 3 }]
+      "applied_over_late_decline": [{ "proposal_guid": "g-3", "name": "retype wall \"W 2\"", "by": "reviewer@example.com", "role": "contributor", "reason": "W 2 is demolished", "rev": 3 }],
+      "applied_over_decline_unchecked": []
     }
   }
 }
@@ -333,9 +363,12 @@ describe("resultConflicts — Revit's result against the web's declines (Q2)", (
     expect(c.late.map((x) => x.proposal_guid)).toEqual(["g-1"]);
   });
 
-  it("no review_rev (an add-in before MA-3a, Ghost Builder's own build) is revision 0: every decline is late, never refused", () => {
-    expect(resultConflicts(fx.after, ["g-1", "g-4"], ["g-2", "g-3"], undefined).late.map((x) => x.proposal_guid)).toEqual(["g-1", "g-4"]);
-    expect(resultConflicts(fx.after, ["g-1", "g-4"], ["g-2", "g-3"], null).refused).toEqual([]);
+  it("no review_rev (an add-in before MA-3a, a script) is unchecked: never refused, never called late (C2)", () => {
+    const c = resultConflicts(fx.after, ["g-1", "g-4"], ["g-2", "g-3"], undefined);
+    expect(c.unchecked.map((x) => x.proposal_guid)).toEqual(["g-1", "g-4"]);
+    expect([c.refused, c.late]).toEqual([[], []]);
+    expect(resultConflicts(fx.after, ["g-1", "g-4"], ["g-2", "g-3"], null).unchecked.length).toBe(2);
+    expect(resultConflicts(fx.after, ["g-1"], ["g-2", "g-3", "g-4"], 0).unchecked).toEqual([]); // a revision sent is judged
   });
 
   it("declined ghosts the result rejects are listed with the web's reason", () => {
@@ -456,13 +489,15 @@ export function reopenDecline(cs, guid, reason, who) {
   };
 }
 
-/** Revit's result against the web's declines (Q2). `seen` is the review_rev Revit re-checked before Apply; absent is 0 (an add-in
- *  before MA-3a, Ghost Builder's own build: they saw no decline). Applying a ghost declined at or before `seen` is refused — Revit
- *  showed it declined and refuses that tick, so a client that did not is refused and said. One declined after `seen` was applied over
- *  a decline Revit could not see: recorded (late) and said. Declined ghosts the result rejects are listed with the web's reason. */
+/** Revit's result against the web's declines (Q2). `seen` is the review_rev Revit re-checked before Apply (a claim the bridge cannot
+ *  verify). Applying a ghost declined at or before `seen` is refused — Revit showed it declined and refuses that tick, so a client
+ *  that did not is refused and said. One declined after `seen` was applied over a decline Revit could not see: recorded (late) and
+ *  said. No `seen` at all (an add-in before MA-3a, a script — review amendment C2): the bridge cannot tell whether the decline was
+ *  seen, so each applied decline is `unchecked` — recorded, never refused, never called late. Declined ghosts the result rejects are
+ *  listed with the web's reason. */
 export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
-  const s = seen ?? 0;
-  if (!Number.isInteger(s) || s < 0 || s > reviewRev(cs))
+  const none = seen == null;
+  if (!none && (!Number.isInteger(seen) || seen < 0 || seen > reviewRev(cs)))
     throw err(400, `review_rev must be the review revision Revit re-checked (0–${reviewRev(cs)})`);
   const byGuid = new Map(cs.elements.map((e) => [e.proposal_guid, e]));
   const entry = (g) => {
@@ -470,10 +505,10 @@ export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
     if (reviewState(e) !== "declined") return null;
     return { proposal_guid: g, name: ghostName(e), by: e.review.by, role: e.review.role, reason: e.review.reason, rev: e.review.rev };
   };
-  const refused = [], late = [], declinedOnWeb = [];
-  for (const g of appliedGuids) { const x = entry(g); if (x) (x.rev <= s ? refused : late).push(x); }
+  const refused = [], late = [], unchecked = [], declinedOnWeb = [];
+  for (const g of appliedGuids) { const x = entry(g); if (x) (none ? unchecked : x.rev <= seen ? refused : late).push(x); }
   for (const g of rejectedGuids) { const x = entry(g); if (x) declinedOnWeb.push(x); }
-  return { refused, late, declined_on_web: declinedOnWeb };
+  return { refused, late, unchecked, declined_on_web: declinedOnWeb };
 }
 ```
 
@@ -484,7 +519,7 @@ export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
 ```bash
 git add WebApp/bridge/changesets-logic.mjs WebApp/bridge/changesets-review.test.mjs WebApp/bridge/fixtures/changeset-ops/ma3a-review.json
 git commit -F - <<'EOF'
-feat(bridge): MA-3a - the review states of design 6.6, pure: proposed, accepted, declined per ghost; a decline needs a reason, only a re-open takes a decline back, a repeat is a 409, nothing once the changeset is not proposed; the desk's decisions all or none; a result judged against the web's declines (refused when Revit had seen one, late when it could not); a shared fixture the add-in reads
+feat(bridge): MA-3a - the review states of design 6.6, pure: proposed, accepted, declined per ghost; a decline needs a reason, only a re-open takes a decline back, a repeat is a 409, nothing once the changeset is not proposed; the desk's decisions all or none; a result judged against the web's declines (refused when Revit had seen one, late when it could not, unchecked when the result names no revision); a shared fixture the add-in reads
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -496,16 +531,21 @@ EOF
 - Modify `WebApp/bridge/changesets-store.mjs`
 - Modify `WebApp/bridge/changesets-store.test.mjs`
 - Modify `WebApp/bridge/bcf-service.mjs` (the `changesets` block, `:1608-1635`)
+- Modify `WebApp/bridge/cde-store.mjs` (`docReplaceIfField` takes `{ service }` — C1; `RESERVED_ACTIONS` — C5), `WebApp/bridge/ledger-write.test.mjs` (C5)
+- Create `WebApp/db/migrations/0037_changeset_bridge_only.sql`, `WebApp/db/migrations/probes/0037_probe.sql`, `WebApp/bridge/migration-0037.test.mjs` (C1)
 
 **Interfaces:**
-- Consumes (Task 1): `reviewRev`, `applyDecisions`, `reopenDecline`, `resultConflicts`; the fixture. From the codebase: `cde.docReplaceIfField(store, pid, docId, data, field, expected)` (`cde-store.mjs:1962`; `expected` null = the key absent; answers the data, or null when the swap lost), `members.ROLE_RANK`, `myRole(key)` (`"service"` for the machine credential, a role, or null), `resolveActor(claimed, fallback)`, `takeWriteBudget(what, {perUser, all})`, `audit(...)` → the stored row `{id, hash, …}` or null.
+- Consumes (Task 1): `reviewRev`, `applyDecisions`, `reopenDecline`, `resultConflicts`; the fixture. From the codebase: `cde.docReplaceIfField(store, pid, docId, data, field, expected, { service } = {})` (`cde-store.mjs:1962`; `expected` null = the key absent; answers the data, or null when the swap lost; the 7th parameter is this task's, C1), `cde.docInsert(store, pid, docId, data, { service })`, `members.ROLE_RANK`, `myRole(key)` (`"service"` for the machine credential, a role, or null), `resolveActor(claimed, fallback)`, `takeWriteBudget(what, {perUser, all})`, `audit(...)` → the stored row `{id, hash, …}` or null.
 - Produces:
   - `reviewChangeset(key, id, {decisions}, actor, deps) → {changeset, ledger: {id, hash} | null}` — 403 (machine credential, below contributor), 400/409 from `applyDecisions`, 404.
   - `reopenGhost(key, id, {proposal_guid, reason}, actor, deps) → {changeset, ledger}` — 403 below lead.
-  - `reportResult(key, id, {applied, rejected, note, review_rev}, actor, deps)` → the stored changeset; its `result` gains `review_rev_seen` (the number sent, or null), `declined_on_web` and `applied_over_late_decline` (arrays of Task 1's entries); a 409 when an applied ghost was declined at or before `review_rev`.
-  - Every stored changeset has `review_rev` (0 at filing; +1 per write).
+  - `reportResult(key, id, {applied, rejected, note, review_rev}, actor, deps)` → the stored changeset; its `result` gains `review_rev_seen` (`{value, claimed: true}` — the number sent, a claim — or null), `declined_on_web`, `applied_over_late_decline` and `applied_over_decline_unchecked` (arrays of Task 1's entries; C2); a 409 when an applied ghost was declined at or before `review_rev`.
+  - Every stored changeset has `review_rev` (0 at filing; +1 per write). Every changeset doc write — the filing's `docInsert` and `rewrite`'s swap — passes `{ service: true }`, always after the store's own role check (C1).
+  - Three lost swaps in a row: a 503 (C3).
+  - `recordAudit` refuses `changeset_reviewed` and `changeset_reopened` (400, `<action> rows are written by Sentinel, not through this route`) — C5.
+  - Migration 0037: `bridge_docs_floor` without `'changeset'` (no signed-in writer; reads unchanged) — C1; written, never applied by a task.
   - Routes: `POST /changesets/:key/:id/review` → 200 `{changeset, ledger}`; `POST /changesets/:key/:id/reopen` → 200 `{changeset, ledger}`.
-  - Ledger rows: `changeset_reviewed` — old `{review_rev}`, new `{review_rev, reviewer, role, decisions: [{proposal_guid, name, from, to, reason}]}`; `changeset_reopened` — old `{review_rev, state: "declined"}`, new `{review_rev, lead, role, proposal_guid, name, declined_by, declined_reason, reason}`; `changeset_applied` gains `declined_on_web` (a count) and, when any, `applied_over_late_decline`.
+  - Ledger rows: `changeset_reviewed` — old `{review_rev}`, new `{review_rev, reviewer, role, decisions: [{proposal_guid, name, from, to, reason}]}`; `changeset_reopened` — old `{review_rev, state: "declined"}`, new `{review_rev, lead, role, proposal_guid, name, declined_by, declined_reason, reason}`; `changeset_applied` gains `declined_on_web` (a count) and, when any, `applied_over_late_decline`, and `applied_over_decline_unchecked` with `unchecked_why` (C2).
 
 - [ ] **Step 1: The failing tests.**
 
@@ -534,7 +574,7 @@ In `WebApp/bridge/changesets-store.test.mjs`, replace
 with
 
 ```js
-    expect(deps.docReplaceIfField.mock.calls[0].slice(4)).toEqual(["review_rev", 0]); // MA-3a: the swap is on review_rev (it was on status)
+    expect(deps.docReplaceIfField.mock.calls[0].slice(4, 6)).toEqual(["review_rev", 0]); // MA-3a: the swap is on review_rev (it was on status)
 ```
 
 In `WebApp/bridge/changesets-store.test.mjs`, replace
@@ -566,11 +606,19 @@ describe("MA-3a — every write swaps on review_rev", () => {
     expect(deps.saved.get(cs.id).review_rev).toBe(0);
     const out = await reportResult("demo", cs.id, { applied: [], rejected: cs.elements.map((e) => e.proposal_guid) }, "r", deps);
     expect(deps.docReplaceIfField.mock.calls[0].slice(0, 3)).toEqual(["changeset", "p1", cs.id]);
-    expect(deps.docReplaceIfField.mock.calls[0].slice(4)).toEqual(["review_rev", 0]);
+    expect(deps.docReplaceIfField.mock.calls[0].slice(4, 6)).toEqual(["review_rev", 0]);
     expect(out.review_rev).toBe(1);
     const cs2 = await twoWalls(deps);
     expect((await withdrawChangeset("demo", cs2.id, "agent", deps)).review_rev).toBe(1);
-    expect(deps.docReplaceIfField.mock.calls[1].slice(4)).toEqual(["review_rev", 0]);
+    expect(deps.docReplaceIfField.mock.calls[1].slice(4, 6)).toEqual(["review_rev", 0]);
+  });
+
+  it("every changeset doc write is the bridge's, with the service key, after its own role check (C1, migration 0037)", async () => {
+    const deps = baseDeps();
+    const cs = await twoWalls(deps);
+    expect(deps.docInsert.mock.calls[0][4]).toEqual({ service: true });
+    await withdrawChangeset("demo", cs.id, "agent", deps);
+    expect(deps.docReplaceIfField.mock.calls[0][6]).toEqual({ service: true });
   });
 
   it("a doc from before MA-3a (no review_rev) swaps on the field being absent", async () => {
@@ -579,7 +627,7 @@ describe("MA-3a — every write swaps on review_rev", () => {
     const { review_rev, ...legacy } = deps.saved.get(cs.id);
     deps.saved.set(cs.id, legacy);
     await withdrawChangeset("demo", cs.id, "agent", deps);
-    expect(deps.docReplaceIfField.mock.calls[0].slice(4)).toEqual(["review_rev", null]);
+    expect(deps.docReplaceIfField.mock.calls[0].slice(4, 6)).toEqual(["review_rev", null]);
     expect(deps.saved.get(cs.id).review_rev).toBe(1);
   });
 
@@ -600,13 +648,13 @@ describe("MA-3a — every write swaps on review_rev", () => {
     expect(out.result.declined_on_web).toEqual([{ proposal_guid: b, name: 'create wall "W1"', by: "web@example.com", role: "contributor", reason: "not here", rev: 1 }]);
   });
 
-  it("three lost swaps in a row are a 409 in words, and nothing is recorded", async () => {
+  it("three lost swaps in a row are a 503 in words — Revit's Report offers Retry (C3) — and nothing is recorded", async () => {
     const deps = baseDeps();
     const cs = await twoWalls(deps);
     deps.docReplaceIfField = vi.fn(async () => null);
     deps.audit.mockClear();
     await expect(withdrawChangeset("demo", cs.id, "agent", deps))
-      .rejects.toMatchObject({ status: 409, message: "the changeset changed three times while this was being written — nothing was saved; send it again" });
+      .rejects.toMatchObject({ status: 503, message: "the changeset changed three times while this was being written — nothing was saved; send it again" });
     expect(deps.docReplaceIfField).toHaveBeenCalledTimes(3);
     expect(deps.audit).not.toHaveBeenCalled();
   });
@@ -700,17 +748,24 @@ describe("MA-3a — Revit's result against the web's declines (Q2)", () => {
     const want = fx.late_reply;
     expect(out.status).toBe(want.status);
     expect(out.review_rev).toBe(want.review_rev);
-    expect(out.result.review_rev_seen).toBe(want.result.review_rev_seen);
+    expect(out.result.review_rev_seen).toEqual(want.result.review_rev_seen); // {value: 2, claimed: true} — the client's claim (C2)
     expect(out.result.declined_on_web).toEqual(want.result.declined_on_web);
     expect(out.result.applied_over_late_decline).toEqual(want.result.applied_over_late_decline);
+    expect(out.result.applied_over_decline_unchecked).toEqual(want.result.applied_over_decline_unchecked);
     expect(deps.audit.mock.calls[0][6]).toMatchObject({ status: "partially_applied", declined_on_web: 1, applied_over_late_decline: want.result.applied_over_late_decline });
+    expect(deps.audit.mock.calls[0][6]).not.toHaveProperty("applied_over_decline_unchecked");
   });
 
-  it("a result without review_rev (Ghost Builder's own build, an add-in before MA-3a) lands; a decline it applied is recorded as late", async () => {
+  it("a result without review_rev (an add-in before MA-3a, a script) lands; a decline it applied is recorded as unchecked, never late (C2)", async () => {
     const deps = seeded(fx.after);
     const out = await reportResult("demo", "cs-ma3a", { applied: [applied("g-1"), applied("g-2", 8)], rejected: ["g-3", "g-4"] }, "revit", deps);
     expect(out.result.review_rev_seen).toBeNull();
-    expect(out.result.applied_over_late_decline.map((x) => x.proposal_guid)).toEqual(["g-1"]);
+    expect(out.result.applied_over_late_decline).toEqual([]);
+    expect(out.result.applied_over_decline_unchecked.map((x) => x.proposal_guid)).toEqual(["g-1"]);
+    const row = deps.audit.mock.calls[0][6];
+    expect(row.applied_over_decline_unchecked.map((x) => x.proposal_guid)).toEqual(["g-1"]);
+    expect(row.unchecked_why).toBe("the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline");
+    expect(row).not.toHaveProperty("applied_over_late_decline");
   });
 });
 
@@ -724,7 +779,68 @@ describe("MA-3a — the routes", () => {
 });
 ```
 
-- [ ] **Step 2: See it fail.** From `WebApp`: `npx vitest run bridge/changesets-store.test.mjs` → `Tests  25 failed | 26 passed (51)`: the 13 new tests (`reviewChangeset is not a function`, no `review_rev`, …) and 12 existing ones whose result or withdraw now reaches the tripwire (`MA-3a: a changeset write swaps on review_rev — docReplaceIfStatus is not called`).
+In `WebApp/bridge/ledger-write.test.mjs`, replace
+
+```js
+    [{ entity_type: " Platform_Gate ", action: "recorded" }, "platform_gate rows are written by Sentinel, not through this route"],
+```
+
+with
+
+```js
+    [{ entity_type: " Platform_Gate ", action: "recorded" }, "platform_gate rows are written by Sentinel, not through this route"],
+    // MA-3a (review amendment C5): the web desk's decisions and a lead's re-open are the bridge's rows — the record of a binding decline.
+    [{ entity_type: "changeset", action: "changeset_reviewed" }, "changeset_reviewed rows are written by Sentinel, not through this route"],
+    [{ entity_type: "changeset", action: " Changeset_Reopened" }, "changeset_reopened rows are written by Sentinel, not through this route"],
+```
+
+Create `WebApp/bridge/migration-0037.test.mjs`:
+
+```js
+// Migration 0037 (MA-3a, review amendment C1): the changeset store is the bridge's alone. A web decline binds Revit through the
+// changeset doc, so a member must not be able to write that doc straight through PostgREST with the public anon key and their own
+// JWT (re-open a decline, delete a review, forge review.by). Applied by the controller on the founder's "apply" — never by a test.
+// This pins the text the probe and the bridge rely on, as migration-0033.test.mjs does for 0033.
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+const read = (rel) => { try { return readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\r/g, ""); } catch { return ""; } };
+const SQL = read("../db/migrations/0037_changeset_bridge_only.sql");
+const PROBE = read("../db/migrations/probes/0037_probe.sql");
+const STORE = read("./changesets-store.mjs");
+const code = SQL.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+
+describe("migration 0037 — the changeset store is written by the bridge alone (written, not applied)", () => {
+  it("is marked not yet applied and redefines bridge_docs_floor only — no table, policy, grant or drop", () => {
+    expect(SQL).toContain("NOT YET APPLIED");
+    expect(code).toContain("create or replace function public.bridge_docs_floor(p_store text) returns text\n  language sql immutable set search_path = public as $$");
+    expect(code).not.toMatch(/\b(drop|grant|revoke|create\s+table|create\s+policy|alter\s+table)\b/i);
+  });
+
+  it("names every store 0034 named except changeset, at the same floors, with no else", () => {
+    const floor = code.slice(code.indexOf("function public.bridge_docs_floor"));
+    expect([...floor.matchAll(/when '([a-z_]+)'\s+then '([a-z]+)'/g)].map((m) => `${m[1]}=${m[2]}`))
+      .toEqual(["doc_comments=viewer", "rfi=contributor", "office_snapshot=contributor", "office_scan=contributor"]);
+    expect(floor).not.toMatch(/\belse\b/);
+    expect(floor).not.toContain("'changeset'");
+  });
+
+  it("the probe checks the floors, a contributor's refused direct write of a changeset doc and the rfi control, and rolls back", () => {
+    for (const w of ["changeset has no signed-in writer", "rfi still contributor", "doc_comments still viewer", "office_snapshot still contributor", "office_scan still contributor",
+      "a contributor's direct update of a changeset doc patches 0 rows", "a contributor's direct insert of a changeset doc is refused", "the control rfi update patches 1 row", "PROBE 0037:"])
+      expect(PROBE).toContain(w);
+    expect(PROBE).toContain("set local role authenticated;");
+  });
+
+  it("the bridge writes every changeset doc with the service key, so it is safe on either side of the apply", () => {
+    expect(STORE).toContain("await d.docInsert(STORE, proj.id, changeset.id, changeset, { service: true });");
+    expect(STORE).toContain('await d.docReplaceIfField(STORE, pid, id, out.updated, "review_rev", Number.isInteger(cs.review_rev) ? cs.review_rev : null, { service: true })');
+    expect(STORE).not.toContain("docReplaceIfStatus");
+  });
+});
+```
+
+- [ ] **Step 2: See it fail.** From `WebApp`: `npx vitest run bridge/changesets-store.test.mjs bridge/ledger-write.test.mjs bridge/migration-0037.test.mjs` → `Test Files  3 failed (3)`, `Tests  32 failed | 54 passed (86)`: in the store, the 14 new tests (`reviewChangeset is not a function`, no `review_rev`, …) and 12 existing ones whose result or withdraw now reaches the tripwire (`MA-3a: a changeset write swaps on review_rev — docReplaceIfStatus is not called`); the 2 new reserved actions (C5); the 4 migration-0037 tests (no file yet — C1).
 
 - [ ] **Step 3: The store.**
 
@@ -777,10 +893,13 @@ async function rewrite(d, pid, id, decide) {
     const cs = await d.docGet(STORE, pid, id);
     if (!cs) throw err(404, "changeset not found");
     const out = decide(cs);
-    if (await d.docReplaceIfField(STORE, pid, id, out.updated, "review_rev", Number.isInteger(cs.review_rev) ? cs.review_rev : null))
+    // C1 (migration 0037): the changeset store has no signed-in writer — the bridge writes it with the service key, after its own
+    // role check (every caller of rewrite checks first), so a member cannot re-open a decline by writing the doc themselves.
+    if (await d.docReplaceIfField(STORE, pid, id, out.updated, "review_rev", Number.isInteger(cs.review_rev) ? cs.review_rev : null, { service: true }))
       return { before: cs, ...out };
   }
-  throw err(409, "the changeset changed three times while this was being written — nothing was saved; send it again");
+  // C3: a 503, not a 409 — Revit's Report stops at a 409 ("retrying cannot fix this"), and a send after these writes would land.
+  throw err(503, "the changeset changed three times while this was being written — nothing was saved; send it again");
 }
 
 /** MA-3a (Q1, design §6.11): a web review decision is a signed-in person's — the machine credential (the add-in signed out, the MCP
@@ -794,6 +913,9 @@ async function reviewer(d, key, min, what) {
 }
 
 const ledgerRef = (row) => (row ? { id: row.id ?? null, hash: row.hash ?? null } : null);
+
+/** C2: the words a changeset_applied row carries when a result with no review_rev applied a web decline. */
+const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline";
 ```
 
 In `WebApp/bridge/changesets-store.mjs`, replace
@@ -806,6 +928,18 @@ with
 
 ```js
     status: "proposed", created_at: now, updated_at: now, review_rev: 0, // MA-3a: bumped and swapped on by every later write
+```
+
+In `WebApp/bridge/changesets-store.mjs`, replace
+
+```js
+  await d.docInsert(STORE, proj.id, changeset.id, changeset);
+```
+
+with
+
+```js
+  await d.docInsert(STORE, proj.id, changeset.id, changeset, { service: true }); // C1 (migration 0037): the bridge's write, after the role check above
 ```
 
 In `WebApp/bridge/changesets-store.mjs`, replace
@@ -896,7 +1030,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
         rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
         reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
-        review_rev_seen: review_rev ?? null, declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late,
+        // C2: the revision is the client's claim; a result without one is unchecked, never late.
+        review_rev_seen: review_rev == null ? null : { value: review_rev, claimed: true },
+        declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late, applied_over_decline_unchecked: conflicts.unchecked,
       },
     } };
   });
@@ -916,7 +1052,8 @@ with
 ```js
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
-      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late } : {}) });
+      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late } : {}),
+      ...(conflicts.unchecked.length ? { applied_over_decline_unchecked: conflicts.unchecked, unchecked_why: UNCHECKED_WHY } : {}) });
   return updated;
 }
 ```
@@ -995,6 +1132,149 @@ export async function reopenGhost(key, id, { proposal_guid, reason } = {}, actor
 }
 ```
 
+In `WebApp/bridge/cde-store.mjs`, replace
+
+```js
+export async function docReplaceIfField(store, pid, docId, data, field, expected) {
+  const cond = expected === null ? `data->>${enc(field)}=is.null` : `data->>${enc(field)}=eq.${enc(expected)}`;
+  const rows = await sb(
+    `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&${cond}`,
+    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation" },
+  );
+```
+
+with
+
+```js
+export async function docReplaceIfField(store, pid, docId, data, field, expected, { service = false } = {}) {
+  const cond = expected === null ? `data->>${enc(field)}=is.null` : `data->>${enc(field)}=eq.${enc(expected)}`;
+  const rows = await sb(
+    `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&${cond}`,
+    // MA-3a (C1): `service` for a store with no signed-in writer (changeset, migration 0037) — the caller checked the role first.
+    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation", service },
+  );
+```
+
+In `WebApp/bridge/cde-store.mjs`, replace
+
+```js
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:"];
+```
+
+with
+
+```js
+// MA-3a (review amendment C5): changeset_reviewed and changeset_reopened are the record of the web desk's decisions and a lead's
+// re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened"];
+```
+
+Create `WebApp/db/migrations/0037_changeset_bridge_only.sql`:
+
+```sql
+-- 0037_changeset_bridge_only.sql — the changeset store is written by the bridge alone (MA-3a, review amendment C1).
+--
+-- Why: MA-3a makes a web decline BIND in Revit through the changeset doc (each ghost's `review`, the doc's `review_rev` —
+-- spec amendment S1). 0033 left the 'changeset' store's floor at 'contributor', so a signed-in contributor could PATCH a
+-- changeset doc straight through PostgREST with the public anon key and their own JWT, skipping the bridge: set a declined
+-- ghost back to proposed (a re-open by a non-lead, with no changeset_reopened row), delete a review, or write review.by as
+-- someone else — and Revit would obey the forged doc. 0034 closed the same hole for the clash register. After this,
+-- 'changeset' joins 'clash', 'tender', 'manifest', 'federation' and 'keystore': no signed-in writer; the bridge writes it with
+-- the service key after its own role check (contributor to propose, report, withdraw, accept or decline; lead to re-open).
+--
+-- NOT YET APPLIED — apply on the founder's "apply", AFTER the bridge that writes changesets with the service key runs (MA-3a's
+-- changesets-store.mjs: docInsert and rewrite pass { service: true }). A bridge before MA-3a forwards a signed-in person's
+-- changeset writes, which this refuses (an insert: 42501; a swap: 0 rows patched, a 409). Then run probes/0037_probe.sql and
+-- record its result here.
+--
+-- Reads are unchanged (any member reads a changeset: bridge_docs_read, 0033). Deletes: bridge_docs_delete asks for a non-null
+-- floor, so a signed-in lead no longer deletes changeset rows directly either (the bridge deletes nothing of them).
+--
+-- ROLLBACK (if needed): re-run 0034's bridge_docs_floor (the 'changeset' line back at 'contributor').
+
+create or replace function public.bridge_docs_floor(p_store text) returns text
+  language sql immutable set search_path = public as $$
+  select case p_store
+    when 'doc_comments'    then 'viewer'
+    when 'rfi'             then 'contributor'
+    when 'office_snapshot' then 'contributor'
+    when 'office_scan'     then 'contributor'
+  end;
+$$;
+```
+
+Create `WebApp/db/migrations/probes/0037_probe.sql`:
+
+```sql
+-- probes/0037_probe.sql — run after 0037 is applied. Part 1: every row must read true. Part 2: one DO block that builds a
+-- project with a contributor, a changeset doc and an rfi doc (the service key), then, signed in as the contributor under
+-- `set local role authenticated` (row-level security applies as it does to a PostgREST call), tries a direct update and a
+-- direct insert of a changeset doc and a control update of the rfi doc; it ALWAYS raises its summary, so everything it wrote
+-- rolls back. "PROBE 0037: 3 of 3 as expected." is the pass. It writes no audit row.
+
+select 'changeset has no signed-in writer' as check, public.bridge_docs_floor('changeset') is null as ok
+union all select 'rfi still contributor', public.bridge_docs_floor('rfi') = 'contributor'
+union all select 'doc_comments still viewer', public.bridge_docs_floor('doc_comments') = 'viewer'
+union all select 'office_snapshot still contributor', public.bridge_docs_floor('office_snapshot') = 'contributor'
+union all select 'office_scan still contributor', public.bridge_docs_floor('office_scan') = 'contributor'
+union all select 'clash still bridge-only', public.bridge_docs_floor('clash') is null;
+
+do $probe$
+declare
+  sfx text := substr(md5(random()::text), 1, 8);
+  p uuid;
+  u_con uuid := gen_random_uuid();
+  j_con text := json_build_object('sub', u_con, 'email', 'contributor@probe.invalid', 'role', 'authenticated')::text;
+  w_rls text := '42501 new row violates row-level security policy for table "bridge_docs"';
+  outcome text;
+  rc int;
+  n int := 0;
+  failed text[] := '{}';
+begin
+  perform set_config('request.jwt.claims', '', true);
+  insert into public.projects(key, name) values ('probe-0037-p-' || sfx, 'probe 0037 p') returning id into p;
+  insert into public.memberships(project_id, user_id, role) values (p, u_con, 'contributor');
+  insert into public.bridge_docs(store, project_id, doc_id, data) values
+    ('changeset', p::text, 'probe-cs', '{"status":"proposed","review_rev":1,"elements":[{"proposal_guid":"g","review":{"state":"declined"}}]}'),
+    ('rfi', p::text, 'probe-rfi', '{"probe":true}');
+  perform set_config('request.jwt.claims', j_con, true);
+
+  -- R1 a contributor's direct update of a changeset doc patches 0 rows (the re-open the bridge refuses a non-lead)
+  n := n + 1;
+  begin set local role authenticated;
+    update public.bridge_docs set data = '{"status":"proposed","review_rev":2,"elements":[{"proposal_guid":"g","review":{"state":"proposed","action":"reopen"}}]}'
+     where store = 'changeset' and project_id = p::text and doc_id = 'probe-cs';
+    get diagnostics rc = row_count; outcome := 'OK ' || rc; reset role;
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from 'OK 0' then failed := failed || ('R1 a contributor''s direct update of a changeset doc patches 0 rows: ' || coalesce(outcome, 'null')); end if;
+
+  -- R2 a contributor's direct insert of a changeset doc is refused by row-level security
+  n := n + 1;
+  begin set local role authenticated;
+    insert into public.bridge_docs(store, project_id, doc_id, data) values ('changeset', p::text, 'probe-cs-2', '{"status":"proposed"}');
+    outcome := 'OK'; reset role;
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from w_rls then failed := failed || ('R2 a contributor''s direct insert of a changeset doc is refused: ' || coalesce(outcome, 'null')); end if;
+
+  -- R3 the control rfi update patches 1 row (the contributor's floor there is unchanged)
+  n := n + 1;
+  begin set local role authenticated;
+    update public.bridge_docs set data = '{"probe":"updated"}' where store = 'rfi' and project_id = p::text and doc_id = 'probe-rfi';
+    get diagnostics rc = row_count; outcome := 'OK ' || rc; reset role;
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from 'OK 1' then failed := failed || ('R3 the control rfi update patches 1 row: ' || coalesce(outcome, 'null')); end if;
+
+  perform set_config('request.jwt.claims', '', true);
+  if (select data->'elements'->0->'review'->>'state' from public.bridge_docs where store = 'changeset' and project_id = p::text and doc_id = 'probe-cs') is distinct from 'declined' then
+    failed := failed || 'R1 the changeset doc changed'::text;
+  end if;
+
+  raise exception 'PROBE 0037: % of % as expected%. Everything above is rolled back (the project, the membership, both bridge_docs rows); no audit row was written.',
+    n - coalesce(array_length(failed, 1), 0), n,
+    case when coalesce(array_length(failed, 1), 0) > 0 then ' — FAILED: ' || array_to_string(failed, ' | ') else '' end;
+end $probe$;
+```
+
 - [ ] **Step 4: The routes.**
 
 In `WebApp/bridge/bcf-service.mjs`, replace
@@ -1037,14 +1317,14 @@ with
       if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));
 ```
 
-- [ ] **Step 5: See it pass.** From `WebApp`: `npx vitest run bridge/changesets-store.test.mjs bridge/changesets-review.test.mjs bridge/changesets-logic.test.mjs` → `Test Files  3 passed (3)`, `Tests  162 passed (162)`; then `npx vitest run bridge` → `Test Files  90 passed (90)`, `Tests  1842 passed | 1 skipped (1843)` (the MCP server, the write-role and typing tests unchanged). Then `git status --short`: if `bridge/fixtures/lod-matrix/ids-cases.json` shows modified and `git diff --ignore-all-space --stat` on it is empty, `git checkout -- bridge/fixtures/lod-matrix/ids-cases.json`.
+- [ ] **Step 5: See it pass.** From `WebApp`: `npx vitest run bridge/changesets-store.test.mjs bridge/changesets-review.test.mjs bridge/changesets-logic.test.mjs bridge/ledger-write.test.mjs bridge/migration-0037.test.mjs` → `Test Files  5 passed (5)`, `Tests  197 passed (197)`; then `npx vitest run bridge` → `Test Files  91 passed (91)`, `Tests  1849 passed | 1 skipped (1850)` (the MCP server, the write-role and typing tests unchanged). Then `git status --short`: if `bridge/fixtures/lod-matrix/ids-cases.json` shows modified and `git diff --ignore-all-space --stat` on it is empty, `git checkout -- bridge/fixtures/lod-matrix/ids-cases.json`.
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add WebApp/bridge/changesets-store.mjs WebApp/bridge/changesets-store.test.mjs WebApp/bridge/bcf-service.mjs
+git add WebApp/bridge/changesets-store.mjs WebApp/bridge/changesets-store.test.mjs WebApp/bridge/bcf-service.mjs WebApp/bridge/cde-store.mjs WebApp/bridge/ledger-write.test.mjs WebApp/bridge/migration-0037.test.mjs WebApp/db/migrations/0037_changeset_bridge_only.sql WebApp/db/migrations/probes/0037_probe.sql
 git commit -F - <<'EOF'
-feat(bridge): MA-3a - POST /changesets/:key/:id/review and /reopen: a signed-in contributor accepts or declines (a decline needs a reason), a signed-in lead re-opens, the machine credential never (403, sign in); decisions on the changeset doc and one changeset_reviewed / changeset_reopened row; every changeset write swaps on review_rev (a web decision is never lost under a result or a withdraw); a result that applies a decline Revit had seen is refused, one that landed after Revit's re-check is recorded as applied_over_late_decline
+feat(bridge): MA-3a - POST /changesets/:key/:id/review and /reopen: a signed-in contributor accepts or declines (a decline needs a reason), a signed-in lead re-opens, the machine credential never (403, sign in); decisions on the changeset doc and one changeset_reviewed / changeset_reopened row, both actions reserved on the open audit route; every changeset write swaps on review_rev with the service key (a web decision is never lost under a result or a withdraw; three lost swaps a 503); migration 0037 (written, not applied) leaves the changeset store no signed-in writer, with its probe; a result that applies a decline Revit had seen is refused, one that landed after Revit's re-check is recorded as applied_over_late_decline, one with no review_rev as applied_over_decline_unchecked
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -1056,13 +1336,14 @@ EOF
 - Modify `SentinelAddin/Coordination/ChangesetClient.cs`
 - Modify `SentinelAddin/UI/ChangesetReviewWindow.cs`
 - Modify `SentinelAddin/Commands.ReviewChangesets.cs`
+- Modify `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` (C2: the applying `Report` sends `cs.ReviewRev`)
 - Create `tools/promote-check/Ma3aReview.cs`; modify `tools/promote-check/Check.cs`, `tools/promote-check/Ma2dWiring.cs`
 
 **Interfaces:**
 - Consumes: the bridge's `review` and `review_rev` (Task 2); the fixture (Task 1). In the add-in: `ChangesetClient.Post(cfg, path, payload, expect, out body, out error)`, `UserSession.Actor`, `StoreyBatch.Merge` (it keeps each part's element objects, so their `Review` reaches the window), `Src(...)`/`Repo(...)`/`Ok(...)` in promote-check.
 - Produces:
   - `ReviewDto {State, Action, Reason, By, Role, At, Rev (int?)}`; `ChangesetElementDto.Review`; `ChangesetDto.ReviewRev (int?)`.
-  - `ChangesetTrust.DeclinedOnWeb(el) → bool`, `ReviewLine(el) → string|null`, `DeclinedHeader(cs) → string|null`, `DeclinedTicked(IEnumerable<ChangesetDto> fresh, ICollection<string> ticked) → string|null`, `LateDeclines(string reply) → string|null`; `PreTick` false for a declined ghost.
+  - `ChangesetTrust.DeclinedOnWeb(el) → bool`, `ReviewLine(el) → string|null`, `DeclinedHeader(cs) → string|null`, `DeclinedTicked(IEnumerable<ChangesetDto> fresh, ICollection<string> ticked) → string|null`, `LateDeclines(string reply) → string|null` (the late list and, C2, the unchecked list); `PreTick` false for a declined ghost.
   - `ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, int? reviewRev, out string reply, out string error)`; `ReviewChangesetsCommand.Report(…, string note, int? reviewRev = null)`.
 
 - [ ] **Step 1: The failing checks.**
@@ -1112,7 +1393,7 @@ static partial class Check
            "a lead's re-open: the row says so, and the ghost may be ticked again (its pre-tick back)");
         reopened.Review = JsonSerializer.Deserialize<ReviewDto>(fx.RootElement.GetProperty("after").GetProperty("elements")[0].GetProperty("review").GetRawText());
 
-        Ok(ChangesetTrust.DeclinedHeader(after) == "2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). Apply reports them as rejected; the changeset stays proposed until Revit reports it."
+        Ok(ChangesetTrust.DeclinedHeader(after) == "2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). Apply reports them as rejected; the changeset stays proposed until Revit reports it — a new Promote run proposes a declined ghost again, undecided."
            && ChangesetTrust.DeclinedHeader(before) == null,
            "the window's header counts the web's declines and says a changeset stays proposed until Revit reports it");
 
@@ -1128,13 +1409,17 @@ static partial class Check
         Ok(ChangesetTrust.LateDeclines("{\"id\":\"c\",\"result\":{\"applied\":[]}}") == null && ChangesetTrust.LateDeclines("{\"result\":{\"applied_over_late_decline\":[]}}") == null
            && ChangesetTrust.LateDeclines("not json") == null && ChangesetTrust.LateDeclines(null) == null,
            "…and nothing is said for a reply without one, or one that is not JSON");
+        Ok(ChangesetTrust.LateDeclines("{\"result\":{\"applied_over_late_decline\":[],\"applied_over_decline_unchecked\":[{\"name\":\"retype wall \\\"W 1\\\"\",\"by\":\"r@example.com\",\"role\":\"contributor\",\"reason\":\"no\"}]}}")
+           == "1 ghost(s) declined on the web were applied, and this result carried no review_rev — the bridge cannot tell whether the decline was seen:\n· retype wall \"W 1\" — declined on the web by r@example.com (contributor): no\n\nThe bridge recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.",
+           "a decline applied by a result with no review_rev is said as unchecked, never as late (review amendment C2)");
     }
 
     // ── 41. MA-3a: the review window and Apply obey the web's declines (source scans — Revit-bound; drill MA3a runs them) ────────
     static void Ma3aWiringChecks()
     {
         Console.WriteLine("\nMA-3a — the review window and Apply obey the web's declines (source scans)");
-        string window = Src("UI", "ChangesetReviewWindow.cs"), review = Src("Commands.ReviewChangesets.cs"), client = Src("Coordination", "ChangesetClient.cs");
+        string window = Src("UI", "ChangesetReviewWindow.cs"), review = Src("Commands.ReviewChangesets.cs"), client = Src("Coordination", "ChangesetClient.cs"),
+               ghost = Src("GhostBuilder", "GhostChangesetBuild.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         Ok(window.Contains("box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") && At(window, "box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") > At(window, "IsChecked = ChangesetTrust.PreTick(_cs, el)")
            && window.Contains("if (ChangesetTrust.ReviewLine(el) is string reviewLine)") && window.Contains("if (ChangesetTrust.DeclinedHeader(_cs) is string declinedLine)"),
@@ -1146,8 +1431,9 @@ static partial class Check
         Ok(review.Contains("if (!Report(cfg, key, one.Id, res.Applied, rejected, said, one.ReviewRev)) continue;")
            && review.Contains("if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, reviewRev, out var reply, out var err))")
            && review.Contains("if (ChangesetTrust.LateDeclines(reply) is { } late) TaskDialog.Show(\"Sentinel — AI proposals\", late);")
-           && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev })"),
-           "the result carries the review_rev Apply re-checked, and a late decline the bridge recorded is said");
+           && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev })")
+           && ghost.Contains("res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev))"),
+           "the result carries the review_rev Apply re-checked (Ghost Builder's, the one its filing reply carried — C2), and a late or unchecked decline the bridge recorded is said");
     }
 }
 ```
@@ -1269,8 +1555,9 @@ with
     public static string DeclinedHeader(ChangesetDto cs)
     {
         int n = (cs.Elements ?? new List<ChangesetElementDto>()).Count(DeclinedOnWeb);
+        // C4: a decline binds its changeset only — a Promote re-run proposes the same ghost again, undecided (carrying it is MA-3b).
         return n == 0 ? null : $"{n} ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). " +
-                               "Apply reports them as rejected; the changeset stays proposed until Revit reports it.";
+                               "Apply reports them as rejected; the changeset stays proposed until Revit reports it — a new Promote run proposes a declined ghost again, undecided.";
     }
 
     /// <summary>MA-3a: Apply's re-check on the fresh copies — the ticked ghosts the web declined (one may land after the window opened).
@@ -1285,18 +1572,27 @@ with
     }
 
     /// <summary>MA-3a (Q2): the bridge's reply to a result — the ghosts it recorded as applied over a decline that landed after Apply's
-    /// re-check, in words; null when there is none (or the reply is not JSON: the result was recorded either way).</summary>
+    /// re-check, and (C2) over a decline it could not judge because the result carried no review_rev, in words; null when there is none
+    /// (or the reply is not JSON: the result was recorded either way).</summary>
     public static string LateDeclines(string reply)
     {
         try
         {
             using var doc = JsonDocument.Parse(reply ?? "");
-            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("result", out var r) || r.ValueKind != JsonValueKind.Object
-                || !r.TryGetProperty("applied_over_late_decline", out var late) || late.ValueKind != JsonValueKind.Array || late.GetArrayLength() == 0) return null;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("result", out var r) || r.ValueKind != JsonValueKind.Object) return null;
             string S(JsonElement x, string p) => x.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "?";
-            return $"{late.GetArrayLength()} ghost(s) were declined on the web after Apply re-checked them, and were applied:\n" +
-                string.Join("\n", late.EnumerateArray().Select(x => $"· {S(x, "name")} — declined on the web by {S(x, "by")} ({S(x, "role")}): {S(x, "reason")}")) +
-                "\n\nThe bridge recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.";
+            List<JsonElement> Arr(string p) => r.TryGetProperty(p, out var a) && a.ValueKind == JsonValueKind.Array ? a.EnumerateArray().ToList() : new List<JsonElement>();
+            string Lines(List<JsonElement> xs) => string.Join("\n", xs.Select(x => $"· {S(x, "name")} — declined on the web by {S(x, "by")} ({S(x, "role")}): {S(x, "reason")}"));
+            var late = Arr("applied_over_late_decline");
+            var unchecked_ = Arr("applied_over_decline_unchecked");
+            var said = new List<string>();
+            if (late.Count > 0)
+                said.Add($"{late.Count} ghost(s) were declined on the web after Apply re-checked them, and were applied:\n" + Lines(late) +
+                         "\n\nThe bridge recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.");
+            if (unchecked_.Count > 0)
+                said.Add($"{unchecked_.Count} ghost(s) declined on the web were applied, and this result carried no review_rev — the bridge cannot tell whether the decline was seen:\n" + Lines(unchecked_) +
+                         "\n\nThe bridge recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.");
+            return said.Count == 0 ? null : string.Join("\n\n", said);
         }
         catch (JsonException) { return null; }
     }
@@ -1462,14 +1758,27 @@ with
             }
 ```
 
-- [ ] **Step 6: See it pass.** From the repo root: `dotnet run --project tools/promote-check` → `694/694 checks pass` (678 + section 40's 13 + section 41's 3); `dotnet run --project tools/session-check` → `47/47 checks pass` (it compiles `ChangesetClient.cs`). Then `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false` → `0 Error(s)` (dry run: `5 Warning(s)`, all master's) and `-p:RevitVersion=2026` → `0 Error(s)` (`1 Warning(s)`); no warning names `ChangesetClient.cs`, `ChangesetReviewWindow.cs` or `Commands.ReviewChangesets.cs`.
+In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, replace
+
+```csharp
+                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine)))
+```
+
+with
+
+```csharp
+                    // MA-3a (C2): the review_rev the filing reply carried (0) — a web decline that landed since is judged late, never unchecked.
+                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev))
+```
+
+- [ ] **Step 6: See it pass.** From the repo root: `dotnet run --project tools/promote-check` → `695/695 checks pass` (678 + section 40's 14 + section 41's 3); `dotnet run --project tools/session-check` → `47/47 checks pass` (it compiles `ChangesetClient.cs`). Then `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false` → `0 Error(s)` (dry run: `5 Warning(s)`, all master's) and `-p:RevitVersion=2026` → `0 Error(s)` (`1 Warning(s)`); no warning names `ChangesetClient.cs`, `ChangesetReviewWindow.cs`, `Commands.ReviewChangesets.cs` or `GhostChangesetBuild.cs`.
 
 - [ ] **Step 7: Commit.**
 
 ```bash
-git add SentinelAddin/Coordination/ChangesetClient.cs SentinelAddin/UI/ChangesetReviewWindow.cs SentinelAddin/Commands.ReviewChangesets.cs tools/promote-check/Ma3aReview.cs tools/promote-check/Check.cs tools/promote-check/Ma2dWiring.cs
+git add SentinelAddin/Coordination/ChangesetClient.cs SentinelAddin/UI/ChangesetReviewWindow.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs tools/promote-check/Ma3aReview.cs tools/promote-check/Check.cs tools/promote-check/Ma2dWiring.cs
 git commit -F - <<'EOF'
-feat(addin): MA-3a - Review AI Proposals obeys the web desk: a declined ghost opens unticked and disabled with who declined it, the role and the reason (a web accept is advice, its pre-tick kept); Apply re-checks the fresh copies and refuses the whole Apply on a ticked ghost declined after the window opened (nothing created); the result carries the review_rev Apply re-checked, and a late decline the bridge recorded is said; promote-check sections 40-41 read the shared fixture (694)
+feat(addin): MA-3a - Review AI Proposals obeys the web desk: a declined ghost opens unticked and disabled with who declined it, the role and the reason (a web accept is advice, its pre-tick kept); Apply re-checks the fresh copies and refuses the whole Apply on a ticked ghost declined after the window opened (nothing created); the result carries the review_rev Apply re-checked (Ghost Builder's, the one its filing reply carried), and a late or unchecked decline the bridge recorded is said; the window says a Promote re-run proposes a declined ghost again, undecided; promote-check sections 40-41 read the shared fixture (695)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -1484,7 +1793,7 @@ EOF
 
 **Interfaces:**
 - Consumes: the routes (Task 2), the fixture (Task 1); `bfetch`, `bwrite` (`bridge-fetch.ts`), `myRoleRead`, `roleWords` (`my-role.ts`), `activePid`, `onActiveProjectChange` (`active-project.ts`; a sign-in change re-reads through `refreshActiveProject`, `main.ts:347`), `SERVICE_URL`.
-- Produces: `reviewDeskPanel(opts?: {baseUrl?: string}): HTMLElement` and the pure `storeyOf`, `whatOf`, `groupDesk`, `ghostLine`, `reviewWords`, `canDecide`, `canReopen`, `rowWords`, `readPending`, `postReview`, `postReopen`; the types `PendingChangeset`, `Ghost`, `GhostReview`.
+- Produces: `reviewDeskPanel(opts?: {baseUrl?: string}): HTMLElement` and the pure `storeyOf`, `whatOf`, `groupDesk`, `ghostLine`, `reviewWords`, `canDecide`, `canReopen`, `rowWords`, `postsFor` (C6), `readPending`, `postReview`, `postReopen`; the types `PendingChangeset`, `Ghost`, `GhostReview`.
 
 - [ ] **Step 1: The failing tests.** Create `WebApp/src/setups/review-desk.test.ts`:
 
@@ -1499,7 +1808,7 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
-import { storeyOf, groupDesk, ghostLine, reviewWords, canDecide, canReopen, readPending, postReview, postReopen, rowWords, type PendingChangeset } from "./review-desk";
+import { storeyOf, groupDesk, ghostLine, reviewWords, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
@@ -1544,6 +1853,15 @@ describe("words", () => {
     expect(canReopen("lead") && canReopen("owner") && !canReopen("contributor") && !canReopen("service")).toBe(true);
     expect(rowWords({ ledger: { id: 1201, hash: "ab" } })).toBe("ledger #1201");
     expect(rowWords({ ledger: null })).toBe("the bridge named no ledger row");
+  });
+
+  it("one post per changeset; a ghost already in the decision's state is not sent, and counted (C6: a repeat would refuse the whole post)", () => {
+    const [, g2, g3] = after.elements;
+    const ticked = new Map([[g2.proposal_guid, { cs: after, el: g2 }], [g3.proposal_guid, { cs: after, el: g3 }]]);
+    const a = postsFor(ticked, "accept");
+    expect([[...a.posts], a.already]).toEqual([[["cs-ma3a", ["g-3"]]], 1]);
+    const d = postsFor(ticked, "decline");
+    expect([[...d.posts], d.already]).toEqual([[["cs-ma3a", ["g-2", "g-3"]]], 0]);
   });
 });
 
@@ -1709,6 +2027,19 @@ export async function postReopen(base: string, key: string, id: string, guid: st
   });
 }
 
+/** The desk's posts for the ticked ghosts: one per changeset (all or none on the bridge — a storey's parts are separate changesets),
+ *  leaving out a ghost already in the state the decision leads to: a repeat is a 409 that would refuse its whole post (C6). */
+export function postsFor(ticked: Map<string, { cs: PendingChangeset; el: Ghost }>, decision: "accept" | "decline"): { posts: Map<string, string[]>; already: number } {
+  const target = decision === "accept" ? "accepted" : "declined";
+  const posts = new Map<string, string[]>();
+  let already = 0;
+  for (const [g, x] of ticked) {
+    if (x.el.review?.state === target) { already++; continue; }
+    posts.set(x.cs.id, [...(posts.get(x.cs.id) ?? []), g]);
+  }
+  return { posts, already };
+}
+
 /** "ledger #1201" when the bridge named the row; else that it did not. */
 export const rowWords = (r: { ledger: LedgerRef | null } | null): string => (r?.ledger?.id != null ? `ledger #${r.ledger.id}` : "the bridge named no ledger row");
 
@@ -1738,15 +2069,15 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   let seq = 0;
 
   const decide = async (decision: "accept" | "decline") => {
-    // One post per changeset (all or none on the bridge): a storey's parts are separate changesets.
-    const byCs = new Map<string, string[]>();
-    for (const [g, x] of ticked) byCs.set(x.cs.id, [...(byCs.get(x.cs.id) ?? []), g]);
-    if (!byCs.size) return say("Tick a ghost first.", true);
+    // One post per changeset (all or none on the bridge); a ghost already accepted (or declined) is not sent again (C6).
+    const { posts, already } = postsFor(ticked, decision);
+    const skipped = already ? `${already} already ${decision === "accept" ? "accepted" : "declined"} — not sent` : "";
+    if (!posts.size) return say(skipped ? skipped + "." : "Tick a ghost first.", true);
     const done: string[] = [];
     try {
-      for (const [id, guids] of byCs) done.push(`${guids.length} ${decision === "accept" ? "accepted" : "declined"} · ${rowWords(await postReview(base, activePid(), id, decision, guids, reason.value))}`);
+      for (const [id, guids] of posts) done.push(`${guids.length} ${decision === "accept" ? "accepted" : "declined"} · ${rowWords(await postReview(base, activePid(), id, decision, guids, reason.value))}`);
       reason.value = "";
-      say(done.join("; ") + (decision === "decline" ? " — Revit now shows them unticked with the reason and refuses the tick." : " — advice: Revit still asks for the tick."));
+      say([...done, ...(skipped ? [skipped] : [])].join("; ") + (decision === "decline" ? " — Revit now shows them unticked with the reason and refuses the tick." : " — advice: Revit still asks for the tick."));
     } catch (e) { say(`${done.length ? done.join("; ") + "; then " : ""}not recorded — ${(e as Error).message}`, true); }
     void show();
   };
@@ -1762,7 +2093,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
     if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5")); return; }
     if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project.")); return; }
-    body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. A changeset stays proposed until Revit applies or declines it.", "color:#8b93a1;margin-bottom:.5rem"));
+    body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. A changeset stays proposed until Revit applies or declines it — a new Promote run proposes a declined ghost again, undecided.", "color:#8b93a1;margin-bottom:.5rem"));
     for (const s of groupDesk(pending)) {
       const box = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
       box.open = true;
@@ -1796,7 +2127,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
 }
 ```
 
-- [ ] **Step 4: See the desk's checks pass but the retirement's fail.** `npx vitest run src/setups/review-desk.test.ts` → `Tests  1 failed | 7 passed (8)` (the source scan: `main.ts` does not mount the desk yet).
+- [ ] **Step 4: See the desk's checks pass but the retirement's fail.** `npx vitest run src/setups/review-desk.test.ts` → `Tests  1 failed | 8 passed (9)` (the source scan: `main.ts` does not mount the desk yet).
 
 - [ ] **Step 5: The tab; the studio retired.**
 
@@ -1843,7 +2174,7 @@ with
 
 Then `git rm WebApp/src/setups/model-panel.ts` (754 lines; its only importer was `main.ts`; `sentinel-core/ifc-writer.ts` stays for MA-3d).
 
-- [ ] **Step 6: See it pass.** From `WebApp`: `npx vitest run src/setups/review-desk.test.ts` → `Tests  8 passed (8)`; `npx vitest run src` → `Test Files  55 passed (55)`, `Tests  483 passed (483)`; `npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"` → `18`, and `npx tsc --noEmit -p tsconfig.json 2>&1 | grep review-desk` prints nothing (the 18 are master's, listed in the dry-run note).
+- [ ] **Step 6: See it pass.** From `WebApp`: `npx vitest run src/setups/review-desk.test.ts` → `Tests  9 passed (9)`; `npx vitest run src` → `Test Files  55 passed (55)`, `Tests  484 passed (484)`; `npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"` → `18`, and `npx tsc --noEmit -p tsconfig.json 2>&1 | grep review-desk` prints nothing (the 18 are master's, listed in the dry-run note).
 
 - [ ] **Step 7: Commit.**
 
@@ -1896,7 +2227,7 @@ In `docs/strategy/2026-09-30-model-automation-design.md`, replace
 with
 
 ```markdown
-**Review states, one per ghost** (in `changesets-logic.mjs`, with tests; BUILT on `feature/ma3-review-desk` (MA-3a), drill MA3a pending — `reviewNext`, `applyDecisions`, `reopenDecline`, `resultConflicts`: a ghost's `review` and the doc's `review_rev` on the changeset doc, every write swapping on `review_rev`; the machine credential never reviews; a result that applies a decline Revit had seen is refused, one declined after Revit's re-check is recorded as `applied_over_late_decline` and said; `ticked` is not stored in MA-3a — spec amendment S4)
+**Review states, one per ghost** (in `changesets-logic.mjs`, with tests; BUILT on `feature/ma3-review-desk` (MA-3a), drill MA3a pending — `reviewNext`, `applyDecisions`, `reopenDecline`, `resultConflicts`: a ghost's `review` and the doc's `review_rev` on the changeset doc, every write swapping on `review_rev`; the machine credential never reviews; a result that applies a decline Revit had seen is refused, one declined after Revit's re-check is recorded as `applied_over_late_decline` and said, one applied by a result with no `review_rev` as `applied_over_decline_unchecked`; a decline binds its changeset only — a Promote re-run proposes the ghost again, undecided (carrying it forward is MA-3b); `ticked` is not stored in MA-3a — spec amendment S4)
 ```
 
 In `docs/strategy/2026-09-30-model-automation-design.md`, replace
@@ -1932,7 +2263,7 @@ In `docs/strategy/2026-09-30-model-automation-design.md`, replace
 with
 
 ```markdown
-- **LOD state, type gaps and review decisions:** ledger rows. The views are derived from the ledger, as the Holding Area is today. MA-3a (spec amendment S1): a web review decision is also kept on the changeset doc (each ghost's `review`, the doc's `review_rev`), as `status` is — the add-in reads the doc, and the bridge judges a result against it in the same swap; the `changeset_reviewed` and `changeset_reopened` rows are the record.
+- **LOD state, type gaps and review decisions:** ledger rows. The views are derived from the ledger, as the Holding Area is today. MA-3a (spec amendment S1): a web review decision is also kept on the changeset doc (each ghost's `review`, the doc's `review_rev`), as `status` is — the add-in reads the doc, and the bridge judges a result against it in the same swap; the `changeset_reviewed` and `changeset_reopened` rows are the record (reserved on the open audit route). Migration 0037 (written; applied on the founder's "apply") leaves the `changeset` store no signed-in writer — the bridge writes it with the service key after its own role check, so a member cannot re-open a decline by writing the doc outside Sentinel.
 ```
 
 In `docs/strategy/2026-09-30-model-automation-design.md`, replace
@@ -1959,13 +2290,13 @@ with
   - The Modeling studio is retired. BUILT (MA-3a): `model-panel.ts` deleted, the review desk takes its tab; sketches in a browser's local storage are no longer shown; `ifc-writer.ts` is kept for the proposal model.
 ```
 
-- [ ] **Step 2: The final checks** (all from this branch, Tasks 1–4 applied). From `WebApp`: `npx vitest run` → `Tests  2305 passed | 1 skipped (2306)`; restore `ids-cases.json` as in Task 2 Step 5. From the repo root: every check project —
+- [ ] **Step 2: The final checks** (all from this branch, Tasks 1–4 applied). From `WebApp`: `npx vitest run` → `Test Files  143 passed (143)`, `Tests  2313 passed | 1 skipped (2314)`; restore `ids-cases.json` as in Task 2 Step 5. From the repo root: every check project —
 
 ```bash
 for p in tools/*-check; do printf '%s: ' "$p"; dotnet run --project "$p" 2>&1 | tail -1; done
 ```
 
-— each prints its pass line (`promote-check`: `694/694 checks pass`; `session-check`: `47/47 checks pass`; the other 24 as on `32605ca`). The add-in for every Revit version, none deployed:
+— each prints its pass line (`promote-check`: `695/695 checks pass`; `session-check`: `47/47 checks pass`; the other 24 as on `32605ca`). The add-in for every Revit version, none deployed:
 
 ```bash
 for v in 2022 2023 2024 2025 2026 2027; do printf '%s: ' "$v"; dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=$v -p:DeployToRevit=false 2>&1 | grep -E "Error\(s\)"; done
@@ -1978,7 +2309,7 @@ for v in 2022 2023 2024 2025 2026 2027; do printf '%s: ' "$v"; dotnet build Sent
 ```bash
 git add docs/strategy/2026-09-30-model-automation-design.md
 git commit -F - <<'EOF'
-docs(design): MA-3a built on feature/ma3-review-desk, drill MA3a pending - the review states, the routes, the ledger rows, decisions on the changeset doc (spec amendments S1-S4), the review desk, the Modeling studio retired
+docs(design): MA-3a built on feature/ma3-review-desk, drill MA3a pending - the review states, the routes, the ledger rows, decisions on the changeset doc (spec amendments S1-S4), migration 0037 written (the changeset store bridge-only), the review desk, the Modeling studio retired
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -1999,7 +2330,8 @@ EOF
 - **A second account** for D-4: if the founder has one account, the re-open is made by the same person as the decline (made lead) — the two-account half of D-4 (design `:1368`) is **owed**.
 - **The published app**: the desk runs on a local dev server against 4101; the published app is the founder's publish after the merge (Merge).
 - **A late decline applied over** (F2 A's recorded path, needs a decline to land inside Apply's seconds): proven offline (vitest, the shared fixture; promote-check's `LateDeclines`), not provokable on demand — owed, recorded if it happens.
-- **Ghost Builder's own build** (no `review_rev`): unchanged behaviour, checked offline — not run.
+- **Ghost Builder's own build** (it now sends its filing reply's `review_rev`, C2) and **a result with no `review_rev`** (`applied_over_decline_unchecked`): checked offline (vitest, promote-check) — not run.
+- **Migration 0037 and its probe** (C1, F7): not part of the drill's rows; applied on the founder's "apply" with the deployment (F7 B) — owed at the merge unless the founder chose F7 A.
 
 **Set-up (once):**
 - **Build.** Close Revit. Record the deployed `Sentinel.dll` under `%AppData%\Autodesk\Revit\Addins\2024` (`certutil -hashfile "<that Sentinel.dll>" SHA256`, lower case). With the founder's OK: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (it deploys the branch's build); record `git rev-parse --short HEAD` and the new DLL's sha256.
@@ -2019,17 +2351,17 @@ EOF
     b4101() { node -e 'import("./bridge/load-env.mjs").then(async m => { const [method, path, body] = process.argv.slice(1); const r = await fetch("http://127.0.0.1:4101/" + path, { method, headers: { "Content-Type": "application/json", Authorization: "Bearer " + (m.loadEnv().BCF_TOKEN || process.env.BCF_TOKEN || "") }, ...(body ? { body: body.startsWith("@") ? require("fs").readFileSync(body.slice(1), "utf8") : body } : {}) }); console.log(r.status, await r.text()) })' "$@"; }
     ```
 
-- **The scratch web projects** (nothing on `demo`, `bds-office` or a real office): `b4101 POST cde/projects '{"key":"ma3a-office","kind":"office"}'`, `b4101 POST cde/projects '{"key":"ma3a","office_key":"ma3a-office"}'`; on the OFFICE: `b4101 PUT "cde/ma3a-office/artefacts/guideline?actor=drill" @../demo/bds-pilot/bds-dd-elements-guideline.json`, `b4101 PUT "cde/ma3a-office/artefacts/type_catalog?actor=drill" @../demo/bds-pilot/bds-type-catalog.json`, `b4101 PUT "cde/ma3a-office/artefacts/lod_matrix?actor=drill" @../demo/bds-pilot/bds-lod-matrix-dd-ma2b.json`, `b4101 PUT "cde/ma3a-office/artefacts/ruleset?actor=drill" @../demo/bds-pilot/ruleset.json` (each 201). Memberships, with the e-mails the founder gives: `b4101 POST cde/ma3a/members '{"email":"<the founder account>","role":"contributor"}'` and, for a second account, `'{"email":"<the second account>","role":"lead"}'`; with one account, make it `lead` (D-4's two-account half owed). Record each reply.
+- **The scratch web projects** (nothing on `demo`, `bds-office` or a real office): `b4101 POST cde/projects '{"key":"ma3a-office","kind":"office"}'`, `b4101 POST cde/projects '{"key":"ma3a","office_key":"ma3a-office"}'`; on the OFFICE: `b4101 PUT "cde/ma3a-office/artefacts/guideline?actor=drill" @../demo/bds-pilot/bds-dd-elements-guideline.json`, `b4101 PUT "cde/ma3a-office/artefacts/type_catalog?actor=drill" @../demo/bds-pilot/bds-type-catalog.json`, `b4101 PUT "cde/ma3a-office/artefacts/lod_matrix?actor=drill" @../demo/bds-pilot/bds-lod-matrix-dd-ma2b.json`, `b4101 PUT "cde/ma3a-office/artefacts/ruleset?actor=drill" @../demo/bds-pilot/ruleset.json` (each 201). Memberships, with the e-mails the founder gives (D2): `b4101 POST cde/ma3a/members '{"email":"<the founder account>","role":"contributor"}'` — always `contributor`, so D-2's `(contributor)` holds — and, for a second account, `'{"email":"<the second account>","role":"lead"}'`. Record each reply (it names the `user_id`). With one account, the founder's is made lead only just before D-4 (D-4's first step; its two-account half owed).
 - **The web desk on port 4002**, the founder present. From `WebApp`, in its own shell (port 4000 stays the founder's): `VITE_SENTINEL_SERVICE=http://127.0.0.1:4101 npx thatopen serve --port 4002` (if `npm run dev`'s first step, `node scripts/build-fragments-worker.mjs`, has not run in this checkout, run it once first). The founder opens the local app as they open the 4000 one, on port 4002, signs in, picks project `ma3a`, opens BIM tools ▸ **Review**: the bar reads `Review desk · ma3a` and `your role: contributor` (or `lead`). If the platform's local-app route cannot load port 4002, or the desk's calls are refused (the bridge log names a refused Origin), stop: D-2 … D-4 are **owed** with that reason (UNSURE 1–2).
 - **The scratch model**: `Documents\Sentinel drills\ma3a\ma3a-a.rvt`, a copy of `Documents\sentinel-scratch\ma1\ma1-src_detached.rvt` (the B35 seed), opened from Revit's Open dialog, bound with Sentinel ▸ Project Setup to `ma3a` (current-project scope), never saved. Record the sign-in state found in Revit (Standards).
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
-| D-1 | On `ma3a-a.rvt`: Sentinel ▸ Promote (DD) → **Yes**. The review window opens: **close it** (the title bar's ×) — G4. `b4101 GET "changesets/ma3a?status=proposed"` | Closing writes nothing (the Undo list's top entry as before). The reply lists the GR-FFL changeset(s) (`Promote (DD) · GR-FFL`, or its ` (i/n)` parts), each `"review_rev":0`, no element with `review` | The changeset ids; three retype guids and their `W <id>` names; which rows the window had pre-ticked (signed in: the retypes and attaches; signed out: none — record which) |
+| D-1 | On `ma3a-a.rvt`: Sentinel ▸ Promote (DD) → **Yes**. The review window opens: **close it** (the title bar's ×) — G4. `b4101 GET "changesets/ma3a?status=proposed"` | Closing writes nothing (the Undo list's top entry as before). The reply lists the GR-FFL changeset(s) (`Promote (DD) · GR-FFL`, or its ` (i/n)` parts), each `"review_rev":0`, no element with `review` | The changeset ids; three retype guids and their `W <id>` names; the attach guids and their names (D1: D-3's late decline needs a ghost D-2 does not decline); which rows the window had pre-ticked (signed in: the retypes and attaches; signed out: none — record which) |
 | D-5 | The machine credential: `b4101 POST changesets/ma3a/<id>/review '{"decisions":[{"proposal_guid":"<a retype guid>","decision":"decline","reason":"drill"}]}'`; `b4101 POST changesets/ma3a/<id>/reopen '{"proposal_guid":"<the same>","reason":"drill"}'`; `b4101 GET changesets/ma3a/<id>` | `403 {"message":"accepting or declining a ghost on the web desk is a signed-in person's — sign in (the machine credential, the MCP agent and scripts never review)"}` and `403 … re-opening a declined ghost on the web desk is a signed-in person's — sign in …`; the changeset still `"review_rev":0`; no `changeset_reviewed` row (`b4101 GET "cde/ma3a/audit?entity_type=changeset&limit=5"`) | Both replies; the audit rows' actions |
 | D-2 | The founder, on the desk: the storey `Promote (DD) · GR-FFL — <n> ghost(s) in <k> changeset(s)`, groups `retype wall (…)`, `attach wall (…)` …, every ghost `waiting — nobody decided on the web`. Tick the three retypes from D-1; reason `drill MA3a: wrong type`; **Decline ticked** | The status line `3 declined · ledger #<n> — Revit now shows them unticked with the reason and refuses the tick.`; after the re-read the three read `declined by <founder> (contributor): drill MA3a: wrong type — binds: …`; `b4101 GET changesets/ma3a/<id>`: those three `review.state` `declined`, `"review_rev":1`; the audit list's newest row `changeset_reviewed` naming the founder, the role and the three guids `from` `proposed` `to` `declined` | The ledger row id; the desk's text |
-| D-3 | In Revit: Sentinel ▸ Review AI Proposals (the GR-FFL storey). Read the window; press **Tick suggested**; click a declined row's box. Then leave the window open; on the desk, decline a fourth retype that is ticked in Revit (tick it first if it is not; reason `drill MA3a: late`); back in Revit, **Apply ticked in Revit** | The header `⚠ 3 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here …`; the three rows lead with `declined on the web by <founder> (contributor): drill MA3a: wrong type · a lead may re-open it on the web desk`, unticked, their boxes disabled (a click does nothing; Tick suggested leaves them unticked). At Apply ONE dialog: `1 ticked ghost(s) were declined on the web after this window opened:` / `· retype wall "W <id>" — declined on the web by … drill MA3a: late …` / `Nothing was created. Run Review AI Proposals again: they open unticked, with the reason.`; the Undo list unchanged; `b4101 GET changesets/ma3a/<id>` still `"status":"proposed"` | The window's header and rows (text); the dialog; the Undo list before and after |
-| D-4 | The lead (the second account, or the founder made lead): on the desk, the first declined retype ▸ reason `drill MA3a: re-opened` ▸ **Re-open**. A contributor account sees no Re-open button (read its rows). In Revit: Review AI Proposals; **Apply ticked in Revit** with the pre-ticks (Place anyway where asked) | `Re-opened · ledger #<n> — Revit may tick it again.`; the row reads `re-opened by <lead> (lead): drill MA3a: re-opened`; in Revit that row is enabled and (signed in) pre-ticked again, reading `re-opened on the web by <lead> (lead): …`, the other three declined rows as in D-3; the result `Applied <a> element(s) …`; `b4101 GET changesets/ma3a/<id>`: `"status":"partially_applied"`, `result.declined_on_web` the three still declined (with the web's reasons), `result.review_rev_seen` the revision Revit re-checked, no `applied_over_late_decline`; the audit rows `changeset_reopened` (naming the lead, who declined it and why) and `changeset_applied` (naming the Revit actor) | The ledger ids; the result dialog; whether the re-open and the decline were two accounts (else owed) |
+| D-3 | In Revit: Sentinel ▸ Review AI Proposals (the GR-FFL storey). Read the window; press **Tick suggested**; click a declined row's box. Then leave the window open; on the desk, decline a ghost D-2 did not decline that is ticked in Revit — an attach or a retype (D1; signed out: tick it in Revit first; reason `drill MA3a: late`); back in Revit, **Apply ticked in Revit** | The header `⚠ 3 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here …` ending `— a new Promote run proposes a declined ghost again, undecided.` (C4); the three rows lead with `declined on the web by <founder> (contributor): drill MA3a: wrong type · a lead may re-open it on the web desk`, unticked, their boxes disabled (a click does nothing; Tick suggested leaves them unticked). At Apply ONE dialog: `1 ticked ghost(s) were declined on the web after this window opened:` / `· <attach or retype> wall "W <id>" — declined on the web by … drill MA3a: late …` / `Nothing was created. Run Review AI Proposals again: they open unticked, with the reason.`; the Undo list unchanged; `b4101 GET changesets/ma3a/<id>` still `"status":"proposed"` | The window's header and rows (text); the dialog; the Undo list before and after |
+| D-4 | With one account (D2): first `b4101 PATCH cde/ma3a/members/<the founder's user_id> '{"role":"lead"}'` (the existing role-change route; record the reply `200 {"user_id":…,"role":"lead"}`) and re-read the desk (its bar reads `lead`). The lead (the second account, or the founder made lead): on the desk, the first declined retype ▸ reason `drill MA3a: re-opened` ▸ **Re-open**. A contributor account sees no Re-open button (read its rows). In Revit: Review AI Proposals; **Apply ticked in Revit** with the pre-ticks (Place anyway where asked) | `Re-opened · ledger #<n> — Revit may tick it again.`; the row reads `re-opened by <lead> (lead): drill MA3a: re-opened`; in Revit that row is enabled and (signed in) pre-ticked again, reading `re-opened on the web by <lead> (lead): …`, the other three declined rows as in D-3; the result `Applied <a> element(s) …`; `b4101 GET changesets/ma3a/<id>`: `"status":"partially_applied"`, `result.declined_on_web` the three still declined (with the web's reasons), `result.review_rev_seen` `{"value":<the revision Revit re-checked>,"claimed":true}`, `applied_over_late_decline` and `applied_over_decline_unchecked` both `[]`; the audit rows `changeset_reopened` (naming the lead, who declined it and why) and `changeset_applied` (naming the Revit actor) | The ledger ids; the result dialog; whether the re-open and the decline were two accounts (else owed) |
 
 The rows run in the order D-1, D-5, D-2, D-3, D-4 on the same copy.
 
@@ -2052,14 +2384,15 @@ Merge when all of these hold:
 - each F-MA3a-n fix is committed on the branch with its check, and Task 5 Step 2's checks were run again after the last fix;
 - a fix that changes what Revit does was deployed and its row run again live before the merge; a row whose fix was not run again is **owed**, not passed;
 - D-3 passed: a declined ghost could not be ticked, and a decline made after the window opened refused the Apply with nothing created. If anything was created, nothing is merged;
-- D-5 passed: the machine credential's decline and re-open were 403s and the doc was unchanged. If either landed, nothing is merged.
+- D-5 passed: the machine credential's decline and re-open were 403s and the doc was unchanged. If either landed, nothing is merged;
+- migration 0037's probe (C1): either it passed live (`PROBE 0037: 3 of 3 as expected.` and every row of its first query true, recorded in the migration's header) or it is named **owed** in the drill record and the merge message — and then the web app's publish waits for the apply (Deployment).
 
 **The design doc says what the drill proved**, committed on the branch before the merge: replace every `BUILT on \`feature/ma3-review-desk\` (MA-3a), drill MA3a pending` with `LANDED in MA-3a (merge <date>), drill MA3a: <passed rows; owed rows>` — `git commit -m "docs: MA-3a - drill MA3a's result"` (with the trailer).
 
 ```bash
 git checkout master
 git merge --no-ff feature/ma3-review-desk -F - <<'EOF'
-Merge feature/ma3-review-desk: MA-3a - a binding web decline (design 6.6, founder decision D17): the review states per ghost on the changeset doc (review, review_rev - spec amendment S1) and one changeset_reviewed / changeset_reopened ledger row per post; POST /changesets/:key/:id/review (a signed-in contributor; a decline needs a reason) and /reopen (a signed-in lead); the machine credential never reviews (403, sign in - F1); every changeset write swaps on review_rev, so a web decision is never lost under a result or a withdraw; a result that applies a decline Revit had seen is refused, one declined after Revit's re-check is recorded as applied_over_late_decline and said (F2); Review AI Proposals shows a declined ghost unticked and disabled with who, the role and the reason, keeps an accept as advice, and refuses the whole Apply on a decline that landed after the window opened (nothing created); the web review desk (BIM tools > Review) lists the ghosts by storey and kind, accepts, declines and re-opens; the Modeling studio retired. Drill MA3a: <the result and the owed rows>. graphify is not on PATH on this PC: the graph was not updated
+Merge feature/ma3-review-desk: MA-3a - a binding web decline (design 6.6, founder decision D17): the review states per ghost on the changeset doc (review, review_rev - spec amendment S1) and one changeset_reviewed / changeset_reopened ledger row per post; POST /changesets/:key/:id/review (a signed-in contributor; a decline needs a reason) and /reopen (a signed-in lead); the machine credential never reviews (403, sign in - F1); every changeset write swaps on review_rev with the service key, so a web decision is never lost under a result or a withdraw (three lost swaps a 503); migration 0037 leaves the changeset store no signed-in writer (review amendment C1; <applied, probe 3 of 3 | owed - the publish waits for it>) and the two rows are reserved on the open audit route (C5); a result that applies a decline Revit had seen is refused, one declined after Revit's re-check is recorded as applied_over_late_decline and said, one with no review_rev as applied_over_decline_unchecked (F2, C2); Review AI Proposals shows a declined ghost unticked and disabled with who, the role and the reason, keeps an accept as advice, and refuses the whole Apply on a decline that landed after the window opened (nothing created); the web review desk (BIM tools > Review) lists the ghosts by storey and kind, accepts, declines and re-opens; the Modeling studio retired. Drill MA3a: <the result and the owed rows>. graphify is not on PATH on this PC: the graph was not updated
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -2067,10 +2400,11 @@ EOF
 
 Push only under the standing push rule, after a secret scan of the range.
 
-**Deployment, in this order** (an add-in before MA-3a ignores `review`, so a web decline binds only in an MA-3a add-in — the add-in goes before the desk is published):
-1. **The bridge — the founder restarts the 4100 bridge** on master (`changesets-logic.mjs`, `changesets-store.mjs`, `bcf-service.mjs` changed; no bundle rebuild, no migration). An older add-in keeps working against it: its result has no `review_rev` (revision 0: never refused, a decline it applied recorded as late).
-2. **The add-in**, with Revit closed: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (without `DeployToRevit=false`), and the same for each other Revit version the founder uses.
-3. **The web app — the founder's publish** (`npm run publish`); until then the published app keeps its Model tab, and nobody declines on the web.
+**Deployment, in this order** (an add-in before MA-3a ignores `review`, so a web decline binds only in an MA-3a add-in — the add-in goes before the desk is published; and a bridge before MA-3a forwards a signed-in person's changeset writes, which 0037 refuses — the bridge goes before the migration, C1):
+1. **The bridge — the founder restarts the 4100 bridge** on master (`changesets-logic.mjs`, `changesets-store.mjs`, `cde-store.mjs`, `bcf-service.mjs` changed; no bundle rebuild). It writes every changeset doc with the service key, so it is safe on either side of 0037. An older add-in keeps working against it: its result has no `review_rev` (never refused; a decline it applied is recorded as `applied_over_decline_unchecked`).
+2. **Migration 0037 — the founder's "apply"** (C1; skip when F7 A applied it already): the controller applies `0037_changeset_bridge_only.sql`, runs `probes/0037_probe.sql`, writes the result into the migration's header (as 0034's) and commits it. Never before step 1.
+3. **The add-in**, with Revit closed: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (without `DeployToRevit=false`), and the same for each other Revit version the founder uses.
+4. **The web app — the founder's publish** (`npm run publish`), only after step 2: until then the published app keeps its Model tab and nobody declines on the web, so no published desk offers a decline a member could still undo outside Sentinel.
 
 ## UNSURE facts this drill settles
 
@@ -2081,18 +2415,17 @@ Push only under the standing push rule, after a secret scan of the range.
 
 ## Risks (each a ceiling stated in words)
 
-- **An add-in before MA-3a ignores `review`**: in it a web decline does not bind. The bridge records any decline it applied as `applied_over_late_decline` (revision 0) and the desk shows the result; the deployment order puts the add-in before the desk's publish.
+- **An add-in before MA-3a ignores `review`**: in it a web decline does not bind. Its result has no `review_rev`, so the bridge records any decline it applied as `applied_over_decline_unchecked` (C2 — never "late", which would be a guess) and the desk shows the result; the deployment order puts the add-in before the desk's publish. A script holding `BCF_TOKEN` can do the same: recorded and named on the row, never refused (the elements are already placed).
+- **A decline binds its changeset.** A Promote re-run re-proposes the same ghost undecided and pre-ticked; carrying a decline forward by (`target.unique_id`, `op`, `place.TypeName`/`to`) is MA-3b (C4). The window's header and the desk say so.
+- **Until migration 0037 is applied** a project member can still write a changeset doc outside Sentinel (straight through Supabase) and so undo a decline; the web app's publish waits for the apply (Deployment, C1). The hole predates MA-3a (any doc field was writable); 0037 closes it.
 - **The window is a snapshot.** A decline after it opened is caught at Apply on the fresh copies — the whole Apply is refused, said; the person opens the review again (the ticks are lost: the window closes on Decide, audit `:345` — MA-3b keeps it open).
 - **A decline inside Apply's seconds** (after the re-check, before the report) is applied and recorded as late, said in Revit and on the row (F2 A). A Revit "ticked" lock is Next.
-- **Three writes during one report's swap** answer 409; Revit's `Report` stops at a 409 ("retrying cannot fix this") although a later send would land (E1). Not expected at desk speed.
-- **The open audit route can write a row named `changeset_reviewed`** (entity_type `changeset` is not reserved). The binding is the doc, never a row; reserving the two actions is Next.
 - **The desk reads every proposed changeset at once** (at most 200 ghosts each, no paging) and re-reads after each post; a project with hundreds of pending changesets is slow to draw.
 - **One person, two roles**: with one account the drill's decline and re-open are the same person; the two-account row stays owed until a second account exists (design `:1368`).
 
 ## Next (out of scope here)
 
-- **MA-3b — the Revit desk that does not wait** (Revit only): AI-5's picker of every pending changeset (age, source, verdict counts; a Promote storey as one entry); rows grouped by storey and kind with tick/untick per group; a reason per decline in Revit (the result's optional `reasons {guid: text}`, stored beside `declined_on_web`); the window open until the report lands ("Declined — reported (ledger …)"); zoom to row (`App.Events.SelectAndShow` for a target, `ZoomAndCenterRectangle` for a create); AI-2 — Apply and the report off the UI thread with no `GetResult`, the guard held until the report lands, an "applied, unreported" record in a local file per document retried on the next open; a Revit "ticked" lock (F2 C, S4).
+- **MA-3b — the Revit desk that does not wait** (Revit only): AI-5's picker of every pending changeset (age, source, verdict counts; a Promote storey as one entry); rows grouped by storey and kind with tick/untick per group; a reason per decline in Revit (the result's optional `reasons {guid: text}`, stored beside `declined_on_web`); the window open until the report lands ("Declined — reported (ledger …)"); zoom to row (`App.Events.SelectAndShow` for a target, `ZoomAndCenterRectangle` for a create); AI-2 — Apply and the report off the UI thread with no `GetResult`, the guard held until the report lands, an "applied, unreported" record in a local file per document retried on the next open; a Revit "ticked" lock (F2 C, S4); a decline carried forward to a Promote re-run — a ghost with the same (`target.unique_id`, `op`, `place.TypeName`/`to`) as a declined one opens declined, with the decline's words (C4).
 - **MA-3c — the ghost overlay** (Revit only): a pure `GhostOverlayGeometry` and a `DirectContext3D` server registered at `Open` and removed through an ExternalEvent on `Closed`; a tick highlights; no transaction; builds 2022–2027; drill MA3 row 1; GHB-4's preview reuses it.
 - **MA-3d — web highlights and the proposal model**: the one-hour spike (does a bridge-made `.frag` load and colour as its own model in fragments-beta 3.5.9; the coordinate frame); Promote ghosts highlighted by `target.ifc_guid` (sent by the add-in) in the newest published version with "model version X; Revit may be newer"; creates through an extended `ifc-writer.ts` with the `Sentinel_Evidence` pset, served as `proposal.frag`; drill MA3 rows 2 and 4. `PointCloudLoader`/`SplatLoader` wait for MA-4's evidence; the IDS cross-check is dropped (`ids.ts` judges).
-- Reserve `changeset_reviewed` and `changeset_reopened` on the open audit route.
 - Owed rows carried: Revit 2025–2027 for the review, D-4's second account, the late-decline path live; and from MA2e — Revit 2025–2027 for Annotate, the signed-out actor, a view that throws in its SubTransaction, an owned or out-of-date datum, a non-story level, pinning in a workshared copy.
