@@ -86,7 +86,7 @@ static partial class Check
            && hub.Contains("App.PanelVm?.LogDoctor($\"Revit did not take a Sentinel action ({raised}) — it stays queued and runs with the next one.\");"),
            "the event hub raises on Revit's own thread whoever enqueues (a report's continuation is a pool thread), and a raise Revit did not take is said in the Doctor log");
         Ok(review.Contains("if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));")
-           && review.Contains("App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));")
+           && review.Contains("lost = () => App.Events.Enqueue(_ => TaskDialog.Show(Title, text));") // MA-3b4 review C12: the picker's words, windowless
            && !review.Contains("_ => { }") && !review.Contains("\"say the review's result\""),
            "a closed window's or picker's result is shown in whichever model is in front — a dialog changes nothing, so no DocPin refusal is there to be swallowed");
         Ok(review.Contains("try { said = words(t.Result); }")
@@ -102,7 +102,7 @@ static partial class Check
            && vm.Contains("private void OnUi(Action a)") && vm.Contains("if (_ui.CheckAccess()) a();") && vm.Contains("else _ui.BeginInvoke(a);")
            && !vm.Contains("Application.Current") && Count(vm, "CurrentDispatcher") == 1
            && queued > 0 && queued < At(review, "try { App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + words); } catch { }")
-           && At(review, "App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));") < At(review, "try { App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + rep.Text); } catch { }")
+           && At(review, "lost(); // MA-3b2b") > 0 && At(review, "lost(); // MA-3b2b") < At(review, "try { App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + text); } catch { }") // MA-3b4 review C12
            && review.Contains("catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $\"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\\nRun Review AI Proposals to see what the bridge holds.\")); }"),
            "review C1: the pane's own dispatcher is Revit's, kept from its making (never the caller's); a closed window's dialog is queued before its Doctor line, each on its own; a continuation that throws anywhere still says so in a dialog");
     }

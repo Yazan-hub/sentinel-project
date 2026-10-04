@@ -36,7 +36,10 @@ static partial class Check
            && all > 0 && then > all && review.IndexOf("finally { Release(); }", all, StringComparison.Ordinal) > then,
            "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");
         Ok(picker.Contains("public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status, Action gone = null)")
-           && review.Contains("Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, UnreportedResults.Windowless(\"\", rep.Text)));")
+           // Review C12: the round's words are windowless on every path of the picker (it has no Retry report), and a throw keeps them.
+           && review.Contains("text = UnreportedResults.Windowless(\"\", rep.Text);") && review.Contains("lost = () => App.Events.Enqueue(_ => TaskDialog.Show(Title, text));")
+           && review.Contains("if (text != null) said.Add(text);") && !review.Contains("said.Add(rep.Text)") && !review.Contains("TaskDialog.Show(Title, rep.Text)")
+           && review.Contains("catch (Exception ex) { picker.SetEntries(none, string.Join(\"\\n\\n\", new[] { $\"The list could not be read — {ex.GetType().Name}: {ex.Message}\", text }.Where(s => s != null)), lost); }")
            && review.Contains("picker.SetEntries(rows, string.Join(\"\\n\\n\", said), lost);")
            && review.Contains(".Concat(said)), lost);"),
            "MA-3b2b's gap: a round's words that reach a picker closed in between go to a dialog too, not to the Doctor log alone");

@@ -99,26 +99,33 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     private static void Load(ChangesetPickerWindow picker, BcfConfig cfg, string key, Task<Reported> retried, string away) => Task.Run(async () =>
     {
         var none = new List<(string Line, string Blocked, List<ChangesetDto> Entry)>();
+        // MA-3b4 review C12: the round's words, windowless on every path (review C4's reason: the picker has no Retry report button),
+        // declared here so a throw below still says them.
+        string text = null;
+        Action lost = null;
         try
         {
             var rep = await retried;
+            if (rep.Words.Count > 0)
+            {
+                text = UnreportedResults.Windowless("", rep.Text);
+                // MA-3b4 (MA-3b2b's gap): the picker may close while the list is read — the round's words then go to a dialog too, not the Doctor log alone.
+                lost = () => App.Events.Enqueue(_ => TaskDialog.Show(Title, text));
+            }
             // Review C11: the picker may be closed while the round ran (up to 120 s) — its words (a record removed, a result reported) go to
             // the Doctor log and a dialog, as a closed window's do (C2); nothing is listed.
             if (picker.Gone)
             {
-                if (rep.Words.Count > 0)
+                if (text != null)
                 {
-                    App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text)); // MA-3b2b: no DocPin, and queued before the Doctor line — see Tell
-                    try { App.PanelVm?.LogDoctor("Review AI Proposals: " + rep.Text); } catch { }
+                    lost(); // MA-3b2b: no DocPin, and queued before the Doctor line — see Tell
+                    try { App.PanelVm?.LogDoctor("Review AI Proposals: " + text); } catch { }
                 }
                 return;
             }
-            // MA-3b4 (MA-3b2b's gap): the picker may close while the list is read — the round's words then go to a dialog too, not the Doctor log alone;
-            // windowless (review C4): the closed picker has no Retry report to offer.
-            Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, UnreportedResults.Windowless("", rep.Text)));
             var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);
             var said = new List<string>();
-            if (rep.Words.Count > 0) said.Add(rep.Text);
+            if (text != null) said.Add(text);
             if (away != null) said.Add(away);
             if (pending == null)
             {
@@ -129,7 +136,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             said.Insert(0, rows.Count == 0 ? $"No pending proposals for project \"{key}\"." : $"{rows.Count} waiting for review on \"{key}\", oldest first — pick one and press Review.");
             picker.SetEntries(rows, string.Join("\n\n", said), lost);
         }
-        catch (Exception ex) { picker.SetEntries(none, $"The list could not be read — {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { picker.SetEntries(none, string.Join("\n\n", new[] { $"The list could not be read — {ex.GetType().Name}: {ex.Message}", text }.Where(s => s != null)), lost); }
     });
 
     // AI-2: why an entry cannot be opened — a result of one of its changesets waits on this PC; null when none does.
@@ -160,7 +167,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         public readonly List<UnreportedResults.Record> Left = new List<UnreportedResults.Record>();
         public readonly List<(UnreportedResults.Record R, string Reply)> Landed = new List<(UnreportedResults.Record R, string Reply)>();
         /// <summary>MA-3b4 (G1): a person must act — only some of a result's elements carry its stamp, or the bridge refused for good a
-        /// result whose elements are in the model. A round no window shows (Said) then raises a dialog.</summary>
+        /// result whose elements are in the model, or a result landed over a web decline (ChangesetTrust.LateDeclines — review C2). A round
+        /// no window shows (Said) then raises a dialog.</summary>
         public bool Act;
         public string Text => string.Join("\n\n", Words);
     }

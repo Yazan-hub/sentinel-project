@@ -285,7 +285,8 @@ static partial class Check
         const string closedBeforeApply = "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }";
         int raise = At(review, "_ = window.Dispatcher.BeginInvoke(new Action(() =>");
         Ok(picker.Contains("Closed += (_, _) => _gone = true;") && picker.Contains("if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + status); gone?.Invoke(); return; }") // MA-3b4: and the caller's dialog
-           && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));") // MA-3b2b
+           && review.Contains("if (picker.Gone)") && review.Contains("lost(); // MA-3b2b: no DocPin, and queued before the Doctor line — see Tell") // MA-3b2b; MA-3b4 review C12: windowless
+           && review.Contains("try { App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + text); } catch { }")
            && At(review, "if (picker.Gone)") > At(review, "var rep = await retried;") && At(review, "if (picker.Gone)") < At(review, "var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);")
            && window.Contains("if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + words); return; }"),
            "review C11: the words of a round the picker started reach the Doctor log and a dialog when the picker was closed meanwhile; words posted to a window or picker that closed in between go to the Doctor log");
