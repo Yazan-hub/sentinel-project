@@ -29,7 +29,7 @@ const wire = (deps = {}) => ({
 
 /** MA-3a (gotcha 1): every write of a changeset doc is read → decided → swapped on review_rev, which each write bumps — a web
  *  decision written between a read and a write is never overwritten (the status-only swap it replaces lost one). A lost swap reads
- *  again and decides again on the new doc; three in a row are a 409. A doc from before MA-3a has no review_rev: its first write
+ *  again and decides again on the new doc; three in a row are a 503 (C3: Revit's Report retries a 503 and stops at a 409). A doc from before MA-3a has no review_rev: its first write
  *  swaps on the field being absent. `decide(cs)` throws its 400/409 in words, or answers {updated, …} — answered with `before`. */
 async function rewrite(d, pid, id, decide) {
   for (let i = 0; i < 3; i++) {
@@ -56,6 +56,18 @@ async function reviewer(d, key, min, what) {
 }
 
 const ledgerRef = (row) => (row ? { id: row.id ?? null, hash: row.hash ?? null } : null);
+
+/** Review amendment C7: a web decision is swapped onto the doc, then written to the ledger. A row the ledger does not take is
+ *  taken back off the doc (swapped on the revision the decision wrote; the revision moves on), so Revit never obeys a decision the
+ *  ledger lacks, and the same send lands again (a kept decline would refuse its own retry as a repeat). */
+async function recorded(d, pid, id, before, updated, what, write) {
+  try { return await write(); } catch (e) {
+    const back = await d.docReplaceIfField(STORE, pid, id, { ...before, review_rev: updated.review_rev + 1, updated_at: new Date().toISOString() },
+      "review_rev", updated.review_rev, { service: true }).catch(() => null);
+    if (back) throw err(503, `the ledger did not take the ${what} — nothing was saved; send it again`);
+    throw err(502, `the ${what} is saved on the changeset but the ledger has no row for it (${e.message}), and the changeset changed before it could be taken back — tell the project lead`);
+  }
+}
 
 /** C2: the words a changeset_applied row carries when a result with no review_rev applied a web decline. */
 const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline";
@@ -215,7 +227,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
-      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late } : {}),
+      // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
+      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
       ...(conflicts.unchecked.length ? { applied_over_decline_unchecked: conflicts.unchecked, unchecked_why: UNCHECKED_WHY } : {}) });
   return updated;
 }
@@ -267,8 +280,8 @@ export async function reviewChangeset(key, id, { decisions } = {}, actor, deps) 
   const proj = await d.ensureProject(key);
   const who = { by: resolveActor(actor, "web"), role, at: new Date().toISOString() };
   const { before, updated, rows } = await rewrite(d, proj.id, id, (cs) => applyDecisions(cs, decisions, who));
-  const row = await d.audit(proj.id, "changeset", id, "changeset_reviewed", actor || "web", { review_rev: reviewRev(before) },
-    { review_rev: updated.review_rev, reviewer: who.by, role, decisions: rows });
+  const row = await recorded(d, proj.id, id, before, updated, "decision", () => d.audit(proj.id, "changeset", id, "changeset_reviewed", actor || "web",
+    { review_rev: reviewRev(before) }, { review_rev: updated.review_rev, reviewer: who.by, role, decisions: rows }));
   return { changeset: updated, ledger: ledgerRef(row) };
 }
 
@@ -282,7 +295,7 @@ export async function reopenGhost(key, id, { proposal_guid, reason } = {}, actor
   const proj = await d.ensureProject(key);
   const who = { by: resolveActor(actor, "web"), role, at: new Date().toISOString() };
   const { before, updated, row } = await rewrite(d, proj.id, id, (cs) => reopenDecline(cs, proposal_guid, reason, who));
-  const ledger = await d.audit(proj.id, "changeset", id, "changeset_reopened", actor || "web", { review_rev: reviewRev(before), state: "declined" },
-    { review_rev: updated.review_rev, lead: who.by, role, ...row });
+  const ledger = await recorded(d, proj.id, id, before, updated, "re-open", () => d.audit(proj.id, "changeset", id, "changeset_reopened", actor || "web",
+    { review_rev: reviewRev(before), state: "declined" }, { review_rev: updated.review_rev, lead: who.by, role, ...row }));
   return { changeset: updated, ledger: ledgerRef(ledger) };
 }

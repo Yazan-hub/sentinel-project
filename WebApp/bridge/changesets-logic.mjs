@@ -538,11 +538,12 @@ export function reviewNext(state, action) {
 
 /** A reason as the ledger keeps it: trimmed, one line, at most MAX_REVIEW_REASON characters; null when blank and not needed. */
 function reasonOf(r, need, what) {
-  if (r == null || (typeof r === "string" && r.trim() === "")) {
+  // Review amendment C9: blank is blank to the eye (a zero-width space too); one line refuses every control character and line break.
+  if (r == null || (typeof r === "string" && r.replace(/[\s\p{Cf}]/gu, "") === "")) {
     if (need) throw err(400, `${what} needs a reason — the ledger records it and Revit shows it`);
     return null;
   }
-  if (typeof r !== "string" || r.length > MAX_REVIEW_REASON || CONTROL_CHAR.test(r)) throw err(400, `a reason is one line of at most ${MAX_REVIEW_REASON} characters`);
+  if (typeof r !== "string" || r.length > MAX_REVIEW_REASON || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(r)) throw err(400, `a reason is one line of at most ${MAX_REVIEW_REASON} characters`);
   return r.trim();
 }
 

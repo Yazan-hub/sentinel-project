@@ -116,6 +116,10 @@ The review found one critical, five important and two minor points. Each amendme
 - **C6 (minor — one repeat refused a whole changeset).** `review-desk.ts` gains the pure `postsFor(ticked, decision)`: one post per changeset, leaving out a ghost whose `review?.state` is already the decision's target; the status line says `<n> already accepted|declined — not sent`. One test in `review-desk.test.ts`.
 - **D1 (important — D-3's late decline had nothing left to decline).** D-3's late decline targets a ghost D-2 did not decline that is ticked in Revit — an attach or a retype (signed out: tick it first); D-1 records the attach guids too.
 - **D2 (important — one account made lead contradicted D-2's `(contributor)`).** The founder's account is added as `contributor`; with one account, D-4 starts with `b4101 PATCH cde/ma3a/members/<user_id> '{"role":"lead"}'` (the existing role-change route; the reply recorded). With two accounts the second is added as `lead` at set-up.
+- **C7 (important, code review — a web decision could stand with no ledger row, and its retry was a 409).** `reviewChangeset`/`reopenGhost` swap the doc, then write the row; a row the ledger did not take left the decision binding in Revit with no record. Now `recorded()` in `changesets-store.mjs` takes the decision back off the doc when the audit throws (swapped on the revision it wrote, the revision moving on) and answers 503 "the ledger did not take the decision|re-open — nothing was saved; send it again"; when the take-back loses its swap, a 502 says the decision stands without its row. Two store tests. (`reportResult` keeps its shape: Revit has placed the elements; out of scope.)
+- **C8 (minor, code review — "late" rested on an unrecorded claim).** The `changeset_applied` row that carries `applied_over_late_decline` also carries `review_rev_seen` (`{value, claimed: true}`), as the doc does. Asserted in the fixture's late test.
+- **C9 (minor, code review — an invisible reason, a Unicode line break).** `reasonOf` treats a reason of only white space and format characters (U+200B, U+FEFF) as blank, and refuses `\p{Cc}`, U+2028 and U+2029 as not one line. One test in `changesets-review.test.mjs`.
+- **C10 (minor, code review — stale words).** `rewrite`'s comment says 503 (C3); the add-in's `Report`/`ReportResult` comments say what a missing `review_rev` means after C2; the design doc's next table is 0038; the unused `cde.docReplaceIfStatus` (the status-only swap gotcha 1 removed) is deleted — the store test's tripwire stays.
 - **M2 (minor — Task 4 rides on the founder's session).** No change: Task 4 stays (a decline cannot be made otherwise — the machine credential gets a 403), and D-3 stays a merge blocker. Task 5 Step 2's totals were measured again after C1–C6 (the amended dry run above).
 
 **Rejected, with the reason:** C1's sentence "until 0037 is applied, the desk's header says 'a decline binds in Revit; until migration 0037 a project member can still edit it outside Sentinel'". The desk cannot know whether 0037 is applied (no route reports a migration), so a fixed sentence would stay after the apply and become false — a guess, against the house rule. In its place the deployment orders the web app's publish after the apply (step 4 waits for step 2), so no published desk offers a decline while the hole is open; the Risks line says the hole in words, and the merge message says whether 0037 is applied or owed.
@@ -886,7 +890,7 @@ with
 
 /** MA-3a (gotcha 1): every write of a changeset doc is read → decided → swapped on review_rev, which each write bumps — a web
  *  decision written between a read and a write is never overwritten (the status-only swap it replaces lost one). A lost swap reads
- *  again and decides again on the new doc; three in a row are a 409. A doc from before MA-3a has no review_rev: its first write
+ *  again and decides again on the new doc; three in a row are a 503 (C3: Revit's Report retries a 503 and stops at a 409). A doc from before MA-3a has no review_rev: its first write
  *  swaps on the field being absent. `decide(cs)` throws its 400/409 in words, or answers {updated, …} — answered with `before`. */
 async function rewrite(d, pid, id, decide) {
   for (let i = 0; i < 3; i++) {
@@ -1628,7 +1632,7 @@ In `SentinelAddin/Coordination/ChangesetClient.cs`, replace
 with
 
 ```csharp
-    /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: Ghost Builder's own build — the bridge reads 0);
+    /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: no revision was re-checked — the bridge records any decline it applied as applied_over_decline_unchecked, C2);
     /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it).</summary>
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
         List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error) =>
@@ -1745,7 +1749,7 @@ with
 
 ```csharp
     /// <summary>True when the bridge recorded the result. Also Ghost Builder's (GhostChangesetBuild), with the same retry
-    /// dialog. MA-3a: <paramref name="reviewRev"/> is the changeset's review_rev Apply re-checked (Ghost Builder's own build sends none).</summary>
+    /// dialog. MA-3a: <paramref name="reviewRev"/> is the changeset's review_rev Apply re-checked (Ghost Builder's applying build sends the review_rev its filing reply carried; a call that applies nothing sends none).</summary>
     internal static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev = null)
     {
         while (true)

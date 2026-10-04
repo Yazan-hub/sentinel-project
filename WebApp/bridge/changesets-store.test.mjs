@@ -643,6 +643,31 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
     expect(row[6]).toEqual({ review_rev: 2, lead: fx.reopen.who.by, role: "lead", proposal_guid: "g-1", name: 'retype wall "W 1"',
       declined_by: fx.who.by, declined_reason: "wrong type: W 1 is a party wall", reason: fx.reopen.reason });
   });
+
+  it("C7: a decision or a re-open the ledger does not take is taken back off the doc — a 503, and the same send lands later", async () => {
+    const ledgerDown = () => vi.fn().mockRejectedValueOnce(Object.assign(new Error("timeout"), { status: 502 })).mockResolvedValue({ id: 9, hash: "cd".repeat(32) });
+    const deps = seeded(fx.before, { myRole: as("contributor", "contributor"), audit: ledgerDown() });
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps))
+      .rejects.toMatchObject({ status: 503, message: "the ledger did not take the decision — nothing was saved; send it again" });
+    const back = deps.saved.get("cs-ma3a");
+    expect(back.elements).toEqual(fx.before.elements); // no review on any ghost: Revit obeys nothing the ledger lacks
+    expect(back.review_rev).toBe(2);                   // the rev moves on: a Revit that re-checked rev 1 saw a decline that is gone
+    const out = await reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps); // the retry is not a 409
+    expect(out.changeset.elements[0].review.state).toBe("declined");
+    expect(deps.audit).toHaveBeenCalledTimes(2);
+
+    const lead = seeded(fx.after, { myRole: as("lead"), audit: ledgerDown() });
+    await expect(reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: fx.reopen.reason }, fx.reopen.who.by, lead))
+      .rejects.toMatchObject({ status: 503, message: "the ledger did not take the re-open — nothing was saved; send it again" });
+    expect(lead.saved.get("cs-ma3a").elements).toEqual(fx.after.elements); // still declined
+  });
+
+  it("C7: when the take-back itself loses its swap, the 502 says the decision stands without its row", async () => {
+    const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn(async () => { throw new Error("timeout"); }) });
+    deps.docReplaceIfField.mockImplementationOnce(async (s, p, id, data) => { deps.saved.set(id, data); return data; }).mockResolvedValueOnce(null);
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps))
+      .rejects.toMatchObject({ status: 502, message: expect.stringContaining("the decision is saved on the changeset but the ledger has no row for it") });
+  });
 });
 
 describe("MA-3a — Revit's result against the web's declines (Q2)", () => {
@@ -673,6 +698,8 @@ describe("MA-3a — Revit's result against the web's declines (Q2)", () => {
     expect(out.result.applied_over_decline_unchecked).toEqual(want.result.applied_over_decline_unchecked);
     expect(deps.audit.mock.calls[0][6]).toMatchObject({ status: "partially_applied", declined_on_web: 1, applied_over_late_decline: want.result.applied_over_late_decline });
     expect(deps.audit.mock.calls[0][6]).not.toHaveProperty("applied_over_decline_unchecked");
+    // C8: "late" rests on the client's claimed revision — the hash-chained row says so, not only the doc.
+    expect(deps.audit.mock.calls[0][6].review_rev_seen).toEqual({ value: 2, claimed: true });
   });
 
   it("a result without review_rev (an add-in before MA-3a, a script) lands; a decline it applied is recorded as unchecked, never late (C2)", async () => {

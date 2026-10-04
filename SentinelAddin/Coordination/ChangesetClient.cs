@@ -382,7 +382,7 @@ internal static class ChangesetClient
         catch (Exception ex) { error = ex.Message; return null; }
     }
 
-    /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: Ghost Builder's own build — the bridge reads 0);
+    /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: no revision was re-checked — the bridge records any decline it applied as applied_over_decline_unchecked, C2);
     /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it).</summary>
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
         List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error) =>

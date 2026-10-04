@@ -61,6 +61,12 @@ describe("applyDecisions — the web desk's decisions on one changeset, all or n
     try { applyDecisions(fx.before, [decline("g-1", "")], WHO); } catch (e) { expect(e.status).toBe(400); }
   });
 
+  it("C9: an invisible reason is no reason, and a Unicode line break or control character is not one line", () => {
+    for (const blank of ["​", " ​﻿ "]) expect(() => applyDecisions(fx.before, [decline("g-1", blank)], WHO)).toThrow(/a decline needs a reason/);
+    for (const broken of ["a b", "a b", "a\u0085b", "a\u007fb"]) expect(() => applyDecisions(fx.before, [decline("g-1", broken)], WHO)).toThrow(/one line/);
+    expect(() => reopenDecline(fx.after, "g-1", "​", LEAD)).toThrow(/a re-open needs a reason/);
+  });
+
   it("an unknown or repeated guid, a decision that is not accept or decline, and an empty or oversized list are 400s", () => {
     expect(() => applyDecisions(fx.before, [accept("nope")], WHO)).toThrow(/decisions\[0\]: unknown proposal_guid "nope"/);
     expect(() => applyDecisions(fx.before, [accept("g-1"), decline("g-1")], WHO)).toThrow(/proposal_guid "g-1" appears twice in the decisions/);

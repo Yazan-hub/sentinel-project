@@ -940,7 +940,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Evidence pack manifests:** the artefact store (versioned, hashed), like the other artefacts.
 - **Build jobs:** the bridge's job folder while they run. Their receipts go on the ledger (`build:run`).
 - **LOD state, type gaps and review decisions:** ledger rows. The views are derived from the ledger, as the Holding Area is today. MA-3a (spec amendment S1): a web review decision is also kept on the changeset doc (each ghost's `review`, the doc's `review_rev`), as `status` is — the add-in reads the doc, and the bridge judges a result against it in the same swap; the `changeset_reviewed` and `changeset_reopened` rows are the record (reserved on the open audit route). Migration 0037 (written; applied on the founder's "apply") leaves the `changeset` store no signed-in writer — the bridge writes it with the service key after its own role check, so a member cannot re-open a decline by writing the doc outside Sentinel.
-- **So MA-0 to MA-4 need no new database table.** If one is needed later, it is migration 0037 or higher, with the same row-level security pattern as the existing tables.
+- **So MA-0 to MA-4 need no new database table.** If one is needed later, it is migration 0038 or higher (0037 is MA-3a's changeset floor, no table), with the same row-level security pattern as the existing tables.
 
 **Who may do what** (using the existing roles; the suggested defaults are part of D17)
 

@@ -1952,12 +1952,6 @@ export async function docUpsert(store, pid, docId, data, { service = false } = {
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal", service });
   return data;
 }
-/** Compare-and-swap replace: overwrite the doc ONLY if its current data->>status equals
- *  `expectedStatus`. Returns the data on success, null when the condition lost (0 rows patched) —
- *  the caller re-reads and 409s. Closes the docGet→check→docUpsert race for status transitions. */
-export async function docReplaceIfStatus(store, pid, docId, data, expectedStatus) {
-  return docReplaceIfField(store, pid, docId, data, "status", expectedStatus);
-}
 /** Generic CAS replace: overwrite the doc ONLY if data->>field currently equals `expected`
  *  (pass null for "the key is absent" — legacy rows). Returns data on success, null when the
  *  condition lost. The concurrency primitive behind changeset transitions and comment appends. */
