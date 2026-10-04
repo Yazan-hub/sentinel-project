@@ -46,7 +46,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         var edits = fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter").ToList();
         return edits.Count == 0 ? "" :
             $"\n\nThis storey carried {edits.Count} type edit(s) ({string.Join(", ", edits.Select(e => e.Place?.TypeName ?? "?").Distinct())}). " +
-            "Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all ▸ Apply), then run Promote (DD).";
+            "Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all, write the reason in the note, press Decline all), then run Promote (DD).";
     }
 
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
@@ -90,8 +90,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         if (mine.Count > 0) picker.SetEntries(new List<(string Line, string Blocked, List<ChangesetDto> Entry)>(),
             $"Checking this model and sending {mine.Count} result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…");
         Load(picker, cfg, key, Retry(doc, cfg, mine),
-             away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there: " +
-                                      string.Join("; ", away.Select(r => $"\"{r.Name}\" in {r.Doc}")), doc);
+             away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there:\n" +
+                                      string.Join("\n", away.Select(r => $"\"{r.Name}\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}")), doc);
         return Result.Succeeded;
     }
 

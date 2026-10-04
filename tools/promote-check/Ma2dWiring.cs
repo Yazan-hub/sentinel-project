@@ -80,7 +80,7 @@ static partial class Check
            && Count(review, "(fresh[0].Source == \"promote\" ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2
            && review.Contains("it first opens any other Promote storey still waiting for review, and plans again once none is waiting")
            // Review C2: a declined storey's type edits — later storeys of the same run that retype onto them fail the DD IDS.
-           && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all ▸ Apply), then run Promote (DD).")
+           && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all, write the reason in the note, press Decline all), then run Promote (DD).") // MA-3b review C16: Decline all needs a reason
            // Review C6: an all-unticked storey is declined in words, counted from what the bridge took.
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null)")
            && review.Contains("$\"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed.\""),

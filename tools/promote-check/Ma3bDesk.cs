@@ -109,8 +109,10 @@ static partial class Check
            && !downDecline.Drop && downDecline.Words == "not reported: the bridge did not answer\nNothing in the model changed; Retry report sends it again.",
            "a bridge that does not answer keeps the record (AI-2) — and a decline, which placed nothing, says so");
         var waiting = new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "Promote (DD) · GR-FFL", Doc = @"C:\models\a.rvt", At = "2026-10-04T12:00:00Z" };
-        Ok(UnreportedResults.Blocked(new[] { waiting }) == "\"Promote (DD) · GR-FFL\" was applied in C:\\models\\a.rvt (2026-10-04T12:00:00Z) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first.",
-           "a changeset with a waiting result is not opened, and the words say where it was applied and what reports it");
+        Ok(UnreportedResults.Blocked(new[] { waiting }) == "\"Promote (DD) · GR-FFL\" was applied in C:\\models\\a.rvt (2026-10-04T12:00:00Z) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first."
+           + $" If that model is gone, check the changeset's status on the bridge, then delete {UnreportedResults.PathFor("k", "c")}."
+           && UnreportedResults.DeleteOnce(waiting) == $"If that model is gone, check the changeset's status on the bridge, then delete {UnreportedResults.PathFor("k", "c")}.",
+           "a changeset with a waiting result is not opened, and the words say where it was applied, what reports it, and the file to delete once the person has checked (founder decision F4, review C14)");
 
         // Review C1: a 409 on a result the bridge already holds (its reply was lost: the 120 s timeout, Revit closed mid-report, or the
         // audit row threw after the doc was written) is landed — never "refused" — when the stored result applied exactly the record's ghosts.
@@ -197,7 +199,8 @@ static partial class Check
         Ok(reportAll > 0 && pool > reportAll && At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);") > pool
            && Count(review, "ReportAll(cfg, ") == 4 && !review.Contains("if (!Report(") && !review.Contains("if (Report("),
            "AI-2: every report of the review — applied, declined, rolled back, sent again — goes through ReportAll on a pool thread; Report's retry dialog is Ghost Builder's alone");
-        int write = At(review, "!UnreportedResults.Write(r)"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
+        // Review C15: the whole statement — a record is written for every result with applied elements, before the report is sent.
+        int write = At(review, "var unsaved = records.Where(r => r.Applied.Count > 0 && !UnreportedResults.Write(r)).Select(r => $\"\\\"{r.Name}\\\"\").ToList();"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
         Ok(write > At(review, "onDone = result =>") && send > write && review.Contains("UnreportedResults.Delete(r.Key, r.ChangesetId);")
            && At(review, "if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
            "AI-2: the result is written on this PC before its report is sent, deleted when the bridge takes it, and only then remembered for the undo watcher");
@@ -232,7 +235,10 @@ static partial class Check
            && window.Contains("$\"{what} ({boxes.Count}) · {boxes.Count(b => b.IsChecked == true)} ticked\"")
            && window.Contains("_go.Content = n == 0 ? \"Decline all (needs a reason)\" : $\"Apply {n} ticked in Revit\";"),
            "the rows are grouped by what they do, with Tick group (never a declined row) and Untick group, each header counting its ticks");
-        Ok(picker.Contains("Tag = blocked == null ? entry : null") && picker.Contains("if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }")
+        Ok(picker.Contains("Tag = blocked == null ? entry : null") // review C15: and what Waiting returns
+           && review.Contains("var w = entry.Select(c => UnreportedResults.Read(key, c.Id)).Where(r => r != null).ToList();") && review.Contains("return w.Count == 0 ? null : UnreportedResults.Blocked(w);")
+           && review.Contains("$\"\\\"{r.Name}\\\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}\"") // review C14: the away line names the file too
+           && picker.Contains("if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }")
            && !review.Contains("reviewing the oldest first"),
            "AI-5: the picker lists every entry and opens none whose result waits on this PC; the 'oldest first' modal is gone");
         int askGone = At(review, "var (drop, revert, words) = UnreportedResults.Gone(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var fetchErr), fetchErr);");

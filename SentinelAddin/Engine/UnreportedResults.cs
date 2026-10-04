@@ -174,6 +174,9 @@ namespace Sentinel.Engine
 
         /// <summary>Why a changeset is not opened for review: its result waits on this PC.</summary>
         public static string Blocked(IEnumerable<Record> waiting) =>
-            string.Join("\n\n", waiting.Select(r => $"\"{r.Name}\" was applied in {r.Doc} ({r.At}) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first."));
+            string.Join("\n\n", waiting.Select(r => $"\"{r.Name}\" was applied in {r.Doc} ({r.At}) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first. {DeleteOnce(r)}"));
+
+        /// <summary>Founder decision F4 (review C14): the file that keeps the changeset closed on this PC, named for a model that is gone.</summary>
+        public static string DeleteOnce(Record r) => $"If that model is gone, check the changeset's status on the bridge, then delete {PathFor(r.Key, r.ChangesetId)}.";
     }
 }
