@@ -40,12 +40,12 @@ static partial class Check
            "a lead's re-open: the row says so, and the ghost may be ticked again (its pre-tick back)");
         reopened.Review = JsonSerializer.Deserialize<ReviewDto>(fx.RootElement.GetProperty("after").GetProperty("elements")[0].GetProperty("review").GetRawText());
 
-        Ok(ChangesetTrust.DeclinedHeader(after) == "2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). Apply reports them as rejected; the changeset stays proposed until Revit reports it — a new Promote run proposes a declined ghost again, undecided."
+        Ok(ChangesetTrust.DeclinedHeader(after) == "2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead re-opens one on the web desk while its changeset is still proposed). Apply reports them as rejected; the changeset stays proposed until Revit reports it. A decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason)."
            && ChangesetTrust.DeclinedHeader(before) == null,
            "the window's header counts the web's declines and says a changeset stays proposed until Revit reports it");
 
         var refused = ChangesetTrust.DeclinedTicked(new[] { after }, new HashSet<string> { "g-1", "g-2", "g-3" });
-        Ok(refused == "1 ticked ghost(s) were declined on the web after this window opened:\n· retype wall \"W 1\" — declined on the web by reviewer@example.com (contributor): wrong type: W 1 is a party wall · a lead may re-open it on the web desk\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.",
+        Ok(refused == "1 ticked ghost(s) were declined after this window opened:\n· retype wall \"W 1\" — declined on the web by reviewer@example.com (contributor): wrong type: W 1 is a party wall · a lead may re-open it on the web desk\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.",
            "Apply's re-check: a ticked ghost declined in the fresh copy refuses the whole Apply, naming it, the reviewer and the reason");
         Ok(ChangesetTrust.DeclinedTicked(new[] { after }, new HashSet<string> { "g-2", "g-3" }) == null && ChangesetTrust.DeclinedTicked(new[] { before }, new HashSet<string> { "g-1" }) == null,
            "…and nothing is refused when no ticked ghost is declined");

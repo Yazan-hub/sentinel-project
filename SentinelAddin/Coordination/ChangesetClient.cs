@@ -151,8 +151,32 @@ public sealed class ReviewDto
     [JsonPropertyName("by")] public string By { get; set; }
     [JsonPropertyName("role")] public string Role { get; set; }
     [JsonPropertyName("at")] public string At { get; set; }
-    /// <summary>The changeset's review_rev this decision was written at.</summary>
+    /// <summary>The changeset's review_rev this decision was written at (0 on a carried decline: the revision the changeset was filed at).</summary>
     [JsonPropertyName("rev")] public int? Rev { get; set; }
+    /// <summary>MA-3b3: set when the bridge filed this ghost already declined — the decline was made before, on another changeset of
+    /// the project (changesets-logic.mjs carryDeclines). Null on a decline made on this changeset, and from a bridge before MA-3b3.</summary>
+    [JsonPropertyName("carried_from")] public CarriedFromDto CarriedFrom { get; set; }
+}
+
+/// <summary>MA-3b3: where a carried decline was made — the changeset (its id and name), the ghost there, and "web" (the review desk)
+/// or "revit" (a row rejected in Revit with a reason).</summary>
+public sealed class CarriedFromDto
+{
+    [JsonPropertyName("changeset")] public string Changeset { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; }
+    [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
+    [JsonPropertyName("origin")] public string Origin { get; set; }
+}
+
+/// <summary>MA-3b3: what the bridge carried at filing, counted — ghosts filed already declined; ghosts rejected in Revit before with
+/// no reason of their own (not carried); creates of the same kind, type and level as a create declined before (never matched);
+/// ghosts rejected in Revit before with a reason that no signed-in member reported (not carried — review C1).</summary>
+public sealed class CarryDto
+{
+    [JsonPropertyName("carried")] public int Carried { get; set; }
+    [JsonPropertyName("no_reason")] public int NoReason { get; set; }
+    [JsonPropertyName("creates")] public int Creates { get; set; }
+    [JsonPropertyName("unverified")] public int Unverified { get; set; }
 }
 
 /// <summary>MA-2c: where a set_parameter's value comes from, as the bridge checked it — "catalogue" or "clause", and the artefact,
@@ -338,7 +362,11 @@ public static class ChangesetTrust
     {
         var r = el?.Review;
         if (r == null) return null;
-        if (r.State == "declined") return $"declined on the web by {Who(r)}: {r.Reason} · a lead may re-open it on the web desk";
+        // MA-3b3: a carried decline says where it was made (the web, or Revit), in which changeset, and that the bridge carried it.
+        if (r.State == "declined")
+            return (r.CarriedFrom is { } c
+                ? $"declined {(c.Origin == "revit" ? "in Revit" : c.Origin == "web" ? "on the web" : "before")} by {Who(r)} in \"{c.Name}\", carried here by the bridge"
+                : $"declined on the web by {Who(r)}") + $": {r.Reason} · a lead may re-open it on the web desk";
         if (r.State == "accepted") return $"accepted on the web by {Who(r)}" + (string.IsNullOrWhiteSpace(r.Reason) ? "" : $": {r.Reason}") + " — advice: it still needs your tick";
         return r.Action == "reopen" ? $"re-opened on the web by {Who(r)}: {r.Reason}" : null;
     }
@@ -346,10 +374,36 @@ public static class ChangesetTrust
     /// <summary>MA-3a: the window's header when the web declined ghosts of <paramref name="cs"/>; null when none did.</summary>
     public static string DeclinedHeader(ChangesetDto cs)
     {
-        int n = (cs.Elements ?? new List<ChangesetElementDto>()).Count(DeclinedOnWeb);
-        // C4: a decline binds its changeset only — a Promote re-run proposes the same ghost again, undecided (carrying it is MA-3b).
-        return n == 0 ? null : $"{n} ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). " +
-                               "Apply reports them as rejected; the changeset stays proposed until Revit reports it — a new Promote run proposes a declined ghost again, undecided.";
+        var declined = (cs.Elements ?? new List<ChangesetElementDto>()).Where(DeclinedOnWeb).ToList();
+        int n = declined.Count, k = declined.Count(e => e.Review.CarriedFrom != null);
+        // MA-3b3 (replaces MA-3a's C4): the bridge carries a decline to the next changeset that proposes the same change.
+        // C5: a re-open is for a changeset that is still proposed (changesets-logic reopenDecline).
+        return n == 0 ? null : $"{n} ghost(s) declined{(k == 0 ? " on the web" : $" ({k} carried here by the bridge from an earlier changeset)")} — shown unticked with the reason; they cannot be ticked here (a lead re-opens one on the web desk while its changeset is still proposed). " +
+                               "Apply reports them as rejected; the changeset stays proposed until Revit reports it. A decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason).";
+    }
+
+    /// <summary>MA-3b3: the declines among <paramref name="els"/>, counted for a picker line or a group header — "3 declined on the web",
+    /// or "3 declined (2 carried)" when the bridge carried some from an earlier changeset; null when none is declined.</summary>
+    public static string DeclinedCount(IEnumerable<ChangesetElementDto> els)
+    {
+        var declined = (els ?? Enumerable.Empty<ChangesetElementDto>()).Where(DeclinedOnWeb).ToList();
+        int k = declined.Count(e => e.Review.CarriedFrom != null);
+        return declined.Count == 0 ? null : k == 0 ? $"{declined.Count} declined on the web" : $"{declined.Count} declined ({k} carried)";
+    }
+
+    /// <summary>MA-3b3: what the bridge could not carry when it filed <paramref name="cs"/>, in words; null when there is nothing to say.</summary>
+    public static string NotCarriedLine(ChangesetDto cs)
+    {
+        var c = cs?.Carry;
+        if (c == null) return null;
+        var said = new List<string>();
+        if (c.NoReason > 0)
+            said.Add($"{c.NoReason} ghost(s) here were rejected in Revit before with no reason of their own — proposed again, undecided: the bridge cannot tell an unticked row from an element Revit removed or an Apply that rolled back. A reason in the group's box makes a decline carry.");
+        if (c.Unverified > 0) // C1: a binding decline is a signed-in person's — under the machine credential the reporter's name is a claim
+            said.Add($"{c.Unverified} ghost(s) here were rejected in Revit before with a reason, by a caller the bridge did not know as a signed-in member (the machine credential, or a report from before this version) — not carried: proposed again, undecided.");
+        if (c.Creates > 0) // C7: only creates like one declined before
+            said.Add($"{c.Creates} create(s) here are of the same kind, type and level as a create declined before on this project — a create names no existing element, so the bridge cannot tell whether it is the same one: proposed again, undecided.");
+        return said.Count == 0 ? null : string.Join("\n", said);
     }
 
     /// <summary>MA-3a: Apply's re-check on the fresh copies — the ticked ghosts the web declined (one may land after the window opened).
@@ -358,7 +412,7 @@ public static class ChangesetTrust
     {
         var hit = (fresh ?? Enumerable.Empty<ChangesetDto>()).SelectMany(c => c.Elements ?? new List<ChangesetElementDto>())
             .Where(e => ticked.Contains(e.ProposalGuid) && DeclinedOnWeb(e)).ToList();
-        return hit.Count == 0 ? null : $"{hit.Count} ticked ghost(s) were declined on the web after this window opened:\n" +
+        return hit.Count == 0 ? null : $"{hit.Count} ticked ghost(s) were declined after this window opened:\n" +
             string.Join("\n", hit.Select(e => $"· {GhostName(e)} — {ReviewLine(e)}")) +
             "\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.";
     }
@@ -422,6 +476,9 @@ public sealed class ChangesetDto
     /// <summary>MA-3b review C1: the stored result as the bridge holds it (null while proposed) — read as it comes, so an odd value never
     /// breaks reading the changeset; UnreportedResults.AlreadyTaken reads its applied ghosts.</summary>
     [JsonPropertyName("result")] public JsonElement? Result { get; set; }
+    /// <summary>MA-3b3: what the bridge carried when it filed this changeset; null when there was nothing to say, and from a bridge
+    /// before MA-3b3.</summary>
+    [JsonPropertyName("carry")] public CarryDto Carry { get; set; }
 }
 
 public sealed class AppliedEntry
