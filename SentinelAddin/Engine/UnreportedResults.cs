@@ -238,7 +238,7 @@ namespace Sentinel.Engine
 
         /// <summary>MA-3b4: a model opened while the one-review guard is held (a picker or a window open, a report in flight) — nothing sent, said.</summary>
         public static string OpenHeld(int n) =>
-            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open or a report is in flight. Once it is done, run Review AI Proposals in this model: it checks the model and sends them.";
+            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open, a report is in flight, or Promote (DD) is reading or filing. Once it is done, run Review AI Proposals in this model: it checks the model and sends them.";
 
         /// <summary>MA-3b4 review C1: a model opened while nobody is signed in — nothing sent (a result is reported in a person's name, never
         /// the machine credential's, which the bridge would still accept as service), said.</summary>

@@ -517,6 +517,44 @@ namespace Sentinel.GhostBuilder
             return run;
         }
 
+        // ── MA-3b5: Promote reads and files off Revit's thread — the words of its wait, and its stall rule ──────────────────────────────
+
+        /// <summary>MA-3b5: the pane's Doctor line when Promote starts reading (its dialog opens by itself once the reads are done).</summary>
+        public const string PromoteReading = "Promote (DD): reading the bridge (the changesets waiting for review, the standards, the LOD matrix) off Revit's thread — Revit stays usable, and Promote's dialog opens by itself. Until then, Review AI Proposals and a second Promote say they wait.";
+
+        /// <summary>MA-3b5: …when Promote starts filing, after Yes.</summary>
+        public static string PromoteFiling(int n) =>
+            $"Promote (DD): filing {n} changeset(s) off Revit's thread — Revit stays usable, and the review opens by itself in this model once the bridge has answered. Until then, Review AI Proposals and a second Promote say they wait.";
+
+        /// <summary>MA-3b5: …when the filing is done and the guard is released.</summary>
+        public static string PromoteFiled(int filed, int n) => $"Promote (DD): {filed} of {n} changeset(s) filed — the filing is done.";
+
+        /// <summary>MA-3b5 (DocPin): the review of what Promote filed was not opened — the model was switched or closed meanwhile.</summary>
+        public static string PromoteNotOpened(string refusal, int filed, string title) =>
+            refusal + $"\n\n{filed} changeset(s) Promote filed wait for review — in \"{title}\", run Review AI Proposals (or Promote (DD): it opens a Promote storey waiting for review before it plans again).";
+
+        /// <summary>MA-3b5: the filing threw — what the bridge took before it waits for review: opened by the open hop when something was
+        /// filed (<paramref name="opened"/>, review C6 — true even when DocPin then refuses it, whose words say where), else by the next Promote.</summary>
+        public static string PromoteStopped(string why, bool opened) =>
+            $"Promote's filing stopped — {why}\nWhat the bridge took before it stopped waits for review" +
+            (opened ? " — it opens by itself while this model is in front." : ": run Promote (DD) again — it opens a Promote storey waiting for review before it plans again.");
+
+        /// <summary>MA-3b5 (F4): Promote's filing under MA-3b C6's rule (as UnreportedResults.WithdrawEach) — after the first filing the
+        /// bridge did not answer (anything but a "Bridge 4xx" refusal: unreachable, a timeout, a 5xx), the rest are not sent, so Promote's
+        /// guard waits one write timeout, never one per storey. A refusal — FileAll's set_parameter retry among them — stalls nothing.</summary>
+        public static Func<object, bool, string> Stalling(Func<object, bool, string> post)
+        {
+            string stalled = null;
+            return (body, retry) =>
+            {
+                if (stalled != null) return stalled;
+                var err = post(body, retry);
+                if (err != null && !err.StartsWith("Bridge 4", StringComparison.Ordinal))
+                    stalled = $"not sent: an earlier filing of this run failed without a refusal from the bridge ({err}) — run Promote (DD) again once it answers"; // C5: a lost sign-in stalls too
+                return err;
+            };
+        }
+
         // Review C24: a body with the rows of a body not filed before its own, folded to the bridge's cap.
         private static object Carry(object body, JsonArray rows)
         {
