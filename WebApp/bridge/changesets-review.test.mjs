@@ -3,7 +3,7 @@
 // reported. Pure: changesets-logic.mjs.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { REVIEW_STATES, reviewState, reviewRev, reviewNext, applyDecisions, reopenDecline, resultConflicts } from "./changesets-logic.mjs";
+import { REVIEW_STATES, reviewState, reviewRev, reviewNext, applyDecisions, reopenDecline, resultConflicts, resultReasons } from "./changesets-logic.mjs";
 
 const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const WHO = fx.who;
@@ -144,5 +144,40 @@ describe("resultConflicts — Revit's result against the web's declines (Q2)", (
     expect(() => resultConflicts(fx.after, [], ["g-1", "g-2", "g-3", "g-4"], 2)).toThrow(/review_rev must be the review revision Revit re-checked \(0–1\)/);
     expect(() => resultConflicts(fx.after, [], ["g-1"], -1)).toThrow(/review_rev/);
     expect(() => resultConflicts(fx.after, [], ["g-1"], "1")).toThrow(/review_rev/);
+  });
+});
+
+describe("resultReasons — Revit's reason per declined ghost (MA-3b2)", () => {
+  const rr = fx.revit_reasons;
+  it("the shared fixture: each reason is trimmed, a blank one is dropped, and one for a ghost the web also declined is kept", () => {
+    expect(resultReasons(rr.result.rejected, rr.result.reasons)).toEqual(rr.stored);
+  });
+
+  it("none sent, or only blank ones, is null — nothing is stored", () => {
+    expect(resultReasons(["g-1"], undefined)).toBeNull();
+    expect(resultReasons(["g-1"], null)).toBeNull();
+    expect(resultReasons(["g-1"], {})).toBeNull();
+    expect(resultReasons(["g-1"], { "g-1": "  " })).toBeNull();
+  });
+
+  it("the one-line rule is the web desk's (the fixture's `rule`, which tools/promote-check reads for ChangesetTrust.DeclineReason)", () => {
+    for (const c of rr.rule) {
+      if (c.ok) expect(resultReasons(["g"], { g: c.text })).toEqual(c.clean == null ? null : { g: c.clean });
+      else expect(() => resultReasons(["g"], { g: c.text })).toThrow(/a reason is one line of at most 500 characters/);
+    }
+    expect(resultReasons(["g"], { g: "x".repeat(500) })).toEqual({ g: "x".repeat(500) });
+    expect(() => resultReasons(["g"], { g: "x".repeat(501) })).toThrow(/a reason is one line of at most 500 characters/);
+    expect(() => resultReasons(["g"], { g: 7 })).toThrow(/a reason is one line/);
+  });
+
+  it("a reason for a ghost the result does not reject, and a `reasons` that is not an object, are 400s in words", () => {
+    expect(() => resultReasons(["g-1"], { "g-2": "applied, not declined" })).toThrow(/reasons names "g-2", which this result does not reject — a reason is for a declined ghost/);
+    expect(() => resultReasons(["g-1"], JSON.parse('{"__proto__":"x"}'))).toThrow(/reasons names "__proto__"/);
+    expect(() => resultReasons(["g-1"], ["g-1"])).toThrow(/reasons must be \{proposal_guid: reason\} — one line for each ghost this result rejects/);
+    expect(() => resultReasons(["g-1"], "why")).toThrow(/reasons must be/);
+    const thrown = (f) => { try { f(); } catch (e) { return e; } return null; }; // review C7: fails when nothing is thrown
+    expect(thrown(() => resultReasons(["g-1"], { nope: "x" }))).toMatchObject({ status: 400 });
+    // review C9: a ghost keyed __proto__ keeps its reason (an own key, never the prototype)
+    expect(Object.keys(resultReasons(["__proto__"], JSON.parse('{"__proto__":"kept"}')))).toEqual(["__proto__"]);
   });
 });

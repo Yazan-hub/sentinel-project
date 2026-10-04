@@ -715,6 +715,32 @@ describe("MA-3a — Revit's result against the web's declines (Q2)", () => {
     expect(deps.audit.mock.calls[0][6].review_rev_seen).toEqual({ value: 2, claimed: true });
   });
 
+  it("MA-3b2, the shared fixture: Revit's reason per declined ghost is stored on the result and rides on the changeset_applied row; a result without one stores none", async () => {
+    const rr = fx.revit_reasons;
+    const deps = seeded(fx.after);
+    const out = await reportResult("demo", "cs-ma3a", rr.result, "revit", deps);
+    expect(out.status).toBe("partially_applied");
+    expect(out.result.reasons).toEqual(rr.stored);
+    expect(deps.saved.get("cs-ma3a").result.reasons).toEqual(rr.stored);
+    expect(out.result.declined_on_web.map((x) => x.proposal_guid)).toEqual(["g-1", "g-4"]); // the web's reasons stand beside Revit's
+    expect(deps.audit.mock.calls[0][6]).toMatchObject({ status: "partially_applied", rejected: 3, note: "GR-FFL reviewed in Revit", reasons: rr.stored });
+    const plain = seeded(fx.after);
+    const none = await reportResult("demo", "cs-ma3a", { ...rr.result, reasons: undefined }, "revit", plain);
+    expect(none.result).not.toHaveProperty("reasons");
+    expect(plain.audit.mock.calls[0][6]).not.toHaveProperty("reasons");
+  });
+
+  it("MA-3b2: a reason for a ghost the result does not reject, or one that is not one line, is a 400 — nothing is written and no row", async () => {
+    const rr = fx.revit_reasons;
+    const deps = seeded(fx.after);
+    await expect(reportResult("demo", "cs-ma3a", { ...rr.result, reasons: { "g-2": "applied, not declined" } }, "revit", deps))
+      .rejects.toMatchObject({ status: 400, message: 'reasons names "g-2", which this result does not reject — a reason is for a declined ghost' });
+    await expect(reportResult("demo", "cs-ma3a", { ...rr.result, reasons: { "g-3": "two\nlines" } }, "revit", deps))
+      .rejects.toMatchObject({ status: 400, message: "a reason is one line of at most 500 characters" });
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
   it("a result without review_rev (an add-in before MA-3a, a script) lands; a decline it applied is recorded as unchecked, never late (C2)", async () => {
     const deps = seeded(fx.after);
     const out = await reportResult("demo", "cs-ma3a", { applied: [applied("g-1"), applied("g-2", 8)], rejected: ["g-3", "g-4"] }, "revit", deps);

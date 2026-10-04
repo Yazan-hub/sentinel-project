@@ -10,6 +10,9 @@
 // Tick group / Untick group. The window stays open: a refusal keeps the ticks and the note, the status line says what happened and then
 // what the bridge took ("reported (ledger #n)"), and Retry report appears while a report has not landed. Apply is pressed once; nothing
 // ticked is Decline all, which needs a reason (the note).
+// MA-3b2: each group has one reason box — its reason is recorded for that group's unticked rows (result.reasons, beside the note); it is
+// taken at the press (read-only from then on), and one with no unticked row to go with is refused in words — and each row has Show:
+// select and zoom to its element, or to where a create would be placed.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -24,7 +27,11 @@ namespace Sentinel.UI;
 
 public sealed class ChangesetReviewWindow : Window
 {
-    public event Action<List<string>, List<string>, string> DecideRequested;
+    /// <summary>The ticked, the unticked, the note, and (MA-3b2) a reason per unticked ghost — {proposal_guid: one line}, from each group's
+    /// reason box; empty when none was typed.</summary>
+    public event Action<List<string>, List<string>, string, Dictionary<string, string>> DecideRequested;
+    /// <summary>MA-3b2: a row's Show — the command selects and zooms to its element, or to where a create would be placed.</summary>
+    public event Action<ChangesetElementDto> ShowRequested;
     /// <summary>MA-3b: "Retry report" — the results the bridge has not taken yet.</summary>
     public event Action RetryRequested;
 
@@ -38,6 +45,9 @@ public sealed class ChangesetReviewWindow : Window
     private readonly Button _go = new() { Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
     private readonly Button _retry = new() { Content = "Retry report", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0), Visibility = Visibility.Collapsed };
     private readonly List<Action> _headers = new();
+    // MA-3b2: each group's reason box with its rows; and the line a row's Show speaks on — never the status line, which holds the result.
+    private readonly List<(string What, TextBox Reason, List<(CheckBox Box, ChangesetElementDto El)> Rows)> _groups = new();
+    private readonly TextBlock _shown = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 4) };
     private readonly ChangesetDto _cs;
     private bool _applied; // MA-3b: once Apply was raised, never again from this window — a second Apply could place it twice
     private volatile bool _gone;
@@ -110,6 +120,7 @@ public sealed class ChangesetReviewWindow : Window
 
         // Footer: reviewer note + actions. (Top/bottom docked before the fill so the list scrolls.)
         var foot = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        foot.Children.Add(_shown);
         foot.Children.Add(new TextBlock { Text = "Reviewer note (recorded with the result; Decline all needs one):", Foreground = Brushes.Gray });
         foot.Children.Add(_note);
         foot.Children.Add(_status);
@@ -132,6 +143,7 @@ public sealed class ChangesetReviewWindow : Window
         foreach (var group in (_cs.Elements ?? new List<ChangesetElementDto>()).GroupBy(ChangesetTrust.GroupOf))
         {
             var boxes = new List<CheckBox>();
+            var mine = new List<(CheckBox Box, ChangesetElementDto El)>(); // MA-3b2: this group's rows, for its reason
             var groupRows = new StackPanel();
             foreach (var el in group)
             {
@@ -146,6 +158,7 @@ public sealed class ChangesetReviewWindow : Window
                 box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);
                 _rows.Add((box, el));
                 boxes.Add(box);
+                mine.Add((box, el));
                 box.Checked += (_, _) => Counted();
                 box.Unchecked += (_, _) => Counted();
                 DockPanel.SetDock(box, Dock.Left);
@@ -154,6 +167,18 @@ public sealed class ChangesetReviewWindow : Window
                 var badge = MakeBadge(el.Verdict);
                 DockPanel.SetDock(badge, Dock.Right);
                 row.Children.Add(badge);
+
+                // MA-3b2 (zoom to row): the command selects and zooms to the row's element, or to where a create would be placed. A type
+                // edit has no place in the model: its Show is disabled and says so.
+                var show = new Button
+                {
+                    Content = "Show", Padding = new Thickness(6, 0, 6, 0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = "Select and zoom to it in the model — a create: zoom the active view to where it would be placed.",
+                };
+                if (el.Op == "set_parameter") { show.IsEnabled = false; show.ToolTip = ChangesetTrust.NoPlace; ToolTipService.SetShowOnDisabled(show, true); }
+                show.Click += (_, _) => ShowRequested?.Invoke(el);
+                DockPanel.SetDock(show, Dock.Right);
+                row.Children.Add(show);
 
                 var label = new TextBlock { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
                 var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
@@ -190,8 +215,17 @@ public sealed class ChangesetReviewWindow : Window
             untick.Click += (_, _) => { foreach (var b in boxes) b.IsChecked = false; };
             var bar = new StackPanel { Orientation = Orientation.Horizontal };
             bar.Children.Add(tick); bar.Children.Add(untick);
+            // MA-3b2: one reason for this group's unticked rows — recorded per ghost with the result (result.reasons) and on its ledger row.
+            // Review C4: on its own row under the buttons, the box filling it (no fixed width: the bar clips, it does not wrap).
+            var why = new TextBox { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
+                                    ToolTip = "Optional, one line: why this group's unticked rows are declined. Recorded for each of them with the result — not for a row declined on the web (the web's reason stands)." };
+            var whyLabel = new TextBlock { Text = "Reason for the unticked here:", Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+            var whyRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+            DockPanel.SetDock(whyLabel, Dock.Left);
+            whyRow.Children.Add(whyLabel); whyRow.Children.Add(why);
+            _groups.Add((group.Key, why, mine));
             var body = new StackPanel();
-            body.Children.Add(bar); body.Children.Add(groupRows);
+            body.Children.Add(bar); body.Children.Add(whyRow); body.Children.Add(groupRows);
             var groupBox = new Expander { IsExpanded = true, Content = body, Margin = new Thickness(0, 0, 0, 6) };
             string what = group.Key;
             int declinedHere = group.Count(ChangesetTrust.DeclinedOnWeb);
@@ -272,11 +306,27 @@ public sealed class ChangesetReviewWindow : Window
         var ticked = _rows.Where(r => r.Box.IsChecked == true).Select(r => r.El.ProposalGuid).ToList();
         var unticked = _rows.Where(r => r.Box.IsChecked != true).Select(r => r.El.ProposalGuid).ToList();
         // Review M2: Decline all without a reason is refused here at once — no bridge call; the command keeps the check as the backstop.
-        if (ticked.Count == 0 && string.IsNullOrWhiteSpace(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }
-        _go.IsEnabled = false;
+        if (ticked.Count == 0 && ChangesetTrust.Blank(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }
+        // MA-3b2: each group's reason goes to its unticked rows that may be ticked here (a row the web declined keeps the web's reason). One
+        // the bridge would refuse is refused here, before anything is sent — a result refused after Revit placed its elements is not reported.
+        var reasons = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var g in _groups)
+        {
+            var reason = ChangesetTrust.DeclineReason(g.Reason.Text, out var problem);
+            if (problem != null) { Say($"The reason for \"{g.What}\" was not taken — {problem}. Nothing was sent."); return; }
+            if (reason == null) continue;
+            // Review C3 (words are said, never silent): a reason with no row to carry it — none unticked, or every unticked one declined on the web.
+            if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) { Say($"The reason for \"{g.What}\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent."); return; }
+            foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;
+        }
+        _go.IsEnabled = false; Reasons(true); // review C2: the reasons are taken here — a box typed in afterwards would look recorded and not be
         Say("Re-checking with the bridge…");
-        DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "");
+        DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "", reasons);
     }
+
+    /// <summary>Review C2: the reason boxes are read-only once their reasons were taken (the press), and editable again only when nothing
+    /// was applied (Refused, Reopen) — the next press takes them afresh.</summary>
+    private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }
 
     /// <summary>MA-3b: the status line; any thread. Apply stays as it is.</summary>
     public void Say(string words) => Ui(() =>
@@ -289,14 +339,14 @@ public sealed class ChangesetReviewWindow : Window
     });
 
     /// <summary>MA-3b: nothing ran — said; the ticks and the note are kept and Apply can be pressed again. Any thread.</summary>
-    public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; });
+    public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });
 
     /// <summary>MA-3b: the placement (or the decline) was started — Apply never comes back in this window. Any thread.</summary>
-    public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Say(words); });
+    public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Reasons(true); Say(words); });
 
     /// <summary>Review C3, M3: nothing was placed after all (a "Go back", a refusal inside the placement, a request Revit did not take) —
     /// Apply comes back with the ticks and the note. Any thread.</summary>
-    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Say(words); });
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });
 
     /// <summary>Review C3: rows declined on the web after the window opened — unticked and locked, as the rows declined before it opened. Any thread.</summary>
     public void Lock(IEnumerable<string> guids)
@@ -307,6 +357,15 @@ public sealed class ChangesetReviewWindow : Window
 
     /// <summary>MA-3b: whether "Retry report" is offered. Any thread.</summary>
     public void Retry(bool offered) => Ui(() => { _retry.Visibility = offered ? Visibility.Visible : Visibility.Collapsed; _retry.IsEnabled = offered; });
+
+    /// <summary>MA-3b2: what a row's Show did, on its own line above the note (the status line keeps the result). Any thread; nothing
+    /// once the window is closed — it is about the view, not a result.</summary>
+    public void Shown(string words) => Ui(() =>
+    {
+        if (_gone) return;
+        _shown.Text = words ?? "";
+        _shown.Visibility = string.IsNullOrEmpty(words) ? Visibility.Collapsed : Visibility.Visible;
+    });
 
     private void Ui(Action a)
     {

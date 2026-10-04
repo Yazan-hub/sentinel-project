@@ -616,3 +616,20 @@ export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
   for (const g of rejectedGuids) { const x = entry(g); if (x) declinedOnWeb.push(x); }
   return { refused, late, unchecked, declined_on_web: declinedOnWeb };
 }
+
+/** MA-3b2: Revit's reason per declined ghost — the result's optional `reasons` {proposal_guid: text}. Each key is a ghost this result
+ *  rejects; each value is one line (reasonOf, the web desk's rule). A blank one is dropped; none left is null (nothing is stored). A
+ *  reason for a ghost the web also declined is kept beside the web's (declined_on_web): refusing it would refuse a result Revit has
+ *  already applied, over a decline that landed while its report was on the way. */
+export function resultReasons(rejectedGuids, reasons) {
+  if (reasons == null) return null;
+  if (typeof reasons !== "object" || Array.isArray(reasons)) throw err(400, "reasons must be {proposal_guid: reason} — one line for each ghost this result rejects");
+  const rejected = new Set(rejectedGuids);
+  const out = Object.create(null); // review C9: `out["__proto__"] = …` on a plain object would be swallowed
+  for (const [g, r] of Object.entries(reasons)) {
+    if (!rejected.has(g)) throw err(400, `reasons names "${g}", which this result does not reject — a reason is for a declined ghost`);
+    const why = reasonOf(r, false, "a decline");
+    if (why != null) out[g] = why;
+  }
+  return Object.keys(out).length ? { ...out } : null;
+}

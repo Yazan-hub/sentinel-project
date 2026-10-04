@@ -75,10 +75,10 @@ static partial class Check
         Ok(freshDone > 0 && refuse > freshDone && refuse < At(review, "var role = ChangesetClient.MyRole(cfg, key, out var roleErr);")
            && refuse < At(review, "handler.SetRequest(") && review.IndexOf("return;", refuse, StringComparison.Ordinal) < At(review, "var role = ChangesetClient.MyRole(cfg, key, out var roleErr);"),
            "Apply re-checks the declines on the fresh copies before anything runs, and a declined tick refuses it all (it returns)");
-        Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }));") // MA-3b: sent by ReportAll
+        Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));") // MA-3b: sent by ReportAll; MA-3b2: with its reasons
            && review.Contains("if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, reviewRev, out var reply, out var err))")
            && review.Contains("if (ChangesetTrust.LateDeclines(reply) is { } late) TaskDialog.Show(\"Sentinel — AI proposals\", late);")
-           && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev })")
+           && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons })") // MA-3b2: and the reasons
            && ghost.Contains("res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev))"),
            "the result carries the review_rev Apply re-checked (Ghost Builder's, the one its filing reply carried — C2), and a late or unchecked decline the bridge recorded is said");
     }

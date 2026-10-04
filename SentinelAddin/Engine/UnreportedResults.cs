@@ -26,9 +26,15 @@ namespace Sentinel.Engine
             [JsonPropertyName("name")] public string Name { get; set; }
             /// <summary>The model it was applied in: the workshared central's path, else the file's path, else its title.</summary>
             [JsonPropertyName("doc")] public string Doc { get; set; }
+            /// <summary>MA-3b2 review C16: the file it was applied in (Document.PathName — a local's own path, where Doc is its central's);
+            /// "" for a model never saved; null on a record written before this field.</summary>
+            [JsonPropertyName("path")] public string Path { get; set; }
             [JsonPropertyName("applied")] public List<AppliedEntry> Applied { get; set; } = new List<AppliedEntry>();
             [JsonPropertyName("rejected")] public List<string> Rejected { get; set; } = new List<string>();
             [JsonPropertyName("note")] public string Note { get; set; }
+            /// <summary>MA-3b2: the reviewer's reason per rejected ghost ({proposal_guid: one line}); null when none was typed, and on a
+            /// record written before MA-3b2.</summary>
+            [JsonPropertyName("reasons")] public Dictionary<string, string> Reasons { get; set; }
             /// <summary>The review_rev Apply re-checked (MA-3a); null when none was.</summary>
             [JsonPropertyName("review_rev")] public int? ReviewRev { get; set; }
             /// <summary>The Undo entry names the undo watcher remembers it under once the bridge takes it.</summary>
@@ -98,16 +104,30 @@ namespace Sentinel.Engine
             return (false, false, $"\"{r.Name}\": {found} of {total} element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({PathFor(r.Key, r.ChangesetId)}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.");
         }
 
+        /// <summary>MA-3b2 review C16: a waiting result none of whose elements this model holds (Verified's Ask) is dropped only on the
+        /// evidence of the file it was applied in. Every local of one central shares Doc (the central's path) and every never-saved model
+        /// its title, so another copy would say "none here", the bridge "proposed", and the record would go while the first copy still
+        /// holds the elements — a second Apply then duplicates them. The words when <paramref name="pathName"/> (this Document.PathName)
+        /// is not that file, or the model was never saved: the record is kept. Null when it is that file, or the record is from before
+        /// the field (then as before). Ceiling: an Undo in a never-saved model keeps its record until the file named is deleted.</summary>
+        public static string Elsewhere(Record r, string pathName)
+        {
+            if (r?.Path == null) return null;
+            string delete = $"check the changeset's status on the bridge, then delete {PathFor(r.Key, r.ChangesetId)}.";
+            if (r.Path.Length == 0)
+                return $"\"{r.Name}\": applied in a model that was never saved, and this model holds none of it — a title cannot tell whether this is that model. Nothing reported, and the record is kept. If it was undone, or that model is gone, {delete}";
+            if (string.Equals(r.Path, pathName ?? "", StringComparison.OrdinalIgnoreCase)) return null;
+            return $"\"{r.Name}\": applied in {r.Path}, and this file ({pathName}) holds none of it — another copy of the same model. Nothing reported, and the record is kept: open that file and run Review AI Proposals there, or synchronise it and reload this one. If that file is gone, or it was undone there, {delete}";
+        }
+
         /// <summary>A report that did not land (<paramref name="error"/> as ChangesetClient says it): whether the record goes, and the words.
         /// 400, 404 and 409 never heal on a retry with the same body — the record goes, said; anything else keeps it for a retry.</summary>
         public static (bool Drop, string Words) Outcome(string error, int applied)
         {
-            var err = string.IsNullOrWhiteSpace(error) ? "the bridge did not answer" : error;
+            // Review M4, MA-3b2: a timeout is said as what it is (ChangesetTrust.BridgeWords — the client says it so already; net48's and
+            // net8's own timeout words are read the same way); a bridge's own words are never rewritten, nor a sign-in failure's (C1).
+            var err = ChangesetTrust.BridgeWords(error, 120);
             bool Is(params string[] codes) => codes.Any(c => err.StartsWith("Bridge " + c, StringComparison.Ordinal));
-            // Review M4: the 120 s write timeout reads "A task was canceled." (net48) or "…canceled due to the configured HttpClient.Timeout…"
-            // (net8) — said as what it is; a bridge's own words are never rewritten.
-            if (!err.StartsWith("Bridge ", StringComparison.Ordinal) && err.IndexOf("canceled", StringComparison.OrdinalIgnoreCase) >= 0)
-                err = "the bridge did not answer within 120 s";
             if (Is("400", "404", "409"))
                 return (true, $"the bridge refused it (retrying cannot fix this): {err}" +
                               (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review." : ""));
@@ -140,6 +160,10 @@ namespace Sentinel.Engine
                 ? $"\"{r.Name}\": the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; the bridge named no ledger row for it here."
                 : null;
         }
+
+        /// <summary>MA-3b2 review C15: the stored changeset (re-read after a 409) in the shape of the bridge's reply to a result, so
+        /// ChangesetTrust.ReasonsLine counts the reasons a result taken earlier holds.</summary>
+        public static string StoredReply(ChangesetDto fresh) => JsonSerializer.Serialize(new { result = fresh?.Result });
 
         /// <summary>Review C9: a waiting result none of whose elements this model holds, and what the bridge holds (<paramref name="fresh"/>,
         /// re-read on a pool thread; null with <paramref name="err"/> when it could not be). A record stays exactly when its reply was lost,

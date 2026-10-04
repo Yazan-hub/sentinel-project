@@ -47,6 +47,22 @@ public sealed class RevitEventHub : IExternalEventHandler
         uidoc.ShowElements(id);
     });
 
+    /// <summary>MA-3b2 (zoom to row): by UniqueId, and said — <paramref name="said"/> gets null once the element is selected and shown,
+    /// else why not: it is gone from the model, the model is not the active one (DocPin's words), or Revit could not show it. The id
+    /// overload above stays silent for its callers.</summary>
+    public void SelectAndShow(Document doc, string uniqueId, Action<string?> said) => Enqueue(doc, "show the element", (uiapp, d) =>
+    {
+        try
+        {
+            if (d.GetElement(uniqueId) is not { } e) { said("not in this model now (deleted, or changed since the proposal was planned)."); return; }
+            var uidoc = uiapp.ActiveUIDocument!;
+            uidoc.Selection.SetElementIds([e.Id]);
+            uidoc.ShowElements(e.Id);
+            said(null);
+        }
+        catch (Exception ex) { said($"could not be shown — {ex.GetType().Name}: {ex.Message}"); }
+    }, said);
+
     public void Execute(UIApplication app)
     {
         while (true)
