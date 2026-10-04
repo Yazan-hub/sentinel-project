@@ -134,6 +134,11 @@ public sealed class App : IExternalApplication
     private static void OnDocumentOpened(object? sender, DocumentOpenedEventArgs e)
     {
         if (e.Document is not { IsFamilyDocument: false } doc) return;
+        // MA-3b4 (AI-2, F2 B): the results this PC applied in this model that the bridge has not taken are sent by themselves — said in the
+        // pane's Doctor log. First (review C6): nothing below can skip it. A throw here sends nothing and removes nothing: every record stays
+        // on this PC, said.
+        try { Commands.ReviewChangesetsCommand.SendOnOpen(doc); }
+        catch (Exception ex) { PanelVm?.LogDoctor($"Review AI Proposals (on opening \"{doc.Title}\"): the results waiting on this PC were not checked — {ex.GetType().Name}: {ex.Message}. They are kept; run Review AI Proposals in this model to send them."); }
         SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
         CdeSyncGuard.Prefetch(ProjectContext.For(doc)); // CDE-01's naming@n, off Revit's thread
         Workflow.RequestManager.RefreshSnapshot(doc); // old-value capture baseline

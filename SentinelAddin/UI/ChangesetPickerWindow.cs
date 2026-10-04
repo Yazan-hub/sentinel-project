@@ -51,12 +51,13 @@ public sealed class ChangesetPickerWindow : Window
         if ((_list.SelectedItem as ListBoxItem)?.Tag is List<ChangesetDto> entry) Chosen?.Invoke(entry);
     }
 
-    /// <summary>The entries — each one's line, why it cannot be opened (null when it can) and its changesets — and the status. Any thread.</summary>
-    public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status)
+    /// <summary>The entries — each one's line, why it cannot be opened (null when it can) and its changesets — and the status. Any thread.
+    /// MA-3b4 (MA-3b2b's gap): <paramref name="gone"/> runs when the picker was closed in between — the caller's dialog.</summary>
+    public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status, Action gone = null)
     {
-        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status, gone))); return; }
         // Review C11: closed between the caller's Gone check and now — the words go to the Doctor log, never to a closed window.
-        if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor("Review AI Proposals: " + status); return; }
+        if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor("Review AI Proposals: " + status); gone?.Invoke(); return; }
         _status.Text = status ?? "";
         _list.Items.Clear();
         foreach (var (line, blocked, entry) in entries)

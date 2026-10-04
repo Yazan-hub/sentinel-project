@@ -99,34 +99,44 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     private static void Load(ChangesetPickerWindow picker, BcfConfig cfg, string key, Task<Reported> retried, string away) => Task.Run(async () =>
     {
         var none = new List<(string Line, string Blocked, List<ChangesetDto> Entry)>();
+        // MA-3b4 review C12: the round's words, windowless on every path (review C4's reason: the picker has no Retry report button),
+        // declared here so a throw below still says them.
+        string text = null;
+        Action lost = null;
         try
         {
             var rep = await retried;
+            if (rep.Words.Count > 0)
+            {
+                text = UnreportedResults.Windowless("", rep.Text);
+                // MA-3b4 (MA-3b2b's gap): the picker may close while the list is read — the round's words then go to a dialog too, not the Doctor log alone.
+                lost = () => App.Events.Enqueue(_ => TaskDialog.Show(Title, text));
+            }
             // Review C11: the picker may be closed while the round ran (up to 120 s) — its words (a record removed, a result reported) go to
             // the Doctor log and a dialog, as a closed window's do (C2); nothing is listed.
             if (picker.Gone)
             {
-                if (rep.Words.Count > 0)
+                if (text != null)
                 {
-                    App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text)); // MA-3b2b: no DocPin, and queued before the Doctor line — see Tell
-                    try { App.PanelVm?.LogDoctor("Review AI Proposals: " + rep.Text); } catch { }
+                    lost(); // MA-3b2b: no DocPin, and queued before the Doctor line — see Tell
+                    try { App.PanelVm?.LogDoctor("Review AI Proposals: " + text); } catch { }
                 }
                 return;
             }
             var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);
             var said = new List<string>();
-            if (rep.Words.Count > 0) said.Add(rep.Text);
+            if (text != null) said.Add(text);
             if (away != null) said.Add(away);
             if (pending == null)
             {
-                picker.SetEntries(none, string.Join("\n\n", new[] { $"Couldn't reach the bridge:\n{fetchErr}" }.Concat(said)));
+                picker.SetEntries(none, string.Join("\n\n", new[] { $"Couldn't reach the bridge:\n{fetchErr}" }.Concat(said)), lost);
                 return;
             }
             var rows = StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e)).ToList();
             said.Insert(0, rows.Count == 0 ? $"No pending proposals for project \"{key}\"." : $"{rows.Count} waiting for review on \"{key}\", oldest first — pick one and press Review.");
-            picker.SetEntries(rows, string.Join("\n\n", said));
+            picker.SetEntries(rows, string.Join("\n\n", said), lost);
         }
-        catch (Exception ex) { picker.SetEntries(none, $"The list could not be read — {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { picker.SetEntries(none, string.Join("\n\n", new[] { $"The list could not be read — {ex.GetType().Name}: {ex.Message}", text }.Where(s => s != null)), lost); }
     });
 
     // AI-2: why an entry cannot be opened — a result of one of its changesets waits on this PC; null when none does.
@@ -137,10 +147,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     }
 
     // AI-2: the model a result was applied in — the workshared central's path, else the file's, else its title (a model never saved).
-    private static string DocOf(Document doc) => Publisher.CentralPath(doc) ?? (string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName);
+    // MA-3b4: Ghost Builder's records too (E4).
+    internal static string DocOf(Document doc) => Publisher.CentralPath(doc) ?? (string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName);
 
     // MA-3b2: reasons — the reviewer's reason per rejected ghost of this changeset (StoreyBatch.Own); null when none was typed.
-    private static UnreportedResults.Record ResultOf(string key, ChangesetDto cs, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, string doc, List<string> undo,
+    internal static UnreportedResults.Record ResultOf(string key, ChangesetDto cs, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, string doc, List<string> undo,
                                                      Dictionary<string, string> reasons) =>
         new UnreportedResults.Record
         {
@@ -155,6 +166,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         public readonly List<string> Words = new List<string>();
         public readonly List<UnreportedResults.Record> Left = new List<UnreportedResults.Record>();
         public readonly List<(UnreportedResults.Record R, string Reply)> Landed = new List<(UnreportedResults.Record R, string Reply)>();
+        /// <summary>MA-3b4 (G1): a person must act — only some of a result's elements carry its stamp, or the bridge refused for good a
+        /// result whose elements are in the model, or a result landed over a web decline (ChangesetTrust.LateDeclines — review C2). A round
+        /// no window shows (Said) then raises a dialog.</summary>
+        public bool Act;
         public string Text => string.Join("\n\n", Words);
     }
 
@@ -180,6 +195,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             {
                 rep.Words.Add(words);
                 rep.Left.Add(r);
+                rep.Act = true; // MA-3b4 (G1): some of its elements carry the stamp — a person checks the model
             }
         }
         return ReportAll(cfg, send, rep, gone);
@@ -189,7 +205,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     /// is remembered for the undo watcher; one it refuses for good (400, 404, 409) loses its record, said; any other failure keeps it.
     /// Review C1: a 409 on a result the bridge already holds (its reply was lost) is taken, not refused. Review C6: after the first
     /// failure that keeps its record, the rest of the round are not sent (kept, said) — one 120 s wait, never one per changeset.</summary>
-    internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null)
+    // MA-3b4 review C3: `after` runs on the pool thread once every result is sent, before the guard is released (Ghost Builder's
+    // withdrawals — no review opens a changeset still being withdrawn); its words, when it has any, close the round's.
+    internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null, Func<Reported, string> after = null)
     {
         rep ??= new Reported();
         gone ??= new List<UnreportedResults.Record>();
@@ -236,6 +254,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     {
                         UnreportedResults.Delete(r.Key, r.ChangesetId);
                         rep.Landed.Add((r, reply));
+                        rep.Act |= ChangesetTrust.LateDeclines(reply) != null; // MA-3b4 review C2: applied over a web decline — a person decides
                         // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
                         // MA-3b2: the decline reasons the bridge kept, counted from its reply (claimed vs verified).
                         rep.Words.Add((taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)}).") + ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
@@ -252,15 +271,58 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // Review C10: a 409 that could not be re-read may be this result, landed earlier — kept (never "refused"), and the round stops.
                     if (unread != null) { rep.Left.Add(r); stalled = true; rep.Words.Add($"\"{r.Name}\": {UnreportedResults.NotReRead(unread, r.Applied.Count)}"); continue; }
                     var (drop, words) = UnreportedResults.Outcome(err, r.Applied.Count);
-                    if (drop) UnreportedResults.Delete(r.Key, r.ChangesetId);
+                    if (drop) { UnreportedResults.Delete(r.Key, r.ChangesetId); rep.Act |= r.Applied.Count > 0; } // MA-3b4 (G1): refused for good, its elements in the model
                     else { rep.Left.Add(r); stalled = true; }
                     rep.Words.Add($"\"{r.Name}\": {words}");
                 }
+                if (after?.Invoke(rep) is string extra && extra.Length > 0) rep.Words.Add(extra.TrimStart('\n')); // MA-3b4 review C3
                 return rep;
             }
             finally { Release(); }
         });
     }
+
+    /// <summary>MA-3b4 (AI-2, founder decision F2 B): a model opened — the results this PC applied in it that the bridge has not taken are
+    /// checked against its stamps here (DocumentOpened: Revit's thread — Retry) and sent off it; what the bridge did is said in the pane's
+    /// Doctor log, and in a dialog only when a person must act (G1). Never while the guard is held (a picker or a review window open, a
+    /// report in flight): said, and the next Review AI Proposals sends them. Never while nobody is signed in (review C1: the machine
+    /// credential would file it in no one's name) — said. Nothing for a linked or family document, a model not bound, or another model's
+    /// records (review C4's comparison).</summary>
+    internal static void SendOnOpen(Document doc)
+    {
+        if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return;
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound) return;
+        var here = DocOf(doc);
+        var mine = UnreportedResults.ForKey(ctx.Key).Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (mine.Count == 0) return;
+        var head = UnreportedResults.OnOpening(doc.Title);
+        // E1: the guard, in memory — a picker or a window may hold this model's results already, or a report of them may be in flight.
+        if (Volatile.Read(ref _holds) > 0) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenHeld(mine.Count)); return; }
+        // Review C1: a result is reported in a person's name — the machine credential would still pass as service (changesets-store).
+        if (!UserSession.IsSignedIn) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenSignedOut(mine.Count)); return; }
+        // Review C9: and not later either — a refresh the session loses mid-round signs it out, and ServiceToken would then fall back
+        // to the file's machine credential; with it cleared, the round's requests carry the person's token or none (a 401: kept, said).
+        var cfg = BcfConfig.Load(); cfg.FileToken = ""; // review C9
+        Said(Retry(doc, cfg, mine), head, rep => rep.Act);
+    }
+
+    /// <summary>MA-3b4 (AI-2): a round of reports no window shows — a model opening (F2 B), Ghost Builder. On a pool thread, once the
+    /// round is done (and the guard released): its words, made windowless, go to the pane's Doctor log — and to a dialog when
+    /// <paramref name="ask"/> says a person must act, or the round failed. Nothing here ends unobserved (MA-3b2b review C1). Work that
+    /// must finish under the guard (Ghost Builder's withdrawals) is ReportAll's <c>after</c>, never here (review C3).</summary>
+    internal static void Said(Task<Reported> sending, string head, Func<Reported, bool> ask) => sending.ContinueWith(t =>
+    {
+        try
+        {
+            var done = t.Status == TaskStatus.RanToCompletion;
+            var words = UnreportedResults.Windowless(head, done ? t.Result.Text : UnreportedResults.Failed(t.Exception?.GetBaseException().Message));
+            // MA-3b2b review C1: queued before the Doctor line, which stands on its own; no DocPin — a dialog changes nothing in the model.
+            if (!done || ask(t.Result)) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));
+            try { App.PanelVm?.LogDoctor(words); } catch { }
+        }
+        catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what the bridge holds.")); }
+    }, TaskScheduler.Default);
 
     /// <summary>Promote's entry (MA-0): the review window on <paramref name="batch"/>.</summary>
     internal static bool Open(ExternalCommandData c, Document doc, BcfConfig cfg, string key, IReadOnlyList<ChangesetDto> batch) => Open(c.Application, doc, cfg, key, batch);
@@ -588,43 +650,5 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         };
         window.Show();
         return true;
-    }
-
-    /// <summary>True when the bridge recorded the result. Ghost Builder's (GhostChangesetBuild), with its retry dialog — the review window
-    /// reports through ReportAll (MA-3b). MA-3a: <paramref name="reviewRev"/> is the changeset's review_rev Apply re-checked (Ghost Builder's applying build sends the review_rev its filing reply carried; a call that applies nothing sends none).</summary>
-    internal static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev = null)
-    {
-        while (true)
-        {
-            if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, reviewRev, out var reply, out var err))
-            {
-                // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
-                if (ChangesetTrust.LateDeclines(reply) is { } late) TaskDialog.Show("Sentinel — AI proposals", late);
-                return true;
-            }
-            // Client errors (400 bad payload, 401/403 not signed in or not a contributor, 404, 409 already-resolved)
-            // won't heal on retry with an identical payload — show once and stop instead of an unwinnable retry loop.
-            if (err != null && new[] { "400", "401", "403", "404", "409" }.Any(code => err.StartsWith("Bridge " + code)))
-            {
-                TaskDialog.Show("Sentinel — AI proposals",
-                    $"The bridge refused the result (retrying cannot fix this):\n{err}" +
-                    (err.StartsWith("Bridge 401") || err.StartsWith("Bridge 403") ? "\n\nSign in (Standards ▸ Sign in) as a contributor on this project." : "") +
-                    (applied.Count > 0 ? "\n\nElements WERE changed in this model. Check the changeset's status in the bridge before any re-review." : ""));
-                return false;
-            }
-            // When elements WERE created, cancelling leaves the bridge still saying "proposed" —
-            // and a later review run would re-execute the same changeset, DUPLICATING the elements.
-            // Say so explicitly; an unnamed hazard is a trap.
-            var hazard = applied.Count > 0
-                ? $"\n\nWARNING: {applied.Count} element(s) were ALREADY CREATED in this model. If you cancel, the bridge still lists this changeset as \"proposed\" — reviewing it again would create duplicates. Retry until the report succeeds, or have the agent withdraw the changeset before any re-review."
-                : "";
-            var d = new TaskDialog("Sentinel — AI proposals")
-            {
-                MainInstruction = "The result could not be reported to the bridge.",
-                MainContent = $"{err}\n\nThe governed record does NOT yet reflect what happened in Revit.{hazard}\n\nRetry?",
-                CommonButtons = TaskDialogCommonButtons.Retry | TaskDialogCommonButtons.Cancel,
-            };
-            if (d.Show() != TaskDialogResult.Retry) return false;
-        }
     }
 }

@@ -1766,3 +1766,28 @@ and scrolls one row per wheel burst).
 **Closing list:** Revit closed without saving; the test bridge stopped; the add-in's settings restored (sha256 `366a193f4680…`), the
 backup deleted; `%AppData%\Sentinel\cache\ma3b3` deleted. Left on the shared ledger (scratch keys): `ma3b3-office`, `ma3b3`, `ma3b3-b1`,
 the membership, the changesets and rows up to #1874. Left on this PC: the scratch copy in `Documents\Sentinel drills\ma3b3\`.
+
+## Session MA3b4 — a report never lost, landing by itself when its model opens, live (2026-10-05 ~00:05 → 00:20 local, branch feature/ma3b4-nothing-waits 9bbe7b5, Claude driving Revit 2024)
+
+Setup: the branch build 9bbe7b5 deployed to Revit 2024 on the founder's OK given ahead ("deploy the ma3b4 branch to 2024"; DLL
+`0912d17efaa8…`; before it `bd44382ed135…`). The add-in's settings backed up and pointed at the drill's door on 127.0.0.1:4101, in front
+of the test bridge on 4102 (this checkout's bridge code); the door answered the first `POST …/result` with a 503 and passed everything
+else. The project `ma2a-ghost` (drill G-1's scratch project; the founder's account a contributor; nothing proposed; no
+`unreported\ma2a-ghost` folder). Scratch copy `ma3b4-a.rvt` of the B35 seed, opened from Revit's Open dialog, bound with Project Setup to
+`ma2a-ghost`, and **saved** (G3; Ctrl+S, no Save As prompt). Revit signed in. **R-A1:** the copy's Ghost source folder (Project Setup,
+current-project scope) pointed at the repo's `demo\ghost-sample` so the chooser lists `sample-walls-ma2a.dxf` — it listed the founder's
+test drawings before.
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-1 | Ghost Builder ▸ `sample-walls-ma2a.dxf` ▸ build proposal `Walls — 2 layer(s), 14 element(s)`. A-WALL-INT alone placed nothing (`gap: 100 mm wall on 'A-WALL-INT' — the guideline names no wall type for it (type_catalog@2 …); skipped. (×3)` — R-A2); A-WALL-EXT, GR-FFL ▸ Build → the summary with **no** Retry dialog before it: `Placed: 4` … `Ledger: reporting 1 changeset(s) to ma2a-ghost (source dwg: 998d6e65) off Revit's thread — the pane's Doctor log says what the bridge took. A result it does not take is kept on this PC and sent again by the next opening of this model or Review AI Proposals; that changeset is not opened for review until then, so nothing is applied twice. One Ctrl+Z undoes the whole build; changeset_reverted is posted for what the bridge holds.` Then a `Sentinel — AI proposals` dialog: `Ghost Builder — the report to the bridge: "Ghost Builder · sample-walls-ma2a · GR-FFL": not reported: Bridge 503: {"error":"drill MA3b4 proxy: the bridge is down (503)"}` / `The result is kept on this PC and sent again by the next opening of this model or Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.` (no "Retry report"); the same words in the Doctor log (`00:13:02  Ghost Builder — the report to the bridge: …`); the door's log `failed /changesets/ma2a-ghost/998d6e65…/result with 503 - the bridge never saw it`; `unreported\ma2a-ghost\998d6e65-….json`; GET `proposed`. The build's own rows: #1878 (`Ghost Builder — Recorded`), #1879 (receipt) — **pass** | summary, dialog, Doctor log, door log, file, GET |
+| R-2 | Ctrl+S; File ▸ Close (no prompt); reopened from Revit's Open dialog, still signed in; the door's one failure spent. The Doctor log: `00:15:29  Review AI Proposals (on opening "ma3b4-a"): "Ghost Builder · sample-walls-ma2a · GR-FFL": reported (ledger #1880).`; **no** dialog (G1: nobody had to act); `unreported\ma2a-ghost\` empty; GET `applied`, `result.applied` 4, `result.reported_role` `contributor` (a person's, never the machine's — C1); ledger #1880 `changeset_applied` at the moment of opening — **pass** | Doctor log, folder, GET, row |
+| R-3 (optional) | not run — **owed** | — |
+
+**Owed:** R-3 (a model closed without saving reports nothing as applied); the open-time guard live; Ghost Builder's Decline path live;
+the picker's closed-window gap live; Revit 2025–2027; MA-3b5 (Promote's own waits).
+
+**Closing list:** Revit closed (the copy saved, as G3 intends — a scratch copy only); the door and the test bridge stopped and their
+launch entries removed; the `fail` file deleted; the add-in's settings restored (sha256 `366a193f4680…`), the backup deleted;
+`unreported\ma2a-ghost` (empty) and `cache\ma2a-ghost` deleted. Left on the shared ledger (a scratch key): on `ma2a-ghost` the Ghost
+changeset (applied) and rows #1877–#1880. Left on this PC: the scratch copy in `Documents\Sentinel drills\ma3b4\` (saved; never committed).

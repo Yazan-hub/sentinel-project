@@ -232,5 +232,75 @@ namespace Sentinel.Engine
 
         /// <summary>Founder decision F4 (review C14): the file that keeps the changeset closed on this PC, named for a model that is gone.</summary>
         public static string DeleteOnce(Record r) => $"If that model is gone, check the changeset's status on the bridge, then delete {PathFor(r.Key, r.ChangesetId)}.";
+
+        /// <summary>MA-3b4 (founder decision F2 B): the head of the Doctor line when a model opens and its waiting results are checked and sent.</summary>
+        public static string OnOpening(string title) => $"Review AI Proposals (on opening \"{title}\"): ";
+
+        /// <summary>MA-3b4: a model opened while the one-review guard is held (a picker or a window open, a report in flight) — nothing sent, said.</summary>
+        public static string OpenHeld(int n) =>
+            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open or a report is in flight. Once it is done, run Review AI Proposals in this model: it checks the model and sends them.";
+
+        /// <summary>MA-3b4 review C1: a model opened while nobody is signed in — nothing sent (a result is reported in a person's name, never
+        /// the machine credential's, which the bridge would still accept as service), said.</summary>
+        public static string OpenSignedOut(int n) =>
+            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Standards ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model.";
+
+        /// <summary>MA-3b4 (G2): the head of Ghost Builder's Doctor line — its report runs after its summary is shown.</summary>
+        public const string GhostHead = "Ghost Builder — the report to the bridge: ";
+
+        // MA-3b4 (S4): what a window's words offer that no window can — MA-3b2b review C14's rule, for every offer: a round at a model's
+        // opening or from Ghost Builder has no Retry report and no window to close.
+        private static readonly (string Window, string None)[] NoWindow =
+        {
+            (PressRetry, RunReview),
+            (DeclineKept, "Nothing in the model changed."),
+            ("Retry report or the next Review AI Proposals", "the next opening of this model or Review AI Proposals"),
+            ("then close this window and run Review AI Proposals again.", "then run Review AI Proposals in this model."),
+        };
+
+        /// <summary>MA-3b4: a round's words for the pane's Doctor log (and a dialog) when no window shows them.</summary>
+        public static string Windowless(string head, string words) => NoWindow.Aggregate(head + (words ?? ""), (s, p) => s.Replace(p.Window, p.None));
+
+        /// <summary>MA-3b4: a round that did not finish (its task faulted) — nothing on this PC is lost.</summary>
+        public static string Failed(string why) =>
+            $"reporting failed — {why ?? "it did not finish"}\nWhat Revit applied is kept on this PC ({Root}) and sent again by the next opening of this model or Review AI Proposals; a decline that did not land leaves its changeset proposed.";
+
+        /// <summary>MA-3b4 (AI-2): Ghost Builder's ledger line — its results are written on this PC and reported off Revit's thread.</summary>
+        public static string GhostReporting(string key, IList<string> ids, IList<string> unsaved) =>
+            $"Ledger: reporting {ids.Count} changeset(s) to {key} (source dwg: {string.Join(", ", ids)}) off Revit's thread — the pane's Doctor log says what the bridge took. " +
+            "A result it does not take is kept on this PC and sent again by the next opening of this model or Review AI Proposals; that changeset is not opened for review until then, so nothing is applied twice. " +
+            "One Ctrl+Z undoes the whole build; changeset_reverted is posted for what the bridge holds." +
+            (unsaved.Count == 0 ? "" : $"\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again.");
+
+        /// <summary>MA-3b4: Ghost Builder's ledger line when the build rolled back — every filed changeset is reported declined off Revit's thread.</summary>
+        public static string GhostDeclining(int n) =>
+            $"Ledger: reporting {n} changeset(s) as declined, with the reason, off Revit's thread — the pane's Doctor log says what the bridge took; one it does not take is withdrawn instead, and one that is neither is named there (still proposed: withdraw it on the web).";
+
+        /// <summary>MA-3b4 (B4): after Ghost Builder's declines — the changesets withdrawn instead, and those neither declined nor withdrawn.</summary>
+        public static string WithdrawnInstead(IList<string> withdrawn, IList<string> kept) =>
+            (withdrawn.Count == 0 ? "" : $"\n\nWithdrawn instead (the decline did not land): {string.Join(", ", withdrawn)}.") +
+            (kept.Count == 0 ? "" : $"\n\nStill proposed — neither declined nor withdrawn: {string.Join(", ", kept)}. Withdraw it on the web before anyone reviews it.");
+
+        /// <summary>MA-3b4 review C10: B4's withdrawals under MA-3b C6's rule — after the first the bridge did not answer (anything but a
+        /// "Bridge 4xx" refusal: unreachable, a timeout, a 5xx), the rest are not sent and are named still proposed, so the guard waits
+        /// one 120 s, never one per changeset. <paramref name="withdraw"/> returns null when withdrawn, else its error.</summary>
+        public static string WithdrawEach(IEnumerable<(string Id, string Shown)> changesets, Func<string, string> withdraw)
+        {
+            var withdrawn = new List<string>();
+            var kept = new List<string>();
+            var stalled = false;
+            foreach (var (id, shown) in changesets)
+            {
+                var err = stalled ? "" : withdraw(id);
+                if (err == null) withdrawn.Add(shown);
+                else { kept.Add(shown); stalled |= !err.StartsWith("Bridge 4", StringComparison.Ordinal); }
+            }
+            return WithdrawnInstead(withdrawn, kept);
+        }
+
+        /// <summary>MA-3b4 review C8: Ghost Builder's results whose save on this PC failed and whose report did not land — the round's
+        /// "kept on this PC" is not true for them.</summary>
+        public static string NotKept(IList<string> ids) => ids.Count == 0 ? ""
+            : $"\n\n⚠ {string.Join(", ", ids)}: NOT kept on this PC — its save failed ({Root}), so nothing here keeps that changeset closed; check its status on the bridge before anyone reviews it.";
     }
 }
