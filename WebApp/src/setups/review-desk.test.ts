@@ -8,7 +8,8 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
-import { storeyOf, groupDesk, ghostLine, reviewWords, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset } from "./review-desk";
+import { storeyOf, groupDesk, ghostLine, reviewWords, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
+  readDecided, readLedger, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
@@ -97,6 +98,112 @@ describe("the bridge calls", () => {
     await postReopen("http://b", "demo", "cs-ma3a", "g-1", "confirmed external");
     expect(bwrite.mock.calls[0][0]).toBe("http://b/changesets/demo/cs-ma3a/reopen");
     expect(JSON.parse(bwrite.mock.calls[0][1].body)).toEqual({ proposal_guid: "g-1", reason: "confirmed external" });
+  });
+});
+
+describe("recently decided in Revit (MA-3b2b)", () => {
+  const rr = fx.revit_reasons;
+  const reported = (id: string, status: string, reported_at: string): PendingChangeset => ({
+    ...after, id, status,
+    result: {
+      applied: rr.result.applied, rejected: rr.result.rejected, note: rr.result.note, reported_at, reported_by: "modeller@example.com",
+      declined_on_web: [
+        { proposal_guid: "g-1", by: "reviewer@example.com", role: "contributor", reason: "wrong type: W 1 is a party wall" },
+        { proposal_guid: "g-4", by: "reviewer@example.com", role: "contributor", reason: "no fire strategy issued yet" },
+      ],
+      reasons: rr.stored,
+    },
+  });
+  const A = "0b0f6c1e-8a59-4d0a-9d6e-3f1f2a6c7e11", B = "7c2d9a40-11aa-4e0b-8a77-5d3e9f0c2b22";
+  const cs = reported(A, "partially_applied", "2026-10-04T13:44:10.123Z");
+  const row = (n: number): LedgerRows => ({ row: n, reverted: null });
+  beforeEach(() => { bfetch.mockReset(); });
+
+  it("a reported changeset in words: who, when, the counts, the ledger row, the note, and each ghost not applied with Revit's reason and the web's", () => {
+    const v = decidedView(cs, row(1811));
+    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by modeller@example.com · 2026-10-04 13:44 UTC · 1 applied, 3 not applied · ledger #1811");
+    expect(v.note).toBe("GR-FFL reviewed in Revit");
+    expect(v.declined).toEqual([
+      { line: "W 1 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm", why: ["Revit: a party wall, as the web desk said", "web, reviewer@example.com (contributor): wrong type: W 1 is a party wall"] },
+      { line: "W 2 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm", why: ["Revit: W 2 is demolished in the next package"] },
+      { line: 'Basic Wall : BDS_EXT_ARC_CMU_200 mm · FireRating "" → "60 min" (a type edit: it reaches every element of the type)', why: ["web, reviewer@example.com (contributor): no fire strategy issued yet"] },
+    ]);
+  });
+
+  it("claimed vs verified: a ledger row that was not found or not read is said, never a made-up id; a ghost with no reason says so", () => {
+    expect(decidedView(cs, null).head).toMatch(/ · no ledger row found for it$/);
+    expect(decidedView(cs, new Error("not read — HTTP 500")).head).toMatch(/ · ledger row not read — HTTP 500$/);
+    const bare = decidedView({ ...cs, status: "declined", result: { ...cs.result!, applied: [], rejected: ["g-2", "constructor"], note: null, reported_at: "", declined_on_web: undefined, reasons: undefined } }, row(7));
+    expect(bare.head).toBe("Promote (DD) · GR-FFL — declined in Revit by modeller@example.com · an unknown time · 0 applied, 2 not applied · ledger #7");
+    expect(bare.note).toBeNull();
+    expect(bare.declined).toEqual([{ line: "W 1 · GR-FFL → top 01-FFL", why: ["no reason given for this ghost"] }, { line: "constructor", why: ["no reason given for this ghost"] }]);
+  });
+
+  it("review C3: a report undone in Revit says so, with the ledger row that says it — never 'applied' alone", () => {
+    const done = { ...cs, status: "applied" };
+    expect(decidedView(done, { row: 1813, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · ledger #1813 · undone in Revit after the report \(ledger #1814\)$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1816, op: "redo" } }).head).toMatch(/ · ledger #1813 · undone, then redone in Revit \(ledger #1816\)$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1817, op: "" } }).head).toMatch(/ · ledger #1813 · a changeset_reverted row follows the report \(ledger #1817\)$/);
+    expect(decidedView(done, { row: null, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · no ledger row found for it · undone in Revit after the report \(ledger #1814\)$/);
+  });
+
+  it("review C4: an old or hand-written result (no lists, no reporter) is still said — the view never throws", () => {
+    const v = decidedView({ ...cs, result: { note: null } as never }, null);
+    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by an unknown account · an unknown time · 0 applied, 0 not applied · no ledger row found for it");
+    expect(v.note).toBeNull();
+    expect(v.declined).toEqual([]);
+  });
+
+  it("C13: a reason is text — markup typed in Revit comes back as the same characters, for textContent", () => {
+    const v = decidedView({ ...cs, result: { ...cs.result!, reasons: { "g-3": '<b onclick="x()">not this</b>' } } }, row(1));
+    expect(v.declined[1].why).toEqual(['Revit: <b onclick="x()">not this</b>']);
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+  });
+
+  it("the heading says how many reports are shown", () => {
+    expect(DECIDED_MAX).toBe(10);
+    expect(decidedCount(3)).toBe("3 report(s), newest first.");
+    expect(decidedCount(14)).toBe("The newest 10 of 14 reports — the older ones are on the ledger.");
+  });
+
+  it("readDecided reads every changeset and keeps the reported ones, newest report first; a failure is 'not read — …'", async () => {
+    const older = reported(B, "declined", "2026-10-04T09:00:00.000Z");
+    bfetch.mockResolvedValueOnce(res(200, [after, older, { ...after, id: "w", status: "withdrawn" }, cs]));
+    expect((await readDecided("http://b/", "demo")).map((c) => c.id)).toEqual([A, B]);
+    expect(bfetch.mock.calls[0][0]).toBe("http://b/changesets/demo");
+    bfetch.mockResolvedValueOnce(res(403, { message: "not a member" }));
+    await expect(readDecided("http://b", "demo")).rejects.toThrow("not read — not a member");
+  });
+
+  it("readLedger asks the ledger for the reports' rows by changeset id — the report's row and the newest Undo or Redo after it (C3); none asked is no read; a failure is 'not read — …'", async () => {
+    expect((await readLedger("http://b", "demo", [])).size).toBe(0);
+    expect(bfetch).not.toHaveBeenCalled();
+    bfetch.mockResolvedValueOnce(res(200, { rows: [
+      { id: 1816, entity_id: B, action: "changeset_reverted", new_value: { op: "redo", guids: ["g-2"], count: 1 } },
+      { id: 1814, entity_id: B, action: "changeset_reverted", new_value: { op: "undo", guids: ["g-2"], count: 1 } },
+      { id: 1813, entity_id: B, action: "changeset_applied" }, { id: 1811, entity_id: A, action: "changeset_applied" },
+      { id: 1805, entity_id: A, action: "changeset_reviewed" }, { id: 1800, entity_id: A, action: "changeset_proposed" }], total: 6 }));
+    expect([...(await readLedger("http://b/", "demo key", [A, B]))]).toEqual([[B, { row: 1813, reverted: { id: 1816, op: "redo" } }], [A, { row: 1811, reverted: null }]]);
+    expect(bfetch.mock.calls[0][0]).toBe(`http://b/cde/demo%20key/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${A},${B}&limit=1000`);
+    bfetch.mockResolvedValueOnce(res(200, { rows: [{ id: 1811, entity_id: A, action: "changeset_applied" }], total: 1200 }));
+    await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — the ledger holds more rows for these reports (1200) than one read returns");
+    bfetch.mockResolvedValueOnce(res(400, { message: "entity_id must be a uuid or a comma list of uuids" }));
+    await expect(readLedger("http://b", "demo", ["x"])).rejects.toThrow("not read — entity_id must be a uuid or a comma list of uuids");
+    bfetch.mockResolvedValueOnce(res(200, { total: 0 }));
+    await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — the bridge answered without rows");
+  });
+
+  it("the desk reads the decided list beside the proposed one, Refresh re-reads both, and the section shows when nothing waits (source scan)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("const [role, pending, decided] = await Promise.all([myRoleRead(base, key), readPending(base, key).catch((e: Error) => e), readDecided(base, key).catch((e: Error) => e)]);");
+    // Review C4: the section is built once, and a throw in it is said — it never takes the proposed list with it.
+    expect(src).toContain('try { tail = recent(decided, ledger); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }');
+    expect(src).toContain('if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }');
+    expect(src).toContain('if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }');
+    expect(src).toContain("    body.append(tail);");
+    expect(src.split("recent(decided, ledger)").length - 1).toBe(1);
+    expect(src.split(/\btail\b/).length - 1).toBe(6); // declared, set twice, shown in each of the desk's three endings
   });
 });
 

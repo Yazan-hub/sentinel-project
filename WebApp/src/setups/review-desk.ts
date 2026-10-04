@@ -4,6 +4,8 @@
 // BINDS: Revit shows it unticked with the reason and refuses the tick; an accept is advice. A signed-in lead re-opens a decline.
 // POST /changesets/:key/:id/review and /reopen; the bridge holds the rules (the machine credential never reviews). A list that was
 // not read says "not read — …", never that nothing waits. No 3D here: ghosts in the viewer are MA-3d.
+// MA-3b2b: under it, "Recently decided in Revit" — the changesets Revit reported (a second read beside the proposed one), each with
+// who, when, the note, its ledger row (and the row of an Undo in Revit after it) and every ghost it did not apply with Revit's reason (result.reasons) and the web's.
 import { bfetch, bwrite } from "./bridge-fetch";
 import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -18,7 +20,16 @@ export interface Ghost {
   parameter?: string; from?: string; to?: string;
   review?: GhostReview | null;
 }
-export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; }
+/** What Revit reported on a changeset (bridge reportResult). `reasons` — Revit's reason per ghost — is there only when one was sent. */
+export interface DeskResult {
+  applied: { proposal_guid: string }[]; rejected: string[]; note: string | null; reported_at: string; reported_by: string;
+  declined_on_web?: { proposal_guid: string; by: string; role: string; reason: string }[];
+  reasons?: Record<string, string>;
+}
+export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; }
+export interface DecidedView { head: string; note: string | null; declined: { line: string; why: string[] }[]; }
+/** A report's ledger rows: its changeset_applied row, and the newest changeset_reverted row after it (an Undo or a Redo in Revit). */
+export interface LedgerRows { row: number | null; reverted: { id: number; op: string } | null; }
 export interface DeskGroup { what: string; ghosts: { cs: PendingChangeset; el: Ghost }[]; }
 export interface DeskStorey { storey: string; changesets: PendingChangeset[]; groups: DeskGroup[]; }
 export interface LedgerRef { id: number | null; hash: string | null; }
@@ -77,14 +88,86 @@ export const canReopen = (role: string): boolean => ["owner", "lead"].includes(r
 
 const at = (base: string, key: string, path = "") => `${base.replace(/\/$/, "")}/changesets/${encodeURIComponent(key)}${path}`;
 
-/** GET /changesets/:key?status=proposed. Any failure throws "not read — <why>", never an empty list. */
-export async function readPending(base: string, key: string): Promise<PendingChangeset[]> {
+async function readList(url: string): Promise<PendingChangeset[]> {
   let r: Response;
-  try { r = await bfetch(at(base, key, "?status=proposed")); }
+  try { r = await bfetch(url); }
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as PendingChangeset[] | { message?: string } | null;
   if (!r.ok || !Array.isArray(j)) throw new Error(`not read — ${(j as { message?: string } | null)?.message || (r.ok ? "the bridge answered without a list" : `HTTP ${r.status}`)}`);
   return j;
+}
+
+/** GET /changesets/:key?status=proposed. Any failure throws "not read — <why>", never an empty list. */
+export const readPending = (base: string, key: string): Promise<PendingChangeset[]> => readList(at(base, key, "?status=proposed"));
+
+// ── MA-3b2b: recently decided in Revit — what Revit reported, with its reason per ghost. Read-only; every string here is rendered
+//    with textContent (a reason is free text typed in Revit — MA-3b2 review C13). ──
+
+/** How many reports the desk shows, newest first; decidedCount says when there are more. */
+export const DECIDED_MAX = 10;
+const DECIDED: Record<string, string> = { applied: "applied", partially_applied: "partially applied", declined: "declined" };
+
+/** GET /changesets/:key — every changeset (the bridge's list takes one status or none); kept: the ones Revit reported, newest report
+ *  first. Any failure throws "not read — <why>". ponytail: the whole list is read to show ten; a bridge `status` list + `limit` when a
+ *  project's list grows heavy (Next). */
+export async function readDecided(base: string, key: string): Promise<PendingChangeset[]> {
+  return (await readList(at(base, key)))
+    .filter((c) => c.status in DECIDED && !!c.result)
+    .sort((a, b) => { const x = a.result!.reported_at ?? "", y = b.result!.reported_at ?? ""; return x < y ? 1 : x > y ? -1 : 0; });
+}
+
+/** The ledger rows of the reports (the stored changeset holds no row id): GET /cde/:key/audit by changeset id → per changeset, its
+ *  changeset_applied row and (review C3) the newest changeset_reverted row — rows come newest first, so the first one seen. No id
+ *  asked is no read. Any failure throws "not read — <why>" — the desk then says the row was not read, never a made-up id; so does a
+ *  ledger holding more changeset_* rows for these reports than one read returns (1000): a cut read could miss a report's row. */
+export async function readLedger(base: string, key: string, ids: string[]): Promise<Map<string, LedgerRows>> {
+  if (!ids.length) return new Map();
+  let r: Response;
+  try { r = await bfetch(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`); }
+  catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as { rows?: { id: number; entity_id: string; action: string; new_value?: { op?: unknown } | null }[]; total?: number; message?: string } | null;
+  if (!r.ok || !Array.isArray(j?.rows)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without rows" : `HTTP ${r.status}`)}`);
+  if ((j.total ?? 0) > j.rows.length) throw new Error(`not read — the ledger holds more rows for these reports (${j.total}) than one read returns`);
+  const out = new Map<string, LedgerRows>();
+  for (const x of j.rows) {
+    if (x.action !== "changeset_applied" && x.action !== "changeset_reverted") continue;
+    const e = out.get(x.entity_id) ?? { row: null, reverted: null };
+    if (x.action === "changeset_applied") e.row = x.id;
+    else if (!e.reverted) e.reverted = { id: x.id, op: typeof x.new_value?.op === "string" ? x.new_value.op : "" };
+    out.set(x.entity_id, e);
+  }
+  return out;
+}
+
+/** "3 report(s), newest first." — or that only the newest DECIDED_MAX are shown. */
+export const decidedCount = (n: number): string =>
+  n > DECIDED_MAX ? `The newest ${DECIDED_MAX} of ${n} reports — the older ones are on the ledger.` : `${n} report(s), newest first.`;
+
+/** One reported changeset in words. `ledger`: its rows; null when the ledger read found none; the Error of a read that failed.
+ *  Each ghost the result did not apply carries Revit's reason (result.reasons) and the web's (declined_on_web) — or says it has none.
+ *  Review C3: a report undone in Revit says so (the ledger's changeset_reverted row), never "applied" alone. Review C4: total — a
+ *  result without its lists, its reporter or its time (an old or hand-written one) is said with what it has, never thrown. */
+export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Error): DecidedView {
+  const r: Partial<DeskResult> = cs.result ?? {};
+  const applied = r.applied ?? [], rejected = r.rejected ?? [], when = r.reported_at ?? "";
+  const at = /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(when) ? `${when.slice(0, 10)} ${when.slice(11, 16)} UTC` : "an unknown time";
+  const rev = ledger instanceof Error ? null : ledger?.reverted ?? null;
+  const row = (ledger instanceof Error ? `ledger row ${ledger.message}` : ledger?.row != null ? `ledger #${ledger.row}` : "no ledger row found for it")
+    + (!rev ? "" : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
+      : ` · a changeset_reverted row follows the report (ledger #${rev.id})`);
+  const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
+  const web = new Map((r.declined_on_web ?? []).map((d) => [d.proposal_guid, d]));
+  const revit = (g: string): string | null => (r.reasons && Object.prototype.hasOwnProperty.call(r.reasons, g) ? r.reasons[g] : null);
+  return {
+    head: `${cs.name} — ${DECIDED[cs.status] ?? cs.status} in Revit by ${r.reported_by || "an unknown account"} · ${at} · ${applied.length} applied, ${rejected.length} not applied · ${row}`,
+    note: r.note ?? null,
+    declined: rejected.map((g) => {
+      const el = byGuid.get(g), w = web.get(g), why: string[] = [];
+      if (revit(g)) why.push(`Revit: ${revit(g)}`);
+      if (w) why.push(`web, ${w.by} (${w.role}): ${w.reason}`);
+      return { line: el ? ghostLine(el) : g, why: why.length ? why : ["no reason given for this ghost"] };
+    }),
+  };
 }
 
 /** POST /changesets/:key/:id/review {decisions}. A decline with a blank reason is never sent; a refusal throws the bridge's words. */
@@ -148,6 +231,29 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   const say = (text: string, bad = false) => { status.textContent = text; status.style.color = bad ? "#fca5a5" : "#93c5fd"; };
   let seq = 0;
 
+  // MA-3b2b: what Revit reported, under the proposed list. Every node is made by el() — textContent, never markup (C13).
+  const recent = (decided: PendingChangeset[] | Error, ledger: Map<string, LedgerRows> | Error): HTMLElement => {
+    const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
+    box.append(el("div", "Recently decided in Revit", "font-weight:600"));
+    if (decided instanceof Error) { box.append(el("div", `Reports ${decided.message}`, "color:#fca5a5")); return box; }
+    if (!decided.length) { box.append(el("div", "Revit has reported no changeset on this project.", "color:#8b93a1")); return box; }
+    box.append(el("div", decidedCount(decided.length), "color:#8b93a1"));
+    for (const cs of decided.slice(0, DECIDED_MAX)) {
+      const v = decidedView(cs, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null);
+      const one = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
+      one.append(el("summary", v.head, "cursor:pointer"));
+      one.append(el("div", v.note ? `Note: ${v.note}` : "No note.", "margin:.3rem 0;color:#8b93a1"));
+      if (v.declined.length) one.append(el("div", `Not applied (${v.declined.length}):`, "margin:.3rem 0 .1rem;color:#8b93a1"));
+      for (const g of v.declined) {
+        const row = el("div", "", "padding:.15rem 0");
+        row.append(el("div", g.line), ...g.why.map((w) => el("div", w, "color:#fca5a5")));
+        one.append(row);
+      }
+      box.append(one);
+    }
+    return box;
+  };
+
   const decide = async (decision: "accept" | "decline") => {
     // One post per changeset (all or none on the bridge); a ghost already accepted (or declined) is not sent again (C6).
     const { posts, already } = postsFor(ticked, decision);
@@ -166,13 +272,19 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     const mine = ++seq, key = activePid();
     ticked.clear();
     body.replaceChildren(el("div", "Reading…"));
-    const [role, pending] = await Promise.all([myRoleRead(base, key), readPending(base, key).catch((e: Error) => e)]);
+    const [role, pending, decided] = await Promise.all([myRoleRead(base, key), readPending(base, key).catch((e: Error) => e), readDecided(base, key).catch((e: Error) => e)]);
     if (mine !== seq) return;
+    // MA-3b2b: the ledger rows of the reports shown — a read of its own, so a ledger that cannot be read is said on each report.
+    const ledger = decided instanceof Error ? new Map<string, LedgerRows>() : await readLedger(base, key, decided.slice(0, DECIDED_MAX).map((c) => c.id)).catch((e: Error) => e);
+    if (mine !== seq) return;
+    // Review C4: built once, and a throw in it is said — it never leaves the desk at "Reading…" or takes the proposed list with it.
+    let tail: HTMLElement;
+    try { tail = recent(decided, ledger); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
-    if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5")); return; }
-    if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project.")); return; }
+    if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }
+    if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }
     body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. A changeset stays proposed until Revit applies or declines it — a new Promote run proposes a declined ghost again, undecided.", "color:#8b93a1;margin-bottom:.5rem"));
     for (const s of groupDesk(pending)) {
       const box = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
@@ -200,6 +312,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
       }
       body.append(box);
     }
+    body.append(tail);
   }
   onActiveProjectChange(() => void show());
   void show();
