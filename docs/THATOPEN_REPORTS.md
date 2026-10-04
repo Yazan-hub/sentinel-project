@@ -109,4 +109,23 @@ Full log: [thatopen-evidence/2026-10-01-channel-after-fix.log](thatopen-evidence
 > to the quickstart's `io(...)` call. Log and a tiny repro script (no dependencies):
 > https://github.com/Yazan-hub/sentinel-project/blob/master/docs/THATOPEN_REPORTS.md
 
+### Re-test after That Open's second fix (2026-10-05) — both fixed
+
+- **The name:** `platform.thatopen.com` resolves to two addresses again (3.69.132.147, 52.58.243.60 — the pair of 2026-09-29;
+  2026-10-01 had one, 35.156.159.219).
+- **Rooms shared across them (report 1):** with the published Sentinel app open in one tab, `sentinel.status` asked 10 times pinned
+  to each address (WebSocket): **20 of 20 delivered to 1 tab and answered** (175-413 ms). On 2026-09-29 an ask on the other address
+  than the tab's got `delivered 0`.
+- **Long-polling sessions (the 2026-10-01 follow-up):** `WebApp/scripts/thatopen-polling-repro.mjs 12` — keep-alive 0 of 48 lost, a
+  new connection per request **0 of 48 lost** (2026-10-01: 25 of 48 answered HTTP 400 "Session ID unknown").
+- Two command-line clients in one project do not receive each other's messages on either address (the channel routes a `cli`
+  publish to the app's room only) — expected, not a bug; noted so nobody re-tests it that way.
+- Sentinel keeps asking on every address and over WebSocket only: harmless, and safe if the balancing changes again.
+
+### The reply to send (plain words)
+
+> Thanks — I re-tested today and both problems are gone. With the app open in one tab, messages sent through either of your two
+> addresses (3.69.132.147 and 52.58.243.60) all reached it: 20 of 20. And socket.io long-polling no longer loses its session on a new
+> connection: 0 of 48 failed, against 25 of 48 last week. Thanks for fixing it so quickly.
+
 ## 2. WebGPU (see ROADMAP item 2) — blocked upstream; question already raised.
