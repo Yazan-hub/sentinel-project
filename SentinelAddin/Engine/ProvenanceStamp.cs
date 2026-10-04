@@ -109,6 +109,22 @@ namespace Sentinel.Engine
             });
         }
 
+        /// <summary>MA-3b (AI-2): whether the stamp lists changeset <paramref name="changesetId"/> and proposal <paramref name="guid"/> — what a
+        /// result waiting on this PC is checked against before it is sent again. The stamp is written inside the placement's transaction,
+        /// so an Undo, or closing the model without saving, takes it away. Pure; never throws.</summary>
+        public static bool Holds(string json, string changesetId, string guid)
+        {
+            try
+            {
+                using var d = JsonDocument.Parse(json ?? "null");
+                var r = d.RootElement;
+                bool Lists(string name, string value) => r.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array
+                    && a.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == value);
+                return r.ValueKind == JsonValueKind.Object && changesetId != null && guid != null && Lists("changeset_ids", changesetId) && Lists("proposal_guids", guid);
+            }
+            catch (Exception) { return false; }
+        }
+
         /// <summary>The source of the changeset that last stamped (e.g. "promote"), or null. Pure; never throws.</summary>
         public static string SourceOf(string json)
         {

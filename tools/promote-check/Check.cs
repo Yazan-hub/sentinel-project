@@ -64,6 +64,7 @@ static partial class Check
         Ma2dStoreyWiringChecks();
         Ma3aReviewChecks();
         Ma3aWiringChecks();
+        Ma3bDeskChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

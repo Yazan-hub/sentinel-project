@@ -45,7 +45,7 @@ static partial class Check
            "the window's header counts the web's declines and says a changeset stays proposed until Revit reports it");
 
         var refused = ChangesetTrust.DeclinedTicked(new[] { after }, new HashSet<string> { "g-1", "g-2", "g-3" });
-        Ok(refused == "1 ticked ghost(s) were declined on the web after this window opened:\n· retype wall \"W 1\" — declined on the web by reviewer@example.com (contributor): wrong type: W 1 is a party wall · a lead may re-open it on the web desk\n\nNothing was created. Run Review AI Proposals again: they open unticked, with the reason.",
+        Ok(refused == "1 ticked ghost(s) were declined on the web after this window opened:\n· retype wall \"W 1\" — declined on the web by reviewer@example.com (contributor): wrong type: W 1 is a party wall · a lead may re-open it on the web desk\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.",
            "Apply's re-check: a ticked ghost declined in the fresh copy refuses the whole Apply, naming it, the reviewer and the reason");
         Ok(ChangesetTrust.DeclinedTicked(new[] { after }, new HashSet<string> { "g-2", "g-3" }) == null && ChangesetTrust.DeclinedTicked(new[] { before }, new HashSet<string> { "g-1" }) == null,
            "…and nothing is refused when no ticked ghost is declined");
