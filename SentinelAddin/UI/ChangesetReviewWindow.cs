@@ -338,6 +338,10 @@ public sealed class ChangesetReviewWindow : Window
         _status.ScrollToHome();
     });
 
+    /// <summary>MA-3b2b review C13: the same, for words that are a result — closed between the caller's Gone check and now, the caller's
+    /// own closed-window path runs (<paramref name="gone"/>, on this dispatcher's thread) instead of the Doctor line alone. Any thread.</summary>
+    public void Say(string words, Action gone) => Ui(() => { if (_gone) gone(); else Say(words); });
+
     /// <summary>MA-3b: nothing ran — said; the ticks and the note are kept and Apply can be pressed again. Any thread.</summary>
     public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });
 

@@ -131,7 +131,7 @@ namespace Sentinel.Engine
             if (Is("400", "404", "409"))
                 return (true, $"the bridge refused it (retrying cannot fix this): {err}" +
                               (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review." : ""));
-            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project, then press Retry report." : "") + Kept(applied));
+            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project" + PressRetry : "") + Kept(applied));
         }
 
         /// <summary>Review C6: a result not sent because the round's first report did not land (each waits up to 120 s) — kept, said.</summary>
@@ -143,9 +143,13 @@ namespace Sentinel.Engine
 
         /// <summary>A decline that did not land lives in its window (E4). Review C13: once the window is closed there is no Retry report —
         /// the caller says DeclineLost instead.</summary>
+        /// <summary>MA-3b2b review C14: the sign-in refusal's last words — a closed window has no Retry report, the caller says RunReview.</summary>
+        public const string PressRetry = ", then press Retry report.";
+        public const string RunReview = ", then run Review AI Proposals.";
         public const string DeclineKept = "Nothing in the model changed; Retry report sends it again.";
         // MA-3b2b review C8: never "it stays proposed" — after a lost reply the bridge may hold the decline; the picker's list says which.
-        public const string DeclineLost = "Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed was declined, one still listed is reviewed again.";
+        // Review C15: nor "no longer listed was declined" — the picker lists proposed only, and a withdrawal or another PC's Apply unlists it too.
+        public const string DeclineLost = "Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed is no longer proposed — declined, unless it was withdrawn or applied meanwhile (the web desk's Recently decided in Revit lists what Revit reported); one still listed is reviewed again.";
 
         /// <summary>Review C1: the words when the bridge already holds this result — a 409 whose stored changeset (<paramref name="fresh"/>,
         /// re-read) is no longer proposed and applied exactly the record's ghosts: its earlier report landed and the reply was lost (the 120 s

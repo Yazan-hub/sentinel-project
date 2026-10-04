@@ -45,9 +45,20 @@ static partial class Check
            "the reasons of a decline taken earlier are counted from the stored result (C15) — a bridge that kept none is said, never counted as kept");
         var goneDecline = UnreportedResults.Gone(Mine("not this package", "a", "b"), Stored("declined", held), null);
         Ok(UnreportedResults.AlreadyTaken(Mine("not this package", "a", "b"), Stored("declined", held)) == taken && goneDecline.Drop && !goneDecline.Revert
-           && UnreportedResults.DeclineLost == "Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed was declined, one still listed is reviewed again.",
-           "review C10, C8: a record that applied nothing never asks for a changeset_reverted row, though the bridge holds its decline; a decline whose window is closed is not said to stay proposed — the bridge may hold it");
+           && UnreportedResults.DeclineLost == "Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed is no longer proposed — declined, unless it was withdrawn or applied meanwhile (the web desk's Recently decided in Revit lists what Revit reported); one still listed is reviewed again.",
+           "review C10, C8: a record that applied nothing never asks for a changeset_reverted row, though the bridge holds its decline; a decline whose window is closed is not said to stay proposed — the bridge may hold it, and (review C15) one no longer listed is not said to be declined when it may have been withdrawn or applied");
         string review = Src("Commands.ReviewChangesets.cs");
+        int asked = review.IndexOf("if (!landed && err != null && err.StartsWith(\"Bridge 409\", StringComparison.Ordinal))", StringComparison.Ordinal);
+        int counted = review.IndexOf("if (taken != null) reply = UnreportedResults.StoredReply(stored);", StringComparison.Ordinal);
+        Ok(asked > 0 && counted > asked && counted < review.IndexOf("if (landed || taken != null)", asked, StringComparison.Ordinal),
+           "review C16: a decline's 409 reaches the stored reply — the reasons are counted from it inside the re-read every 409 takes, before the landed branch");
+        // Review C14: a closed window's words never name a button that is gone — a sign-in refusal says Review AI Proposals, not Retry report.
+        string refused = UnreportedResults.Outcome("Bridge 401: {\"message\":\"sign in\"}", 0).Words;
+        Ok(refused.Contains(UnreportedResults.PressRetry) && refused.EndsWith("\n" + UnreportedResults.DeclineKept, StringComparison.Ordinal)
+           && !refused.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost).Replace(UnreportedResults.PressRetry, UnreportedResults.RunReview).Contains("Retry report")
+           && refused.Replace(UnreportedResults.PressRetry, UnreportedResults.RunReview).Contains("as a contributor on this project, then run Review AI Proposals.")
+           && review.Contains("words = words.Replace(UnreportedResults.PressRetry, UnreportedResults.RunReview);"),
+           "review C14: a decline refused for the sign-in, said for a closed window, names no Retry report — sign in, then run Review AI Proposals");
         Ok(review.Contains("if (!landed && err != null && err.StartsWith(\"Bridge 409\", StringComparison.Ordinal))") && !review.Contains("!landed && r.Applied.Count > 0 && err != null")
            && UnreportedResults.Outcome("Bridge 409: {\"message\":\"changeset is declined — a result can be reported exactly once, from proposed\"}", 0).Words.StartsWith("the bridge refused it", StringComparison.Ordinal),
            "every 409 — a decline's too — is re-read before it is called refused; a 409 that is not this result still reads \"the bridge refused it\"");
@@ -59,6 +70,14 @@ static partial class Check
     {
         Console.WriteLine("\nMA-3b2b — a closed window's result is said in a dialog (source scans)");
         string review = Src("Commands.ReviewChangesets.cs"), hub = Src("RevitEventHub.cs");
+        // Review C13: the window closed between Tell's Gone check and the posted Say — the same dialog, not the Doctor line alone.
+        const string closedDialog = "if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));", posted = "if (!window.Gone) { window.Say(words, Closed); return; }";
+        int closedAt = review.IndexOf("void Closed()", StringComparison.Ordinal);
+        Ok(Src("UI", "ChangesetReviewWindow.cs").Contains("public void Say(string words, Action gone) => Ui(() => { if (_gone) gone(); else Say(words); });")
+           && review.Contains(posted) && !review.Contains("{ window.Say(words); return; }")
+           && closedAt > 0 && closedAt < review.IndexOf(closedDialog, StringComparison.Ordinal)
+           && review.IndexOf(closedDialog, StringComparison.Ordinal) < review.IndexOf(posted, StringComparison.Ordinal),
+           "review C13: a window closed between Tell's check and the posted words gets the closed window's dialog too — Say hands the words back, and both orders end in one path");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         Ok(hub.Contains("using System.Windows.Threading;") && hub.Contains("private readonly Dispatcher _ui = Dispatcher.CurrentDispatcher;")
            && hub.Contains("if (_ui.CheckAccess()) Raise();") && hub.Contains("else _ui.BeginInvoke(new Action(Raise));")

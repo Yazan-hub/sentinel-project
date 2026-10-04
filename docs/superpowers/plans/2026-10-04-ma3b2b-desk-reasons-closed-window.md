@@ -115,6 +115,14 @@ The plan builds the default of each. None needs an answer before the work starts
 
 - **C1a's `_ui.Invoke` is `_ui.BeginInvoke`.** The house rule this plan quotes says callers still wait with `GetResult` on Revit's thread. With `Invoke`, a pool thread that logs while Revit's thread waits for that pool thread would wait for Revit's thread in turn — a deadlock the old fallback (run on the caller's thread) could not have, and one this slice must not introduce for every `LogDoctor` caller in the add-in. Posting cannot deadlock; a caller already on Revit's thread still runs inline. Ceiling (Risks): a line from a pool thread shows a moment later.
 
+**After the build (three reviews of `74fbf91`; all minor; fixed in one commit, each with its promote-check line)**
+
+- **C13 — a window closed between `Tell`'s `Gone` check and the posted words gets the dialog too.** `Tell` (pool thread) read `window.Gone`, then `window.Say` posted to the window's dispatcher; closed in that gap, `Say`'s own `_gone` branch wrote the Doctor line only. `ChangesetReviewWindow.Say(string words, Action gone)` hands the words back when the window is gone, and `Tell` passes its closed-window path (a local `Closed()`: the two replacements, the dialog queued, then the Doctor line) — both orders end in one path. `Say(string)` is unchanged (the window's own interim words). §47 gains the scan. Ceiling (Risks): the picker's `SetEntries` has the same gap, Doctor line only.
+- **C14 — a closed window's dialog never says "press Retry report".** A decline (or a result) refused with 401/403 ends `…as a contributor on this project, then press Retry report.`; with the window gone `Closed()` replaces `UnreportedResults.PressRetry` with `RunReview` (`, then run Review AI Proposals.`). §46 gains the check (the 401 decline's closed-window words hold no `Retry report`).
+- **C15 — `DeclineLost` does not say a changeset no longer listed was declined** (supersedes C8's words). The picker lists proposed changesets only; one gone from it may have been withdrawn, or applied from another PC. It reads `"Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed is no longer proposed — declined, unless it was withdrawn or applied meanwhile (the web desk's Recently decided in Revit lists what Revit reported); one still listed is reviewed again."`; §46's quote follows (§43's quotes its unchanged start).
+- **C16 — §46's reasons check is tied to the wiring.** `StoredReply` + `ReasonsLine` alone passed on master. One more check: `if (taken != null) reply = UnreportedResults.StoredReply(stored);` lies after the every-409 condition and before the landed branch — it fails on the old condition (`r.Applied.Count > 0`).
+- **Not changed:** `WebApp/package-lock.json` reads `1.0.30` against `package.json` `1.0.42` — stale since before this branch (Next: `npm install --package-lock-only`, its own commit). The review brief named scans this branch does not hold (PlacementBlock, a bridge test): F1 A, no bridge change — the slice's checks are §43 (C2/M3, C11, C13), §46, §47 and `review-desk.test.ts`.
+
 **Rejected:** none.
 
 **Checked by the review and found sound (unchanged):** the C# is net48-safe; no report is sent twice; no new `GetResult`/`Wait` in the review, no network call on the API thread, no model write (XC-2 untouched); every new web node goes through `el()`; the audit route takes a comma list of uuids and `limit=1000`; R-2's proxy logic (`once` resets on restart); two web rows; three items in one slice.
@@ -1273,6 +1281,7 @@ Push only under the standing push rule, after a secret scan of the range.
 - **A note with a character .NET and JavaScript trim differently reads "refused"** (E4) — today's words, nothing lost.
 - **The hub's change reaches every Sentinel action that goes through it** (BCF issues, Naming Manager, Standards, Show): each already raises from Revit's or a window's thread, where the new code calls `Raise()` directly as before. A caller on another thread now raises a moment later (posted), never earlier.
 - **An Undo is said from the ledger's newest `changeset_reverted` row for the changeset** (review C3): an Undo of some of a report's ghosts reads the same as one of all of them — the row's own guids are on the ledger. A report undone by closing Revit without saving has no such row and still reads "applied" (R-0's GR-FFL in this drill).
+- **A picker closed between `Load`'s `Gone` check and its posted status gets the Doctor line only** (review C13 fixed the review window's same gap, not the picker's): the picker's round is the waiting results sent again, and each is said again by the next Review AI Proposals.
 
 ## Not settled (for the founder or the reviewer)
 
@@ -1284,6 +1293,7 @@ Push only under the standing push rule, after a secret scan of the range.
 ## Next (out of scope here)
 
 - **The bridge's list takes a `status` list and a `limit`** (F1 B), or **the ledger id on the stored changeset** (F1 C): when the desk's two whole-list reads prove heavy, or the ledger read is refused to a role that reads the desk. One line and one vitest for B; a bridge restart. Size S.
+- **`WebApp/package-lock.json`'s own version** (`1.0.30`; `package.json` is `1.0.42`): `npm install --package-lock-only` from `WebApp`, its own commit.
 - **An audit of the other caller-dispatcher sites** (review C1e): `App.cs:381`, `Coordination/GovernedNotify.cs:101`, `Engine/AutoPublish.cs:58` and `Updaters/FailureInterceptor.cs:41` each take `Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher` — on a pool thread with no WPF Application that is the caller's own dispatcher, not Revit's. Each should use a dispatcher kept on Revit's thread, as the view model and the hub now do. Size S.
 - **The ledger panel prints a `changeset_applied` row's reasons** (`cde-panel.ts renderAudit` prints the action only). Size S.
 - **A reason box per row** (MA-3b2 F1 B): when reviewers ask; no contract change.

@@ -309,14 +309,21 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         // are a result (not an "…ing" line), to a dialog on Revit's thread: said, never lost.
         void Tell(string words, bool interim = false)
         {
-            if (!window.Gone) { window.Say(words); return; }
-            // Review C13: no window is left to offer Retry report for a decline that did not land.
-            words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);
-            // MA-3b2b (F-MA3b2-1): a dialog changes nothing in the model, so it needs no DocPin — whose refusal (another model in front,
-            // this one closed) was swallowed here, and the result never shown. Said in whichever model is in front. Review C1: queued
-            // before the Doctor line, which stands on its own — a pane that throws (this is a pool thread) cannot take the dialog with it.
-            if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));
-            try { App.PanelVm?.LogDoctor("Review AI Proposals: " + words); } catch { }
+            void Closed()
+            {
+                // Review C13: no window is left to offer Retry report for a decline that did not land.
+                words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);
+                // MA-3b2b review C14: nor for a sign-in refusal — its words name what is left to run.
+                words = words.Replace(UnreportedResults.PressRetry, UnreportedResults.RunReview);
+                // MA-3b2b (F-MA3b2-1): a dialog changes nothing in the model, so it needs no DocPin — whose refusal (another model in front,
+                // this one closed) was swallowed here, and the result never shown. Said in whichever model is in front. Review C1: queued
+                // before the Doctor line, which stands on its own — a pane that throws (this is a pool thread) cannot take the dialog with it.
+                if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));
+                try { App.PanelVm?.LogDoctor("Review AI Proposals: " + words); } catch { }
+            }
+            // MA-3b2b review C13: closed between this check and the posted words — Say hands them back, and the same path runs.
+            if (!window.Gone) { window.Say(words, Closed); return; }
+            Closed();
         }
 
         // AI-2: a round of reports runs off Revit's thread; the window says what landed and offers Retry report for what did not.
