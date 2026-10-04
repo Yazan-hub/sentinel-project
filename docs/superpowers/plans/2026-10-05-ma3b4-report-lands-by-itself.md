@@ -3,24 +3,24 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The MA-3b plan's "Next ▸ MA-3b4 — nothing in modelling waits" (`docs/superpowers/plans/2026-10-04-ma3b-revit-review-no-wait.md`, its F2 and E8 rows), cut to its first drillable slice — the part that closes AI-2's proof ("the report lands later by itself", `docs/strategy/2026-09-30-revit-addin-audit.md:352`) and the last place a report can still be lost:
-- **A waiting result is sent by itself when its model opens (founder decision F2 B).** On `DocumentOpened`, the results this PC applied in that model and the bridge has not taken (`%AppData%\Sentinel\unreported\<key>\`) go through the same stamp check on Revit's thread as Review AI Proposals (`Retry`) and are sent off it; what the bridge did is said in the pane's Doctor log, and in a dialog only when a person must act (G1). Never twice at once (the one-review guard: a picker or window open, a report in flight — then said, not sent), never for a linked or family document, never another model's records.
+- **A waiting result is sent by itself when its model opens (founder decision F2 B).** On `DocumentOpened`, the results this PC applied in that model and the bridge has not taken (`%AppData%\Sentinel\unreported\<key>\`) go through the same stamp check on Revit's thread as Review AI Proposals (`Retry`) and are sent off it; what the bridge did is said in the pane's Doctor log, and in a dialog only when a person must act (G1). Never twice at once (the one-review guard: a picker or window open, a report in flight — then said, not sent), never in the machine's name (nobody signed in — said, not sent: review C1), never for a linked or family document, never another model's records.
 - **Ghost Builder writes the same record before its report and stops waiting.** Step 7 of `GhostChangesetBuild.Run` writes an `UnreportedResults` record per applied changeset, then reports through `ReportAll` on a pool thread (the undo watcher's Expect/Land, the 409-taken rule, the guard); its Decline path reports off the thread and withdraws what the bridge did not take (B4) there. `ReviewChangesetsCommand.Report` — the modal Retry/Cancel loop and its `LateDeclines` dialog — is deleted: it had no other caller. A cancelled Ghost report no longer leaves elements in the model with the changeset "proposed" and nothing on this PC to stop a second Apply.
 - **A cheap leftover: the picker's closed-window gap** (MA-3b2b Risks): a round's words that reach a picker closed in between go to a dialog too, as the review window's do (`Say(words, gone)`).
 - **Drill MA3b4** — short: two Revit rows on Revit 2024 (a Ghost build whose report fails, then the model reopened), one optional row.
 
 **Source of truth:** the MA-3b plan's Next ▸ MA-3b4, its F2 row ("B: also by itself on `DocumentOpened` … it is MA-3b4") and E8 ("`Report` (with its dialog) stays for Ghost Builder … Ghost Builder's own waits are MA-3b4"); the MA-3b2b plan's Risks (the picker's closed-window gap) and Next; the MA-3b3 plan's C4 and Next (Promote's filing wait grows with the store read); `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` ▸ sessions MA3b … MA3b3 and G-1 (`sample-walls-ma2a.dxf`). Base: `feature/ma3b4-nothing-waits` at master `3ffdd40` (MA-3b3 merged). Repo root: `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`.
 
-**Scope (tight — one drillable slice; the dry run's diff: 12 files, 258 lines in, 86 out, of which the checks are 127 in):** the open-time send; Ghost Builder's record and report off the thread (both its applied and its declined path); `Report` deleted; the picker's gap. Left to **Next** with reasons: Promote's own waits (`Commands.PromoteWalls.cs:49`, `:61`, the filing at `:191`) — MA-3b5; Promote's dialog counting carried declines and a storey whose every ghost is carried; Ghost Builder's filing (`GhostChangesetBuild.cs:535`) and `Abandon`'s withdrawals (`:134`); a send on sync or on a timer (G4).
+**Scope (tight — one drillable slice; the dry run's diff: 12 files, 285 lines in, 87 out, of which the checks are 138 in — after the review amendments):** the open-time send; Ghost Builder's record and report off the thread (both its applied and its declined path); `Report` deleted; the picker's gap. Left to **Next** with reasons: Promote's own waits (`Commands.PromoteWalls.cs:49`, `:61`, the filing at `:191`) — MA-3b5; Promote's dialog counting carried declines and a storey whose every ghost is carried; Ghost Builder's filing (`GhostChangesetBuild.cs:535`) and `Abandon`'s withdrawals (`:134`); a send on sync or on a timer (G4).
 
 **Architecture:**
 
-*Words (`Engine/UnreportedResults.cs`, pure; promote-check §49).* `OnOpening(title)` and `GhostHead` — the head of a Doctor line; `OpenHeld(n)` — a model opened while the guard is held; `Windowless(head, words)` — a round's words with what only a window offers replaced by what is left to run (Retry report → the next opening of this model or Review AI Proposals; "close this window and run Review AI Proposals again" → "run Review AI Proposals in this model"; a decline's "Retry report sends it again" → nothing offered) — MA-3b2b C14's rule as one table; `Failed(why)` — a round that did not finish; `GhostReporting`, `GhostDeclining`, `WithdrawnInstead` — Ghost Builder's ledger lines.
+*Words (`Engine/UnreportedResults.cs`, pure; promote-check §49).* `OnOpening(title)` and `GhostHead` — the head of a Doctor line; `OpenHeld(n)` — a model opened while the guard is held; `OpenSignedOut(n)` — a model opened while nobody is signed in (review C1); `Windowless(head, words)` — a round's words with what only a window offers replaced by what is left to run (Retry report → the next opening of this model or Review AI Proposals; "close this window and run Review AI Proposals again" → "run Review AI Proposals in this model"; a decline's "Retry report sends it again" → nothing offered) — MA-3b2b C14's rule as one table; `Failed(why)` — a round that did not finish; `GhostReporting`, `GhostDeclining`, `WithdrawnInstead` — Ghost Builder's ledger lines.
 
-*Revit, the open-time send (`Commands.ReviewChangesets.cs`, `App.cs`; source scans §50; drill R-2).* `SendOnOpen(doc)`: a linked, family or unbound document → nothing; this model's records (`DocOf`, without case — MA-3b C4) → none: nothing; the guard held → the `OpenHeld` line and nothing sent; otherwise `Said(Retry(doc, cfg, mine), head, rep => rep.Act)`. `Said` is the windowless twin of the review window's `Send`: a continuation on `TaskScheduler.Default` that writes the Doctor line and queues a dialog when `ask` says so or the round faulted. `Reported.Act` (new) is set where a person must act: some but not all of a result's elements carry its stamp (`Verified`'s partial case), or the bridge refused for good a result whose elements are in the model (`Outcome`'s drop). `App.OnDocumentOpened` calls `SendOnOpen` inside a try/catch whose catch is said.
+*Revit, the open-time send (`Commands.ReviewChangesets.cs`, `App.cs`; source scans §50; drill R-2).* `SendOnOpen(doc)`: a linked, family or unbound document → nothing; this model's records (`DocOf`, without case — MA-3b C4) → none: nothing; the guard held → the `OpenHeld` line and nothing sent; nobody signed in → the `OpenSignedOut` line and nothing sent (review C1: the bridge would take the machine credential's report as service, in no person's name); otherwise `Said(Retry(doc, cfg, mine), head, rep => rep.Act)`. `Said` is the windowless twin of the review window's `Send`: a continuation on `TaskScheduler.Default` that writes the Doctor line and queues a dialog when `ask` says so or the round faulted. `Reported.Act` (new) is set where a person must act: some but not all of a result's elements carry its stamp (`Verified`'s partial case), or the bridge refused for good a result whose elements are in the model (`Outcome`'s drop), or a result landed over a web decline (`ChangesetTrust.LateDeclines`, in `ReportAll`'s landed branch — review C2). `App.OnDocumentOpened` calls `SendOnOpen` first, right after its family return (review C6), inside a try/catch whose catch is said.
 
-*Revit, Ghost Builder (`GhostBuilder/GhostChangesetBuild.cs`, `Commands.ReviewChangesets.cs`; source scans §51; drill R-1).* Step 7 builds each result with `ReviewChangesetsCommand.ResultOf` (now internal; `Doc = DocOf(doc)`, `Path = doc.PathName`, `Undo = {the group's name, the changeset's own}`), writes the applied ones (`UnreportedResults.Write`) and hands them to `ReportAll` — whose `Expect` runs here, on Revit's thread, right after `Assimilate` (MA-3b C8), and whose `Land` replaces the two `UndoWatcher.Remember` calls. `Decline` builds the declines (not written — MA-3b E4) and passes `ReportAll` a `more` that withdraws, on the pool thread, every filed changeset the bridge did not take (B4). The summary's ledger line says the report is under way and where its outcome is said. No transaction is added or moved: everything here runs after the TransactionGroup is assimilated or rolled back (XC-2 unchanged).
+*Revit, Ghost Builder (`GhostBuilder/GhostChangesetBuild.cs`, `Commands.ReviewChangesets.cs`; source scans §51; drill R-1).* Step 7 builds each result with `ReviewChangesetsCommand.ResultOf` (now internal; `Doc = DocOf(doc)`, `Path = doc.PathName`, `Undo = {the group's name, the changeset's own}`), writes the applied ones (`UnreportedResults.Write`) and hands them to `ReportAll` — whose `Expect` runs here, on Revit's thread, right after `Assimilate` (MA-3b C8), and whose `Land` replaces the two `UndoWatcher.Remember` calls. `Decline` builds the declines (not written — MA-3b E4) and passes `ReportAll` an `after` that withdraws, on the pool thread inside the round — before the guard is released (review C3) — every filed changeset the bridge did not take (B4). The kept build's dialog is asked for when a result was not taken or `Act` is set (a late decline — review C2). The summary's ledger line says the report is under way and where its outcome is said. No transaction is added or moved: everything here runs after the TransactionGroup is assimilated or rolled back (XC-2 unchanged).
 
-*Revit, the picker (`UI/ChangesetPickerWindow.cs`, `Commands.ReviewChangesets.cs`).* `SetEntries(entries, status, Action gone = null)`: when the picker is gone, the Doctor line and then `gone`. `Load` passes `lost` — a dialog of the round's words — when the round said anything.
+*Revit, the picker (`UI/ChangesetPickerWindow.cs`, `Commands.ReviewChangesets.cs`).* `SetEntries(entries, status, Action gone = null)`: when the picker is gone, the Doctor line and then `gone`. `Load` passes `lost` — a dialog of the round's words, made windowless (review C4: the picker has no Retry report) — when the round said anything.
 
 No bridge, web, `package.json` or migration change; no new HTTP call (the open-time send and Ghost Builder use the existing `ReportResult`, `FetchOne`, `ReportReverted` and `Withdraw`).
 
@@ -30,13 +30,13 @@ No bridge, web, `package.json` or migration change; no new HTTP call (the open-t
 
 - Branch `feature/ma3b4-nothing-waits` (it holds this plan, on `3ffdd40`); merge `--no-ff` into master only after every task's checks pass **and the live drill MA3b4 is recorded**; push only under the standing push rule, after a secret scan of the range.
 - **What must stay true** (a task that would break one of these stops and says so):
-  - **Network calls never wait on Revit's thread (AI-2).** No `GetAwaiter().GetResult()` and no `.Wait(` in `Commands.ReviewChangesets.cs` (§43); every report of this slice goes through `ReportAll`'s `Task.Run`, and Ghost Builder's withdrawals of a declined build run in `Said`'s continuation on the pool thread.
+  - **Network calls never wait on Revit's thread (AI-2).** No `GetAwaiter().GetResult()` and no `.Wait(` in `Commands.ReviewChangesets.cs` (§43); every report of this slice goes through `ReportAll`'s `Task.Run`, and Ghost Builder's withdrawals of a declined build run on `ReportAll`'s pool thread, before its guard is released (review C3).
   - **The record before the send.** A result with applied elements is written on this PC before its report leaves Revit's thread — the review's (unchanged) and now Ghost Builder's; it is deleted only when the bridge takes it, or refuses it for good (said).
   - **Claimed vs verified.** A waiting result is sent at open only after the model's stamps confirm its elements (`Retry` → `UnreportedResults.Verified`); a model that holds none of it asks the bridge first (`Gone`); another copy of the same central keeps it (`Elsewhere`).
   - **Words are said, never silent.** Every outcome of a round no window shows is in the pane's Doctor log; a dialog when a person must act (G1) or a result was not taken (G2); a guard that stops the open-time send is said; a throw in `SendOnOpen` is said.
   - **One review at a time.** The guard (`_holds`) is not held more often (`Count(review, "Hold();") == 3`, §43); the open-time send never runs while it is held.
   - **Every Revit write stays inside one TransactionGroup per Sentinel action (XC-2)**: this slice adds no model write; Ghost Builder's records and reports start after its group is assimilated or rolled back.
-  - **Nothing MA-3a … MA-3b3 hold is loosened**: `review_rev` (Ghost Builder's results still carry the review_rev its filing reply carried — MA-3a C2), the 409-taken rule (C1), the stalled round (C6), Expect/Land (C8), `Elsewhere` (MA-3b2 C16), the late-decline words (now said by `ReportAll` for Ghost Builder too).
+  - **Nothing MA-3a … MA-3b3 hold is loosened**: `review_rev` (Ghost Builder's results still carry the review_rev its filing reply carried — MA-3a C2), the 409-taken rule (C1), the stalled round (C6), Expect/Land (C8), `Elsewhere` (MA-3b2 C16), the late-decline words (now said by `ReportAll` for Ghost Builder too, with a dialog — review C2).
 - After each add-in task, the build: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=<v> -p:DeployToRevit=false`; Task 4 builds 2022–2027. **Every build of the add-in in the tasks carries `-p:DeployToRevit=false`.**
 - net48 rules: no `string.Contains(char)`, no `^1` index, no `record`; a new file names its own `using`s (net48 has only `System`, `System.Collections.Generic`, `System.Linq` as global usings).
 - Checks: from the repo root, `dotnet run --project tools/promote-check`. No vitest file changes; a full vitest run is not needed (no bridge or web file changes).
@@ -47,12 +47,12 @@ No bridge, web, `package.json` or migration change; no new HTTP call (the open-t
 - Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Line numbers are `3ffdd40`'s and shift as tasks land: match the quoted text, not the number. The repository checks out with CRLF (`core.autocrlf true`): use the Edit tool, which matches the text and keeps the file's line endings; never `sed -i`; `grep -a` on docs. A new file may be written with LF (git normalises it).
 
-**Dry run (planner, 2026-10-05).** A detached worktree of `feature/ma3b4-nothing-waits` at `3ffdd40` in the session's scratchpad (`scratchpad/ma3b4/dry`; removed afterwards — never the repository). A script read **this document** and applied every "Create … / In … , replace … with …" block of Tasks 1–3 in order (each replace matched its text exactly once, CRLF kept), each task's check step before its code step, and ran the named checks:
+**Dry run (amender, 2026-10-05, after the review amendments C1–C6; the planner's first run, before them, read 793/793 and 2410).** A detached worktree of `feature/ma3b4-nothing-waits` in the session's scratchpad (`scratchpad/ma3b4/dry`; removed afterwards — never the repository). A script read **this document** and applied every "Create … / In … , replace … with …" block of Tasks 1–4 in order (each replace matched its text exactly once, CRLF kept), each task's check step before its code step, and ran the named checks:
 - Base, measured first: `promote-check` `779/779` (the brief's 695 is from before MA-3b; MA-3b3's final 769 + its §48's 10).
-- Task 1: the build fails (`error CS0117: 'UnreportedResults' does not contain a definition for 'OnOpening'`, and the same for `Windowless`, `GhostHead`, `GhostReporting`, `GhostDeclining`, `WithdrawnInstead`, `OpenHeld`, `Failed`) → `786/786 checks pass` (779 + 7).
-- Task 2: four `FAIL` lines, `786/790` → `790/790 checks pass`; build 2024 with `-p:DeployToRevit=false`: `0 Error(s)`, `5 Warning(s)`.
-- Task 3: six `FAIL` lines (§41's one, §43's two, §51's three), `787/793` → `793/793 checks pass`; build 2024: `0 Error(s)`, `5 Warning(s)`.
-- Task 4 (final, with its design-doc replace applied — it matched once): all 26 check projects — the 25 that count `2410/2410` (master 2396 + 14), `datum-check` `DATUM OK`; builds with `-p:DeployToRevit=false`: 2022 `0 Error(s)` `3 Warning(s)`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 2027 `0`/`3` — master's own counts. The diff: 12 files, 258 lines in, 86 out (`Report`'s 37 lines among them).
+- Task 1: the build fails (`error CS0117: 'UnreportedResults' does not contain a definition for 'OnOpening'`, and the same for `Windowless`, `GhostHead`, `GhostReporting`, …) → `787/787 checks pass` (779 + 8).
+- Task 2: four `FAIL` lines, `787/791` → `791/791 checks pass`; build 2024 with `-p:DeployToRevit=false`: `0 Error(s)`, `5 Warning(s)`.
+- Task 3: six `FAIL` lines (§41's one, §43's two, §51's three), `788/794` → `794/794 checks pass`; build 2024: `0 Error(s)`, `5 Warning(s)`.
+- Task 4 (final, with its design-doc replace applied — it matched once): all 26 check projects — the 25 that count `2411/2411` (master 2396 + 15), `datum-check` `DATUM OK`; builds with `-p:DeployToRevit=false`: 2022 `0 Error(s)` `3 Warning(s)`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 2027 `0`/`3` — master's own counts. The diff: 12 files, 285 lines in, 87 out (`Report`'s 37 lines among them).
 - Not run: the drill (Revit, the test bridge, the door) and the tasks' commit commands.
 
 ---
@@ -63,7 +63,7 @@ The plan builds the default of each. None needs an answer before the work starts
 
 | # | Choice | Options | Default |
 |---|---|---|---|
-| G1 | What the open-time send says | **A:** the pane's Doctor log for every outcome, plus a dialog only when a person must act — some but not all of a result's elements carry its stamp, or the bridge refused for good a result whose elements are still in the model (`Reported.Act`). **B:** a dialog for every outcome. **C:** the Doctor log only | **A** — the person opened a model, not a review; a bridge that is down at every open would raise a dialog at every open under B, while C would leave a decision only a person can take in a log line |
+| G1 | What the open-time send says | **A:** the pane's Doctor log for every outcome, plus a dialog only when a person must act — some but not all of a result's elements carry its stamp, or the bridge refused for good a result whose elements are still in the model, or a result landed over a web decline (review C2) (`Reported.Act`). **B:** a dialog for every outcome. **C:** the Doctor log only | **A** — the person opened a model, not a review; a bridge that is down at every open would raise a dialog at every open under B, while C would leave a decision only a person can take in a log line |
 | G2 | What Ghost Builder's report says, now that it no longer waits | **A:** the summary's ledger line says the report is under way; the pane's Doctor log says what the bridge took; a dialog when not every result was taken. **B:** the Doctor log only | **A** — the summary is read before the report lands; a result not taken is kept and blocks its review until sent, which the person should not learn from a log alone |
 | G3 | The drill saves its scratch copy | **A:** saved — the copy in `Documents\Sentinel drills\ma3b4\`, never a pilot original — so it reopens bound, with Ghost Builder's stamped walls, and R-2 can prove the send. **B:** never saved; R-2 is owed | **A** — the "never saved" lesson protects the founder's own files; R-2 needs the elements and the binding to survive a reopen |
 | G4 | A send on sync, on a timer, or for a linked model | **A:** not built. **B:** build them | **A** — the open-time send and Review AI Proposals cover AI-2's proof; a timer is a background writer to the ledger with no window (the MA-3b F2 reason) |
@@ -76,6 +76,18 @@ The plan builds the default of each. None needs an answer before the work starts
 - **S3 (the brief, item 2: "its words said without a modal wait where the review's pattern allows").** The summary dialog stays (a person reading, not a network wait); the report's outcome is said after it, in the Doctor log and — when a result was not taken — in a dialog queued through the event hub (G2).
 - **S4 (the scout, "the open-time send says … `PressRetry→RunReview`").** All of a window's offers are replaced, not only that one (`Windowless`, one table checked in §49): a round at open or from Ghost Builder has no Retry report and no window to close.
 
+## Review amendments (BINDING — the critic's review of `4a3f522` against the code at `3ffdd40`; each is already in the task text it changes, and the dry run above ran them)
+
+No critical finding. Two important (C1, C2), four minor (C3–C6) and one risk in words; none rejected.
+
+- **C1 (important) — an open-time send never goes in the machine's name.** The bridge still accepts a result from the machine credential as `service` (`changesets-store.mjs:191-192`), and `ChangesetClient` sends `cfg.ServiceToken`, the person's token only while someone is signed in — so an open-time send with nobody signed in would be filed in no person's name, with nobody deciding (a claimed-vs-verified break that undoes H4's user-attributed writes, B16). `SendOnOpen` sends only for a signed-in person: after the guard's line, `if (!UserSession.IsSignedIn) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenSignedOut(mine.Count)); return; }`. The words (§49, pure): `"{n} result(s) applied in this model wait on this PC for the bridge — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Standards ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model."` §50 checks the line comes after `held` and before `retry`. The owed row now reads "not sent, said (C1)". Review AI Proposals' own Retry and Ghost Builder's report are unchanged: each is a person's act. (Task 1 Step 1 and Step 3, Task 2 Step 1 and Step 4; Owed.)
+- **C2 (important) — the late-decline dialog is kept.** The deleted `Report` showed `ChangesetTrust.LateDeclines` in its own dialog; without this, a Ghost result that landed over a web decline would be a Doctor line only, and the same at open (`Act` was never set for it). In `ReportAll`'s landed branch: `rep.Act |= ChangesetTrust.LateDeclines(reply) != null; // MA-3b4 review C2: applied over a web decline — a person decides`. Ghost's kept-build `ask` becomes `rep => rep.Act || rep.Landed.Count < records.Count`. §50 and §51 check both literals. (Task 2 Step 1 and Step 3, Task 3 Step 1 and Step 5.)
+- **C3 (minor) — Ghost's withdrawals run under the guard.** `ReportAll`'s `finally { Release(); }` ran before `Said`'s continuation called `more`, so a Review AI Proposals could list, open and Apply a rolled-back build's changeset while its `Withdraw` was still in flight. `ReportAll(cfg, records, rep, gone, Func<Reported, string> after = null)`: `after` runs inside the `try`, after the last result and before `finally Release()`, and its words, when not empty, are added with `rep.Words.Add(extra.TrimStart('\n'))` (`WithdrawnInstead` starts with a blank line; the round's words are already joined by one). `Decline` passes its withdrawals as `after`; `Said` drops `more`. §50's and §51's literals follow; `Count("Hold();") == 3` is unchanged. (Task 2 Step 1 and Step 4, Task 3 Step 1, Step 3 and Step 4.)
+- **C4 (minor) — the picker's `lost` dialog is windowless.** `rep.Text` there comes from `Retry`, whose words name "Retry report", a button the picker does not have: `Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, UnreportedResults.Windowless("", rep.Text)));`. §51's literal follows. (Task 3 Step 1 and Step 3.)
+- **C5 (minor) — the drill finds its Doctor line by its head.** Each source writes its own Doctor line asynchronously (R-1: `GovernedNotify.Report`'s ghost_build row and build:run receipt, `GhostChangesetBuild.cs:681-692`; R-2: `ReloadRuleset`'s baseline scan and `CdeSyncGuard.Prefetch`), so "the newest line" can fail for the wrong reason. R-1, R-2 (and R-3) read a Doctor line beginning `Ghost Builder — the report to the bridge:` / `Review AI Proposals (on opening "…"):`, found by its head among the newest 20 lines (read via ScrollPattern); "nothing in the Doctor log" fails only when no line with that head exists. (Live drill.)
+- **C6 (minor) — the open-time send runs first.** `RegisterFor`, `Prefetch`, `RefreshSnapshot` and `ReloadRuleset` (`App.cs:137-140`) run unguarded; a throw in one of them would skip a send placed after them, unsaid. The `try { …SendOnOpen(doc); } catch …` block is the first statement after the family-document return in `OnDocumentOpened` (the replace anchors on the method's own first lines: `OnDocumentCreated` has the same two). §50 checks `send` comes after `opened` and before the first `SentinelUpdater.RegisterFor(doc` past `opened`. (Task 2 Step 1 and Step 4.)
+- **Risk (words only):** an open-time send in flight makes Review AI Proposals say Busy for up to 120 s; the Busy text does not name a model's opening — the Doctor log's `OpenHeld` or the result line explains it. (Risks.)
+
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
 | # | Decision | Why / ceiling |
@@ -84,8 +96,8 @@ The plan builds the default of each. None needs an answer before the work starts
 | E2 | `Reported.Act` — one flag set where `Verified` keeps a partial result and where `Outcome` drops a result with applied elements | The words already say what to do; the flag only decides the dialog (G1). Two lines, no new type |
 | E3 | `Windowless` is one replacement table over the existing words | Every word function stays as the window says it (§42's literals hold); a new word that offers a window's button fails §49's sweep |
 | E4 | Ghost Builder builds its records with the review's `ResultOf` and `DocOf` (made internal) | One record shape: `Retry`'s stamp check, `Elsewhere` and the picker's block read Ghost Builder's records unchanged (its elements are stamped by the executor) |
-| E5 | Ghost Builder's declines are not written on this PC; one the bridge does not take is withdrawn instead, on the pool thread | MA-3b E4 (a decline changes nothing in the model) and Ghost Builder's B4. A changeset left proposed by both failing is named in the Doctor log and the dialog — the build was rolled back, so a later Apply duplicates nothing |
-| E6 | `ReviewChangesetsCommand.Report` is deleted | Its only callers were Ghost Builder's two; its late-decline dialog is `ReportAll`'s words (`ChangesetTrust.LateDeclines`) |
+| E5 | Ghost Builder's declines are not written on this PC; one the bridge does not take is withdrawn instead, on the pool thread, inside `ReportAll`'s round (review C3) | MA-3b E4 (a decline changes nothing in the model) and Ghost Builder's B4. A changeset left proposed by both failing is named in the Doctor log and the dialog — the build was rolled back, so a later Apply duplicates nothing |
+| E6 | `ReviewChangesetsCommand.Report` is deleted | Its only callers were Ghost Builder's two; its late-decline dialog is `ReportAll`'s words (`ChangesetTrust.LateDeclines`) plus `Reported.Act`, which asks for the dialog (review C2) |
 | E7 | The open-time send is on `DocumentOpened` only (not `DocumentCreated`, not `ViewActivated`) | A new model holds no records; `ViewActivated` fires on every view switch. Once per open; Review AI Proposals stays the manual path |
 | E8 | The picker's gap gets an optional `gone` action, not a second picker method | Six lines; the review window's `Say(words, gone)` is the pattern (MA-3b2b C13) |
 
@@ -120,7 +132,7 @@ The plan builds the default of each. None needs an answer before the work starts
 - Modify: `SentinelAddin/Engine/UnreportedResults.cs` (after `DeleteOnce`, `:234`)
 
 **Interfaces:**
-- Produces: `UnreportedResults.OnOpening(string) → string`, `OpenHeld(int) → string`, `const GhostHead`, `Windowless(string head, string words) → string`, `Failed(string) → string`, `GhostReporting(string key, IList<string> ids, IList<string> unsaved) → string`, `GhostDeclining(int) → string`, `WithdrawnInstead(IList<string>, IList<string>) → string`.
+- Produces: `UnreportedResults.OnOpening(string) → string`, `OpenHeld(int) → string`, `OpenSignedOut(int) → string` (review C1), `const GhostHead`, `Windowless(string head, string words) → string`, `Failed(string) → string`, `GhostReporting(string key, IList<string> ids, IList<string> unsaved) → string`, `GhostDeclining(int) → string`, `WithdrawnInstead(IList<string>, IList<string>) → string`.
 
 - [ ] **Step 1: The failing check.** Create `tools/promote-check/Ma3b4.cs`:
 
@@ -176,6 +188,9 @@ static partial class Check
         Ok(UnreportedResults.OpenHeld(2) == "2 result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open or a report is in flight. Once it is done, run Review AI Proposals in this model: it checks the model and sends them."
            && UnreportedResults.Failed(null).StartsWith("reporting failed — it did not finish\nWhat Revit applied is kept on this PC (" + UnreportedResults.Root + ")", StringComparison.Ordinal),
            "a guard that stops the open-time send is said, never a silent skip; a round that failed says nothing on this PC is lost");
+        Ok(UnreportedResults.OpenSignedOut(2) == "2 result(s) applied in this model wait on this PC for the bridge — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Standards ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model."
+           && UnreportedResults.Windowless("", UnreportedResults.OpenSignedOut(1)) == UnreportedResults.OpenSignedOut(1),
+           "review C1: an open-time send never goes in the machine's name — nobody signed in, nothing sent, said, and what to do named");
     }
 }
 ```
@@ -194,7 +209,7 @@ with:
 ```
 
 - [ ] **Step 2: See it fail.** From the repo root: `dotnet run --project tools/promote-check 2>&1 | grep -E "error CS|checks pass" | sort -u | head -5`
-Expected: the build fails — `error CS0117: 'UnreportedResults' does not contain a definition for 'OnOpening'` (and the like for `Windowless`, `GhostHead`, `GhostReporting`, `GhostDeclining`, `WithdrawnInstead`, `OpenHeld`, `Failed`).
+Expected: the build fails — `error CS0117: 'UnreportedResults' does not contain a definition for 'OnOpening'` (and the like for `Windowless`, `GhostHead`, `GhostReporting`, `GhostDeclining`, `WithdrawnInstead`, `OpenHeld`, `OpenSignedOut`, `Failed`).
 
 - [ ] **Step 3: The words.** In `SentinelAddin/Engine/UnreportedResults.cs`, replace:
 
@@ -213,6 +228,11 @@ with:
         /// <summary>MA-3b4: a model opened while the one-review guard is held (a picker or a window open, a report in flight) — nothing sent, said.</summary>
         public static string OpenHeld(int n) =>
             $"{n} result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open or a report is in flight. Once it is done, run Review AI Proposals in this model: it checks the model and sends them.";
+
+        /// <summary>MA-3b4 review C1: a model opened while nobody is signed in — nothing sent (a result is reported in a person's name, never
+        /// the machine credential's, which the bridge would still accept as service), said.</summary>
+        public static string OpenSignedOut(int n) =>
+            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Standards ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model.";
 
         /// <summary>MA-3b4 (G2): the head of Ghost Builder's Doctor line — its report runs after its summary is shown.</summary>
         public const string GhostHead = "Ghost Builder — the report to the bridge: ";
@@ -252,7 +272,7 @@ with:
 ```
 
 - [ ] **Step 4: See it pass.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"`
-Expected: `786/786 checks pass` (779 + 7), no `FAIL` line.
+Expected: `787/787 checks pass` (779 + 8), no `FAIL` line.
 
 - [ ] **Step 5: Commit.**
 
@@ -266,12 +286,12 @@ git commit -m "feat(revit): MA-3b4 - the words of a report no window shows: a mo
 **Files:**
 - Create: `tools/promote-check/Ma3b4Open.cs`
 - Modify: `tools/promote-check/Check.cs`
-- Modify: `SentinelAddin/Commands.ReviewChangesets.cs` (`Reported` `:153-159`; `Retry`'s last branch `:179-183`; `ReportAll`'s drop `:255`; before `Open`'s summary `:265`)
-- Modify: `SentinelAddin/App.cs` (`OnDocumentOpened` `:134-141`)
+- Modify: `SentinelAddin/Commands.ReviewChangesets.cs` (`Reported` `:153-159`; `Retry`'s last branch `:179-183`; `ReportAll`'s landed result `:238` (review C2) and its drop `:255`; before `Open`'s summary `:265`)
+- Modify: `SentinelAddin/App.cs` (`OnDocumentOpened` `:134-137`: right after the family return — review C6)
 
 **Interfaces:**
 - Consumes: Task 1's words; `Retry`, `ReportAll`, `DocOf`, `_holds` (MA-3b).
-- Produces: `ReviewChangesetsCommand.SendOnOpen(Document)`, `ReviewChangesetsCommand.Said(Task<Reported>, string head, Func<Reported, bool> ask, Func<Reported, string> more = null)`, `Reported.Act`.
+- Produces: `ReviewChangesetsCommand.SendOnOpen(Document)`, `ReviewChangesetsCommand.Said(Task<Reported>, string head, Func<Reported, bool> ask)` (review C3: no `more`), `Reported.Act` (set by `ReportAll` on a late decline too — review C2).
 
 - [ ] **Step 1: The failing check.** Create `tools/promote-check/Ma3b4Open.cs`:
 
@@ -288,25 +308,28 @@ static partial class Check
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         int opened = At(app, "private static void OnDocumentOpened("), send = At(app, "try { Commands.ReviewChangesetsCommand.SendOnOpen(doc); }");
-        Ok(opened > 0 && send > opened && send < At(app, "private static void OnDocumentCreated(") && Count(app, "SendOnOpen(") == 1
+        // Review C6: the send is the first thing after the family return — a throw in the pane's own open-time work cannot skip it unsaid.
+        Ok(opened > 0 && send > opened && send < app.IndexOf("SentinelUpdater.RegisterFor(doc", opened, StringComparison.Ordinal) && Count(app, "SendOnOpen(") == 1
            && app.Contains("catch (Exception ex) { PanelVm?.LogDoctor($\"Review AI Proposals (on opening \\\"{doc.Title}\\\"): the results waiting on this PC were not checked"),
-           "F2 B: every model that opens (DocumentOpened — never File ▸ New) has its waiting results checked and sent; a throw is said in the Doctor log");
+           "F2 B: every model that opens (DocumentOpened — never File ▸ New) has its waiting results checked and sent, before anything else Sentinel does on opening (review C6); a throw is said in the Doctor log");
         int on = At(review, "internal static void SendOnOpen(Document doc)");
         int skip = At(review, "if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return;"), bound = At(review, "if (!ctx.IsBound) return;");
         int held = At(review, "if (Volatile.Read(ref _holds) > 0) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenHeld(mine.Count)); return; }");
+        int signedOut = At(review, "if (!UserSession.IsSignedIn) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenSignedOut(mine.Count)); return; }");
         int retry = At(review, "Said(Retry(doc, BcfConfig.Load(), mine), head, rep => rep.Act);");
-        Ok(on > 0 && skip > on && bound > skip && held > bound && retry > held
+        Ok(on > 0 && skip > on && bound > skip && held > bound && signedOut > held && retry > signedOut
            && Count(review, ".Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") == 2,
-           "only this model's records (its central's or file's path, without case — review C4), never a linked or family document or an unbound model; never while a window is open or a report is in flight (the guard), said; the stamp check first (Retry, on Revit's thread)");
-        int said = At(review, "internal static void Said(Task<Reported> sending, string head, Func<Reported, bool> ask, Func<Reported, string> more = null) => sending.ContinueWith(t =>");
+           "only this model's records (its central's or file's path, without case — review C4), never a linked or family document or an unbound model; never while a window is open or a report is in flight (the guard), said; never in the machine's name — nobody signed in, said (review C1); the stamp check first (Retry, on Revit's thread)");
+        int said = At(review, "internal static void Said(Task<Reported> sending, string head, Func<Reported, bool> ask) => sending.ContinueWith(t =>");
         int dialog = At(review, "if (!done || ask(t.Result)) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));");
         Ok(said > 0 && dialog > said && At(review, "try { App.PanelVm?.LogDoctor(words); } catch { }") > dialog
-           && review.Contains("var words = UnreportedResults.Windowless(head, done ? t.Result.Text + (more?.Invoke(t.Result) ?? \"\") : UnreportedResults.Failed(t.Exception?.GetBaseException().Message));")
+           && review.Contains("var words = UnreportedResults.Windowless(head, done ? t.Result.Text : UnreportedResults.Failed(t.Exception?.GetBaseException().Message));")
            && review.IndexOf("}, TaskScheduler.Default);", said, StringComparison.Ordinal) > dialog,
            "G1: a round no window shows is said in the pane's Doctor log from a pool thread, in words made windowless; a dialog only when a person must act or the round failed");
         Ok(review.Contains("rep.Act = true; // MA-3b4 (G1)") && review.Contains("if (drop) { UnreportedResults.Delete(r.Key, r.ChangesetId); rep.Act |= r.Applied.Count > 0; } // MA-3b4 (G1)")
+           && review.Contains("rep.Act |= ChangesetTrust.LateDeclines(reply) != null; // MA-3b4 review C2")
            && !review.Contains("GetAwaiter().GetResult()") && !review.Contains(".Wait(") && Count(review, "Hold();") == 3,
-           "G1: a person must act when only some of a result's elements carry its stamp, or the bridge refused for good a result whose elements are in the model; nothing waits, and the guard is held no more often");
+           "G1: a person must act when only some of a result's elements carry its stamp, the bridge refused for good a result whose elements are in the model, or a result landed over a web decline (review C2); nothing waits, and the guard is held no more often");
     }
 }
 ```
@@ -325,7 +348,7 @@ with:
 ```
 
 - [ ] **Step 2: See it fail.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"`
-Expected: four `FAIL` lines (`F2 B: every model that opens …`, `only this model's records …`, `G1: a round no window shows …`, `G1: a person must act …`) and `786/790 checks pass`.
+Expected: four `FAIL` lines (`F2 B: every model that opens …`, `only this model's records …`, `G1: a round no window shows …`, `G1: a person must act …`) and `787/791 checks pass`.
 
 - [ ] **Step 3: The flag.** In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
 
@@ -379,6 +402,19 @@ with:
                     else { rep.Left.Add(r); stalled = true; }
 ```
 
+In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
+
+```csharp
+                        rep.Landed.Add((r, reply));
+```
+
+with:
+
+```csharp
+                        rep.Landed.Add((r, reply));
+                        rep.Act |= ChangesetTrust.LateDeclines(reply) != null; // MA-3b4 review C2: applied over a web decline — a person decides
+```
+
 - [ ] **Step 4: The send on open, and the words of a round no window shows.** In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
 
 ```csharp
@@ -391,8 +427,9 @@ with:
     /// <summary>MA-3b4 (AI-2, founder decision F2 B): a model opened — the results this PC applied in it that the bridge has not taken are
     /// checked against its stamps here (DocumentOpened: Revit's thread — Retry) and sent off it; what the bridge did is said in the pane's
     /// Doctor log, and in a dialog only when a person must act (G1). Never while the guard is held (a picker or a review window open, a
-    /// report in flight): said, and the next Review AI Proposals sends them. Nothing for a linked or family document, a model not bound, or
-    /// another model's records (review C4's comparison).</summary>
+    /// report in flight): said, and the next Review AI Proposals sends them. Never while nobody is signed in (review C1: the machine
+    /// credential would file it in no one's name) — said. Nothing for a linked or family document, a model not bound, or another model's
+    /// records (review C4's comparison).</summary>
     internal static void SendOnOpen(Document doc)
     {
         if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return;
@@ -404,19 +441,21 @@ with:
         var head = UnreportedResults.OnOpening(doc.Title);
         // E1: the guard, in memory — a picker or a window may hold this model's results already, or a report of them may be in flight.
         if (Volatile.Read(ref _holds) > 0) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenHeld(mine.Count)); return; }
+        // Review C1: a result is reported in a person's name — the machine credential would still pass as service (changesets-store).
+        if (!UserSession.IsSignedIn) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenSignedOut(mine.Count)); return; }
         Said(Retry(doc, BcfConfig.Load(), mine), head, rep => rep.Act);
     }
 
-    /// <summary>MA-3b4 (AI-2): a round of reports no window shows — a model opening (F2 B), Ghost Builder. On a pool thread:
-    /// <paramref name="more"/> runs first (Ghost Builder's withdrawals), then the round's words, made windowless, go to the pane's Doctor
-    /// log — and to a dialog when <paramref name="ask"/> says a person must act, or the round failed. Nothing here ends unobserved
-    /// (MA-3b2b review C1).</summary>
-    internal static void Said(Task<Reported> sending, string head, Func<Reported, bool> ask, Func<Reported, string> more = null) => sending.ContinueWith(t =>
+    /// <summary>MA-3b4 (AI-2): a round of reports no window shows — a model opening (F2 B), Ghost Builder. On a pool thread, once the
+    /// round is done (and the guard released): its words, made windowless, go to the pane's Doctor log — and to a dialog when
+    /// <paramref name="ask"/> says a person must act, or the round failed. Nothing here ends unobserved (MA-3b2b review C1). Work that
+    /// must finish under the guard (Ghost Builder's withdrawals) is ReportAll's <c>after</c>, never here (review C3).</summary>
+    internal static void Said(Task<Reported> sending, string head, Func<Reported, bool> ask) => sending.ContinueWith(t =>
     {
         try
         {
             var done = t.Status == TaskStatus.RanToCompletion;
-            var words = UnreportedResults.Windowless(head, done ? t.Result.Text + (more?.Invoke(t.Result) ?? "") : UnreportedResults.Failed(t.Exception?.GetBaseException().Message));
+            var words = UnreportedResults.Windowless(head, done ? t.Result.Text : UnreportedResults.Failed(t.Exception?.GetBaseException().Message));
             // MA-3b2b review C1: queued before the Doctor line, which stands on its own; no DocPin — a dialog changes nothing in the model.
             if (!done || ask(t.Result)) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));
             try { App.PanelVm?.LogDoctor(words); } catch { }
@@ -427,31 +466,36 @@ with:
     /// <summary>Promote's entry (MA-0): the review window on <paramref name="batch"/>.</summary>
 ```
 
-In `SentinelAddin/App.cs`, replace:
+Review C6: the send is the first statement after the family return, so a throw in the open-time work below it cannot skip it unsaid. In `SentinelAddin/App.cs`, replace:
 
 ```csharp
-        ReloadRuleset(doc); // the baseline scan runs when the document's ruleset@n has landed
-    }
+    private static void OnDocumentOpened(object? sender, DocumentOpenedEventArgs e)
+    {
+        if (e.Document is not { IsFamilyDocument: false } doc) return;
+        SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
 ```
 
 with:
 
 ```csharp
-        ReloadRuleset(doc); // the baseline scan runs when the document's ruleset@n has landed
+    private static void OnDocumentOpened(object? sender, DocumentOpenedEventArgs e)
+    {
+        if (e.Document is not { IsFamilyDocument: false } doc) return;
         // MA-3b4 (AI-2, F2 B): the results this PC applied in this model that the bridge has not taken are sent by themselves — said in the
-        // pane's Doctor log. A throw here sends nothing and removes nothing: every record stays on this PC, said.
+        // pane's Doctor log. First (review C6): nothing below can skip it. A throw here sends nothing and removes nothing: every record stays
+        // on this PC, said.
         try { Commands.ReviewChangesetsCommand.SendOnOpen(doc); }
         catch (Exception ex) { PanelVm?.LogDoctor($"Review AI Proposals (on opening \"{doc.Title}\"): the results waiting on this PC were not checked — {ex.GetType().Name}: {ex.Message}. They are kept; run Review AI Proposals in this model to send them."); }
-    }
+        SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
 ```
 
-- [ ] **Step 5: See it pass, and build.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"` → `790/790 checks pass`, no `FAIL` line. `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false 2>&1 | grep -E "Warning\(s\)|Error\(s\)| error "` → `0 Error(s)`, `5 Warning(s)` (master's count).
+- [ ] **Step 5: See it pass, and build.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"` → `791/791 checks pass`, no `FAIL` line. `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false 2>&1 | grep -E "Warning\(s\)|Error\(s\)| error "` → `0 Error(s)`, `5 Warning(s)` (master's count).
 
 - [ ] **Step 6: Commit.**
 
 ```bash
 git add tools/promote-check/Ma3b4Open.cs tools/promote-check/Check.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/App.cs
-git commit -m "feat(revit): MA-3b4 - a waiting result is sent by itself when its model opens (founder decision F2 B): DocumentOpened checks the model's stamps (Retry) and sends this model's records off Revit's thread, said in the pane's Doctor log, a dialog only when a person must act (G1); never while a review window is open or a report is in flight (said); never a linked, family or unbound model (promote-check 50)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(revit): MA-3b4 - a waiting result is sent by itself when its model opens (founder decision F2 B): DocumentOpened checks the model's stamps (Retry) and sends this model's records off Revit's thread, said in the pane's Doctor log, a dialog only when a person must act (G1); never while a review window is open or a report is in flight (said); never in the machine's name - nobody signed in, said (review C1); first on opening (C6); a late decline asks a person (C2); never a linked, family or unbound model (promote-check 50)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ### Task 3 — Revit: Ghost Builder writes its result and never waits for its report; the picker's gap (source scans §51)
@@ -461,7 +505,7 @@ git commit -m "feat(revit): MA-3b4 - a waiting result is sent by itself when its
 - Modify: `tools/promote-check/Check.cs`
 - Modify: `tools/promote-check/Ma3aReview.cs` (§41, `:76-81`)
 - Modify: `tools/promote-check/Ma3bDesk.cs` (§43: the label near `:214`, the picker's literals near `:247` and `:268`)
-- Modify: `SentinelAddin/Commands.ReviewChangesets.cs` (`Load` `:116-127`; `DocOf` `:140`; `ResultOf` `:143`; `Report` `:593-629` deleted)
+- Modify: `SentinelAddin/Commands.ReviewChangesets.cs` (`Load` `:116-127`; `DocOf` `:140`; `ResultOf` `:143`; `ReportAll`'s signature `:192` and its end `:257-261` — review C3; `Report` `:593-629` deleted)
 - Modify: `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs` (`Decline` `:142-168`; step 7 `:642-660`; the ledger line `:668-671`)
 - Modify: `SentinelAddin/UI/ChangesetPickerWindow.cs` (`SetEntries` `:54-58`)
 
@@ -485,20 +529,25 @@ static partial class Check
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         int done = At(ghost, "done = true;");
         int write = At(ghost, "var unsaved = records.Where(x => x.Applied.Count > 0 && !UnreportedResults.Write(x)).Select(x => Short(x.ChangesetId)).ToList();");
-        int send = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Landed.Count < records.Count);");
+        int send = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count);");
         Ok(done > 0 && write > done && send > write
            && ghost.Contains("ReviewChangesetsCommand.DocOf(doc), new List<string> { undo, UndoWatcher.TxName(cs.Name, cs.Id) }, null);")
            && ghost.Contains("rec.Path = doc.PathName ?? \"\";")
            && !ghost.Contains("ReviewChangesetsCommand.Report(") && !ghost.Contains("UndoWatcher.Remember(") && !review.Contains("internal static bool Report("),
            "AI-2: Ghost Builder writes each applied result on this PC (the model, the file, its Undo names) before its report, which goes through ReportAll on a pool thread — remembered for the undo watcher once the bridge takes it; Report and its modal Retry are gone");
         int decline = At(ghost, "GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)");
-        int declines = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count, rep =>");
+        int declines = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>");
         int withdraw = At(ghost, "(ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));");
-        Ok(decline > 0 && declines > decline && withdraw > declines && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
-           && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);"),
-           "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there; the summary says the report is under way and where its outcome is said");
+        int asked = At(ghost, "}), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);");
+        // Review C3: the withdrawals run inside ReportAll's round, before its finally releases the guard — no review can open them meanwhile.
+        int all = At(review, "internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null, Func<Reported, string> after = null)");
+        int then = At(review, "if (after?.Invoke(rep) is string extra && extra.Length > 0) rep.Words.Add(extra.TrimStart('\\n')); // MA-3b4 review C3");
+        Ok(decline > 0 && declines > decline && withdraw > declines && asked > withdraw && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
+           && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);")
+           && all > 0 && then > all && review.IndexOf("finally { Release(); }", all, StringComparison.Ordinal) > then,
+           "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");
         Ok(picker.Contains("public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status, Action gone = null)")
-           && review.Contains("Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));")
+           && review.Contains("Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, UnreportedResults.Windowless(\"\", rep.Text)));")
            && review.Contains("picker.SetEntries(rows, string.Join(\"\\n\\n\", said), lost);")
            && review.Contains(".Concat(said)), lost);"),
            "MA-3b2b's gap: a round's words that reach a picker closed in between go to a dialog too, not to the Doctor log alone");
@@ -582,7 +631,7 @@ with:
 ```
 
 - [ ] **Step 2: See it fail.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"`
-Expected: six `FAIL` lines — §41's `the result carries the review_rev Apply re-checked …`, §43's `AI-5: the picker lists every entry …` and `review C11: the words of a round the picker started …`, and §51's three — and `787/793 checks pass`.
+Expected: six `FAIL` lines — §41's `the result carries the review_rev Apply re-checked …`, §43's `AI-5: the picker lists every entry …` and `review C11: the words of a round the picker started …`, and §51's three — and `788/794 checks pass`.
 
 - [ ] **Step 3: The review's helpers for Ghost Builder; `Report` deleted; the picker's `lost`.** In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
 
@@ -659,6 +708,41 @@ with:
     }
 ```
 
+Review C3: work that must finish while the guard is held runs inside the round. In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
+
+```csharp
+    internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null)
+```
+
+with:
+
+```csharp
+    // MA-3b4 review C3: `after` runs on the pool thread once every result is sent, before the guard is released (Ghost Builder's
+    // withdrawals — no review opens a changeset still being withdrawn); its words, when it has any, close the round's.
+    internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null, Func<Reported, string> after = null)
+```
+
+In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
+
+```csharp
+                    rep.Words.Add($"\"{r.Name}\": {words}");
+                }
+                return rep;
+            }
+            finally { Release(); }
+```
+
+with:
+
+```csharp
+                    rep.Words.Add($"\"{r.Name}\": {words}");
+                }
+                if (after?.Invoke(rep) is string extra && extra.Length > 0) rep.Words.Add(extra.TrimStart('\n')); // MA-3b4 review C3
+                return rep;
+            }
+            finally { Release(); }
+```
+
 In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
 
 ```csharp
@@ -668,8 +752,9 @@ In `SentinelAddin/Commands.ReviewChangesets.cs`, replace:
 with:
 
 ```csharp
-            // MA-3b4 (MA-3b2b's gap): the picker may close while the list is read — the round's words then go to a dialog too, not the Doctor log alone.
-            Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));
+            // MA-3b4 (MA-3b2b's gap): the picker may close while the list is read — the round's words then go to a dialog too, not the Doctor log alone;
+            // windowless (review C4): the closed picker has no Retry report to offer.
+            Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, UnreportedResults.Windowless("", rep.Text)));
             var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);
 ```
 
@@ -758,7 +843,8 @@ with:
             // A changeset failed in Revit: the whole build is rolled back, and every filed changeset is reported declined. B4: a
             // result the bridge does not take is withdrawn instead, and one that is neither is named — it is still proposed.
             // MA-3b4 (AI-2): reported off Revit's thread (ReportAll; a decline is not written on this PC — E5), the withdrawals on the
-            // same pool thread; what the bridge did is said in the pane's Doctor log, and in a dialog when one was not taken (G2).
+            // same pool thread inside the round, under the guard (review C3); what the bridge did is said in the pane's Doctor log, and in a
+            // dialog when one was not taken (G2).
             GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)
             {
                 SentinelUndo.RollBack(group, doc);
@@ -768,7 +854,7 @@ with:
                     cs == failing ? $"Revit transaction failed — rolled back: {error}"
                                   : $"not applied — the Ghost build is all or nothing and {(failing == null ? "it" : "changeset " + Short(failing.Id))} failed: {error}",
                     null, ReviewChangesetsCommand.DocOf(doc), null, null)).ToList();
-                ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count, rep =>
+                ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>
                 {
                     var landed = new HashSet<string>(rep.Landed.Select(x => x.R.ChangesetId), StringComparer.Ordinal);
                     var withdrawn = new List<string>();
@@ -776,7 +862,7 @@ with:
                     foreach (var cs in filed.Where(f => !landed.Contains(f.Id)))
                         (ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));
                     return UnreportedResults.WithdrawnInstead(withdrawn, kept);
-                });
+                }), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);
                 report.Ledger = UnreportedResults.GhostDeclining(declines.Count);
                 return report;
             }
@@ -829,7 +915,7 @@ with:
                 }
                 var unsaved = records.Where(x => x.Applied.Count > 0 && !UnreportedResults.Write(x)).Select(x => Short(x.ChangesetId)).ToList();
                 if (records.Count > 0)
-                    ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Landed.Count < records.Count);
+                    ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count); // review C2: a late decline asks too
 ```
 
 In `SentinelAddin/GhostBuilder/GhostChangesetBuild.cs`, replace:
@@ -848,13 +934,13 @@ with:
                     : UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);
 ```
 
-- [ ] **Step 6: See it pass, and build.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"` → `793/793 checks pass`, no `FAIL` line. `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false 2>&1 | grep -E "Warning\(s\)|Error\(s\)| error "` → `0 Error(s)`, `5 Warning(s)`.
+- [ ] **Step 6: See it pass, and build.** `dotnet run --project tools/promote-check 2>&1 | grep -E "FAIL|checks pass"` → `794/794 checks pass`, no `FAIL` line. `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024 -p:DeployToRevit=false 2>&1 | grep -E "Warning\(s\)|Error\(s\)| error "` → `0 Error(s)`, `5 Warning(s)`.
 
 - [ ] **Step 7: Commit.**
 
 ```bash
 git add tools/promote-check/Ma3b4Ghost.cs tools/promote-check/Check.cs tools/promote-check/Ma3aReview.cs tools/promote-check/Ma3bDesk.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/GhostBuilder/GhostChangesetBuild.cs SentinelAddin/UI/ChangesetPickerWindow.cs
-git commit -m "feat(revit): MA-3b4 - Ghost Builder writes each applied result on this PC before its report and no longer waits for it: ReportAll on a pool thread (the undo watcher's Expect/Land, the 409-taken rule, the guard), said in the Doctor log and a dialog when one was not taken (G2); a rolled-back build reports its declines off the thread and withdraws what the bridge did not take there (B4); Report and its modal Retry are gone; the picker's closed-window gap gets the dialog (promote-check 51)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(revit): MA-3b4 - Ghost Builder writes each applied result on this PC before its report and no longer waits for it: ReportAll on a pool thread (the undo watcher's Expect/Land, the 409-taken rule, the guard), said in the Doctor log and a dialog when one was not taken (G2); a rolled-back build reports its declines off the thread and withdraws what the bridge did not take there (B4); Report and its modal Retry are gone; the withdrawals run under the guard (review C3); the picker's closed-window gap gets the dialog, windowless (C4) (promote-check 51)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ### Task 4 — Words: the design doc; the final checks
@@ -880,7 +966,7 @@ with:
 for d in tools/*-check; do ls $d/*.csproj >/dev/null 2>&1 || continue; printf "%s: " $(basename $d); dotnet run --project $d 2>&1 | grep -E "checks? pass|DATUM OK" | tail -1; done
 ```
 
-Expected: 26 lines — `promote-check: 793/793 checks pass`, the other 24 that count as on master (together with it `2410/2410`: master's 2396 + 14) — and `datum-check: DATUM OK`. `tools/rvtinfo-check` has no project and is skipped. Then the builds, each with `-p:DeployToRevit=false`:
+Expected: 26 lines — `promote-check: 794/794 checks pass`, the other 24 that count as on master (together with it `2411/2411`: master's 2396 + 15) — and `datum-check: DATUM OK`. `tools/rvtinfo-check` has no project and is skipped. Then the builds, each with `-p:DeployToRevit=false`:
 
 ```bash
 for v in 2022 2023 2024 2025 2026 2027; do printf "%s: " $v; dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=$v -p:DeployToRevit=false 2>&1 | grep -E "Warning\(s\)|Error\(s\)" | tr '\n' ' '; echo; done
@@ -908,7 +994,7 @@ git commit -m "docs: MA-3b4 - the design doc says what was built (a waiting resu
 - **Ghost Builder's Decline path live** (a build Revit rolls back): it needs a forced Revit failure; checked by source scans (§51) and by the shared `ReportAll`, which the review's decline paths have run live since MA-3b.
 - **The open-time guard live** (a model opened while a review window is open or a report is in flight): it needs two models and a window held open across an open; checked by scan (§50) and words (§49).
 - **The picker's closed-window gap live** (a timing gap: the picker closed while its list is read): scan only (§51).
-- **An open-time send while signed out** (the machine credential: a 401/403 keeps the record, "Sign in … then run Review AI Proposals"): words checked offline (§49).
+- **An open-time send while signed out**: not sent, said (review C1); words checked offline (§49), its place in `SendOnOpen` by scan (§50).
 - **A partial stamp count at open** (G1's dialog): words checked offline (§49).
 - **MA-3b3's owed rows** (a second account, a web-origin carry live) and the earlier ones stay owed; this drill does not carry them.
 
@@ -945,9 +1031,9 @@ git commit -m "docs: MA-3b4 - the design doc says what was built (a waiting resu
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
-| R-1 — Ghost Builder's report fails; nothing waits, nothing is lost | `<scratchpad>/ma3b4/fail` exists and the door was (re)started after it. Sentinel ▸ Ghost Builder ▸ `demo/ghost-sample/sample-walls-ma2a.dxf` (repo), no type picked, level GR-FFL ▸ **Build** (Revit in front). Read the summary; close it. Read the dialog that follows. Read the pane's Doctor log (newest line). List `%AppData%\Sentinel\unreported\ma2a-ghost\` (names only). `b4101 GET changesets/ma2a-ghost/<the id in the summary>` (status only). **Do not run Review AI Proposals in this model** — it would send the result at once (the picker's own Retry) and R-2 would prove nothing | The summary appears with **no** "The result could not be reported to the bridge … Retry?" dialog before it; its ledger line reads `Ledger: reporting 1 changeset(s) to ma2a-ghost (source dwg: <id>) off Revit's thread — the pane's Doctor log says what the bridge took. …` (G-1 filed one changeset; more if the build filed more); after it, a `Sentinel — AI proposals` dialog `Ghost Builder — the report to the bridge: "<name>": not reported: Bridge 503: {"error":"drill MA3b4 proxy: the bridge is down (503)"}` with `The result is kept on this PC and sent again by the next opening of this model or Review AI Proposals; …`; the same words newest in the Doctor log; the door's log `failed …/result with 503 - the bridge never saw it`; one `<id>.json` in `unreported\ma2a-ghost\`; the GET says `proposed`. **Fails, named:** a Retry dialog (the modal wait is back); no file (a lost report); a dialog or Doctor line offering "Retry report" (S4) | the summary's ledger line, the dialog, the Doctor line, the file name, the GET |
-| R-2 — the report lands by itself when the model opens | Save the scratch copy (Ctrl+S — G3), close it (File ▸ Close), then open the same file again from Revit's Open dialog, as in the set-up (Revit in front). The door is not restarted: its one failure is spent. Read the pane's Doctor log. List `unreported\ma2a-ghost\`. `b4101 GET changesets/ma2a-ghost/<id>` (status, `result.applied` count). Then Sentinel ▸ Review AI Proposals: read the picker; close it | The Doctor log's newest line reads `Review AI Proposals (on opening "ma3b4-a"): "<name>": reported (ledger #<n>).` (the title as Revit gives it); **no** dialog (G1: nobody must act); the record file is gone; the GET says `applied` with the walls R-1's summary placed (6 in G-1); the picker does not list the Ghost changeset. **Fails, named:** nothing in the Doctor log (the send did not run, or its line is lost — UNSURE 3); a "not in this model as applied" line (the save did not keep the walls — G3/UNSURE 1); "another copy of the same model" (the file reopened is not the one R-1 wrote — UNSURE 1) | the Doctor line, the listing, the GET, the picker's status line |
-| R-3 (optional) — a model closed without saving reports nothing as applied | Restart the door (the `fail` file still there). Copy the seed again as `ma3b4-b.rvt`, open, bind to `ma2a-ghost`, save once, then Ghost Builder as in R-1 (the 503 again; the record written). Close **without saving**; open `ma3b4-b.rvt` again. Read the Doctor log; list `unreported\ma2a-ghost\`; GET the new id | The Doctor line reads `Review AI Proposals (on opening "ma3b4-b"): "<name>": not in this model as applied (undone, the model was closed without saving, or a local that was never synchronised) — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed.`; the file is gone; the GET says `proposed`. Then `b4101 POST changesets/ma2a-ghost/<id>/withdraw '{"actor":"drill-ma3b4"}'` → `200 withdrawn` | the Doctor line, the listing, the GET, the withdraw |
+| R-1 — Ghost Builder's report fails; nothing waits, nothing is lost | `<scratchpad>/ma3b4/fail` exists and the door was (re)started after it. Sentinel ▸ Ghost Builder ▸ `demo/ghost-sample/sample-walls-ma2a.dxf` (repo), no type picked, level GR-FFL ▸ **Build** (Revit in front). Read the summary; close it. Read the dialog that follows. Read the pane's Doctor log: its newest 20 lines (via ScrollPattern), the line found by its head (review C5). List `%AppData%\Sentinel\unreported\ma2a-ghost\` (names only). `b4101 GET changesets/ma2a-ghost/<the id in the summary>` (status only). **Do not run Review AI Proposals in this model** — it would send the result at once (the picker's own Retry) and R-2 would prove nothing | The summary appears with **no** "The result could not be reported to the bridge … Retry?" dialog before it; its ledger line reads `Ledger: reporting 1 changeset(s) to ma2a-ghost (source dwg: <id>) off Revit's thread — the pane's Doctor log says what the bridge took. …` (G-1 filed one changeset; more if the build filed more); after it, a `Sentinel — AI proposals` dialog `Ghost Builder — the report to the bridge: "<name>": not reported: Bridge 503: {"error":"drill MA3b4 proxy: the bridge is down (503)"}` with `The result is kept on this PC and sent again by the next opening of this model or Review AI Proposals; …`; the same words in a Doctor line beginning `Ghost Builder — the report to the bridge:`, found by its head among the newest 20 lines (read via ScrollPattern — review C5: the ghost_build row and the receipt log lines of their own, in any order); the door's log `failed …/result with 503 - the bridge never saw it`; one `<id>.json` in `unreported\ma2a-ghost\`; the GET says `proposed`. **Fails, named:** a Retry dialog (the modal wait is back); no file (a lost report); no Doctor line with that head among the newest 20 (the report's words lost); a dialog or Doctor line offering "Retry report" (S4) | the summary's ledger line, the dialog, the Doctor line, the file name, the GET |
+| R-2 — the report lands by itself when the model opens | Save the scratch copy (Ctrl+S — G3), close it (File ▸ Close), then open the same file again from Revit's Open dialog, as in the set-up (Revit in front, still signed in — review C1). The door is not restarted: its one failure is spent. Read the pane's Doctor log: its newest 20 lines (via ScrollPattern), the line found by its head (review C5). List `unreported\ma2a-ghost\`. `b4101 GET changesets/ma2a-ghost/<id>` (status, `result.applied` count). Then Sentinel ▸ Review AI Proposals: read the picker; close it | A Doctor line beginning `Review AI Proposals (on opening "ma3b4-a"):`, found by its head among the newest 20 lines (read via ScrollPattern — review C5: the baseline scan and the CDE prefetch log on opening too), reads `Review AI Proposals (on opening "ma3b4-a"): "<name>": reported (ledger #<n>).` (the title as Revit gives it); **no** dialog (G1: nobody must act); the record file is gone; the GET says `applied` with the walls R-1's summary placed (6 in G-1); the picker does not list the Ghost changeset. **Fails, named:** no Doctor line with that head among the newest 20 (the send did not run, or its line is lost — UNSURE 3); `not sent: nobody is signed in` (the sign-in lapsed — a set-up miss: sign in and reopen; review C1); a "not in this model as applied" line (the save did not keep the walls — G3/UNSURE 1); "another copy of the same model" (the file reopened is not the one R-1 wrote — UNSURE 1) | the Doctor line, the listing, the GET, the picker's status line |
+| R-3 (optional) — a model closed without saving reports nothing as applied | Restart the door (the `fail` file still there). Copy the seed again as `ma3b4-b.rvt`, open, bind to `ma2a-ghost`, save once, then Ghost Builder as in R-1 (the 503 again; the record written). Close **without saving**; open `ma3b4-b.rvt` again. Read the Doctor log (by its head among the newest 20 — review C5); list `unreported\ma2a-ghost\`; GET the new id | The Doctor line beginning `Review AI Proposals (on opening "ma3b4-b"):` reads `Review AI Proposals (on opening "ma3b4-b"): "<name>": not in this model as applied (undone, the model was closed without saving, or a local that was never synchronised) — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed.`; the file is gone; the GET says `proposed`. Then `b4101 POST changesets/ma2a-ghost/<id>/withdraw '{"actor":"drill-ma3b4"}'` → `200 withdrawn` | the Doctor line, the listing, the GET, the withdraw |
 
 The rows run in the order R-1, R-2, R-3. If Ghost Builder filed another count or name than G-1's, the rows use what it filed and the record says so. If R-3 is not run, it is recorded **owed**.
 
@@ -973,7 +1059,7 @@ Merge when all of these hold:
 ```bash
 git checkout master
 git merge --no-ff feature/ma3b4-nothing-waits -F - <<'EOF'
-Merge feature/ma3b4-nothing-waits: MA-3b4 - a report is never lost, and it lands by itself (AI-2's proof): a waiting result is sent by itself when its model opens (founder decision F2 B) - DocumentOpened checks the model's stamps (Retry, on Revit's thread) and sends this model's records off it, said in the pane's Doctor log, a dialog only when a person must act (G1); never while a review window is open or a report is in flight (said), never a linked, family or unbound model, never another model's records. Ghost Builder writes each applied result on this PC before its report and reports through ReportAll on a pool thread (G2: the Doctor log, a dialog when one was not taken); a rolled-back build's declines are reported off the thread and the ones not taken withdrawn there (B4); ReviewChangesetsCommand.Report and its modal Retry are gone. The picker's closed-window gap gets the dialog. No bridge, web or migration change. Drill MA3b4 (Revit 2024, signed in, a saved scratch copy - G3): <rows and ledger numbers>. Owed: <owed rows>. promote-check 793, 26 checks 2410, builds 2022-2027 0 errors. graphify is not on PATH on this PC: the graph was not updated
+Merge feature/ma3b4-nothing-waits: MA-3b4 - a report is never lost, and it lands by itself (AI-2's proof): a waiting result is sent by itself when its model opens (founder decision F2 B) - DocumentOpened checks the model's stamps (Retry, on Revit's thread) and sends this model's records off it, said in the pane's Doctor log, a dialog only when a person must act (G1); never while a review window is open or a report is in flight (said), never in the machine's name (nobody signed in - said; review C1), never a linked, family or unbound model, never another model's records. Ghost Builder writes each applied result on this PC before its report and reports through ReportAll on a pool thread (G2: the Doctor log, a dialog when one was not taken); a rolled-back build's declines are reported off the thread and the ones not taken withdrawn there (B4); ReviewChangesetsCommand.Report and its modal Retry are gone. The picker's closed-window gap gets the dialog. Review amendments C1-C6. No bridge, web or migration change. Drill MA3b4 (Revit 2024, signed in, a saved scratch copy - G3): <rows and ledger numbers>. Owed: <owed rows>. promote-check 794, 26 checks 2411, builds 2022-2027 0 errors. graphify is not on PATH on this PC: the graph was not updated
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -1001,6 +1087,7 @@ Push only under the standing push rule, after a secret scan of the range.
 - **A dialog at every open while a person has not acted** (G1): a partial stamp count, or a result the bridge refused for good with elements in the model, is said again at each open until the model is fixed and Review AI Proposals runs. By design: a person decides.
 - **A Ghost changeset whose every element Revit removed at commit** (applied 0) is not written (as the review's); if its report fails it stays proposed with nothing in the model — said in the Doctor log and the dialog; a later Apply duplicates nothing.
 - **Ghost Builder's declines live in memory** (E5): a Revit closed before `ReportAll` and the withdrawals finish leaves the changesets proposed — the build was rolled back, so a later Apply duplicates nothing; the summary's ledger line said the report was under way.
+- **An open-time send in flight makes Review AI Proposals say Busy for up to 120 s** (review, words only): the Busy text does not name a model's opening; the Doctor log's `OpenHeld` or the result line explains it.
 - **Ghost Builder's report is not cancellable from a window**: its words arrive in the Doctor log and a dialog after the summary; while it is in flight (up to 120 s on a slow bridge) Review AI Proposals says Busy.
 - **A model opened by another add-in in the background** (`Application.OpenDocumentFile`) has its waiting results sent too — said in the Doctor log; its stamps decide, as for any open.
 - **Ghost Builder's filing and `Abandon`'s withdrawals still wait on Revit's thread** (`GhostChangesetBuild.cs:535`, `:134`), and **Promote's reads and filing still wait** (`Commands.PromoteWalls.cs:49`, `:61`, `:191`; MA-3b3 C4: the filing wait grows with the store read): Next.
