@@ -1712,3 +1712,29 @@ expects one); the Doctor log line is written before it, so the words are not los
 `%AppData%\Sentinel\cache\ma3b2` and `unreported\ma3b2` deleted. Left on the shared ledger (scratch keys): `ma3b2-office`, `ma3b2`, the
 membership, three changesets (GR-FFL partially applied, 01-FFL applied and reverted, MA0 Roof proposed), rows up to #1814. Left on this
 PC: the scratch copy in `Documents\Sentinel drills\ma3b2\` (never committed).
+
+## Session MA3b2b — Revit's reasons on the web desk, a closed window's result in a dialog, a lost-reply decline taken, live (2026-10-04 ~20:20 → 20:45 local, branch feature/ma3b2b-desk-reasons 54a8206, Claude driving Revit 2024, the founder's local app)
+
+Setup: Revit 2024 first held master's build (`3f3bc454ba48…`, e411406) for R-0; then the branch build 54a8206 deployed on the founder's
+explicit ask ("deploy the ma3b2b branch to 2024"; DLL `8f0a146aaf38…`). The add-in's settings backed up and pointed at 127.0.0.1:4101 —
+the drill proxy (moods `slow`, `lose`) in front of the test bridge on 4102. Scratch office `ma3b2b-office`, project `ma3b2b`, the
+founder's account a `contributor` (never printed). Scratch copy `ma3b2b-a.rvt` of the B35 seed, never saved; Revit signed in. Promote
+filed GR-FFL (48), 01-FFL (40), MA0 Roof (1). The web rows on the founder's local app (port 4000, the 4100 bridge on master).
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-0 (master's build) | GR-FFL: Apply 48 → Place anyway with the proxy slow (95 s); the window closed with × while it read `Reporting to the bridge…`; Revit in front, nothing touched: **no dialog** by 128 s, none after a click either; the report landed (ledger #1832). F-MA3b2-1 reproduced on master's build. The Doctor log was not read — which candidate it was stays unread (not (e)) | screen, ledger |
+| R-1 (the branch's build) | 01-FFL: `retype wall (18)` unticked, reason `<b>drill MA3b2b</b> stays as modelled`, Apply 22 → Place anyway (slow); window closed with ×; nothing touched. A TaskDialog `Sentinel — AI proposals` showed by itself: `Applied 22 element(s) from "Promote (DD) · 01-FFL".` … `18 of 18 unticked element(s) reported as rejected.` … `"Promote (DD) · 01-FFL": reported (ledger #1834).` `18 decline reason(s) recorded with it.` — **pass** | dialog |
+| R-2 | MA0 Roof: Untick group, reason `drill MA3b2b R-2`, note `drill MA3b2b: the reply is lost`, Decline all with the proxy losing the reply: `Declined 0 of 1 changeset(s) — nothing in the model changed.` … `"Promote (DD) · MA0 Roof": not reported: the connection failed — The underlying connection was closed: The connection was closed unexpectedly.` `Nothing in the model changed; Retry report sends it again.` **Retry report** → `Sent again: 1 of 1 result(s) reported.` / `"Promote (DD) · MA0 Roof": the bridge had already taken it (its reply did not reach Revit) — declined; the bridge named no ledger row for it here.` / `1 decline reason(s) recorded with it.` — **pass** | window |
+| W-1 (the founder, local app, `ma3b2b`) | `Recently decided in Revit` / `3 report(s), newest first.`: `Promote (DD) · MA0 Roof — declined in Revit by <account> · 2026-10-04 18:36 UTC · 0 applied, 1 not applied · ledger #1836`; `Promote (DD) · 01-FFL — partially applied in Revit by <account> · 18:33 UTC · 22 applied, 18 not applied · ledger #1834`; `Promote (DD) · GR-FFL — applied in Revit by <account> · 18:27 UTC · 48 applied, 0 not applied · ledger #1832`; above it `Nothing waits for review in Revit on this project.` — **pass**. The opened rows (the `<b>` reason as characters) and Refresh (W-2): **owed** (vitest only) | the founder's screenshot |
+
+**Notes:** after "Load Once" on the unsigned add-in prompt, Revit 2024's ribbon ignored mouse clicks on its tabs for the session; the
+Sentinel tab was opened through UI Automation (Invoke on its Button).
+
+**Owed:** the cause of F-MA3b2-1 (R-0's Doctor log unread); a report opened on the desk (`<b>` as text) and Refresh, live; the picker's
+closed-window gap (Doctor line only); MA3b2's Show on a create and a type edit; Revit 2025–2027.
+
+**Closing list:** Revit closed without saving; the proxy and the test bridge stopped and their launch entries removed; the add-in's
+settings restored (sha256 `366a193f4680…`), the backup deleted; `%AppData%\Sentinel\cache\ma3b2b` deleted. Left on the shared ledger
+(scratch keys): `ma3b2b-office`, `ma3b2b`, the membership, three changesets, rows up to #1836. Left on this PC: the scratch copy in
+`Documents\Sentinel drills\ma3b2b\` (never committed).
