@@ -11,9 +11,11 @@ const PROBE = read("../db/migrations/probes/0037_probe.sql");
 const STORE = read("./changesets-store.mjs");
 const code = SQL.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
 
-describe("migration 0037 — the changeset store is written by the bridge alone (written, not applied)", () => {
-  it("is marked not yet applied and redefines bridge_docs_floor only — no table, policy, grant or drop", () => {
-    expect(SQL).toContain("NOT YET APPLIED");
+describe("migration 0037 — the changeset store is written by the bridge alone (applied 2026-10-04, probe 3 of 3)", () => {
+  it("records its apply and the probe's pass, and redefines bridge_docs_floor only — no table, policy, grant or drop", () => {
+    expect(SQL).toContain("APPLIED 2026-10-04");
+    expect(SQL).toContain('"PROBE 0037: 3 of 3 as expected."');
+    expect(SQL).not.toContain("NOT YET APPLIED");
     expect(code).toContain("create or replace function public.bridge_docs_floor(p_store text) returns text\n  language sql immutable set search_path = public as $$");
     expect(code).not.toMatch(/\b(drop|grant|revoke|create\s+table|create\s+policy|alter\s+table)\b/i);
   });
