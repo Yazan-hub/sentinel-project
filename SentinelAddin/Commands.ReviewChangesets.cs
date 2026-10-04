@@ -177,6 +177,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         rep ??= new Reported();
         if (records.Count == 0) return Task.FromResult(rep);
         Hold();
+        // Review C8: still on the caller's thread (Revit's, right after the placement or the stamp check) — an Undo from here on is noted.
+        foreach (var r in records.Where(x => x.Applied.Count > 0)) UndoWatcher.Expect(r.Undo, r.ChangesetId);
         return Task.Run(() =>
         {
             try
@@ -193,12 +195,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     if (landed || taken != null)
                     {
                         UnreportedResults.Delete(r.Key, r.ChangesetId);
-                        // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
-                        // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
-                        foreach (var tx in r.Undo) UndoWatcher.Remember(tx, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid));
                         rep.Landed.Add((r, reply));
                         // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
                         rep.Words.Add(taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)})." + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
+                        // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
+                        // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
+                        // Review C8: an Undo that came while this report was in flight is posted here, once.
+                        if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))
+                        {
+                            ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), "undo", out var undoErr);
+                            rep.Words.Add(UnreportedResults.UndoneInFlight(r, undoErr));
+                        }
                         continue;
                     }
                     var (drop, words) = UnreportedResults.Outcome(err, r.Applied.Count);

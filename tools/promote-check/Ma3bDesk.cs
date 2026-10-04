@@ -144,6 +144,24 @@ static partial class Check
            "the stamp holds a waiting result's element only when it lists both the changeset and the proposal (written inside the placement's transaction: an Undo takes it away)");
         Ok(ProvenanceStamp.Holds(ProvenanceStamp.Json("c9", "promote", new[] { "g9" }, "u-9"), "c9", "g9"),
            "…as the executor writes it (ProvenanceStamp.Json)");
+
+        // Review C8: an Undo while a report is in flight (the registry is filled only once the bridge takes the result) is noted, and handed
+        // to the report when it lands — posted exactly once, by the report then or by the watcher after.
+        string fly = UndoWatcher.TxName("Promote (DD) · C8", "c8000000-a"), flyOwn = UndoWatcher.TxName("Promote (DD) · C8 (1/1)", "c8000000-a");
+        UndoWatcher.Expect(new[] { fly, flyOwn }, "c8000000-a");
+        var during = UndoWatcher.Seen(new[] { fly }, "undo");
+        var undoneInFlight = UndoWatcher.Land(new[] { fly, flyOwn }, "ma3b", "c8000000-a", new[] { "g8" });
+        var afterLanding = UndoWatcher.Seen(new[] { flyOwn }, "redo");
+        UndoWatcher.Expect(new[] { "c8 tx b" }, "c8000000-b");
+        UndoWatcher.Seen(new[] { "c8 tx b" }, "undo");
+        UndoWatcher.Seen(new[] { "c8 tx b" }, "redo");
+        var redoneInFlight = UndoWatcher.Land(new[] { "c8 tx b" }, "ma3b", "c8000000-b", new[] { "g9" });
+        UndoWatcher.Expect(new[] { "c8 tx c" }, "c8000000-c");
+        var quiet = UndoWatcher.Land(new[] { "c8 tx c" }, "ma3b", "c8000000-c", new[] { "g10" });
+        Ok(during.Count == 0 && undoneInFlight && afterLanding.Count == 1 && afterLanding[0].ChangesetId == "c8000000-a" && !redoneInFlight && !quiet
+           && UnreportedResults.UndoneInFlight(held, null) == "\"Promote (DD) · GR-FFL\": undone in Revit while its report was in flight — a changeset_reverted row (undo) was posted for its 2 element(s)."
+           && UnreportedResults.UndoneInFlight(held, "Bridge 503: down") == "\"Promote (DD) · GR-FFL\": undone in Revit while its report was in flight — the changeset_reverted row (undo) was NOT posted: Bridge 503: down\nThe bridge holds it as applied and the model does not — check the changeset on the bridge.",
+           "review C8: an Undo while the report is in flight is noted and posted by the report once it lands (an Undo then Redo is not); after landing the watcher posts it; said");
     }
 
     // ── 43. MA-3b: the review does not wait and does not lose a report (source scans — Revit-bound; drill MA3b runs them) ──────────
@@ -164,8 +182,14 @@ static partial class Check
            "AI-2: every report of the review — applied, declined, rolled back, sent again — goes through ReportAll on a pool thread; Report's retry dialog is Ghost Builder's alone");
         int write = At(review, "!UnreportedResults.Write(r)"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
         Ok(write > At(review, "onDone = result =>") && send > write && review.Contains("UnreportedResults.Delete(r.Key, r.ChangesetId);")
-           && At(review, "foreach (var tx in r.Undo) UndoWatcher.Remember(tx, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid));") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
+           && At(review, "if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
            "AI-2: the result is written on this PC before its report is sent, deleted when the bridge takes it, and only then remembered for the undo watcher");
+        int expect = At(review, "foreach (var r in records.Where(x => x.Applied.Count > 0)) UndoWatcher.Expect(r.Undo, r.ChangesetId);");
+        string watcher = Src("Engine", "UndoWatcher.cs");
+        Ok(expect > reportAll && expect < pool && review.Contains("ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), \"undo\", out var undoErr)")
+           && review.Contains("rep.Words.Add(UnreportedResults.UndoneInFlight(r, undoErr));")
+           && watcher.Contains("foreach (var hit in Seen(e.GetTransactionNames(), op))") && !watcher.Contains("Registry.IsEmpty) return;"),
+           "review C8: a report's results are expected by the undo watcher before the report leaves Revit's thread; an Undo noted while it was in flight is posted (changeset_reverted) once it lands, said");
         int open = At(review, "internal static bool Open(UIApplication ui,"), refuse = At(review, "if (waiting.Count > 0) { TaskDialog.Show(Title, UnreportedResults.Blocked(waiting)); return false; }");
         Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach);")
            && review.Contains("Open(c.Application, doc, cfg, key, batch)") && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),

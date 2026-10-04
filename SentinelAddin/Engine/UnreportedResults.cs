@@ -136,6 +136,12 @@ namespace Sentinel.Engine
                 : null;
         }
 
+        /// <summary>Review C8: the result landed, but an Undo of it came while its report was in flight — the changeset_reverted row the
+        /// undo watcher would have posted; <paramref name="err"/> is null when it was posted.</summary>
+        public static string UndoneInFlight(Record r, string err) => $"\"{r.Name}\": undone in Revit while its report was in flight — " + (err == null
+            ? $"a changeset_reverted row (undo) was posted for its {r.Applied?.Count ?? 0} element(s)."
+            : $"the changeset_reverted row (undo) was NOT posted: {err}\nThe bridge holds it as applied and the model does not — check the changeset on the bridge.");
+
         /// <summary>Why a changeset is not opened for review: its result waits on this PC.</summary>
         public static string Blocked(IEnumerable<Record> waiting) =>
             string.Join("\n\n", waiting.Select(r => $"\"{r.Name}\" was applied in {r.Doc} ({r.At}) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first."));
