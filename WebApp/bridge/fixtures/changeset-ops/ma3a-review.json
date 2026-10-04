@@ -1,0 +1,64 @@
+{
+  "_": "MA-3a: one Promote changeset before and after the web desk's decisions (changesets-logic applyDecisions; vitest proves `after` from `before`, `decisions` and `who`), then a lead's re-open of the first decline (`reopened`, from reopenDecline), and a result reply that applied a ghost over a decline Revit could not see (`late_reply`). tools/promote-check reads `after`, `reopened` and `late_reply` as the add-in does.",
+  "before": {
+    "id": "cs-ma3a", "name": "Promote (DD) · GR-FFL", "source": "promote", "claimed": true, "status": "proposed",
+    "created_at": "2026-10-04T08:00:00.000Z", "updated_at": "2026-10-04T08:00:00.000Z", "review_rev": 0,
+    "elements": [
+      { "proposal_guid": "g-1", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } } },
+      { "proposal_guid": "g-2", "kind": "wall", "op": "attach", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+        "place": { "BaseLevel": "GR-FFL", "TopLevel": "01-FFL" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } } },
+      { "proposal_guid": "g-3", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c401", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } } },
+      { "proposal_guid": "g-4", "kind": "wall", "op": "set_parameter", "pretick": false,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c500" },
+        "place": { "FamilyName": "Basic Wall", "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "parameter": "FireRating", "revit_parameter": "Fire Rating", "from": "", "to": "60 min",
+        "validate": { "identity": { "Class": "IfcWallType", "Name": "BDS_EXT_ARC_CMU_200 mm" } } }
+    ],
+    "exceptions": [], "result": null
+  },
+  "decisions": [
+    { "proposal_guid": "g-1", "decision": "decline", "reason": "wrong type: W 1 is a party wall" },
+    { "proposal_guid": "g-2", "decision": "accept" },
+    { "proposal_guid": "g-4", "decision": "decline", "reason": "no fire strategy issued yet" }
+  ],
+  "who": { "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z" },
+  "after": {
+    "id": "cs-ma3a", "name": "Promote (DD) · GR-FFL", "source": "promote", "claimed": true, "status": "proposed",
+    "created_at": "2026-10-04T08:00:00.000Z", "updated_at": "2026-10-04T09:00:00.000Z", "review_rev": 1,
+    "elements": [
+      { "proposal_guid": "g-1", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } },
+        "review": { "state": "declined", "action": "decline", "reason": "wrong type: W 1 is a party wall", "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z", "rev": 1 } },
+      { "proposal_guid": "g-2", "kind": "wall", "op": "attach", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+        "place": { "BaseLevel": "GR-FFL", "TopLevel": "01-FFL" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } },
+        "review": { "state": "accepted", "action": "accept", "reason": null, "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z", "rev": 1 } },
+      { "proposal_guid": "g-3", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c401", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } } },
+      { "proposal_guid": "g-4", "kind": "wall", "op": "set_parameter", "pretick": false,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c500" },
+        "place": { "FamilyName": "Basic Wall", "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "parameter": "FireRating", "revit_parameter": "Fire Rating", "from": "", "to": "60 min",
+        "validate": { "identity": { "Class": "IfcWallType", "Name": "BDS_EXT_ARC_CMU_200 mm" } },
+        "review": { "state": "declined", "action": "decline", "reason": "no fire strategy issued yet", "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z", "rev": 1 } }
+    ],
+    "exceptions": [], "result": null
+  },
+  "reopen": { "proposal_guid": "g-1", "reason": "party wall confirmed external by the client", "who": { "by": "lead@example.com", "role": "lead", "at": "2026-10-04T10:00:00.000Z" } },
+  "reopened_review": { "state": "proposed", "action": "reopen", "reason": "party wall confirmed external by the client", "by": "lead@example.com", "role": "lead", "at": "2026-10-04T10:00:00.000Z", "rev": 2 },
+  "late_reply": {
+    "id": "cs-ma3a", "status": "partially_applied", "review_rev": 4,
+    "result": {
+      "applied": [{ "proposal_guid": "g-3", "revit_element_id": 2051449, "revit_unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c401" }],
+      "rejected": ["g-1", "g-2", "g-4"], "note": null, "review_rev_seen": { "value": 2, "claimed": true },
+      "declined_on_web": [{ "proposal_guid": "g-4", "name": "set_parameter wall \"BDS_EXT_ARC_CMU_200 mm\"", "by": "reviewer@example.com", "role": "contributor", "reason": "no fire strategy issued yet", "rev": 1 }],
+      "applied_over_late_decline": [{ "proposal_guid": "g-3", "name": "retype wall \"W 2\"", "by": "reviewer@example.com", "role": "contributor", "reason": "W 2 is demolished", "rev": 3 }],
+      "applied_over_decline_unchecked": []
+    }
+  }
+}

@@ -127,6 +127,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 fresh.Add(f);
             }
 
+            // MA-3a (design §6.6, D17): a web decline binds. The window shows one unticked and refuses its tick; one that landed after the
+            // window opened is caught here, on the fresh copies — the whole Apply is refused and nothing is created.
+            if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)
+            {
+                TaskDialog.Show("Sentinel — AI proposals", declinedTicked);
+                return;
+            }
+
             // The bridge takes a result from a contributor or above only: ask BEFORE anything runs, or a viewer's Apply would
             // change the model and then be refused, leaving the changeset "proposed" (Report's 401/403 stop is the backstop).
             var role = ChangesetClient.MyRole(cfg, key, out var roleErr);
@@ -195,7 +203,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                     // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
                     // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
-                    if (!Report(cfg, key, one.Id, res.Applied, rejected, said)) continue;
+                    if (!Report(cfg, key, one.Id, res.Applied, rejected, said, one.ReviewRev)) continue; // MA-3a: the revision Apply re-checked
                     if (res.Applied.Count > 0) held.Add(one.Id);
                     untickedTaken += StoreyBatch.Own(one, unticked).Count;
                     goneTaken += oneGone.Count;
@@ -252,12 +260,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     }
 
     /// <summary>True when the bridge recorded the result. Also Ghost Builder's (GhostChangesetBuild), with the same retry
-    /// dialog.</summary>
-    internal static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note)
+    /// dialog. MA-3a: <paramref name="reviewRev"/> is the changeset's review_rev Apply re-checked (Ghost Builder's applying build sends the review_rev its filing reply carried; a call that applies nothing sends none).</summary>
+    internal static bool Report(BcfConfig cfg, string key, string id, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev = null)
     {
         while (true)
         {
-            if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, out var err)) return true;
+            if (ChangesetClient.ReportResult(cfg, key, id, applied, rejected, note, reviewRev, out var reply, out var err))
+            {
+                // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
+                if (ChangesetTrust.LateDeclines(reply) is { } late) TaskDialog.Show("Sentinel — AI proposals", late);
+                return true;
+            }
             // Client errors (400 bad payload, 401/403 not signed in or not a contributor, 404, 409 already-resolved)
             // won't heal on retry with an identical payload — show once and stop instead of an unwinnable retry loop.
             if (err != null && new[] { "400", "401", "403", "404", "409" }.Any(code => err.StartsWith("Bridge " + code)))

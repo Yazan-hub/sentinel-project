@@ -649,7 +649,8 @@ namespace Sentinel.GhostBuilder
                     Count(res.Warnings);
                     if (!bound) continue;
                     var guids = res.Applied.Select(a => a.ProposalGuid).ToList();
-                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine)))
+                    // MA-3a (C2): the review_rev the filing reply carried (0) — a web decline that landed since is judged late, never unchecked.
+                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev))
                     {
                         unrecorded.Add(Short(cs.Id));
                         continue;

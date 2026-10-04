@@ -1609,6 +1609,7 @@ async function handleRequest(req, res) {
   //   POST /changesets/:key            · GET /changesets/:key?status=proposed
   //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
   //   POST /changesets/:key/:id/withdraw · POST /changesets/:key/:id/reverted { op: undo|redo, guids } → a ledger row
+  //   POST /changesets/:key/:id/review { decisions: [{proposal_guid, decision, reason}] } · POST /changesets/:key/:id/reopen { proposal_guid, reason }
   // The module dispatchers below match the whole first segment — /bimdocs, never /bimdocsZZ — so a rule keyed on a
   // route (a rate limit, a proxy allowlist, a log alert) sees the route it names.
   const top = url.pathname.split("/")[1];
@@ -1618,7 +1619,7 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
       const [, key, p2, p3] = seg;
       const body = req.method === "POST" ? await readBody(req) : {};
-      const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : "agent");
+      const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen"].includes(p3) ? "web" : "agent");
       if (!key) return send(res, 404, { message: "changesets route not found" });
 
       if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));
@@ -1627,6 +1628,9 @@ async function handleRequest(req, res) {
       if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));
       if (p2 && p3 === "reverted" && req.method === "POST") return send(res, 201, await ch.reportReverted(key, p2, body, actor));
+      // MA-3a: the web desk — a signed-in contributor's decisions; a signed-in lead's re-open of a decline (changesets-store).
+      if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));
+      if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));
       return send(res, 404, { message: "changesets route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[changesets] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);

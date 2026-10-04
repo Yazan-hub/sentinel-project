@@ -1562,3 +1562,60 @@ settings restored (sha256 `366a193f4680…` = the backup's), the backup deleted;
 deleted. The branch build stays on Revit 2024 until the merge's deploy. Left on the test ledger (scratch keys, on purpose): `ma2e-office`
 #1693–#1702, `ma2e` #1694–#1706, `ma2e-ast` #1695–#1707, `ma2e-colon` #1696–#1708 (artefacts, memberships, three `annotate` rows). Left
 on this PC: the scratch copies and the drill's files in `Documents\Sentinel drills\ma2e\` (evidence; never committed).
+
+## Session MA3a — the binding web decline, live (2026-10-04 ~08:24 → 12:13 local, branch feature/ma3-review-desk 1289c5e → b45c3fb → fdc739d, Claude driving Revit 2024, the founder on the desk)
+
+Setup: the branch build 1289c5e deployed to Revit 2024 at 08:24 on the founder's explicit ask ("deploy the ma3a branch to 2024"; DLL
+`5aab0bfd242…`; before it, master 57b6295's `61aa8296ef9…`). The add-in's bridge settings backed up and pointed at the test bridge
+127.0.0.1:4101 (the branch's code). Scratch office `ma3a-office` (`guideline@1` `5ac547ca…`, `type_catalog@1` `a1c0436f…`,
+`lod_matrix@1` `cb47a6d0…`, `ruleset@1` `0261a981…`); project `ma3a` in it; the founder's account a `contributor` (one account — D2).
+Scratch copy `ma3a-a.rvt` of the B35 seed, opened from Revit's Open dialog, bound with Project Setup (UI Automation), never saved.
+**Revit signed in** (the founder). **The desk:** the plan's port 4002 could not be used (D-A1) — the founder's own `thatopen serve` on
+4000 served the branch's bundle and the founder restarted the 4100 bridge on the branch's code at 11:12; Revit stayed on 4101; both
+bridges write the same ledger.
+
+| Row | Result | Evidence |
+|---|---|---|
+| D-1 | Undo list `Sentinel: Save project settings`; Promote (DD) → `File 3 changeset(s)?` → **Yes** → the review window `Promote (DD) · GR-FFL` (pre-ticked: signed in) → closed with × → the Undo list unchanged. GET proposed: `edc79d7e` `Promote (DD) · GR-FFL` `"review_rev":0`, 48 elements (28 retype, 20 attach), none with `review`; `ece14b55` 01-FFL (40), `ae4741d5` MA0 Roof (1); ledger #1719, #1721, #1723 `changeset_proposed` — **pass** | window, Undo list, GET, rows |
+| D-5 | The machine credential: `POST …/review` → `403 accepting or declining a ghost on the web desk is a signed-in person's — sign in (the machine credential, the MCP agent and scripts never review)`; `POST …/reopen` → `403 re-opening a declined ghost on the web desk is a signed-in person's — sign in (…)`; GET still `"review_rev":0`, no `review`; the audit only the three `changeset_proposed` rows — **pass** | replies, GET, audit |
+| D-2 | The founder on the desk (BIM tools ▸ Review): `Review desk · ma3a` `your role: contributor`; no Re-open button on any row; ticked W 1747982 and W 1747984 (two, not three — the founder's ticks; W 1747983 stayed `waiting — nobody decided on the web`), reason `drill MA3a: wrong type`, **Decline ticked** → `2 declined · ledger #1725 — Revit now shows them unticked with the reason and refuses the tick.`; each row `declined by <founder> (contributor): drill MA3a: wrong type — binds: Revit shows it unticked and refuses the tick`. GET: `"review_rev":1`, both `review` `{state declined, action decline, role contributor, rev 1, reason}`; #1725 `changeset_reviewed` (actor the founder, role contributor, decisions `proposed → declined` with the ghosts' names, `review_rev` 1) — **pass** | desk, GET, row |
+| D-3 | Review AI Proposals: header `⚠ 2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). Apply reports them as rejected; the changeset stays proposed until Revit reports it — a new Promote run proposes a declined ghost again, undecided.`; the two rows `declined on the web by <founder> (contributor): drill MA3a: wrong type · a lead may re-open it on the web desk · retype wall: W 1747982 …`; 86 boxes: 46 on, 40 disabled (38 sent to a person + 2 declined); **Tick suggested** and a click on a declined box left both unticked. **The late decline (run 3, the founder driving — D-A3):** the window opened first, headed `⚠ 4 ghost(s) declined on the web` (it predates the decline); on the desk attach W 2051433 declined at 09:56:28Z, reason `drill MA3a: late 3` (#1728, rev 4); back in that window, **Apply ticked in Revit** → ONE dialog `1 ticked ghost(s) were declined on the web after this window opened:` / `· attach wall "W 2051433" — declined on the web by <founder> (contributor): drill MA3a: late 3 · a lead may re-open it on the web desk` / `Nothing was created. Run Review AI Proposals again: they open unticked, with the reason.` GET: `"status":"proposed"`, `"review_rev":4`, `"result":null`; no `changeset_applied` row; the Undo list read after D-4 holds one Sentinel entry (D-4's) above `Sentinel: Save project settings` — nothing was created — **pass** | window, dialog, GET, audit, Undo list |
+| D-4 | One account (D2): `PATCH cde/ma3a/members/298456a9-… {"role":"lead"}` → `200 {"user_id":"298456a9-…","role":"lead"}`; desk ↻ Refresh → `your role: lead`, a **Re-open** button on each declined row; reason `drill MA3a: re-opened` ▸ Re-open on W 1747982 → `Re-opened · ledger #1730 — Revit may tick it again.`; #1730 `changeset_reopened` (old `{state declined, review_rev 4}`, new: the lead, role lead, the ghost's name, the reason, `review_rev` 5, `declined_by` the founder, `declined_reason` `drill MA3a: wrong type`). Review AI Proposals: header `⚠ 4 ghost(s) declined on the web …`; W 1747982 enabled and pre-ticked, `re-opened on the web by <founder> (lead): drill MA3a: re-opened`; W 1747984 still declined, unticked, disabled. **Apply ticked in Revit** → the DD IDS check → **Place anyway** → `Applied 44 element(s) from "Promote (DD) · GR-FFL". 4 of 4 unticked element(s) reported as rejected.`, the DD IDS line (27 failing, placed anyway, `W 1747982 (Walls · DD): missing Pset_WallCommon.FireRating; … and 22 more`), `LOD state after …: DD → design: 9 of 86 at DD (10%) · 68 below · 9 blocked · 0 not measured · 101 on other office types, not counted`. GET: `"status":"partially_applied"`, `result.applied` 44, `rejected` 4, `declined_on_web` the four still declined with the web's reasons (W 1747984 `wrong type`; W 2051431/2/3 `late`, `late 2`, `late 3`), `review_rev_seen` `{"value":5,"claimed":true}`, `applied_over_late_decline` `[]`, `applied_over_decline_unchecked` `[]`; #1731 `changeset_applied` (actor the founder, `partially_applied`, 44 applied, 4 rejected, `declined_on_web` 4). Undo list top `Sentinel AI changeset: Promote (DD) · GR-FFL [edc79d7e]` — **pass** (the two-account half **owed**) | desk, window, dialogs, GET, rows, Undo list |
+
+**Drill amendments:**
+- **D-A1** — the desk on port 4002 could not run: the platform's local-app route loads only `:4000`, and `thatopen serve` injects no
+  `import.meta.env`, so the bundle's bridge is always `http://localhost:4100` (`config.ts`); both serve processes write the same
+  `WebApp/dist/bundle.js`. The desk ran on the founder's 4000 serve against the founder's 4100 bridge, restarted on the branch's code
+  (the founder's `tools/bridge-start.cmd`); Revit stayed on 4101. UNSURE 1–2 settled; UNSURE 4 moot (a restart, not a dynamic import).
+- **D-A2** — after a branch switch the local app is reloaded (Ctrl+Shift+R, then Get started): the founder's first view still showed
+  the Model tab from an older bundle.
+- **D-A3** — the late decline needs the window to predate the decline, proven by its header count read before the decline; the founder
+  drives that run (a script cannot take focus from Chrome, and Revit's owned review window hides from UI Automation while Revit is in
+  the background — a hidden window looked closed). Runs 1 and 2 did not prove the order: run 1's Apply (09:38) went to a window opened
+  after its decline (headed `3 ghost(s) declined`; the row was locked, so Apply rightly reached the DD IDS check — Go back, nothing
+  placed); run 2's order was not recorded (DD IDS check — Go back). An offline probe (the live GET of `edc79d7e`, the add-in's own DTOs
+  and `ChangesetTrust.DeclinedTicked`) refused, naming all four, and the deployed DLL carried the refusal; run 3 proved it live.
+- **D-A4** — D-2 declined two retypes, not three, so the headers counted 2, then 3 and 4 (the late attaches of runs 1–3).
+- **D-A5** — the founder asked mid-drill for a refresh on the desk: **↻ Refresh** (b45c3fb — re-reads the changesets and the role; a
+  source-scan check in `review-desk.test.ts`), used in run 3 and D-4.
+
+**Found in the drill:**
+- **F-MA3a-1 (pre-existing, bridge)** — a contributor opening a never-opened project read `Project state not read — Internal error`:
+  `getProjectMeta` PATCHes the empty metadata as the caller; RLS refuses a contributor's write and answers no row; the read crashed (500).
+  Worked round in the drill (the machine credential's GET wrote the default metadata). Fixed in fdc739d (the read returns the default
+  details; the next lead or owner read writes them; check in `cde-store-gate.test.mjs`). Live re-run **owed** (the founder's 4100 bridge
+  picks it up on its restart after the merge).
+
+**Owed** (not passed): D-4's two-account half (a second account re-opens what the first declined); D-2's third decline; Revit
+2025/2026/2027; the published app (the founder's publish, after migration 0037); migration 0037 applied and its probe (the founder's
+"apply"); a late decline applied over (`applied_over_late_decline`, F2 A) live; Ghost Builder's own build and a result with no
+`review_rev` live; F-MA3a-1 live; UNSURE 3 (a disabled row's tooltip) not observed.
+
+**Closing list:** Revit closed without saving (`Do you want to save changes to ma3a-a.rvt?` → No); sign-in left as found (signed in);
+the 4002 desk server stopped (unused); the founder's 4000 server untouched; the test bridge stopped; the add-in's bridge settings restored
+(sha256 `366a193f468…` = the backup's), the backup deleted; `%AppData%\Sentinel\cache\ma3a` deleted. The branch build stays on Revit
+2024 until the merge's deploy. Left on the shared ledger (scratch keys, on purpose): `ma3a-office` (`guideline@1`, `type_catalog@1`,
+`lod_matrix@1`, `ruleset@1`), the project `ma3a`, the founder's membership (made lead in D-4), the changesets `edc79d7e`
+(`partially_applied`), `ece14b55` and `ae4741d5` (proposed), rows #1719–#1731. Left on this PC: the scratch copy in
+`Documents\Sentinel drills\ma3a\` (evidence; never committed). The founder's 4100 bridge runs the branch's code from 11:12 (before
+fdc739d) — restarted on master after the merge.

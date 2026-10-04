@@ -62,6 +62,8 @@ static partial class Check
         StoreyBatchChecks();
         Ma2dThreadChecks();
         Ma2dStoreyWiringChecks();
+        Ma3aReviewChecks();
+        Ma3aWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

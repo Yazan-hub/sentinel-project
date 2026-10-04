@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting } from "./changesets-store.mjs";
+import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
+  reviewChangeset, reopenGhost } from "./changesets-store.mjs";
 
 const wall = () => ({
   kind: "wall",
@@ -26,7 +27,9 @@ const baseDeps = (over = {}) => {
     docGet: vi.fn(async (store, pid, id) => saved.get(id) ?? null),
     docList: vi.fn(async () => [...saved.values()]),
     docUpsert: vi.fn(async (store, pid, id, data) => { saved.set(id, data); }),
-    docReplaceIfStatus: vi.fn(async (store, pid, id, data) => { saved.set(id, data); return data; }),
+    docReplaceIfField: vi.fn(async (store, pid, id, data) => { saved.set(id, data); return data; }),
+    // MA-3a: every write swaps on review_rev (docReplaceIfField); a call of the status-only swap is a test failure, never a network call.
+    docReplaceIfStatus: vi.fn(async () => { throw new Error("MA-3a: a changeset write swaps on review_rev — docReplaceIfStatus is not called"); }),
     audit: vi.fn(async () => ({})),
     ...over,
   };
@@ -196,13 +199,13 @@ describe("CAS guard — concurrent result/withdraw cannot both land", () => {
     const deps = baseDeps();
     // Simulate the race: the conditional write says "status was no longer proposed" (0 rows),
     // and the re-read shows a completed changeset written by the concurrent winner.
-    deps.docReplaceIfStatus = vi.fn(async () => null);
+    deps.docReplaceIfField = vi.fn(async () => null);
     return deps;
   };
 
   it("reportResult: a lost CAS is a 409 carrying the winner's status, and audits NOTHING", async () => {
     const deps = baseDeps();
-    deps.docReplaceIfStatus = vi.fn(async () => null);
+    deps.docReplaceIfField = vi.fn(async () => null);
     const cs = await proposeChangeset("demo", BODY, "agent", deps);
     const guids = cs.elements.map((e) => e.proposal_guid);
     deps.audit.mockClear();
@@ -214,7 +217,7 @@ describe("CAS guard — concurrent result/withdraw cannot both land", () => {
 
   it("withdrawChangeset: same — lost CAS is a 409, no audit row", async () => {
     const deps = baseDeps();
-    deps.docReplaceIfStatus = vi.fn(async () => null);
+    deps.docReplaceIfField = vi.fn(async () => null);
     const cs = await proposeChangeset("demo", BODY, "agent", deps);
     deps.audit.mockClear();
     deps.saved.set(cs.id, { ...cs, status: "applied" });
@@ -225,12 +228,12 @@ describe("CAS guard — concurrent result/withdraw cannot both land", () => {
 
   it("the happy path still works when the CAS wins", async () => {
     const deps = baseDeps();
-    deps.docReplaceIfStatus = vi.fn(async (store, pid, id, data) => { deps.saved.set(id, data); return data; });
+    deps.docReplaceIfField = vi.fn(async (store, pid, id, data) => { deps.saved.set(id, data); return data; });
     const cs = await proposeChangeset("demo", BODY, "agent", deps);
     const guids = cs.elements.map((e) => e.proposal_guid);
     const out = await reportResult("demo", cs.id, { applied: [], rejected: guids }, "r", deps);
     expect(out.status).toBe("declined");
-    expect(deps.docReplaceIfStatus.mock.calls[0][4]).toBe("proposed"); // expectedStatus threaded
+    expect(deps.docReplaceIfField.mock.calls[0].slice(4, 6)).toEqual(["review_rev", 0]); // MA-3a: the swap is on review_rev (it was on status)
   });
 });
 
@@ -244,10 +247,10 @@ describe("CAS — the exact race window: clean first read, then the PATCH loses"
     deps.docGet = vi.fn()
       .mockResolvedValueOnce(cs)
       .mockResolvedValueOnce({ ...cs, status: "withdrawn" });
-    deps.docReplaceIfStatus = vi.fn(async () => null);
+    deps.docReplaceIfField = vi.fn(async () => null);
     await expect(reportResult("demo", cs.id, { applied: [], rejected: guids }, "r", deps))
       .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/withdrawn/) });
-    expect(deps.docReplaceIfStatus).toHaveBeenCalledOnce(); // the PATCH genuinely ran and lost
+    expect(deps.docReplaceIfField).toHaveBeenCalledOnce(); // the PATCH genuinely ran and lost
     expect(deps.audit).not.toHaveBeenCalled();
   });
 });
@@ -271,7 +274,7 @@ describe("changeset roles (changesets-1)", () => {
     const cs = await proposeChangeset("demo", BODY, "agent", deps);
     deps.requireMinRole = belowMin("viewer");
     await expect(withdrawChangeset("demo", cs.id, "agent", deps)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
-    expect(deps.docReplaceIfStatus).not.toHaveBeenCalled();
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
   });
 
   it("a viewer's result is a 403 before the changeset is read; a signed-in contributor's and the machine credential's land", async () => {
@@ -284,7 +287,7 @@ describe("changeset roles (changesets-1)", () => {
     await expect(reportResult("demo", cs1.id, result(cs1), "revit", deps))
       .rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
     expect(deps.docGet).not.toHaveBeenCalled();
-    expect(deps.docReplaceIfStatus).not.toHaveBeenCalled();
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
     deps.requireMinRole = vi.fn(async () => {}); // a signed-in contributor (H4)
     await expect(reportResult("demo", cs1.id, result(cs1), "yazan", deps)).resolves.toMatchObject({ status: "declined" });
     expect(deps.requireMinRole).toHaveBeenCalledWith("demo", "contributor");
@@ -334,7 +337,7 @@ describe("reportReverted", () => {
     if (applyBoth) applied.push({ proposal_guid: b, revit_element_id: 12, revit_unique_id: "u-12" });
     const out = await reportResult("demo", cs.id, { applied, rejected: applyBoth ? [] : [b] }, "revit", deps);
     deps.audit.mockClear();
-    deps.docReplaceIfStatus.mockClear();
+    deps.docReplaceIfField.mockClear();
     return { cs: out, a, b };
   };
 
@@ -350,7 +353,7 @@ describe("reportReverted", () => {
     expect(oldv).toEqual({ status: "applied" });
     expect(newv).toEqual({ op: "undo", guids: [a, b], count: 2 });
     expect(deps.takeWriteBudget).toHaveBeenCalledWith("changeset reverts", { perUser: 120, all: 300 });
-    expect(deps.docReplaceIfStatus).not.toHaveBeenCalled();
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
     expect(deps.saved.get(cs.id).status).toBe("applied");
   });
 
@@ -365,7 +368,7 @@ describe("reportReverted", () => {
     expect(call[4]).toBe("yazan");
     expect(call[5]).toEqual({ status: "partially_applied" });
     expect(call[6]).toEqual({ op: "redo", guids: [a], count: 1 });
-    expect(deps.docReplaceIfStatus).not.toHaveBeenCalled();
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
   });
 
   it("a viewer is a 403 before the changeset is read", async () => {
@@ -507,5 +510,216 @@ describe("proposeChangeset — set_parameter's source, checked by the bridge (MA
     expect(needsCiting(BODY)).toBe(false);
     expect(needsCiting({ elements: [write()] })).toBe(true);
     expect(needsTyping({ elements: [write({ place: {} })] })).toBe(false);
+  });
+});
+
+// MA-3a: the web desk's review loop. Every write of a changeset doc swaps on review_rev (gotcha 1: a status-only swap lost a web
+// decision written between a read and a write); a review or re-open is a signed-in person's (Q1); Revit's result is judged against
+// the web's declines (Q2).
+describe("MA-3a — every write swaps on review_rev", () => {
+  const twoWalls = async (deps) => proposeChangeset("demo", BODY, "agent", deps);
+
+  it("a changeset is filed at revision 0; a result and a withdraw each swap on the revision they read and bump it", async () => {
+    const deps = baseDeps();
+    const cs = await twoWalls(deps);
+    expect(deps.saved.get(cs.id).review_rev).toBe(0);
+    const out = await reportResult("demo", cs.id, { applied: [], rejected: cs.elements.map((e) => e.proposal_guid) }, "r", deps);
+    expect(deps.docReplaceIfField.mock.calls[0].slice(0, 3)).toEqual(["changeset", "p1", cs.id]);
+    expect(deps.docReplaceIfField.mock.calls[0].slice(4, 6)).toEqual(["review_rev", 0]);
+    expect(out.review_rev).toBe(1);
+    const cs2 = await twoWalls(deps);
+    expect((await withdrawChangeset("demo", cs2.id, "agent", deps)).review_rev).toBe(1);
+    expect(deps.docReplaceIfField.mock.calls[1].slice(4, 6)).toEqual(["review_rev", 0]);
+  });
+
+  it("every changeset doc write is the bridge's, with the service key, after its own role check (C1, migration 0037)", async () => {
+    const deps = baseDeps();
+    const cs = await twoWalls(deps);
+    expect(deps.docInsert.mock.calls[0][4]).toEqual({ service: true });
+    await withdrawChangeset("demo", cs.id, "agent", deps);
+    expect(deps.docReplaceIfField.mock.calls[0][6]).toEqual({ service: true });
+  });
+
+  it("a doc from before MA-3a (no review_rev) swaps on the field being absent", async () => {
+    const deps = baseDeps();
+    const cs = await twoWalls(deps);
+    const { review_rev, ...legacy } = deps.saved.get(cs.id);
+    deps.saved.set(cs.id, legacy);
+    await withdrawChangeset("demo", cs.id, "agent", deps);
+    expect(deps.docReplaceIfField.mock.calls[0].slice(4, 6)).toEqual(["review_rev", null]);
+    expect(deps.saved.get(cs.id).review_rev).toBe(1);
+  });
+
+  it("a web decline written between the result's read and its write is kept: the swap loses, the result is decided again on the new doc", async () => {
+    const deps = baseDeps();
+    const cs = await twoWalls(deps);
+    const [a, b] = cs.elements.map((e) => e.proposal_guid);
+    const declined = { ...cs, review_rev: 1, elements: cs.elements.map((e) => e.proposal_guid === b
+      ? { ...e, review: { state: "declined", action: "decline", reason: "not here", by: "web@example.com", role: "contributor", at: "t", rev: 1 } } : e) };
+    const real = deps.docReplaceIfField;
+    deps.docReplaceIfField = vi.fn()
+      .mockImplementationOnce(async () => { deps.saved.set(cs.id, declined); return null; }) // the web's write lands first
+      .mockImplementation(real);
+    const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: a, revit_element_id: 5 }], rejected: [b], review_rev: 0 }, "revit", deps);
+    expect(deps.docReplaceIfField.mock.calls.map((c) => c[5])).toEqual([0, 1]);
+    expect(out.review_rev).toBe(2);
+    expect(out.elements[1].review.state).toBe("declined"); // not overwritten
+    expect(out.result.declined_on_web).toEqual([{ proposal_guid: b, name: 'create wall "W1"', by: "web@example.com", role: "contributor", reason: "not here", rev: 1 }]);
+  });
+
+  it("three lost swaps in a row are a 503 in words — Revit's Report offers Retry (C3) — and nothing is recorded", async () => {
+    const deps = baseDeps();
+    const cs = await twoWalls(deps);
+    deps.docReplaceIfField = vi.fn(async () => null);
+    deps.audit.mockClear();
+    await expect(withdrawChangeset("demo", cs.id, "agent", deps))
+      .rejects.toMatchObject({ status: 503, message: "the changeset changed three times while this was being written — nothing was saved; send it again" });
+    expect(deps.docReplaceIfField).toHaveBeenCalledTimes(3);
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+});
+
+const ma3a = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
+/** A changeset doc already stored (a copy), and the deps that read it. */
+const seededWith = (doc, over = {}) => { const deps = baseDeps(over); deps.saved.set(doc.id, JSON.parse(JSON.stringify(doc))); return deps; };
+/** myRole answering these roles, one per call. */
+const as = (...roles) => { const f = vi.fn(); for (const r of roles) f.mockResolvedValueOnce(r); return f; };
+
+describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contributor to decide, lead to re-open", () => {
+  const fx = ma3a;
+  const seeded = (doc = fx.before, over = {}) => seededWith(doc, over);
+
+  it("the machine credential never reviews or re-opens: a 403 that says sign in, before anything is read", async () => {
+    const deps = seeded(); // no myRole mock: the real check, no signed-in user → service
+    deps.docGet.mockClear();
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, "agent", deps))
+      .rejects.toMatchObject({ status: 403, message: "accepting or declining a ghost on the web desk is a signed-in person's — sign in (the machine credential, the MCP agent and scripts never review)" });
+    await expect(reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: "why" }, "agent", deps))
+      .rejects.toMatchObject({ status: 403, message: "re-opening a declined ghost on the web desk is a signed-in person's — sign in (the machine credential, the MCP agent and scripts never review)" });
+    expect(deps.docGet).not.toHaveBeenCalled();
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+  });
+
+  it("a viewer or a non-member decides nothing; a contributor re-opens nothing", async () => {
+    const deps = seeded(fx.after, { myRole: as("viewer", null, "contributor") });
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, "v", deps))
+      .rejects.toMatchObject({ status: 403, message: "accepting or declining a ghost requires the contributor role (you are viewer)" });
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, "n", deps))
+      .rejects.toMatchObject({ status: 403, message: "accepting or declining a ghost requires the contributor role (you are not a member)" });
+    await expect(reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: "why" }, "c", deps))
+      .rejects.toMatchObject({ status: 403, message: "re-opening a declined ghost requires the lead role (you are contributor)" });
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+  });
+
+  it("a contributor's decisions are stored on the doc (the fixture's `after`) and written as ONE changeset_reviewed row", async () => {
+    const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn(async () => ({ id: 1201, hash: "ab".repeat(32) })) });
+    const out = await reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps);
+    const stored = deps.saved.get("cs-ma3a");
+    expect({ ...stored, updated_at: fx.after.updated_at, elements: stored.elements.map((e) => e.review ? { ...e, review: { ...e.review, at: fx.who.at } } : e) }).toEqual(fx.after);
+    expect(out.changeset).toEqual(stored);
+    expect(out.ledger).toEqual({ id: 1201, hash: "ab".repeat(32) });
+    expect(deps.audit).toHaveBeenCalledOnce();
+    const [pid, type, id, action, actor, before, after] = deps.audit.mock.calls[0];
+    expect([pid, type, id, action, actor, before]).toEqual(["p1", "changeset", "cs-ma3a", "changeset_reviewed", fx.who.by, { review_rev: 0 }]);
+    expect(after).toMatchObject({ review_rev: 1, reviewer: fx.who.by, role: "contributor" });
+    expect(after.decisions.map((d) => [d.proposal_guid, d.to, d.reason])).toEqual([["g-1", "declined", "wrong type: W 1 is a party wall"], ["g-2", "accepted", null], ["g-4", "declined", "no fire strategy issued yet"]]);
+  });
+
+  it("a refused step writes nothing and no row (all or none)", async () => {
+    const deps = seeded(fx.after, { myRole: as("lead") });
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: [{ proposal_guid: "g-3", decision: "accept" }, { proposal_guid: "g-1", decision: "accept" }] }, "l", deps))
+      .rejects.toMatchObject({ status: 409, message: 'retype wall "W 1": this ghost is declined — only a lead may re-open it, then it can be accepted' });
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("a lead re-opens a decline: proposed again on the doc, ONE changeset_reopened row naming who declined it", async () => {
+    const deps = seeded(fx.after, { myRole: as("lead") });
+    const out = await reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: fx.reopen.reason }, fx.reopen.who.by, deps);
+    expect({ ...out.changeset.elements[0].review, at: fx.reopen.who.at }).toEqual(fx.reopened_review);
+    expect(out.changeset.review_rev).toBe(2);
+    const row = deps.audit.mock.calls[0];
+    expect(row.slice(3, 6)).toEqual(["changeset_reopened", fx.reopen.who.by, { review_rev: 1, state: "declined" }]);
+    expect(row[6]).toEqual({ review_rev: 2, lead: fx.reopen.who.by, role: "lead", proposal_guid: "g-1", name: 'retype wall "W 1"',
+      declined_by: fx.who.by, declined_reason: "wrong type: W 1 is a party wall", reason: fx.reopen.reason });
+  });
+
+  it("C7: a decision or a re-open the ledger does not take is taken back off the doc — a 503, and the same send lands later", async () => {
+    const ledgerDown = () => vi.fn().mockRejectedValueOnce(Object.assign(new Error("timeout"), { status: 502 })).mockResolvedValue({ id: 9, hash: "cd".repeat(32) });
+    const deps = seeded(fx.before, { myRole: as("contributor", "contributor"), audit: ledgerDown() });
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps))
+      .rejects.toMatchObject({ status: 503, message: "the ledger did not take the decision — nothing was saved; send it again" });
+    const back = deps.saved.get("cs-ma3a");
+    expect(back.elements).toEqual(fx.before.elements); // no review on any ghost: Revit obeys nothing the ledger lacks
+    expect(back.review_rev).toBe(2);                   // the rev moves on: a Revit that re-checked rev 1 saw a decline that is gone
+    const out = await reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps); // the retry is not a 409
+    expect(out.changeset.elements[0].review.state).toBe("declined");
+    expect(deps.audit).toHaveBeenCalledTimes(2);
+
+    const lead = seeded(fx.after, { myRole: as("lead"), audit: ledgerDown() });
+    await expect(reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: fx.reopen.reason }, fx.reopen.who.by, lead))
+      .rejects.toMatchObject({ status: 503, message: "the ledger did not take the re-open — nothing was saved; send it again" });
+    expect(lead.saved.get("cs-ma3a").elements).toEqual(fx.after.elements); // still declined
+  });
+
+  it("C7: when the take-back itself loses its swap, the 502 says the decision stands without its row", async () => {
+    const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn(async () => { throw new Error("timeout"); }) });
+    deps.docReplaceIfField.mockImplementationOnce(async (s, p, id, data) => { deps.saved.set(id, data); return data; }).mockResolvedValueOnce(null);
+    await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps))
+      .rejects.toMatchObject({ status: 502, message: expect.stringContaining("the decision is saved on the changeset but the ledger has no row for it") });
+  });
+});
+
+describe("MA-3a — Revit's result against the web's declines (Q2)", () => {
+  const fx = ma3a;
+  const seeded = seededWith;
+  const applied = (g, id = 7) => ({ proposal_guid: g, revit_element_id: id });
+
+  it("applying a ghost Revit had seen declined is a 409 naming it; nothing is written and no row", async () => {
+    const deps = seeded(fx.after);
+    await expect(reportResult("demo", "cs-ma3a", { applied: [applied("g-1")], rejected: ["g-2", "g-3", "g-4"], review_rev: 1 }, "revit", deps))
+      .rejects.toMatchObject({ status: 409, message: 'retype wall "W 1" was declined on the web by reviewer@example.com (contributor): "wrong type: W 1 is a party wall" — review_rev 1, which this result says Revit re-checked; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed' });
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("the shared fixture: a ghost declined after Revit's re-check is applied over the decline, recorded on the result and the row", async () => {
+    const deps = seeded(fx.after, { myRole: as("lead", "contributor") });
+    await reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: fx.reopen.reason }, "lead@example.com", deps); // revision 2 — Revit re-checks here
+    await reviewChangeset("demo", "cs-ma3a", { decisions: [{ proposal_guid: "g-3", decision: "decline", reason: "W 2 is demolished" }] }, "reviewer@example.com", deps); // 3
+    deps.audit.mockClear();
+    const out = await reportResult("demo", "cs-ma3a", { applied: [applied("g-3", 2051449)], rejected: ["g-1", "g-2", "g-4"], review_rev: 2 }, "revit", deps);
+    const want = fx.late_reply;
+    expect(out.status).toBe(want.status);
+    expect(out.review_rev).toBe(want.review_rev);
+    expect(out.result.review_rev_seen).toEqual(want.result.review_rev_seen); // {value: 2, claimed: true} — the client's claim (C2)
+    expect(out.result.declined_on_web).toEqual(want.result.declined_on_web);
+    expect(out.result.applied_over_late_decline).toEqual(want.result.applied_over_late_decline);
+    expect(out.result.applied_over_decline_unchecked).toEqual(want.result.applied_over_decline_unchecked);
+    expect(deps.audit.mock.calls[0][6]).toMatchObject({ status: "partially_applied", declined_on_web: 1, applied_over_late_decline: want.result.applied_over_late_decline });
+    expect(deps.audit.mock.calls[0][6]).not.toHaveProperty("applied_over_decline_unchecked");
+    // C8: "late" rests on the client's claimed revision — the hash-chained row says so, not only the doc.
+    expect(deps.audit.mock.calls[0][6].review_rev_seen).toEqual({ value: 2, claimed: true });
+  });
+
+  it("a result without review_rev (an add-in before MA-3a, a script) lands; a decline it applied is recorded as unchecked, never late (C2)", async () => {
+    const deps = seeded(fx.after);
+    const out = await reportResult("demo", "cs-ma3a", { applied: [applied("g-1"), applied("g-2", 8)], rejected: ["g-3", "g-4"] }, "revit", deps);
+    expect(out.result.review_rev_seen).toBeNull();
+    expect(out.result.applied_over_late_decline).toEqual([]);
+    expect(out.result.applied_over_decline_unchecked.map((x) => x.proposal_guid)).toEqual(["g-1"]);
+    const row = deps.audit.mock.calls[0][6];
+    expect(row.applied_over_decline_unchecked.map((x) => x.proposal_guid)).toEqual(["g-1"]);
+    expect(row.unchecked_why).toBe("the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline");
+    expect(row).not.toHaveProperty("applied_over_late_decline");
+  });
+});
+
+describe("MA-3a — the routes", () => {
+  it("POST /changesets/:key/:id/review and /reopen reach the store, as a person on the web (actor fallback web)", () => {
+    const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
+    expect(src).toContain('if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));');
+    expect(src).toContain('if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));');
+    expect(src).toContain('const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen"].includes(p3) ? "web" : "agent");');
   });
 });

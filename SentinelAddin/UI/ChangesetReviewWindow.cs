@@ -56,6 +56,9 @@ public sealed class ChangesetReviewWindow : Window
                     Foreground = Brushes.Khaki, TextWrapping = TextWrapping.Wrap,
                 },
             });
+        // MA-3a: the web desk's declines, said once above the rows.
+        if (ChangesetTrust.DeclinedHeader(_cs) is string declinedLine)
+            head.Children.Add(new TextBlock { Text = "⚠ " + declinedLine, Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 
@@ -114,6 +117,9 @@ public sealed class ChangesetReviewWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
                 IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8: the bridge's pre-tick — never a create
             };
+            // MA-3a (design §6.6, D17): a web decline binds — the row opens unticked (PreTick) and cannot be ticked here; a lead re-opens it
+            // on the web desk. Apply re-checks the fresh copy (ReviewChangesetsCommand).
+            box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);
             _rows.Add((box, el));
             DockPanel.SetDock(box, Dock.Left);
             row.Children.Add(box);
@@ -140,6 +146,13 @@ public sealed class ChangesetReviewWindow : Window
             if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
             if (ChangesetTrust.Typing(el) is string typing) label.Text += "  ·  " + typing; // MA-2a: the bridge typed it from posted facts
             if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
+            // MA-3a: the web desk's decision leads the row (the ellipsis never trims it) and is the tooltip's first line.
+            if (ChangesetTrust.ReviewLine(el) is string reviewLine)
+            {
+                label.Text = reviewLine + "  ·  " + label.Text;
+                label.ToolTip = reviewLine + (string.IsNullOrWhiteSpace(el.Reason) ? "" : "\n" + el.Reason);
+                if (!box.IsEnabled) label.Foreground = Brushes.Orange;
+            }
             row.Children.Add(label);
             list.Children.Add(row);
         }

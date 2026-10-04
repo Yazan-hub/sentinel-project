@@ -188,8 +188,10 @@ export async function getProjectMeta(key, seed) {
   if (proj.metadata && Object.keys(proj.metadata).length > 0) return toProjectShape(proj, gates);
   const { stage: _stage, gates: _gates, ...seeded } = seed || {};
   const metadata = { ...defaultMeta(), ...(Object.keys(seeded).length ? seeded : {}) }; // complete metadata on seed
-  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))[0];
-  return toProjectShape(row, gates);
+  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))?.[0];
+  // F-MA3a-1: under a forwarded session only a lead or owner may write the project — a refused write answers no row. A read
+  // never fails on that: the reader gets the default details, and the next lead or owner read writes them.
+  return toProjectShape(row ?? { ...proj, metadata }, gates);
 }
 
 /** List every project in the web app's shape (project switcher / hub). Core fields defaulted via toProjectShape. */
@@ -998,7 +1000,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  platform_gate, one row per execution id) are written by bridge/platform-gate-ledger.mjs only (spec 2026-09-29) —
  *  reserved so nobody can squat a real run's id.
  *  The open audit route may not write any of them. */
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:"];
+// MA-3a (review amendment C5): changeset_reviewed and changeset_reopened are the record of the web desk's decisions and a lead's
+// re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened"];
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
@@ -1950,20 +1954,15 @@ export async function docUpsert(store, pid, docId, data, { service = false } = {
   await sb(`bridge_docs?${DOC_CONFLICT}`, { method: "POST", body: { store, project_id: pid, doc_id: String(docId), data, updated_at: new Date().toISOString() }, prefer: "resolution=merge-duplicates,return=minimal", service });
   return data;
 }
-/** Compare-and-swap replace: overwrite the doc ONLY if its current data->>status equals
- *  `expectedStatus`. Returns the data on success, null when the condition lost (0 rows patched) —
- *  the caller re-reads and 409s. Closes the docGet→check→docUpsert race for status transitions. */
-export async function docReplaceIfStatus(store, pid, docId, data, expectedStatus) {
-  return docReplaceIfField(store, pid, docId, data, "status", expectedStatus);
-}
 /** Generic CAS replace: overwrite the doc ONLY if data->>field currently equals `expected`
  *  (pass null for "the key is absent" — legacy rows). Returns data on success, null when the
  *  condition lost. The concurrency primitive behind changeset transitions and comment appends. */
-export async function docReplaceIfField(store, pid, docId, data, field, expected) {
+export async function docReplaceIfField(store, pid, docId, data, field, expected, { service = false } = {}) {
   const cond = expected === null ? `data->>${enc(field)}=is.null` : `data->>${enc(field)}=eq.${enc(expected)}`;
   const rows = await sb(
     `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&${cond}`,
-    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation" },
+    // MA-3a (C1): `service` for a store with no signed-in writer (changeset, migration 0037) — the caller checked the role first.
+    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation", service },
   );
   return Array.isArray(rows) && rows.length ? data : null;
 }

@@ -4,7 +4,8 @@
 import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
-import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures } from "./changesets-logic.mjs";
+import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
+  reviewRev, applyDecisions, reopenDecline, resultConflicts } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -18,13 +19,58 @@ const wire = (deps = {}) => ({
   docInsert: deps.docInsert || cde.docInsert,
   docGet: deps.docGet || cde.docGet,
   docList: deps.docList || cde.docList,
-  docReplaceIfStatus: deps.docReplaceIfStatus || cde.docReplaceIfStatus,
+  docReplaceIfField: deps.docReplaceIfField || cde.docReplaceIfField,
   audit: deps.audit || cde.audit,
   requireMinRole: deps.requireMinRole || members.requireMinRole,
   myRole: deps.myRole || members.myRole,
   takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
   resolveArtefact: deps.resolveArtefact || resolveArtefact,
 });
+
+/** MA-3a (gotcha 1): every write of a changeset doc is read → decided → swapped on review_rev, which each write bumps — a web
+ *  decision written between a read and a write is never overwritten (the status-only swap it replaces lost one). A lost swap reads
+ *  again and decides again on the new doc; three in a row are a 503 (C3: Revit's Report retries a 503 and stops at a 409). A doc from before MA-3a has no review_rev: its first write
+ *  swaps on the field being absent. `decide(cs)` throws its 400/409 in words, or answers {updated, …} — answered with `before`. */
+async function rewrite(d, pid, id, decide) {
+  for (let i = 0; i < 3; i++) {
+    const cs = await d.docGet(STORE, pid, id);
+    if (!cs) throw err(404, "changeset not found");
+    const out = decide(cs);
+    // C1 (migration 0037): the changeset store has no signed-in writer — the bridge writes it with the service key, after its own
+    // role check (every caller of rewrite checks first), so a member cannot re-open a decline by writing the doc themselves.
+    if (await d.docReplaceIfField(STORE, pid, id, out.updated, "review_rev", Number.isInteger(cs.review_rev) ? cs.review_rev : null, { service: true }))
+      return { before: cs, ...out };
+  }
+  // C3: a 503, not a 409 — Revit's Report stops at a 409 ("retrying cannot fix this"), and a send after these writes would land.
+  throw err(503, "the changeset changed three times while this was being written — nothing was saved; send it again");
+}
+
+/** MA-3a (Q1, design §6.11): a web review decision is a signed-in person's — the machine credential (the add-in signed out, the MCP
+ *  agent, any script holding the token) never accepts, declines or re-opens, as a version review is never the machine's
+ *  (cde-store reviewDecide). Then the role: contributor to decide, lead to re-open. Answers the role. */
+async function reviewer(d, key, min, what) {
+  const role = await d.myRole(key);
+  if (role === "service") throw err(403, `${what} on the web desk is a signed-in person's — sign in (the machine credential, the MCP agent and scripts never review)`);
+  if (!role || (members.ROLE_RANK[role] || 0) < members.ROLE_RANK[min]) throw err(403, `${what} requires the ${min} role (you are ${role || "not a member"})`);
+  return role;
+}
+
+const ledgerRef = (row) => (row ? { id: row.id ?? null, hash: row.hash ?? null } : null);
+
+/** Review amendment C7: a web decision is swapped onto the doc, then written to the ledger. A row the ledger does not take is
+ *  taken back off the doc (swapped on the revision the decision wrote; the revision moves on), so Revit never obeys a decision the
+ *  ledger lacks, and the same send lands again (a kept decline would refuse its own retry as a repeat). */
+async function recorded(d, pid, id, before, updated, what, write) {
+  try { return await write(); } catch (e) {
+    const back = await d.docReplaceIfField(STORE, pid, id, { ...before, review_rev: updated.review_rev + 1, updated_at: new Date().toISOString() },
+      "review_rev", updated.review_rev, { service: true }).catch(() => null);
+    if (back) throw err(503, `the ledger did not take the ${what} — nothing was saved; send it again`);
+    throw err(502, `the ${what} is saved on the changeset but the ledger has no row for it (${e.message}), and the changeset changed before it could be taken back — tell the project lead`);
+  }
+}
+
+/** C2: the words a changeset_applied row carries when a result with no review_rev applied a web decline. */
+const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline";
 
 /** MA-2a: does a posted body hold an element the bridge would have to type — a create or retype of a typed kind (not a level or
  *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. */
@@ -89,7 +135,7 @@ export async function proposeChangeset(key, body, actor, deps) {
   const changeset = {
     id: randomUUID(),
     name: v.name, source: v.source, actor: resolveActor(actor, "agent"),
-    status: "proposed", created_at: now, updated_at: now,
+    status: "proposed", created_at: now, updated_at: now, review_rev: 0, // MA-3a: bumped and swapped on by every later write
     adjudication: { verdict: adj.verdict, summary: adj.summary, ids_source: adj.ids_source, audit_id: adj.audit_id ?? null, unattributed: unattributedFailures(v.elements, adj) },
     elements: attachVerdicts(v.elements, adj),
     exceptions: v.exceptions, // the walls a planner sent to a person — shown to the reviewer, never placed
@@ -98,7 +144,7 @@ export async function proposeChangeset(key, body, actor, deps) {
     claimed: v.claimed, ignored: v.ignored, ...(v.contract != null ? { contract: v.contract } : {}),
     result: null,
   };
-  await d.docInsert(STORE, proj.id, changeset.id, changeset);
+  await d.docInsert(STORE, proj.id, changeset.id, changeset, { service: true }); // C1 (migration 0037): the bridge's write, after the role check above
   await d.audit(proj.id, "changeset", changeset.id, "changeset_proposed", actor || "agent", null,
     { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source,
       claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by === "bridge").length });
@@ -122,48 +168,51 @@ export async function getChangeset(key, id, deps) {
 
 /** The add-in's report: which proposals a human ticked (with the created Revit ids) and which they
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
-export async function reportResult(key, id, { applied, rejected, note } = {}, actor, deps) {
+export async function reportResult(key, id, { applied, rejected, note, review_rev } = {}, actor, deps) {
   const d = wire(deps);
   // A result says what a human ticked in Revit and is written once. H4: Revit signs in per user, so it is that user's
   // contributor check (the machine credential still passes as service); a viewer reports nothing, before any read.
   await d.requireMinRole(key, "contributor");
   const proj = await d.ensureProject(key);
-  const cs = await d.docGet(STORE, proj.id, id);
-  if (!cs) throw err(404, "changeset not found");
-  if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);
-
   const appliedArr = Array.isArray(applied) ? applied : [];
   const rejectedArr = Array.isArray(rejected) ? rejected : [];
-  for (const [i, a] of appliedArr.entries()) {
-    if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
-      throw err(400, `applied[${i}] must be {proposal_guid, revit_element_id}`);
-  }
-  const known = new Set(cs.elements.map((e) => e.proposal_guid));
-  const seen = new Set();
-  for (const g of [...appliedArr.map((a) => a.proposal_guid), ...rejectedArr]) {
-    if (!known.has(g)) throw err(400, `unknown proposal_guid "${g}"`);
-    if (seen.has(g)) throw err(400, `proposal_guid "${g}" appears twice in the result`);
-    seen.add(g);
-  }
-  if (seen.size !== cs.elements.length)
-    throw err(400, `result must account for every element (${seen.size} of ${cs.elements.length} covered)`);
 
-  const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
-  const updated = {
-    ...cs, status, updated_at: new Date().toISOString(),
-    result: {
-      applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
-      rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
-      reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
-    },
-  };
-  // CAS: the write itself re-checks status server-side, so a concurrent withdraw/report can't
-  // both land. The loser re-reads and 409s with the winner's status; no audit row for the loser.
-  const won = await d.docReplaceIfStatus(STORE, proj.id, id, updated, "proposed");
-  if (!won) {
-    const now2 = await d.docGet(STORE, proj.id, id);
-    throw err(409, `changeset is ${now2?.status ?? "gone"} — a result can be reported exactly once, from proposed`);
-  }
+  // CAS (MA-3a: on review_rev, rewrite): a concurrent withdraw or report can't both land — the loser reads the winner's status and
+  // 409s, with no audit row — and a web decision written in between is kept, and judged.
+  const { before: cs, updated, conflicts } = await rewrite(d, proj.id, id, (cs) => {
+    if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);
+    for (const [i, a] of appliedArr.entries()) {
+      if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
+        throw err(400, `applied[${i}] must be {proposal_guid, revit_element_id}`);
+    }
+    const known = new Set(cs.elements.map((e) => e.proposal_guid));
+    const seen = new Set();
+    for (const g of [...appliedArr.map((a) => a.proposal_guid), ...rejectedArr]) {
+      if (!known.has(g)) throw err(400, `unknown proposal_guid "${g}"`);
+      if (seen.has(g)) throw err(400, `proposal_guid "${g}" appears twice in the result`);
+      seen.add(g);
+    }
+    if (seen.size !== cs.elements.length)
+      throw err(400, `result must account for every element (${seen.size} of ${cs.elements.length} covered)`);
+    // MA-3a (Q2): a web decline Revit had seen binds — applying it is refused; one that landed after Revit's re-check is recorded.
+    const conflicts = resultConflicts(cs, appliedArr.map((a) => a.proposal_guid), rejectedArr, review_rev);
+    if (conflicts.refused.length)
+      throw err(409, conflicts.refused.map((x) => `${x.name} was declined on the web by ${x.by} (${x.role}): "${x.reason}" — review_rev ${x.rev}, which this result says Revit re-checked`).join("; ") +
+        "; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed");
+    const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
+    return { conflicts, updated: {
+      ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1,
+      result: {
+        applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
+        rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
+        reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
+        // C2: the revision is the client's claim; a result without one is unchecked, never late.
+        review_rev_seen: review_rev == null ? null : { value: review_rev, claimed: true },
+        declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late, applied_over_decline_unchecked: conflicts.unchecked,
+      },
+    } };
+  });
+  const status = updated.status;
   // MA-2c ([BP] P2-7's param:apply, built once): each value written — its type, parameter, from, to and the bridge's record of its
   // source — rides on the changeset_applied row.
   // Review amendment C9: each entry names the type exactly — its kind, the UniqueId the plan named and the one Revit reported (one
@@ -176,7 +225,11 @@ export async function reportResult(key, id, { applied, rejected, note } = {}, ac
   }));
   await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
-    { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}) });
+    { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
+      // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
+      // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
+      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
+      ...(conflicts.unchecked.length ? { applied_over_decline_unchecked: conflicts.unchecked, unchecked_why: UNCHECKED_WHY } : {}) });
   return updated;
 }
 
@@ -184,16 +237,11 @@ export async function withdrawChangeset(key, id, actor, deps) {
   const d = wire(deps);
   await d.requireMinRole(key, "contributor"); // H0 (D4): a viewer withdraws nothing
   const proj = await d.ensureProject(key);
-  const cs = await d.docGet(STORE, proj.id, id);
-  if (!cs) throw err(404, "changeset not found");
-  if (!canWithdraw(cs.status)) throw err(409, `changeset is ${cs.status} — only a proposed changeset can be withdrawn`);
-  const updated = { ...cs, status: "withdrawn", updated_at: new Date().toISOString() };
-  // CAS: same guard as reportResult — a concurrent report/withdraw can't both land.
-  const won = await d.docReplaceIfStatus(STORE, proj.id, id, updated, "proposed");
-  if (!won) {
-    const now2 = await d.docGet(STORE, proj.id, id);
-    throw err(409, `changeset is ${now2?.status ?? "gone"} — only a proposed changeset can be withdrawn`);
-  }
+  // CAS: same guard as reportResult (rewrite, on review_rev) — a concurrent report/withdraw can't both land.
+  const { updated } = await rewrite(d, proj.id, id, (cs) => {
+    if (!canWithdraw(cs.status)) throw err(409, `changeset is ${cs.status} — only a proposed changeset can be withdrawn`);
+    return { updated: { ...cs, status: "withdrawn", updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
+  });
   await d.audit(proj.id, "changeset", id, "changeset_withdrawn", actor || "agent", { status: "proposed" }, { status: "withdrawn" });
   return updated;
 }
@@ -219,4 +267,35 @@ export async function reportReverted(key, id, { op, guids } = {}, actor, deps) {
   // and the ledger disagrees with the model. Already bounded — only guids this changeset applied, only once applied.
   d.takeWriteBudget("changeset reverts", { perUser: 120, all: 300 });
   return d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, { op, guids, count: guids.length });
+}
+
+/** MA-3a: POST /changesets/:key/:id/review {decisions: [{proposal_guid, decision: accept | decline, reason}]} — the web desk's
+ *  decisions, all or none, while the changeset is proposed (design §6.6). A signed-in contributor or above (Q1). Stored on each
+ *  ghost's `review` (Revit reads it: a decline binds, an accept is advice) and written as ONE changeset_reviewed row naming each
+ *  ghost's step, the reviewer and the role. Answers {changeset, ledger: {id, hash}}. */
+export async function reviewChangeset(key, id, { decisions } = {}, actor, deps) {
+  const d = wire(deps);
+  const role = await reviewer(d, key, "contributor", "accepting or declining a ghost");
+  d.takeWriteBudget("changeset reviews", { perUser: 60, all: 300 });
+  const proj = await d.ensureProject(key);
+  const who = { by: resolveActor(actor, "web"), role, at: new Date().toISOString() };
+  const { before, updated, rows } = await rewrite(d, proj.id, id, (cs) => applyDecisions(cs, decisions, who));
+  const row = await recorded(d, proj.id, id, before, updated, "decision", () => d.audit(proj.id, "changeset", id, "changeset_reviewed", actor || "web",
+    { review_rev: reviewRev(before) }, { review_rev: updated.review_rev, reviewer: who.by, role, decisions: rows }));
+  return { changeset: updated, ledger: ledgerRef(row) };
+}
+
+/** MA-3a: POST /changesets/:key/:id/reopen {proposal_guid, reason} — a signed-in lead or owner re-opens one web decline (D17): the
+ *  ghost is proposed again, and Revit may tick it. ONE changeset_reopened row names it, who declined it and why, and the lead's
+ *  reason. Answers {changeset, ledger: {id, hash}}. */
+export async function reopenGhost(key, id, { proposal_guid, reason } = {}, actor, deps) {
+  const d = wire(deps);
+  const role = await reviewer(d, key, "lead", "re-opening a declined ghost");
+  d.takeWriteBudget("changeset reviews", { perUser: 60, all: 300 });
+  const proj = await d.ensureProject(key);
+  const who = { by: resolveActor(actor, "web"), role, at: new Date().toISOString() };
+  const { before, updated, row } = await rewrite(d, proj.id, id, (cs) => reopenDecline(cs, proposal_guid, reason, who));
+  const ledger = await recorded(d, proj.id, id, before, updated, "re-open", () => d.audit(proj.id, "changeset", id, "changeset_reopened", actor || "web",
+    { review_rev: reviewRev(before), state: "declined" }, { review_rev: updated.review_rev, lead: who.by, role, ...row }));
+  return { changeset: updated, ledger: ledgerRef(ledger) };
 }

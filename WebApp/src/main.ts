@@ -19,7 +19,7 @@ import { setAppContext, getAppManager } from "./app";
 import { version as APP_VERSION } from "../package.json";
 import { SERVICE_URL } from "./config";
 import { qaPanel } from "./setups/qa-panel";
-import { modelPanel } from "./setups/model-panel";
+import { reviewDeskPanel } from "./setups/review-desk";
 import { packsPanel } from "./setups/packs-panel";
 import { costPanel } from "./setups/cost-panel";
 import { projectShell } from "./setups/project-shell";
@@ -244,9 +244,10 @@ async function main() {
     },
   };
 
-  // In-browser 3D Modeling studio — author walls/columns/slabs, transform-edit, measure + markup,
-  // all on the shared OBC world. Built once so its authored geometry survives layout switches.
-  const modelEl = modelPanel(components, { baseUrl: SERVICE_URL });
+  // MA-3a: the review desk — what waits in Revit's review, by storey; a signed-in contributor accepts or declines (a decline binds
+  // the Revit tick), a lead re-opens. It replaces the Modeling studio (retired: it skipped Governed Intake; its local sketches are
+  // no longer shown).
+  const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL });
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
   const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });
@@ -375,7 +376,7 @@ async function main() {
     { label: "Visibility", el: visEl },
     { label: "Views", el: viewsEl },
     { label: "Sheets", el: sheetsEl },
-    { label: "Model", el: modelEl },
+    { label: "Review", el: reviewEl },
     { label: "Performance", el: perfEl },
   ]);
   const coordEl = tabbed([

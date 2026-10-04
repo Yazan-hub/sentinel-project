@@ -78,6 +78,9 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     // The platform gate's runs (spec 2026-09-29): one row per execution id, written by platform-gate-ledger.mjs only.
     [{ entity_type: "platform_gate", action: "platform gate PASS: tower.ifc v1", new_value: { execution_id: "6ab9827413cf4cfc31e03d07" } }, "platform_gate rows are written by Sentinel, not through this route"],
     [{ entity_type: " Platform_Gate ", action: "recorded" }, "platform_gate rows are written by Sentinel, not through this route"],
+    // MA-3a (review amendment C5): the web desk's decisions and a lead's re-open are the bridge's rows — the record of a binding decline.
+    [{ entity_type: "changeset", action: "changeset_reviewed" }, "changeset_reviewed rows are written by Sentinel, not through this route"],
+    [{ entity_type: "changeset", action: " Changeset_Reopened" }, "changeset_reopened rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);
