@@ -134,6 +134,25 @@ public sealed class ChangesetElementDto
     [JsonPropertyName("from")] public string From { get; set; }
     [JsonPropertyName("to")] public string To { get; set; }
     [JsonPropertyName("value_source")] public ValueSourceDto ValueSource { get; set; }
+    /// <summary>MA-3a (design §6.6, D17): the web desk's decision on this ghost, as the bridge stores it; null while nobody decided
+    /// (proposed) and from a bridge before MA-3a. A decline binds (ChangesetTrust.PreTick, the window, Apply's re-check); an accept is
+    /// advice.</summary>
+    [JsonPropertyName("review")] public ReviewDto Review { get; set; }
+}
+
+/// <summary>MA-3a: one web desk decision on a ghost (changesets-logic.mjs applyDecisions / reopenDecline).</summary>
+public sealed class ReviewDto
+{
+    /// <summary>"accepted", "declined", or "proposed" after a lead's re-open.</summary>
+    [JsonPropertyName("state")] public string State { get; set; }
+    /// <summary>"accept", "decline" or "reopen".</summary>
+    [JsonPropertyName("action")] public string Action { get; set; }
+    [JsonPropertyName("reason")] public string Reason { get; set; }
+    [JsonPropertyName("by")] public string By { get; set; }
+    [JsonPropertyName("role")] public string Role { get; set; }
+    [JsonPropertyName("at")] public string At { get; set; }
+    /// <summary>The changeset's review_rev this decision was written at.</summary>
+    [JsonPropertyName("rev")] public int? Rev { get; set; }
 }
 
 /// <summary>MA-2c: where a set_parameter's value comes from, as the bridge checked it — "catalogue" or "clause", and the artefact,
@@ -170,6 +189,8 @@ public static class ChangesetTrust
     /// rule holds: a Promote attach, and a Promote retype with the type the plan saw (DR-1). A person still clicks Apply.</summary>
     public static bool PreTick(ChangesetDto cs, ChangesetElementDto el)
     {
+        // MA-3a (design §6.6, D17): a web decline binds — never ticked, whatever else holds. A web accept changes nothing here (advice).
+        if (DeclinedOnWeb(el)) return false;
         // MA-2c: a set_parameter is a TYPE edit — it reaches every element on the type — so it is never pre-ticked (founder decision F1).
         if (el.Op is null or "create" or "set_parameter") return false;
         return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
@@ -197,6 +218,70 @@ public static class ChangesetTrust
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
     public static string SourceLabel(ChangesetDto cs) =>
         cs.Source + (cs.Claimed == true ? " (claimed — the bridge records who a changeset says it is from, and cannot verify it)" : "");
+
+    /// <summary>MA-3a: whether the web desk declined this ghost — it binds: never ticked, and Apply refuses it.</summary>
+    public static bool DeclinedOnWeb(ChangesetElementDto el) => el?.Review?.State == "declined";
+
+    private static string Who(ReviewDto r) => (r.By ?? "someone") + (string.IsNullOrWhiteSpace(r.Role) ? "" : $" ({r.Role})");
+
+    /// <summary>A ghost as the bridge's refusals name it (changesets-logic ghostName): retype wall "W 1".</summary>
+    private static string GhostName(ChangesetElementDto e) => $"{e.Op ?? "create"} {e.Kind} \"{e.Validate?.Identity?.Name ?? e.ProposalGuid}\"";
+
+    /// <summary>MA-3a: the row's words for the web desk's decision; null when nobody decided.</summary>
+    public static string ReviewLine(ChangesetElementDto el)
+    {
+        var r = el?.Review;
+        if (r == null) return null;
+        if (r.State == "declined") return $"declined on the web by {Who(r)}: {r.Reason} · a lead may re-open it on the web desk";
+        if (r.State == "accepted") return $"accepted on the web by {Who(r)}" + (string.IsNullOrWhiteSpace(r.Reason) ? "" : $": {r.Reason}") + " — advice: it still needs your tick";
+        return r.Action == "reopen" ? $"re-opened on the web by {Who(r)}: {r.Reason}" : null;
+    }
+
+    /// <summary>MA-3a: the window's header when the web declined ghosts of <paramref name="cs"/>; null when none did.</summary>
+    public static string DeclinedHeader(ChangesetDto cs)
+    {
+        int n = (cs.Elements ?? new List<ChangesetElementDto>()).Count(DeclinedOnWeb);
+        // C4: a decline binds its changeset only — a Promote re-run proposes the same ghost again, undecided (carrying it is MA-3b).
+        return n == 0 ? null : $"{n} ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead may re-open one on the web desk). " +
+                               "Apply reports them as rejected; the changeset stays proposed until Revit reports it — a new Promote run proposes a declined ghost again, undecided.";
+    }
+
+    /// <summary>MA-3a: Apply's re-check on the fresh copies — the ticked ghosts the web declined (one may land after the window opened).
+    /// The refusal's words (nothing is created), or null when none is.</summary>
+    public static string DeclinedTicked(IEnumerable<ChangesetDto> fresh, ICollection<string> ticked)
+    {
+        var hit = (fresh ?? Enumerable.Empty<ChangesetDto>()).SelectMany(c => c.Elements ?? new List<ChangesetElementDto>())
+            .Where(e => ticked.Contains(e.ProposalGuid) && DeclinedOnWeb(e)).ToList();
+        return hit.Count == 0 ? null : $"{hit.Count} ticked ghost(s) were declined on the web after this window opened:\n" +
+            string.Join("\n", hit.Select(e => $"· {GhostName(e)} — {ReviewLine(e)}")) +
+            "\n\nNothing was created. Run Review AI Proposals again: they open unticked, with the reason.";
+    }
+
+    /// <summary>MA-3a (Q2): the bridge's reply to a result — the ghosts it recorded as applied over a decline that landed after Apply's
+    /// re-check, and (C2) over a decline it could not judge because the result carried no review_rev, in words; null when there is none
+    /// (or the reply is not JSON: the result was recorded either way).</summary>
+    public static string LateDeclines(string reply)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(reply ?? "");
+            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("result", out var r) || r.ValueKind != JsonValueKind.Object) return null;
+            string S(JsonElement x, string p) => x.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "?";
+            List<JsonElement> Arr(string p) => r.TryGetProperty(p, out var a) && a.ValueKind == JsonValueKind.Array ? a.EnumerateArray().ToList() : new List<JsonElement>();
+            string Lines(List<JsonElement> xs) => string.Join("\n", xs.Select(x => $"· {S(x, "name")} — declined on the web by {S(x, "by")} ({S(x, "role")}): {S(x, "reason")}"));
+            var late = Arr("applied_over_late_decline");
+            var unchecked_ = Arr("applied_over_decline_unchecked");
+            var said = new List<string>();
+            if (late.Count > 0)
+                said.Add($"{late.Count} ghost(s) were declined on the web after Apply re-checked them, and were applied:\n" + Lines(late) +
+                         "\n\nThe bridge recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.");
+            if (unchecked_.Count > 0)
+                said.Add($"{unchecked_.Count} ghost(s) declined on the web were applied, and this result carried no review_rev — the bridge cannot tell whether the decline was seen:\n" + Lines(unchecked_) +
+                         "\n\nThe bridge recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.");
+            return said.Count == 0 ? null : string.Join("\n\n", said);
+        }
+        catch (JsonException) { return null; }
+    }
 }
 
 public sealed class AdjudicationDto
@@ -222,6 +307,9 @@ public sealed class ChangesetDto
     [JsonPropertyName("claimed")] public bool? Claimed { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; }
     [JsonPropertyName("created_at")] public string CreatedAt { get; set; }
+    /// <summary>MA-3a: the doc's review revision (every bridge write bumps it); the result sends back the one Apply re-checked. Null from a
+    /// bridge before MA-3a.</summary>
+    [JsonPropertyName("review_rev")] public int? ReviewRev { get; set; }
     [JsonPropertyName("adjudication")] public AdjudicationDto Adjudication { get; set; }
     [JsonPropertyName("elements")] public List<ChangesetElementDto> Elements { get; set; } = new();
     [JsonPropertyName("exceptions")] public List<ExceptionRowDto> Exceptions { get; set; } = new();
@@ -294,10 +382,12 @@ internal static class ChangesetClient
         catch (Exception ex) { error = ex.Message; return null; }
     }
 
+    /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: Ghost Builder's own build — the bridge reads 0);
+    /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it).</summary>
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
-        List<AppliedEntry> applied, List<string> rejected, string note, out string error) =>
+        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
-             JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor }), 200, out _, out error);
+             JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev }), 200, out reply, out error);
 
     private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error)
     {

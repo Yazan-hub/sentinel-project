@@ -61,7 +61,7 @@ static partial class Check
            // Review C11: in a storey's window the type edit's row counts "this storey's" retypes.
            && window.Contains("((_cs.Name ?? \"\").EndsWith(\", one Undo)\", StringComparison.Ordinal) ? \"storey\" : \"changeset\")}'s retypes onto it are applied"),
            "Review AI Proposals and Promote open a Promote storey's changesets in one window, each re-checked before anything runs; a part reviewed alone is said; a type edit's row says whose retypes it counts");
-        int reported = At(review, "if (!Report(cfg, key, one.Id, res.Applied, rejected, said)) continue;");
+        int reported = At(review, "if (!Report(cfg, key, one.Id, res.Applied, rejected, said, one.ReviewRev)) continue;"); // MA-3a: with the revision Apply re-checked
         Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0 && At(review, "UndoWatcher.Remember(undo, key, one.Id, guids);") > reported
            && review.Contains("UndoWatcher.Remember(UndoWatcher.TxName(one.Name, one.Id), key, one.Id, guids);")
            // Review C15: the LOD state after names only the changesets the bridge holds as applied; the dialog counts the rejected rows it took.
