@@ -11,7 +11,11 @@ import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { SERVICE_URL } from "../config";
 
-export interface GhostReview { state: "proposed" | "accepted" | "declined"; action: "accept" | "decline" | "reopen"; reason: string | null; by: string; role: string; at: string; rev: number; }
+/** MA-3b3: where a carried decline was made — the earlier changeset, the ghost there, and "web" or "revit". */
+export interface CarriedFrom { changeset: string; name: string; proposal_guid: string; origin: string; }
+/** `carried_from` is set when the bridge filed the ghost already declined; a decline carried from Revit holds the reporter's role as
+ *  the bridge read it (review C1). `role` may be null on a review whose role the desk was not given — it is then left out, never printed. */
+export interface GhostReview { state: "proposed" | "accepted" | "declined"; action: "accept" | "decline" | "reopen"; reason: string | null; by: string; role: string | null; at: string; rev: number; carried_from?: CarriedFrom | null; }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
   target?: { unique_id?: string; type_before?: string } | null;
@@ -23,7 +27,7 @@ export interface Ghost {
 /** What Revit reported on a changeset (bridge reportResult). `reasons` — Revit's reason per ghost — is there only when one was sent. */
 export interface DeskResult {
   applied: { proposal_guid: string }[]; rejected: string[]; note: string | null; reported_at: string; reported_by: string;
-  declined_on_web?: { proposal_guid: string; by: string; role: string; reason: string }[];
+  declined_on_web?: { proposal_guid: string; by: string; role: string | null; reason: string; carried_from?: CarriedFrom | null }[];
   reasons?: Record<string, string>;
 }
 export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; }
@@ -71,12 +75,19 @@ export function ghostLine(el: Ghost): string {
   }
 }
 
+/** MA-3b3: who declined, and — for a decline the bridge carried from an earlier changeset — where it was made (the web, or Revit) and
+ *  in which changeset. An origin the desk does not know is "before", never guessed. */
+export const declinedBy = (r: { by: string; role: string | null; carried_from?: CarriedFrom | null }): string => {
+  const who = r.role ? `${r.by} (${r.role})` : r.by, c = r.carried_from;
+  return c ? `declined ${c.origin === "revit" ? "in Revit" : c.origin === "web" ? "on the web" : "before"} by ${who} in "${c.name}", carried here by the bridge` : `declined by ${who}`;
+};
+
 /** The web desk's decision in words (Revit's ChangesetTrust.ReviewLine, from the desk's side); "waiting" when nobody decided. */
 export function reviewWords(el: Ghost): string {
   const r = el.review;
   if (!r || (r.state === "proposed" && r.action !== "reopen")) return "waiting — nobody decided on the web";
-  const who = `${r.by} (${r.role})`;
-  if (r.state === "declined") return `declined by ${who}: ${r.reason} — binds: Revit shows it unticked and refuses the tick`;
+  const who = r.role ? `${r.by} (${r.role})` : r.by; // C16: a role the desk was not given is left out (declinedBy's rule), never "(null)"
+  if (r.state === "declined") return `${declinedBy(r)}: ${r.reason} — binds: Revit shows it unticked and refuses the tick`;
   if (r.state === "accepted") return `accepted by ${who}${r.reason ? ": " + r.reason : ""} — advice: Revit still asks for the tick`;
   return `re-opened by ${who}: ${r.reason}`;
 }
@@ -164,7 +175,7 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
     declined: rejected.map((g) => {
       const el = byGuid.get(g), w = web.get(g), why: string[] = [];
       if (revit(g)) why.push(`Revit: ${revit(g)}`);
-      if (w) why.push(`web, ${w.by} (${w.role}): ${w.reason}`);
+      if (w) why.push(w.carried_from ? `${declinedBy(w)}: ${w.reason}` : `web, ${w.by} (${w.role}): ${w.reason}`); // MA-3b3: a carried decline names its origin
       return { line: el ? ghostLine(el) : g, why: why.length ? why : ["no reason given for this ghost"] };
     }),
   };
@@ -285,7 +296,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
     if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }
     if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }
-    body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. A changeset stays proposed until Revit applies or declines it — a new Promote run proposes a declined ghost again, undecided.", "color:#8b93a1;margin-bottom:.5rem"));
+    body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. A changeset stays proposed until Revit applies or declines it — a decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its changeset is still proposed.", "color:#8b93a1;margin-bottom:.5rem"));
     for (const s of groupDesk(pending)) {
       const box = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
       box.open = true;

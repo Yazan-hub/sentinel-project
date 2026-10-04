@@ -762,3 +762,125 @@ describe("MA-3a — the routes", () => {
     expect(src).toContain('const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen"].includes(p3) ? "web" : "agent");');
   });
 });
+
+describe("MA-3b3 — a decline carried to the next filing (the bridge stamps it at filing)", () => {
+  const retype = (n, type = "BDS_EXT_ARC_CMU_200 mm") => ({ kind: "wall", op: "retype",
+    target: { unique_id: `5a1c2b3d-1111-2222-3333-444455556666-0004c40${n}`, type_before: "Generic - 200mm" },
+    place: { TypeName: type }, validate: { identity: { Class: "IFCWALL", Name: `W ${n}` } } });
+  const STOREY = () => ({ name: "Promote (DD) · GR-FFL", source: "promote", elements: [retype(1), retype(2), retype(3)] });
+  const rows = (deps, action) => deps.audit.mock.calls.filter((c) => c[3] === action);
+  /** A filed and reported: W 1 rejected with a reason, W 2 rejected with none, W 3 applied. The report is a signed-in member's
+   *  (`role`), or — with null — the machine credential's (C1). Answers {deps, A}. */
+  const declinedInRevit = async (role = "contributor") => {
+    const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1, hash: "ab".repeat(32) })) });
+    const A = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = A.elements.map((e) => e.proposal_guid);
+    if (role) deps.myRole = as(role);
+    await reportResult("demo", A.id, { applied: [{ proposal_guid: g3, revit_element_id: 5 }], rejected: [g1, g2], review_rev: 0, reasons: { [g1]: "W 1 stays as modelled" } }, "modeller", deps);
+    delete deps.myRole;
+    return { deps, A };
+  };
+
+  it("a ghost Revit declined before with a reason is filed already declined, with the reason, who and where from; ONE row says how many", async () => {
+    const { deps, A } = await declinedInRevit();
+    expect(A.carry).toBeUndefined();
+    expect(A.elements.some((e) => e.review)).toBe(false);
+    expect(rows(deps, "changeset_proposed")[0][6]).not.toHaveProperty("carried");
+    const told = deps.saved.get(A.id).result;
+    expect(told.reported_role).toBe("contributor"); // C1: the role the bridge read for the reporter, stored with the result
+
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    expect(B.review_rev).toBe(0);
+    expect(B.elements[0].review).toEqual({ state: "declined", action: "decline", reason: "W 1 stays as modelled", by: told.reported_by, role: "contributor", at: told.reported_at, rev: 0,
+      carried_from: { changeset: A.id, name: "Promote (DD) · GR-FFL", proposal_guid: A.elements[0].proposal_guid, origin: "revit" } });
+    expect(B.elements[1].review).toBeUndefined(); // rejected before with no reason of its own: not carried, counted
+    expect(B.elements[2].review).toBeUndefined(); // applied before
+    expect(B.carry).toEqual({ carried: 1, no_reason: 1, creates: 0, unverified: 0 });
+    expect(deps.saved.get(B.id)).toEqual(B);
+    const proposed = rows(deps, "changeset_proposed");
+    expect(proposed).toHaveLength(2); // one row per filing — the carry rides on it
+    expect(proposed[1][6]).toMatchObject({ elements: 3, carried: 1, not_carried: { no_reason: 1, creates: 0, unverified: 0 },
+      carried_from: [{ proposal_guid: B.elements[0].proposal_guid, name: 'retype wall "W 1"', origin: "revit", from: A.id, from_name: "Promote (DD) · GR-FFL", from_guid: A.elements[0].proposal_guid }] });
+  });
+
+  it("C1: a reason reported under the machine credential is never a decline — whatever name the caller posts: nothing is carried, and it is counted and said", async () => {
+    const { deps, A } = await declinedInRevit(null);
+    expect(deps.saved.get(A.id).result.reported_role).toBe("service");
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    expect(B.elements.some((e) => e.review)).toBe(false);
+    expect(B.carry).toEqual({ carried: 0, no_reason: 1, creates: 0, unverified: 1 });
+    expect(rows(deps, "changeset_proposed")[1][6]).toMatchObject({ carried: 0, carried_from: [], not_carried: { no_reason: 1, creates: 0, unverified: 1 } });
+  });
+
+  it("a result that applies the carried ghost is a 409 that says where it was declined — with or without a review_rev (C6); nothing is written", async () => {
+    const { deps } = await declinedInRevit();
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = B.elements.map((e) => e.proposal_guid);
+    const by = B.elements[0].review.by;
+    await expect(reportResult("demo", B.id, { applied: [{ proposal_guid: g1, revit_element_id: 7 }], rejected: [g2, g3], review_rev: 0 }, "modeller", deps))
+      .rejects.toMatchObject({ status: 409, message: `retype wall "W 1" was declined in Revit by ${by} (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge: "W 1 stays as modelled" — the changeset was filed with it declined (review_rev 0); Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed` });
+    await expect(reportResult("demo", B.id, { applied: [{ proposal_guid: g1, revit_element_id: 7 }], rejected: [g2, g3] }, "a-script", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("the changeset was filed with it declined (review_rev 0)") });
+    expect(deps.saved.get(B.id).status).toBe("proposed");
+  });
+
+  it("a lead re-opens a carried decline as any decline (the row says it was carried), and the next filing does not carry it", async () => {
+    const { deps, A } = await declinedInRevit();
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    deps.myRole = as("lead");
+    const out = await reopenGhost("demo", B.id, { proposal_guid: B.elements[0].proposal_guid, reason: "W 1 is retyped after all" }, "lead@example.com", deps);
+    delete deps.myRole;
+    expect(out.changeset.elements[0].review).toMatchObject({ state: "proposed", action: "reopen" });
+    expect(rows(deps, "changeset_reopened")[0][6]).toMatchObject({ declined_reason: "W 1 stays as modelled", carried_from: { changeset: A.id, origin: "revit" } });
+    await withdrawChangeset("demo", B.id, "modeller", deps);
+    const C = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    expect(C.elements.some((e) => e.review)).toBe(false);
+    expect(C.carry).toEqual({ carried: 0, no_reason: 1, creates: 0, unverified: 0 });
+  });
+
+  it("the match is the bridge's: a posted review neither claims a decline nor clears one", async () => {
+    const { deps } = await declinedInRevit();
+    const body = STOREY();
+    body.elements[0].review = { state: "proposed", action: "reopen", reason: "cleared by the caller" };
+    body.elements[2].review = { state: "declined", action: "decline", reason: "claimed by the caller", by: "x", role: "lead" };
+    const B = await proposeChangeset("demo", body, "modeller", deps);
+    expect(B.elements[0].review).toMatchObject({ state: "declined", reason: "W 1 stays as modelled" });
+    expect(B.elements[2].review).toBeUndefined();
+    expect(B.ignored.map((x) => x.field)).toEqual(["elements[0].review", "elements[2].review"]);
+  });
+
+  it("C12: a web decline Revit applied late (over a decline it could not see) and may then Undo is not erased — the next filing carries it; the Undo writes no doc field and need not", async () => {
+    const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1, hash: "ab".repeat(32) })), takeWriteBudget: vi.fn() });
+    const A = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = A.elements.map((e) => e.proposal_guid);
+    deps.myRole = as("contributor", "contributor");
+    await reviewChangeset("demo", A.id, { decisions: [{ proposal_guid: g1, decision: "decline", reason: "W 1 is a party wall" }] }, "reviewer@example.com", deps);
+    const out = await reportResult("demo", A.id, { applied: [{ proposal_guid: g1, revit_element_id: 7 }, { proposal_guid: g2, revit_element_id: 8 }, { proposal_guid: g3, revit_element_id: 9 }], rejected: [], review_rev: 0 }, "modeller", deps);
+    delete deps.myRole;
+    expect(out.result.applied_over_late_decline.map((x) => x.proposal_guid)).toEqual([g1]);
+    await reportReverted("demo", A.id, { op: "undo", guids: [g1] }, "modeller", deps);
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    expect(B.elements[0].review).toMatchObject({ state: "declined", reason: "W 1 is a party wall", by: "reviewer@example.com", role: "contributor", rev: 0, carried_from: { changeset: A.id, proposal_guid: g1, origin: "web" } });
+    expect(B.elements[1].review).toBeUndefined(); // applied over no decline: cleared, as before
+    expect(B.carry).toEqual({ carried: 1, no_reason: 0, creates: 0, unverified: 0 });
+  });
+
+  it("C14: the changeset_applied row says how many of the declines the result rejected were carried (declined_before) — a Revit-origin one is never the web's alone", async () => {
+    const { deps } = await declinedInRevit();
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = B.elements.map((e) => e.proposal_guid);
+    await reportResult("demo", B.id, { applied: [{ proposal_guid: g2, revit_element_id: 7 }, { proposal_guid: g3, revit_element_id: 8 }], rejected: [g1], review_rev: 0 }, "modeller", deps);
+    const applied = rows(deps, "changeset_applied");
+    expect(applied[1][6]).toMatchObject({ declined_on_web: 1, declined_before: 1 });
+    expect(applied[0][6]).not.toHaveProperty("declined_before"); // A's report: nothing carried, the row reads as before (E4)
+  });
+
+  it("the earlier changesets not read: a 503 in words, and nothing is filed — no referee row, no changeset, no ledger row", async () => {
+    const deps = baseDeps({ docList: vi.fn(async () => { throw new Error("timeout"); }) });
+    await expect(proposeChangeset("demo", STOREY(), "modeller", deps)).rejects.toMatchObject({ status: 503,
+      message: "the project's earlier changesets could not be read (timeout) — nothing was filed: a decline made before could not be carried to this changeset; send it again" });
+    expect(deps.adjudicateProposal).not.toHaveBeenCalled();
+    expect(deps.docInsert).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+});

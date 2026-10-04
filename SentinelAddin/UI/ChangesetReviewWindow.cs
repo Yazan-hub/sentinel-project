@@ -88,6 +88,9 @@ public sealed class ChangesetReviewWindow : Window
         // MA-3a: the web desk's declines, said once above the rows.
         if (ChangesetTrust.DeclinedHeader(_cs) is string declinedLine)
             head.Children.Add(new TextBlock { Text = "⚠ " + declinedLine, Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+        // MA-3b3: what the bridge could not carry from an earlier decline, said once above the rows.
+        if (ChangesetTrust.NotCarriedLine(_cs) is string notCarried)
+            head.Children.Add(new TextBlock { Text = notCarried, Foreground = Brushes.Khaki, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 
@@ -218,7 +221,7 @@ public sealed class ChangesetReviewWindow : Window
             // MA-3b2: one reason for this group's unticked rows — recorded per ghost with the result (result.reasons) and on its ledger row.
             // Review C4: on its own row under the buttons, the box filling it (no fixed width: the bar clips, it does not wrap).
             var why = new TextBox { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
-                                    ToolTip = "Optional, one line: why this group's unticked rows are declined. Recorded for each of them with the result — not for a row declined on the web (the web's reason stands)." };
+                                    ToolTip = "Optional, one line: why this group's unticked rows are declined. Recorded for each of them with the result and, when Revit is signed in, carried to the next filing: the next changeset that proposes the same change files the row already declined — not for a row already declined (its reason stands)." };
             var whyLabel = new TextBlock { Text = "Reason for the unticked here:", Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
             var whyRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
             DockPanel.SetDock(whyLabel, Dock.Left);
@@ -228,8 +231,8 @@ public sealed class ChangesetReviewWindow : Window
             body.Children.Add(bar); body.Children.Add(whyRow); body.Children.Add(groupRows);
             var groupBox = new Expander { IsExpanded = true, Content = body, Margin = new Thickness(0, 0, 0, 6) };
             string what = group.Key;
-            int declinedHere = group.Count(ChangesetTrust.DeclinedOnWeb);
-            _headers.Add(() => groupBox.Header = $"{what} ({boxes.Count}) · {boxes.Count(b => b.IsChecked == true)} ticked" + (declinedHere > 0 ? $" · {declinedHere} declined on the web" : ""));
+            string declinedHere = ChangesetTrust.DeclinedCount(group); // MA-3b3: "(n carried)" when the bridge carried some
+            _headers.Add(() => groupBox.Header = $"{what} ({boxes.Count}) · {boxes.Count(b => b.IsChecked == true)} ticked" + (declinedHere != null ? " · " + declinedHere : ""));
             list.Children.Add(groupBox);
         }
         root.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });

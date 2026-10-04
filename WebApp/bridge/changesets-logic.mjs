@@ -591,7 +591,8 @@ export function reopenDecline(cs, guid, reason, who) {
   const elements = cs.elements.map((e) => (e === el ? { ...e, review } : e));
   return {
     updated: { ...cs, updated_at: who.at, review_rev: rev, elements },
-    row: { proposal_guid: guid, name: ghostName(el), declined_by: el.review.by, declined_reason: el.review.reason, reason: why },
+    row: { proposal_guid: guid, name: ghostName(el), declined_by: el.review.by, declined_reason: el.review.reason, reason: why,
+      ...(el.review.carried_from ? { carried_from: el.review.carried_from } : {}) }, // MA-3b3: the ledger says a carried decline was re-opened
   };
 }
 
@@ -609,10 +610,12 @@ export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
   const entry = (g) => {
     const e = byGuid.get(g);
     if (reviewState(e) !== "declined") return null;
-    return { proposal_guid: g, name: ghostName(e), by: e.review.by, role: e.review.role, reason: e.review.reason, rev: e.review.rev };
+    return { proposal_guid: g, name: ghostName(e), by: e.review.by, role: e.review.role, reason: e.review.reason, rev: e.review.rev,
+      ...(e.review.carried_from ? { carried_from: e.review.carried_from } : {}) }; // MA-3b3: a carried decline says where it was made
   };
   const refused = [], late = [], unchecked = [], declinedOnWeb = [];
-  for (const g of appliedGuids) { const x = entry(g); if (x) (none ? unchecked : x.rev <= seen ? refused : late).push(x); }
+  // MA-3b3 (C6): a carried decline was on the filing's 201 reply — every result saw it, with or without a review_rev: refused.
+  for (const g of appliedGuids) { const x = entry(g); if (x) (x.carried_from ? refused : none ? unchecked : x.rev <= seen ? refused : late).push(x); }
   for (const g of rejectedGuids) { const x = entry(g); if (x) declinedOnWeb.push(x); }
   return { refused, late, unchecked, declined_on_web: declinedOnWeb };
 }
@@ -633,3 +636,111 @@ export function resultReasons(rejectedGuids, reasons) {
   }
   return Object.keys(out).length ? { ...out } : null;
 }
+
+// ── MA-3b3: a decline carried forward (founder decision: option A — the bridge stamps it at filing). A ghost that proposes the same
+//    change as one declined before on the project is filed already declined, with the earlier decline's words, who made it and the
+//    changeset it came from (review.carried_from). The match is the bridge's, on what it stored — never a posted claim. Revit and the
+//    web desk read the stamp as any decline: unticked and locked; a lead re-opens it on the web desk.
+
+/** What a ghost changes, as one text — the element, the op and what it sets: a retype's type (and family), an attach's two levels, a
+ *  set_parameter's parameter and value. The UniqueId is compared in lower case (validateChangeset's own rule); a type's, a family's
+ *  and a level's name too (C13: the add-in resolves each by name case-insensitively — ChangesetExecutor's OrdinalIgnoreCase — so
+ *  "bds_ext_arc_cmu_200 MM" IS the declined type in Revit); a value as stored. Null for a create (it names no existing element) and
+ *  for anything not whole: such a ghost is never matched, so never carried. */
+export function carryKey(el) {
+  const uid = el?.target?.unique_id, p = el?.place ?? {};
+  if (typeof uid !== "string" || uid === "") return null;
+  const one = (s) => (typeof s === "string" && s.trim() !== "" ? s.trim() : null);
+  const name = (s) => one(s)?.toLowerCase() ?? null;
+  const head = [el.op, el.kind, uid.toLowerCase()];
+  if (el.op === "retype") return name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName), name(p.FamilyName)]) : null;
+  if (el.op === "attach") return name(p.BaseLevel) && name(p.TopLevel) ? JSON.stringify([...head, name(p.BaseLevel), name(p.TopLevel)]) : null;
+  if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, name(el.parameter), el.to]) : null;
+  return null;
+}
+
+/** MA-3b3 (C1): the role the bridge itself read for a result's reporter when the result came in (reportResult stores it as
+ *  result.reported_role) — a member's role; null for the machine credential ("service": the MCP server, a script, a signed-out PC —
+ *  its `reported_by` is whatever the caller posted) and for a result stored before MA-3b3 (no role stored). */
+const reporterRole = (r) => (typeof r?.reported_role === "string" && r.reported_role !== "" && r.reported_role !== "service" ? r.reported_role : null);
+
+/** MA-3b3 (C7): a create as far as it can be compared — its kind, type and level. Never a match (a create names no existing element):
+ *  only whether a create like it was declined before, so that is said. */
+const createLike = (el) => JSON.stringify([el?.kind ?? null, el?.place?.TypeName ?? null, el?.place?.LevelName ?? el?.place?.BaseLevel ?? null]);
+
+/** The elements of a new filing, each stamped with the decline that stands for the same change on the project. `earlier` is every
+ *  changeset the project holds (any status). Each earlier ghost gives ONE decision, with the time it was made (C2: a web decline's or
+ *  a re-open's review.at, a result's reported_at; the changeset's created_at only when that time is missing); the decisions are
+ *  sorted by that time — never by when their changesets were filed — and the NEWEST decision on a change stands (the same moment: a
+ *  decline before a clear, so the clear stands):
+ *    · applied since (in a result's applied list) — nothing stands; unless the bridge itself recorded that apply as made OVER a
+ *      standing decline (the result's applied_over_late_decline or applied_over_decline_unchecked — C12): then the decline, a
+ *      person's decision, stands and is carried. Revit was told of such an apply with the Undo hint, and an Undo writes no doc
+ *      field (reportReverted is a ledger row), so the apply is never the office's word that the decline is void;
+ *    · declined on the web and not re-opened — carried (the web's reason, reviewer, role and time);
+ *    · rejected by Revit with a reason for that ghost (result.reasons), reported by a signed-in member (C1: result.reported_role is
+ *      a member's role) — carried (that reason, the reporter, that role, the report's time);
+ *    · the same, reported by the machine credential or with no role stored — NOT carried and counted (`unverified`): under the
+ *      machine credential the reporter's name is the caller's claim, and a binding decline is a signed-in person's;
+ *    · re-opened by a lead — nothing stands (a re-opened decline is not carried);
+ *    · rejected by Revit with no reason of its own — NOT carried and counted (`no_reason`): the stored result cannot tell a row a
+ *      person unticked from an element Revit removed at commit or an Apply that rolled back (all three are `rejected`).
+ *  Neither count ever replaces a decline that stands. A decline already carried keeps its first origin and its first time
+ *  (carried_from is copied, never chained), so a later re-open of the origin outranks every copy. A carried review is at rev 0 — the
+ *  revision the changeset is filed at — and a result that applies it is refused (resultConflicts).
+ *  `creates` (C7): the creates of this filing of the same kind, type and level as a create declined before and not applied by its
+ *  changeset — none can be matched, and that is said.
+ *  Answers {elements, carried: [{proposal_guid, name, origin, from, from_name, from_guid}], no_reason, creates, unverified}. Pure. */
+export function carryDeclines(elements, earlier) {
+  const events = []; // one decision per earlier ghost: {key, at, review} | {key, at, clear} | {key, at, unsaid} | {key, at, unverified}
+  const declinedCreates = new Set();
+  for (const cs of earlier ?? []) {
+    const r = cs?.result ?? null;
+    const over = new Set([...(r?.applied_over_late_decline ?? []), ...(r?.applied_over_decline_unchecked ?? [])].map((x) => x?.proposal_guid)); // C12
+    const applied = new Set((r?.applied ?? []).map((a) => a?.proposal_guid).filter((g) => !over.has(g)));
+    const rejected = new Set(r?.rejected ?? []);
+    const why = (g) => (r?.reasons && Object.prototype.hasOwnProperty.call(r.reasons, g) && typeof r.reasons[g] === "string" ? r.reasons[g] : null);
+    const role = reporterRole(r);
+    const at = (t) => String(t ?? cs?.created_at ?? "");
+    for (const el of cs?.elements ?? []) {
+      const g = el?.proposal_guid, key = carryKey(el);
+      const web = reviewState(el) === "declined", reasoned = rejected.has(g) && why(g) != null;
+      if (!key) { if (!el?.target && !applied.has(g) && (web || (reasoned && role))) declinedCreates.add(createLike(el)); continue; }
+      const decline = (reason, by, as, when, origin) => ({ state: "declined", action: "decline", reason, by, role: as, at: when, rev: 0,
+        carried_from: el.review?.carried_from ?? { changeset: cs.id, name: cs.name, proposal_guid: g, origin } });
+      if (applied.has(g)) events.push({ key, at: at(r.reported_at), clear: true });
+      else if (web) events.push({ key, at: at(el.review.at), review: decline(el.review.reason, el.review.by, el.review.role ?? null, el.review.at, "web") });
+      else if (reasoned && role) events.push({ key, at: at(r.reported_at), review: { ...decline(why(g), r.reported_by ?? "an unknown account", role, r.reported_at ?? null, "revit"),
+        carried_from: { changeset: cs.id, name: cs.name, proposal_guid: g, origin: "revit" } } }); // Revit's own, newer decline: its own origin
+      else if (reasoned) events.push({ key, at: at(r.reported_at), unverified: true });
+      else if (el.review?.action === "reopen") events.push({ key, at: at(el.review.at), clear: true });
+      else if (rejected.has(g)) events.push({ key, at: at(r.reported_at), unsaid: true });
+    }
+  }
+  // C2: by decision time (ISO text compares as time); the same moment: a decline before a clear. The sort is stable.
+  events.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (a.clear ? 1 : 0) - (b.clear ? 1 : 0)));
+  const standing = new Map(); // carryKey → the newest decision; a count (unsaid, unverified) never replaces a decline that stands
+  for (const e of events) if (e.review || e.clear || !standing.get(e.key)?.review) standing.set(e.key, e);
+  const carried = [];
+  let noReason = 0, unverified = 0, creates = 0;
+  const out = (elements ?? []).map((el) => {
+    const key = carryKey(el);
+    if (!key) { if (!el?.target && declinedCreates.has(createLike(el))) creates++; return el; }
+    const s = standing.get(key);
+    if (s?.review) {
+      const from = s.review.carried_from;
+      carried.push({ proposal_guid: el.proposal_guid, name: ghostName(el), origin: from.origin, from: from.changeset, from_name: from.name, from_guid: from.proposal_guid });
+      return { ...el, review: s.review };
+    }
+    if (s?.unsaid) noReason++;
+    else if (s?.unverified) unverified++;
+    return el;
+  });
+  return { elements: out, carried, no_reason: noReason, creates, unverified };
+}
+
+/** A decline in words, for a refusal: where it was made and by whom — and, for a carried one, the changeset it was carried from. An
+ *  origin not known is "before" (C15: Revit's ReviewLine and the desk's declinedBy say the same), never guessed. */
+export const declineWords = (r) => (r?.carried_from
+  ? `declined ${r.carried_from.origin === "revit" ? "in Revit" : r.carried_from.origin === "web" ? "on the web" : "before"} by ${r.by}${r.role ? ` (${r.role})` : ""} in "${r.carried_from.name}" and carried here by the bridge`
+  : `declined on the web by ${r?.by} (${r?.role})`);

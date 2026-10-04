@@ -1,0 +1,128 @@
+{
+  "_": "MA-3b3: a decline carried forward (changesets-logic carryDeclines). `earlier` is what the project's changeset store holds, oldest first; `changeset` is the next filing as the bridge stores it — vitest proves its elements' reviews, its `carry` and `carried` (the ledger row's list) from `earlier` and the same elements without a review. tools/promote-check and the web desk's test read `changeset` as the add-in and the desk do. n-1: declined on the web before (a-1). n-2: declined in Revit before with a reason, reported by a signed-in contributor (a-2; its UniqueId is posted in capitals; cs-b's decline is of another type and does not match). n-3: rejected in Revit before with no reason of its own (a-3) — not carried, counted. n-4: applied before (a-4). n-5: a lead re-opened its decline (a-5). n-6: a create — never matched; the project holds an earlier declined create (a-6), so it is counted. n-7: declined in Revit (a-7), then applied by a later changeset (c-1) — the newest decision stands. n-8: rejected in Revit before with a reason, but reported by the machine credential (d-1, reported_role service) — not carried, counted (unverified).",
+  "earlier": [
+    {
+      "id": "cs-a", "name": "Promote (DD) · GR-FFL", "source": "promote", "claimed": true, "status": "partially_applied",
+      "created_at": "2026-10-04T08:00:00.000Z", "updated_at": "2026-10-04T10:00:00.000Z", "review_rev": 4,
+      "elements": [
+        { "proposal_guid": "a-1", "kind": "wall", "op": "retype", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } },
+          "review": { "state": "declined", "action": "decline", "reason": "wrong type: W 1 is a party wall", "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z", "rev": 1 } },
+        { "proposal_guid": "a-2", "kind": "wall", "op": "retype", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c401", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } } },
+        { "proposal_guid": "a-3", "kind": "wall", "op": "retype", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c402", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 3" } } },
+        { "proposal_guid": "a-4", "kind": "wall", "op": "attach", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": null },
+          "place": { "BaseLevel": "GR-FFL", "TopLevel": "01-FFL" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } } },
+        { "proposal_guid": "a-5", "kind": "wall", "op": "retype", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c405", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 5" } },
+          "review": { "state": "proposed", "action": "reopen", "reason": "the client confirmed W 5 is external", "by": "lead@example.com", "role": "lead", "at": "2026-10-04T09:30:00.000Z", "rev": 3 } },
+        { "proposal_guid": "a-6", "kind": "wall", "op": "create", "pretick": false, "target": null,
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [0, 0, 0], "end": [5000, 0, 0] } },
+          "validate": { "identity": { "Class": "IfcWall", "Name": "W 9" } },
+          "review": { "state": "declined", "action": "decline", "reason": "W 9 is not in the brief", "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z", "rev": 1 } },
+        { "proposal_guid": "a-7", "kind": "wall", "op": "retype", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c406", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 6" } } }
+      ],
+      "exceptions": [],
+      "result": {
+        "applied": [{ "proposal_guid": "a-4", "revit_element_id": 312312, "revit_unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }],
+        "rejected": ["a-1", "a-2", "a-3", "a-5", "a-6", "a-7"], "note": "GR-FFL reviewed in Revit",
+        "reported_at": "2026-10-04T10:00:00.000Z", "reported_by": "modeller@example.com", "reported_role": "contributor", "review_rev_seen": { "value": 3, "claimed": true },
+        "declined_on_web": [
+          { "proposal_guid": "a-1", "name": "retype wall \"W 1\"", "by": "reviewer@example.com", "role": "contributor", "reason": "wrong type: W 1 is a party wall", "rev": 1 },
+          { "proposal_guid": "a-6", "name": "create wall \"W 9\"", "by": "reviewer@example.com", "role": "contributor", "reason": "W 9 is not in the brief", "rev": 1 }
+        ],
+        "applied_over_late_decline": [], "applied_over_decline_unchecked": [],
+        "reasons": { "a-2": "W 2 is demolished in the next package", "a-7": "W 6 waits for the structural model" }
+      }
+    },
+    {
+      "id": "cs-b", "name": "Core walls (agent)", "source": "mcp", "claimed": true, "status": "proposed",
+      "created_at": "2026-10-04T11:00:00.000Z", "updated_at": "2026-10-04T11:30:00.000Z", "review_rev": 1,
+      "elements": [
+        { "proposal_guid": "b-1", "kind": "wall", "op": "retype", "pretick": false,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c401", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_INT_ARC_CMU_100 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } },
+          "review": { "state": "declined", "action": "decline", "reason": "W 2 is not an internal wall", "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T11:30:00.000Z", "rev": 1 } }
+      ],
+      "exceptions": [], "result": null
+    },
+    {
+      "id": "cs-c", "name": "Promote (DD) · GR-FFL", "source": "promote", "claimed": true, "status": "applied",
+      "created_at": "2026-10-04T12:00:00.000Z", "updated_at": "2026-10-04T12:10:00.000Z", "review_rev": 1,
+      "elements": [
+        { "proposal_guid": "c-1", "kind": "wall", "op": "retype", "pretick": true,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c406", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 6" } } }
+      ],
+      "exceptions": [],
+      "result": {
+        "applied": [{ "proposal_guid": "c-1", "revit_element_id": 312838, "revit_unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c406" }],
+        "rejected": [], "note": null, "reported_at": "2026-10-04T12:10:00.000Z", "reported_by": "modeller@example.com", "reported_role": "contributor", "review_rev_seen": { "value": 0, "claimed": true },
+        "declined_on_web": [], "applied_over_late_decline": [], "applied_over_decline_unchecked": []
+      }
+    },
+    {
+      "id": "cs-d", "name": "Partitions (script)", "source": "mcp", "claimed": true, "status": "declined",
+      "created_at": "2026-10-04T12:30:00.000Z", "updated_at": "2026-10-04T12:40:00.000Z", "review_rev": 1,
+      "elements": [
+        { "proposal_guid": "d-1", "kind": "wall", "op": "retype", "pretick": false,
+          "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c407", "type_before": "Generic - 200mm" },
+          "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 7" } } }
+      ],
+      "exceptions": [],
+      "result": {
+        "applied": [], "rejected": ["d-1"], "note": "declined by a script", "reported_at": "2026-10-04T12:40:00.000Z", "reported_by": "lead@example.com", "reported_role": "service",
+        "review_rev_seen": { "value": 0, "claimed": true }, "declined_on_web": [], "applied_over_late_decline": [], "applied_over_decline_unchecked": [],
+        "reasons": { "d-1": "W 7 stays as modelled" }
+      }
+    }
+  ],
+  "changeset": {
+    "id": "cs-ma3b3", "name": "Promote (DD) · GR-FFL", "source": "promote", "claimed": true, "status": "proposed",
+    "created_at": "2026-10-04T13:00:00.000Z", "updated_at": "2026-10-04T13:00:00.000Z", "review_rev": 0,
+    "elements": [
+      { "proposal_guid": "n-1", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } },
+        "review": { "state": "declined", "action": "decline", "reason": "wrong type: W 1 is a party wall", "by": "reviewer@example.com", "role": "contributor", "at": "2026-10-04T09:00:00.000Z", "rev": 0,
+          "carried_from": { "changeset": "cs-a", "name": "Promote (DD) · GR-FFL", "proposal_guid": "a-1", "origin": "web" } } },
+      { "proposal_guid": "n-2", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5A1C2B3D-1111-2222-3333-444455556666-0004C401", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 2" } },
+        "review": { "state": "declined", "action": "decline", "reason": "W 2 is demolished in the next package", "by": "modeller@example.com", "role": "contributor", "at": "2026-10-04T10:00:00.000Z", "rev": 0,
+          "carried_from": { "changeset": "cs-a", "name": "Promote (DD) · GR-FFL", "proposal_guid": "a-2", "origin": "revit" } } },
+      { "proposal_guid": "n-3", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c402", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 3" } } },
+      { "proposal_guid": "n-4", "kind": "wall", "op": "attach", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", "type_before": null },
+        "place": { "BaseLevel": "GR-FFL", "TopLevel": "01-FFL" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 1" } } },
+      { "proposal_guid": "n-5", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c405", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 5" } } },
+      { "proposal_guid": "n-6", "kind": "wall", "op": "create", "pretick": false, "target": null,
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [0, 0, 0], "end": [5000, 0, 0] } },
+        "validate": { "identity": { "Class": "IfcWall", "Name": "W 9" } } },
+      { "proposal_guid": "n-7", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c406", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 6" } } },
+      { "proposal_guid": "n-8", "kind": "wall", "op": "retype", "pretick": true,
+        "target": { "unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c407", "type_before": "Generic - 200mm" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm" }, "validate": { "identity": { "Class": "IfcWall", "Name": "W 7" } } }
+    ],
+    "carry": { "carried": 2, "no_reason": 1, "creates": 1, "unverified": 1 },
+    "exceptions": [], "result": null
+  },
+  "carried": [
+    { "proposal_guid": "n-1", "name": "retype wall \"W 1\"", "origin": "web", "from": "cs-a", "from_name": "Promote (DD) · GR-FFL", "from_guid": "a-1" },
+    { "proposal_guid": "n-2", "name": "retype wall \"W 2\"", "origin": "revit", "from": "cs-a", "from_name": "Promote (DD) · GR-FFL", "from_guid": "a-2" }
+  ]
+}

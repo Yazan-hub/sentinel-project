@@ -80,9 +80,8 @@ public static class StoreyBatch
         var cs = Merge(entry);
         var els = cs.Elements ?? new List<ChangesetElementDto>();
         int V(string status) => els.Count(e => (e.Verdict?.Status ?? "recorded") == status);
-        int declined = els.Count(ChangesetTrust.DeclinedOnWeb);
         return $"{cs.Name} — {cs.Source}{(cs.Claimed == true ? " (claimed)" : "")} · {Age(cs.CreatedAt, nowUtc)} · {els.Count} ghost(s): {V("accepted")} accepted, {V("rejected")} rejected, {V("recorded")} recorded" +
-               (declined > 0 ? $" · {declined} declined on the web" : "");
+               (ChangesetTrust.DeclinedCount(els) is { } declined ? " · " + declined : ""); // MA-3b3: "(n carried)" when the bridge carried some
     }
 
     /// <summary>"just now", "12 min ago", "3 h ago", "2 d ago" — the bridge's created_at read as UTC; "age unknown" when it is not a time.</summary>
@@ -114,6 +113,12 @@ public static class StoreyBatch
             },
             Elements = batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).ToList(),
             Exceptions = batch.SelectMany(c => c.Exceptions ?? new List<ExceptionRowDto>()).ToList(),
+            // MA-3b3: what the bridge carried, and could not, counted over the storey's parts.
+            Carry = batch.All(c => c.Carry == null) ? null : new CarryDto
+            {
+                Carried = batch.Sum(c => c.Carry?.Carried ?? 0), NoReason = batch.Sum(c => c.Carry?.NoReason ?? 0), Creates = batch.Sum(c => c.Carry?.Creates ?? 0),
+                Unverified = batch.Sum(c => c.Carry?.Unverified ?? 0),
+            },
         };
     }
 

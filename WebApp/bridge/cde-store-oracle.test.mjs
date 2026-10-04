@@ -13,7 +13,7 @@ vi.hoisted(() => {
 });
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { ensureProject, createProject, projectNotFound, docListLazy, bcfListTopics } from "./cde-store.mjs";
+import { ensureProject, createProject, projectNotFound, docList, docListLazy, bcfListTopics } from "./cde-store.mjs";
 
 const jwt = (sub) => "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub, email: `${sub}@example.test`, role: "authenticated" })).toString("base64url") + ".sig";
 const PROJECTS = [{ id: "11111111-1111-4111-8111-111111111111", key: "alpha" }, { id: "22222222-2222-4222-8222-222222222222", key: "beta" }];
@@ -92,5 +92,23 @@ describe("bcfListTopics — only the machine credential migrates this machine's 
   it("the machine credential still migrates them", async () => {
     await bcfListTopics("beta", {}, local);
     expect(inserts()).toEqual([{ table: "bcf_topics", method: "POST", sub: null }]);
+  });
+});
+
+// MA-3b3 (C3): the database caps one reply (PostgREST max-rows); with the ascending order a cut read drops the NEWEST documents
+// without a word — for changesets, the ones that hold the re-opens and the applies.
+describe("docList — reads a store in pages", () => {
+  it("a full page is followed by the next one; a short page ends the read; every row is answered, in order", async () => {
+    const asked = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      const q = new URL(String(url)).searchParams;
+      asked.push([q.get("order"), q.get("limit"), q.get("offset")]);
+      const offset = Number(q.get("offset"));
+      return new Response(JSON.stringify(Array.from({ length: offset === 0 ? 1000 : 3 }, (_, i) => ({ data: { n: offset + i } }))), { status: 200 });
+    });
+    const rows = await docList("changeset", "p1");
+    expect(rows).toHaveLength(1003);
+    expect([rows[0], rows[999], rows[1002]]).toEqual([{ n: 0 }, { n: 999 }, { n: 1002 }]);
+    expect(asked).toEqual([["created_at.asc,doc_id.asc", "1000", "0"], ["created_at.asc,doc_id.asc", "1000", "1000"]]);
   });
 });

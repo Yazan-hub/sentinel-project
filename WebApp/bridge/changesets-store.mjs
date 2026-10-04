@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, applyDecisions, reopenDecline, resultConflicts, resultReasons } from "./changesets-logic.mjs";
+  reviewRev, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -119,6 +119,13 @@ export async function proposeChangeset(key, body, actor, deps) {
   const cite = needsCiting(body) ? await citerFor(key, d) : null;
   const v = validateChangeset(body, { member: role != null && role !== "service", type, cite }); // 400/413 before any changeset is stored
   const proj = await d.ensureProject(key);
+  // MA-3b3: every changeset the project holds, read before anything is written — a ghost declined before is filed already declined
+  // (carryDeclines). A read that fails refuses the filing: filing it undecided would be a guess that nothing was declined.
+  // ponytail: one whole-store read per filing (Promote files one changeset per storey part); a status/limit on the list, or an
+  // index of declines, when a project's changesets make it heavy.
+  let earlier;
+  try { earlier = await d.docList(STORE, proj.id); }
+  catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to this changeset; send it again`); }
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
@@ -131,13 +138,21 @@ export async function proposeChangeset(key, body, actor, deps) {
     note: `changeset: ${v.name}`,
   });
 
+  // MA-3b3: the match is the bridge's, on the elements it validated and typed and on what it stored — never a posted claim (a
+  // posted `review` is not kept: validateChangeset lists it under `ignored`).
+  const carry = carryDeclines(attachVerdicts(v.elements, adj), earlier);
+  const carrySaid = carry.carried.length + carry.no_reason + carry.creates + carry.unverified > 0;
   const now = new Date().toISOString();
   const changeset = {
     id: randomUUID(),
     name: v.name, source: v.source, actor: resolveActor(actor, "agent"),
     status: "proposed", created_at: now, updated_at: now, review_rev: 0, // MA-3a: bumped and swapped on by every later write
     adjudication: { verdict: adj.verdict, summary: adj.summary, ids_source: adj.ids_source, audit_id: adj.audit_id ?? null, unattributed: unattributedFailures(v.elements, adj) },
-    elements: attachVerdicts(v.elements, adj),
+    elements: carry.elements,
+    // MA-3b3: how many ghosts were filed already declined, and how many could not be (rejected in Revit before with no reason of
+    // their own; with a reason no signed-in member reported — C1; creates like one declined before — C7) — on the 201 reply and
+    // every later read. Absent when all are 0.
+    ...(carrySaid ? { carry: { carried: carry.carried.length, no_reason: carry.no_reason, creates: carry.creates, unverified: carry.unverified } } : {}),
     exceptions: v.exceptions, // the walls a planner sent to a person — shown to the reviewer, never placed
     // MA-1a item 8: the bridge's trust decisions — the source is a claim, and what was posted and not kept is listed with
     // its reason ("ignored: set by the bridge"), so the 201 reply and every later read say it.
@@ -147,7 +162,9 @@ export async function proposeChangeset(key, body, actor, deps) {
   await d.docInsert(STORE, proj.id, changeset.id, changeset, { service: true }); // C1 (migration 0037): the bridge's write, after the role check above
   await d.audit(proj.id, "changeset", changeset.id, "changeset_proposed", actor || "agent", null,
     { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source,
-      claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by === "bridge").length });
+      claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by === "bridge").length,
+      // MA-3b3: the ONE row of the filing says how many declines were carried, each with where it came from, and what was not.
+      ...(carrySaid ? { carried: carry.carried.length, carried_from: carry.carried, not_carried: { no_reason: carry.no_reason, creates: carry.creates, unverified: carry.unverified } } : {}) });
   return changeset;
 }
 
@@ -173,6 +190,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   // A result says what a human ticked in Revit and is written once. H4: Revit signs in per user, so it is that user's
   // contributor check (the machine credential still passes as service); a viewer reports nothing, before any read.
   await d.requireMinRole(key, "contributor");
+  // MA-3b3 (C1): the role the bridge reads for this caller — a member's, or "service" for the machine credential (whose `actor` is
+  // the caller's claim). Stored with the result: only a member's reason is a decline that is carried to the next filing.
+  const role = await d.myRole(key);
   const proj = await d.ensureProject(key);
   const appliedArr = Array.isArray(applied) ? applied : [];
   const rejectedArr = Array.isArray(rejected) ? rejected : [];
@@ -197,7 +217,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     // MA-3a (Q2): a web decline Revit had seen binds — applying it is refused; one that landed after Revit's re-check is recorded.
     const conflicts = resultConflicts(cs, appliedArr.map((a) => a.proposal_guid), rejectedArr, review_rev);
     if (conflicts.refused.length)
-      throw err(409, conflicts.refused.map((x) => `${x.name} was declined on the web by ${x.by} (${x.role}): "${x.reason}" — review_rev ${x.rev}, which this result says Revit re-checked`).join("; ") +
+      // MA-3b3: a carried decline names its origin; C6: it was on the filing's 201 reply, so it is refused whatever the result claims.
+      throw err(409, conflicts.refused.map((x) => `${x.name} was ${declineWords(x)}: "${x.reason}" — ${x.carried_from ? "the changeset was filed with it declined (review_rev 0)" : `review_rev ${x.rev}, which this result says Revit re-checked`}`).join("; ") +
         "; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed");
     // MA-3b2: Revit's reason per declined ghost — validated before anything is written, stored beside the web's declines.
     const why = resultReasons(rejectedArr, reasons);
@@ -208,6 +229,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
         rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
         reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
+        reported_role: role ?? null, // MA-3b3 (C1): the bridge's own reading — never a posted field
         // C2: the revision is the client's claim; a result without one is unchecked, never late.
         review_rev_seen: review_rev == null ? null : { value: review_rev, claimed: true },
         declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late, applied_over_decline_unchecked: conflicts.unchecked,
@@ -233,7 +255,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
       ...(why ? { reasons: why } : {}), // MA-3b2: Revit's reason per declined ghost, as stored
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
       // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
-      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
+      // MA-3b3 (C14): how many of those the bridge had carried from an earlier changeset (a web decline, or Revit's) — absent when none (E4).
+      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.declined_on_web.some((x) => x.carried_from) ? { declined_before: conflicts.declined_on_web.filter((x) => x.carried_from).length } : {}),
+      ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
       ...(conflicts.unchecked.length ? { applied_over_decline_unchecked: conflicts.unchecked, unchecked_why: UNCHECKED_WHY } : {}) });
   return { ...updated, ledger: ledgerRef(row) };
 }
