@@ -84,7 +84,7 @@ The plan builds the default of each. None needs an answer before the work starts
 - **S3 (the entry, "the bridge validates each key is in `rejected`" and the scout's "refuse a reason on a web-declined ghost").** A key must be a ghost the result rejects; one the web also declined is kept, not refused (F3 A).
 - **S4 (the entry, "App.Events.SelectAndShow for a target").** A new overload by UniqueId that says its outcome; the id overload stays silent for its three callers. A `set_parameter` targets a type: no Show.
 - **S5 (the entry, "the bridge did not answer within N s").** Said by the client for every caller (F5 A), N from the client's own timeouts (8 s reads, 120 s writes); a connection that failed says `the connection failed — <the cause>` instead of `An error occurred while sending the request.`
-- **S6 (the scout, "the rolled-back path sends no reasons").** Kept: when Revit rolls the storey back, every ghost is rejected by Revit, not by the reviewer; the note carries the reviewer's note as before.
+- **S6 (the scout, "the rolled-back path sends no reasons").** **Overridden by C14.** Was: kept: when Revit rolls the storey back, every ghost is rejected by Revit, not by the reviewer; the note carries the reviewer's note as before.
 
 ## Review amendments (BINDING — the critic's review of `4580361`, 2026-10-04; each is also written into the task text it changes, and where the two differ the amendment wins)
 
@@ -103,6 +103,16 @@ No critical finding. C1–C6 important, C7–C13 minor; none rejected.
 - **C11 (drill — Z-1 rested on a screenshot).** Binding: Z-1 also records the Properties palette's type selector after Show; if it does not show one wall (`Walls (1)`), the row fails.
 - **C12 (drill — the closing list's master rebuild is a deploy).** Binding: it runs only under the founder's same explicit OK; otherwise the stated fallback.
 - **C13 (Next — MA-3b2b).** Binding: Revit's reasons are free text — rendered as text (`textContent`), never as HTML.
+
+**After the build — three reviews of `4e3cd47` (2026-10-04). C14 and C16 important, the rest minor.**
+
+- **C14 (a rolled-back Apply dropped the reviewer's reasons without a word — overrides S6).** The rows the reviewer unticked were declined by the reviewer, the window showed their reason as taken, and a rolled-back changeset is rejected for good. Binding: the rolled-back result carries `StoreyBatch.Own(f, reasons)` (every key an unticked ghost, which the result rejects), so `ReasonsLine` says what the bridge kept. §45 scans it and that no result of the review passes `null` for its reasons.
+- **C15 (a result the bridge had already taken said nothing of its reasons).** `taken ?? $"…" + ReasonsLine(…)`: `+` binds tighter than `??`. Binding: the words are parenthesised and, when the 409 is this result landed earlier, the count is read from the stored result (`UnreportedResults.StoredReply(stored)`). §44 counts through it; §45 scans both lines.
+- **C16 (MA-3b's stamp check could drop a record on another file's evidence).** A record's model is its central's path (every local shares it) or a never-saved model's title (every one is "Project1"): in another copy the stamps are absent, the bridge says proposed, the record went, and a second Apply would duplicate what the first copy still holds. Binding: the record keeps the file's own `Document.PathName` (`path`; "" when never saved; absent on older records, which behave as before). When no stamp is found and this is not that file — or it was never saved — `UnreportedResults.Elsewhere` keeps the record and says so, with the file to delete once the changeset's status is checked; the bridge is not asked. §42 checks the words and the two wiring lines. Ceiling: an Undo in a never-saved model keeps its record until that file is deleted by hand.
+- **C17 (a reason whose only unticked rows have no proposal_guid passed C3's refusal).** Binding: the refusal tests the rows the reason is assigned to (`&& x.El.ProposalGuid != null`). §45's line follows.
+- **C18 (Decline all took a note that is blank to the eye).** Binding: the window and the command test the note with `ChangesetTrust.Blank` (the reasons' own blank test: spaces and format characters); several lines or a long note is still a note. §44 checks it; §42's two scan lines follow.
+- **C19 (§44's body check crashed the run when the body lost `reasons`).** Binding: read with `TryGetProperty` — a counted FAIL.
+- Not changed: a Decline all that landed with its reply lost still reads "the bridge refused it" on Retry report (MA-3b's C1 takes only a result with applied ghosts; §42 pins it) — a known understatement, nothing lost; an exception after `Applying` on the decline path leaves the window without Apply (not reachable by any input found).
 
 ## Engineering decisions (taken here; a reviewer may challenge them)
 

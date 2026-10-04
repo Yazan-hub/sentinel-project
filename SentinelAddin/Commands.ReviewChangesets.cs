@@ -172,6 +172,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                                              && ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
             var (report, ask, words) = UnreportedResults.Verified(r, found);
             if (report) send.Add(r);
+            // MA-3b2 review C16: none here, and this is not the file it was applied in (another local of the central, or a never-saved
+            // model matched by its title) — kept and said; the bridge's "proposed" is no evidence about that file.
+            else if (ask && UnreportedResults.Elsewhere(r, doc.PathName) is { } elsewhere) { rep.Words.Add(elsewhere); rep.Left.Add(r); }
             else if (ask) gone.Add(r); // review C9: none in the model — the bridge is asked what it holds before the record goes
             else
             {
@@ -225,6 +228,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         var stored = ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var readErr);
                         if (stored == null) unread = readErr ?? "no answer";
                         else taken = UnreportedResults.AlreadyTaken(r, stored);
+                        // MA-3b2 review C15: the reasons that result holds are counted from the stored result, as from a reply.
+                        if (taken != null) reply = UnreportedResults.StoredReply(stored);
                     }
                     if (landed || taken != null)
                     {
@@ -232,7 +237,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         rep.Landed.Add((r, reply));
                         // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
                         // MA-3b2: the decline reasons the bridge kept, counted from its reply (claimed vs verified).
-                        rep.Words.Add(taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)})." + ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
+                        rep.Words.Add((taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)}).") + ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
                         // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
                         // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
                         // Review C8: an Undo that came while this report was in flight is posted here, once.
@@ -365,7 +370,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 if (ticked.Count == 0)
                 {
                     // AI-5: Decline all needs a reason — the note, recorded on each changeset's result (result.note) and its changeset_applied row.
-                    if (string.IsNullOrWhiteSpace(note))
+                    if (ChangesetTrust.Blank(note)) // review C18: blank to the eye, by the reasons' rule
                     {
                         window.Refused(ChangesetTrust.DeclineNeedsReason);
                         return;
@@ -425,9 +430,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     if (result.Error != null)
                     {
                         // Whole changeset — MA-2d: the whole storey — rolled back: each changeset reported declined with the reason, honestly.
+                        // MA-3b2 review C14 (overrides S6): with the reviewer's reasons for the rows they unticked — every key a ghost this
+                        // result rejects; the changeset is rejected for good, so a reason dropped here could never be recorded.
                         Tell($"Transaction failed and was rolled back:\n{result.Error}\n\nReporting the declines to the bridge…", interim: true);
                         Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
-                                $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"), null, here, null, null)).ToList()), rep =>
+                                $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"), null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>
                         {
                             // Review C14: counted from the declines the bridge took (C6's rule), never the number sent.
                             int declined = rep.Landed.Count;
@@ -451,6 +458,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
                         records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));
                     }
+                    foreach (var r in records) r.Path = doc.PathName ?? ""; // MA-3b2 review C16: the file itself, beside Doc (a local's central)
                     // AI-2: the record first — on this PC before the report is sent, so a result the bridge never hears of is never forgotten
                     // and never applied twice.
                     var unsaved = records.Where(r => r.Applied.Count > 0 && !UnreportedResults.Write(r)).Select(r => $"\"{r.Name}\"").ToList();

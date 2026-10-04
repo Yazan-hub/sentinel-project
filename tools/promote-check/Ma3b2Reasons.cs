@@ -45,10 +45,13 @@ static partial class Check
         var rejected = new List<string> { "g-1", "g-3", "g-4" };
         using var body = JsonDocument.Parse(ChangesetClient.ResultBody(applied, rejected, "GR-FFL reviewed in Revit", 1, own2));
         using var bare = JsonDocument.Parse(ChangesetClient.ResultBody(applied, rejected, null, null, null));
-        Ok(body.RootElement.GetProperty("reasons").GetProperty("g-3").GetString() == "W 2 is demolished in the next package" && body.RootElement.GetProperty("reasons").EnumerateObject().Count() == 1
+        // Review C19: a body that lost its reasons is a counted FAIL, not a crash of the run.
+        bool hasReasons = body.RootElement.TryGetProperty("reasons", out var sentReasons) && sentReasons.ValueKind == JsonValueKind.Object;
+        bool bareReasons = bare.RootElement.TryGetProperty("reasons", out var noReasons) && noReasons.ValueKind == JsonValueKind.Null;
+        Ok(hasReasons && sentReasons.TryGetProperty("g-3", out var g3) && g3.GetString() == "W 2 is demolished in the next package" && sentReasons.EnumerateObject().Count() == 1
            && body.RootElement.GetProperty("review_rev").GetInt32() == 1 && body.RootElement.GetProperty("applied")[0].GetProperty("proposal_guid").GetString() == "g-2"
            && body.RootElement.GetProperty("rejected").GetArrayLength() == 3 && body.RootElement.TryGetProperty("actor", out _)
-           && bare.RootElement.GetProperty("reasons").ValueKind == JsonValueKind.Null && bare.RootElement.GetProperty("review_rev").ValueKind == JsonValueKind.Null,
+           && bareReasons && bare.RootElement.GetProperty("review_rev").ValueKind == JsonValueKind.Null,
            "the result's body carries reasons {proposal_guid: text} beside applied, rejected, note, actor and review_rev; with none it is null, which the bridge reads as none");
 
         var root = Path.Combine(Path.GetTempPath(), "ma3b2-check-" + Guid.NewGuid().ToString("N"));
@@ -78,6 +81,19 @@ static partial class Check
            && ChangesetTrust.ReasonsLine("{\"id\":\"c\",\"result\":{\"note\":null}}", 2) == "\n⚠ 2 decline reason(s) were sent and the bridge kept 0" + notKept
            && ChangesetTrust.ReasonsLine("not json", 1) == "\n⚠ 1 decline reason(s) were sent and the bridge kept 0" + notKept,
            "a reported result says how many decline reasons the bridge kept — read from its reply (claimed vs verified); a bridge that kept fewer than were sent is said");
+
+        // Review C15: a result the bridge had already taken (its reply was lost, then a 409) is counted the same way, from the stored result re-read.
+        var storedCs = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c\",\"status\":\"partially_applied\",\"result\":{\"applied\":[],\"reasons\":" + rr.GetProperty("stored").GetRawText() + "}}");
+        var bareCs = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c\",\"status\":\"partially_applied\",\"result\":{\"applied\":[]}}");
+        Ok(ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(storedCs), 2) == "\n2 decline reason(s) recorded with it." && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(storedCs), 0) == ""
+           && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(bareCs), 2) == "\n⚠ 2 decline reason(s) were sent and the bridge kept 0" + notKept
+           && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(null), 1) == "\n⚠ 1 decline reason(s) were sent and the bridge kept 0" + notKept,
+           "a result the bridge had already taken says how many decline reasons it holds — counted from the stored result re-read after the 409 (review C15)");
+
+        // Review C18: Decline all's note is blank by the reasons' own rule — a zero-width space is no reason.
+        Ok(ChangesetTrust.Blank(null) && ChangesetTrust.Blank("") && ChangesetTrust.Blank("  \t") && ChangesetTrust.Blank("\u200B") && ChangesetTrust.Blank(" \u200B\uFEFF ")
+           && !ChangesetTrust.Blank("out of scope") && !ChangesetTrust.Blank("two\nlines") && !ChangesetTrust.Blank(new string('x', 501)),
+           "a note that is blank to the eye (spaces, a zero-width space) is no reason for Decline all; a note of several lines or a long one is still a note (review C18)");
 
         // The bridge's failures in plain words (drill MA3b's finding: "Couldn't reach the bridge: A task was canceled.").
         const string notRefreshed = "session not refreshed — retrying (Supabase not reached: A task was canceled.)"; // UserSession.cs:152, :177

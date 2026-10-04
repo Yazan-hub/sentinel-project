@@ -267,6 +267,10 @@ public static class ChangesetTrust
         return text.Trim();
     }
 
+    /// <summary>MA-3b2 review C18: blank to the eye (DeclineReason's own test: only spaces and format characters such as a zero-width
+    /// space) — Decline all's note is tested with it; a note of several lines or a long one is not blank.</summary>
+    public static bool Blank(string text) => DeclineReason(text, out var problem) == null && problem == null;
+
     /// <summary>MA-3b2 (claimed vs verified): what a reported result says of its decline reasons — counted from the bridge's reply (the
     /// stored result.reasons), never from what was sent; "" when none was sent.</summary>
     public static string ReasonsLine(string reply, int sent)

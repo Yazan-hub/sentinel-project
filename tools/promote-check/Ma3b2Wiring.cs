@@ -13,7 +13,8 @@ static partial class Check
 
         int refuse = At(window, "if (problem != null) { Say($\"The reason for \\\"{g.What}\\\" was not taken — {problem}. Nothing was sent.\"); return; }");
         // Review C3: a reason with no unticked row to carry it is refused in words, before anything is sent.
-        int noRow = At(window, "if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled)) { Say($\"The reason for \\\"{g.What}\\\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.\"); return; }");
+        // Review C17: the refusal tests the rows the reason is assigned to (unticked, may be ticked here, with a proposal_guid).
+        int noRow = At(window, "if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) { Say($\"The reason for \\\"{g.What}\\\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.\"); return; }");
         int press = At(window, "_go.IsEnabled = false; Reasons(true);");
         Ok(window.Contains("public event Action<List<string>, List<string>, string, Dictionary<string, string>> DecideRequested;")
            // Review C4: the box is on its own row under the buttons, filling it — no fixed width to clip.
@@ -31,12 +32,17 @@ static partial class Check
         Ok(review.Contains("window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));")
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))")
            && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));")
-           && review.Contains("(string.IsNullOrEmpty(note) ? \"\" : $\" | reviewer: {note}\"), null, here, null, null)).ToList()), rep =>")
+           // Review C14 (overrides S6): a rolled-back storey carries the reasons of the rows the reviewer unticked — never dropped without a word.
+           && review.Contains("(string.IsNullOrEmpty(note) ? \"\" : $\" | reviewer: {note}\"), null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>")
+           && !review.Contains("null, here, null, null)")
            && review.Contains("Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons,"),
-           "a partial Apply and a Decline all carry each changeset's own reasons on its result and its record; a rolled-back storey sends none (Revit declined those, not the reviewer)");
+           "a partial Apply, a Decline all and a rolled-back storey carry each changeset's own reasons (the unticked rows') on its result and its record");
         Ok(review.Contains("var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);")
-           && review.Contains("+ ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +"),
-           "every report of the review sends its record's reasons — one sent again later too — and says how many the bridge kept, from its reply");
+           && review.Contains("+ ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +")
+           // Review C15: a result the bridge had already taken says it too — the words are parenthesised (+ binds tighter than ??).
+           && review.Contains("if (taken != null) reply = UnreportedResults.StoredReply(stored);")
+           && review.Contains("rep.Words.Add((taken ?? $\"\\\"{r.Name}\\\": reported ({ChangesetTrust.LedgerOf(reply)}).\") + ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +"),
+           "every report of the review sends its record's reasons — one sent again later too — and says how many the bridge kept, from its reply (or, for one it had already taken, from the stored result)");
 
         int show = At(review, "window.ShowRequested += el =>"), shown = At(review, "window.Show();");
         string zoom = show > 0 && shown > show ? review.Substring(show, shown - show) : "";

@@ -306,7 +306,7 @@ public sealed class ChangesetReviewWindow : Window
         var ticked = _rows.Where(r => r.Box.IsChecked == true).Select(r => r.El.ProposalGuid).ToList();
         var unticked = _rows.Where(r => r.Box.IsChecked != true).Select(r => r.El.ProposalGuid).ToList();
         // Review M2: Decline all without a reason is refused here at once — no bridge call; the command keeps the check as the backstop.
-        if (ticked.Count == 0 && string.IsNullOrWhiteSpace(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }
+        if (ticked.Count == 0 && ChangesetTrust.Blank(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }
         // MA-3b2: each group's reason goes to its unticked rows that may be ticked here (a row the web declined keeps the web's reason). One
         // the bridge would refuse is refused here, before anything is sent — a result refused after Revit placed its elements is not reported.
         var reasons = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -316,7 +316,7 @@ public sealed class ChangesetReviewWindow : Window
             if (problem != null) { Say($"The reason for \"{g.What}\" was not taken — {problem}. Nothing was sent."); return; }
             if (reason == null) continue;
             // Review C3 (words are said, never silent): a reason with no row to carry it — none unticked, or every unticked one declined on the web.
-            if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled)) { Say($"The reason for \"{g.What}\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent."); return; }
+            if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) { Say($"The reason for \"{g.What}\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent."); return; }
             foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;
         }
         _go.IsEnabled = false; Reasons(true); // review C2: the reasons are taken here — a box typed in afterwards would look recorded and not be
