@@ -827,8 +827,8 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | `evidence:requested` | An "ask the owner" letter is drafted | Recipient kind, request id, actor | TARGET |
 | `build:run` | For each reader or planner run | Reader and version, tool and weight licences, parameters, minutes, model calls, tokens, candidates, gaps | TARGET (C12) |
 | `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | BUILT (MA-2c) as one row per Promote **run** holding all its groups: entity_type `type_gap`, action `type_gap:run · N group(s), M element(s)` (`hold:` actions are Sentinel's own rows and never come through the Revit report route), claimed; each group {category, the type wanted or the size, key params, count, labels, nearest} named by the bridge; a lead's dismissal is `hold:type_gap_dismissed <group>`. No size band (the snap is 0, D16); no evidence ids yet (MA-4) |
-| `changeset_reviewed` | Web desk decisions | For each ghost: accepted or declined, reason, reviewer, role | TARGET |
-| `changeset_reopened` | A lead re-opens a web decline | guid, reason, lead | TARGET |
+| `changeset_reviewed` | Web desk decisions | For each ghost: accepted or declined, reason, reviewer, role | BUILT on `feature/ma3-review-desk` (MA-3a), drill MA3a pending: ONE row per desk post (one changeset, all or none — spec amendment S3), entity_type `changeset`, new value {review_rev, reviewer, role, decisions: [{proposal_guid, name, from, to, reason}]}; the decisions are also on the changeset doc (S1) |
+| `changeset_reopened` | A lead re-opens a web decline | guid, reason, lead | BUILT on `feature/ma3-review-desk` (MA-3a), drill MA3a pending: new value {review_rev, lead, role, proposal_guid, name, declined_by, declined_reason, reason} |
 | `changeset_applied` (extended) | After placement | For each ghost: guid → UniqueId, approver; surviving count; Revit warnings; BLOCK result | TARGET extension |
 | `changeset_reverted` | An Undo or Redo of a Sentinel transaction is seen | guids | TARGET (AI-3) |
 | `verify:measured` | After placement | Status, p95, coverage for each element | TARGET |
@@ -841,7 +841,7 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 - They show in their own section of the Holding Area, derived from the ledger like the rest.
 - Size: M, in MA-2.
 
-**Review states, one per ghost** (in `changesets-logic.mjs`, with tests; TARGET, MA-3)
+**Review states, one per ghost** (in `changesets-logic.mjs`, with tests; BUILT on `feature/ma3-review-desk` (MA-3a), drill MA3a pending — `reviewNext`, `applyDecisions`, `reopenDecline`, `resultConflicts`: a ghost's `review` and the doc's `review_rev` on the changeset doc, every write swapping on `review_rev`; the machine credential never reviews; a result that applies a decline Revit had seen is refused, one declined after Revit's re-check is recorded as `applied_over_late_decline` and said, one applied by a result with no `review_rev` as `applied_over_decline_unchecked`; a decline binds its changeset only — a Promote re-run proposes the ghost again, undecided (carrying it forward is MA-3b); `ticked` is not stored in MA-3a — spec amendment S4)
 1. `proposed`
 2. On the web: `accepted` or `declined` (a decline needs a reason). A web decline **binds**: Revit shows the ghost unticked with the reason, and refuses the tick. A web accept is advice: the ghost still needs the Revit tick.
 3. Only a lead may re-open a decline (`changeset_reopened`).
@@ -873,8 +873,8 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /cde/:key/build/jobs` `{pack, readers[], params}` → job id. `GET /cde/:key/build/jobs/:id` → status, progress, candidates, gaps.
 - `POST /cde/:key/promote/plan` `{stage, scope}` → a changeset id. The add-in makes the plan and posts it here.
 - `POST /cde/:key/lod-state` (the add-in's snapshot). `GET /cde/:key/lod-state`.
-- `POST /changesets/:key/:id/review` `{decisions[]}` (the web desk; follows the review states).
-- `POST /changesets/:key/:id/reopen` `{guid, reason}` (lead only).
+- `POST /changesets/:key/:id/review` `{decisions[]}` (the web desk; follows the review states). BUILT (MA-3a): `{decisions: [{proposal_guid, decision: accept | decline, reason}]}`, a signed-in contributor or above; the machine credential is a 403 ("sign in").
+- `POST /changesets/:key/:id/reopen` `{guid, reason}` (lead only). BUILT (MA-3a) as `{proposal_guid, reason}` (spec amendment S2), a signed-in lead or owner.
 - `POST /changesets/:key/:id/reverted` `{guids}`.
 - `POST /cde/:key/verify` `{changeset, results[]}`.
 - `POST /cde/:key/holding/type-gaps/:group/dismiss` `{reason}` (lead only). BUILT (MA-2c; the machine credential passes, as on the existing dismissal).
@@ -939,7 +939,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Evidence binaries:** the office disk or NAS (`storage_root`). Never Supabase. Only tiles and crops that may be viewed go to platform hidden files.
 - **Evidence pack manifests:** the artefact store (versioned, hashed), like the other artefacts.
 - **Build jobs:** the bridge's job folder while they run. Their receipts go on the ledger (`build:run`).
-- **LOD state, type gaps and review decisions:** ledger rows. The views are derived from the ledger, as the Holding Area is today.
+- **LOD state, type gaps and review decisions:** ledger rows. The views are derived from the ledger, as the Holding Area is today. MA-3a (spec amendment S1): a web review decision is also kept on the changeset doc (each ghost's `review`, the doc's `review_rev`), as `status` is — the add-in reads the doc, and the bridge judges a result against it in the same swap; the `changeset_reviewed` and `changeset_reopened` rows are the record (reserved on the open audit route). Migration 0037 (written; applied on the founder's "apply") leaves the `changeset` store no signed-in writer — the bridge writes it with the service key after its own role check, so a member cannot re-open a decline by writing the doc outside Sentinel.
 - **So MA-0 to MA-4 need no new database table.** If one is needed later, it is migration 0037 or higher, with the same row-level security pattern as the existing tables.
 
 **Who may do what** (using the existing roles; the suggested defaults are part of D17)
@@ -1109,9 +1109,9 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - A one-hour spike first: the fragments `Editor` API in fragments-beta 3.5.9.
   - **New ghosts (`create`):** the bridge writes an IFC of them with a `Sentinel_Evidence` pset (own `ifc-writer.ts` first), turns it into `.frag`, and stores it in hidden files. The `Editor` shows it as a proposal model.
   - **Promote ghosts (`retype`, `attach`, `rehost`, `set_parameter`):** they have no new geometry. The desk shows them as a list and highlights the elements by IFC GlobalId in the newest published model version. It warns: "model version X; Revit may be newer".
-  - The review states of section 6.6, in `changesets-logic.mjs`, with tests.
+  - The review states of section 6.6, in `changesets-logic.mjs`, with tests. BUILT on `feature/ma3-review-desk` (MA-3a), drill MA3a pending: the web review desk (BIM tools ▸ Review) lists, accepts, declines and re-opens; Revit's review obeys a decline.
   - `PointCloudLoader` and `SplatLoader` join the BIM viewer (if MA-W did not already do it).
-  - The Modeling studio is retired.
+  - The Modeling studio is retired. BUILT (MA-3a): `model-panel.ts` deleted, the review desk takes its tab; sketches in a browser's local storage are no longer shown; `ifc-writer.ts` is kept for the proposal model.
 - **Drill MA3:**
   - MA-2's plan shows as ghosts in Revit. The Undo list is unchanged, and closing the window removes the graphics.
   - The same plan shows on the published web app as a list with highlights and the version warning.
