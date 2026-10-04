@@ -998,7 +998,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  platform_gate, one row per execution id) are written by bridge/platform-gate-ledger.mjs only (spec 2026-09-29) —
  *  reserved so nobody can squat a real run's id.
  *  The open audit route may not write any of them. */
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:"];
+// MA-3a (review amendment C5): changeset_reviewed and changeset_reopened are the record of the web desk's decisions and a lead's
+// re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened"];
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
@@ -1959,11 +1961,12 @@ export async function docReplaceIfStatus(store, pid, docId, data, expectedStatus
 /** Generic CAS replace: overwrite the doc ONLY if data->>field currently equals `expected`
  *  (pass null for "the key is absent" — legacy rows). Returns data on success, null when the
  *  condition lost. The concurrency primitive behind changeset transitions and comment appends. */
-export async function docReplaceIfField(store, pid, docId, data, field, expected) {
+export async function docReplaceIfField(store, pid, docId, data, field, expected, { service = false } = {}) {
   const cond = expected === null ? `data->>${enc(field)}=is.null` : `data->>${enc(field)}=eq.${enc(expected)}`;
   const rows = await sb(
     `bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&doc_id=eq.${enc(docId)}&${cond}`,
-    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation" },
+    // MA-3a (C1): `service` for a store with no signed-in writer (changeset, migration 0037) — the caller checked the role first.
+    { method: "PATCH", body: { data, updated_at: new Date().toISOString() }, prefer: "return=representation", service },
   );
   return Array.isArray(rows) && rows.length ? data : null;
 }
