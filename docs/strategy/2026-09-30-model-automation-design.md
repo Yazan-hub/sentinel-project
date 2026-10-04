@@ -1103,8 +1103,8 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Size:** L (4–5 weeks). **Depends on:** MA-1 (MA-2 gives it content).
 - **Delivers in Revit:**
   - AI-4/GHB-4: the ghost overlay with DirectContext3D.
-  - Rows grouped by storey and kind; zoom to row; accept a storey in one batch; a reason for each decline (AI-5).
-  - AI-2: the report is sent off the UI thread.
+  - Rows grouped by storey and kind; zoom to row; accept a storey in one batch; a reason for each decline (AI-5). LANDED in MA-3b (merge 2026-10-04), drill MA3b: R-1, R-2, R-2b, R-3, R-4 passed; owed: R-5, C8 live, the report's own hold: a picker of every pending changeset (age, source, verdict counts, the web's declines; a Promote storey as one entry), the rows grouped by what they do (the web desk's words) with Tick group / Untick group, Decline all needs a reason, and each report names its ledger row. A reason per declined ghost and zoom to row are MA-3b2.
+  - AI-2: the report is sent off the UI thread. LANDED in MA-3b (merge 2026-10-04), drill MA3b: R-1, R-2, R-2b, R-3, R-4 passed; owed: R-5, C8 live, the report's own hold: the re-check, the role, the standards and every report run on a pool thread, and the window stays open until the report lands (Retry report); a result Revit applied is kept on this PC (`%AppData%\Sentinel\unreported` — founder decision F1, not Extensible Storage) before its report is sent, its changeset is not opened for review again until the bridge takes it, and it is sent again only after the model's stamps confirm its elements (at the next Review AI Proposals, or by Retry report — by itself on `DocumentOpened` is MA-3b4).
 - **Delivers on the web:**
   - A one-hour spike first: the fragments `Editor` API in fragments-beta 3.5.9.
   - **New ghosts (`create`):** the bridge writes an IFC of them with a `Sentinel_Evidence` pset (own `ifc-writer.ts` first), turns it into `.frag`, and stores it in hidden files. The `Editor` shows it as a proposal model.

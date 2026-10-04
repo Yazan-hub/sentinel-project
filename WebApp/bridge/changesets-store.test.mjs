@@ -156,6 +156,19 @@ describe("result + withdraw lifecycle", () => {
     expect(deps.audit.mock.calls.some((c) => c[3] === "changeset_applied")).toBe(true);
   });
 
+  it("MA-3b: a result answers the changeset_applied row it wrote, so Revit says \"reported (ledger #n)\" — the stored doc does not keep it", async () => {
+    const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1731, hash: "cd".repeat(32) })) });
+    const cs = await propose(deps);
+    const out = await reportResult("demo", cs.id, { applied: [], rejected: cs.elements.map((e) => e.proposal_guid), note: "drill MA3b: wrong storey" }, "r", deps);
+    expect(out).toMatchObject({ status: "declined", ledger: { id: 1731, hash: "cd".repeat(32) }, result: { note: "drill MA3b: wrong storey" } });
+    expect(deps.saved.get(cs.id).ledger).toBeUndefined();
+    // A ledger that names no row (an older audit answer) is said as such by the add-in (ChangesetTrust.LedgerOf): ledger {id: null}.
+    const quiet = baseDeps();
+    const cs2 = await propose(quiet);
+    const out2 = await reportResult("demo", cs2.id, { applied: [], rejected: cs2.elements.map((e) => e.proposal_guid) }, "r", quiet);
+    expect(out2.ledger).toEqual({ id: null, hash: null });
+  });
+
   it("a second result is a 409 carrying the current status", async () => {
     const deps = baseDeps();
     const cs = await propose(deps);

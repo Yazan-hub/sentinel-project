@@ -56,6 +56,56 @@ namespace Sentinel.Engine
         /// <summary>"undo", "redo", or null (any other operation is not a revert).</summary>
         public static string OpOf(bool undone, bool redone) => undone ? "undo" : redone ? "redo" : null;
 
+        // MA-3b review C8: a result whose report is in flight is not in the registry yet (only a result the bridge took is), so an Undo
+        // then would be missed. Expect notes the changeset under its Undo names before the report leaves Revit's thread; an Undo/Redo of
+        // it is noted (Seen) and handed to the report when it lands (Land). One lock: each Undo is posted once — by the report, or by the
+        // watcher after. In memory, as the registry. A report that does not land leaves its note: the next Expect (after a stamp check)
+        // resets it.
+        private static readonly object Gate = new object();
+        private static readonly Dictionary<string, HashSet<string>> Flying = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, string> Noted = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        public static void Expect(IEnumerable<string> txs, string changesetId)
+        {
+            lock (Gate)
+            {
+                foreach (var tx in (txs ?? Enumerable.Empty<string>()).Where(t => !string.IsNullOrEmpty(t)))
+                {
+                    if (!Flying.TryGetValue(tx, out var ids)) Flying[tx] = ids = new HashSet<string>(StringComparer.Ordinal);
+                    ids.Add(changesetId ?? "");
+                }
+                Noted[changesetId ?? ""] = null;
+            }
+        }
+
+        /// <summary>An Undo or Redo of <paramref name="names"/>: the remembered changesets to post for; one in flight is noted instead.</summary>
+        public static List<Entry> Seen(IEnumerable<string> names, string op)
+        {
+            lock (Gate)
+            {
+                var list = (names ?? Enumerable.Empty<string>()).ToList();
+                foreach (var n in list)
+                    if (Flying.TryGetValue(n, out var ids)) foreach (var id in ids) Noted[id] = op;
+                return Hits(list).Where(h => !Noted.ContainsKey(h.ChangesetId ?? "")).ToList();
+            }
+        }
+
+        /// <summary>The bridge took the result: remembered (Remember) and no longer in flight. True when the last Undo/Redo of it seen
+        /// while it was in flight was an Undo — the model no longer holds it, and the caller posts the changeset_reverted row.</summary>
+        public static bool Land(IEnumerable<string> txs, string key, string changesetId, IEnumerable<string> guids)
+        {
+            lock (Gate)
+            {
+                var names = (txs ?? Enumerable.Empty<string>()).ToList();
+                foreach (var tx in names) Remember(tx, key, changesetId, guids);
+                foreach (var tx in names)
+                    if (Flying.TryGetValue(tx, out var ids) && ids.Remove(changesetId ?? "") && ids.Count == 0) Flying.Remove(tx);
+                var undone = Noted.TryGetValue(changesetId ?? "", out var op) && op == "undo";
+                Noted.Remove(changesetId ?? "");
+                return undone;
+            }
+        }
+
 #if !SENTINEL_CHECK
         /// <summary>DocumentChanged handler (App.OnStartup subscribes it).</summary>
         public static void OnChanged(object sender, DocumentChangedEventArgs e)
@@ -63,8 +113,8 @@ namespace Sentinel.Engine
             try
             {
                 var op = OpOf(e.Operation == UndoOperation.TransactionUndone, e.Operation == UndoOperation.TransactionRedone);
-                if (op == null || Registry.IsEmpty) return;
-                foreach (var hit in Hits(e.GetTransactionNames()))
+                if (op == null) return;
+                foreach (var hit in Seen(e.GetTransactionNames(), op))
                 {
                     var h = hit;
                     Task.Run(() =>

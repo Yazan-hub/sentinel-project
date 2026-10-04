@@ -215,6 +215,26 @@ public static class ChangesetTrust
             && (string.IsNullOrWhiteSpace(e.Place?.FamilyName) || string.IsNullOrWhiteSpace(sp.Place?.FamilyName) || same(e.Place.FamilyName, sp.Place.FamilyName)));
     }
 
+    /// <summary>MA-3b: the review window's group for a ghost — what it does, in the web desk's words (review-desk.ts whatOf): "retype wall".</summary>
+    public static string GroupOf(ChangesetElementDto el) => $"{el.Op ?? "create"} {el.Kind}";
+
+    /// <summary>MA-3b (AI-5): the ledger row the bridge named for a result — "ledger #1731" — or the web desk's words when it named none
+    /// (a bridge before MA-3b, a row with no id, or a reply that is not JSON).</summary>
+    public static string LedgerOf(string reply)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(reply ?? "");
+            var r = doc.RootElement;
+            return r.ValueKind == JsonValueKind.Object && r.TryGetProperty("ledger", out var l) && l.ValueKind == JsonValueKind.Object && l.TryGetProperty("id", out var id)
+                   && (id.ValueKind == JsonValueKind.Number || id.ValueKind == JsonValueKind.String) ? "ledger #" + id : "the bridge named no ledger row";
+        }
+        catch (JsonException) { return "the bridge named no ledger row"; }
+    }
+
+    /// <summary>MA-3b (AI-5, review M2): Decline all without a reason — said by the window at once and by the command as the backstop.</summary>
+    public const string DeclineNeedsReason = "Nothing is ticked, so this declines every ghost — a decline needs a reason: type it in the note (it is recorded with the result), then press Decline all.";
+
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
     public static string SourceLabel(ChangesetDto cs) =>
         cs.Source + (cs.Claimed == true ? " (claimed — the bridge records who a changeset says it is from, and cannot verify it)" : "");
@@ -254,7 +274,7 @@ public static class ChangesetTrust
             .Where(e => ticked.Contains(e.ProposalGuid) && DeclinedOnWeb(e)).ToList();
         return hit.Count == 0 ? null : $"{hit.Count} ticked ghost(s) were declined on the web after this window opened:\n" +
             string.Join("\n", hit.Select(e => $"· {GhostName(e)} — {ReviewLine(e)}")) +
-            "\n\nNothing was created. Run Review AI Proposals again: they open unticked, with the reason.";
+            "\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.";
     }
 
     /// <summary>MA-3a (Q2): the bridge's reply to a result — the ghosts it recorded as applied over a decline that landed after Apply's
@@ -313,6 +333,9 @@ public sealed class ChangesetDto
     [JsonPropertyName("adjudication")] public AdjudicationDto Adjudication { get; set; }
     [JsonPropertyName("elements")] public List<ChangesetElementDto> Elements { get; set; } = new();
     [JsonPropertyName("exceptions")] public List<ExceptionRowDto> Exceptions { get; set; } = new();
+    /// <summary>MA-3b review C1: the stored result as the bridge holds it (null while proposed) — read as it comes, so an odd value never
+    /// breaks reading the changeset; UnreportedResults.AlreadyTaken reads its applied ghosts.</summary>
+    [JsonPropertyName("result")] public JsonElement? Result { get; set; }
 }
 
 public sealed class AppliedEntry

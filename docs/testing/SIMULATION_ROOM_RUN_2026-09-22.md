@@ -1654,3 +1654,35 @@ live; the Apply path on Revit 2026 and 2027 (their rows refused or were left pro
 `ma3a-f1` cache was made); the add-in's settings untouched. Left on the shared ledger (scratch keys, on purpose): `ma3a-f1`, `live-25`
 (changeset `partially_applied`), `live-26` and `live-27` (proposed), their memberships, rows #1745–#1776. Left on this PC: the scratch
 copies in `Documents\Sentinel drills\live\` (evidence; never committed).
+
+## Session MA3b — the Revit review that does not wait, live (2026-10-04 ~14:21 → 14:38 local, branch feature/ma3b-revit-desk 1d16b29, Claude driving Revit 2024)
+
+Setup: the branch build 1d16b29 (with the review's fixes C8–C16) deployed to Revit 2024 at 14:21 on the founder's explicit ask ("deploy
+the ma3b branch to 2024"; DLL `aa3ac5b63c9a…`; before it, master's `346496560189…`). The add-in's bridge settings backed up and pointed
+at the test bridge 127.0.0.1:4101 (the branch's code). Scratch office `ma3b-office` (guideline, type_catalog, lod_matrix, ruleset — each
+201) and project `ma3b`; the founder's account a `contributor` (the e-mail read from an existing membership, never printed). Scratch
+copies `ma3b-a.rvt` and `ma3b-b.rvt` of the B35 seed, opened from Revit's Open dialog, bound with Project Setup (UI Automation), never
+saved. Revit signed in.
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-1 | Promote (DD) → Yes → the review window (closed with ×). Review AI Proposals: the picker `Sentinel — AI proposals waiting: ma3b`, `3 waiting for review on "ma3b", oldest first — pick one and press Review.`, three lines (`Promote (DD) · GR-FFL — promote (claimed) · just now · 48 ghost(s): 0 accepted, 0 rejected, 48 recorded`, 01-FFL 40, MA0 Roof 1); no "oldest first" dialog. GR-FFL ▸ Review: groups by what they do (`retype wall (24) · 24 ticked` first), `Apply 48 ticked in Revit`; **Untick group** → `retype wall (24) · 0 ticked`, `Apply 24 ticked in Revit`; **Tick group** → 24 and 48 again — **pass** (R-A1: the seed's groups are retype wall 24 and others, not the plan's 28/20) | picker, window |
+| R-2 | Apply 48 → the DD IDS check (28 failing) → the test bridge stopped → Place anyway. The silent port failed to start (R-A2), so the first report was refused at once: `Applied 48 element(s) from "Promote (DD) · GR-FFL".` … `LOD state after: not sent — the bridge took no changeset of this Apply (a result reported later sends none).`, **Retry report** shown; one file `5335521a-….json` (8 093 bytes) in `%AppData%\Sentinel\unreported\ma3b\`. With the silent port up: **Retry report** → `Checking the model, then reporting again…`; during the wait a click in the view selected an element and the Undo list read `Sentinel AI changeset: Promote (DD) · GR-FFL [5335521a]` above `Sentinel: Save project settings` (Revit answered); still waiting at 69 s, and by 131 s: `Sent again: 0 of 1 result(s) reported.` / `"Promote (DD) · GR-FFL": not reported: the bridge did not answer within 120 s` / `The result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.` After ×, the next Review AI Proposals sent it again by itself (`Checking this model and sending 1 result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…`, then the same kept words) — **pass**; the report's own hold (× during a Retry, the ribbon answering busy, the words as a TaskDialog) **owed** (a missed click) | window, picker, Undo list, the file |
+| R-2b | `ma3b-b.rvt` opened and bound to `ma3b`; Review AI Proposals: `1 result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there:` / `"Promote (DD) · GR-FFL" in …\ma3b\ma3b-a.rvt. If that model is gone, check the changeset's status on the bridge, then delete …\unreported\ma3b\5335521a-….json.`; with the bridge back, the GR-FFL line carries `⚠ "Promote (DD) · GR-FFL" was applied in …ma3b-a.rvt (…) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. …`; selecting it leaves **Review** disabled — **pass** | picker |
+| R-3 | Back in `ma3b-a.rvt`, the bridge up: Review AI Proposals → `2 waiting for review on "ma3b" …` / `"Promote (DD) · GR-FFL": reported (ledger #1793).`; 01-FFL and MA0 Roof only; the record file gone; GET `applied`, applied 48, rejected 0, `review_rev_seen` `{"value":0,"claimed":true}`, no ledger on the doc — **pass** | picker, GET, folder |
+| R-4 | 01-FFL ▸ Review ▸ Untick all: the button reads `Decline all (needs a reason)`; pressed with the note empty → at once `Nothing is ticked, so this declines every ghost — a decline needs a reason: type it in the note (it is recorded with the result), then press Decline all.`, the window open; with `drill MA3b: wrong storey` → `Declined 1 of 1 changeset(s) — nothing in the model changed.` / `Run Promote (DD) again …` / `"Promote (DD) · 01-FFL": reported (ledger #1794).` — **pass** | window |
+
+**Drill amendments:** **R-A1** — the group counts are the seed's (retype wall 24 first), and all 48 were applied, not 28. **R-A2** — the
+silent port must start only after the test bridge's port is free (it failed once with the port still held); the 120 s wait was measured
+on **Retry report**, as the plan's fallback allows.
+
+**Found in the drill:** the picker's first line when the bridge does not answer reads `Couldn't reach the bridge: A task was canceled.`
+— true but technical (net48's words for the timeout); wording only, left for MA-3b2.
+
+**Owed:** R-5 (a waiting result undone with Ctrl+Z); C8 live (an Undo during the report's wait → `changeset_reverted`); the report's
+own hold (R-2's last step); Revit 2025–2027; the rows the plan named owed up front.
+
+**Closing list:** Revit closed without saving either copy; the test bridge and the silent port stopped; the add-in's bridge settings
+restored (sha256 `366a193f4680…` = the backup's), the backup deleted; `%AppData%\Sentinel\cache\ma3b` and `unreported\ma3b` deleted.
+Left on the shared ledger (scratch keys): `ma3b-office`, `ma3b`, the membership, three changesets (GR-FFL applied, 01-FFL declined, MA0
+Roof proposed), rows up to #1794. Left on this PC: the scratch copies in `Documents\Sentinel drills\ma3b\` (never committed).

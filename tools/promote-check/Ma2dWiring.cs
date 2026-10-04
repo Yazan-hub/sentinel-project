@@ -50,7 +50,8 @@ static partial class Check
         Ok(rolled > 0 && place.Contains("res.Error = $\"changeset \\\"{cs.Name}\\\": {res.Error}\";")
            && stop > rolled && stop < At(place, "result.Each.Add((cs, res));"),
            "any changeset that fails rolls the whole storey back and the error names it; each changeset's own result is kept for its report");
-        Ok(review.Contains("var cs = StoreyBatch.Merge(batch);") && review.Contains("foreach (var one in batch)") && review.Contains("var batch = StoreyBatch.Of(pending, pending[0]);")
+        // MA-3b (AI-5): the picker lists every entry (StoreyBatch.Entries — a storey as one) instead of opening the oldest.
+        Ok(review.Contains("var cs = StoreyBatch.Merge(batch);") && review.Contains("foreach (var one in batch)") && review.Contains("StoreyBatch.Entries(pending)")
            && promote.Contains("ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(pending, unreviewed))")
            && promote.Contains("ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(filed, first))")
            // Review C7: a Promote part reviewed alone (a part waits twice, or one is missing) is said.
@@ -61,24 +62,27 @@ static partial class Check
            // Review C11: in a storey's window the type edit's row counts "this storey's" retypes.
            && window.Contains("((_cs.Name ?? \"\").EndsWith(\", one Undo)\", StringComparison.Ordinal) ? \"storey\" : \"changeset\")}'s retypes onto it are applied"),
            "Review AI Proposals and Promote open a Promote storey's changesets in one window, each re-checked before anything runs; a part reviewed alone is said; a type edit's row says whose retypes it counts");
-        int reported = At(review, "if (!Report(cfg, key, one.Id, res.Applied, rejected, said, one.ReviewRev)) continue;"); // MA-3a: with the revision Apply re-checked
-        Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0 && At(review, "UndoWatcher.Remember(undo, key, one.Id, guids);") > reported
-           && review.Contains("UndoWatcher.Remember(UndoWatcher.TxName(one.Name, one.Id), key, one.Id, guids);")
-           // Review C15: the LOD state after names only the changesets the bridge holds as applied; the dialog counts the rejected rows it took.
-           && At(review, "if (res.Applied.Count > 0) held.Add(one.Id);") > reported && review.Contains("CommandReports.LodState(lod, held, UserSession.Actor)")
+        // MA-3b (AI-2): each result is built on the API thread with the revision Apply re-checked (MA-3a) and the Undo names, and reported
+        // by ReportAll on a pool thread; the undo watcher remembers it only once the bridge took it.
+        int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);");
+        Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0
+           && At(review, "if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > reported // review C8: Land remembers it
+           && review.Contains("new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }")
+           // Review C15: the LOD state after names only the changesets the bridge holds as applied; the words count the rejected rows it took.
+           && review.Contains("var held = rep.Landed.Where(x => x.R.Applied.Count > 0).Select(x => x.R.ChangesetId).ToList();") && review.Contains("CommandReports.LodState(lod, held, UserSession.Actor)")
            && !review.Contains("fresh.Select(f => f.Id)") && review.Contains("{untickedTaken} of {unticked.Count} unticked element(s) reported as rejected.")
            && review.Contains("{goneTaken} of {gone.Count} element(s) removed by Revit at commit — reported as rejected."),
            "each changeset of the storey is reported on its own ledger row and remembered under the Undo entry's name and its own; the LOD state after is read once, for the storey");
-        Ok(review.Contains("if (Report(cfg, key, f.Id, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),")
-           // Review C14: the rolled-back storey's declines are counted from what the bridge took, as C6's are.
-           && Count(review, ")) declined++;") == 2 && review.Contains("Reported as declined: {declined} of {fresh.Count} changeset(s)")
+        Ok(review.Contains("ResultOf(key, f, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),")
+           // Review C14: the rolled-back storey's declines are counted from what the bridge took, as C6's are (MA-3b: the reports that landed).
+           && Count(review, "int declined = rep.Landed.Count;") == 2 && review.Contains("Reported as declined: {declined} of {fresh.Count} changeset(s)")
            && review.Contains("(declined < fresh.Count ? \" — the rest are still proposed; the model holds none of them.\" : \".\")")
            && Count(review, "(fresh[0].Source == \"promote\" ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2
            && review.Contains("it first opens any other Promote storey still waiting for review, and plans again once none is waiting")
            // Review C2: a declined storey's type edits — later storeys of the same run that retype onto them fail the DD IDS.
-           && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all ▸ Apply), then run Promote (DD).")
+           && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all, write the reason in the note, press Decline all), then run Promote (DD).") // MA-3b review C16: Decline all needs a reason
            // Review C6: an all-unticked storey is declined in words, counted from what the bridge took.
-           && review.Contains("if (Report(cfg, key, f.Id, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note)) declined++;")
+           && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null)")
            && review.Contains("$\"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed.\""),
            "a storey that fails or is unticked whole is declined whole, each changeset with the reason, said with its type edits' consequence, and the words say Promote reopens a waiting storey before it plans again (drill MA2c D2)");
     }

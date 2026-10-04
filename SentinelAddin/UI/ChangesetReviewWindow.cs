@@ -6,6 +6,10 @@
 // recorded rows say honestly that no spec adjudicated them. The elements the planner sent to a person are listed above
 // the rows and cannot be ticked. Modeless, code-only WPF, in GhostReviewWindow's visual family.
 // MA-1: a create row names family : type, level and the numbers a reviewer checks.
+// MA-3b (AI-2, AI-5): the rows are grouped by what they do, in the web desk's words ("retype wall (28) · 28 ticked"), each group with
+// Tick group / Untick group. The window stays open: a refusal keeps the ticks and the note, the status line says what happened and then
+// what the bridge took ("reported (ledger #n)"), and Retry report appears while a report has not landed. Apply is pressed once; nothing
+// ticked is Decline all, which needs a reason (the note).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -21,16 +25,31 @@ namespace Sentinel.UI;
 public sealed class ChangesetReviewWindow : Window
 {
     public event Action<List<string>, List<string>, string> DecideRequested;
+    /// <summary>MA-3b: "Retry report" — the results the bridge has not taken yet.</summary>
+    public event Action RetryRequested;
 
     private readonly List<(CheckBox Box, ChangesetElementDto El)> _rows = new();
     private readonly TextBox _note = new() { MinHeight = 40, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
+    private readonly TextBox _status = new()
+    {
+        IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 180, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        Visibility = Visibility.Collapsed, Margin = new Thickness(0, 8, 0, 0),
+    };
+    private readonly Button _go = new() { Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
+    private readonly Button _retry = new() { Content = "Retry report", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0), Visibility = Visibility.Collapsed };
+    private readonly List<Action> _headers = new();
     private readonly ChangesetDto _cs;
+    private bool _applied; // MA-3b: once Apply was raised, never again from this window — a second Apply could place it twice
+    private volatile bool _gone;
+    /// <summary>MA-3b review C2: the person closed the window — read from any thread; nothing is raised after it, and words go elsewhere.</summary>
+    public bool Gone => _gone;
 
     /// <param name="reach">Review amendment C3 (MA-2c): for each set_parameter's proposal_guid, the elements on its type in the model
     /// now — counted by the caller on the API thread; shown on the row, never read from the reason.</param>
     public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null)
     {
         _cs = changeset;
+        Closed += (_, _) => _gone = true;
         Title = $"Sentinel — Review AI proposal: {_cs.Name}";
         Width = 640; Height = 560; WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
@@ -91,73 +110,105 @@ public sealed class ChangesetReviewWindow : Window
 
         // Footer: reviewer note + actions. (Top/bottom docked before the fill so the list scrolls.)
         var foot = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-        foot.Children.Add(new TextBlock { Text = "Reviewer note (recorded with the result):", Foreground = Brushes.Gray });
+        foot.Children.Add(new TextBlock { Text = "Reviewer note (recorded with the result; Decline all needs one):", Foreground = Brushes.Gray });
         foot.Children.Add(_note);
+        foot.Children.Add(_status);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
         var all = new Button { Content = "Tick suggested", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var none = new Button { Content = "Untick all", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
-        var go = new Button { Content = "Apply ticked in Revit", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold };
-        all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El); };
+        // Review C3: a row locked here (a late web decline) is never re-ticked.
+        all.Click += (_, _) => { foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El); };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
-        // Re-entrancy guard (GhostReviewWindow convention): if a DecideRequested subscriber throws,
-        // Close() is skipped — the button must not allow a second fire with the same snapshot.
-        go.Click += (_, _) => { go.IsEnabled = false; Decide(); };
-        buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(go);
+        // Re-entrancy guard: Decide disables Apply at once; it comes back only when nothing ran (Refused).
+        _go.Click += (_, _) => Decide();
+        _retry.Click += (_, _) => { _retry.IsEnabled = false; RetryRequested?.Invoke(); };
+        buttons.Children.Add(_retry); buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(_go);
         foot.Children.Add(buttons);
         DockPanel.SetDock(foot, Dock.Bottom);
         root.Children.Add(foot);
 
-        // Rows.
+        // Rows. MA-3b: one group per what the ghosts do, in the order they come (the web desk's groupDesk; the storey is the picker's).
         var list = new StackPanel();
-        foreach (var el in _cs.Elements ?? new List<ChangesetElementDto>())
+        foreach (var group in (_cs.Elements ?? new List<ChangesetElementDto>()).GroupBy(ChangesetTrust.GroupOf))
         {
-            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-            var box = new CheckBox
+            var boxes = new List<CheckBox>();
+            var groupRows = new StackPanel();
+            foreach (var el in group)
             {
-                VerticalAlignment = VerticalAlignment.Center,
-                IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8: the bridge's pre-tick — never a create
-            };
-            // MA-3a (design §6.6, D17): a web decline binds — the row opens unticked (PreTick) and cannot be ticked here; a lead re-opens it
-            // on the web desk. Apply re-checks the fresh copy (ReviewChangesetsCommand).
-            box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);
-            _rows.Add((box, el));
-            DockPanel.SetDock(box, Dock.Left);
-            row.Children.Add(box);
+                var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+                var box = new CheckBox
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8: the bridge's pre-tick — never a create
+                };
+                // MA-3a (design §6.6, D17): a web decline binds — the row opens unticked (PreTick) and cannot be ticked here; a lead re-opens it
+                // on the web desk. Apply re-checks the fresh copy (ReviewChangesetsCommand).
+                box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);
+                _rows.Add((box, el));
+                boxes.Add(box);
+                box.Checked += (_, _) => Counted();
+                box.Unchecked += (_, _) => Counted();
+                DockPanel.SetDock(box, Dock.Left);
+                row.Children.Add(box);
 
-            var badge = MakeBadge(el.Verdict);
-            DockPanel.SetDock(badge, Dock.Right);
-            row.Children.Add(badge);
+                var badge = MakeBadge(el.Verdict);
+                DockPanel.SetDock(badge, Dock.Right);
+                row.Children.Add(badge);
 
-            var label = new TextBlock { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-            var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
-            var type = el.Place?.TypeName;
-            label.Text = el.Op switch
-            {
-                "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
-                "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
-                // MA-2c: a TYPE edit — never pre-ticked. Review amendment C3: its reach is the add-in's own count (Open, API thread),
-                // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
-                "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +
-                                   (reach != null && el.ProposalGuid != null && reach.TryGetValue(el.ProposalGuid, out var reachN) ? $"reaches {reachN} element(s) in the model now" : "reach not counted — the type is not in this model") +
-                                   (ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $" + {more} if this {((_cs.Name ?? "").EndsWith(", one Undo)", StringComparison.Ordinal) ? "storey" : "changeset")}'s retypes onto it are applied" : "") + // review C21; MA-2d C11: a storey's window (StoreyBatch.Merge) counts every part
-                                   $"  ·  {el.Parameter} \"{el.From}\" → \"{el.To}\"  ·  from {el.ValueSource?.Ref ?? el.ValueSource?.Kind ?? "an unnamed source"}",
-                _ => CreateLabel(el, name),
-            };
-            if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
-            if (ChangesetTrust.Typing(el) is string typing) label.Text += "  ·  " + typing; // MA-2a: the bridge typed it from posted facts
-            if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
-            // MA-3a: the web desk's decision leads the row (the ellipsis never trims it) and is the tooltip's first line.
-            if (ChangesetTrust.ReviewLine(el) is string reviewLine)
-            {
-                label.Text = reviewLine + "  ·  " + label.Text;
-                label.ToolTip = reviewLine + (string.IsNullOrWhiteSpace(el.Reason) ? "" : "\n" + el.Reason);
-                if (!box.IsEnabled) label.Foreground = Brushes.Orange;
+                var label = new TextBlock { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var type = el.Place?.TypeName;
+                label.Text = el.Op switch
+                {
+                    "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
+                    "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
+                    // MA-2c: a TYPE edit — never pre-ticked. Review amendment C3: its reach is the add-in's own count (Open, API thread),
+                    // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
+                    "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +
+                                       (reach != null && el.ProposalGuid != null && reach.TryGetValue(el.ProposalGuid, out var reachN) ? $"reaches {reachN} element(s) in the model now" : "reach not counted — the type is not in this model") +
+                                       (ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $" + {more} if this {((_cs.Name ?? "").EndsWith(", one Undo)", StringComparison.Ordinal) ? "storey" : "changeset")}'s retypes onto it are applied" : "") + // review C21; MA-2d C11: a storey's window (StoreyBatch.Merge) counts every part
+                                       $"  ·  {el.Parameter} \"{el.From}\" → \"{el.To}\"  ·  from {el.ValueSource?.Ref ?? el.ValueSource?.Kind ?? "an unnamed source"}",
+                    _ => CreateLabel(el, name),
+                };
+                if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
+                if (ChangesetTrust.Typing(el) is string typing) label.Text += "  ·  " + typing; // MA-2a: the bridge typed it from posted facts
+                if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
+                // MA-3a: the web desk's decision leads the row (the ellipsis never trims it) and is the tooltip's first line.
+                if (ChangesetTrust.ReviewLine(el) is string reviewLine)
+                {
+                    label.Text = reviewLine + "  ·  " + label.Text;
+                    label.ToolTip = reviewLine + (string.IsNullOrWhiteSpace(el.Reason) ? "" : "\n" + el.Reason);
+                    if (!box.IsEnabled) label.Foreground = Brushes.Orange;
+                }
+                row.Children.Add(label);
+                groupRows.Children.Add(row);
             }
-            row.Children.Add(label);
-            list.Children.Add(row);
+            var tick = new Button { Content = "Tick group", Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 6, 4) };
+            var untick = new Button { Content = "Untick group", Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 0, 4) };
+            // A declined row stays unticked (its box is disabled): Tick group ticks only what may be ticked.
+            tick.Click += (_, _) => { foreach (var b in boxes.Where(x => x.IsEnabled)) b.IsChecked = true; };
+            untick.Click += (_, _) => { foreach (var b in boxes) b.IsChecked = false; };
+            var bar = new StackPanel { Orientation = Orientation.Horizontal };
+            bar.Children.Add(tick); bar.Children.Add(untick);
+            var body = new StackPanel();
+            body.Children.Add(bar); body.Children.Add(groupRows);
+            var groupBox = new Expander { IsExpanded = true, Content = body, Margin = new Thickness(0, 0, 0, 6) };
+            string what = group.Key;
+            int declinedHere = group.Count(ChangesetTrust.DeclinedOnWeb);
+            _headers.Add(() => groupBox.Header = $"{what} ({boxes.Count}) · {boxes.Count(b => b.IsChecked == true)} ticked" + (declinedHere > 0 ? $" · {declinedHere} declined on the web" : ""));
+            list.Children.Add(groupBox);
         }
         root.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
+        Counted();
+    }
+
+    // MA-3b: each group's header and the main button say what is ticked; nothing ticked is Decline all (it needs a reason: the note).
+    private void Counted()
+    {
+        foreach (var h in _headers) h();
+        int n = _rows.Count(r => r.Box.IsChecked == true);
+        _go.Content = n == 0 ? "Decline all (needs a reason)" : $"Apply {n} ticked in Revit";
     }
 
     /// <summary>A create row (MA-1): kind and name, then family : type, level, and the numbers a reviewer checks. Rows of the
@@ -215,11 +266,51 @@ public sealed class ChangesetReviewWindow : Window
         catch { return f.ToString(); }
     }
 
+    // MA-3b: the window is never closed here — it stays until the person closes it, so a refusal keeps the ticks and the note.
     private void Decide()
     {
         var ticked = _rows.Where(r => r.Box.IsChecked == true).Select(r => r.El.ProposalGuid).ToList();
         var unticked = _rows.Where(r => r.Box.IsChecked != true).Select(r => r.El.ProposalGuid).ToList();
+        // Review M2: Decline all without a reason is refused here at once — no bridge call; the command keeps the check as the backstop.
+        if (ticked.Count == 0 && string.IsNullOrWhiteSpace(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }
+        _go.IsEnabled = false;
+        Say("Re-checking with the bridge…");
         DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "");
-        Close();
+    }
+
+    /// <summary>MA-3b: the status line; any thread. Apply stays as it is.</summary>
+    public void Say(string words) => Ui(() =>
+    {
+        // Review C11: closed between the caller's Gone check and now — the words go to the Doctor log, never to a closed window.
+        if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor("Review AI Proposals: " + words); return; }
+        _status.Text = words ?? "";
+        _status.Visibility = string.IsNullOrEmpty(words) ? Visibility.Collapsed : Visibility.Visible;
+        _status.ScrollToHome();
+    });
+
+    /// <summary>MA-3b: nothing ran — said; the ticks and the note are kept and Apply can be pressed again. Any thread.</summary>
+    public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; });
+
+    /// <summary>MA-3b: the placement (or the decline) was started — Apply never comes back in this window. Any thread.</summary>
+    public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Say(words); });
+
+    /// <summary>Review C3, M3: nothing was placed after all (a "Go back", a refusal inside the placement, a request Revit did not take) —
+    /// Apply comes back with the ticks and the note. Any thread.</summary>
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Say(words); });
+
+    /// <summary>Review C3: rows declined on the web after the window opened — unticked and locked, as the rows declined before it opened. Any thread.</summary>
+    public void Lock(IEnumerable<string> guids)
+    {
+        var set = new HashSet<string>(guids ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+        Ui(() => { foreach (var r in _rows.Where(x => x.El.ProposalGuid != null && set.Contains(x.El.ProposalGuid))) { r.Box.IsChecked = false; r.Box.IsEnabled = false; } });
+    }
+
+    /// <summary>MA-3b: whether "Retry report" is offered. Any thread.</summary>
+    public void Retry(bool offered) => Ui(() => { _retry.Visibility = offered ? Visibility.Visible : Visibility.Collapsed; _retry.IsEnabled = offered; });
+
+    private void Ui(Action a)
+    {
+        if (Dispatcher.CheckAccess()) a();
+        else Dispatcher.BeginInvoke(a);
     }
 }

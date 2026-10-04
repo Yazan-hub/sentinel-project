@@ -33,7 +33,8 @@ public static class ArtefactCache
 
     // A path segment from a key/kind: invalid file-name characters become '_', and "", "." and ".." cannot
     // climb out of the root. Two keys that sanitise alike cannot read each other's copy: Read checks the stored key.
-    private static string Safe(string? s)
+    // MA-3b: also UnreportedResults' path segments.
+    internal static string Safe(string? s)
     {
         var bad = Path.GetInvalidFileNameChars();
         var t = new string((s ?? "").Trim().Select(ch => bad.Contains(ch) ? '_' : ch).ToArray());

@@ -223,14 +223,15 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     unique_id: e.target?.unique_id ?? null, revit_unique_id: done.get(e.proposal_guid).revit_unique_id ?? null,
     parameter: e.parameter, from: e.from, to: e.to, value_source: e.value_source ?? null,
   }));
-  await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
+  // MA-3b (AI-5): the row is answered with the result, so Revit says "reported (ledger #n)" — on the reply only, never on the stored doc.
+  const row = await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
       // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
       declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
       ...(conflicts.unchecked.length ? { applied_over_decline_unchecked: conflicts.unchecked, unchecked_why: UNCHECKED_WHY } : {}) });
-  return updated;
+  return { ...updated, ledger: ledgerRef(row) };
 }
 
 export async function withdrawChangeset(key, id, actor, deps) {
