@@ -222,8 +222,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);
                     // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
                     // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
+                    // MA-3b2b: a decline too (it applied nothing) — one the bridge holds with the same rejected ghosts and note is taken.
                     string taken = null, unread = null;
-                    if (!landed && r.Applied.Count > 0 && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal))
+                    if (!landed && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal))
                     {
                         var stored = ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var readErr);
                         if (stored == null) unread = readErr ?? "no answer";

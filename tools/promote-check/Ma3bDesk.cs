@@ -128,7 +128,7 @@ static partial class Check
            && UnreportedResults.AlreadyTaken(held, Stored("applied", "{\"applied\":[{\"proposal_guid\":\"a\",\"revit_element_id\":1}]}")) == null
            && UnreportedResults.AlreadyTaken(held, Stored("withdrawn", "null")) == null && UnreportedResults.AlreadyTaken(held, null) == null
            && UnreportedResults.AlreadyTaken(new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "x" }, Stored("declined", "{\"applied\":[]}")) == null,
-           "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result, or no applied ghost, is not");
+           "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result is not, nor a record that applied and rejected nothing (a decline: MA-3b2b, section 46)");
 
         // Review C9: a result none of whose elements this model holds is removed only after the bridge says what it holds — a record stays
         // exactly when its reply was lost, so the bridge may already hold it (then the Undo it never heard of is posted).
@@ -296,7 +296,7 @@ static partial class Check
         Ok(review.Contains("words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);")
            && review.Contains("window.Closed += (_, _) => { if (left.Any(r => r.Applied.Count == 0)) App.PanelVm?.LogDoctor(")
            && UnreportedResults.Outcome(null, 0).Words.EndsWith("\n" + UnreportedResults.DeclineKept, StringComparison.Ordinal)
-           && UnreportedResults.DeclineLost == "Nothing in the model changed; the changeset stays proposed — review it again to decline it.",
-           "review C13: a decline that did not land is lost with its window (E4) — said so, never 'Retry report sends it again' with no window left");
+           && UnreportedResults.DeclineLost.StartsWith("Nothing in the model changed; the bridge may or may not have taken the decline", StringComparison.Ordinal),
+           "review C13: a decline that did not land has no Retry report once its window is closed (E4) — said so, never 'Retry report sends it again' with no window left (MA-3b2b C8: nor 'stays proposed' — the bridge may hold it)");
     }
 }
