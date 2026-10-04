@@ -228,7 +228,8 @@ static partial class Check
            "review C8: a report's results are expected by the undo watcher before the report leaves Revit's thread; an Undo noted while it was in flight is posted (changeset_reverted) once it lands, said");
         int open = At(review, "internal static bool Open(UIApplication ui,"), refuse = At(review, "if (waiting.Count > 0) { TaskDialog.Show(Title, UnreportedResults.Blocked(waiting)); return false; }");
         Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach);")
-           && review.Contains("Open(c.Application, doc, cfg, key, batch)") && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),
+           && Src("Commands.PromoteWalls.cs").Contains("ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed));") // MA-3b5: Promote's Open is the UIApplication one
+           && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),
            "AI-2: a changeset whose result waits on this PC is never opened for review again — by the picker (listed, not openable) or by Promote (Open refuses it)");
         Ok(review.Contains("ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)") && review.Contains("var (report, ask, words) = UnreportedResults.Verified(r, found);")
            && review.Contains("var mine = waiting.Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") && review.Contains("Load(picker, cfg, key, Retry(doc, cfg, mine),") // review C4

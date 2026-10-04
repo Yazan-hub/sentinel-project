@@ -28,11 +28,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     // MA-3b (AI-2): one review at a time — held while the picker or a review window is open, and while a report is in flight, so two
     // windows never apply one changeset and one result is never sent twice at once. Once it is released, a changeset Revit applied and
     // the bridge has not taken is kept closed by its record (UnreportedResults), never by this.
+    // MA-3b5 (F1): Promote (DD) holds it too, while it reads and files — so a picker never lists a storey whose parts are still being filed.
     private static int _holds;
-    private static void Hold() => Interlocked.Increment(ref _holds);
-    private static void Release() => Interlocked.Decrement(ref _holds);
+    internal static bool Held => Volatile.Read(ref _holds) > 0;
+    internal static void Hold() => Interlocked.Increment(ref _holds);
+    internal static void Release() => Interlocked.Decrement(ref _holds);
     private const string Title = "Sentinel — AI proposals";
-    private const string Busy = "A review window is open, or a result is still being reported to the bridge — finish or close the window, or wait for its report (two minutes at most), then run Review AI Proposals again.";
+    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing — finish or close the window, or wait until the pane's Doctor log says the report or Promote's filing is done, then run the command again.";
     // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
     // machine credential reads as service).
     private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };
@@ -323,9 +325,6 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         }
         catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what the bridge holds.")); }
     }, TaskScheduler.Default);
-
-    /// <summary>Promote's entry (MA-0): the review window on <paramref name="batch"/>.</summary>
-    internal static bool Open(ExternalCommandData c, Document doc, BcfConfig cfg, string key, IReadOnlyList<ChangesetDto> batch) => Open(c.Application, doc, cfg, key, batch);
 
     /// <summary>Open the review window on proposed changesets of <paramref name="doc"/> (bound to <paramref name="key"/>): one, or (MA-2d)
     /// the changesets of one Promote storey (StoreyBatch.Of) — shown as one, applied as one Undo, each reported on its own ledger row.
