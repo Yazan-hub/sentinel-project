@@ -79,26 +79,26 @@ Generated 2026-09-21T23:24:00.527Z.
 | 5. Required shared parameters exist | — | — | open | check office.shared_params reports met |
 | 6. Live model health | — | — | open | check office.model_health reports met |
 | 7. Container naming standard installed | — | — | open | check office.naming_standard reports met |
-| 11. Project roles present: owner and lead | yazanhijazeen32@hotmail.com | 2026-10-08 | closed | check office.roles reports met |
-| 12. Task teams declared per discipline, each with a lead | yazanhijazeen32@hotmail.com | 2026-09-30 | open | check office.task_teams reports met |
+| 11. Project roles present: owner and lead | <the founder's account> | 2026-10-08 | closed | check office.roles reports met |
+| 12. Task teams declared per discipline, each with a lead | <the founder's account> | 2026-09-30 | open | check office.task_teams reports met |
 | 19. A BEP exists and is executable | — | — | open | check office.bep reports met |
-| 20. CDE states in use | yazanhijazeen32@hotmail.com | 2026-10-07 | open | check cde.states reports met |
-| 21. Container names conform | user3@gmail.com | 2026-10-01 | open | check naming.containers reports met |
-| 22. Task-team responsibility on deliverables | user3@gmail.com | 2026-09-30 | open | check roles.responsibility reports met |
+| 20. CDE states in use | <the founder's account> | 2026-10-07 | open | check cde.states reports met |
+| 21. Container names conform | <the founder's second account> | 2026-10-01 | open | check naming.containers reports met |
+| 22. Task-team responsibility on deliverables | <the founder's second account> | 2026-09-30 | open | check roles.responsibility reports met |
 | 8. Family library has a custodian and a location | — | — | open | answer becomes yes |
 | 9. Revit template is versioned and owned | — | — | open | answer becomes yes |
 | 10. Office modelling guideline exists | — | — | open | answer becomes yes |
-| 13. A BIM manager is named and accountable | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 14. Coordinators named per discipline | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 15. Modellers trained on the template | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 16. Onboarding for new staff exists | yazanhijazeen32@hotmail.com | 2026-09-30 | open | answer becomes yes |
-| 17. Time is budgeted for information management | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 18. Responsibility matrix agreed with clients | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 23. Reviews happen before Shared | yazanhijazeen32@gmail.com | 2026-09-30 | open | answer becomes yes |
-| 24. Authorisation before Published is separate from submission | user3@gmail.com | 2026-10-08 | open | answer becomes yes |
-| 25. EIR received and read for current projects | yazanhijazeen32@hotmail.com | 2026-10-08 | open | answer becomes yes |
-| 26. MIDP maintained against the programme | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 27. Issues tracked in one place | yazanhijazeen32@hotmail.com | 2026-10-08 | open | answer becomes yes |
-| 28. Models exchanged as IFC with a delivery gate | yazanhijazeen32@hotmail.com | 2026-10-01 | open | answer becomes yes |
-| 29. Handover deliverables defined | user4@gmail.com | 2026-10-01 | open | answer becomes yes |
-| 30. Lessons learned recorded per project | user3@gmail.com | 2026-09-30 | open | answer becomes yes |
+| 13. A BIM manager is named and accountable | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 14. Coordinators named per discipline | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 15. Modellers trained on the template | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 16. Onboarding for new staff exists | <the founder's account> | 2026-09-30 | open | answer becomes yes |
+| 17. Time is budgeted for information management | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 18. Responsibility matrix agreed with clients | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 23. Reviews happen before Shared | <the founder's second account> | 2026-09-30 | open | answer becomes yes |
+| 24. Authorisation before Published is separate from submission | <the founder's second account> | 2026-10-08 | open | answer becomes yes |
+| 25. EIR received and read for current projects | <the founder's account> | 2026-10-08 | open | answer becomes yes |
+| 26. MIDP maintained against the programme | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 27. Issues tracked in one place | <the founder's account> | 2026-10-08 | open | answer becomes yes |
+| 28. Models exchanged as IFC with a delivery gate | <the founder's account> | 2026-10-01 | open | answer becomes yes |
+| 29. Handover deliverables defined | <the founder's second account> | 2026-10-01 | open | answer becomes yes |
+| 30. Lessons learned recorded per project | <the founder's second account> | 2026-09-30 | open | answer becomes yes |
