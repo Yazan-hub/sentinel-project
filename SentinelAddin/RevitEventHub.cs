@@ -1,3 +1,4 @@
+using System.Windows.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -14,12 +15,27 @@ public sealed class RevitEventHub : IExternalEventHandler
     private readonly Queue<Action<UIApplication>> _work = new();
     private readonly object _lock = new();
 
+    // MA-3b2b (F-MA3b2-1): Revit's own thread — the hub is made in App.OnStartup, on it.
+    private readonly Dispatcher _ui = Dispatcher.CurrentDispatcher;
+
     public RevitEventHub() => _event = ExternalEvent.Create(this);
 
     public void Enqueue(Action<UIApplication> action)
     {
         lock (_lock) _work.Enqueue(action);
-        _event.Raise();
+        // MA-3b2b (F-MA3b2-1): a report's continuation enqueues from a pool thread — the only callers that did, and the one job that
+        // did not show (drill MA3b2, Z-4). Every raise now happens on Revit's thread, as every modeless window here raises.
+        if (_ui.CheckAccess()) Raise();
+        else _ui.BeginInvoke(new Action(Raise));
+    }
+
+    private void Raise()
+    {
+        var raised = _event.Raise();
+        if (raised != ExternalEventRequest.Denied && raised != ExternalEventRequest.TimedOut) return;
+        // Said, never silent: the job is still in the queue and runs when Revit takes a later raise.
+        try { App.PanelVm?.LogDoctor($"Revit did not take a Sentinel action ({raised}) — it stays queued and runs with the next one."); }
+        catch { /* the pane itself is gone */ }
     }
 
     /// <summary>XC-1: run <paramref name="job"/> on <paramref name="doc"/> only while it is open and Revit's active

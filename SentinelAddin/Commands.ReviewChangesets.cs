@@ -91,12 +91,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             $"Checking this model and sending {mine.Count} result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…");
         Load(picker, cfg, key, Retry(doc, cfg, mine),
              away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there:\n" +
-                                      string.Join("\n", away.Select(r => $"\"{r.Name}\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}")), doc);
+                                      string.Join("\n", away.Select(r => $"\"{r.Name}\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}")));
         return Result.Succeeded;
     }
 
     // MA-3b (AI-5): the picker's list, read on a pool thread once the waiting results were sent again; the words of those first.
-    private static void Load(ChangesetPickerWindow picker, BcfConfig cfg, string key, Task<Reported> retried, string away, Document doc) => Task.Run(async () =>
+    private static void Load(ChangesetPickerWindow picker, BcfConfig cfg, string key, Task<Reported> retried, string away) => Task.Run(async () =>
     {
         var none = new List<(string Line, string Blocked, List<ChangesetDto> Entry)>();
         try
@@ -108,8 +108,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             {
                 if (rep.Words.Count > 0)
                 {
-                    App.PanelVm?.LogDoctor("Review AI Proposals: " + rep.Text);
-                    App.Events.Enqueue(doc, "say the review's result", (_, _) => TaskDialog.Show(Title, rep.Text), _ => { });
+                    App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text)); // MA-3b2b: no DocPin, and queued before the Doctor line — see Tell
+                    try { App.PanelVm?.LogDoctor("Review AI Proposals: " + rep.Text); } catch { }
                 }
                 return;
             }
@@ -222,8 +222,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);
                     // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
                     // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
+                    // MA-3b2b: a decline too (it applied nothing) — one the bridge holds with the same rejected ghosts and note is taken.
                     string taken = null, unread = null;
-                    if (!landed && r.Applied.Count > 0 && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal))
+                    if (!landed && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal))
                     {
                         var stored = ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var readErr);
                         if (stored == null) unread = readErr ?? "no answer";
@@ -308,25 +309,44 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         // are a result (not an "…ing" line), to a dialog on Revit's thread: said, never lost.
         void Tell(string words, bool interim = false)
         {
-            if (!window.Gone) { window.Say(words); return; }
-            // Review C13: no window is left to offer Retry report for a decline that did not land.
-            words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);
-            App.PanelVm?.LogDoctor("Review AI Proposals: " + words);
-            if (!interim) App.Events.Enqueue(doc, "say the review's result", (_, _) => TaskDialog.Show(Title, words), _ => { });
+            void Closed()
+            {
+                // Review C13: no window is left to offer Retry report for a decline that did not land.
+                words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);
+                // MA-3b2b review C14: nor for a sign-in refusal — its words name what is left to run.
+                words = words.Replace(UnreportedResults.PressRetry, UnreportedResults.RunReview);
+                // MA-3b2b (F-MA3b2-1): a dialog changes nothing in the model, so it needs no DocPin — whose refusal (another model in front,
+                // this one closed) was swallowed here, and the result never shown. Said in whichever model is in front. Review C1: queued
+                // before the Doctor line, which stands on its own — a pane that throws (this is a pool thread) cannot take the dialog with it.
+                if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));
+                try { App.PanelVm?.LogDoctor("Review AI Proposals: " + words); } catch { }
+            }
+            // MA-3b2b review C13: closed between this check and the posted words — Say hands them back, and the same path runs.
+            if (!window.Gone) { window.Say(words, Closed); return; }
+            Closed();
         }
 
         // AI-2: a round of reports runs off Revit's thread; the window says what landed and offers Retry report for what did not.
         void Send(Task<Reported> sending, Func<Reported, string> words) => sending.ContinueWith(t =>
         {
-            if (t.Status != TaskStatus.RanToCompletion)
+            // MA-3b2b review C1: nothing in this continuation may end it unobserved — whatever throws is said in a dialog.
+            try
             {
-                Tell("Reporting failed — " + (t.Exception?.GetBaseException().Message ?? "it did not finish") +
-                     $"\nA result Revit applied is kept on this PC ({UnreportedResults.Root}) and sent again by the next Review AI Proposals.");
-                return;
+                if (t.Status != TaskStatus.RanToCompletion)
+                {
+                    Tell("Reporting failed — " + (t.Exception?.GetBaseException().Message ?? "it did not finish") +
+                         $"\nA result Revit applied is kept on this PC ({UnreportedResults.Root}) and sent again by the next Review AI Proposals.");
+                    return;
+                }
+                left = t.Result.Left;
+                // MA-3b2b (F-MA3b2-1): a summary that throws is said, with each result's own words (its ledger row, what is kept) after it.
+                string said;
+                try { said = words(t.Result); }
+                catch (Exception ex) { said = $"The report's summary could not be built — {ex.GetType().Name}: {ex.Message}"; }
+                Tell(said + (t.Result.Words.Count > 0 ? "\n\n" + t.Result.Text : ""));
+                window.Retry(left.Count > 0);
             }
-            left = t.Result.Left;
-            Tell(words(t.Result) + (t.Result.Words.Count > 0 ? "\n\n" + t.Result.Text : ""));
-            window.Retry(left.Count > 0);
+            catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what the bridge holds.")); }
         }, TaskScheduler.Default);
 
         async Task Decide(List<string> ticked, List<string> unticked, string note, Dictionary<string, string> reasons)

@@ -131,7 +131,7 @@ namespace Sentinel.Engine
             if (Is("400", "404", "409"))
                 return (true, $"the bridge refused it (retrying cannot fix this): {err}" +
                               (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review." : ""));
-            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project, then press Retry report." : "") + Kept(applied));
+            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project" + PressRetry : "") + Kept(applied));
         }
 
         /// <summary>Review C6: a result not sent because the round's first report did not land (each waits up to 120 s) — kept, said.</summary>
@@ -143,22 +143,50 @@ namespace Sentinel.Engine
 
         /// <summary>A decline that did not land lives in its window (E4). Review C13: once the window is closed there is no Retry report —
         /// the caller says DeclineLost instead.</summary>
+        /// <summary>MA-3b2b review C14: the sign-in refusal's last words — a closed window has no Retry report, the caller says RunReview.</summary>
+        public const string PressRetry = ", then press Retry report.";
+        public const string RunReview = ", then run Review AI Proposals.";
         public const string DeclineKept = "Nothing in the model changed; Retry report sends it again.";
-        public const string DeclineLost = "Nothing in the model changed; the changeset stays proposed — review it again to decline it.";
+        // MA-3b2b review C8: never "it stays proposed" — after a lost reply the bridge may hold the decline; the picker's list says which.
+        // Review C15: nor "no longer listed was declined" — the picker lists proposed only, and a withdrawal or another PC's Apply unlists it too.
+        public const string DeclineLost = "Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed is no longer proposed — declined, unless it was withdrawn or applied meanwhile (the web desk's Recently decided in Revit lists what Revit reported); one still listed is reviewed again.";
 
         /// <summary>Review C1: the words when the bridge already holds this result — a 409 whose stored changeset (<paramref name="fresh"/>,
         /// re-read) is no longer proposed and applied exactly the record's ghosts: its earlier report landed and the reply was lost (the 120 s
-        /// timeout, Revit closed mid-report, or the audit row threw after the doc was written). Null otherwise — then the 409 stands.</summary>
+        /// timeout, Revit closed mid-report, or the audit row threw after the doc was written). Null otherwise — then the 409 stands.
+        /// MA-3b2b: a result that applied nothing (Decline all, a rolled-back Apply) is taken when the changeset is declined and its stored
+        /// result rejects exactly the record's ghosts with the record's note (the bridge stores it trimmed; none is none) and — review C7 —
+        /// when it holds reasons, exactly the record's (each as the bridge keeps it: ChangesetTrust.DeclineReason; a blank one is not
+        /// kept), so another person's reasons are never counted as this reviewer's. A stored result with no reasons still matches (a
+        /// bridge before MA-3b2 keeps none; the caller's ReasonsLine then says fewer were kept than sent). Ceiling: another person's
+        /// decline of the same ghosts with the same note and the same reasons (or none stored) reads as this one — nothing is lost, the
+        /// changeset is declined either way; who reported it is not compared (the stored actor is the bridge's resolved one).</summary>
         public static string AlreadyTaken(Record r, ChangesetDto fresh)
         {
-            if ((r?.Applied?.Count ?? 0) == 0 || fresh?.Status == null || fresh.Status == "proposed") return null;
-            if (fresh.Result is not { ValueKind: JsonValueKind.Object } res || !res.TryGetProperty("applied", out var a) || a.ValueKind != JsonValueKind.Array) return null;
+            if (r == null || fresh?.Status == null || fresh.Status == "proposed") return null;
+            if (fresh.Result is not { ValueKind: JsonValueKind.Object } res) return null;
+            string taken = $"\"{r.Name}\": the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; the bridge named no ledger row for it here.";
+            if ((r.Applied?.Count ?? 0) == 0)
+            {
+                if (fresh.Status != "declined" || (r.Rejected?.Count ?? 0) == 0 || !res.TryGetProperty("rejected", out var rej) || rej.ValueKind != JsonValueKind.Array) return null;
+                var declined = new HashSet<string>(rej.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()), StringComparer.Ordinal);
+                string note = res.TryGetProperty("note", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : "";
+                if (!declined.SetEquals(r.Rejected) || !string.Equals(note, (r.Note ?? "").Trim(), StringComparison.Ordinal)) return null;
+                if (res.TryGetProperty("reasons", out var kept) && kept.ValueKind == JsonValueKind.Object)
+                {
+                    var mine = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (var p in r.Reasons ?? new Dictionary<string, string>())
+                        if (ChangesetTrust.DeclineReason(p.Value, out _) is { } why) mine[p.Key] = why;
+                    var theirs = kept.EnumerateObject().ToList();
+                    if (theirs.Count != mine.Count || theirs.Any(p => p.Value.ValueKind != JsonValueKind.String || !mine.TryGetValue(p.Name, out var why) || !string.Equals(why, p.Value.GetString(), StringComparison.Ordinal))) return null;
+                }
+                return taken;
+            }
+            if (!res.TryGetProperty("applied", out var a) || a.ValueKind != JsonValueKind.Array) return null;
             var took = new HashSet<string>(a.EnumerateArray()
                 .Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("proposal_guid", out var g) && g.ValueKind == JsonValueKind.String ? g.GetString() : null)
                 .Where(g => g != null), StringComparer.Ordinal);
-            return took.SetEquals(r.Applied.Select(x => x.ProposalGuid))
-                ? $"\"{r.Name}\": the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; the bridge named no ledger row for it here."
-                : null;
+            return took.SetEquals(r.Applied.Select(x => x.ProposalGuid)) ? taken : null;
         }
 
         /// <summary>MA-3b2 review C15: the stored changeset (re-read after a 409) in the shape of the bridge's reply to a result, so
@@ -176,7 +204,9 @@ namespace Sentinel.Engine
                 return (false, false, $"{why}, and the bridge could not be re-read to say whether it took it ({err ?? "no answer"}) — nothing reported." + Kept(r.Applied?.Count ?? 0));
             if (fresh.Status == "proposed")
                 return (true, false, $"{why} — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed.");
-            if (AlreadyTaken(r, fresh) != null)
+            // MA-3b2b review C10: only a result that applied something has an Undo to post — a decline the bridge holds (AlreadyTaken's
+            // new case) never asks for a changeset_reverted row with no ghost.
+            if ((r.Applied?.Count ?? 0) > 0 && AlreadyTaken(r, fresh) != null)
                 return (true, true, $"{why}, but the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; a changeset_reverted row (undo) for its {r.Applied.Count} element(s) was ");
             return (true, false, $"{why}, and the bridge holds the changeset as {fresh.Status} with a result that is not this one — nothing reported. This PC's record is removed.");
         }

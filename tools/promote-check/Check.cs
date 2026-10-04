@@ -68,6 +68,8 @@ static partial class Check
         Ma3bWiringChecks();
         Ma3b2ReasonChecks();
         Ma3b2WiringChecks();
+        Ma3b2bDeclineChecks();
+        Ma3b2bWiringChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

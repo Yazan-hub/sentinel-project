@@ -128,7 +128,7 @@ static partial class Check
            && UnreportedResults.AlreadyTaken(held, Stored("applied", "{\"applied\":[{\"proposal_guid\":\"a\",\"revit_element_id\":1}]}")) == null
            && UnreportedResults.AlreadyTaken(held, Stored("withdrawn", "null")) == null && UnreportedResults.AlreadyTaken(held, null) == null
            && UnreportedResults.AlreadyTaken(new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "x" }, Stored("declined", "{\"applied\":[]}")) == null,
-           "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result, or no applied ghost, is not");
+           "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result is not, nor a record that applied and rejected nothing (a decline: MA-3b2b, section 46)");
 
         // Review C9: a result none of whose elements this model holds is removed only after the bridge says what it holds — a record stays
         // exactly when its reply was lost, so the bridge may already hold it (then the Undo it never heard of is posted).
@@ -268,7 +268,7 @@ static partial class Check
            "review C1, C6: a 409 on a result the bridge already holds is landed and watched for Undo, never 'refused'; after the first report of a round that did not land, the rest wait for Retry report (one 120 s wait, not n)");
         int gone = At(review, "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }");
         Ok(gone > At(review, "async Task Decide(") && gone < At(review, "window.Applying(\"Applying in Revit…\");") && window.Contains("Closed += (_, _) => _gone = true;")
-           && review.Contains("App.Events.Enqueue(doc, \"say the review's result\", (_, _) => TaskDialog.Show(Title, words), _ => { });") && Count(review, "window.Say(") == 3
+           && review.Contains("if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));") && Count(review, "window.Say(") == 3 // MA-3b2b: no DocPin, no swallowed refusal
            && review.Contains("if (raised == ExternalEventRequest.Denied || raised == ExternalEventRequest.TimedOut)") && Count(review, "handler.Completed -= onDone;") == 3,
            "review C2, M3: a window closed before Apply places nothing; words for a closed window go to the Doctor log and a dialog, never lost; a request Revit did not take (or one that threw) gives Apply back, said");
         Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
@@ -285,7 +285,7 @@ static partial class Check
         const string closedBeforeApply = "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }";
         int raise = At(review, "_ = window.Dispatcher.BeginInvoke(new Action(() =>");
         Ok(picker.Contains("Closed += (_, _) => _gone = true;") && picker.Contains("if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + status); return; }")
-           && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(doc, \"say the review's result\", (_, _) => TaskDialog.Show(Title, rep.Text), _ => { });")
+           && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));") // MA-3b2b
            && At(review, "if (picker.Gone)") > At(review, "var rep = await retried;") && At(review, "if (picker.Gone)") < At(review, "var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);")
            && window.Contains("if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + words); return; }"),
            "review C11: the words of a round the picker started reach the Doctor log and a dialog when the picker was closed meanwhile; words posted to a window or picker that closed in between go to the Doctor log");
@@ -296,7 +296,7 @@ static partial class Check
         Ok(review.Contains("words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);")
            && review.Contains("window.Closed += (_, _) => { if (left.Any(r => r.Applied.Count == 0)) App.PanelVm?.LogDoctor(")
            && UnreportedResults.Outcome(null, 0).Words.EndsWith("\n" + UnreportedResults.DeclineKept, StringComparison.Ordinal)
-           && UnreportedResults.DeclineLost == "Nothing in the model changed; the changeset stays proposed — review it again to decline it.",
-           "review C13: a decline that did not land is lost with its window (E4) — said so, never 'Retry report sends it again' with no window left");
+           && UnreportedResults.DeclineLost.StartsWith("Nothing in the model changed; the bridge may or may not have taken the decline", StringComparison.Ordinal),
+           "review C13: a decline that did not land has no Retry report once its window is closed (E4) — said so, never 'Retry report sends it again' with no window left (MA-3b2b C8: nor 'stays proposed' — the bridge may hold it)");
     }
 }

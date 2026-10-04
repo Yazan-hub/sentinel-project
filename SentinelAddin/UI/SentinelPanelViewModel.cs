@@ -160,8 +160,8 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             JourneyKey = $"Journey · {projectKey} — loading…";
             StandardsLine = NextLine = PublishLine = ScanRulesetLine = LodLine = "";
         });
-        // Same dispatcher OnUi uses: the pane's (WPF application) dispatcher when there is one.
-        var ui = Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        // Same dispatcher OnUi uses: Revit's own (MA-3b2b review C1).
+        var ui = _ui;
         var journey = Task.Run(() => { var info = GovernedQuery.Journey(projectKey, out var why); return (info, why); });
         var policy = Task.Run(() => ArtefactClient.Resolve(projectKey, "publish"));
         Task.WhenAll(journey, policy).ContinueWith(_ => ui.BeginInvoke(new Action(() =>
@@ -250,11 +250,16 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         }), dialog.FinalName, refusal => OnUi(() => Status = "✕ " + refusal));
     }
 
-    private static void OnUi(Action a)
+    // MA-3b2b review C1: Revit's own thread — the view model is made in App.OnStartup, on it. Never the caller's dispatcher: inside
+    // Revit WPF has no Application, and the fallback (the calling pool thread's own new dispatcher) ran the action right there — an
+    // insert into the bound Doctor log throws on any thread but this one. Posted, not waited for: a caller on a pool thread that
+    // Revit's thread is waiting on (GetResult) must not wait for Revit's thread in turn.
+    private readonly System.Windows.Threading.Dispatcher _ui = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+
+    private void OnUi(Action a)
     {
-        var d = Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        if (d.CheckAccess()) a();
-        else d.Invoke(a);
+        if (_ui.CheckAccess()) a();
+        else _ui.BeginInvoke(a);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
