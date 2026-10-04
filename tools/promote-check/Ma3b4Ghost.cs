@@ -10,9 +10,12 @@ static partial class Check
         string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs"), review = Src("Commands.ReviewChangesets.cs"), picker = Src("UI", "ChangesetPickerWindow.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         int done = At(ghost, "done = true;");
-        int write = At(ghost, "var unsaved = records.Where(x => x.Applied.Count > 0 && !UnreportedResults.Write(x)).Select(x => Short(x.ChangesetId)).ToList();");
-        int send = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count);");
-        Ok(done > 0 && write > done && send > write
+        // Review C7: every result is written — one whose elements Revit all removed at commit too (nothing else keeps it closed).
+        int write = At(ghost, "var unsaved = records.Where(x => !UnreportedResults.Write(x)).ToList();");
+        // Review C8: a result whose save failed and whose report did not land is said NOT kept, under the guard (ReportAll's after).
+        int send = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records, after: rep => UnreportedResults.NotKept(unsaved.Where(u => !rep.Landed.Any(l => l.R == u)).Select(u => Short(u.ChangesetId)).ToList())),");
+        int sendAsk = At(ghost, "UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count); // review C2: a late decline asks too");
+        Ok(done > 0 && write > done && send > write && sendAsk > send && !ghost.Contains("x.Applied.Count > 0 && !UnreportedResults.Write(x)")
            && ghost.Contains("ReviewChangesetsCommand.DocOf(doc), new List<string> { undo, UndoWatcher.TxName(cs.Name, cs.Id) }, null);")
            && ghost.Contains("rec.Path = doc.PathName ?? \"\";")
            && !ghost.Contains("ReviewChangesetsCommand.Report(") && !ghost.Contains("UndoWatcher.Remember(") && !review.Contains("internal static bool Report("),
@@ -25,7 +28,7 @@ static partial class Check
         int all = At(review, "internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null, Func<Reported, string> after = null)");
         int then = At(review, "if (after?.Invoke(rep) is string extra && extra.Length > 0) rep.Words.Add(extra.TrimStart('\\n')); // MA-3b4 review C3");
         Ok(decline > 0 && declines > decline && withdraw > declines && asked > withdraw && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
-           && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);")
+           && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved.Select(u => Short(u.ChangesetId)).ToList());")
            && all > 0 && then > all && review.IndexOf("finally { Release(); }", all, StringComparison.Ordinal) > then,
            "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");
         Ok(picker.Contains("public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status, Action gone = null)")

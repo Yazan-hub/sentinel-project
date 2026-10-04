@@ -656,9 +656,13 @@ namespace Sentinel.GhostBuilder
                     rec.Path = doc.PathName ?? ""; // MA-3b2 review C16: the file itself, beside Doc (a local's central)
                     records.Add(rec);
                 }
-                var unsaved = records.Where(x => x.Applied.Count > 0 && !UnreportedResults.Write(x)).Select(x => Short(x.ChangesetId)).ToList();
+                // Review C7: every result, one whose elements Revit all removed at commit too — no window holds it, so this record is
+                // what keeps its changeset closed until the bridge takes it (Retry's stamp check: 0 of 0 found sends it).
+                var unsaved = records.Where(x => !UnreportedResults.Write(x)).ToList();
+                // Review C8: one whose save failed and whose report did not land is said NOT kept (the round's own words say "kept").
                 if (records.Count > 0)
-                    ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count); // review C2: a late decline asks too
+                    ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records, after: rep => UnreportedResults.NotKept(unsaved.Where(u => !rep.Landed.Any(l => l.R == u)).Select(u => Short(u.ChangesetId)).ToList())),
+                                                 UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count); // review C2: a late decline asks too
                 report.Placed = applied.Count;
                 // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
                 // executor's recount left in the model. Its own list: a result of the build, not a warning.
@@ -668,7 +672,7 @@ namespace Sentinel.GhostBuilder
                 report.Placement.AddRange(PlacementGeometry.TurnLines(results.SelectMany(x => x.Turned).ToList()));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
                 report.Ledger = !bound ? localLedger
-                    : UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);
+                    : UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved.Select(u => Short(u.ChangesetId)).ToList());
                 if (idsRejected > 0)
                     report.Warnings.Insert(0, $"IDS: {idsRejected} element(s) did not pass the project's IDS — built as reviewed in Ghost's review (founder decision F2); each verdict is on its changeset.");
                 // MA-1a item 7: one ghost_build row for the build that was kept — the counts of the summary — sent off this

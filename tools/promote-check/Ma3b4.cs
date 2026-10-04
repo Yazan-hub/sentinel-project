@@ -42,6 +42,10 @@ static partial class Check
            && UnreportedResults.GhostReporting("k", new List<string> { "55f4929e" }, new List<string> { "55f4929e" })
               .EndsWith($"\n⚠ The result of 55f4929e could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again.", StringComparison.Ordinal),
            "AI-2: Ghost Builder's summary says its results are being reported, where the outcome is said, that one not taken is kept and never applied twice — and names a result that could not be saved");
+        // Review C8: the round's "kept on this PC" is corrected for a result whose save failed and whose report did not land.
+        Ok(UnreportedResults.NotKept(new List<string> { "55f4929e" }) == $"\n\n⚠ 55f4929e: NOT kept on this PC — its save failed ({UnreportedResults.Root}), so nothing here keeps that changeset closed; check its status on the bridge before anyone reviews it."
+           && UnreportedResults.NotKept(new List<string>()) == "",
+           "review C8: a Ghost result whose save failed and whose report did not land is never said to be kept on this PC");
         Ok(UnreportedResults.GhostDeclining(2) == "Ledger: reporting 2 changeset(s) as declined, with the reason, off Revit's thread — the pane's Doctor log says what the bridge took; one it does not take is withdrawn instead, and one that is neither is named there (still proposed: withdraw it on the web)."
            && UnreportedResults.WithdrawnInstead(new List<string> { "55f4929e" }, new List<string> { "7acd0c36" }) == "\n\nWithdrawn instead (the decline did not land): 55f4929e.\n\nStill proposed — neither declined nor withdrawn: 7acd0c36. Withdraw it on the web before anyone reviews it."
            && UnreportedResults.WithdrawnInstead(new List<string>(), new List<string>()) == "",

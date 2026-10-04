@@ -280,5 +280,10 @@ namespace Sentinel.Engine
         public static string WithdrawnInstead(IList<string> withdrawn, IList<string> kept) =>
             (withdrawn.Count == 0 ? "" : $"\n\nWithdrawn instead (the decline did not land): {string.Join(", ", withdrawn)}.") +
             (kept.Count == 0 ? "" : $"\n\nStill proposed — neither declined nor withdrawn: {string.Join(", ", kept)}. Withdraw it on the web before anyone reviews it.");
+
+        /// <summary>MA-3b4 review C8: Ghost Builder's results whose save on this PC failed and whose report did not land — the round's
+        /// "kept on this PC" is not true for them.</summary>
+        public static string NotKept(IList<string> ids) => ids.Count == 0 ? ""
+            : $"\n\n⚠ {string.Join(", ", ids)}: NOT kept on this PC — its save failed ({Root}), so nothing here keeps that changeset closed; check its status on the bridge before anyone reviews it.";
     }
 }

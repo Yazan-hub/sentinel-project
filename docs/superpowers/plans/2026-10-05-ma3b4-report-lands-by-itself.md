@@ -88,6 +88,11 @@ No critical finding. Two important (C1, C2), four minor (C3–C6) and one risk i
 - **C6 (minor) — the open-time send runs first.** `RegisterFor`, `Prefetch`, `RefreshSnapshot` and `ReloadRuleset` (`App.cs:137-140`) run unguarded; a throw in one of them would skip a send placed after them, unsaid. The `try { …SendOnOpen(doc); } catch …` block is the first statement after the family-document return in `OnDocumentOpened` (the replace anchors on the method's own first lines: `OnDocumentCreated` has the same two). §50 checks `send` comes after `opened` and before the first `SentinelUpdater.RegisterFor(doc` past `opened`. (Task 2 Step 1 and Step 4.)
 - **Risk (words only):** an open-time send in flight makes Review AI Proposals say Busy for up to 120 s; the Busy text does not name a model's opening — the Doctor log's `OpenHeld` or the result line explains it. (Risks.)
 
+Second review (three reviewers of `b227f43`; fixed on the branch, each with its check):
+
+- **C7 (important) — a Ghost result Revit emptied at commit is kept on this PC.** A changeset whose every element Revit removed at commit (`Applied` empty, all in `Gone`, no `Error`) was never written (`x.Applied.Count > 0 &&`), so a failed report left nothing to send again, nothing to keep it closed, and the summary's "kept on this PC" was false. Ghost Builder writes every record: `var unsaved = records.Where(x => !UnreportedResults.Write(x)).ToList();` — `Retry` sends it (`Verified`: 0 of 0 found), `Waiting` blocks it meanwhile. The review's own Apply keeps its filter (its window holds a decline). §51.
+- **C8 (minor) — a result whose save failed is never said to be kept.** `ReportAll`'s `after` adds `UnreportedResults.NotKept(...)` for each unsaved record the bridge did not take. §49 (words), §51.
+
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
 | # | Decision | Why / ceiling |
